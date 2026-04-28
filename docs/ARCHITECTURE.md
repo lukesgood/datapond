@@ -1,7 +1,8 @@
 # DataPond Kubernetes 아키텍처 문서
 
-**버전**: 2.0.0-k8s  
+**버전**: 3.0.0-enterprise  
 **작성일**: 2026-04-28  
+**최종 수정**: 2026-04-28  
 **대상**: 개발자, DevOps, 아키텍트
 
 ---
@@ -10,14 +11,15 @@
 
 1. [시스템 개요](#시스템-개요)
 2. [전체 아키텍처](#전체-아키텍처)
-3. [컴포넌트 구조](#컴포넌트-구조)
-4. [네트워킹](#네트워킹)
-5. [스토리지](#스토리지)
-6. [보안](#보안)
-7. [확장성](#확장성)
-8. [고가용성](#고가용성)
-9. [데이터 흐름](#데이터-흐름)
-10. [기술 스택](#기술-스택)
+3. [전략적 컴포넌트](#전략적-컴포넌트)
+4. [컴포넌트 구조](#컴포넌트-구조)
+5. [네트워킹](#네트워킹)
+6. [스토리지](#스토리지)
+7. [보안](#보안)
+8. [확장성](#확장성)
+9. [고가용성](#고가용성)
+10. [데이터 흐름](#데이터-흐름)
+11. [기술 스택](#기술-스택)
 
 ---
 
@@ -25,82 +27,590 @@
 
 ### 목적
 
-DataPond는 데이터 분석, ML 실험, 워크플로우 관리를 위한 통합 플랫폼입니다. Kubernetes 네이티브 설계를 통해 확장성, 고가용성, 자동 복구를 제공합니다.
+DataPond는 **AI-Native Open Lakehouse Platform**으로, 배치/실시간 데이터 분석, ML 실험, 거버넌스를 통합 제공합니다. Databricks Unity Catalog 수준의 엔터프라이즈 기능을 100% 오픈소스로 구현합니다.
 
 ### 핵심 원칙
 
 1. **Cloud Native**: Kubernetes 네이티브 설계
 2. **Microservices**: 서비스별 독립 배포/스케일링
-3. **Declarative**: Infrastructure as Code
-4. **Immutable**: 컨테이너 기반 불변 인프라
-5. **Observable**: 통합 모니터링/로깅
-6. **Resilient**: 자동 복구 및 고가용성
+3. **Open Source First**: Apache 2.0/BSD 라이선스 (벤더 종속 없음)
+4. **Enterprise-Ready**: 거버넌스, Lineage, RBAC 내장
+5. **Real-time & Batch**: 통합 스트리밍 + 배치 처리
+6. **Observable**: 통합 모니터링/로깅/Lineage
+7. **Resilient**: 자동 복구 및 고가용성
+
+### 전략적 차별화
+
+```yaml
+vs Databricks:
+  비용: 1/10 ($2K vs $20K/월)
+  거버넌스: Polaris (Unity Catalog 대안)
+  실시간: RisingWave (Spark Streaming 대체)
+  관측성: OpenMetadata (자동 Lineage)
+  라이선스: 100% 오픈소스
+
+vs Snowflake:
+  배포: Self-hosted (데이터 주권)
+  확장성: Kubernetes Auto-scaling
+  AI: Multi-model (Claude, GPT-4, Llama)
+  
+vs Dremio:
+  비용: $0 (Polaris 카탈로그)
+  실시간: RisingWave 통합
+  ML: MLflow + JupyterLab 내장
+```
 
 ---
 
 ## 전체 아키텍처
 
-### 레이어 구조
+### 엔터프라이즈 레이어 구조 (2026 v3.0)
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Ingress Layer                            │
-│  (Traefik/Nginx - 단일 진입점, TLS 종료, 라우팅)              │
-└─────────────────────────────────────────────────────────────┘
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  Application Layer                          │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│  │ Frontend │  │ Backend  │  │ Jupyter  │  │ Airflow  │   │
-│  │ (Next.js)│  │(FastAPI) │  │   Lab    │  │Webserver │   │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                 │
-│  │  MLflow  │  │  SeaweedFS   │  │  Spark   │                 │
-│  │          │  │(S3 API)  │  │ Master   │                 │
-│  └──────────┘  └──────────┘  └──────────┘                 │
-└─────────────────────────────────────────────────────────────┘
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   Data Layer                                │
-│  ┌──────────────┐  ┌──────────┐  ┌──────────────────┐     │
-│  │  PostgreSQL  │  │  Redis   │  │  Spark Workers   │     │
-│  │  (Primary)   │  │  Cache   │  │  (Compute)       │     │
-│  └──────────────┘  └──────────┘  └──────────────────┘     │
-└─────────────────────────────────────────────────────────────┘
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  Storage Layer                              │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│  │PostgreSQL│  │  SeaweedFS   │  │ Jupyter  │  │ Airflow  │   │
-│  │   PVC    │  │   PVC    │  │   PVC    │  │   PVC    │   │
-│  │  50Gi    │  │  100Gi   │  │  20Gi    │  │  20Gi    │   │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 논리적 구조
-
-```
-                    ┌─────────────────┐
-                    │   Users/Clients │
-                    └────────┬────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                        Ingress Layer                                 │
+│  Traefik/Nginx - TLS, Rate Limiting, Load Balancing                 │
+└────────────────────────────┬─────────────────────────────────────────┘
                              │
-                    ┌────────▼────────┐
-                    │     Ingress     │
-                    │  datapond.local │
-                    └────────┬────────┘
-                             │
-        ┌────────────────────┼────────────────────┐
-        │                    │                    │
-┌───────▼─────┐    ┌─────────▼───────┐    ┌──────▼──────┐
-│  Frontend   │    │    Backend      │    │  Services   │
-│  (UI/UX)    │───▶│    (API)        │───▶│ (Data/ML)   │
-└─────────────┘    └─────────┬───────┘    └──────┬──────┘
-                             │                    │
-                    ┌────────▼────────────────────▼──┐
-                    │    Data & Cache Layer          │
-                    │  PostgreSQL + Redis             │
-                    └─────────────────────────────────┘
+┌────────────────────────────┴─────────────────────────────────────────┐
+│                     Application Layer                                │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
+│  │Frontend  │ │Backend   │ │Jupyter   │ │Airflow   │ │MLflow    │  │
+│  │(Next.js) │ │(FastAPI) │ │Lab       │ │Webserver │ │          │  │
+│  └──────────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘  │
+│                    │          DuckDB         │            │         │
+│                    │        (로컬 쿼리)       │            │         │
+└────────────────────┼──────────┼──────────────┼────────────┼─────────┘
+                     │          │              │            │
+┌────────────────────┴──────────┴──────────────┴────────────┴─────────┐
+│                  Data Processing Layer                               │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐        │
+│  │  Trino   │  │  Spark   │  │RisingWave│  │ OpenMetadata │        │
+│  │ (Query)  │  │ (Batch)  │  │(Stream)  │  │  (Lineage)   │        │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └──────┬───────┘        │
+│       │             │             │                │                │
+│       └─────────────┴─────────────┴────────────────┘                │
+│                           │                                          │
+└───────────────────────────┼──────────────────────────────────────────┘
+                            │
+┌───────────────────────────┴──────────────────────────────────────────┐
+│              Catalog & Governance Layer (NEW!)                       │
+│  ┌───────────────────────────────────────────────────────┐          │
+│  │              Apache Polaris REST Catalog              │          │
+│  │  - Iceberg 테이블 메타데이터 중앙 관리                 │          │
+│  │  - RBAC (Role-Based Access Control)                  │          │
+│  │  - 멀티테넌시 (Namespace isolation)                   │          │
+│  │  - 감사 로그 (Audit logging)                          │          │
+│  │  - 버전 관리 (Catalog versioning)                     │          │
+│  └───────────────────┬───────────────────────────────────┘          │
+└──────────────────────┼──────────────────────────────────────────────┘
+                       │
+┌──────────────────────┴───────────────────────────────────────────────┐
+│                Storage Layer (Lakehouse)                             │
+│  ┌─────────────────────────────────────────────────────┐            │
+│  │         SeaweedFS (S3-compatible Object Storage)    │            │
+│  │  ┌──────────────────────────────────────────────┐  │            │
+│  │  │       Apache Iceberg Tables (ACID)           │  │            │
+│  │  │  Bronze → Silver → Gold (Medallion)          │  │            │
+│  │  │  - Parquet files (columnar storage)          │  │            │
+│  │  │  - Time Travel (snapshot isolation)          │  │            │
+│  │  │  - Schema Evolution (backward compatible)    │  │            │
+│  │  │  - ACID transactions (optimistic locking)    │  │            │
+│  │  │  - Partition pruning (query optimization)    │  │            │
+│  │  └──────────────────────────────────────────────┘  │            │
+│  └─────────────────────────────────────────────────────┘            │
+└──────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────┐
+│                  Metadata & State Layer                              │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐              │
+│  │PostgreSQL│  │  Valkey  │  │  Airbyte (Phase 2)   │              │
+│  │(Primary) │  │ (Redis)  │  │  - Data Ingestion    │              │
+│  └──────────┘  └──────────┘  └──────────────────────┘              │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### 데이터 흐름 (End-to-End)
+
+```
+[Real-time Path]
+Kafka/Kinesis → RisingWave (PostgreSQL SQL) → Polaris → Iceberg → S3
+              └─ Materialized Views (실시간 집계)
+
+[Batch Path]
+Airbyte → Polaris → Iceberg → S3
+        └─ Schema inference, PII detection
+
+[Analytics Path]
+Trino → Polaris (권한 체크) → Iceberg → S3 → Result
+     └─ Query optimization, Partition pruning
+
+[ML/DS Path]
+JupyterLab → DuckDB (로컬) → Iceberg → S3 (초고속)
+           └─ Spark (대규모)
+
+[Orchestration Path]
+Airflow DAG → Spark Job → Polaris → Iceberg → S3
+
+[Observability Path]
+All Services → OpenMetadata (자동 수집)
+             └─ Lineage graph, Data catalog
+```
+
+### 논리적 아키텍처
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Users                                  │
+│  Data Engineers │ Data Scientists │ Analysts │ Business    │
+└────────┬────────────────┬────────────┬────────────┬─────────┘
+         │                │            │            │
+┌────────▼────────────────▼────────────▼────────────▼─────────┐
+│                    Ingress (datapond.local)                 │
+└────────┬────────────────┬────────────┬────────────┬─────────┘
+         │                │            │            │
+   ┌─────▼─────┐    ┌────▼────┐  ┌───▼────┐  ┌────▼────┐
+   │  Web UI   │    │Jupyter  │  │Airflow │  │ MLflow  │
+   │(Next.js)  │    │  Lab    │  │   UI   │  │   UI    │
+   └─────┬─────┘    └────┬────┘  └───┬────┘  └────┬────┘
+         │               │           │            │
+   ┌─────▼───────────────▼───────────▼────────────▼─────┐
+   │              Backend API (FastAPI)                  │
+   │  - Authentication (JWT)                             │
+   │  - Authorization (RBAC via Polaris)                 │
+   │  - Business logic                                   │
+   └─────┬───────────────┬───────────┬────────────┬──────┘
+         │               │           │            │
+   ┌─────▼─────┐   ┌────▼────┐ ┌───▼─────┐ ┌────▼────┐
+   │   Trino   │   │  Spark  │ │RisingWave│ │Polaris │
+   │  (Query)  │   │ (Batch) │ │(Streaming│ │(Catalog)│
+   └─────┬─────┘   └────┬────┘ └───┬─────┘ └────┬────┘
+         │              │           │            │
+         └──────────────┴───────────┴────────────┘
+                        │
+                 ┌──────▼───────┐
+                 │   Iceberg    │
+                 │   Tables     │
+                 └──────┬───────┘
+                        │
+                 ┌──────▼───────┐
+                 │  SeaweedFS   │
+                 │  (S3 API)    │
+                 └──────────────┘
+```
+
+---
+
+## 전략적 컴포넌트
+
+DataPond의 엔터프라이즈 경쟁력을 제공하는 4개 핵심 컴포넌트입니다.
+
+### 1. Apache Polaris - Catalog & Governance Layer 🎯
+
+**지위**: Apache Software Foundation Top-Level Project (2026년 2월 졸업)  
+**출처**: Snowflake 기증 (3년 프로덕션 검증)  
+**라이선스**: Apache 2.0
+
+#### 역할
+- Iceberg 테이블 메타데이터 중앙 관리
+- 멀티 엔진 통합 (Trino, Spark, Flink 동일 카탈로그 사용)
+- 세밀한 접근 제어 (Table/Namespace/Column 레벨)
+- 카탈로그 버전 관리 및 감사 로깅
+
+#### 가치 제안
+```yaml
+문제: JDBC Catalog의 한계
+  - 동시성 제어 제한적
+  - 권한 관리 없음
+  - 멀티테넌트 불가
+  - 감사 로그 없음
+
+해결: Polaris REST Catalog
+  - 분산 트랜잭션 지원
+  - RBAC (Role-Based Access Control)
+  - Namespace 격리
+  - 모든 작업 감사 로그
+
+경쟁력: Unity Catalog 대안
+  - Databricks Unity Catalog: $$$
+  - Apache Polaris: $0
+  - 기능: 동등
+```
+
+#### 기술 스펙
+```yaml
+API: REST (Iceberg Catalog REST API 표준)
+Port: 8181
+Metastore: PostgreSQL
+Warehouse: SeaweedFS (S3 API)
+HA: 2+ replicas
+Resources:
+  CPU: 500m (request) / 1000m (limit)
+  Memory: 1Gi (request) / 2Gi (limit)
+```
+
+#### 통합 방법
+```properties
+# Trino: iceberg.properties
+iceberg.catalog.type=rest
+iceberg.rest.uri=http://polaris:8181/api/catalog
+iceberg.rest.credential=admin:password
+
+# Spark: 환경변수
+SPARK_SQL_CATALOG_ICEBERG_TYPE=rest
+SPARK_SQL_CATALOG_ICEBERG_URI=http://polaris:8181/api/catalog
+```
+
+#### 엔터프라이즈 기능
+1. **세밀한 권한 관리**
+   - Namespace 레벨: CREATE, USE, DROP
+   - Table 레벨: SELECT, INSERT, UPDATE, DELETE
+   - Column 레벨: 민감 컬럼 마스킹 (향후)
+
+2. **멀티테넌시**
+   - Namespace 격리 (team1, team2 별도)
+   - 리소스 쿼터 (테이블 수, 스토리지 제한)
+   - 크로스 네임스페이스 쿼리 (권한 기반)
+
+3. **감사 로그**
+   - 모든 카탈로그 작업 추적
+   - Who, What, When, Where
+   - 규정 준수 (GDPR, HIPAA)
+
+4. **버전 관리**
+   - 카탈로그 스냅샷
+   - Time Travel (특정 시점 복원)
+   - Schema evolution 추적
+
+---
+
+### 2. RisingWave - Real-time Streaming Layer 🌊
+
+**지위**: CNCF Sandbox → Incubating  
+**비교**: Apache Flink 대안 (PostgreSQL 호환)  
+**라이선스**: Apache 2.0
+
+#### 역할
+- 실시간 스트리밍 데이터 처리 (Kafka, Kinesis)
+- PostgreSQL 호환 SQL (학습 곡선 제로)
+- Materialized View (실시간 집계)
+- Iceberg Sink (자동 Lakehouse 저장)
+
+#### 가치 제안
+```yaml
+문제: Spark Streaming 복잡도
+  - JVM 기반 (리소스 무거움)
+  - Checkpoint 관리 복잡
+  - Latency: 초-분 단위
+  - 설정 복잡 (20+ 파라미터)
+
+해결: RisingWave
+  - PostgreSQL SQL (익숙함)
+  - Stateful 자동 관리
+  - Latency: 밀리초 단위
+  - 설정 간단 (5줄)
+
+단순화: Kafka + Spark Streaming → RisingWave
+  - 컴포넌트: 2 → 1
+  - 운영 복잡도: 50% 감소
+  - 리소스 사용: 50% 감소
+```
+
+#### 기술 스펙
+```yaml
+Port: 4566 (PostgreSQL wire protocol)
+Components:
+  - Meta Server: 메타데이터 관리
+  - Compute Node: SQL 처리 (2+ replicas)
+  - Compactor: 데이터 압축
+  - Frontend: SQL 인터페이스
+Resources (Compute):
+  CPU: 2000m (request) / 4000m (limit)
+  Memory: 4Gi (request) / 8Gi (limit)
+State Backend: SeaweedFS (S3)
+```
+
+#### 사용 예제
+```sql
+-- 1. Kafka 소스 정의
+CREATE SOURCE events (
+    user_id BIGINT,
+    event_type VARCHAR,
+    event_time TIMESTAMP,
+    country VARCHAR
+) WITH (
+    connector = 'kafka',
+    topic = 'events',
+    properties.bootstrap.server = 'kafka:9092'
+) FORMAT JSON;
+
+-- 2. 실시간 Materialized View
+CREATE MATERIALIZED VIEW hourly_stats AS
+SELECT 
+    date_trunc('hour', event_time) as hour,
+    country,
+    COUNT(*) as events,
+    COUNT(DISTINCT user_id) as users
+FROM events
+GROUP BY hour, country;
+
+-- 3. Iceberg Sink (자동 Lakehouse 저장)
+CREATE SINK to_iceberg
+FROM hourly_stats
+WITH (
+    connector = 'iceberg',
+    catalog.uri = 'http://polaris:8181/api/catalog',
+    table.name = 'analytics.realtime_hourly'
+);
+
+-- 4. 쿼리 (PostgreSQL 호환!)
+SELECT * FROM hourly_stats WHERE hour >= NOW() - INTERVAL '1 day';
+```
+
+#### Use Case
+- IoT 센서 데이터 실시간 모니터링
+- 실시간 추천 시스템 (클릭스트림 → 즉시 반영)
+- Fraud Detection (이상 거래 밀리초 탐지)
+- CDC (MySQL → RisingWave → Iceberg 실시간 복제)
+
+---
+
+### 3. DuckDB - Lightweight Query Engine 🦆
+
+**지위**: OLAP 데이터베이스 (in-process)  
+**비교**: SQLite for Analytics  
+**라이선스**: MIT
+
+#### 역할
+- JupyterLab 로컬 고성능 쿼리
+- S3 Iceberg 테이블 직접 읽기 (클러스터 불필요)
+- Pandas 연동 (df ↔ DuckDB 자유자재)
+- Sub-second 쿼리 (GB급 데이터)
+
+#### 가치 제안
+```yaml
+문제: 작은 분석에도 Spark 필요
+  - Spark 세션 생성: 10-30초 대기
+  - 클러스터 리소스: 2-4GB (오버킬)
+  - 탐색적 분석 불편함
+
+해결: DuckDB 로컬 쿼리
+  - 즉시 시작 (0초)
+  - 리소스: 0 (추가 클러스터 불필요)
+  - 속도: Spark 대비 10배 빠름 (작은 데이터)
+
+사용 패턴:
+  - 작은 데이터 (< 10GB): DuckDB (초)
+  - 중간 데이터 (10-100GB): DuckDB (분)
+  - 큰 데이터 (> 100GB): Spark (필요시만)
+
+Spark 사용률: 80% → 20% 감소
+```
+
+#### 기술 스펙
+```yaml
+배포: JupyterLab 내장 (pip install duckdb)
+추가 리소스: 0 (로컬 실행)
+지원 포맷:
+  - Iceberg (네이티브)
+  - Parquet, CSV, JSON
+  - Pandas DataFrame
+S3 연동: httpfs extension (내장)
+```
+
+#### 사용 예제
+```python
+# JupyterLab 노트북
+import duckdb
+from iceberg_helper import query_iceberg
+
+# 1. Iceberg 테이블 직접 쿼리 (초고속!)
+df = query_iceberg(
+    'analytics/events',
+    where="country = 'KR' AND date >= '2026-04-01'"
+)
+print(f"Rows: {len(df):,}")  # 1M rows in 2 seconds
+
+# 2. 복잡한 집계 (DuckDB SQL)
+conn = duckdb.connect()
+result = conn.sql("""
+    SELECT 
+        country,
+        COUNT(DISTINCT user_id) as users,
+        AVG(session_duration) as avg_duration
+    FROM iceberg_scan('s3://iceberg/warehouse/analytics/events')
+    WHERE date >= '2026-04-01'
+    GROUP BY country
+    ORDER BY users DESC
+""").df()
+
+# 3. Pandas 연동 (자유자재)
+import pandas as pd
+small_df = pd.read_csv('lookup.csv')
+
+conn.execute("CREATE TEMP TABLE lookup AS SELECT * FROM small_df")
+joined = conn.sql("""
+    SELECT e.*, l.category
+    FROM iceberg_scan('s3://iceberg/warehouse/analytics/events') e
+    JOIN lookup l ON e.user_id = l.user_id
+""").df()
+
+# 4. 시각화
+import matplotlib.pyplot as plt
+result.plot(kind='bar', x='country', y='users')
+```
+
+#### Data Scientist Workflow
+```
+Before (Spark 필수):
+1. Spark 클러스터 시작 (10-30초)
+2. DataFrame 로드 (느림)
+3. 쿼리 실행 (Spark overhead)
+4. 결과 Pandas로 변환
+Total: 1-2분
+
+After (DuckDB):
+1. DuckDB 쿼리 (즉시)
+2. 결과 Pandas DataFrame
+Total: 1-5초 (10-20배 빠름)
+```
+
+---
+
+### 4. OpenMetadata - Data Observability Platform 📊
+
+**지위**: Linux Foundation 프로젝트  
+**비교**: Collibra, Alation 대안  
+**라이선스**: Apache 2.0
+
+#### 역할
+- 데이터 카탈로그 (메타데이터 중앙 저장소)
+- 자동 Lineage (Airflow, Spark, Trino, MLflow)
+- 데이터 검색 (풀텍스트, Elasticsearch)
+- 데이터 품질 모니터링
+
+#### 가치 제안
+```yaml
+문제: "이 데이터 어디서 왔어?"
+  - Lineage 없음 → 추적 불가
+  - 테이블 설명 없음 → 의미 모름
+  - 데이터 오너 모름 → 누구한테 물어봐?
+
+해결: OpenMetadata
+  - 자동 Lineage (코드 수정 불필요)
+  - 메타데이터 자동 수집
+  - 검색 (Google for Data)
+
+엔터프라이즈 세일즈:
+  고객: "Lineage 지원하나요?"
+  DataPond: "네! Airflow/Spark/Trino 자동 연동됩니다."
+  고객: "데모 보여주세요" ✅
+```
+
+#### 기술 스펙
+```yaml
+Components:
+  - Server: 메타데이터 API (2 replicas)
+  - Elasticsearch: 검색 엔진
+  - Ingestion: Connector 실행
+Database: PostgreSQL (DataPond 재사용)
+Port: 8585 (UI + API)
+Resources (Server):
+  CPU: 1000m (request) / 2000m (limit)
+  Memory: 2Gi (request) / 4Gi (limit)
+```
+
+#### Connector 설정
+```yaml
+Airflow Connector:
+  - DAG 목록, Task 의존성
+  - 실행 히스토리
+  - 자동 Lineage (DAG → Table)
+
+Trino Connector:
+  - 테이블/컬럼 메타데이터
+  - 쿼리 히스토리
+  - Lineage (Query → Tables)
+
+Spark Connector:
+  - Job 목록, Dataset
+  - Lineage (Input → Output)
+
+MLflow Connector:
+  - Experiment, Model
+  - 아티팩트 (model.pkl → 데이터셋)
+  - ML Lineage (Data → Model)
+```
+
+#### Lineage 예제
+```
+OpenMetadata UI:
+
+[PostgreSQL: raw.users]
+       │
+       ▼
+[Airflow DAG: daily_etl] (매일 02:00 실행)
+       │
+       ▼
+[Spark Job: transform_users] (Python 코드 링크)
+       │
+       ▼
+[Iceberg: silver.users_enriched] (100M rows)
+       │
+       ▼
+[Trino Query: user_analytics_daily] (5분 실행)
+       │
+       ▼
+[Dashboard: User Insights] (Grafana 링크)
+
+각 노드 클릭 시:
+- 스키마 정보 (컬럼 타입, 설명)
+- 샘플 데이터 (10 rows)
+- 통계 (row count, size, last updated)
+- 오너 정보 (Alice, Bob)
+- 태그 (PII, sensitive)
+- 데이터 품질 점수 (95/100)
+```
+
+#### 엔터프라이즈 기능
+1. **Data Discovery**: "user email" 검색 → 20개 테이블 발견
+2. **Data Governance**: PII 태그 자동 분류
+3. **Data Quality**: Great Expectations 통합
+4. **Glossary**: 용어 사전 (ARR, MRR 정의)
+
+---
+
+## 4개 컴포넌트 통합 효과
+
+### Before (4개 없이)
+```yaml
+거버넌스: ❌ 없음
+실시간: ❌ 제한적 (Spark Streaming만)
+로컬 쿼리: ⚠️ Spark만 (무거움)
+Lineage: ❌ 없음
+
+경쟁력: "엔지니어용 플랫폼"
+타겟: 데이터 엔지니어 only
+```
+
+### After (4개 통합)
+```yaml
+거버넌스: ✅ Polaris (Unity Catalog 수준)
+실시간: ✅ RisingWave (Flink 대안)
+로컬 쿼리: ✅ DuckDB (초고속)
+Lineage: ✅ OpenMetadata (Collibra 대안)
+
+경쟁력: "Complete Data Platform"
+타겟: 전체 데이터 팀 (엔지니어 + 분석가 + 비즈니스)
+```
+
+### ROI 분석
+```yaml
+개발 투자: 3주 (Polaris 2일 + DuckDB 1일 + RisingWave 1주 + OpenMetadata 1주)
+기능 가치: Databricks 수준
+비용 절감: $0 (100% 오픈소스)
+경쟁력: Databricks 대안으로 포지셔닝 가능
+엔터프라이즈 세일즈: Lineage/거버넌스 objection 제거
 ```
 
 ---
