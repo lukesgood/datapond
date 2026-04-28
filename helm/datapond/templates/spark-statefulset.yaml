@@ -1,0 +1,131 @@
+{{- if .Values.spark.enabled }}
+---
+# Spark Master
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.spark.name }}-master
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.spark.name }}
+    component: master
+spec:
+  serviceName: {{ .Values.spark.name }}-master
+  replicas: {{ .Values.spark.master.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.spark.name }}
+      component: master
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.spark.name }}
+        component: master
+    spec:
+      containers:
+      - name: spark-master
+        image: "{{ .Values.spark.image.repository }}:{{ .Values.spark.image.tag }}"
+        ports:
+        - containerPort: {{ .Values.spark.master.service.sparkPort }}
+          name: spark
+        - containerPort: {{ .Values.spark.master.service.webPort }}
+          name: http
+        env:
+        - name: SPARK_MODE
+          value: "master"
+        - name: SPARK_RPC_AUTHENTICATION_ENABLED
+          value: "no"
+        - name: SPARK_RPC_ENCRYPTION_ENABLED
+          value: "no"
+        resources:
+          requests:
+            cpu: {{ .Values.spark.master.resources.requests.cpu }}
+            memory: {{ .Values.spark.master.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.spark.master.resources.limits.cpu }}
+            memory: {{ .Values.spark.master.resources.limits.memory }}
+---
+# Spark Master Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.spark.name }}-master
+  namespace: {{ .Values.namespace }}
+spec:
+  type: {{ .Values.spark.master.service.type }}
+  ports:
+  - port: {{ .Values.spark.master.service.sparkPort }}
+    targetPort: {{ .Values.spark.master.service.sparkPort }}
+    name: spark
+  - port: {{ .Values.spark.master.service.webPort }}
+    targetPort: {{ .Values.spark.master.service.webPort }}
+    name: http
+  selector:
+    app: {{ .Values.spark.name }}
+    component: master
+---
+# Spark Worker
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.spark.name }}-worker
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.spark.name }}
+    component: worker
+spec:
+  serviceName: {{ .Values.spark.name }}-worker
+  replicas: {{ .Values.spark.worker.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.spark.name }}
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.spark.name }}
+        component: worker
+    spec:
+      containers:
+      - name: spark-worker
+        image: "{{ .Values.spark.image.repository }}:{{ .Values.spark.image.tag }}"
+        ports:
+        - containerPort: 8081
+          name: http
+        env:
+        - name: SPARK_MODE
+          value: "worker"
+        - name: SPARK_MASTER_URL
+          value: "spark://{{ .Values.spark.name }}-master:{{ .Values.spark.master.service.sparkPort }}"
+        - name: SPARK_RPC_AUTHENTICATION_ENABLED
+          value: "no"
+        - name: SPARK_RPC_ENCRYPTION_ENABLED
+          value: "no"
+        {{- range .Values.spark.worker.env }}
+        - name: {{ .name }}
+          value: {{ .value | quote }}
+        {{- end }}
+        resources:
+          requests:
+            cpu: {{ .Values.spark.worker.resources.requests.cpu }}
+            memory: {{ .Values.spark.worker.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.spark.worker.resources.limits.cpu }}
+            memory: {{ .Values.spark.worker.resources.limits.memory }}
+---
+# Spark Worker Service (Headless)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.spark.name }}-worker
+  namespace: {{ .Values.namespace }}
+spec:
+  clusterIP: None
+  ports:
+  - port: 8081
+    targetPort: 8081
+    name: http
+  selector:
+    app: {{ .Values.spark.name }}
+    component: worker
+{{- end }}

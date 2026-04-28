@@ -1,0 +1,398 @@
+# Default values for DataPond
+# This is a YAML-formatted file.
+
+# Global settings
+global:
+  domain: datapond.local
+  storageClass: local-path
+  imagePullPolicy: IfNotPresent
+
+# Namespace
+namespace: datapond
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: traefik  # or nginx
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  tls:
+    enabled: false
+    secretName: datapond-tls
+
+# Frontend (Next.js)
+frontend:
+  enabled: true
+  name: frontend
+  replicas: 2
+  image:
+    repository: datapond/frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  env:
+    - name: NEXT_PUBLIC_API_URL
+      value: "http://datapond.local/api"
+    - name: NODE_ENV
+      value: "production"
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+
+# Backend (FastAPI)
+backend:
+  enabled: true
+  name: backend
+  replicas: 2
+  image:
+    repository: datapond/backend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  env:
+    - name: ENVIRONMENT
+      value: "production"
+    - name: DATABASE_URL
+      value: "postgresql://datapond:datapond@postgres:5432/datapond"
+    - name: REDIS_URL
+      value: "redis://redis:6379"
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+# PostgreSQL
+postgres:
+  enabled: true
+  name: postgres
+  image:
+    repository: postgres
+    tag: "16-alpine"
+
+  service:
+    type: ClusterIP
+    port: 5432
+
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+  persistence:
+    enabled: true
+    storageClass: local-path
+    size: 50Gi
+    accessMode: ReadWriteOnce
+
+  auth:
+    database: datapond
+    username: datapond
+    password: datapond_password  # Change in production!
+
+  # High Availability (optional)
+  replication:
+    enabled: false
+    replicas: 2
+
+# Redis
+redis:
+  enabled: true
+  name: redis
+  image:
+    repository: redis
+    tag: "7-alpine"
+
+  service:
+    type: ClusterIP
+    port: 6379
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  persistence:
+    enabled: true
+    size: 5Gi
+
+# JupyterLab
+jupyter:
+  enabled: true
+  name: jupyter
+  replicas: 1
+  image:
+    repository: jupyter/scipy-notebook
+    tag: latest
+
+  service:
+    type: ClusterIP
+    port: 8888
+
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+  persistence:
+    enabled: true
+    size: 20Gi
+
+  env:
+    - name: JUPYTER_ENABLE_LAB
+      value: "yes"
+    - name: JUPYTER_TOKEN
+      value: "jupyter"
+
+# MLflow
+mlflow:
+  enabled: true
+  name: mlflow
+  replicas: 1
+  image:
+    repository: ghcr.io/mlflow/mlflow
+    tag: v2.10.0
+
+  service:
+    type: ClusterIP
+    port: 5000
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+  persistence:
+    enabled: true
+    size: 20Gi
+
+  backend:
+    type: postgresql  # postgresql or sqlite
+    host: postgres
+    port: 5432
+    database: mlflow
+    username: datapond
+    password: datapond_password
+
+# Airflow
+airflow:
+  enabled: true
+  name: airflow
+  image:
+    repository: apache/airflow
+    tag: "2.8.1"
+
+  # Airflow Webserver
+  webserver:
+    replicas: 2
+    service:
+      type: ClusterIP
+      port: 8080
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+  # Airflow Scheduler
+  scheduler:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+  # Airflow Worker (Celery)
+  worker:
+    enabled: false
+    replicas: 2
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+
+  persistence:
+    enabled: true
+    dags:
+      size: 10Gi
+    logs:
+      size: 10Gi
+
+  executor: LocalExecutor  # LocalExecutor or CeleryExecutor
+
+  auth:
+    username: airflow
+    password: airflow
+
+# Spark
+spark:
+  enabled: true
+  name: spark
+  image:
+    repository: bitnami/spark
+    tag: "3.5"
+
+  # Spark Master
+  master:
+    replicas: 1
+    service:
+      type: ClusterIP
+      webPort: 8080
+      sparkPort: 7077
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+
+  # Spark Workers
+  worker:
+    replicas: 2
+    resources:
+      requests:
+        cpu: 2000m
+        memory: 4Gi
+      limits:
+        cpu: 4000m
+        memory: 8Gi
+    env:
+      - name: SPARK_WORKER_CORES
+        value: "2"
+      - name: SPARK_WORKER_MEMORY
+        value: "4G"
+
+# MinIO (S3-compatible storage)
+minio:
+  enabled: true
+  name: minio
+  image:
+    repository: minio/minio
+    tag: latest
+
+  service:
+    type: ClusterIP
+    apiPort: 9000
+    consolePort: 9001
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+  persistence:
+    enabled: true
+    size: 100Gi
+
+  auth:
+    rootUser: minioadmin
+    rootPassword: minioadmin
+
+# Trino
+trino:
+  enabled: false
+  name: trino
+  image:
+    repository: trinodb/trino
+    tag: latest
+
+  coordinator:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+
+  worker:
+    replicas: 2
+    resources:
+      requests:
+        cpu: 2000m
+        memory: 4Gi
+      limits:
+        cpu: 4000m
+        memory: 8Gi
+
+# Monitoring
+monitoring:
+  enabled: true
+
+  prometheus:
+    enabled: true
+    retention: 15d
+    storage: 50Gi
+
+  grafana:
+    enabled: true
+    adminUser: admin
+    adminPassword: admin
+
+# ServiceMonitor for Prometheus
+serviceMonitor:
+  enabled: true
+  interval: 30s
+
+# Network Policies
+networkPolicies:
+  enabled: false
+
+# Pod Security Policies
+podSecurityPolicy:
+  enabled: false

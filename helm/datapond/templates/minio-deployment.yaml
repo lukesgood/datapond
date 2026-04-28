@@ -1,0 +1,107 @@
+{{- if .Values.minio.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.minio.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.minio.name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.minio.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.minio.name }}
+    spec:
+      containers:
+      - name: minio
+        image: "{{ .Values.minio.image.repository }}:{{ .Values.minio.image.tag }}"
+        ports:
+        - containerPort: {{ .Values.minio.service.apiPort }}
+          name: api
+        - containerPort: {{ .Values.minio.service.consolePort }}
+          name: console
+        command:
+        - /bin/sh
+        - -c
+        args:
+        - |
+          mkdir -p /data/mlflow-artifacts && \
+          minio server /data --console-address ":{{ .Values.minio.service.consolePort }}"
+        env:
+        - name: MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: MINIO_ROOT_USER
+        - name: MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: MINIO_ROOT_PASSWORD
+        resources:
+          requests:
+            cpu: {{ .Values.minio.resources.requests.cpu }}
+            memory: {{ .Values.minio.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.minio.resources.limits.cpu }}
+            memory: {{ .Values.minio.resources.limits.memory }}
+        {{- if .Values.minio.persistence.enabled }}
+        volumeMounts:
+        - name: minio-data
+          mountPath: /data
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: /minio/health/live
+            port: {{ .Values.minio.service.apiPort }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /minio/health/ready
+            port: {{ .Values.minio.service.apiPort }}
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      {{- if .Values.minio.persistence.enabled }}
+      volumes:
+      - name: minio-data
+        persistentVolumeClaim:
+          claimName: minio-pvc
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.minio.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  type: {{ .Values.minio.service.type }}
+  ports:
+  - port: {{ .Values.minio.service.apiPort }}
+    targetPort: {{ .Values.minio.service.apiPort }}
+    name: api
+  - port: {{ .Values.minio.service.consolePort }}
+    targetPort: {{ .Values.minio.service.consolePort }}
+    name: console
+  selector:
+    app: {{ .Values.minio.name }}
+{{- if .Values.minio.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-pvc
+  namespace: {{ .Values.namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.global.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.minio.persistence.size }}
+{{- end }}
+{{- end }}

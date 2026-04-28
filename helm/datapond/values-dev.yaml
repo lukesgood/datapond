@@ -1,0 +1,212 @@
+# Development Environment Configuration
+# Optimized for 8-16GB RAM systems
+
+# Global settings
+global:
+  domain: datapond.local
+  storageClass: local-path
+  imagePullPolicy: IfNotPresent
+
+# Namespace
+namespace: datapond-dev
+
+# Ingress
+ingress:
+  enabled: true
+  className: traefik
+  tls:
+    enabled: false
+
+# Frontend - Minimal resources
+frontend:
+  enabled: true
+  replicas: 1  # Single replica for dev
+  autoscaling:
+    enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+# Backend - Minimal resources
+backend:
+  enabled: true
+  replicas: 1  # Single replica for dev
+  autoscaling:
+    enabled: false
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# PostgreSQL - Reduced resources
+postgres:
+  enabled: true
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  persistence:
+    enabled: true
+    size: 20Gi  # Smaller for dev
+
+# Redis - Minimal
+redis:
+  enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  persistence:
+    enabled: true
+    size: 2Gi
+
+# JupyterLab - Moderate
+jupyter:
+  enabled: true
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  persistence:
+    enabled: true
+    size: 10Gi
+
+# MLflow - Minimal
+mlflow:
+  enabled: true
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  persistence:
+    enabled: true
+    size: 5Gi
+
+# MinIO - Moderate
+minio:
+  enabled: true
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  persistence:
+    enabled: true
+    size: 20Gi
+
+# Airflow - Reduced
+airflow:
+  enabled: true
+  executor: LocalExecutor
+  webserver:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+  scheduler:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+  worker:
+    enabled: false  # Use LocalExecutor
+  persistence:
+    enabled: true
+    dags:
+      size: 5Gi
+    logs:
+      size: 5Gi
+
+# Spark - Minimal cluster
+spark:
+  enabled: true
+  master:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+  worker:
+    replicas: 1  # Only 1 worker for dev
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+    env:
+      - name: SPARK_WORKER_CORES
+        value: "1"
+      - name: SPARK_WORKER_MEMORY
+        value: "1G"
+
+# Monitoring - Disabled for dev (enable if needed)
+monitoring:
+  enabled: false
+  prometheus:
+    enabled: false
+  grafana:
+    enabled: false
+
+# Security - Relaxed for dev
+networkPolicies:
+  enabled: false
+podSecurityPolicy:
+  enabled: false
+
+# Auth - Simple dev credentials (CHANGE IN PRODUCTION!)
+postgres:
+  auth:
+    database: datapond
+    username: datapond
+    password: dev_password
+
+airflow:
+  auth:
+    username: admin
+    password: admin
+
+minio:
+  auth:
+    rootUser: minioadmin
+    rootPassword: minioadmin
+
+jupyter:
+  env:
+    - name: JUPYTER_ENABLE_LAB
+      value: "yes"
+    - name: JUPYTER_TOKEN
+      value: "jupyter"

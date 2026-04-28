@@ -1,0 +1,79 @@
+{{- if .Values.mlflow.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.mlflow.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.mlflow.name }}
+spec:
+  replicas: {{ .Values.mlflow.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.mlflow.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.mlflow.name }}
+    spec:
+      containers:
+      - name: mlflow
+        image: "{{ .Values.mlflow.image.repository }}:{{ .Values.mlflow.image.tag }}"
+        ports:
+        - containerPort: {{ .Values.mlflow.service.port }}
+          name: http
+        command:
+        - mlflow
+        - server
+        - --host
+        - "0.0.0.0"
+        - --port
+        - "{{ .Values.mlflow.service.port }}"
+        - --backend-store-uri
+        - "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/mlflow"
+        - --default-artifact-root
+        - "s3://mlflow-artifacts"
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_PASSWORD
+        - name: MLFLOW_S3_ENDPOINT_URL
+          value: "http://minio:9000"
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: MINIO_ROOT_USER
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: MINIO_ROOT_PASSWORD
+        resources:
+          requests:
+            cpu: {{ .Values.mlflow.resources.requests.cpu }}
+            memory: {{ .Values.mlflow.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.mlflow.resources.limits.cpu }}
+            memory: {{ .Values.mlflow.resources.limits.memory }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.mlflow.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  type: {{ .Values.mlflow.service.type }}
+  ports:
+  - port: {{ .Values.mlflow.service.port }}
+    targetPort: {{ .Values.mlflow.service.port }}
+  selector:
+    app: {{ .Values.mlflow.name }}
+{{- end }}

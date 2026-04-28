@@ -1,0 +1,242 @@
+# Production Environment Configuration
+# Requires 32GB+ RAM, 16+ CPU cores
+
+# Global settings
+global:
+  domain: datapond.yourdomain.com  # CHANGE THIS
+  storageClass: local-path
+  imagePullPolicy: IfNotPresent
+
+# Namespace
+namespace: datapond-prod
+
+# Ingress with TLS
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  tls:
+    enabled: true
+    secretName: datapond-tls
+
+# Frontend - High availability
+frontend:
+  enabled: true
+  replicas: 3
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# Backend - High availability
+backend:
+  enabled: true
+  replicas: 3
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+# PostgreSQL - Production grade
+postgres:
+  enabled: true
+  resources:
+    requests:
+      cpu: 2000m
+      memory: 4Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+  persistence:
+    enabled: true
+    size: 200Gi
+  replication:
+    enabled: true  # Enable HA
+    replicas: 2
+
+# Redis - Production
+redis:
+  enabled: true
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  persistence:
+    enabled: true
+    size: 20Gi
+
+# JupyterLab - Full resources
+jupyter:
+  enabled: true
+  resources:
+    requests:
+      cpu: 2000m
+      memory: 4Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+  persistence:
+    enabled: true
+    size: 100Gi
+
+# MLflow - Production
+mlflow:
+  enabled: true
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  persistence:
+    enabled: true
+    size: 100Gi
+
+# MinIO - Large storage
+minio:
+  enabled: true
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  persistence:
+    enabled: true
+    size: 500Gi
+
+# Airflow - Production with Celery
+airflow:
+  enabled: true
+  executor: CeleryExecutor
+  webserver:
+    replicas: 3
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+  scheduler:
+    replicas: 2
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+  worker:
+    enabled: true
+    replicas: 4
+    resources:
+      requests:
+        cpu: 2000m
+        memory: 4Gi
+      limits:
+        cpu: 4000m
+        memory: 8Gi
+  persistence:
+    enabled: true
+    dags:
+      size: 50Gi
+    logs:
+      size: 100Gi
+
+# Spark - Full cluster
+spark:
+  enabled: true
+  master:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 2000m
+        memory: 4Gi
+      limits:
+        cpu: 4000m
+        memory: 8Gi
+  worker:
+    replicas: 5
+    resources:
+      requests:
+        cpu: 4000m
+        memory: 8Gi
+      limits:
+        cpu: 8000m
+        memory: 16Gi
+    env:
+      - name: SPARK_WORKER_CORES
+        value: "4"
+      - name: SPARK_WORKER_MEMORY
+        value: "8G"
+
+# Monitoring - Full observability
+monitoring:
+  enabled: true
+  prometheus:
+    enabled: true
+    retention: 30d
+    storage: 200Gi
+  grafana:
+    enabled: true
+    adminUser: admin
+    adminPassword: CHANGE_THIS_PASSWORD  # CHANGE THIS!
+
+# Security - Production hardening
+networkPolicies:
+  enabled: true
+podSecurityPolicy:
+  enabled: true
+
+# Auth - MUST CHANGE ALL PASSWORDS
+postgres:
+  auth:
+    database: datapond
+    username: datapond
+    password: CHANGE_THIS_STRONG_PASSWORD_123!@#  # CHANGE THIS!
+
+airflow:
+  auth:
+    username: admin
+    password: CHANGE_THIS_AIRFLOW_PASSWORD_456!@#  # CHANGE THIS!
+
+minio:
+  auth:
+    rootUser: CHANGE_THIS_MINIO_USER  # CHANGE THIS!
+    rootPassword: CHANGE_THIS_MINIO_PASSWORD_789!@#  # CHANGE THIS!
+
+jupyter:
+  env:
+    - name: JUPYTER_ENABLE_LAB
+      value: "yes"
+    - name: JUPYTER_TOKEN
+      value: "CHANGE_THIS_JUPYTER_TOKEN_ABC!@#"  # CHANGE THIS!
+
+# ServiceMonitor for Prometheus Operator
+serviceMonitor:
+  enabled: true
+  interval: 15s

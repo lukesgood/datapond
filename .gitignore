@@ -1,0 +1,30 @@
+# Kubernetes
+*.log
+*.swp
+*~
+
+# Helm
+charts/
+*.tgz
+
+# Temporary files
+/tmp/
+*.tmp
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets (안전을 위해)
+*secret*.yaml
+*password*.txt
+.env
+.env.*
+
+# User-specific values
+my-values.yaml

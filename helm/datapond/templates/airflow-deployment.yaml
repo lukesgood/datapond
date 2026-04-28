@@ -1,0 +1,187 @@
+{{- if .Values.airflow.enabled }}
+---
+# Airflow Webserver
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.airflow.name }}-webserver
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.airflow.name }}
+    component: webserver
+spec:
+  replicas: {{ .Values.airflow.webserver.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.airflow.name }}
+      component: webserver
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.airflow.name }}
+        component: webserver
+    spec:
+      initContainers:
+      - name: init-db
+        image: "{{ .Values.airflow.image.repository }}:{{ .Values.airflow.image.tag }}"
+        command:
+        - /bin/bash
+        - -c
+        args:
+        - |
+          airflow db init && \
+          airflow users create \
+            --username {{ .Values.airflow.auth.username }} \
+            --password {{ .Values.airflow.auth.password }} \
+            --firstname Admin \
+            --lastname User \
+            --role Admin \
+            --email admin@example.com || true
+        env:
+        - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
+          value: "postgresql+psycopg2://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.password }}@postgres:5432/airflow"
+        - name: AIRFLOW__CORE__EXECUTOR
+          value: {{ .Values.airflow.executor }}
+      containers:
+      - name: webserver
+        image: "{{ .Values.airflow.image.repository }}:{{ .Values.airflow.image.tag }}"
+        ports:
+        - containerPort: {{ .Values.airflow.webserver.service.port }}
+          name: http
+        command:
+        - airflow
+        - webserver
+        env:
+        - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
+          value: "postgresql+psycopg2://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.password }}@postgres:5432/airflow"
+        - name: AIRFLOW__CORE__EXECUTOR
+          value: {{ .Values.airflow.executor }}
+        - name: AIRFLOW__WEBSERVER__BASE_URL
+          value: "http://{{ .Values.global.domain }}/airflow"
+        - name: AIRFLOW__WEBSERVER__WEB_SERVER_PORT
+          value: "{{ .Values.airflow.webserver.service.port }}"
+        resources:
+          requests:
+            cpu: {{ .Values.airflow.webserver.resources.requests.cpu }}
+            memory: {{ .Values.airflow.webserver.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.airflow.webserver.resources.limits.cpu }}
+            memory: {{ .Values.airflow.webserver.resources.limits.memory }}
+        {{- if .Values.airflow.persistence.enabled }}
+        volumeMounts:
+        - name: dags
+          mountPath: /opt/airflow/dags
+        - name: logs
+          mountPath: /opt/airflow/logs
+        {{- end }}
+      {{- if .Values.airflow.persistence.enabled }}
+      volumes:
+      - name: dags
+        persistentVolumeClaim:
+          claimName: airflow-dags-pvc
+      - name: logs
+        persistentVolumeClaim:
+          claimName: airflow-logs-pvc
+      {{- end }}
+---
+# Airflow Scheduler
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.airflow.name }}-scheduler
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.airflow.name }}
+    component: scheduler
+spec:
+  replicas: {{ .Values.airflow.scheduler.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.airflow.name }}
+      component: scheduler
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.airflow.name }}
+        component: scheduler
+    spec:
+      containers:
+      - name: scheduler
+        image: "{{ .Values.airflow.image.repository }}:{{ .Values.airflow.image.tag }}"
+        command:
+        - airflow
+        - scheduler
+        env:
+        - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
+          value: "postgresql+psycopg2://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.password }}@postgres:5432/airflow"
+        - name: AIRFLOW__CORE__EXECUTOR
+          value: {{ .Values.airflow.executor }}
+        resources:
+          requests:
+            cpu: {{ .Values.airflow.scheduler.resources.requests.cpu }}
+            memory: {{ .Values.airflow.scheduler.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.airflow.scheduler.resources.limits.cpu }}
+            memory: {{ .Values.airflow.scheduler.resources.limits.memory }}
+        {{- if .Values.airflow.persistence.enabled }}
+        volumeMounts:
+        - name: dags
+          mountPath: /opt/airflow/dags
+        - name: logs
+          mountPath: /opt/airflow/logs
+        {{- end }}
+      {{- if .Values.airflow.persistence.enabled }}
+      volumes:
+      - name: dags
+        persistentVolumeClaim:
+          claimName: airflow-dags-pvc
+      - name: logs
+        persistentVolumeClaim:
+          claimName: airflow-logs-pvc
+      {{- end }}
+---
+# Airflow Webserver Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.airflow.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  type: {{ .Values.airflow.webserver.service.type }}
+  ports:
+  - port: {{ .Values.airflow.webserver.service.port }}
+    targetPort: {{ .Values.airflow.webserver.service.port }}
+    name: http
+  selector:
+    app: {{ .Values.airflow.name }}
+    component: webserver
+{{- if .Values.airflow.persistence.enabled }}
+---
+# Persistent Volume Claims
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: airflow-dags-pvc
+  namespace: {{ .Values.namespace }}
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: {{ .Values.global.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.airflow.persistence.dags.size }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: airflow-logs-pvc
+  namespace: {{ .Values.namespace }}
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: {{ .Values.global.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.airflow.persistence.logs.size }}
+{{- end }}
+{{- end }}

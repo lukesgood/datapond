@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: datapond-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: datapond
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  DOMAIN: {{ .Values.global.domain | quote }}
+  ENVIRONMENT: "production"
+
+  # URLs
+  FRONTEND_URL: "http://{{ .Values.global.domain }}"
+  BACKEND_URL: "http://{{ .Values.global.domain }}/api"
+  JUPYTER_URL: "http://{{ .Values.global.domain }}/jupyter"
+  MLFLOW_URL: "http://{{ .Values.global.domain }}/mlflow"
+  AIRFLOW_URL: "http://{{ .Values.global.domain }}/airflow"
+  SPARK_URL: "http://{{ .Values.global.domain }}/spark"
+
+  # Internal Service URLs
+  POSTGRES_HOST: "postgres"
+  POSTGRES_PORT: "5432"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  MINIO_HOST: "minio"
+  MINIO_PORT: "9000"

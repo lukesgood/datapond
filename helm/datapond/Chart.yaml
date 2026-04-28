@@ -1,0 +1,23 @@
+apiVersion: v2
+name: datapond
+description: A comprehensive data platform with ML, notebooks, and workflow orchestration
+type: application
+version: 2.0.0
+appVersion: "2.0.0"
+
+keywords:
+  - data-platform
+  - jupyter
+  - mlflow
+  - airflow
+  - spark
+
+maintainers:
+  - name: DataPond Team
+    email: admin@datapond.local
+
+home: https://github.com/datapond/datapond-k8s
+sources:
+  - https://github.com/datapond/datapond-k8s
+
+dependencies: []

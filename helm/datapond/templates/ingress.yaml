@@ -1,0 +1,98 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: datapond-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: datapond
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    {{- range $key, $value := .Values.ingress.annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+  - hosts:
+    - {{ .Values.global.domain }}
+    secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+  - host: {{ .Values.global.domain }}
+    http:
+      paths:
+      # Frontend
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Values.frontend.name }}
+            port:
+              number: {{ .Values.frontend.service.port }}
+
+      # Backend API
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Values.backend.name }}
+            port:
+              number: {{ .Values.backend.service.port }}
+
+      {{- if .Values.jupyter.enabled }}
+      # JupyterLab
+      - path: /jupyter
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Values.jupyter.name }}
+            port:
+              number: {{ .Values.jupyter.service.port }}
+      {{- end }}
+
+      {{- if .Values.mlflow.enabled }}
+      # MLflow
+      - path: /mlflow
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Values.mlflow.name }}
+            port:
+              number: {{ .Values.mlflow.service.port }}
+      {{- end }}
+
+      {{- if .Values.airflow.enabled }}
+      # Airflow
+      - path: /airflow
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Values.airflow.name }}
+            port:
+              number: {{ .Values.airflow.webserver.service.port }}
+      {{- end }}
+
+      {{- if .Values.spark.enabled }}
+      # Spark UI
+      - path: /spark
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Values.spark.name }}-master
+            port:
+              number: {{ .Values.spark.master.service.webPort }}
+      {{- end }}
+
+      {{- if .Values.minio.enabled }}
+      # MinIO Console
+      - path: /minio-console
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Values.minio.name }}
+            port:
+              number: {{ .Values.minio.service.consolePort }}
+      {{- end }}
+{{- end }}

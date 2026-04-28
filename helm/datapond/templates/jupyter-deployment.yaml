@@ -1,0 +1,81 @@
+{{- if .Values.jupyter.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.jupyter.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.jupyter.name }}
+spec:
+  replicas: {{ .Values.jupyter.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.jupyter.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.jupyter.name }}
+    spec:
+      containers:
+      - name: jupyter
+        image: "{{ .Values.jupyter.image.repository }}:{{ .Values.jupyter.image.tag }}"
+        ports:
+        - containerPort: {{ .Values.jupyter.service.port }}
+          name: jupyter
+        command:
+        - start-notebook.sh
+        - --NotebookApp.token=jupyter
+        - --NotebookApp.base_url=/jupyter
+        - --NotebookApp.allow_origin='*'
+        env:
+        {{- range .Values.jupyter.env }}
+        - name: {{ .name }}
+          value: {{ .value | quote }}
+        {{- end }}
+        resources:
+          requests:
+            cpu: {{ .Values.jupyter.resources.requests.cpu }}
+            memory: {{ .Values.jupyter.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.jupyter.resources.limits.cpu }}
+            memory: {{ .Values.jupyter.resources.limits.memory }}
+        {{- if .Values.jupyter.persistence.enabled }}
+        volumeMounts:
+        - name: jupyter-data
+          mountPath: /home/jovyan/work
+        {{- end }}
+      {{- if .Values.jupyter.persistence.enabled }}
+      volumes:
+      - name: jupyter-data
+        persistentVolumeClaim:
+          claimName: jupyter-pvc
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.jupyter.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  type: {{ .Values.jupyter.service.type }}
+  ports:
+  - port: {{ .Values.jupyter.service.port }}
+    targetPort: {{ .Values.jupyter.service.port }}
+  selector:
+    app: {{ .Values.jupyter.name }}
+{{- if .Values.jupyter.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jupyter-pvc
+  namespace: {{ .Values.namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.global.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.jupyter.persistence.size }}
+{{- end }}
+{{- end }}
