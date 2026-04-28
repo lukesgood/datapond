@@ -59,8 +59,8 @@ postgres:
     enabled: true
     size: 20Gi  # Smaller for dev
 
-# Redis - Minimal
-redis:
+# Valkey - Minimal (Redis-compatible)
+valkey:
   enabled: true
   resources:
     requests:

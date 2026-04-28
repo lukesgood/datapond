@@ -128,17 +128,18 @@ postgres:
     enabled: false
     replicas: 2
 
-# Redis
-redis:
+# Valkey (Redis-compatible, BSD 3-Clause License)
+# Redis protocol 100% compatible, safe for commercial and SaaS use
+valkey:
   enabled: true
-  name: redis
+  name: valkey
   image:
-    repository: redis
-    tag: "7-alpine"
+    repository: valkey/valkey
+    tag: "7.2.5"  # Latest stable version
 
   service:
     type: ClusterIP
-    port: 6379
+    port: 6379  # Redis-compatible port
 
   resources:
     requests:
@@ -151,6 +152,11 @@ redis:
   persistence:
     enabled: true
     size: 5Gi
+
+  # High Availability (optional)
+  replication:
+    enabled: false
+    replicas: 3
 
 # JupyterLab
 jupyter:

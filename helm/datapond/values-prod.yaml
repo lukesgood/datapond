@@ -72,8 +72,8 @@ postgres:
     enabled: true  # Enable HA
     replicas: 2
 
-# Redis - Production
-redis:
+# Valkey - Production (Redis-compatible)
+valkey:
   enabled: true
   resources:
     requests:
@@ -85,6 +85,9 @@ redis:
   persistence:
     enabled: true
     size: 20Gi
+  replication:
+    enabled: true  # Enable HA
+    replicas: 3
 
 # JupyterLab - Full resources
 jupyter:
