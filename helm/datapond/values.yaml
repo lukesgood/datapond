@@ -475,3 +475,74 @@ polaris:
   storage:
     type: s3
     defaultBaseLocation: s3://iceberg/warehouse
+
+# RisingWave (Real-time Streaming SQL)
+risingwave:
+  enabled: true
+  name: risingwave
+  image:
+    repository: risingwavelabs/risingwave
+    tag: "v1.7.0"
+    pullPolicy: IfNotPresent
+
+  # PostgreSQL database for RisingWave metadata
+  database: risingwave
+
+  # Storage configuration (uses SeaweedFS S3)
+  storage:
+    bucket: risingwave
+    dataDirectory: hummock
+
+  # Meta Node (Metadata management)
+  meta:
+    replicas: 1
+    service:
+      port: 5690
+      dashboardPort: 5691
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+  # Frontend (SQL entry point)
+  frontend:
+    replicas: 2
+    service:
+      type: ClusterIP
+      port: 4566  # PostgreSQL wire protocol
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+  # Compute Nodes (Stream processing)
+  compute:
+    replicas: 2
+    service:
+      port: 5688
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+
+  # Compactor (Storage optimization)
+  compactor:
+    replicas: 1
+    service:
+      port: 6660
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi

@@ -60,6 +60,7 @@ kubectl get pods -n datapond -w
 | **MLflow** | http://datapond.local/mlflow | - |
 | **Airflow** | http://datapond.local/airflow | admin / admin |
 | **Spark UI** | http://datapond.local/spark | - |
+| **RisingWave Dashboard** | http://datapond.local/risingwave | - |
 | **SeaweedFS Console** | http://datapond.local/seaweedfs-console | seaweedfsadmin / seaweedfsadmin |
 
 ---

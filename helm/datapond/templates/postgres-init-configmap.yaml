@@ -23,4 +23,10 @@ data:
     -- Airflow metadata
     CREATE DATABASE airflow;
     GRANT ALL PRIVILEGES ON DATABASE airflow TO {{ .Values.postgres.auth.username }};
+
+    {{- if .Values.risingwave.enabled }}
+    -- RisingWave metadata
+    CREATE DATABASE {{ .Values.risingwave.database }};
+    GRANT ALL PRIVILEGES ON DATABASE {{ .Values.risingwave.database }} TO {{ .Values.postgres.auth.username }};
+    {{- end }}
 {{- end }}

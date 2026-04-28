@@ -1,0 +1,398 @@
+{{- if .Values.risingwave.enabled }}
+---
+# RisingWave Meta Node StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.risingwave.name }}-meta
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.risingwave.name }}
+    component: meta
+spec:
+  serviceName: {{ .Values.risingwave.name }}-meta
+  replicas: {{ .Values.risingwave.meta.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.risingwave.name }}
+      component: meta
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.risingwave.name }}
+        component: meta
+    spec:
+      containers:
+      - name: meta
+        image: "{{ .Values.risingwave.image.repository }}:{{ .Values.risingwave.image.tag }}"
+        command:
+          - /risingwave/bin/risingwave
+          - meta-node
+        args:
+          - --listen-addr
+          - "0.0.0.0:{{ .Values.risingwave.meta.service.port }}"
+          - --advertise-addr
+          - "{{ .Values.risingwave.name }}-meta-0.{{ .Values.risingwave.name }}-meta:{{ .Values.risingwave.meta.service.port }}"
+          - --dashboard-host
+          - "0.0.0.0:{{ .Values.risingwave.meta.service.dashboardPort }}"
+          - --backend
+          - postgres
+          - --sql-endpoint
+          - "postgresql://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.password }}@{{ .Values.postgres.name }}:{{ .Values.postgres.service.port }}/{{ .Values.risingwave.database }}"
+          - --state-store
+          - "s3://{{ .Values.risingwave.storage.bucket }}"
+          - --data-directory
+          - "{{ .Values.risingwave.storage.dataDirectory }}"
+        env:
+        # S3 (SeaweedFS) credentials
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_USER
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_PASSWORD
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: RW_S3_ENDPOINT
+          value: "http://{{ .Values.seaweedfs.name }}-s3:{{ .Values.seaweedfs.s3.service.port }}"
+        - name: RW_S3_PATH_STYLE_ACCESS
+          value: "true"
+        ports:
+        - containerPort: {{ .Values.risingwave.meta.service.port }}
+          name: service
+        - containerPort: {{ .Values.risingwave.meta.service.dashboardPort }}
+          name: dashboard
+        resources:
+          requests:
+            cpu: {{ .Values.risingwave.meta.resources.requests.cpu }}
+            memory: {{ .Values.risingwave.meta.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.risingwave.meta.resources.limits.cpu }}
+            memory: {{ .Values.risingwave.meta.resources.limits.memory }}
+        livenessProbe:
+          httpGet:
+            path: /
+            port: dashboard
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: dashboard
+          initialDelaySeconds: 10
+          periodSeconds: 5
+---
+# RisingWave Meta Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.risingwave.name }}-meta
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.risingwave.name }}
+    component: meta
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless service for StatefulSet
+  ports:
+  - port: {{ .Values.risingwave.meta.service.port }}
+    targetPort: service
+    name: service
+  - port: {{ .Values.risingwave.meta.service.dashboardPort }}
+    targetPort: dashboard
+    name: dashboard
+  selector:
+    app: {{ .Values.risingwave.name }}
+    component: meta
+---
+# RisingWave Frontend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.risingwave.name }}-frontend
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.risingwave.name }}
+    component: frontend
+spec:
+  replicas: {{ .Values.risingwave.frontend.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.risingwave.name }}
+      component: frontend
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.risingwave.name }}
+        component: frontend
+    spec:
+      containers:
+      - name: frontend
+        image: "{{ .Values.risingwave.image.repository }}:{{ .Values.risingwave.image.tag }}"
+        command:
+          - /risingwave/bin/risingwave
+          - frontend-node
+        args:
+          - --listen-addr
+          - "0.0.0.0:{{ .Values.risingwave.frontend.service.port }}"
+          - --advertise-addr
+          - "$(POD_IP):{{ .Values.risingwave.frontend.service.port }}"
+          - --meta-addr
+          - "http://{{ .Values.risingwave.name }}-meta-0.{{ .Values.risingwave.name }}-meta:{{ .Values.risingwave.meta.service.port }}"
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: RUST_BACKTRACE
+          value: "1"
+        ports:
+        - containerPort: {{ .Values.risingwave.frontend.service.port }}
+          name: postgres
+        resources:
+          requests:
+            cpu: {{ .Values.risingwave.frontend.resources.requests.cpu }}
+            memory: {{ .Values.risingwave.frontend.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.risingwave.frontend.resources.limits.cpu }}
+            memory: {{ .Values.risingwave.frontend.resources.limits.memory }}
+        livenessProbe:
+          tcpSocket:
+            port: postgres
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: postgres
+          initialDelaySeconds: 10
+          periodSeconds: 5
+---
+# RisingWave Frontend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.risingwave.name }}-frontend
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.risingwave.name }}
+    component: frontend
+spec:
+  type: {{ .Values.risingwave.frontend.service.type }}
+  ports:
+  - port: {{ .Values.risingwave.frontend.service.port }}
+    targetPort: postgres
+    name: postgres
+  selector:
+    app: {{ .Values.risingwave.name }}
+    component: frontend
+---
+# RisingWave Compute Node StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.risingwave.name }}-compute
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.risingwave.name }}
+    component: compute
+spec:
+  serviceName: {{ .Values.risingwave.name }}-compute
+  replicas: {{ .Values.risingwave.compute.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.risingwave.name }}
+      component: compute
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.risingwave.name }}
+        component: compute
+    spec:
+      containers:
+      - name: compute
+        image: "{{ .Values.risingwave.image.repository }}:{{ .Values.risingwave.image.tag }}"
+        command:
+          - /risingwave/bin/risingwave
+          - compute-node
+        args:
+          - --listen-addr
+          - "0.0.0.0:{{ .Values.risingwave.compute.service.port }}"
+          - --advertise-addr
+          - "$(POD_NAME).{{ .Values.risingwave.name }}-compute:{{ .Values.risingwave.compute.service.port }}"
+          - --meta-addr
+          - "http://{{ .Values.risingwave.name }}-meta-0.{{ .Values.risingwave.name }}-meta:{{ .Values.risingwave.meta.service.port }}"
+          - --state-store
+          - "s3://{{ .Values.risingwave.storage.bucket }}"
+          - --data-directory
+          - "{{ .Values.risingwave.storage.dataDirectory }}"
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        # S3 (SeaweedFS) credentials
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_USER
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_PASSWORD
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: RW_S3_ENDPOINT
+          value: "http://{{ .Values.seaweedfs.name }}-s3:{{ .Values.seaweedfs.s3.service.port }}"
+        - name: RW_S3_PATH_STYLE_ACCESS
+          value: "true"
+        - name: RUST_BACKTRACE
+          value: "1"
+        ports:
+        - containerPort: {{ .Values.risingwave.compute.service.port }}
+          name: service
+        resources:
+          requests:
+            cpu: {{ .Values.risingwave.compute.resources.requests.cpu }}
+            memory: {{ .Values.risingwave.compute.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.risingwave.compute.resources.limits.cpu }}
+            memory: {{ .Values.risingwave.compute.resources.limits.memory }}
+        livenessProbe:
+          tcpSocket:
+            port: service
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: service
+          initialDelaySeconds: 10
+          periodSeconds: 5
+---
+# RisingWave Compute Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.risingwave.name }}-compute
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.risingwave.name }}
+    component: compute
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless service for StatefulSet
+  ports:
+  - port: {{ .Values.risingwave.compute.service.port }}
+    targetPort: service
+    name: service
+  selector:
+    app: {{ .Values.risingwave.name }}
+    component: compute
+---
+# RisingWave Compactor Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.risingwave.name }}-compactor
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.risingwave.name }}
+    component: compactor
+spec:
+  replicas: {{ .Values.risingwave.compactor.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.risingwave.name }}
+      component: compactor
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.risingwave.name }}
+        component: compactor
+    spec:
+      containers:
+      - name: compactor
+        image: "{{ .Values.risingwave.image.repository }}:{{ .Values.risingwave.image.tag }}"
+        command:
+          - /risingwave/bin/risingwave
+          - compactor-node
+        args:
+          - --listen-addr
+          - "0.0.0.0:{{ .Values.risingwave.compactor.service.port }}"
+          - --advertise-addr
+          - "$(POD_IP):{{ .Values.risingwave.compactor.service.port }}"
+          - --meta-addr
+          - "http://{{ .Values.risingwave.name }}-meta-0.{{ .Values.risingwave.name }}-meta:{{ .Values.risingwave.meta.service.port }}"
+          - --state-store
+          - "s3://{{ .Values.risingwave.storage.bucket }}"
+          - --data-directory
+          - "{{ .Values.risingwave.storage.dataDirectory }}"
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        # S3 (SeaweedFS) credentials
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_USER
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_PASSWORD
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: RW_S3_ENDPOINT
+          value: "http://{{ .Values.seaweedfs.name }}-s3:{{ .Values.seaweedfs.s3.service.port }}"
+        - name: RW_S3_PATH_STYLE_ACCESS
+          value: "true"
+        - name: RUST_BACKTRACE
+          value: "1"
+        ports:
+        - containerPort: {{ .Values.risingwave.compactor.service.port }}
+          name: service
+        resources:
+          requests:
+            cpu: {{ .Values.risingwave.compactor.resources.requests.cpu }}
+            memory: {{ .Values.risingwave.compactor.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.risingwave.compactor.resources.limits.cpu }}
+            memory: {{ .Values.risingwave.compactor.resources.limits.memory }}
+        livenessProbe:
+          tcpSocket:
+            port: service
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: service
+          initialDelaySeconds: 10
+          periodSeconds: 5
+---
+# RisingWave Compactor Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.risingwave.name }}-compactor
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.risingwave.name }}
+    component: compactor
+spec:
+  type: ClusterIP
+  ports:
+  - port: {{ .Values.risingwave.compactor.service.port }}
+    targetPort: service
+    name: service
+  selector:
+    app: {{ .Values.risingwave.name }}
+    component: compactor
+{{- end }}

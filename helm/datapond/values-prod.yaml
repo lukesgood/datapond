@@ -275,3 +275,43 @@ jupyter:
 serviceMonitor:
   enabled: true
   interval: 15s
+
+# RisingWave - Production cluster
+risingwave:
+  enabled: true
+  meta:
+    replicas: 3  # High availability
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+  frontend:
+    replicas: 3  # Load balancing
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+  compute:
+    replicas: 5  # Horizontal scaling
+    resources:
+      requests:
+        cpu: 2000m
+        memory: 4Gi
+      limits:
+        cpu: 4000m
+        memory: 8Gi
+  compactor:
+    replicas: 2  # Redundancy
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi

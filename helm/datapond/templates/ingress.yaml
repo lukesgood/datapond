@@ -106,4 +106,15 @@ spec:
             port:
               number: {{ .Values.trino.service.port }}
       {{- end }}
+
+      {{- if .Values.risingwave.enabled }}
+      # RisingWave Dashboard
+      - path: /risingwave
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Values.risingwave.name }}-meta
+            port:
+              number: {{ .Values.risingwave.meta.service.dashboardPort }}
+      {{- end }}
 {{- end }}

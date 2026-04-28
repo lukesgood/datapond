@@ -16,6 +16,7 @@
 6. [Lab 5: MLflow 실험 추적](#lab-5-mlflow-실험-추적)
 7. [Lab 6: Airflow 워크플로우](#lab-6-airflow-워크플로우)
 8. [Lab 7: 종합 프로젝트](#lab-7-종합-프로젝트)
+9. [Lab 8: RisingWave 실시간 스트리밍](#lab-8-risingwave-실시간-스트리밍)
 
 ---
 
@@ -1032,6 +1033,362 @@ quality_check >> etl_task >> metrics_task
 
 ---
 
+quality_check >> etl_task >> metrics_task
+```
+
+---
+
+## Lab 8: RisingWave 실시간 스트리밍
+
+### 목표
+RisingWave로 실시간 스트리밍 SQL 처리 및 Materialized Views 생성
+
+### 배경
+RisingWave는 PostgreSQL 호환 스트리밍 데이터베이스로, Kafka + Flink를 대체하여 실시간 데이터 처리를 간소화합니다.
+
+### 단계
+
+#### 8.1 RisingWave 접속
+
+```bash
+# 포트 포워딩
+kubectl port-forward -n datapond svc/risingwave-frontend 4566:4566
+
+# 별도 터미널에서 psql로 연결
+psql -h localhost -p 4566 -U root -d dev
+
+# 또는 Python에서
+import psycopg2
+conn = psycopg2.connect(
+    host="localhost",
+    port=4566,
+    user="root",
+    database="dev"
+)
+```
+
+#### 8.2 이벤트 스트림 시뮬레이션
+
+JupyterLab에서 실행:
+
+```python
+# 노트북: lab8-risingwave-streaming.ipynb
+import psycopg2
+import json
+import time
+from datetime import datetime
+import random
+
+# PostgreSQL에 이벤트 테이블 생성 (Kafka 대신 사용)
+pg_conn = psycopg2.connect(
+    host="postgres",
+    port=5432,
+    user="datapond",
+    password="datapond_password",
+    database="datapond"
+)
+pg_cur = pg_conn.cursor()
+
+pg_cur.execute("""
+    CREATE TABLE IF NOT EXISTS streaming_events (
+        event_id SERIAL PRIMARY KEY,
+        user_id INT,
+        event_type VARCHAR(50),
+        page VARCHAR(100),
+        timestamp TIMESTAMP DEFAULT NOW(),
+        value DECIMAL(10, 2)
+    )
+""")
+pg_conn.commit()
+
+# 이벤트 생성 함수
+def generate_streaming_event():
+    """실시간 이벤트 생성"""
+    event_types = ['page_view', 'click', 'add_cart', 'purchase', 'search']
+    pages = ['home', 'product', 'cart', 'checkout', 'category']
+    
+    pg_cur.execute("""
+        INSERT INTO streaming_events (user_id, event_type, page, value)
+        VALUES (%s, %s, %s, %s)
+    """, (
+        random.randint(1, 100),
+        random.choice(event_types),
+        random.choice(pages),
+        random.uniform(0, 500) if random.random() > 0.7 else 0
+    ))
+    pg_conn.commit()
+
+# 초기 이벤트 생성 (백그라운드로 계속 실행)
+print("📊 이벤트 스트림 시작...")
+for i in range(50):
+    generate_streaming_event()
+    if i % 10 == 0:
+        print(f"  ✅ {i} events generated")
+    time.sleep(0.1)
+
+print("✅ 초기 50개 이벤트 생성 완료")
+```
+
+#### 8.3 RisingWave에서 Source 생성
+
+```sql
+-- RisingWave CLI (psql -h localhost -p 4566 -U root -d dev)
+
+-- PostgreSQL CDC Source 생성
+CREATE SOURCE pg_events (
+    event_id INT,
+    user_id INT,
+    event_type VARCHAR,
+    page VARCHAR,
+    timestamp TIMESTAMP,
+    value DECIMAL
+)
+WITH (
+    connector = 'postgres-cdc',
+    hostname = 'postgres',
+    port = '5432',
+    username = 'datapond',
+    password = 'datapond_password',
+    database.name = 'datapond',
+    schema.name = 'public',
+    table.name = 'streaming_events'
+);
+
+-- 데이터 확인
+SELECT * FROM pg_events LIMIT 10;
+
+-- 스트림 계속 모니터링
+SELECT COUNT(*) as total_events FROM pg_events;
+```
+
+#### 8.4 Materialized Views 생성
+
+```sql
+-- 1. 실시간 이벤트 카운트 (최근 1분)
+CREATE MATERIALIZED VIEW events_last_1min AS
+SELECT
+    event_type,
+    COUNT(*) AS event_count,
+    COUNT(DISTINCT user_id) AS unique_users,
+    AVG(value) AS avg_value,
+    MAX(timestamp) AS last_event
+FROM pg_events
+WHERE timestamp > NOW() - INTERVAL '1 minute'
+GROUP BY event_type
+ORDER BY event_count DESC;
+
+-- 조회 (자동으로 업데이트됨)
+SELECT * FROM events_last_1min;
+
+-- 2. Top 활성 사용자 (최근 5분)
+CREATE MATERIALIZED VIEW top_active_users AS
+SELECT
+    user_id,
+    COUNT(*) AS event_count,
+    COUNT(DISTINCT event_type) AS event_types,
+    SUM(value) AS total_value,
+    MAX(timestamp) AS last_activity
+FROM pg_events
+WHERE timestamp > NOW() - INTERVAL '5 minutes'
+GROUP BY user_id
+HAVING COUNT(*) > 5
+ORDER BY event_count DESC
+LIMIT 20;
+
+SELECT * FROM top_active_users;
+
+-- 3. 페이지별 전환율 (실시간)
+CREATE MATERIALIZED VIEW page_conversion_funnel AS
+SELECT
+    page,
+    COUNT(*) AS total_views,
+    SUM(CASE WHEN event_type = 'click' THEN 1 ELSE 0 END) AS clicks,
+    SUM(CASE WHEN event_type = 'add_cart' THEN 1 ELSE 0 END) AS add_carts,
+    SUM(CASE WHEN event_type = 'purchase' THEN 1 ELSE 0 END) AS purchases,
+    ROUND(
+        SUM(CASE WHEN event_type = 'click' THEN 1 ELSE 0 END)::DECIMAL / 
+        NULLIF(COUNT(*), 0) * 100, 2
+    ) AS click_rate,
+    ROUND(
+        SUM(CASE WHEN event_type = 'purchase' THEN 1 ELSE 0 END)::DECIMAL / 
+        NULLIF(SUM(CASE WHEN event_type = 'add_cart' THEN 1 ELSE 0 END), 0) * 100, 2
+    ) AS purchase_rate
+FROM pg_events
+GROUP BY page;
+
+SELECT * FROM page_conversion_funnel ORDER BY total_views DESC;
+
+-- 4. 실시간 이상 탐지 (5분내 동일 사용자 50회 이상)
+CREATE MATERIALIZED VIEW suspicious_users AS
+SELECT
+    user_id,
+    COUNT(*) AS event_count,
+    ARRAY_AGG(DISTINCT event_type) AS event_types,
+    ARRAY_AGG(DISTINCT page) AS pages_accessed,
+    MIN(timestamp) AS first_seen,
+    MAX(timestamp) AS last_seen
+FROM pg_events
+WHERE timestamp > NOW() - INTERVAL '5 minutes'
+GROUP BY user_id
+HAVING COUNT(*) > 50;
+
+-- 알림용 쿼리
+SELECT * FROM suspicious_users;
+```
+
+#### 8.5 실시간 모니터링 (Python)
+
+JupyterLab에서 실행:
+
+```python
+import psycopg2
+import pandas as pd
+import time
+from IPython.display import clear_output
+import matplotlib.pyplot as plt
+
+# RisingWave 연결
+rw_conn = psycopg2.connect(
+    host="localhost",
+    port=4566,
+    user="root",
+    database="dev"
+)
+
+# PostgreSQL 연결 (이벤트 생성용)
+pg_conn = psycopg2.connect(
+    host="postgres",
+    port=5432,
+    user="datapond",
+    password="datapond_password",
+    database="datapond"
+)
+pg_cur = pg_conn.cursor()
+
+# 실시간 대시보드
+def realtime_dashboard(duration=60):
+    """실시간 이벤트 대시보드 (duration초 동안)"""
+    print(f"🔴 실시간 대시보드 시작 ({duration}초)")
+    
+    for i in range(duration):
+        # 백그라운드로 이벤트 계속 생성
+        for _ in range(2):
+            generate_streaming_event()
+        
+        # Materialized View 조회
+        df_events = pd.read_sql_query(
+            "SELECT * FROM events_last_1min",
+            rw_conn
+        )
+        
+        df_users = pd.read_sql_query(
+            "SELECT * FROM top_active_users LIMIT 10",
+            rw_conn
+        )
+        
+        df_funnel = pd.read_sql_query(
+            "SELECT * FROM page_conversion_funnel",
+            rw_conn
+        )
+        
+        # 화면 지우고 출력
+        clear_output(wait=True)
+        
+        print(f"\n{'='*60}")
+        print(f"⏰ 실시간 대시보드 - {time.strftime('%H:%M:%S')}")
+        print(f"{'='*60}\n")
+        
+        print("📊 이벤트 타입별 (최근 1분)")
+        print(df_events.to_string(index=False))
+        
+        print(f"\n👥 Top 활성 사용자 (최근 5분)")
+        print(df_users[['user_id', 'event_count', 'total_value']].to_string(index=False))
+        
+        print(f"\n🔄 페이지 전환율")
+        print(df_funnel[['page', 'total_views', 'click_rate', 'purchase_rate']].to_string(index=False))
+        
+        # 의심 활동 확인
+        suspicious = pd.read_sql_query("SELECT * FROM suspicious_users", rw_conn)
+        if not suspicious.empty:
+            print(f"\n⚠️  의심 활동 감지!")
+            print(suspicious.to_string(index=False))
+        
+        time.sleep(1)
+    
+    print("\n✅ 대시보드 종료")
+
+# 실시간 대시보드 실행
+realtime_dashboard(duration=30)
+
+# 정리
+rw_conn.close()
+pg_conn.close()
+```
+
+#### 8.6 Sink로 Iceberg 연동
+
+```sql
+-- RisingWave 결과를 Iceberg 테이블로 내보내기
+CREATE SINK iceberg_hourly_summary
+FROM events_last_1min
+WITH (
+    connector = 'iceberg',
+    type = 'append-only',
+    s3.endpoint = 'http://seaweedfs-s3:8333',
+    s3.region = 'us-east-1',
+    s3.path.style.access = 'true',
+    catalog.type = 'rest',
+    catalog.uri = 'http://polaris:8181/api/catalog/v1',
+    database.name = 'streaming',
+    table.name = 'hourly_events'
+);
+
+-- 이제 Trino/Spark에서 쿼리 가능:
+-- SELECT * FROM iceberg.streaming.hourly_events;
+```
+
+#### 8.7 시각화
+
+```python
+# JupyterLab에서 실행
+import matplotlib.pyplot as plt
+import pandas as pd
+import psycopg2
+
+rw_conn = psycopg2.connect(
+    host="localhost",
+    port=4566,
+    user="root",
+    database="dev"
+)
+
+# 이벤트 타입별 분포
+df = pd.read_sql_query("SELECT * FROM events_last_1min", rw_conn)
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+# 이벤트 카운트
+axes[0].bar(df['event_type'], df['event_count'], color='steelblue')
+axes[0].set_title('Event Count by Type (Last 1 min)')
+axes[0].set_xlabel('Event Type')
+axes[0].set_ylabel('Count')
+axes[0].tick_params(axis='x', rotation=45)
+
+# 사용자 수
+axes[1].bar(df['event_type'], df['unique_users'], color='coral')
+axes[1].set_title('Unique Users by Event Type')
+axes[1].set_xlabel('Event Type')
+axes[1].set_ylabel('Unique Users')
+axes[1].tick_params(axis='x', rotation=45)
+
+plt.tight_layout()
+plt.show()
+
+rw_conn.close()
+```
+
+---
+
 ## 🎯 실습 완료 체크리스트
 
 - [ ] Lab 1: JupyterLab에서 PostgreSQL 데이터 분석
@@ -1041,6 +1398,7 @@ quality_check >> etl_task >> metrics_task
 - [ ] Lab 5: MLflow로 ML 실험 추적
 - [ ] Lab 6: Airflow DAG 생성 및 실행
 - [ ] Lab 7: 종합 파이프라인 구축
+- [ ] Lab 8: RisingWave 실시간 스트리밍
 
 ---
 
