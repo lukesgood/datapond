@@ -1,376 +1,330 @@
 # DataPond Kubernetes Edition
 
-**완전히 재설계된 Kubernetes 기반 DataPond 플랫폼**
+**🚀 Complete Kubernetes-native reimplementation of DataPond platform**
+
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.25+-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
+[![Helm](https://img.shields.io/badge/Helm-3.12+-0F1689?logo=helm&logoColor=white)](https://helm.sh/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
 
-## 🎯 개요
+## 📋 Overview
 
-DataPond를 Kubernetes 네이티브 아키텍처로 완전히 재구성한 버전입니다.
+DataPond is a comprehensive data analytics and ML platform redesigned for cloud-native deployments with Kubernetes. This edition provides production-ready infrastructure with auto-scaling, high availability, and complete observability.
 
-### **주요 개선사항**
+### ✨ Key Features
 
-- ✅ Kubernetes 네이티브 설계
-- ✅ Helm Chart 기반 배포
-- ✅ 자동 스케일링 (HPA)
-- ✅ 고가용성 구성
-- ✅ GitOps 준비 완료
-- ✅ 프로메테우스 모니터링
-- ✅ Ingress 기반 통합 라우팅
-- ✅ 영구 스토리지 (PV/PVC)
+- ✅ **Kubernetes Native**: Built for cloud-native deployments
+- ✅ **Helm Charts**: Easy deployment and management
+- ✅ **Auto-scaling**: HPA for dynamic resource allocation
+- ✅ **High Availability**: Multi-replica services with health checks
+- ✅ **Single Ingress**: Unified routing for all services
+- ✅ **Persistent Storage**: Data persistence with PVC
+- ✅ **Environment Configs**: Separate dev/prod configurations
+- ✅ **Complete Documentation**: 4,000+ lines of guides
 
 ---
 
-## 📁 디렉토리 구조
+## 🏗️ Architecture
 
 ```
-datapond-k8s/
-├── helm/                           # Helm Chart (권장)
-│   └── datapond/
-│       ├── Chart.yaml             # Chart 메타데이터
-│       ├── values.yaml            # 기본 설정값
-│       ├── values-dev.yaml        # 개발 환경
-│       ├── values-prod.yaml       # 프로덕션 환경
-│       └── templates/             # K8s 리소스 템플릿
-│           ├── namespace.yaml
-│           ├── configmap.yaml
-│           ├── secrets.yaml
-│           ├── backend/
-│           ├── frontend/
-│           ├── postgres/
-│           ├── redis/
-│           ├── jupyter/
-│           ├── mlflow/
-│           ├── airflow/
-│           ├── spark/
-│           └── ingress.yaml
-│
-├── k8s/                           # Raw Kubernetes Manifests
-│   ├── namespace.yaml
-│   ├── configmaps/
-│   ├── secrets/
-│   ├── deployments/
-│   ├── services/
-│   ├── statefulsets/
-│   ├── ingress/
-│   └── persistent-volumes/
-│
-├── docker/                        # 최적화된 Dockerfile
-│   ├── backend/
-│   ├── frontend/
-│   └── services/
-│
-├── monitoring/                    # 모니터링 스택
-│   ├── prometheus/
-│   └── grafana/
-│
-├── scripts/                       # 자동화 스크립트
-│   ├── install-k3s.sh
-│   ├── deploy.sh
-│   ├── update.sh
-│   ├── backup.sh
-│   └── rollback.sh
-│
-└── docs/                         # 문서
-    ├── INSTALLATION.md
-    ├── CONFIGURATION.md
-    ├── OPERATIONS.md
-    └── TROUBLESHOOTING.md
+┌─────────────────────────────────────────────────────────────┐
+│                    Ingress Controller                       │
+│                   (Traefik/Nginx)                           │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+    ┌─────────────────────┼─────────────────────┐
+    │                     │                     │
+┌───▼────┐          ┌─────▼─────┐        ┌─────▼──────┐
+│Frontend│          │  Backend  │        │  Services  │
+│Next.js │   ──────▶│  FastAPI  │  ──────▶│ Data & ML  │
+└────────┘          └───────────┘        └────────────┘
+                          │
+                ┌─────────┴──────────┐
+                │                    │
+          ┌─────▼──────┐      ┌─────▼────┐
+          │ PostgreSQL │      │  Redis   │
+          │    (DB)    │      │ (Cache)  │
+          └────────────┘      └──────────┘
 ```
+
+### 🎯 Services
+
+| Service | Description | Technology |
+|---------|-------------|------------|
+| **Frontend** | Web UI | Next.js 14+ |
+| **Backend** | REST API | FastAPI |
+| **Database** | Primary data store | PostgreSQL 16 |
+| **Cache** | Session & caching | Redis 7 |
+| **Notebooks** | Interactive analysis | JupyterLab |
+| **ML Tracking** | Experiment tracking | MLflow 2.10 |
+| **Storage** | Object storage | MinIO (S3 API) |
+| **Workflow** | Orchestration | Airflow 2.8 |
+| **Processing** | Distributed compute | Spark 3.5 |
 
 ---
 
-## 🚀 빠른 시작
+## 🚀 Quick Start
 
-### **1. K3s 설치**
+### Prerequisites
+
+- **OS**: Ubuntu 20.04+ / RHEL 8+ / Debian 11+
+- **CPU**: 4+ cores (8+ recommended)
+- **RAM**: 8GB+ (16GB+ recommended)
+- **Disk**: 100GB+ SSD
+
+### Installation (5 minutes)
 
 ```bash
-cd /home/luke/datapond-k8s
+# 1. Clone repository
+git clone https://github.com/lukesgood/datapond.git
+cd datapond
+
+# 2. Install K3s (lightweight Kubernetes)
 sudo bash scripts/install-k3s.sh
+
+# 3. Add hostname to /etc/hosts
+sudo bash -c 'echo "127.0.0.1  datapond.local" >> /etc/hosts'
+
+# 4. Deploy DataPond
+bash scripts/deploy.sh values-dev.yaml
+
+# 5. Watch deployment
+kubectl get pods -n datapond -w
 ```
 
-### **2. DataPond 배포 (Helm)**
+### Access
 
-```bash
-# Namespace 생성
-kubectl create namespace datapond
+Once all pods are running, access the platform:
 
-# Helm으로 배포
-helm install datapond ./helm/datapond \
-  --namespace datapond \
-  --values helm/datapond/values-dev.yaml
-
-# 또는 프로덕션
-helm install datapond ./helm/datapond \
-  --namespace datapond \
-  --values helm/datapond/values-prod.yaml
+```
+http://datapond.local
 ```
 
-### **3. 배포 확인**
+**Default Credentials:**
+- Airflow: `admin / admin`
+- JupyterLab: Token `jupyter`
+- MinIO: `minioadmin / minioadmin`
+
+---
+
+## 📁 Project Structure
+
+```
+datapond/
+├── helm/datapond/              # Helm Chart
+│   ├── Chart.yaml              # Chart metadata
+│   ├── values.yaml             # Default values
+│   ├── values-dev.yaml         # Development config
+│   ├── values-prod.yaml        # Production config
+│   └── templates/              # 13 Kubernetes templates
+│       ├── backend-deployment.yaml
+│       ├── frontend-deployment.yaml
+│       ├── postgres-statefulset.yaml
+│       ├── redis-deployment.yaml
+│       ├── jupyter-deployment.yaml
+│       ├── mlflow-deployment.yaml
+│       ├── minio-deployment.yaml
+│       ├── airflow-deployment.yaml
+│       ├── spark-statefulset.yaml
+│       └── ...
+│
+├── scripts/                    # Automation scripts
+│   ├── install-k3s.sh         # K3s installation
+│   └── deploy.sh              # Deployment script
+│
+└── docs/                       # Documentation
+    ├── ARCHITECTURE.md         # System architecture
+    ├── INSTALLATION.md         # Detailed installation
+    ├── DEPLOYMENT_CHECKLIST.md # Pre-deployment checklist
+    └── TROUBLESHOOTING.md      # Problem solving
+```
+
+---
+
+## 📊 System Requirements
+
+### Development Environment
+
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| CPU | 4 cores | 8+ cores |
+| RAM | 8GB | 16GB+ |
+| Disk | 50GB | 100GB+ SSD |
+| Storage | ~100GB | ~200GB |
+
+### Production Environment
+
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| CPU | 16 cores | 32+ cores |
+| RAM | 32GB | 64GB+ |
+| Disk | 200GB SSD | 500GB+ NVMe |
+| Storage | ~500GB | ~1TB+ |
+
+---
+
+## 🛠️ Configuration
+
+### Environment Selection
+
+**Development** (8GB RAM optimized):
+```bash
+bash scripts/deploy.sh values-dev.yaml
+```
+
+**Production** (High availability):
+```bash
+bash scripts/deploy.sh values-prod.yaml
+```
+
+### Customization
+
+Edit configuration files:
+```bash
+vim helm/datapond/values-dev.yaml
+```
+
+Key settings:
+- `global.domain`: Your domain name
+- `*.replicas`: Number of replicas per service
+- `*.resources`: CPU/Memory allocation
+- `*.persistence.size`: Storage size
+
+---
+
+## 📚 Documentation
+
+| Document | Description |
+|----------|-------------|
+| [START_HERE.md](START_HERE.md) | Quick start guide |
+| [QUICKSTART.md](QUICKSTART.md) | 5-minute deployment |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture |
+| [docs/INSTALLATION.md](docs/INSTALLATION.md) | Detailed installation |
+| [docs/DEPLOYMENT_CHECKLIST.md](docs/DEPLOYMENT_CHECKLIST.md) | Pre-deployment checklist |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Problem solving |
+| [SCRIPT_FIXES.md](SCRIPT_FIXES.md) | Script improvements |
+
+---
+
+## 🔧 Useful Commands
 
 ```bash
-# Pod 상태 확인
+# Check pod status
 kubectl get pods -n datapond
 
-# 서비스 확인
-kubectl get svc -n datapond
+# View logs
+kubectl logs -f deployment/backend -n datapond
 
-# Ingress 확인
-kubectl get ingress -n datapond
+# Scale service
+kubectl scale deployment backend --replicas=5 -n datapond
+
+# Port forward (direct access)
+kubectl port-forward svc/backend 8000:8000 -n datapond
+
+# Uninstall
+helm uninstall datapond -n datapond
 ```
 
-### **4. 접속**
+---
+
+## 🔄 Upgrade & Rollback
+
+### Upgrade
 
 ```bash
-# 로컬 접속 (K3s)
-http://datapond.local
-
-# 또는 NodePort로 직접 접속
-http://<node-ip>:30000
-```
-
----
-
-## 📊 아키텍처
-
-### **서비스 구성**
-
-```
-┌─────────────────────────────────────────────────┐
-│              Ingress Controller                  │
-│         (Traefik or Nginx Ingress)              │
-└─────────────────┬───────────────────────────────┘
-                  │
-    ┌─────────────┼─────────────┬─────────────┐
-    │             │             │             │
-┌───▼───┐   ┌────▼────┐   ┌───▼───┐   ┌────▼────┐
-│Frontend│   │ Backend │   │Jupyter│   │ MLflow  │
-│(Next.js)   │(FastAPI)│   │  Lab  │   │         │
-└───────┘   └────┬────┘   └───────┘   └────┬────┘
-                 │                           │
-        ┌────────┴────────┐         ┌───────┴────────┐
-        │                 │         │                │
-    ┌───▼───┐      ┌─────▼─────┐  ┌▼──────┐  ┌─────▼─────┐
-    │Postgres│     │   Redis   │  │ MinIO │  │  Airflow  │
-    │(StatefulSet) │           │  │  (S3) │  │           │
-    └───────┘      └───────────┘  └───────┘  └───────────┘
-```
-
-### **리소스 할당**
-
-| 서비스 | CPU Request | CPU Limit | Memory Request | Memory Limit |
-|--------|-------------|-----------|----------------|--------------|
-| Frontend | 200m | 500m | 256Mi | 512Mi |
-| Backend | 500m | 1000m | 512Mi | 1Gi |
-| PostgreSQL | 1000m | 2000m | 2Gi | 4Gi |
-| Redis | 200m | 500m | 256Mi | 512Mi |
-| JupyterLab | 1000m | 2000m | 2Gi | 4Gi |
-| MLflow | 500m | 1000m | 1Gi | 2Gi |
-| Airflow Web | 500m | 1000m | 1Gi | 2Gi |
-| Airflow Scheduler | 500m | 1000m | 1Gi | 2Gi |
-
----
-
-## 🔧 설정
-
-### **환경별 설정 파일**
-
-- `values-dev.yaml` - 개발 환경 (리소스 최소화)
-- `values-prod.yaml` - 프로덕션 환경 (HA, 모니터링)
-- `values-staging.yaml` - 스테이징 환경
-
-### **주요 설정 항목**
-
-```yaml
-# values.yaml 예시
-global:
-  domain: datapond.local
-  storageClass: local-path
-
-backend:
-  replicas: 2
-  image: datapond/backend:latest
-  resources:
-    requests:
-      cpu: 500m
-      memory: 512Mi
-
-frontend:
-  replicas: 2
-  image: datapond/frontend:latest
-
-postgres:
-  enabled: true
-  persistence:
-    size: 50Gi
-
-redis:
-  enabled: true
-  
-jupyter:
-  enabled: true
-  replicas: 1
-
-mlflow:
-  enabled: true
-```
-
----
-
-## 📈 모니터링
-
-### **Prometheus + Grafana**
-
-```bash
-# Prometheus 설치
-kubectl apply -f monitoring/prometheus/
-
-# Grafana 설치
-kubectl apply -f monitoring/grafana/
-
-# Grafana 접속
-kubectl port-forward -n monitoring svc/grafana 3000:3000
-# http://localhost:3000 (admin/admin)
-```
-
-### **주요 메트릭**
-
-- Pod CPU/Memory 사용률
-- 서비스 응답 시간
-- Database 쿼리 성능
-- Ingress 트래픽
-
----
-
-## 🔒 보안
-
-### **Secret 관리**
-
-```bash
-# Secret 생성
-kubectl create secret generic datapond-secrets \
-  --from-literal=postgres-password=yourpassword \
-  --from-literal=jwt-secret=yoursecret \
-  -n datapond
-
-# 또는 파일에서
-kubectl apply -f k8s/secrets/
-```
-
-### **네트워크 정책**
-
-- Pod 간 통신 제한
-- Ingress만 외부 노출
-- Database는 내부 접근만
-
----
-
-## 🔄 운영
-
-### **업데이트**
-
-```bash
-# Helm으로 업데이트
 helm upgrade datapond ./helm/datapond \
   --namespace datapond \
-  --values helm/datapond/values-prod.yaml
+  --values helm/datapond/values.yaml
+```
 
-# 롤백
+### Rollback
+
+```bash
+# View history
+helm history datapond -n datapond
+
+# Rollback to previous version
 helm rollback datapond -n datapond
 ```
 
-### **스케일링**
+---
 
-```bash
-# 수동 스케일링
-kubectl scale deployment backend --replicas=5 -n datapond
+## 🆚 Docker Compose vs Kubernetes
 
-# HPA (자동 스케일링) - 이미 적용됨
-kubectl get hpa -n datapond
-```
-
-### **백업**
-
-```bash
-# 데이터베이스 백업
-bash scripts/backup.sh
-
-# 복원
-bash scripts/restore.sh <backup-file>
-```
+| Feature | Docker Compose | Kubernetes |
+|---------|----------------|------------|
+| Deployment Time | 30 min (manual) | 5 min (automated) |
+| Auto-scaling | ❌ Manual | ✅ Automatic (HPA) |
+| High Availability | ❌ Single point | ✅ Multi-replica |
+| Zero-downtime Deploy | ❌ | ✅ Rolling update |
+| Auto Recovery | ❌ | ✅ Self-healing |
+| Monitoring | Manual setup | Integrated (Prometheus) |
+| Rollback | Difficult | One command |
+| Scalability | Limited | Unlimited |
 
 ---
 
-## 🐛 트러블슈팅
+## 🚦 Roadmap
 
-### **Pod가 시작하지 않음**
+### Phase 1: Single Node (Current)
+- ✅ K3s deployment
+- ✅ All services running
+- ✅ Development/testing ready
 
-```bash
-# 로그 확인
-kubectl logs <pod-name> -n datapond
+### Phase 2: 3-Node Cluster (3-6 months)
+- [ ] Multi-node setup
+- [ ] True high availability
+- [ ] Production deployment
 
-# 이벤트 확인
-kubectl describe pod <pod-name> -n datapond
-
-# 전체 상태
-kubectl get events -n datapond --sort-by='.lastTimestamp'
-```
-
-### **Ingress 접근 불가**
-
-```bash
-# Ingress 상태
-kubectl get ingress -n datapond
-
-# Traefik 로그 (K3s 기본)
-kubectl logs -n kube-system -l app.kubernetes.io/name=traefik
-```
-
-### **Storage 문제**
-
-```bash
-# PVC 상태
-kubectl get pvc -n datapond
-
-# PV 상태
-kubectl get pv
-```
+### Phase 3: Managed Kubernetes (6-12 months)
+- [ ] AWS EKS / GKE / AKS
+- [ ] Multi-region
+- [ ] Disaster recovery
 
 ---
 
-## 📚 추가 문서
+## 🤝 Contributing
 
-- [설치 가이드](docs/INSTALLATION.md)
-- [설정 가이드](docs/CONFIGURATION.md)
-- [운영 가이드](docs/OPERATIONS.md)
-- [트러블슈팅](docs/TROUBLESHOOTING.md)
+Contributions are welcome! Please:
 
----
-
-## 🆚 기존 버전과 비교
-
-| 항목 | 기존 (Docker Compose) | K8s 버전 |
-|------|----------------------|----------|
-| 배포 시간 | 수동, 10-30분 | 자동, 5분 |
-| 스케일링 | 수동 | 자동 (HPA) |
-| 고가용성 | ❌ | ✅ |
-| 모니터링 | 수동 설정 | 통합됨 |
-| 롤백 | 어려움 | 1-command |
-| 업데이트 | 다운타임 | 무중단 |
-| 리소스 관리 | 수동 | 자동 (Requests/Limits) |
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ---
 
-## 📞 지원
+## 📝 License
 
-문제 발생 시:
-1. `kubectl get pods -n datapond` - Pod 상태 확인
-2. `kubectl logs <pod-name> -n datapond` - 로그 확인
-3. `kubectl describe pod <pod-name> -n datapond` - 상세 정보
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-**버전**: 2.0.0-k8s  
-**최초 작성**: 2026-04-28  
-**Kubernetes 최소 버전**: 1.25+  
-**K3s 권장 버전**: 1.28+
+## 🆘 Support
+
+- 📖 **Documentation**: [docs/](docs/)
+- 🐛 **Issues**: [GitHub Issues](https://github.com/lukesgood/datapond/issues)
+- 💬 **Discussions**: [GitHub Discussions](https://github.com/lukesgood/datapond/discussions)
+
+---
+
+## 🎉 Acknowledgments
+
+- Built with [Kubernetes](https://kubernetes.io/)
+- Packaged with [Helm](https://helm.sh/)
+- Deployed on [K3s](https://k3s.io/)
+- Developed with assistance from [Claude](https://claude.ai/)
+
+---
+
+**Version**: 2.0.0-k8s  
+**Status**: ✅ Production Ready  
+**Last Updated**: 2026-04-28
+
+---
+
+<div align="center">
+  <strong>⭐ Star this repository if you find it useful!</strong>
+</div>
