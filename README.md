@@ -20,8 +20,10 @@ DataPond is a comprehensive data analytics and ML platform redesigned for cloud-
 - ✅ **High Availability**: Multi-replica services with health checks
 - ✅ **Single Ingress**: Unified routing for all services
 - ✅ **Persistent Storage**: Data persistence with PVC
+- ✅ **Apache Iceberg**: Lakehouse with Time Travel & ACID
+- ✅ **Trino SQL Engine**: Distributed analytics on Iceberg
 - ✅ **Environment Configs**: Separate dev/prod configurations
-- ✅ **Complete Documentation**: 4,000+ lines of guides
+- ✅ **Complete Documentation**: 5,000+ lines of guides
 
 ---
 
@@ -59,8 +61,10 @@ DataPond is a comprehensive data analytics and ML platform redesigned for cloud-
 | **Notebooks** | Interactive analysis | JupyterLab |
 | **ML Tracking** | Experiment tracking | MLflow 2.10 |
 | **Storage** | Object storage | SeaweedFS (S3 API) |
+| **Lakehouse** | ACID transactions | Apache Iceberg 1.4+ |
+| **SQL Analytics** | Distributed SQL | Trino (Iceberg) |
 | **Workflow** | Orchestration | Airflow 2.8 |
-| **Processing** | Distributed compute | Spark 3.5 |
+| **Processing** | Distributed compute | Spark 3.5 (Iceberg) |
 
 ---
 

@@ -18,6 +18,8 @@
 - ✅ 프로메테우스 모니터링 준비
 - ✅ 단일 Ingress 라우팅
 - ✅ 영구 스토리지 (PV/PVC)
+- ✅ Apache Iceberg 레이크하우스 (Time Travel, ACID)
+- ✅ Trino SQL 분석 엔진
 
 ---
 
@@ -48,6 +50,7 @@
 │       ├── seaweedfs-deployment.yaml       # SeaweedFS (S3 Storage)
 │       ├── airflow-deployment.yaml     # Airflow (Webserver + Scheduler)
 │       ├── spark-statefulset.yaml      # Spark (Master + Workers)
+│       ├── trino-deployment.yaml       # Trino (Iceberg SQL Analytics)
 │       └── ingress.yaml                # Ingress (단일 진입점)
 │
 ├── k8s/                                # Raw Kubernetes Manifests
@@ -130,12 +133,13 @@ http://datapond.local
 | JupyterLab | Deployment | 1 | 1 CPU, 2Gi RAM, 20Gi Storage |
 | MLflow | Deployment | 1 | 500m CPU, 1Gi RAM, 20Gi Storage |
 | SeaweedFS | StatefulSet | 1-3 | 500m CPU, 1Gi RAM, 100Gi Storage |
+| Trino (Iceberg) | Deployment | 1 | 1 CPU, 2Gi RAM, 50Gi Storage |
 | Airflow Webserver | Deployment | 2 | 500m CPU, 1Gi RAM |
 | Airflow Scheduler | Deployment | 1 | 500m CPU, 1Gi RAM, 20Gi Storage |
 | Spark Master | StatefulSet | 1 | 1 CPU, 2Gi RAM |
 | Spark Workers | StatefulSet | 2 | 2 CPU, 4Gi RAM (each) |
 
-**총 리소스**: ~12 CPU, ~20GB RAM, ~215GB Storage
+**총 리소스**: ~13 CPU, ~22GB RAM, ~265GB Storage
 
 ### **네트워킹**
 

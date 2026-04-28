@@ -50,6 +50,11 @@
     │   │                          │                 │  ┌─────────────┐     │   │
     │   │                          │                 │  │   Spark     │     │   │
     │   │                          │                 │  │ Master+Work │     │   │
+    │   │                          │                 │  └──────┬──────┘     │   │
+    │   │                          │                 │         │            │   │
+    │   │                          │                 │  ┌──────▼──────┐     │   │
+    │   │                          │                 │  │    Trino    │     │   │
+    │   │                          │                 │  │  (Iceberg)  │     │   │
     │   │                          │                 │  └─────────────┘     │   │
     │   │                          │                 └───────────────────────┘   │
     │   │                          │                                             │
@@ -72,6 +77,12 @@
     │   │  │  ┃   PVC   ┃  ┃  PVC   ┃  ┃  PVC   ┃  ┃  PVC   ┃  │              │
     │   │  │  ┃  50Gi   ┃  ┃ 100Gi  ┃  ┃  20Gi  ┃  ┃  20Gi  ┃  │              │
     │   │  │  ┗━━━━━━━━━┛  ┗━━━━━━━━┛  ┗━━━━━━━━┛  ┗━━━━━━━━┛  │              │
+    │   │  │                                                      │              │
+    │   │  │  ┏━━━━━━━━━━━━━━━━━━┓                               │              │
+    │   │  │  ┃ Iceberg Warehouse┃  (Lakehouse)                  │              │
+    │   │  │  ┃      PVC         ┃                               │              │
+    │   │  │  ┃      50Gi        ┃                               │              │
+    │   │  │  ┗━━━━━━━━━━━━━━━━━━┛                               │              │
     │   │  └──────────────────────────────────────────────────────┘              │
     │   └──────────────────────────────────────────────────────────────────────┘
     └──────────────────────────────────────────────────────────────────────────┘
@@ -709,5 +720,156 @@ Metrics collected:
 
 ---
 
-**문서 버전**: 1.0  
-**최종 수정**: 2026-04-28
+### 5. Iceberg Lakehouse 데이터 흐름
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              Iceberg Lakehouse Architecture                     │
+└─────────────────────────────────────────────────────────────────┘
+
+Step 1: 데이터 수집 (Spark)
+┌─────────────┐
+│  Data Source│
+│  (Raw Data) │
+└──────┬──────┘
+       │ Ingest
+       ▼
+┌─────────────┐
+│   Spark     │
+│   Workers   │
+└──────┬──────┘
+       │ Write Iceberg Table
+       ▼
+┌───────────────────────────────────────────────────────────┐
+│            Apache Iceberg Table Format                    │
+│                                                           │
+│  ┌────────────────────────────────────────────┐         │
+│  │  Catalog (PostgreSQL)                      │         │
+│  │  - Table Schema                            │         │
+│  │  - Partition Spec                          │         │
+│  │  - Snapshot Metadata                       │         │
+│  └────────────────┬───────────────────────────┘         │
+│                   │                                      │
+│  ┌────────────────▼───────────────────────────┐         │
+│  │  Manifest Files (SeaweedFS S3)             │         │
+│  │  - Data file locations                     │         │
+│  │  - Statistics (min/max/null counts)        │         │
+│  └────────────────┬───────────────────────────┘         │
+│                   │                                      │
+│  ┌────────────────▼───────────────────────────┐         │
+│  │  Data Files (Parquet/ORC)                  │         │
+│  │  s3://iceberg/warehouse/db/table/          │         │
+│  │    - data/                                 │         │
+│  │      - 00001-1-abcd1234.parquet            │         │
+│  │      - 00002-1-efgh5678.parquet            │         │
+│  └────────────────────────────────────────────┘         │
+└───────────────────────────────────────────────────────────┘
+
+Step 2: 데이터 분석 (Trino)
+┌─────────────┐
+│   Analyst   │
+│   (User)    │
+└──────┬──────┘
+       │ SQL Query
+       ▼
+┌─────────────┐
+│    Trino    │
+│  Coordinator│
+└──────┬──────┘
+       │ Read Iceberg Metadata
+       ▼
+┌──────────────────┐
+│  Iceberg Catalog │
+│   (PostgreSQL)   │
+└──────┬───────────┘
+       │ Get manifest list
+       ▼
+┌──────────────────┐
+│ Manifest Files   │
+│   (SeaweedFS)    │
+└──────┬───────────┘
+       │ Get data file locations
+       ▼
+┌──────────────────┐
+│  Parquet Files   │
+│   (SeaweedFS S3) │
+└──────┬───────────┘
+       │ Scan & Filter
+       ▼
+┌──────────────────┐
+│  Query Result    │
+│  (to User)       │
+└──────────────────┘
+
+Step 3: Time Travel (과거 데이터 조회)
+┌─────────────┐
+│   JupyterLab│
+│   (PySpark) │
+└──────┬──────┘
+       │ SELECT * FROM table FOR VERSION AS OF <snapshot-id>
+       ▼
+┌──────────────────────────────────────────────────────────┐
+│           Iceberg Snapshot History                       │
+│                                                          │
+│  Snapshot 3 (current)  ← HEAD                           │
+│      │                                                   │
+│      │ Schema v3: [id, name, email, created_at]         │
+│      │ Files: [00003.parquet, 00004.parquet]            │
+│      │                                                   │
+│  Snapshot 2            ← Time Travel Target            │
+│      │                                                   │
+│      │ Schema v2: [id, name, email]                     │
+│      │ Files: [00002.parquet]                           │
+│      │                                                   │
+│  Snapshot 1 (initial)                                   │
+│      │                                                   │
+│      │ Schema v1: [id, name]                            │
+│      │ Files: [00001.parquet]                           │
+└──────────────────────────────────────────────────────────┘
+       │ Read Snapshot 2 metadata
+       ▼
+┌──────────────────┐
+│ Historical Data  │
+│ (Snapshot 2)     │
+└──────────────────┘
+
+Step 4: 통합 워크플로우 (Airflow → Spark → Iceberg → Trino)
+┌─────────────┐
+│  Airflow    │
+│  Scheduler  │
+└──────┬──────┘
+       │ Trigger DAG
+       ▼
+┌─────────────┐
+│  Spark Job  │
+│  (ETL)      │
+└──────┬──────┘
+       │ 1. Extract from PostgreSQL
+       │ 2. Transform (cleaning, aggregation)
+       │ 3. Load into Iceberg table
+       ▼
+┌──────────────────┐
+│ Iceberg Table    │
+│ analytics.events │
+└──────┬───────────┘
+       │ Query via Trino
+       ▼
+┌──────────────────┐
+│   Dashboard      │
+│   (Frontend)     │
+└──────────────────┘
+
+Iceberg Benefits:
+  ✅ ACID Transactions - No partial writes
+  ✅ Time Travel - Query historical data
+  ✅ Schema Evolution - Add/rename columns without rewrite
+  ✅ Partition Evolution - Change partitioning without data migration
+  ✅ Hidden Partitioning - Automatic partition pruning
+  ✅ Snapshot Isolation - Concurrent reads/writes
+```
+
+---
+
+**문서 버전**: 1.1  
+**최종 수정**: 2026-04-28  
+**변경 사항**: Trino/Iceberg Lakehouse 아키텍처 추가

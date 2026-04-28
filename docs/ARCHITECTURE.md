@@ -389,6 +389,125 @@ mlflow-artifacts/        # MLflow 실험 결과
 
 ---
 
+#### Trino (SQL Analytics with Iceberg)
+
+**역할**: 분산 SQL 쿼리 엔진 및 Apache Iceberg 테이블 관리
+
+**기술 스택**:
+- Trino (formerly PrestoSQL)
+- Apache Iceberg 1.4+ (Table Format)
+- PostgreSQL JDBC Catalog
+- S3-compatible storage (SeaweedFS)
+
+**배포 구성**:
+```yaml
+Type: Deployment
+Replicas: 1 (coordinator)
+Resources:
+  CPU: 1000m (request) / 2000m (limit)
+  Memory: 2Gi (request) / 4Gi (limit)
+Port: 8080
+Persistence: 50Gi (Iceberg warehouse)
+```
+
+**주요 기능**:
+- Apache Iceberg 테이블 생성/관리
+- ACID 트랜잭션 지원
+- Time Travel 쿼리
+- 스키마 진화 (Schema Evolution)
+- 파티션 관리
+- 페더레이션 쿼리 (PostgreSQL + Iceberg)
+
+**Iceberg Catalog 구성**:
+```yaml
+Catalog Type: JDBC (PostgreSQL)
+Database: iceberg_catalog
+Warehouse Location: s3a://iceberg/warehouse
+Storage: SeaweedFS S3 API
+```
+
+**접속**:
+- Web UI: `/trino`
+- CLI: `trino --server http://trino:8080`
+
+**Iceberg 테이블 구조 예시**:
+```sql
+-- 테이블 생성
+CREATE TABLE iceberg.analytics.events (
+    event_id BIGINT,
+    user_id VARCHAR,
+    event_type VARCHAR,
+    timestamp TIMESTAMP,
+    properties JSON
+) WITH (
+    format = 'PARQUET',
+    partitioning = ARRAY['day(timestamp)']
+);
+
+-- Time Travel 쿼리
+SELECT * FROM iceberg.analytics.events 
+FOR VERSION AS OF 12345;
+
+-- 스키마 진화
+ALTER TABLE iceberg.analytics.events 
+ADD COLUMN user_agent VARCHAR;
+```
+
+**통신**:
+- PostgreSQL (Iceberg catalog metadata)
+- SeaweedFS S3 (데이터 파일 저장)
+- Spark (Iceberg 테이블 읽기/쓰기)
+- JupyterLab (Iceberg 데이터 분석)
+
+**Iceberg Lakehouse 아키텍처**:
+```
+┌─────────────────────────────────────────┐
+│         Trino (SQL Interface)           │
+│     - Query Engine                      │
+│     - Table Management                  │
+└──────────────┬──────────────────────────┘
+               │
+┌──────────────▼──────────────────────────┐
+│    Apache Iceberg Table Format          │
+│  ┌────────────────────────────────┐    │
+│  │  Metadata Layer                │    │
+│  │  - Schema                      │    │
+│  │  - Partitioning                │    │
+│  │  - Snapshots (Time Travel)     │    │
+│  └──────────────┬─────────────────┘    │
+│                 │                       │
+│  ┌──────────────▼─────────────────┐    │
+│  │  Data Layer (Parquet/ORC)      │    │
+│  │  - Columnar Storage            │    │
+│  │  - Compression                 │    │
+│  └────────────────────────────────┘    │
+└──────────────┬──────────────────────────┘
+               │
+┌──────────────▼──────────────────────────┐
+│      SeaweedFS S3 Storage               │
+│  s3://iceberg/warehouse/                │
+│    ├── analytics/                       │
+│    │   └── events/                      │
+│    │       ├── data/ (Parquet files)    │
+│    │       └── metadata/ (snapshots)    │
+│    └── staging/                         │
+└─────────────────────────────────────────┘
+```
+
+**Iceberg + Spark 통합**:
+- Spark는 Iceberg 테이블에 직접 읽기/쓰기 가능
+- JupyterLab에서 PySpark를 통한 Iceberg 데이터 분석
+- MLflow 실험 결과를 Iceberg 테이블로 저장
+
+**사용 사례**:
+1. **데이터 레이크하우스**: 구조화/반구조화 데이터 통합 저장
+2. **Time Travel**: 과거 시점 데이터 조회 및 롤백
+3. **스키마 진화**: 무중단 스키마 변경
+4. **대용량 분석**: 페타바이트급 데이터 분산 쿼리
+5. **데이터 버전 관리**: Git-like 데이터 스냅샷 관리
+
+---
+
 ### 3. Data Layer (데이터 계층)
 
 #### PostgreSQL

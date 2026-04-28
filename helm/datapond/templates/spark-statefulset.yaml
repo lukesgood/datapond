@@ -37,6 +37,38 @@ spec:
           value: "no"
         - name: SPARK_RPC_ENCRYPTION_ENABLED
           value: "no"
+        # Iceberg configurations
+        - name: SPARK_JARS_PACKAGES
+          value: "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.3,org.apache.hadoop:hadoop-aws:3.3.4,software.amazon.awssdk:bundle:2.20.18,software.amazon.awssdk:url-connection-client:2.20.18"
+        - name: SPARK_SQL_EXTENSIONS
+          value: "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+        - name: SPARK_SQL_CATALOG_ICEBERG
+          value: "org.apache.iceberg.spark.SparkCatalog"
+        - name: SPARK_SQL_CATALOG_ICEBERG_TYPE
+          value: "hadoop"
+        - name: SPARK_SQL_CATALOG_ICEBERG_WAREHOUSE
+          value: "s3a://iceberg/warehouse"
+        - name: SPARK_SQL_CATALOG_ICEBERG_IO_IMPL
+          value: "org.apache.iceberg.aws.s3.S3FileIO"
+        # S3 configurations
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_USER
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_PASSWORD
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: SPARK_HADOOP_FS_S3A_ENDPOINT
+          value: "http://seaweedfs-s3:8333"
+        - name: SPARK_HADOOP_FS_S3A_PATH_STYLE_ACCESS
+          value: "true"
+        - name: SPARK_HADOOP_FS_S3A_IMPL
+          value: "org.apache.hadoop.fs.s3a.S3AFileSystem"
         resources:
           requests:
             cpu: {{ .Values.spark.master.resources.requests.cpu }}
@@ -101,6 +133,25 @@ spec:
           value: "no"
         - name: SPARK_RPC_ENCRYPTION_ENABLED
           value: "no"
+        # Iceberg configurations (same as master)
+        - name: SPARK_JARS_PACKAGES
+          value: "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.3,org.apache.hadoop:hadoop-aws:3.3.4,software.amazon.awssdk:bundle:2.20.18,software.amazon.awssdk:url-connection-client:2.20.18"
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_USER
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_PASSWORD
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: SPARK_HADOOP_FS_S3A_ENDPOINT
+          value: "http://seaweedfs-s3:8333"
+        - name: SPARK_HADOOP_FS_S3A_PATH_STYLE_ACCESS
+          value: "true"
         {{- range .Values.spark.worker.env }}
         - name: {{ .name }}
           value: {{ .value | quote }}

@@ -67,6 +67,11 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: POSTGRES_DB
+        # Iceberg catalog connection
+        - name: ICEBERG_CATALOG_URI
+          value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/iceberg_catalog"
+        - name: ICEBERG_WAREHOUSE
+          value: "s3a://iceberg/warehouse"
         resources:
           requests:
             cpu: {{ .Values.backend.resources.requests.cpu }}

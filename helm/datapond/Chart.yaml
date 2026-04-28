@@ -1,12 +1,15 @@
 apiVersion: v2
 name: datapond
-description: A comprehensive data platform with ML, notebooks, and workflow orchestration
+description: A comprehensive data lakehouse platform with Apache Iceberg, Trino, ML, and workflow orchestration
 type: application
-version: 2.0.0
-appVersion: "2.0.0"
+version: 2.1.0
+appVersion: "2.1.0"
 
 keywords:
   - data-platform
+  - lakehouse
+  - apache-iceberg
+  - trino
   - jupyter
   - mlflow
   - airflow

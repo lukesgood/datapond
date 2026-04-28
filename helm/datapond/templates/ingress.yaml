@@ -95,4 +95,15 @@ spec:
             port:
               number: 8888
       {{- end }}
+
+      {{- if .Values.trino.enabled }}
+      # Trino (SQL Analytics)
+      - path: /trino
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Values.trino.name }}
+            port:
+              number: {{ .Values.trino.service.port }}
+      {{- end }}
 {{- end }}

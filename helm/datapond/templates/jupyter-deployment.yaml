@@ -28,6 +28,21 @@ spec:
         - --NotebookApp.base_url=/jupyter
         - --NotebookApp.allow_origin='*'
         env:
+        - name: JUPYTER_ENABLE_LAB
+          value: "yes"
+        # Iceberg Python library
+        - name: SPARK_JARS_PACKAGES
+          value: "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.3,org.apache.hadoop:hadoop-aws:3.3.4"
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_USER
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_PASSWORD
         {{- range .Values.jupyter.env }}
         - name: {{ .name }}
           value: {{ .value | quote }}
@@ -43,12 +58,17 @@ spec:
         volumeMounts:
         - name: jupyter-data
           mountPath: /home/jovyan/work
+        - name: iceberg-warehouse
+          mountPath: /opt/iceberg/warehouse
         {{- end }}
       {{- if .Values.jupyter.persistence.enabled }}
       volumes:
       - name: jupyter-data
         persistentVolumeClaim:
           claimName: jupyter-pvc
+      - name: iceberg-warehouse
+        persistentVolumeClaim:
+          claimName: iceberg-warehouse-pvc
       {{- end }}
 ---
 apiVersion: v1
