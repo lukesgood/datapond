@@ -30,9 +30,9 @@ spec:
         env:
         - name: JUPYTER_ENABLE_LAB
           value: "yes"
-        # Iceberg Python library
-        - name: SPARK_JARS_PACKAGES
-          value: "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.3,org.apache.hadoop:hadoop-aws:3.3.4"
+        # SeaweedFS S3 Configuration (for DuckDB)
+        - name: SEAWEEDFS_S3_ENDPOINT
+          value: "http://seaweedfs-s3:8333"
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
@@ -43,6 +43,11 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: SEAWEEDFS_S3_PASSWORD
+        - name: AWS_REGION
+          value: "us-east-1"
+        # Iceberg Python library
+        - name: SPARK_JARS_PACKAGES
+          value: "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.3,org.apache.hadoop:hadoop-aws:3.3.4"
         {{- range .Values.jupyter.env }}
         - name: {{ .name }}
           value: {{ .value | quote }}
