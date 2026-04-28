@@ -42,8 +42,9 @@ DataPond 프로젝트는 **AI Agent 팀**으로 관리됩니다. PM Agent가 리
 
 ## 📋 Agent 프로필
 
-### PM Agent (Project Manager)
+### PM Agent (Project Manager) 🎯
 - **파일**: `.claude/agents/pm-agent.md`
+- **모델**: Claude Opus 4.7 (전략적 의사결정)
 - **역할**: 프로젝트 전체 리드, 우선순위 결정, Sub-Agent 조정
 - **책임**: 
   - 전략적 방향 설정
@@ -52,8 +53,9 @@ DataPond 프로젝트는 **AI Agent 팀**으로 관리됩니다. PM Agent가 리
   - Sub-Agent 작업 할당 및 검토
 - **권한**: 모든 결정권
 
-### Architecture Agent
+### Architecture Agent 🏗️
 - **파일**: `.claude/agents/architecture-agent.md`
+- **모델**: Claude Opus 4.7 (복잡한 시스템 설계)
 - **역할**: 시스템 설계, 기술 선택, 아키텍처 의사결정
 - **책임**:
   - 전체 아키텍처 설계
@@ -62,8 +64,20 @@ DataPond 프로젝트는 **AI Agent 팀**으로 관리됩니다. PM Agent가 리
   - 성능/확장성/보안 설계
 - **보고**: PM Agent
 
-### Backend Agent
+### ML Consultant Agent 🤖
+- **파일**: `.claude/agents/ml-consultant-agent.md`
+- **모델**: Claude Opus 4.7 (ML 전략 및 페르소나 분석)
+- **역할**: ML/Data Science 제품 컨설팅, 워크플로우 최적화
+- **책임**:
+  - Data Scientist 페르소나 대변
+  - ML 기능 우선순위 제안
+  - AutoML, Feature Store 등 설계
+  - 경쟁사 비교 분석
+- **보고**: PM Agent
+
+### Backend Agent ⚙️
 - **파일**: `.claude/agents/backend-agent.md`
+- **모델**: Claude Sonnet 4.6 (코드 구현)
 - **역할**: FastAPI 구현, API 설계, 서비스 통합
 - **책임**:
   - FastAPI 애플리케이션 구현
@@ -72,19 +86,9 @@ DataPond 프로젝트는 **AI Agent 팀**으로 관리됩니다. PM Agent가 리
   - 데이터베이스 모델 및 마이그레이션
 - **보고**: PM Agent
 
-### Design Agent (NEW!)
-- **파일**: `.claude/agents/design-agent.md`
-- **역할**: UI/UX 디자인, Design System, 사용자 경험
-- **책임**:
-  - 사용자 리서치 및 페르소나
-  - 와이어프레임 및 프로토타입
-  - 시각 디자인 (Figma)
-  - Design System 구축
-  - 접근성 (WCAG 2.1 AA)
-- **보고**: PM Agent
-
-### Frontend Agent
+### Frontend Agent 🎨
 - **파일**: `.claude/agents/frontend-agent.md`
+- **모델**: Claude Sonnet 4.6 (코드 구현)
 - **역할**: Next.js/React 구현 (Design Agent의 디자인 구현)
 - **책임**:
   - Next.js 애플리케이션 구현
@@ -94,8 +98,21 @@ DataPond 프로젝트는 **AI Agent 팀**으로 관리됩니다. PM Agent가 리
 - **보고**: PM Agent
 - **협업**: Design Agent (디자인 검토)
 
-### DevOps Agent
+### Design Agent 💎
+- **파일**: `.claude/agents/design-agent.md`
+- **모델**: Claude Sonnet 4.6 (디자인 작업)
+- **역할**: UI/UX 디자인, Design System, 사용자 경험
+- **책임**:
+  - 사용자 리서치 및 페르소나
+  - 와이어프레임 및 프로토타입
+  - 시각 디자인 (Figma)
+  - Design System 구축
+  - 접근성 (WCAG 2.1 AA)
+- **보고**: PM Agent
+
+### DevOps Agent 🚀
 - **파일**: `.claude/agents/devops-agent.md`
+- **모델**: Claude Sonnet 4.6 (인프라 코드)
 - **역할**: Kubernetes 배포, CI/CD, 운영
 - **책임**:
   - Helm Chart 관리
@@ -104,7 +121,8 @@ DataPond 프로젝트는 **AI Agent 팀**으로 관리됩니다. PM Agent가 리
   - 모니터링/로깅
 - **보고**: PM Agent
 
-### Data Engineering Agent
+### Data Engineering Agent 📊
+- **모델**: Claude Sonnet 4.6 (데이터 파이프라인)
 - **역할**: Spark/Iceberg/Trino 작업, ETL 파이프라인
 - **책임**:
   - Spark job 구현
@@ -112,21 +130,14 @@ DataPond 프로젝트는 **AI Agent 팀**으로 관리됩니다. PM Agent가 리
   - Airflow DAG 작성
   - 데이터 품질 관리
 
-### AI/ML Agent
+### AI/ML Agent 🧠
+- **모델**: Claude Sonnet 4.6 (ML 구현)
 - **역할**: LiteLLM 통합, AI 기능, MLflow
 - **책임**:
   - AI Assistant 기능 (SQL 생성, 코드 수정)
   - LiteLLM 설정 및 최적화
   - MLflow 실험 추적
   - 모델 배포
-
-### Documentation Agent
-- **역할**: 기술 문서, 사용자 가이드, 블로그
-- **책임**:
-  - README, 설치 가이드
-  - API 문서
-  - 사용자 매뉴얼
-  - 블로그 포스트
 
 ## 🔄 워크플로우
 

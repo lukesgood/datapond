@@ -1,6 +1,6 @@
 ---
 name: PM Agent
-model: claude-sonnet-4-6
+model: claude-opus-4-7
 ---
 
 # DataPond Project Manager Agent
