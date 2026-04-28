@@ -25,19 +25,19 @@ DataPond 프로젝트는 **AI Agent 팀**으로 관리됩니다. PM Agent가 리
 └───────┬────────┘                       └────────┬────────┘
         │                                         │
 ┌───────┴────────┐                       ┌────────┴────────┐
-│   Frontend     │                       │    DevOps       │
+│    Design      │                       │    DevOps       │
+│  (UI/UX) Agent │                       │     Agent       │
+└───────┬────────┘                       └────────┬────────┘
+        │                                         │
+┌───────┴────────┐                       ┌────────┴────────┐
+│   Frontend     │                       │    AI/ML        │
 │     Agent      │                       │     Agent       │
 └───────┬────────┘                       └────────┬────────┘
         │                                         │
 ┌───────┴────────┐                       ┌────────┴────────┐
-│ Data Engineer  │                       │    AI/ML        │
+│ Data Engineer  │                       │ Documentation   │
 │     Agent      │                       │     Agent       │
 └────────────────┘                       └─────────────────┘
-        │
-┌───────┴────────┐
-│ Documentation  │
-│     Agent      │
-└────────────────┘
 ```
 
 ## 📋 Agent 프로필
@@ -72,15 +72,27 @@ DataPond 프로젝트는 **AI Agent 팀**으로 관리됩니다. PM Agent가 리
   - 데이터베이스 모델 및 마이그레이션
 - **보고**: PM Agent
 
+### Design Agent (NEW!)
+- **파일**: `.claude/agents/design-agent.md`
+- **역할**: UI/UX 디자인, Design System, 사용자 경험
+- **책임**:
+  - 사용자 리서치 및 페르소나
+  - 와이어프레임 및 프로토타입
+  - 시각 디자인 (Figma)
+  - Design System 구축
+  - 접근성 (WCAG 2.1 AA)
+- **보고**: PM Agent
+
 ### Frontend Agent
 - **파일**: `.claude/agents/frontend-agent.md`
-- **역할**: Next.js/React 구현, UI/UX
+- **역할**: Next.js/React 구현 (Design Agent의 디자인 구현)
 - **책임**:
   - Next.js 애플리케이션 구현
-  - UI 컴포넌트 개발
+  - UI 컴포넌트 개발 (Design Agent 디자인 기반)
   - API 클라이언트
-  - 사용자 경험 최적화
+  - 반응형 구현
 - **보고**: PM Agent
+- **협업**: Design Agent (디자인 검토)
 
 ### DevOps Agent
 - **파일**: `.claude/agents/devops-agent.md`
