@@ -315,3 +315,36 @@ risingwave:
       limits:
         cpu: 2000m
         memory: 4Gi
+
+# OpenMetadata - Production cluster
+openmetadata:
+  enabled: true
+  server:
+    replicas: 2  # High availability
+    resources:
+      requests:
+        cpu: 2000m
+        memory: 4Gi
+      limits:
+        cpu: 4000m
+        memory: 8Gi
+    javaOpts:
+      xms: "2048m"
+      xmx: "4096m"
+  elasticsearch:
+    replicas: 3  # Cluster mode
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 4Gi
+      limits:
+        cpu: 2000m
+        memory: 8Gi
+    javaOpts:
+      xms: "2g"
+      xmx: "4g"
+    persistence:
+      size: 200Gi
+  auth:
+    provider: "custom-oidc"  # Use SSO in production
+    adminPassword: "CHANGE_THIS_OPENMETADATA_PASSWORD"  # CHANGE THIS!

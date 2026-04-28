@@ -61,6 +61,7 @@ kubectl get pods -n datapond -w
 | **Airflow** | http://datapond.local/airflow | admin / admin |
 | **Spark UI** | http://datapond.local/spark | - |
 | **RisingWave Dashboard** | http://datapond.local/risingwave | - |
+| **OpenMetadata** | http://datapond.local/openmetadata | - |
 | **SeaweedFS Console** | http://datapond.local/seaweedfs-console | seaweedfsadmin / seaweedfsadmin |
 
 ---

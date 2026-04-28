@@ -1,7 +1,7 @@
 # DataPond 실습 가이드 (Hands-on Lab)
 
-**버전**: 2.1.0  
-**소요 시간**: 60-90분  
+**버전**: 2.3.0  
+**소요 시간**: 90-120분  
 **난이도**: 초급~중급
 
 ---
@@ -17,6 +17,7 @@
 7. [Lab 6: Airflow 워크플로우](#lab-6-airflow-워크플로우)
 8. [Lab 7: 종합 프로젝트](#lab-7-종합-프로젝트)
 9. [Lab 8: RisingWave 실시간 스트리밍](#lab-8-risingwave-실시간-스트리밍)
+10. [Lab 9: OpenMetadata 데이터 카탈로그](#lab-9-openmetadata-데이터-카탈로그)
 
 ---
 
@@ -1389,6 +1390,336 @@ rw_conn.close()
 
 ---
 
+## Lab 9: OpenMetadata 데이터 카탈로그
+
+### 목표
+OpenMetadata로 데이터 디스커버리, Lineage 추적, 데이터 품질 관리
+
+### 배경
+OpenMetadata는 중앙집중식 데이터 카탈로그로, 모든 데이터 자산을 한 곳에서 관리하고 협업할 수 있게 합니다.
+
+### 단계
+
+#### 9.1 OpenMetadata 접속
+
+```bash
+# 브라우저에서 접속
+http://datapond.local/openmetadata
+
+# 로그인 (no-auth 모드)
+# 바로 접속 가능
+```
+
+#### 9.2 데이터 소스 연결
+
+**Trino 연결:**
+
+```
+1. Settings → Services → Databases → Add Service
+2. Select Service Type: Trino
+3. 설정:
+   - Name: datapond-trino
+   - Host: trino
+   - Port: 8080
+   - Username: trino
+   - Catalog: iceberg
+   - Database Schema: analytics
+4. Test Connection → Save
+```
+
+**PostgreSQL 연결:**
+
+```
+1. Add Service → Postgres
+2. 설정:
+   - Name: datapond-postgres
+   - Host: postgres
+   - Port: 5432
+   - Database: datapond
+   - Username: datapond
+   - Password: datapond_password
+3. Test Connection → Save
+```
+
+**Airflow 연결:**
+
+```
+1. Settings → Services → Pipelines → Add Service
+2. Select Service Type: Airflow
+3. 설정:
+   - Name: datapond-airflow
+   - Host: http://airflow:8080
+   - Username: admin
+   - Password: admin
+4. Test Connection → Save
+```
+
+#### 9.3 메타데이터 수집 (Ingestion)
+
+```
+1. 각 Service로 이동
+2. Ingestions 탭 → Add Ingestion
+3. Metadata Ingestion:
+   - Name: daily-metadata-ingestion
+   - Database Filter Pattern: .*
+   - Schema Filter Pattern: (analytics|public)
+   - Table Filter Pattern: .*
+   - Include Views: Yes
+   - Include Tags: Yes
+4. Schedule:
+   - Schedule Type: Scheduled
+   - Cron: 0 2 * * * (매일 새벽 2시)
+5. Deploy & Run
+```
+
+**즉시 실행:**
+
+```
+Ingestion 목록에서 "Run Now" 클릭
+Status: Running → Success 확인 (1-5분 소요)
+```
+
+#### 9.4 데이터 탐색
+
+```
+1. Explore → Tables
+2. 검색창에 "users" 입력
+3. 테이블 선택 → 메타데이터 확인:
+   - Schema (컬럼, 데이터 타입)
+   - Sample Data (샘플 행)
+   - Table Profile (통계)
+   - Lineage (데이터 흐름)
+```
+
+**고급 검색:**
+
+```
+# 태그로 필터링
+tag:PII
+
+# 데이터베이스로 필터링
+database:iceberg.analytics
+
+# 컬럼 이름으로 검색
+column:email
+
+# 설명으로 검색
+description:customer
+```
+
+#### 9.5 Lineage 확인
+
+**Lab 7에서 생성한 테이블의 Lineage:**
+
+```
+1. Explore → Tables → iceberg.analytics.web_events
+2. Lineage 탭 클릭
+3. 그래프 확인:
+   - Upstream: raw_events (PostgreSQL)
+   - Current: web_events (Iceberg)
+   - Downstream: hourly_stats (Iceberg)
+   - Dashboard: analytics_dashboard
+```
+
+**Lineage 확대/축소:**
+
+```
+- 마우스 휠로 확대/축소
+- 노드 클릭으로 상세 정보 확인
+- "Expand All" 버튼으로 전체 그래프 펼치기
+```
+
+#### 9.6 데이터 품질 테스트
+
+**테이블 품질 테스트 추가:**
+
+```
+1. Explore → Tables → iceberg.analytics.users
+2. Profiler & Data Quality 탭
+3. Add Test:
+
+   Test 1: Row Count 확인
+   - Test Type: Table Row Count To Be Between
+   - Min Value: 100
+   - Max Value: 10000000
+   - Severity: Critical
+
+   Test 2: Email NULL 체크
+   - Test Type: Column Values To Be Not Null
+   - Column: email
+   - Severity: Critical
+
+   Test 3: Age 범위 체크
+   - Test Type: Column Values To Be Between
+   - Column: age
+   - Min: 0
+   - Max: 120
+   - Severity: Warning
+
+   Test 4: Country 코드 체크
+   - Test Type: Column Values To Be In Set
+   - Column: country
+   - Allowed Values: ["KR", "US", "JP", "CN"]
+   - Severity: Error
+
+4. Run Test → 결과 확인
+```
+
+**API로 테스트 실행:**
+
+```bash
+# 포트 포워딩
+kubectl port-forward -n datapond svc/openmetadata-server 8585:8585
+
+# Python에서 실행
+import requests
+
+url = "http://localhost:8585/api/v1/dataQuality/testCases"
+headers = {"Content-Type": "application/json"}
+
+# 테스트 케이스 생성
+test_case = {
+    "name": "user_count_minimum",
+    "entityLink": "<#E::table::datapond-trino.iceberg.analytics.users>",
+    "testDefinition": "tableRowCountToBeBetween",
+    "parameterValues": [
+        {"name": "minValue", "value": "100"},
+        {"name": "maxValue", "value": "10000000"}
+    ]
+}
+
+response = requests.post(url, json=test_case, headers=headers)
+print(f"Test created: {response.status_code}")
+
+# 테스트 실행
+test_id = response.json()["id"]
+run_url = f"{url}/{test_id}/execute"
+run_response = requests.post(run_url, headers=headers)
+print(f"Test executed: {run_response.json()}")
+```
+
+#### 9.7 데이터 문서화 (Collaboration)
+
+**테이블 설명 추가:**
+
+```
+1. Explore → Tables → iceberg.analytics.users
+2. Overview 탭
+3. Edit Description:
+   """
+   사용자 마스터 테이블
+   
+   ## 용도
+   - 사용자 기본 정보 저장
+   - 분석 및 ML 모델 학습에 사용
+   
+   ## 업데이트 주기
+   - 매일 새벽 2시 (Airflow DAG: user_sync)
+   
+   ## 주의사항
+   - email 컬럼은 PII 데이터
+   - GDPR 규정 준수 필요
+   """
+4. Save
+```
+
+**컬럼 설명 추가:**
+
+```
+1. Schema 탭
+2. 각 컬럼 옆 "Edit" 클릭:
+   - user_id: "고유 사용자 ID (Primary Key)"
+   - email: "사용자 이메일 주소 (PII)"
+   - created_at: "계정 생성 일시 (UTC)"
+   - country: "국가 코드 (ISO 3166-1 alpha-2)"
+```
+
+**태그 추가:**
+
+```
+1. Overview 탭 → Tags 섹션
+2. Add Tag:
+   - PII.Sensitive
+   - DataSensitivity.Confidential
+   - Domain.Customer
+```
+
+#### 9.8 용어집 (Glossary) 사용
+
+**용어집 생성:**
+
+```
+1. Govern → Glossary
+2. Add Glossary: "DataPond Business Terms"
+3. Add Term:
+   - Name: "Active User"
+   - Description: "사용자가 최근 30일 내 로그인한 경우"
+   - Synonyms: ["MAU", "Monthly Active User"]
+   - Related Terms: ["Churn", "Retention"]
+4. Add Term:
+   - Name: "Conversion Rate"
+   - Description: "방문자 중 구매한 비율"
+   - Formula: "(Purchases / Visitors) * 100"
+```
+
+**테이블에 용어 연결:**
+
+```
+1. Explore → Tables → iceberg.analytics.user_activity
+2. Overview → Glossary Terms
+3. Add Term: "Active User"
+4. Save
+```
+
+#### 9.9 데이터 소유권 설정
+
+```
+1. Explore → Tables → iceberg.analytics.users
+2. Overview → Owner
+3. Add Owner:
+   - Type: Team
+   - Select: Data Engineering
+4. Save
+
+# 이제 Data Engineering 팀이 이 테이블의 변경사항 알림을 받음
+```
+
+#### 9.10 알림 설정 (Webhook)
+
+**Slack 알림 설정:**
+
+```
+1. Settings → Integrations → Webhooks
+2. Add Webhook:
+   - Name: "data-quality-alerts"
+   - Endpoint URL: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+   - Secret Key: (optional)
+   - Event Filters:
+     ✓ Test Case Failed
+     ✓ Test Case Aborted
+     ✓ Entity Created
+     ✓ Entity Updated
+3. Test Webhook → Save
+```
+
+**Email 알림:**
+
+```
+1. Settings → Email Configuration
+2. SMTP Settings:
+   - Host: smtp.gmail.com
+   - Port: 587
+   - Username: alerts@datapond.io
+   - Password: ***
+3. Notification Settings:
+   - Data Quality Failures: ✓
+   - Ingestion Failures: ✓
+   - Daily Summary: ✓
+   - Recipients: team@datapond.io
+```
+
+---
+
 ## 🎯 실습 완료 체크리스트
 
 - [ ] Lab 1: JupyterLab에서 PostgreSQL 데이터 분석
@@ -1399,6 +1730,7 @@ rw_conn.close()
 - [ ] Lab 6: Airflow DAG 생성 및 실행
 - [ ] Lab 7: 종합 파이프라인 구축
 - [ ] Lab 8: RisingWave 실시간 스트리밍
+- [ ] Lab 9: OpenMetadata 데이터 카탈로그
 
 ---
 

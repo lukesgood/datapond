@@ -282,3 +282,33 @@ risingwave:
       limits:
         cpu: 500m
         memory: 1Gi
+
+# OpenMetadata - Minimal resources for dev
+openmetadata:
+  enabled: true
+  server:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+    javaOpts:
+      xms: "512m"
+      xmx: "1024m"
+  elasticsearch:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1Gi
+      limits:
+        cpu: 500m
+        memory: 2Gi
+    javaOpts:
+      xms: "512m"
+      xmx: "1g"
+    persistence:
+      size: 20Gi

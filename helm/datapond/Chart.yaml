@@ -1,9 +1,9 @@
 apiVersion: v2
 name: datapond
-description: A comprehensive data lakehouse platform with Apache Iceberg, Trino, RisingWave, ML, and workflow orchestration
+description: A comprehensive data lakehouse platform with Apache Iceberg, Trino, RisingWave, OpenMetadata, ML, and workflow orchestration
 type: application
-version: 2.2.0
-appVersion: "2.2.0"
+version: 2.3.0
+appVersion: "2.3.0"
 
 keywords:
   - data-platform

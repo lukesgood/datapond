@@ -1,0 +1,266 @@
+{{- if .Values.openmetadata.enabled }}
+---
+# Elasticsearch for OpenMetadata Search
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.openmetadata.name }}-elasticsearch
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.openmetadata.name }}
+    component: elasticsearch
+spec:
+  serviceName: {{ .Values.openmetadata.name }}-elasticsearch
+  replicas: {{ .Values.openmetadata.elasticsearch.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.openmetadata.name }}
+      component: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.openmetadata.name }}
+        component: elasticsearch
+    spec:
+      initContainers:
+      - name: fix-permissions
+        image: busybox
+        command: ["sh", "-c", "chown -R 1000:1000 /usr/share/elasticsearch/data"]
+        volumeMounts:
+        - name: data
+          mountPath: /usr/share/elasticsearch/data
+      - name: increase-vm-max-map
+        image: busybox
+        command: ["sysctl", "-w", "vm.max_map_count=262144"]
+        securityContext:
+          privileged: true
+      containers:
+      - name: elasticsearch
+        image: "{{ .Values.openmetadata.elasticsearch.image.repository }}:{{ .Values.openmetadata.elasticsearch.image.tag }}"
+        ports:
+        - containerPort: 9200
+          name: http
+        - containerPort: 9300
+          name: transport
+        env:
+        - name: discovery.type
+          value: "single-node"
+        - name: ES_JAVA_OPTS
+          value: "-Xms{{ .Values.openmetadata.elasticsearch.javaOpts.xms }} -Xmx{{ .Values.openmetadata.elasticsearch.javaOpts.xmx }}"
+        - name: xpack.security.enabled
+          value: "false"
+        resources:
+          requests:
+            cpu: {{ .Values.openmetadata.elasticsearch.resources.requests.cpu }}
+            memory: {{ .Values.openmetadata.elasticsearch.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.openmetadata.elasticsearch.resources.limits.cpu }}
+            memory: {{ .Values.openmetadata.elasticsearch.resources.limits.memory }}
+        volumeMounts:
+        - name: data
+          mountPath: /usr/share/elasticsearch/data
+        livenessProbe:
+          httpGet:
+            path: /_cluster/health
+            port: 9200
+          initialDelaySeconds: 90
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /_cluster/health
+            port: 9200
+          initialDelaySeconds: 60
+          periodSeconds: 5
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      {{- if .Values.openmetadata.elasticsearch.persistence.storageClass }}
+      storageClassName: {{ .Values.openmetadata.elasticsearch.persistence.storageClass }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.openmetadata.elasticsearch.persistence.size }}
+---
+# Elasticsearch Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.openmetadata.name }}-elasticsearch
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.openmetadata.name }}
+    component: elasticsearch
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+  - port: 9200
+    targetPort: 9200
+    name: http
+  - port: 9300
+    targetPort: 9300
+    name: transport
+  selector:
+    app: {{ .Values.openmetadata.name }}
+    component: elasticsearch
+---
+# OpenMetadata Server Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.openmetadata.name }}-server
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.openmetadata.name }}
+    component: server
+spec:
+  replicas: {{ .Values.openmetadata.server.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.openmetadata.name }}
+      component: server
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.openmetadata.name }}
+        component: server
+    spec:
+      initContainers:
+      - name: wait-for-db
+        image: busybox
+        command: ['sh', '-c', 'until nc -z {{ .Values.postgres.name }} {{ .Values.postgres.service.port }}; do echo waiting for postgres; sleep 2; done;']
+      - name: wait-for-elasticsearch
+        image: busybox
+        command: ['sh', '-c', 'until nc -z {{ .Values.openmetadata.name }}-elasticsearch 9200; do echo waiting for elasticsearch; sleep 2; done;']
+      containers:
+      - name: openmetadata
+        image: "{{ .Values.openmetadata.server.image.repository }}:{{ .Values.openmetadata.server.image.tag }}"
+        ports:
+        - containerPort: 8585
+          name: http
+        - containerPort: 8586
+          name: admin
+        env:
+        # Database configuration (PostgreSQL)
+        - name: DB_DRIVER_CLASS
+          value: "org.postgresql.Driver"
+        - name: DB_SCHEME
+          value: "postgresql"
+        - name: DB_HOST
+          value: "{{ .Values.postgres.name }}"
+        - name: DB_PORT
+          value: "{{ .Values.postgres.service.port }}"
+        - name: OM_DATABASE
+          value: "{{ .Values.openmetadata.database }}"
+        - name: DB_USER
+          value: "{{ .Values.postgres.auth.username }}"
+        - name: DB_USER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_PASSWORD
+        # Elasticsearch configuration
+        - name: ELASTICSEARCH_HOST
+          value: "{{ .Values.openmetadata.name }}-elasticsearch"
+        - name: ELASTICSEARCH_PORT
+          value: "9200"
+        - name: ELASTICSEARCH_SCHEME
+          value: "http"
+        - name: ELASTICSEARCH_USER
+          value: ""
+        - name: ELASTICSEARCH_PASSWORD
+          value: ""
+        # Airflow configuration (for metadata ingestion)
+        {{- if .Values.airflow.enabled }}
+        - name: AIRFLOW_HOST
+          value: "http://{{ .Values.airflow.name }}:{{ .Values.airflow.webserver.service.port }}"
+        - name: AIRFLOW_USERNAME
+          value: "{{ .Values.airflow.auth.username }}"
+        - name: AIRFLOW_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: AIRFLOW_PASSWORD
+        {{- end }}
+        # Server configuration
+        - name: SERVER_HOST_API_URL
+          value: "http://{{ .Values.global.domain }}/openmetadata/api"
+        - name: SERVER_HOST
+          value: "{{ .Values.global.domain }}"
+        - name: AUTHENTICATION_PROVIDER
+          value: "{{ .Values.openmetadata.auth.provider }}"
+        - name: AUTHORIZER_CLASS_NAME
+          value: "org.openmetadata.service.security.DefaultAuthorizer"
+        - name: AUTHORIZER_REQUEST_FILTER
+          value: "org.openmetadata.service.security.JwtFilter"
+        - name: AUTHORIZER_ADMIN_PRINCIPALS
+          value: "[admin]"
+        - name: AUTHORIZER_PRINCIPAL_DOMAIN
+          value: "{{ .Values.global.domain }}"
+        # JWT Token configuration
+        - name: RSA_PUBLIC_KEY_FILE_PATH
+          value: "/opt/openmetadata/conf/public_key.der"
+        - name: RSA_PRIVATE_KEY_FILE_PATH
+          value: "/opt/openmetadata/conf/private_key.der"
+        - name: JWT_ISSUER
+          value: "open-metadata.org"
+        - name: JWT_KEY_ID
+          value: "Gb389a-9f76-gdjs-a92j-0242bk94356"
+        # Pipeline Service Client
+        - name: PIPELINE_SERVICE_CLIENT_ENABLED
+          value: "{{ .Values.openmetadata.pipelineServiceClient.enabled }}"
+        - name: PIPELINE_SERVICE_CLIENT_CLASS_NAME
+          value: "org.openmetadata.service.clients.pipeline.airflow.AirflowRESTClient"
+        {{- if .Values.airflow.enabled }}
+        - name: PIPELINE_SERVICE_CLIENT_HOST_IP
+          value: "http://{{ .Values.airflow.name }}"
+        {{- end }}
+        # Java options
+        - name: OPENMETADATA_HEAP_OPTS
+          value: "-Xmx{{ .Values.openmetadata.server.javaOpts.xmx }} -Xms{{ .Values.openmetadata.server.javaOpts.xms }}"
+        resources:
+          requests:
+            cpu: {{ .Values.openmetadata.server.resources.requests.cpu }}
+            memory: {{ .Values.openmetadata.server.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.openmetadata.server.resources.limits.cpu }}
+            memory: {{ .Values.openmetadata.server.resources.limits.memory }}
+        livenessProbe:
+          httpGet:
+            path: /healthcheck
+            port: 8586
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthcheck
+            port: 8586
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+---
+# OpenMetadata Server Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.openmetadata.name }}-server
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.openmetadata.name }}
+    component: server
+spec:
+  type: {{ .Values.openmetadata.server.service.type }}
+  ports:
+  - port: {{ .Values.openmetadata.server.service.port }}
+    targetPort: 8585
+    name: http
+  - port: 8586
+    targetPort: 8586
+    name: admin
+  selector:
+    app: {{ .Values.openmetadata.name }}
+    component: server
+{{- end }}

@@ -329,12 +329,13 @@ git push origin feature/amazing-feature
 완료:
   - ✅ Lakehouse 아키텍처 (SeaweedFS + Iceberg + Trino)
   - ✅ 실시간 스트리밍 (RisingWave - Kafka + Flink 대체)
+  - ✅ 데이터 거버넌스 (OpenMetadata - Collibra 대안)
   - ✅ 통합 오케스트레이션 (Airflow + Spark)
   - ✅ ML 플랫폼 (MLflow + JupyterLab)
   - ✅ AI Assistant (LiteLLM 멀티모델)
   - ✅ 라이센스 안전 (Valkey → Redis 대체)
-  - ✅ 8가지 실습 Lab (RisingWave 실시간 스트리밍 포함)
-  - ✅ 5,000+ 줄 문서
+  - ✅ 9가지 실습 Lab (전체 스택 커버)
+  - ✅ 8,000+ 줄 문서
 
 진행 중 (Phase 2 - 3개월):
   - 🔄 OAuth2 + RBAC 인증

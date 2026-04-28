@@ -117,4 +117,15 @@ spec:
             port:
               number: {{ .Values.risingwave.meta.service.dashboardPort }}
       {{- end }}
+
+      {{- if .Values.openmetadata.enabled }}
+      # OpenMetadata
+      - path: /openmetadata
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Values.openmetadata.name }}-server
+            port:
+              number: {{ .Values.openmetadata.server.service.port }}
+      {{- end }}
 {{- end }}

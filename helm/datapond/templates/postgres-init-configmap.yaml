@@ -29,4 +29,10 @@ data:
     CREATE DATABASE {{ .Values.risingwave.database }};
     GRANT ALL PRIVILEGES ON DATABASE {{ .Values.risingwave.database }} TO {{ .Values.postgres.auth.username }};
     {{- end }}
+
+    {{- if .Values.openmetadata.enabled }}
+    -- OpenMetadata catalog
+    CREATE DATABASE {{ .Values.openmetadata.database }};
+    GRANT ALL PRIVILEGES ON DATABASE {{ .Values.openmetadata.database }} TO {{ .Values.postgres.auth.username }};
+    {{- end }}
 {{- end }}

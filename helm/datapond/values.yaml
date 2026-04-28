@@ -546,3 +546,72 @@ risingwave:
       limits:
         cpu: 1000m
         memory: 2Gi
+
+# OpenMetadata (Data Catalog & Lineage)
+openmetadata:
+  enabled: true
+  name: openmetadata
+
+  # PostgreSQL database for OpenMetadata metadata
+  database: openmetadata_catalog
+
+  # Authentication
+  auth:
+    provider: "no-auth"  # Options: no-auth, google, okta, auth0, azure, custom-oidc
+    adminUser: admin
+    adminPassword: admin  # CHANGE IN PRODUCTION!
+
+  # OpenMetadata Server
+  server:
+    replicas: 1
+    image:
+      repository: openmetadata/server
+      tag: "1.3.1"
+      pullPolicy: IfNotPresent
+
+    service:
+      type: ClusterIP
+      port: 8585
+
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+
+    # Java heap settings
+    javaOpts:
+      xms: "1024m"
+      xmx: "2048m"
+
+  # Elasticsearch for search indexing
+  elasticsearch:
+    replicas: 1
+    image:
+      repository: docker.elastic.co/elasticsearch/elasticsearch
+      tag: "8.10.2"
+
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2Gi
+      limits:
+        cpu: 1000m
+        memory: 4Gi
+
+    # Java heap settings (should be 50% of memory limit)
+    javaOpts:
+      xms: "1g"
+      xmx: "2g"
+
+    persistence:
+      enabled: true
+      size: 50Gi
+      storageClass: ""
+
+  # Pipeline Service Client (for Airflow integration)
+  pipelineServiceClient:
+    enabled: true
+    className: "org.openmetadata.service.clients.pipeline.airflow.AirflowRESTClient"
