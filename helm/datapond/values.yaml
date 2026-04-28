@@ -164,7 +164,7 @@ jupyter:
   name: jupyter
   replicas: 1
   image:
-    repository: jupyter/scipy-notebook
+    repository: datapond/jupyter-duckdb
     tag: latest
 
   service:

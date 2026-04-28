@@ -1,0 +1,26 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-scripts
+  namespace: {{ .Values.namespace }}
+data:
+  01-init-databases.sql: |
+    -- Create databases for DataPond components
+
+    -- Polaris catalog metadata
+    CREATE DATABASE {{ .Values.polaris.database }};
+    GRANT ALL PRIVILEGES ON DATABASE {{ .Values.polaris.database }} TO {{ .Values.postgres.auth.username }};
+
+    -- Iceberg catalog (fallback for JDBC mode)
+    CREATE DATABASE iceberg_catalog;
+    GRANT ALL PRIVILEGES ON DATABASE iceberg_catalog TO {{ .Values.postgres.auth.username }};
+
+    -- MLflow tracking
+    CREATE DATABASE mlflow;
+    GRANT ALL PRIVILEGES ON DATABASE mlflow TO {{ .Values.postgres.auth.username }};
+
+    -- Airflow metadata
+    CREATE DATABASE airflow;
+    GRANT ALL PRIVILEGES ON DATABASE airflow TO {{ .Values.postgres.auth.username }};
+{{- end }}
