@@ -44,10 +44,23 @@ spec:
           value: "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
         - name: SPARK_SQL_CATALOG_ICEBERG
           value: "org.apache.iceberg.spark.SparkCatalog"
+        {{- if .Values.polaris.enabled }}
+        # Polaris REST Catalog
+        - name: SPARK_SQL_CATALOG_ICEBERG_CATALOG_IMPL
+          value: "org.apache.iceberg.rest.RESTCatalog"
+        - name: SPARK_SQL_CATALOG_ICEBERG_URI
+          value: "http://{{ .Values.polaris.name }}:{{ .Values.polaris.service.port }}/api/catalog/v1"
+        - name: SPARK_SQL_CATALOG_ICEBERG_WAREHOUSE
+          value: "{{ .Values.polaris.storage.defaultBaseLocation }}"
+        - name: SPARK_SQL_CATALOG_ICEBERG_CREDENTIAL
+          value: "{{ .Values.polaris.auth.clientId }}:{{ .Values.polaris.auth.clientSecret }}"
+        {{- else }}
+        # Fallback: Hadoop Catalog
         - name: SPARK_SQL_CATALOG_ICEBERG_TYPE
           value: "hadoop"
         - name: SPARK_SQL_CATALOG_ICEBERG_WAREHOUSE
           value: "s3a://iceberg/warehouse"
+        {{- end }}
         - name: SPARK_SQL_CATALOG_ICEBERG_IO_IMPL
           value: "org.apache.iceberg.aws.s3.S3FileIO"
         # S3 configurations

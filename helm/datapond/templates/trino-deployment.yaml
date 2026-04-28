@@ -136,14 +136,24 @@ metadata:
 data:
   iceberg.properties: |
     connector.name=iceberg
+    {{- if .Values.polaris.enabled }}
+    # Polaris REST Catalog (Unity Catalog alternative)
+    iceberg.catalog.type=rest
+    iceberg.rest-catalog.uri=http://{{ .Values.polaris.name }}:{{ .Values.polaris.service.port }}/api/catalog/v1
+    iceberg.rest-catalog.warehouse={{ .Values.polaris.storage.defaultBaseLocation }}
+    iceberg.rest-catalog.credential={{ .Values.polaris.auth.clientId }}:{{ .Values.polaris.auth.clientSecret }}
+    {{- else }}
+    # Fallback: JDBC Catalog (deprecated)
     iceberg.catalog.type=jdbc
     iceberg.jdbc-catalog.driver-class=org.postgresql.Driver
     iceberg.jdbc-catalog.connection-url=jdbc:postgresql://postgres:5432/iceberg_catalog
     iceberg.jdbc-catalog.connection-user={{ .Values.postgres.auth.username }}
     iceberg.jdbc-catalog.connection-password={{ .Values.postgres.auth.password }}
+    {{- end }}
     fs.native-s3.enabled=true
     s3.endpoint=http://seaweedfs-s3:8333
     s3.path-style-access=true
+    s3.region=us-east-1
 
   postgres.properties: |
     connector.name=postgresql

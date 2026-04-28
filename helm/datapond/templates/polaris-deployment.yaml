@@ -1,0 +1,187 @@
+{{- if .Values.polaris.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.polaris.name }}-config
+  namespace: {{ .Values.namespace }}
+data:
+  polaris.yml: |
+    metaStoreManager:
+      type: postgres
+      conf:
+        host: {{ .Values.postgres.name }}
+        port: {{ .Values.postgres.service.port }}
+        database: {{ .Values.polaris.database }}
+        user: {{ .Values.postgres.username }}
+        password: {{ .Values.postgres.password }}
+
+    defaultRealm:
+      default:
+        type: default-service
+        base-uri: http://{{ .Values.polaris.name }}:{{ .Values.polaris.service.port }}/api/catalog
+
+    oauth2:
+      type: default
+
+    callContext:
+      resolverClass: io.polaris.service.context.CallContextResolver
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.polaris.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.polaris.name }}
+    component: catalog
+spec:
+  replicas: {{ .Values.polaris.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.polaris.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.polaris.name }}
+        component: catalog
+    spec:
+      initContainers:
+      - name: wait-for-postgres
+        image: postgres:16-alpine
+        command:
+          - sh
+          - -c
+          - |
+            until pg_isready -h {{ .Values.postgres.name }} -p {{ .Values.postgres.service.port }} -U {{ .Values.postgres.username }}; do
+              echo "Waiting for PostgreSQL..."
+              sleep 2
+            done
+            echo "PostgreSQL is ready"
+
+      containers:
+      - name: polaris
+        image: {{ .Values.polaris.image.repository }}:{{ .Values.polaris.image.tag }}
+        imagePullPolicy: {{ .Values.polaris.image.pullPolicy }}
+
+        ports:
+        - name: http
+          containerPort: 8181
+          protocol: TCP
+        - name: admin
+          containerPort: 8182
+          protocol: TCP
+
+        env:
+        # PostgreSQL connection
+        - name: POLARIS_METASTORE_TYPE
+          value: "postgres"
+        - name: POLARIS_METASTORE_HOST
+          value: "{{ .Values.postgres.name }}"
+        - name: POLARIS_METASTORE_PORT
+          value: "{{ .Values.postgres.service.port }}"
+        - name: POLARIS_METASTORE_DATABASE
+          value: "{{ .Values.polaris.database }}"
+        - name: POLARIS_METASTORE_USER
+          value: "{{ .Values.postgres.username }}"
+        - name: POLARIS_METASTORE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: password
+
+        # S3 Configuration (SeaweedFS)
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: AWS_ACCESS_KEY_ID
+          value: "{{ .Values.seaweedfs.s3.accessKey }}"
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: seaweedfs-s3-secret
+              key: secretKey
+        - name: S3_ENDPOINT
+          value: "http://{{ .Values.seaweedfs.s3.name }}:{{ .Values.seaweedfs.s3.port }}"
+
+        # Polaris Configuration
+        - name: POLARIS_BOOTSTRAP_REALM_NAME
+          value: "default-realm"
+        - name: POLARIS_BOOTSTRAP_CLIENT_ID
+          value: "{{ .Values.polaris.auth.clientId }}"
+        - name: POLARIS_BOOTSTRAP_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: polaris-secret
+              key: clientSecret
+
+        volumeMounts:
+        - name: config
+          mountPath: /app/conf
+          readOnly: true
+
+        livenessProbe:
+          httpGet:
+            path: /healthcheck
+            port: 8181
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /healthcheck
+            port: 8181
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+        resources:
+          requests:
+            cpu: {{ .Values.polaris.resources.requests.cpu }}
+            memory: {{ .Values.polaris.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.polaris.resources.limits.cpu }}
+            memory: {{ .Values.polaris.resources.limits.memory }}
+
+      volumes:
+      - name: config
+        configMap:
+          name: {{ .Values.polaris.name }}-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.polaris.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.polaris.name }}
+spec:
+  type: {{ .Values.polaris.service.type }}
+  ports:
+  - name: http
+    port: {{ .Values.polaris.service.port }}
+    targetPort: 8181
+    protocol: TCP
+  - name: admin
+    port: 8182
+    targetPort: 8182
+    protocol: TCP
+  selector:
+    app: {{ .Values.polaris.name }}
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: polaris-secret
+  namespace: {{ .Values.namespace }}
+type: Opaque
+stringData:
+  clientSecret: {{ .Values.polaris.auth.clientSecret | quote }}
+  adminPassword: {{ .Values.polaris.auth.adminPassword | quote }}
+
+{{- end }}

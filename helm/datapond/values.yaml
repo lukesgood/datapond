@@ -438,3 +438,40 @@ networkPolicies:
 # Pod Security Policies
 podSecurityPolicy:
   enabled: false
+
+# Apache Polaris (Iceberg REST Catalog)
+polaris:
+  enabled: true
+  name: polaris
+  replicas: 2
+
+  image:
+    repository: polaris-catalog/polaris
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8181
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+  # PostgreSQL database for Polaris metadata
+  database: polaris_catalog
+
+  # Authentication
+  auth:
+    clientId: polaris-client
+    clientSecret: changeme-polaris-secret
+    adminPassword: changeme-admin-password
+
+  # Storage configuration (uses SeaweedFS)
+  storage:
+    type: s3
+    defaultBaseLocation: s3://iceberg/warehouse
