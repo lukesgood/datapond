@@ -47,7 +47,7 @@
 │       ├── redis-deployment.yaml      
 │       ├── jupyter-deployment.yaml    
 │       ├── mlflow-deployment.yaml     
-│       ├── minio-deployment.yaml      ✅ S3 호환 스토리지
+│       ├── seaweedfs-deployment.yaml      ✅ S3 호환 스토리지
 │       ├── airflow-deployment.yaml    ✅ Webserver + Scheduler
 │       ├── spark-statefulset.yaml     ✅ Master + Workers
 │       └── ingress.yaml               
@@ -85,7 +85,7 @@
 | **Redis** | Deployment | 1 | 100m / 128Mi | 500m / 512Mi |
 | **JupyterLab** | Deployment | 1 | 500m / 1Gi | 2000m / 4Gi |
 | **MLflow** | Deployment | 1 | 200m / 512Mi | 1000m / 2Gi |
-| **MinIO** | Deployment | 1 | 200m / 512Mi | 1000m / 2Gi |
+| **SeaweedFS** | StatefulSet | 1-3 | 500m / 1Gi | 1000m / 2Gi |
 | **Airflow Web** | Deployment | 1 → 3 | 200m / 512Mi | 1000m / 2Gi |
 | **Airflow Scheduler** | Deployment | 1 → 2 | 200m / 512Mi | 1000m / 2Gi |
 | **Spark Master** | StatefulSet | 1 | 500m / 1Gi | 2000m / 4Gi |
@@ -133,7 +133,7 @@ http://datapond.local/jupyter    → JupyterLab
 http://datapond.local/mlflow     → MLflow
 http://datapond.local/airflow    → Airflow
 http://datapond.local/spark      → Spark UI
-http://datapond.local/minio-console → MinIO
+http://datapond.local/seaweedfs → SeaweedFS Filer
 ```
 
 - 모든 서비스 단일 도메인
@@ -231,7 +231,7 @@ http://datapond.local
 
 - [x] JupyterLab Deployment + PVC
 - [x] MLflow Deployment + PVC
-- [x] MinIO (S3 Storage) Deployment + PVC
+- [x] SeaweedFS (S3 Storage) StatefulSet + PVC
 - [x] Airflow (Webserver + Scheduler) Deployment
 - [x] Spark (Master + Workers) StatefulSet
 

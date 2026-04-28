@@ -729,7 +729,7 @@ type: Opaque
 data:
   POSTGRES_PASSWORD: <base64>
   JWT_SECRET: <base64>
-  MINIO_ROOT_PASSWORD: <base64>
+  SEAWEEDFS_S3_PASSWORD: <base64>
   JUPYTER_TOKEN: <base64>
 ```
 

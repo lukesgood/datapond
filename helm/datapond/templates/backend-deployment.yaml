@@ -35,18 +35,18 @@ spec:
           value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)"
         - name: REDIS_URL
           value: "redis://redis:6379"
-        - name: MINIO_ENDPOINT
-          value: "minio:9000"
-        - name: MINIO_ACCESS_KEY
+        - name: S3_ENDPOINT
+          value: "seaweedfs-s3:8333"
+        - name: S3_ACCESS_KEY
           valueFrom:
             secretKeyRef:
               name: datapond-secrets
-              key: MINIO_ROOT_USER
-        - name: MINIO_SECRET_KEY
+              key: SEAWEEDFS_S3_USER
+        - name: S3_SECRET_KEY
           valueFrom:
             secretKeyRef:
               name: datapond-secrets
-              key: MINIO_ROOT_PASSWORD
+              key: SEAWEEDFS_S3_PASSWORD
         - name: JWT_SECRET
           valueFrom:
             secretKeyRef:

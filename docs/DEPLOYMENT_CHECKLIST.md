@@ -60,8 +60,8 @@ airflow:
 # SeaweedFS 인증 정보
 seaweedfs:
   auth:
-    rootUser: CHANGE_THIS_MINIO_USER  # ← 변경
-    rootPassword: CHANGE_THIS_MINIO_PASSWORD_789!@#  # ← 변경
+    rootUser: CHANGE_THIS_SEAWEEDFS_USER  # ← 변경
+    rootPassword: CHANGE_THIS_SEAWEEDFS_PASSWORD_789!@#  # ← 변경
 
 # Jupyter 토큰
 jupyter:

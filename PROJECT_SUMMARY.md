@@ -45,7 +45,7 @@
 │       ├── redis-deployment.yaml       # Redis
 │       ├── jupyter-deployment.yaml     # JupyterLab
 │       ├── mlflow-deployment.yaml      # MLflow
-│       ├── minio-deployment.yaml       # MinIO (S3 Storage)
+│       ├── seaweedfs-deployment.yaml       # SeaweedFS (S3 Storage)
 │       ├── airflow-deployment.yaml     # Airflow (Webserver + Scheduler)
 │       ├── spark-statefulset.yaml      # Spark (Master + Workers)
 │       └── ingress.yaml                # Ingress (단일 진입점)
@@ -129,7 +129,7 @@ http://datapond.local
 | Redis | Deployment | 1 | 200m CPU, 256Mi RAM, 5Gi Storage |
 | JupyterLab | Deployment | 1 | 1 CPU, 2Gi RAM, 20Gi Storage |
 | MLflow | Deployment | 1 | 500m CPU, 1Gi RAM, 20Gi Storage |
-| MinIO | Deployment | 1 | 500m CPU, 1Gi RAM, 100Gi Storage |
+| SeaweedFS | StatefulSet | 1-3 | 500m CPU, 1Gi RAM, 100Gi Storage |
 | Airflow Webserver | Deployment | 2 | 500m CPU, 1Gi RAM |
 | Airflow Scheduler | Deployment | 1 | 500m CPU, 1Gi RAM, 20Gi Storage |
 | Spark Master | StatefulSet | 1 | 1 CPU, 2Gi RAM |
@@ -411,7 +411,7 @@ env:
 
 - ✅ Helm Chart (13개 템플릿 - 완전한 구성)
   - Backend, Frontend, PostgreSQL, Redis
-  - JupyterLab, MLflow, MinIO
+  - JupyterLab, MLflow, SeaweedFS
   - Airflow (Webserver + Scheduler)
   - Spark (Master + Workers)
   - Ingress, ConfigMap, Secrets
