@@ -1,0 +1,359 @@
+{{- if .Values.seaweedfs.enabled }}
+---
+# SeaweedFS Master
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.seaweedfs.name }}-master
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.seaweedfs.name }}
+    component: master
+spec:
+  serviceName: {{ .Values.seaweedfs.name }}-master
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.seaweedfs.name }}
+      component: master
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.seaweedfs.name }}
+        component: master
+    spec:
+      containers:
+      - name: master
+        image: "{{ .Values.seaweedfs.image.repository }}:{{ .Values.seaweedfs.image.tag }}"
+        command:
+        - /usr/bin/weed
+        - master
+        - -ip=$(POD_IP)
+        - -port=9333
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        ports:
+        - containerPort: 9333
+          name: master
+        - containerPort: 19333
+          name: master-grpc
+        resources:
+          requests:
+            cpu: {{ .Values.seaweedfs.master.resources.requests.cpu }}
+            memory: {{ .Values.seaweedfs.master.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.seaweedfs.master.resources.limits.cpu }}
+            memory: {{ .Values.seaweedfs.master.resources.limits.memory }}
+        {{- if .Values.seaweedfs.persistence.enabled }}
+        volumeMounts:
+        - name: master-data
+          mountPath: /data
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: /cluster/status
+            port: 9333
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /cluster/status
+            port: 9333
+          initialDelaySeconds: 10
+          periodSeconds: 5
+  {{- if .Values.seaweedfs.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: master-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: {{ .Values.global.storageClass }}
+      resources:
+        requests:
+          storage: {{ .Values.seaweedfs.master.persistence.size }}
+  {{- end }}
+---
+# SeaweedFS Master Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.seaweedfs.name }}-master
+  namespace: {{ .Values.namespace }}
+spec:
+  clusterIP: None
+  ports:
+  - port: 9333
+    targetPort: 9333
+    name: master
+  - port: 19333
+    targetPort: 19333
+    name: master-grpc
+  selector:
+    app: {{ .Values.seaweedfs.name }}
+    component: master
+---
+# SeaweedFS Volume Server
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.seaweedfs.name }}-volume
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.seaweedfs.name }}
+    component: volume
+spec:
+  serviceName: {{ .Values.seaweedfs.name }}-volume
+  replicas: {{ .Values.seaweedfs.volume.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.seaweedfs.name }}
+      component: volume
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.seaweedfs.name }}
+        component: volume
+    spec:
+      containers:
+      - name: volume
+        image: "{{ .Values.seaweedfs.image.repository }}:{{ .Values.seaweedfs.image.tag }}"
+        command:
+        - /usr/bin/weed
+        - volume
+        - -mserver={{ .Values.seaweedfs.name }}-master:9333
+        - -port=8080
+        - -ip=$(POD_IP)
+        - -max=100
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        ports:
+        - containerPort: 8080
+          name: volume
+        - containerPort: 18080
+          name: volume-grpc
+        resources:
+          requests:
+            cpu: {{ .Values.seaweedfs.volume.resources.requests.cpu }}
+            memory: {{ .Values.seaweedfs.volume.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.seaweedfs.volume.resources.limits.cpu }}
+            memory: {{ .Values.seaweedfs.volume.resources.limits.memory }}
+        {{- if .Values.seaweedfs.persistence.enabled }}
+        volumeMounts:
+        - name: volume-data
+          mountPath: /data
+        {{- end }}
+  {{- if .Values.seaweedfs.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: volume-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: {{ .Values.global.storageClass }}
+      resources:
+        requests:
+          storage: {{ .Values.seaweedfs.volume.persistence.size }}
+  {{- end }}
+---
+# SeaweedFS Volume Service (Headless)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.seaweedfs.name }}-volume
+  namespace: {{ .Values.namespace }}
+spec:
+  clusterIP: None
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: volume
+  - port: 18080
+    targetPort: 18080
+    name: volume-grpc
+  selector:
+    app: {{ .Values.seaweedfs.name }}
+    component: volume
+---
+# SeaweedFS Filer
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.seaweedfs.name }}-filer
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.seaweedfs.name }}
+    component: filer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.seaweedfs.name }}
+      component: filer
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.seaweedfs.name }}
+        component: filer
+    spec:
+      containers:
+      - name: filer
+        image: "{{ .Values.seaweedfs.image.repository }}:{{ .Values.seaweedfs.image.tag }}"
+        command:
+        - /usr/bin/weed
+        - filer
+        - -master={{ .Values.seaweedfs.name }}-master:9333
+        - -ip=$(POD_IP)
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        ports:
+        - containerPort: 8888
+          name: filer
+        - containerPort: 18888
+          name: filer-grpc
+        resources:
+          requests:
+            cpu: {{ .Values.seaweedfs.filer.resources.requests.cpu }}
+            memory: {{ .Values.seaweedfs.filer.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.seaweedfs.filer.resources.limits.cpu }}
+            memory: {{ .Values.seaweedfs.filer.resources.limits.memory }}
+        {{- if .Values.seaweedfs.persistence.enabled }}
+        volumeMounts:
+        - name: filer-data
+          mountPath: /data
+        {{- end }}
+      {{- if .Values.seaweedfs.persistence.enabled }}
+      volumes:
+      - name: filer-data
+        persistentVolumeClaim:
+          claimName: seaweedfs-filer-pvc
+      {{- end }}
+---
+# SeaweedFS Filer Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.seaweedfs.name }}-filer
+  namespace: {{ .Values.namespace }}
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8888
+    targetPort: 8888
+    name: filer
+  - port: 18888
+    targetPort: 18888
+    name: filer-grpc
+  selector:
+    app: {{ .Values.seaweedfs.name }}
+    component: filer
+{{- if .Values.seaweedfs.persistence.enabled }}
+---
+# Filer PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: seaweedfs-filer-pvc
+  namespace: {{ .Values.namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.global.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.seaweedfs.filer.persistence.size }}
+{{- end }}
+---
+# SeaweedFS S3 Gateway
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.seaweedfs.name }}-s3
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.seaweedfs.name }}
+    component: s3
+spec:
+  replicas: {{ .Values.seaweedfs.s3.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.seaweedfs.name }}
+      component: s3
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.seaweedfs.name }}
+        component: s3
+    spec:
+      containers:
+      - name: s3
+        image: "{{ .Values.seaweedfs.image.repository }}:{{ .Values.seaweedfs.image.tag }}"
+        command:
+        - /usr/bin/weed
+        - s3
+        - -filer={{ .Values.seaweedfs.name }}-filer:8888
+        - -ip=$(POD_IP)
+        - -port=8333
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: WEED_S3_DEFAULT_USER
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_USER
+        - name: WEED_S3_DEFAULT_PWD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_PASSWORD
+        ports:
+        - containerPort: 8333
+          name: s3
+        resources:
+          requests:
+            cpu: {{ .Values.seaweedfs.s3.resources.requests.cpu }}
+            memory: {{ .Values.seaweedfs.s3.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.seaweedfs.s3.resources.limits.cpu }}
+            memory: {{ .Values.seaweedfs.s3.resources.limits.memory }}
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8333
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8333
+          initialDelaySeconds: 10
+          periodSeconds: 5
+---
+# SeaweedFS S3 Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.seaweedfs.name }}-s3
+  namespace: {{ .Values.namespace }}
+spec:
+  type: {{ .Values.seaweedfs.s3.service.type }}
+  ports:
+  - port: {{ .Values.seaweedfs.s3.service.port }}
+    targetPort: 8333
+    name: s3
+  selector:
+    app: {{ .Values.seaweedfs.name }}
+    component: s3
+{{- end }}

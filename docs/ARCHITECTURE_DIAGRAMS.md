@@ -38,7 +38,7 @@
     │   │  │                       │              │  │  └──────┬──────┘     │   │
     │   │  └───────────────────────┼──────────────┘  │         │            │   │
     │   │                          │                 │  ┌──────▼──────┐     │   │
-    │   │                          │                 │  │   MinIO     │     │   │
+    │   │                          │                 │  │   SeaweedFS     │     │   │
     │   │                          │                 │  │  (S3 API)   │     │   │
     │   │                          │                 │  └─────────────┘     │   │
     │   │                          │                 │                       │   │
@@ -68,7 +68,7 @@
     │   │  │              Storage Layer (PVC)                     │              │
     │   │  │                                                      │              │
     │   │  │  ┏━━━━━━━━━┓  ┏━━━━━━━━┓  ┏━━━━━━━━┓  ┏━━━━━━━━┓  │              │
-    │   │  │  ┃Postgres ┃  ┃ MinIO  ┃  ┃Jupyter ┃  ┃Airflow ┃  │              │
+    │   │  │  ┃Postgres ┃  ┃ SeaweedFS  ┃  ┃Jupyter ┃  ┃Airflow ┃  │              │
     │   │  │  ┃   PVC   ┃  ┃  PVC   ┃  ┃  PVC   ┃  ┃  PVC   ┃  │              │
     │   │  │  ┃  50Gi   ┃  ┃ 100Gi  ┃  ┃  20Gi  ┃  ┃  20Gi  ┃  │              │
     │   │  │  ┗━━━━━━━━━┛  ┗━━━━━━━━┛  ┗━━━━━━━━┛  ┗━━━━━━━━┛  │              │
@@ -168,7 +168,7 @@ Step 2: 모델 학습
       │                    │
       ▼                    ▼
 ┌─────────────┐      ┌──────────────┐
-│ PostgreSQL  │      │    MinIO     │
+│ PostgreSQL  │      │    SeaweedFS     │
 │ (Metadata)  │      │ (Artifacts)  │
 │             │      │              │
 │ - Exp name  │      │ - model.pkl  │
@@ -247,7 +247,7 @@ Step 3: 모델 배포
        │ Save result
        ▼
 ┌──────────────┐
-│   MinIO      │
+│   SeaweedFS      │
 │  (Output)    │
 └──────────────┘
 ```
@@ -299,7 +299,7 @@ Step 3: 모델 배포
                    │
                    ▼
             ┌──────────────┐
-            │    MinIO     │
+            │    SeaweedFS     │
             │   (Output)   │
             └──────────────┘
 ```
@@ -367,7 +367,7 @@ Backend Pod (10.42.0.20)
     ├─── MLflow: mlflow.datapond.svc.cluster.local:5000
     │    (HTTP REST API)
     │
-    └─── MinIO: minio.datapond.svc.cluster.local:9000
+    └─── SeaweedFS: seaweedfs.datapond.svc.cluster.local:9000
          (S3 API)
 
 MLflow Pod (10.42.0.30)
@@ -375,7 +375,7 @@ MLflow Pod (10.42.0.30)
     ├─── PostgreSQL: postgres.datapond.svc.cluster.local:5432
     │    (Backend store)
     │
-    └─── MinIO: minio.datapond.svc.cluster.local:9000
+    └─── SeaweedFS: seaweedfs.datapond.svc.cluster.local:9000
          (Artifact store)
 
 Airflow Pods
@@ -398,7 +398,7 @@ Airflow Pods
 
 Application Layer
 ┌─────────────┬─────────────┬─────────────┬─────────────┐
-│  PostgreSQL │  JupyterLab │   MinIO     │   Airflow   │
+│  PostgreSQL │  JupyterLab │   SeaweedFS     │   Airflow   │
 │    Pod      │    Pod      │    Pod      │    Pods     │
 └──────┬──────┴──────┬──────┴──────┬──────┴──────┬──────┘
        │             │             │             │
@@ -408,7 +408,7 @@ Application Layer
 │              PersistentVolumeClaim (PVC)                 │
 │                                                          │
 │  ┏━━━━━━━━━┓  ┏━━━━━━━━┓  ┏━━━━━━━━┓  ┏━━━━━━━━━┓     │
-│  ┃Postgres ┃  ┃Jupyter ┃  ┃ MinIO  ┃  ┃ Airflow ┃     │
+│  ┃Postgres ┃  ┃Jupyter ┃  ┃ SeaweedFS  ┃  ┃ Airflow ┃     │
 │  ┃   PVC   ┃  ┃  PVC   ┃  ┃  PVC   ┃  ┃ DAG PVC ┃     │
 │  ┃ 50Gi    ┃  ┃ 20Gi   ┃  ┃ 100Gi  ┃  ┃ 10Gi    ┃     │
 │  ┗━━━┬━━━━━┛  ┗━━━┬━━━━┛  ┗━━━┬━━━━┛  ┗━━━┬━━━━━┛     │
@@ -454,7 +454,7 @@ Application Layer
 
 Production Data
 ┌─────────────┬─────────────┬─────────────┐
-│ PostgreSQL  │   MinIO     │    PVCs     │
+│ PostgreSQL  │   SeaweedFS     │    PVCs     │
 │   (OLTP)    │ (Artifacts) │  (Files)    │
 └──────┬──────┴──────┬──────┴──────┬──────┘
        │             │             │
@@ -468,7 +468,7 @@ Production Data
 │    - WAL archiving (Incremental)         │
 │    - PITR (Point-in-Time Recovery)       │
 │                                          │
-│  MinIO:                                  │
+│  SeaweedFS:                                  │
 │    - mc mirror (Sync)                    │
 │    - Bucket versioning                   │
 │                                          │
@@ -484,7 +484,7 @@ Production Data
 │  ┌────────────────────────────────────┐ │
 │  │  Local:  /backup/datapond/         │ │
 │  │    ├── postgres/                   │ │
-│  │    ├── minio/                      │ │
+│  │    ├── seaweedfs/                      │ │
 │  │    └── snapshots/                  │ │
 │  └────────────────────────────────────┘ │
 │                                          │
@@ -649,7 +649,7 @@ Layer 4: Kubernetes RBAC
 Layer 5: Data Encryption
 ┌────▼──────────────────────────────────┐
 │  ┌────────────┐  ┌────────────┐      │
-│  │PostgreSQL  │  │   MinIO    │      │
+│  │PostgreSQL  │  │   SeaweedFS    │      │
 │  │            │  │            │      │
 │  │Encrypted at│  │Encrypted at│      │
 │  │  rest      │  │  rest      │      │

@@ -313,34 +313,71 @@ spark:
       - name: SPARK_WORKER_MEMORY
         value: "4G"
 
-# MinIO (S3-compatible storage)
-minio:
+# SeaweedFS (S3-compatible storage, Apache 2.0 License)
+seaweedfs:
   enabled: true
-  name: minio
+  name: seaweedfs
   image:
-    repository: minio/minio
+    repository: chrislusf/seaweedfs
     tag: latest
 
-  service:
-    type: ClusterIP
-    apiPort: 9000
-    consolePort: 9001
+  # Master Server
+  master:
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    persistence:
+      size: 5Gi
 
-  resources:
-    requests:
-      cpu: 500m
-      memory: 1Gi
-    limits:
-      cpu: 1000m
-      memory: 2Gi
+  # Volume Server
+  volume:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+    persistence:
+      size: 100Gi
+
+  # Filer
+  filer:
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    persistence:
+      size: 10Gi
+
+  # S3 Gateway
+  s3:
+    replicas: 1
+    service:
+      type: ClusterIP
+      port: 8333
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
 
   persistence:
     enabled: true
-    size: 100Gi
 
   auth:
-    rootUser: minioadmin
-    rootPassword: minioadmin
+    s3User: datapond
+    s3Password: datapond_s3_password
 
 # Trino
 trino:

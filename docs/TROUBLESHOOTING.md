@@ -551,9 +551,9 @@ kubectl port-forward <jupyter-pod> 8888:8888 -n datapond
 # MLflow 로그
 kubectl logs <mlflow-pod> -n datapond
 
-# MinIO 확인 (artifact store)
-kubectl get pods -n datapond | grep minio
-kubectl logs <minio-pod> -n datapond
+# SeaweedFS 확인 (artifact store)
+kubectl get pods -n datapond | grep seaweedfs
+kubectl logs <seaweedfs-pod> -n datapond
 
 # DB 연결 확인
 kubectl exec -it <mlflow-pod> -n datapond -- \

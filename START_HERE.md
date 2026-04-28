@@ -60,7 +60,7 @@ kubectl get pods -n datapond -w
 | **MLflow** | http://datapond.local/mlflow | - |
 | **Airflow** | http://datapond.local/airflow | admin / admin |
 | **Spark UI** | http://datapond.local/spark | - |
-| **MinIO Console** | http://datapond.local/minio-console | minioadmin / minioadmin |
+| **SeaweedFS Console** | http://datapond.local/seaweedfs-console | seaweedfsadmin / seaweedfsadmin |
 
 ---
 
@@ -78,7 +78,7 @@ kubectl get pods -n datapond
 # redis-xxx                      1/1     Running   0          5m
 # jupyter-xxx                    1/1     Running   0          5m
 # mlflow-xxx                     1/1     Running   0          5m
-# minio-xxx                      1/1     Running   0          5m
+# seaweedfs-xxx                      1/1     Running   0          5m
 # airflow-webserver-xxx          1/1     Running   0          5m
 # airflow-scheduler-xxx          1/1     Running   0          5m
 # spark-master-0                 1/1     Running   0          5m

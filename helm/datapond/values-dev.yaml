@@ -101,19 +101,51 @@ mlflow:
     enabled: true
     size: 5Gi
 
-# MinIO - Moderate
-minio:
+# SeaweedFS - Moderate
+seaweedfs:
   enabled: true
-  resources:
-    requests:
-      cpu: 200m
-      memory: 512Mi
-    limits:
-      cpu: 500m
-      memory: 1Gi
+  master:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    persistence:
+      size: 2Gi
+  volume:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    persistence:
+      size: 20Gi
+  filer:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 200m
+        memory: 512Mi
+    persistence:
+      size: 5Gi
+  s3:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
   persistence:
     enabled: true
-    size: 20Gi
 
 # Airflow - Reduced
 airflow:
@@ -199,10 +231,10 @@ airflow:
     username: admin
     password: admin
 
-minio:
+seaweedfs:
   auth:
-    rootUser: minioadmin
-    rootPassword: minioadmin
+    s3User: datapond
+    s3Password: datapond_dev
 
 jupyter:
   env:

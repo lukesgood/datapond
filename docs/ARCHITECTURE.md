@@ -55,7 +55,7 @@ DataPond는 데이터 분석, ML 실험, 워크플로우 관리를 위한 통합
 │  │ (Next.js)│  │(FastAPI) │  │   Lab    │  │Webserver │   │
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐                 │
-│  │  MLflow  │  │  MinIO   │  │  Spark   │                 │
+│  │  MLflow  │  │  SeaweedFS   │  │  Spark   │                 │
 │  │          │  │(S3 API)  │  │ Master   │                 │
 │  └──────────┘  └──────────┘  └──────────┘                 │
 └─────────────────────────────────────────────────────────────┘
@@ -71,7 +71,7 @@ DataPond는 데이터 분석, ML 실험, 워크플로우 관리를 위한 통합
 ┌─────────────────────────────────────────────────────────────┐
 │                  Storage Layer                              │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│  │PostgreSQL│  │  MinIO   │  │ Jupyter  │  │ Airflow  │   │
+│  │PostgreSQL│  │  SeaweedFS   │  │ Jupyter  │  │ Airflow  │   │
 │  │   PVC    │  │   PVC    │  │   PVC    │  │   PVC    │   │
 │  │  50Gi    │  │  100Gi   │  │  20Gi    │  │  20Gi    │   │
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
@@ -175,7 +175,7 @@ Port: 8000
 - PostgreSQL (데이터 영속성)
 - Redis (캐싱, 세션)
 - MLflow (실험 추적)
-- MinIO (파일 스토리지)
+- SeaweedFS (파일 스토리지)
 
 **API 엔드포인트**:
 ```
@@ -232,7 +232,7 @@ Persistence: 20Gi (PVC)
 **기술 스택**:
 - MLflow 2.10+
 - PostgreSQL (backend store)
-- MinIO (artifact store)
+- SeaweedFS (artifact store)
 
 **배포 구성**:
 ```yaml
@@ -256,7 +256,7 @@ Persistence: 20Gi (PVC)
 
 **데이터 스토리지**:
 - **Backend Store**: PostgreSQL (메타데이터)
-- **Artifact Store**: MinIO S3 (모델, 로그)
+- **Artifact Store**: SeaweedFS S3 (모델, 로그)
 
 ---
 
@@ -347,12 +347,12 @@ Components:
 
 ---
 
-#### MinIO
+#### SeaweedFS
 
 **역할**: S3 호환 객체 스토리지
 
 **기술 스택**:
-- MinIO (S3 API)
+- SeaweedFS (S3 API)
 
 **배포 구성**:
 ```yaml
@@ -374,8 +374,8 @@ Persistence: 100Gi (PVC)
 - S3 API 호환
 
 **접속**:
-- Console: `/minio-console`
-- API: `http://minio:9000`
+- Console: `/seaweedfs-console`
+- API: `http://seaweedfs:9000`
 
 **버킷 구조**:
 ```
@@ -489,7 +489,7 @@ Routes:
   /mlflow/*                   → mlflow:5000
   /airflow/*                  → airflow:8080
   /spark/*                    → spark-master:8080
-  /minio-console/*            → minio:9001
+  /seaweedfs-console/*            → seaweedfs:9001
 ```
 
 #### Ingress 구성
@@ -524,7 +524,7 @@ Annotations:
 backend.datapond.svc.cluster.local:8000
 postgres.datapond.svc.cluster.local:5432
 redis.datapond.svc.cluster.local:6379
-minio.datapond.svc.cluster.local:9000
+seaweedfs.datapond.svc.cluster.local:9000
 mlflow.datapond.svc.cluster.local:5000
 spark-master.datapond.svc.cluster.local:7077
 ```
@@ -551,7 +551,7 @@ Backend → MLflow:
 MLflow → PostgreSQL:
   - Backend store (메타데이터)
   
-MLflow → MinIO:
+MLflow → SeaweedFS:
   - S3 API
   - Artifact storage
   
@@ -593,7 +593,7 @@ Backend:
     - To: postgres
     - To: redis
     - To: mlflow
-    - To: minio
+    - To: seaweedfs
 ```
 
 ---
@@ -613,7 +613,7 @@ Backend:
 ┌───▼────┐  ┌──────▼───┐  ┌──────▼────┐
 │ Block  │  │   File   │  │  Object   │
 │Storage │  │ Storage  │  │  Storage  │
-│(PVC)   │  │  (PVC)   │  │  (MinIO)  │
+│(PVC)   │  │  (PVC)   │  │  (SeaweedFS)  │
 └────────┘  └──────────┘  └───────────┘
 ```
 
@@ -625,7 +625,7 @@ Backend:
 | **Redis** | 2Gi | 20Gi | ReadWriteOnce | 캐시 영속화 |
 | **JupyterLab** | 10Gi | 100Gi | ReadWriteOnce | 노트북 저장 |
 | **MLflow** | 5Gi | 100Gi | ReadWriteOnce | 메타데이터 |
-| **MinIO** | 20Gi | 500Gi | ReadWriteOnce | 객체 스토리지 |
+| **SeaweedFS** | 20Gi | 500Gi | ReadWriteOnce | 객체 스토리지 |
 | **Airflow DAGs** | 5Gi | 50Gi | ReadWriteMany | DAG 파일 |
 | **Airflow Logs** | 5Gi | 100Gi | ReadWriteMany | 실행 로그 |
 
@@ -705,11 +705,11 @@ spec:
     persistentVolumeClaimName: postgres-pvc
 ```
 
-#### MinIO
+#### SeaweedFS
 
 ```bash
-# mc mirror (MinIO Client)
-mc mirror --watch datapond/mlflow-artifacts /backup/minio/
+# mc mirror (SeaweedFS Client)
+mc mirror --watch datapond/mlflow-artifacts /backup/seaweedfs/
 ```
 
 ---
@@ -1174,7 +1174,7 @@ MLflow Tracking API
     │   - Parameters
     │   - Metrics
     │
-    └─▶ MinIO (artifacts 저장)
+    └─▶ SeaweedFS (artifacts 저장)
         - Model files
         - Plots
         - Logs
@@ -1221,7 +1221,7 @@ Spark Master
     Result Aggregation
         │
         ▼
-    MinIO (결과 저장)
+    SeaweedFS (결과 저장)
 ```
 
 ---
@@ -1252,7 +1252,7 @@ Spark Master
 | **Cache** | Redis | 7 |
 | **Notebook** | JupyterLab | latest |
 | **ML Tracking** | MLflow | 2.10+ |
-| **Object Storage** | MinIO | latest |
+| **Object Storage** | SeaweedFS | latest |
 | **Workflow** | Apache Airflow | 2.8+ |
 | **Processing** | Apache Spark | 3.5 |
 

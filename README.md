@@ -58,7 +58,7 @@ DataPond is a comprehensive data analytics and ML platform redesigned for cloud-
 | **Cache** | Session & caching | Redis 7 |
 | **Notebooks** | Interactive analysis | JupyterLab |
 | **ML Tracking** | Experiment tracking | MLflow 2.10 |
-| **Storage** | Object storage | MinIO (S3 API) |
+| **Storage** | Object storage | SeaweedFS (S3 API) |
 | **Workflow** | Orchestration | Airflow 2.8 |
 | **Processing** | Distributed compute | Spark 3.5 |
 
@@ -104,7 +104,7 @@ http://datapond.local
 **Default Credentials:**
 - Airflow: `admin / admin`
 - JupyterLab: Token `jupyter`
-- MinIO: `minioadmin / minioadmin`
+- SeaweedFS: `seaweedfsadmin / seaweedfsadmin`
 
 ---
 
@@ -124,7 +124,7 @@ datapond/
 │       ├── redis-deployment.yaml
 │       ├── jupyter-deployment.yaml
 │       ├── mlflow-deployment.yaml
-│       ├── minio-deployment.yaml
+│       ├── seaweedfs-deployment.yaml
 │       ├── airflow-deployment.yaml
 │       ├── spark-statefulset.yaml
 │       └── ...

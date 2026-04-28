@@ -114,19 +114,51 @@ mlflow:
     enabled: true
     size: 100Gi
 
-# MinIO - Large storage
-minio:
+# SeaweedFS - Large storage
+seaweedfs:
   enabled: true
-  resources:
-    requests:
-      cpu: 1000m
-      memory: 2Gi
-    limits:
-      cpu: 2000m
-      memory: 4Gi
+  master:
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+    persistence:
+      size: 10Gi
+  volume:
+    replicas: 3
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+    persistence:
+      size: 500Gi
+  filer:
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+    persistence:
+      size: 20Gi
+  s3:
+    replicas: 2
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   persistence:
     enabled: true
-    size: 500Gi
 
 # Airflow - Production with Celery
 airflow:
@@ -224,10 +256,10 @@ airflow:
     username: admin
     password: CHANGE_THIS_AIRFLOW_PASSWORD_456!@#  # CHANGE THIS!
 
-minio:
+seaweedfs:
   auth:
-    rootUser: CHANGE_THIS_MINIO_USER  # CHANGE THIS!
-    rootPassword: CHANGE_THIS_MINIO_PASSWORD_789!@#  # CHANGE THIS!
+    s3User: CHANGE_THIS_SEAWEEDFS_USER  # CHANGE THIS!
+    s3Password: CHANGE_THIS_SEAWEEDFS_PASSWORD_789!@#  # CHANGE THIS!
 
 jupyter:
   env:

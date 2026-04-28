@@ -265,7 +265,7 @@ curl http://datapond.local
 kubectl create secret generic datapond-secrets \
   --from-literal=postgres-password=<strong-password> \
   --from-literal=jwt-secret=<random-64-char-string> \
-  --from-literal=minio-root-password=<strong-password> \
+  --from-literal=seaweedfs-root-password=<strong-password> \
   -n datapond \
   --dry-run=client -o yaml | kubectl apply -f -
 ```

@@ -57,8 +57,8 @@ airflow:
     username: admin  # ← 필요시 변경
     password: CHANGE_THIS_AIRFLOW_PASSWORD_456!@#  # ← 변경
 
-# MinIO 인증 정보
-minio:
+# SeaweedFS 인증 정보
+seaweedfs:
   auth:
     rootUser: CHANGE_THIS_MINIO_USER  # ← 변경
     rootPassword: CHANGE_THIS_MINIO_PASSWORD_789!@#  # ← 변경
@@ -77,7 +77,7 @@ monitoring:
 
 - [ ] PostgreSQL 비밀번호 변경
 - [ ] Airflow 비밀번호 변경
-- [ ] MinIO 인증 정보 변경
+- [ ] SeaweedFS 인증 정보 변경
 - [ ] Jupyter 토큰 변경
 - [ ] Grafana 비밀번호 변경 (모니터링 사용 시)
 - [ ] JWT Secret 변경 (`templates/secrets.yaml`)
@@ -186,7 +186,7 @@ kubectl get pods -n datapond -w
 - [ ] redis Pod: Running
 - [ ] jupyter Pod: Running
 - [ ] mlflow Pod: Running
-- [ ] minio Pod: Running
+- [ ] seaweedfs Pod: Running
 - [ ] airflow-webserver Pod: Running
 - [ ] airflow-scheduler Pod: Running
 - [ ] spark-master Pod: Running
@@ -240,7 +240,7 @@ kubectl get pvc -n datapond
 - [ ] MLflow: `http://datapond.local/mlflow`
 - [ ] Airflow: `http://datapond.local/airflow`
 - [ ] Spark UI: `http://datapond.local/spark`
-- [ ] MinIO Console: `http://datapond.local/minio-console`
+- [ ] SeaweedFS Console: `http://datapond.local/seaweedfs-console`
 
 **curl 테스트:**
 
@@ -257,7 +257,7 @@ curl -I http://datapond.local
 **기본 계정 (개발):**
 - [ ] Airflow: `admin / admin`
 - [ ] JupyterLab: Token = `jupyter`
-- [ ] MinIO: `minioadmin / minioadmin`
+- [ ] SeaweedFS: `seaweedfsadmin / seaweedfsadmin`
 
 **프로덕션: 변경한 비밀번호 사용**
 
