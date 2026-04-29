@@ -1,0 +1,242 @@
+# Quick Test Configuration
+# Based on values-dev.yaml but with Backend/Frontend disabled
+# Testing data infrastructure only
+
+# Global settings
+global:
+  domain: datapond.local
+  storageClass: local-path
+  imagePullPolicy: IfNotPresent
+
+# Namespace
+namespace: datapond
+
+# Ingress
+ingress:
+  enabled: true
+  className: traefik
+  tls:
+    enabled: false
+
+# Frontend - DISABLED for quick test
+frontend:
+  enabled: false
+
+# Backend - DISABLED for quick test
+backend:
+  enabled: false
+
+# PostgreSQL - Reduced resources
+postgres:
+  enabled: true
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  persistence:
+    enabled: true
+    size: 20Gi
+
+# Valkey - Minimal (Redis-compatible)
+valkey:
+  enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  persistence:
+    enabled: true
+    size: 2Gi
+
+# JupyterLab - Moderate
+jupyter:
+  enabled: true
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  persistence:
+    enabled: true
+    size: 10Gi
+
+# MLflow - Minimal
+mlflow:
+  enabled: true
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  persistence:
+    enabled: true
+    size: 10Gi
+
+# Airflow - Disabled for quick test (heavy)
+airflow:
+  enabled: false
+
+# Spark - Disabled (image issues)
+spark:
+  enabled: false
+  master:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+  worker:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+    env:
+      - name: SPARK_WORKER_CORES
+        value: "1"
+      - name: SPARK_WORKER_MEMORY
+        value: "1G"
+
+# SeaweedFS - Minimal
+seaweedfs:
+  enabled: true
+  volume:
+    replicas: 1
+    persistence:
+      size: 20Gi
+
+# Trino - Disabled for quick test
+trino:
+  enabled: false
+  replicas: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  persistence:
+    enabled: true
+    size: 10Gi
+
+# Apache Polaris - Disabled for quick test
+polaris:
+  enabled: false
+  replicas: 1
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# RisingWave - Disabled (S3 storage issues)
+risingwave:
+  enabled: false
+  meta:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+  frontend:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+  compute:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+  compactor:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+# OpenMetadata - Disabled (auth config issues)
+openmetadata:
+  enabled: false
+  server:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+    javaOpts:
+      xms: "512m"
+      xmx: "1024m"
+  elasticsearch:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1Gi
+      limits:
+        cpu: 500m
+        memory: 2Gi
+    javaOpts:
+      xms: "512m"
+      xmx: "1g"
+    persistence:
+      size: 10Gi
+
+# Monitoring - Disabled for quick test
+monitoring:
+  enabled: false
+
+# Auth - Simple dev credentials
+postgres:
+  auth:
+    database: datapond
+    username: datapond
+    password: dev_password
+
+jupyter:
+  env:
+    - name: JUPYTER_ENABLE_LAB
+      value: "yes"
+    - name: JUPYTER_TOKEN
+      value: "jupyter"
+
+seaweedfs:
+  auth:
+    s3User: datapond
+    s3Password: datapond_dev

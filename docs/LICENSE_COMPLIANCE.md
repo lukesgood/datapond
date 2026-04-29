@@ -1,38 +1,166 @@
 # DataPond 라이센스 준수 가이드
 
-**작성일**: 2026-04-28  
-**버전**: 1.0.0  
-**목적**: 모든 사용 컴포넌트의 라이센스 검토 및 준수 방안
+**작성일**: 2026-04-29  
+**버전**: 4.0.0  
+**목적**: 컴포넌트별 라이선스 위험도 분석 및 온프렘 납품 준수 방안
+
+> 전체 컴포넌트 목록(SBOM)은 [OPEN_SOURCE_COMPONENTS.md](OPEN_SOURCE_COMPONENTS.md)를 참조하세요.
 
 ---
 
 ## 📋 Executive Summary
 
-DataPond는 오픈소스 컴포넌트로 구성되어 있습니다. 모든 핵심 컴포넌트는 **상업적 사용이 가능한 허용적(Permissive) 라이센스**를 사용합니다.
+DataPond는 오픈소스 컴포넌트로 구성되며, 모든 핵심 컴포넌트는 **온프렘 납품 및 사내 운영에 제약이 없는 허용적 라이선스**를 사용합니다.
 
-### 라이센스 위험도 평가
+### 라이선스 위험도 평가 (전체)
 
-| 컴포넌트 | 라이센스 | 상업 사용 | SaaS 제공 | 위험도 | 비고 |
-|---------|---------|----------|----------|--------|------|
-| SeaweedFS | Apache 2.0 | ✅ | ✅ | 🟢 Low | 안전 |
-| Apache Spark | Apache 2.0 | ✅ | ✅ | 🟢 Low | 안전 |
-| Apache Iceberg | Apache 2.0 | ✅ | ✅ | 🟢 Low | 안전 |
-| Trino | Apache 2.0 | ✅ | ✅ | 🟢 Low | 안전 |
-| Apache Airflow | Apache 2.0 | ✅ | ✅ | 🟢 Low | 안전 |
-| MLflow | Apache 2.0 | ✅ | ✅ | 🟢 Low | 안전 |
-| JupyterLab | BSD 3-Clause | ✅ | ✅ | 🟢 Low | 안전 |
-| PostgreSQL | PostgreSQL License | ✅ | ✅ | 🟢 Low | 안전 |
-| Redis | BSD 3-Clause (7.4+) | ✅ | ✅ | 🟡 Medium | 주의 필요 |
-| LiteLLM | MIT | ✅ | ✅ | 🟢 Low | 안전 |
-| Ollama | MIT | ✅ | ✅ | 🟢 Low | 안전 |
+| 컴포넌트 | 라이선스 | 사내 사용 | 온프렘 납품 | 위험도 |
+|---------|---------|---------|-----------|--------|
+| Kubernetes / K3s / Helm | Apache 2.0 | ✅ | ✅ | 🟢 Safe |
+| SeaweedFS | Apache 2.0 | ✅ | ✅ | 🟢 Safe |
+| Apache Iceberg | Apache 2.0 | ✅ | ✅ | 🟢 Safe |
+| Apache Spark | Apache 2.0 | ✅ | ✅ | 🟢 Safe |
+| Trino | Apache 2.0 | ✅ | ✅ | 🟢 Safe |
+| **RisingWave** | Apache 2.0 | ✅ | ✅ | 🟢 Safe |
+| **DuckDB** | MIT | ✅ | ✅ | 🟢 Safe |
+| **Apache Polaris** | Apache 2.0 | ✅ | ✅ | 🟢 Safe |
+| **OpenMetadata** | Apache 2.0 | ✅ | ✅ | 🟢 Safe |
+| FastAPI | MIT | ✅ | ✅ | 🟢 Safe |
+| Next.js | MIT | ✅ | ✅ | 🟢 Safe |
+| PostgreSQL | PostgreSQL License | ✅ | ✅ | 🟢 Safe |
+| Valkey | BSD 3-Clause | ✅ | ✅ | 🟢 Safe |
+| JupyterLab | BSD 3-Clause | ✅ | ✅ | 🟢 Safe |
+| Apache Airflow | Apache 2.0 | ✅ | ✅ | 🟢 Safe |
+| MLflow | Apache 2.0 | ✅ | ✅ | 🟢 Safe |
+| LiteLLM | MIT | ✅ | ✅ | 🟢 Safe |
+| Ollama | MIT | ✅ | ✅ | 🟢 Safe |
+| Prometheus | Apache 2.0 | ✅ | ✅ | 🟢 Safe |
+| **Grafana** | AGPL 3.0 | ✅ | ✅ | 🟡 Caution (사내 사용 제약 없음) |
+| **Elasticsearch** | SSPL / Elastic | ✅ | ✅ | 🟡 Caution (사내 사용 제약 없음) |
+| Redis 7.0–7.3 | SSPL | ⚠️ | ⚠️ | 🔴 Avoid |
 
 ### 결론
-✅ **모든 컴포넌트가 상업적 사용 및 SaaS 제공 가능**  
-⚠️ **Redis만 버전에 따라 주의 필요** (7.4+ 사용 권장)
+- ✅ **온프렘 납품 및 사내 운영: 모든 핵심 컴포넌트 제약 없음**
+- ⚠️ **Grafana, Elasticsearch**: 사내 운영 제약 없음 / 해당 소프트웨어 자체를 SaaS 판매 시에만 주의
+- 🚫 **Redis 7.0–7.3 (SSPL)**: 미사용 — Valkey(BSD 3-Clause)로 대체됨
 
 ---
 
 ## 🔍 컴포넌트별 라이센스 상세 분석
+
+### 0. 신규 추가 컴포넌트 (v4.0)
+
+#### Apache Polaris
+
+**라이선스**: Apache License 2.0  
+**출처**: Snowflake 기증 → Apache Software Foundation (2026년 2월 Top-Level Project 졸업)  
+**GitHub**: https://github.com/apache/polaris
+
+```yaml
+특이사항:
+  - Snowflake가 3년 프로덕션 운영 후 Apache에 기증
+  - ASF Top-Level Project (최고 수준의 라이선스 안정성)
+  - Databricks Unity Catalog의 오픈소스 동등 기능 제공
+  
+허용: 상업 사용, 사내 배포, 온프렘 납품 모두 허용
+준수 요건: LICENSE + NOTICE 파일 포함
+```
+
+**위험도**: 🟢 **Safe** (ASF 프로젝트 중 가장 안전한 수준)
+
+---
+
+#### RisingWave
+
+**라이선스**: Apache License 2.0  
+**개발사**: RisingWave Labs  
+**GitHub**: https://github.com/risingwavelabs/risingwave
+
+```yaml
+특이사항:
+  - CNCF Sandbox → Incubating 단계
+  - PostgreSQL 와이어 프로토콜 호환 스트리밍 SQL
+  - Apache 2.0 (상업 사용, 온프렘 납품 제약 없음)
+
+허용: 상업 사용, 사내 배포, 온프렘 납품 모두 허용
+준수 요건: LICENSE + NOTICE 파일 포함
+```
+
+**위험도**: 🟢 **Safe**
+
+---
+
+#### DuckDB
+
+**라이선스**: MIT License  
+**개발사**: DuckDB Labs (CWI — 네덜란드 국립 수학 및 컴퓨터 과학 연구소)  
+**GitHub**: https://github.com/duckdb/duckdb
+
+```yaml
+특이사항:
+  - 인-프로세스 OLAP DB (SQLite for Analytics)
+  - MIT 라이선스 — 가장 허용적
+  - JupyterLab 노트북 내 로컬 쿼리 엔진으로 사용
+
+허용: 상업 사용, 사내 배포, 온프렘 납품 모두 허용
+준수 요건: MIT 라이선스 고지 포함
+```
+
+**위험도**: 🟢 **Safe**
+
+---
+
+#### OpenMetadata
+
+**라이선스**: Apache License 2.0  
+**개발사**: Collate Inc. (Linux Foundation 프로젝트)  
+**GitHub**: https://github.com/open-metadata/OpenMetadata
+
+```yaml
+특이사항:
+  - Linux Foundation 프로젝트 (라이선스 안정성 높음)
+  - Collibra, Alation 등 상용 데이터 거버넌스 툴의 오픈소스 대안
+  - 내부 의존성: Elasticsearch (SSPL/Elastic License)
+  
+내부 의존성 주의:
+  - OpenMetadata 검색 기능이 Elasticsearch에 의존
+  - Elasticsearch는 7.17 이후 SSPL/Elastic License 적용
+  - 사내 사용(내부 검색 인덱스 용도): ✅ 제약 없음
+  - Elasticsearch 자체를 SaaS 서비스로 판매: ❌ 주의 필요 (해당 없음)
+
+허용: 상업 사용, 사내 배포, 온프렘 납품 모두 허용
+준수 요건: LICENSE + NOTICE 파일 포함
+```
+
+**위험도**: 🟢 **Safe** (온프렘 내부 사용 목적)
+
+---
+
+#### Grafana
+
+**라이선스**: AGPL 3.0 (Grafana OSS)  
+**GitHub**: https://github.com/grafana/grafana
+
+```yaml
+AGPL 3.0 핵심 조건:
+  - 소프트웨어를 네트워크를 통해 서비스로 제공(SaaS)하는 경우
+    → 수정된 소스 코드를 공개해야 함
+  
+DataPond 사용 시나리오 분석:
+  시나리오 1: 사내 모니터링 (온프렘) → ✅ 제약 없음
+  시나리오 2: 고객 온프렘에 납품 (고객이 직접 운영) → ✅ 제약 없음
+  시나리오 3: Grafana를 수정하여 SaaS로 판매 → ⚠️ 소스 공개 의무
+  
+DataPond 납품 용도: 모니터링 대시보드 (시나리오 1, 2)
+결론: DataPond 납품 시 Grafana 포함 가능, AGPL 위반 없음
+
+주의: Grafana 소스를 직접 수정하지 않는 것을 권장
+대안: Grafana Enterprise 라이선스 구매 (수정 배포 허용)
+```
+
+**위험도**: 🟡 **Caution** (납품 시 사용 시나리오 확인 필요, 일반적으로 안전)
+
+---
 
 ### 1. SeaweedFS
 

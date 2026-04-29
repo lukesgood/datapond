@@ -301,7 +301,6 @@ spec:
         - /usr/bin/weed
         - s3
         - -filer={{ .Values.seaweedfs.name }}-filer:8888
-        - -ip=$(POD_IP)
         - -port=8333
         env:
         - name: POD_IP

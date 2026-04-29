@@ -251,6 +251,10 @@ kubectl get ingress -n datapond
 - [docs/PRODUCT_CONCEPT.md](docs/PRODUCT_CONCEPT.md) — 제품 정의 및 로드맵
 - [docs/DATABRICKS_FEATURE_COMPARISON.md](docs/DATABRICKS_FEATURE_COMPARISON.md) — 기능 비교
 
+### 라이선스
+- [docs/OPEN_SOURCE_COMPONENTS.md](docs/OPEN_SOURCE_COMPONENTS.md) — 오픈소스 컴포넌트 전체 목록 (SBOM)
+- [docs/LICENSE_COMPLIANCE.md](docs/LICENSE_COMPLIANCE.md) — 라이선스 준수 가이드
+
 ### 프로덕션 운영
 - [docs/PRODUCTION_READINESS_REVIEW.md](docs/PRODUCTION_READINESS_REVIEW.md) — 운영 준비 체크리스트
 - [docs/DEPLOYMENT_CHECKLIST.md](docs/DEPLOYMENT_CHECKLIST.md) — 배포 체크리스트

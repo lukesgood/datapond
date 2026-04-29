@@ -36,7 +36,7 @@ spec:
           - --dashboard-host
           - "0.0.0.0:{{ .Values.risingwave.meta.service.dashboardPort }}"
           - --backend
-          - postgres
+          - sql
           - --sql-endpoint
           - "postgresql://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.password }}@{{ .Values.postgres.name }}:{{ .Values.postgres.service.port }}/{{ .Values.risingwave.database }}"
           - --state-store
@@ -141,7 +141,7 @@ spec:
           - "0.0.0.0:{{ .Values.risingwave.frontend.service.port }}"
           - --advertise-addr
           - "$(POD_IP):{{ .Values.risingwave.frontend.service.port }}"
-          - --meta-addr
+          - --meta-address
           - "http://{{ .Values.risingwave.name }}-meta-0.{{ .Values.risingwave.name }}-meta:{{ .Values.risingwave.meta.service.port }}"
         env:
         - name: POD_IP
@@ -223,12 +223,8 @@ spec:
           - "0.0.0.0:{{ .Values.risingwave.compute.service.port }}"
           - --advertise-addr
           - "$(POD_NAME).{{ .Values.risingwave.name }}-compute:{{ .Values.risingwave.compute.service.port }}"
-          - --meta-addr
+          - --meta-address
           - "http://{{ .Values.risingwave.name }}-meta-0.{{ .Values.risingwave.name }}-meta:{{ .Values.risingwave.meta.service.port }}"
-          - --state-store
-          - "s3://{{ .Values.risingwave.storage.bucket }}"
-          - --data-directory
-          - "{{ .Values.risingwave.storage.dataDirectory }}"
         env:
         - name: POD_NAME
           valueFrom:
@@ -326,12 +322,8 @@ spec:
           - "0.0.0.0:{{ .Values.risingwave.compactor.service.port }}"
           - --advertise-addr
           - "$(POD_IP):{{ .Values.risingwave.compactor.service.port }}"
-          - --meta-addr
+          - --meta-address
           - "http://{{ .Values.risingwave.name }}-meta-0.{{ .Values.risingwave.name }}-meta:{{ .Values.risingwave.meta.service.port }}"
-          - --state-store
-          - "s3://{{ .Values.risingwave.storage.bucket }}"
-          - --data-directory
-          - "{{ .Values.risingwave.storage.dataDirectory }}"
         env:
         - name: POD_IP
           valueFrom:

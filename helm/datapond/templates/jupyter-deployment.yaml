@@ -63,17 +63,21 @@ spec:
         volumeMounts:
         - name: jupyter-data
           mountPath: /home/jovyan/work
+        {{- if or .Values.polaris.enabled .Values.trino.enabled }}
         - name: iceberg-warehouse
           mountPath: /opt/iceberg/warehouse
+        {{- end }}
         {{- end }}
       {{- if .Values.jupyter.persistence.enabled }}
       volumes:
       - name: jupyter-data
         persistentVolumeClaim:
           claimName: jupyter-pvc
+      {{- if or .Values.polaris.enabled .Values.trino.enabled }}
       - name: iceberg-warehouse
         persistentVolumeClaim:
           claimName: iceberg-warehouse-pvc
+      {{- end }}
       {{- end }}
 ---
 apiVersion: v1
