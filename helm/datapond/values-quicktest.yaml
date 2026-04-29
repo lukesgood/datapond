@@ -18,13 +18,37 @@ ingress:
   tls:
     enabled: false
 
-# Frontend - DISABLED for quick test
+# Frontend - Unified Management UI
 frontend:
-  enabled: false
+  enabled: true
+  replicas: 1
+  image:
+    repository: datapond/frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
-# Backend - DISABLED for quick test
+# Backend - API Server
 backend:
-  enabled: false
+  enabled: true
+  replicas: 1
+  image:
+    repository: datapond/backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 # PostgreSQL - Reduced resources
 postgres:
