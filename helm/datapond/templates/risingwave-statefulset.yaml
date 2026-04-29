@@ -36,11 +36,11 @@ spec:
           - --dashboard-host
           - "0.0.0.0:{{ .Values.risingwave.meta.service.dashboardPort }}"
           - --backend
-          - sql
-          - --sql-endpoint
-          - "postgresql://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.password }}@{{ .Values.postgres.name }}:{{ .Values.postgres.service.port }}/{{ .Values.risingwave.database }}"
+          - mem
           - --state-store
           - "hummock+memory"
+          - --data-directory
+          - "hummock"
         env:
         # S3 (SeaweedFS) credentials
         - name: AWS_ACCESS_KEY_ID

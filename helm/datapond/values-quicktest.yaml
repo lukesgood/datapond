@@ -151,6 +151,8 @@ polaris:
 # RisingWave - Minimal (real-time streaming SQL)
 risingwave:
   enabled: true
+  image:
+    tag: "v1.6.0"  # Trying older stable version
   meta:
     replicas: 1
     resources:
