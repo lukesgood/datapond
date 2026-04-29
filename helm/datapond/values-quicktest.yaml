@@ -188,9 +188,9 @@ risingwave:
         cpu: 500m
         memory: 1Gi
 
-# OpenMetadata - Disabled (auth config issues)
+# OpenMetadata - Minimal (data catalog and lineage)
 openmetadata:
-  enabled: false
+  enabled: true
   server:
     replicas: 1
     resources:

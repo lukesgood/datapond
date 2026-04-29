@@ -557,7 +557,7 @@ openmetadata:
 
   # Authentication
   auth:
-    provider: "no-auth"  # Options: no-auth, google, okta, auth0, azure, custom-oidc
+    provider: "basic"  # Options: basic, google, okta, auth0, azure, custom-oidc
     adminUser: admin
     adminPassword: admin  # CHANGE IN PRODUCTION!
 

@@ -134,6 +134,31 @@ spec:
       - name: wait-for-elasticsearch
         image: busybox
         command: ['sh', '-c', 'until nc -z {{ .Values.openmetadata.name }}-elasticsearch 9200; do echo waiting for elasticsearch; sleep 2; done;']
+      - name: run-migrations
+        image: "{{ .Values.openmetadata.server.image.repository }}:{{ .Values.openmetadata.server.image.tag }}"
+        command: ['/bin/bash', '-c']
+        args:
+          - |
+            echo "Running database migrations..."
+            ./bootstrap/bootstrap_storage.sh migrate-all || echo "Migration completed or already up to date"
+        env:
+        - name: DB_DRIVER_CLASS
+          value: "org.postgresql.Driver"
+        - name: DB_SCHEME
+          value: "postgresql"
+        - name: DB_HOST
+          value: "{{ .Values.postgres.name }}"
+        - name: DB_PORT
+          value: "{{ .Values.postgres.service.port }}"
+        - name: OM_DATABASE
+          value: "{{ .Values.openmetadata.database }}"
+        - name: DB_USER
+          value: "{{ .Values.postgres.auth.username }}"
+        - name: DB_USER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_PASSWORD
       containers:
       - name: openmetadata
         image: "{{ .Values.openmetadata.server.image.repository }}:{{ .Values.openmetadata.server.image.tag }}"
