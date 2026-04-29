@@ -4,24 +4,107 @@
 
 ### **시스템 요구사항**
 
-**최소 사양**:
-- CPU: 4 cores
-- RAM: 8GB
-- Disk: 50GB
-- OS: Ubuntu 20.04+ / RHEL 8+ / Debian 11+
+DataPond는 배포 규모에 따라 세 가지 구성을 지원합니다.
 
-**권장 사양**:
-- CPU: 8+ cores
-- RAM: 16GB+
-- Disk: 100GB+ SSD
-- OS: Ubuntu 22.04 LTS
+---
+
+#### **Tier 1: PoC / 개발 환경** (`values-dev.yaml`)
+
+단일 서버에서 기능 검증용. 모든 컴포넌트를 최소 리소스로 실행합니다.
+
+| 항목 | 최소 | 권장 |
+|------|------|------|
+| **CPU** | 8 cores | 12 cores |
+| **RAM** | 16 GB | 24 GB |
+| **Disk** | 200 GB SSD | 300 GB SSD |
+| **OS** | Ubuntu 20.04+ / RHEL 8+ | Ubuntu 22.04 LTS |
+| **Kubernetes** | K3s 1.25+ | K3s 1.28+ |
+
+> **⚠️ 주의**: 8 cores / 16 GB 환경에서는 RisingWave, OpenMetadata, Spark worker를 `enabled: false`로 비활성화해야 안정적으로 동작합니다.
+
+---
+
+#### **Tier 2: 소규모 프로덕션** (`values.yaml` — 단일 노드)
+
+전체 컴포넌트를 기본 복제본 수로 실행하는 표준 구성입니다.
+
+| 항목 | 권장 사양 |
+|------|----------|
+| **CPU** | 24 cores (vCPU) |
+| **RAM** | 64 GB |
+| **Disk (OS + K8s)** | 100 GB SSD |
+| **Disk (데이터)** | 500 GB SSD (별도 볼륨 권장) |
+| **Network** | 1 Gbps |
+| **OS** | Ubuntu 22.04 LTS / RHEL 9 |
+
+**컴포넌트별 리소스 요청량 (values.yaml 기준):**
+
+| 서비스 | CPU Request | Memory Request | Storage |
+|--------|-------------|----------------|---------|
+| Frontend (×2) | 400m | 512 Mi | — |
+| Backend (×2) | 1,000m | 1 Gi | — |
+| PostgreSQL | 1,000m | 2 Gi | 50 Gi |
+| Valkey | 200m | 256 Mi | 5 Gi |
+| JupyterLab | 1,000m | 2 Gi | 20 Gi |
+| MLflow | 500m | 1 Gi | 20 Gi |
+| Airflow Webserver (×2) | 1,000m | 2 Gi | — |
+| Airflow Scheduler | 500m | 1 Gi | — |
+| Airflow (DAGs/Logs) | — | — | 20 Gi |
+| Spark Master | 1,000m | 2 Gi | — |
+| Spark Worker (×2) | 4,000m | 8 Gi | — |
+| SeaweedFS | 1,100m | 2 Gi | 115 Gi |
+| Trino | 1,000m | 2 Gi | 50 Gi |
+| Apache Polaris (×2) | 1,000m | 2 Gi | — |
+| RisingWave (×6 pods) | 5,000m | 9 Gi | — |
+| OpenMetadata Server | 1,000m | 2 Gi | — |
+| OpenMetadata Elasticsearch | 500m | 2 Gi | 50 Gi |
+| Monitoring (Prometheus+Grafana) | 500m | 1 Gi | 50 Gi |
+| **합계 (Request)** | **~20 CPU** | **~41 GB** | **~380 GB** |
+
+> 실제 서버 사양은 요청량 합계 + 운영체제/K8s 오버헤드(~20%) + HPA 여유분을 고려하여 **24 cores / 64 GB** 이상을 권장합니다.
+
+---
+
+#### **Tier 3: 엔터프라이즈 HA** (`values-prod.yaml` — 멀티 노드)
+
+금융·공공·의료 환경의 프로덕션 배포. 고가용성 멀티 노드 클러스터 구성입니다.
+
+**권장 클러스터 구성 (3-노드):**
+
+| 노드 | 역할 | CPU | RAM | Disk |
+|------|------|-----|-----|------|
+| Master × 1 | Control Plane + Etcd | 8 cores | 16 GB | 200 GB SSD |
+| Worker × 2 | Data Processing (Spark, Trino, RisingWave) | 16 cores | 64 GB | 1 TB SSD |
+| Worker × 1 | Application (Frontend, Backend, Airflow) | 8 cores | 32 GB | 200 GB SSD |
+| **합계** | | **48 cores** | **176 GB** | **~3.4 TB** |
+
+> Spark Worker / Trino Worker 수평 확장 시 Worker 노드를 추가합니다. 스토리지는 Ceph/Rook 또는 NFS 공유 스토리지 사용을 권장합니다.
+
+**에어갭(Air-Gap) 환경 추가 요건:**
+- 내부 컨테이너 이미지 레지스트리 (Harbor 등) 필수
+- DNS 내부 서버 구성 필요
+- NTP 서버 내부 구성 필요
+
+---
+
+### **OS 지원 목록**
+
+| OS | 버전 | 지원 수준 |
+|----|------|----------|
+| Ubuntu | 22.04 LTS | ✅ 권장 |
+| Ubuntu | 20.04 LTS | ✅ 지원 |
+| RHEL / Rocky Linux | 8, 9 | ✅ 지원 |
+| Debian | 11, 12 | ✅ 지원 |
+| CentOS Stream | 9 | ⚠️ 제한적 지원 |
+
+---
 
 ### **필요한 도구**
 
 설치 스크립트가 자동으로 설치하지만, 수동 설치 시 필요:
 - kubectl (Kubernetes CLI)
-- helm (Kubernetes 패키지 매니저)
-- K3s or Kubernetes 1.25+
+- helm 3.12+
+- K3s 1.25+ 또는 기존 Kubernetes 1.25+ 클러스터
 
 ---
 
@@ -328,29 +411,32 @@ kubectl create secret tls datapond-tls \
 
 ---
 
-## 📊 리소스 요구사항
+## 📊 리소스 요구사항 요약
 
-### **기본 구성 (values.yaml)**
+각 배포 티어별 서버 사양 요약입니다. 상세 내용은 문서 상단 **시스템 요구사항** 섹션을 참조하세요.
 
-| 서비스 | CPU Request | Memory Request | Storage |
-|--------|-------------|----------------|---------|
-| Frontend | 200m | 256Mi | - |
-| Backend | 500m | 512Mi | - |
-| PostgreSQL | 1000m | 2Gi | 50Gi |
-| Redis | 200m | 256Mi | 5Gi |
-| JupyterLab | 1000m | 2Gi | 20Gi |
-| MLflow | 500m | 1Gi | 20Gi |
-| **Total** | **~4 CPU** | **~8GB RAM** | **~115GB** |
+| 구성 | CPU | RAM | Storage | 용도 |
+|------|-----|-----|---------|------|
+| **PoC / 개발** | 12 cores | 24 GB | 300 GB SSD | 기능 검증, 내부 데모 |
+| **소규모 프로덕션** | 24 cores | 64 GB | 500 GB SSD | 단일 노드 운영 |
+| **엔터프라이즈 HA** | 48 cores (3-node) | 176 GB | 3.4 TB | 금융·공공 프로덕션 |
 
-### **프로덕션 구성 (values-prod.yaml)**
+### **스토리지 상세 (소규모 프로덕션 기준)**
 
-고가용성 + 여유 리소스:
+| 용도 | 크기 | 비고 |
+|------|------|------|
+| PostgreSQL | 50 Gi | 앱 메타데이터, MLflow, Airflow, Polaris, OpenMetadata DB |
+| SeaweedFS (데이터 레이크) | 100 Gi+ | Iceberg 테이블, MLflow Artifacts (확장 가능) |
+| JupyterLab | 20 Gi | 노트북 파일 |
+| MLflow | 20 Gi | 메타데이터 PVC |
+| Airflow | 20 Gi | DAGs + 실행 로그 |
+| Trino | 50 Gi | 캐시, 작업 임시 파일 |
+| OpenMetadata Elasticsearch | 50 Gi | 검색 인덱스 |
+| Monitoring | 50 Gi | Prometheus 메트릭 (15일 보관) |
+| Valkey | 5 Gi | 세션, 캐시 |
+| **합계** | **~380 Gi** | SeaweedFS 확장분 별도 |
 
-| 항목 | 필요량 |
-|------|--------|
-| CPU | 12-16 cores |
-| RAM | 32-64GB |
-| Storage | 250-500GB SSD |
+> SeaweedFS 데이터 볼륨은 실제 데이터 규모에 따라 별도 마운트하여 확장합니다. `helm/datapond/values.yaml`의 `seaweedfs.volume.persistence.size`를 조정하세요.
 
 ---
 

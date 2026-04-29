@@ -106,12 +106,20 @@ OpenMetadata:
 
 ### Prerequisites
 
-```bash
+**Kubernetes 도구:**
 - Kubernetes 1.25+ (K3s 권장 — 온프렘 단일 서버 지원)
 - Helm 3.12+
 - kubectl
-- 8GB+ RAM (개발), 32GB+ RAM (프로덕션)
-```
+
+**서버 사양:**
+
+| 구성 | CPU | RAM | Disk |
+|------|-----|-----|------|
+| PoC / 개발 | 12 cores | 24 GB | 300 GB SSD |
+| 소규모 프로덕션 (단일 노드) | 24 cores | 64 GB | 500 GB SSD |
+| 엔터프라이즈 HA (3-node 클러스터) | 16 cores × 3 | 64 GB × 3 | 1 TB × 3 |
+
+> 상세 사양: [docs/INSTALLATION.md](docs/INSTALLATION.md#시스템-요구사항)
 
 ### 5분 설치 (로컬 클론)
 
