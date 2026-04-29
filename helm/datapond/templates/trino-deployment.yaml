@@ -160,19 +160,4 @@ data:
     connection-url=jdbc:postgresql://postgres:5432/datapond
     connection-user={{ .Values.postgres.auth.username }}
     connection-password={{ .Values.postgres.auth.password }}
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: iceberg-warehouse-pvc
-  namespace: {{ .Values.namespace }}
-spec:
-  accessModes:
-    - ReadWriteMany
-  resources:
-    requests:
-      storage: {{ .Values.trino.persistence.size }}
-  {{- if .Values.trino.persistence.storageClass }}
-  storageClassName: {{ .Values.trino.persistence.storageClass }}
-  {{- end }}
 {{- end }}

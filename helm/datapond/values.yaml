@@ -285,8 +285,8 @@ spark:
   enabled: true
   name: spark
   image:
-    repository: bitnami/spark
-    tag: "3.5.1"
+    repository: apache/spark
+    tag: "3.5.8-python3"
 
   # Spark Master
   master:
@@ -446,8 +446,8 @@ polaris:
   replicas: 2
 
   image:
-    repository: polaris-catalog/polaris
-    tag: latest
+    repository: apache/polaris
+    tag: "1.4.0"
     pullPolicy: IfNotPresent
 
   service:

@@ -13,8 +13,8 @@ data:
         host: {{ .Values.postgres.name }}
         port: {{ .Values.postgres.service.port }}
         database: {{ .Values.polaris.database }}
-        user: {{ .Values.postgres.username }}
-        password: {{ .Values.postgres.password }}
+        user: {{ .Values.postgres.auth.username }}
+        password: {{ .Values.postgres.auth.password }}
 
     defaultRealm:
       default:
@@ -54,7 +54,7 @@ spec:
           - sh
           - -c
           - |
-            until pg_isready -h {{ .Values.postgres.name }} -p {{ .Values.postgres.service.port }} -U {{ .Values.postgres.username }}; do
+            until pg_isready -h {{ .Values.postgres.name }} -p {{ .Values.postgres.service.port }} -U {{ .Values.postgres.auth.username }}; do
               echo "Waiting for PostgreSQL..."
               sleep 2
             done
@@ -84,25 +84,28 @@ spec:
         - name: POLARIS_METASTORE_DATABASE
           value: "{{ .Values.polaris.database }}"
         - name: POLARIS_METASTORE_USER
-          value: "{{ .Values.postgres.username }}"
+          value: "{{ .Values.postgres.auth.username }}"
         - name: POLARIS_METASTORE_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: postgres-secret
-              key: password
+              name: datapond-secrets
+              key: POSTGRES_PASSWORD
 
         # S3 Configuration (SeaweedFS)
         - name: AWS_REGION
           value: "us-east-1"
         - name: AWS_ACCESS_KEY_ID
-          value: "{{ .Values.seaweedfs.s3.accessKey }}"
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_USER
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: seaweedfs-s3-secret
-              key: secretKey
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_PASSWORD
         - name: S3_ENDPOINT
-          value: "http://{{ .Values.seaweedfs.s3.name }}:{{ .Values.seaweedfs.s3.port }}"
+          value: "http://seaweedfs-s3:8333"
 
         # Polaris Configuration
         - name: POLARIS_BOOTSTRAP_REALM_NAME
@@ -121,8 +124,7 @@ spec:
           readOnly: true
 
         livenessProbe:
-          httpGet:
-            path: /healthcheck
+          tcpSocket:
             port: 8181
           initialDelaySeconds: 30
           periodSeconds: 10
@@ -130,8 +132,7 @@ spec:
           failureThreshold: 3
 
         readinessProbe:
-          httpGet:
-            path: /healthcheck
+          tcpSocket:
             port: 8181
           initialDelaySeconds: 10
           periodSeconds: 5

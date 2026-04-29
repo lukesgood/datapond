@@ -1,0 +1,20 @@
+{{- if or .Values.trino.enabled .Values.polaris.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: iceberg-warehouse-pvc
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: iceberg
+    component: warehouse
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.trino.persistence.size | default "50Gi" }}
+  {{- if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+{{- end }}

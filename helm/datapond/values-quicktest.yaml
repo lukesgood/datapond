@@ -136,9 +136,9 @@ trino:
     enabled: true
     size: 10Gi
 
-# Apache Polaris - Disabled for quick test
+# Apache Polaris - Minimal
 polaris:
-  enabled: false
+  enabled: true
   replicas: 1
   resources:
     requests:
