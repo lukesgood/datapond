@@ -1,695 +1,451 @@
 # DataPond 제품 컨셉 정의
 
-**작성일**: 2026-04-28  
-**버전**: 3.0.0-enterprise  
-**최종 수정**: 2026-04-28  
-**목적**: 4개 전략 컴포넌트 통합 후 재정의 (Polaris, RisingWave, DuckDB, OpenMetadata)
+**작성일**: 2026-04-29
+**버전**: 4.0.0-enterprise
+**목적**: 제품 포지셔닝 재정의 — 온프렘 AI-Native Lakehouse
 
 ---
 
-## 🎯 제품 컨셉
+## 🎯 제품 포지셔닝
+
+### 핵심 정의
+
+**DataPond는 Databricks가 진입할 수 없는 온프렘·에어갭·프라이빗 환경을 위한 AI-Native Lakehouse 플랫폼입니다.**
+
+Databricks는 클라우드 SaaS 전용 제품이다. 금융 규제, 국방·공공 보안, 의료 데이터 주권, 제조 인프라 분리 요건을 가진 조직은 Databricks를 쓸 수 없다. DataPond는 이 시장을 위해 설계된 유일한 엔터프라이즈급 AI-Native Lakehouse다.
 
 ### Tagline
-**"Complete AI-Native Data Platform"**  
-*엔터프라이즈급 거버넌스 + 실시간 스트리밍 + 멀티모델 AI, 100% 오픈소스*
+
+**"AI-Native Lakehouse for Sovereign Infrastructure"**
+
+*Databricks가 들어올 수 없는 곳, DataPond가 있다.*
 
 ### Elevator Pitch (30초)
+
 ```
-DataPond는 Databricks Unity Catalog 수준의 엔터프라이즈 기능을
-100% 오픈소스로 제공하는 완전한 데이터 플랫폼입니다.
+DataPond는 온프레미스, 에어갭, 프라이빗 클라우드 환경에서
+엔터프라이즈급 AI-Native Lakehouse를 구현하는 제품입니다.
 
-Databricks/Snowflake와 달리:
-✅ 거버넌스: Apache Polaris (Unity Catalog 대안, $0)
-✅ 실시간: RisingWave (Flink 대안, PostgreSQL SQL)
-✅ Lineage: OpenMetadata (Collibra 대안, 자동 수집)
-✅ AI: 멀티모델 (Claude, GPT-4, Gemini, Llama 선택)
-✅ 비용: 1/10 ($2K vs $20K/월)
-✅ 라이선스: 100% 오픈소스 (벤더 종속 없음)
+Databricks는 클라우드 SaaS이므로 다음 환경에 진입 불가입니다:
+  - 금융사 내부망 (금감원·FSS 규제)
+  - 공공기관·국방 (망분리 의무)
+  - 의료기관 (개인정보 외부 반출 금지)
+  - 제조·에너지 (OT 네트워크 분리)
 
-배치 + 실시간 + ML + 거버넌스를 하나의 플랫폼에서.
-```
-
-### 새로운 포지셔닝 (v3.0)
-```yaml
-Before (v2.0):
-  - 포지셔닝: "Databricks 대안 (저렴한 버전)"
-  - 타겟: 비용 중심 조직
-  - Gap: 거버넌스, 실시간, Lineage 없음
-  - 경쟁력: 가격 외에 부족
-
-After (v3.0):
-  - 포지셔닝: "Complete Data Platform"
-  - 타겟: 전체 데이터 조직 (엔지니어 + 분석가 + 거버넌스)
-  - 완비: Databricks 기능 100% 대응
-  - 경쟁력: 기능 동등 + 비용 1/10 + 오픈소스
+DataPond는 Kubernetes 위에서 동작하며,
+이 모든 환경에 완전 자체 호스팅으로 배포됩니다.
+Databricks와 동등한 AI 기능, 거버넌스, 실시간 스트리밍을
+고객의 인프라 안에서 실행합니다.
 ```
 
 ---
 
-## 🏆 핵심 가치 제안 (Value Proposition)
+## 🎯 타겟 고객
 
-### 0. **엔터프라이즈급 거버넌스 (NEW!)** 🎯
+### 진입 시장: Databricks 진입 불가 환경
+
+DataPond의 경쟁 환경은 "Databricks보다 저렴한 제품"이 아니다. DataPond는 **Databricks 자체가 선택지가 될 수 없는 시장**을 타겟으로 한다.
+
+#### Tier 1: 금융 (최우선)
+
 ```yaml
-문제:
-  - 오픈소스 플랫폼은 거버넌스 부족
-  - Unity Catalog는 Databricks만 (비용 비쌈)
-  - 데이터 권한 관리 복잡
-  - Lineage 없음 (데이터 출처 추적 불가)
+대상:
+  - 시중은행, 지방은행, 저축은행
+  - 증권사, 자산운용사
+  - 보험사, 캐피탈
 
-해결:
-  - Apache Polaris: Unity Catalog 수준 거버넌스
-    * RBAC (Role-Based Access Control)
-    * 멀티테넌시 (팀별 격리)
-    * 감사 로그 (모든 작업 추적)
-    * 카탈로그 버전 관리
-  
-  - OpenMetadata: 자동 Lineage + 데이터 카탈로그
-    * Airflow/Spark/Trino/MLflow 자동 연동
-    * 풀텍스트 검색 (Google for Data)
-    * 데이터 품질 모니터링
+규제 요건:
+  - 금감원 IT내부통제 기준 → 고객 데이터 외부 반출 금지
+  - 망분리 의무 → 외부 SaaS 연결 불가
+  - ISMS-P 인증 → 데이터 저장 위치 감사 대상
 
-가치:
-  - Unity Catalog 대안 (비용 $0 vs Databricks $$$$)
-  - 규제 준수 (GDPR, HIPAA) 용이
-  - 엔터프라이즈 세일즈 활성화 (Lineage 필수)
-  
-증거:
-  - Snowflake가 Polaris 3년 프로덕션 검증 후 Apache 기증
-  - Netflix, Apple, Salesforce 프로덕션 사용 중
+DataPond 역할:
+  - 내부망 전용 Lakehouse
+  - 거래 데이터, 고객 행동 분석, 리스크 모델링
+  - OpenMetadata를 통한 규정 준수 감사 로그
+
+Pain Point:
+  - Databricks: SaaS만 제공 → 내부망 사용 불가
+  - 기존 방식: Hadoop + 자체 개발 → 유지보수 비용 과다
+  - DataPond: 엔터프라이즈 기능 + 완전 내부 운영
 ```
 
-### 1. **실시간 + 배치 통합 처리 (NEW!)** 🌊
+#### Tier 2: 공공·국방
+
 ```yaml
-문제:
-  - 기존 Lakehouse는 배치만 (Spark)
-  - 실시간은 별도 스택 (Kafka + Flink) 필요
-  - 아키텍처 복잡도 증가
-  - 운영 부담 (2개 스택 관리)
+대상:
+  - 중앙부처, 지자체, 공공기관
+  - 국방부, 방위사업청, 방산업체
+  - 국가 연구기관 (KIST, ETRI 등)
 
-해결:
-  - RisingWave: 실시간 스트리밍 SQL
-    * PostgreSQL 호환 (학습 곡선 0)
-    * Kafka/Kinesis → RisingWave → Iceberg (자동)
-    * Materialized View (실시간 집계)
-    * Latency: 밀리초 단위
-  
-  - 통합 아키텍처:
-    * 배치: Spark (대규모)
-    * 실시간: RisingWave (스트리밍)
-    * 저장소: 동일 (Iceberg Lakehouse)
+규제 요건:
+  - 국가정보원 CC 인증 대상
+  - 클라우드 서비스 이용 제한 (비밀 분류 데이터)
+  - 망분리 의무 (업무망 ↔ 인터넷망)
 
-가치:
-  - Kafka + Flink → RisingWave 단일 컴포넌트
-  - 운영 복잡도 50% 감소
-  - 리소스 사용 50% 감소
-  - 실시간 Use Case 활성화 (IoT, Fraud Detection)
-
-증거:
-  - 2026년 스트리밍 Lakehouse 표준 패턴
-  - CNCF Incubating Project
+DataPond 역할:
+  - 에어갭 환경 완전 지원
+  - 이미지 레지스트리 내재화
+  - 오프라인 설치 패키지
 ```
 
-### 2. **데이터 사이언티스트 경험 혁신 (NEW!)** 🦆
+#### Tier 3: 의료·바이오
+
 ```yaml
-문제:
-  - 작은 분석에도 Spark 클러스터 필요 (무거움)
-  - Spark 세션 생성 대기 (10-30초)
-  - 탐색적 분석 불편
-  - 리소스 낭비 (80% 시간 Spark 불필요)
+대상:
+  - 상급종합병원, 대학병원
+  - 제약·바이오 연구소
+  - 건강보험 관련 기관
 
-해결:
-  - DuckDB: JupyterLab 로컬 고성능 쿼리
-    * Iceberg 테이블 직접 읽기 (클러스터 불필요)
-    * Sub-second 쿼리 (GB급 데이터)
-    * Pandas 연동 (자유자재)
-    * 추가 리소스 0
+규제 요건:
+  - 개인정보보호법 → EMR 외부 전송 금지
+  - 의료기기 소프트웨어 규정 (SaMD)
+  - HIPAA 준수 (글로벌 진출 시)
 
-가치:
-  - 분석 속도 10배 향상 (대기 시간 제거)
-  - Spark 사용률 80% → 20% 감소
-  - 데이터 사이언티스트 생산성 향상
-  - 클러스터 비용 절감
-
-사용 패턴:
-  - 작은 데이터 (< 10GB): DuckDB (초)
-  - 중간 데이터 (10-100GB): DuckDB (분)
-  - 큰 데이터 (> 100GB): Spark (필요시만)
+DataPond 역할:
+  - 임상 데이터 Lakehouse (내부망)
+  - 신약 개발 ML 파이프라인
+  - 유전체 데이터 분석
 ```
 
-### 3. **완전한 오픈소스 스택**
+#### Tier 4: 제조·에너지·통신
+
 ```yaml
-문제:
-  - Databricks, Snowflake는 비싼 SaaS ($수만~수십만/월)
-  - 벤더 종속 (Vendor Lock-in)
-  - 데이터 주권 문제 (외부 클라우드 의존)
+대상:
+  - 반도체, 자동차, 중공업
+  - 발전소, 석유화학, 에너지
+  - 통신사 (SKT, KT, LGU+)
 
-해결:
-  - 100% 오픈소스 컴포넌트 (Apache 2.0, MIT, BSD)
-  - 자체 호스팅 가능 (On-premise, Private Cloud)
-  - 데이터 소유권 완전 제어
+규제 요건:
+  - OT(Operational Technology) 망 분리
+  - 산업 기밀 데이터 외부 반출 금지
+  - 공장 자동화 데이터 내재화
 
-가치:
-  - 연간 $100K+ 절감 (Databricks 대비)
-  - 규제 준수 용이 (GDPR, HIPAA)
-  - 커스터마이징 자유
-```
-
-### 2. **멀티모델 AI Assistant**
-```yaml
-문제:
-  - Databricks Assistant는 단일 모델 (자체 모델)
-  - OpenAI/Anthropic API는 비싸고 종속적
-  - 기업은 여러 모델 중 선택하고 싶음
-
-해결:
-  - LiteLLM 통합 (100+ 모델 지원)
-  - Claude, GPT-4, Gemini, Llama 등 선택 가능
-  - 자체 호스팅 모델(Llama) + 클라우드 모델 하이브리드
-
-가치:
-  - LLM API 비용 70% 절감 (캐싱 + 스마트 라우팅)
-  - 최고의 모델 선택 자유
-  - 민감 데이터는 자체 모델 사용 (보안)
-```
-
-### 3. **Kubernetes 네이티브 아키텍처**
-```yaml
-문제:
-  - 레거시 플랫폼은 특정 클라우드 종속 (AWS, Azure)
-  - 확장/운영 복잡
-  - 멀티클라우드 어려움
-
-해결:
-  - Kubernetes 기반 (어디서나 실행)
-  - Helm Chart로 5분 배포
-  - Auto-scaling, Self-healing 기본 제공
-
-가치:
-  - AWS, GCP, Azure, On-premise 어디서나
-  - DevOps 팀 친화적
-  - 운영 자동화
-```
-
-### 4. **통합 플랫폼 (All-in-One)**
-```yaml
-문제:
-  - 데이터 스택 파편화 (ETL, 웨어하우스, ML, BI 따로)
-  - 도구 간 통합 복잡
-  - 학습 곡선 가파름
-
-해결:
-  - 데이터 레이크 + 웨어하우스 + ML + BI 통합
-  - 통합 카탈로그 (Unity Catalog 스타일)
-  - 단일 UI
-
-가치:
-  - 도구 전환 비용 제거
-  - 팀 협업 개선
-  - Time-to-Insight 70% 단축
+DataPond 역할:
+  - 공장 IoT 데이터 실시간 분석 (RisingWave)
+  - 설비 예지보전 ML
+  - 생산 최적화 AI
 ```
 
 ---
 
-## 🎭 타겟 고객 (Target Audience)
+## 🏆 핵심 가치 제안
 
-### Primary Persona: "Cost-Conscious Data Leader"
+### 1. Databricks가 없는 곳에서의 유일한 선택
 
-**프로필**:
 ```yaml
-직함: Head of Data / Chief Data Officer
-회사 규모: 50-500명 (Mid-market)
-산업: SaaS, E-commerce, FinTech, HealthTech
-예산: $50K-$200K/년 (데이터 인프라)
+시장 공백:
+  "온프렘에서 Databricks 수준의 플랫폼을 쓰고 싶은데 없다"
 
-고민:
-  - "Databricks는 너무 비싸다 ($20K+/월)"
-  - "하지만 Snowflake + Airflow + 별도 ML 플랫폼도 복잡하다"
-  - "팀이 작아서 복잡한 인프라 운영 어렵다"
-  - "오픈소스 쓰고 싶지만 통합이 어렵다"
+기존 선택지의 한계:
+  Databricks/Snowflake: SaaS 전용, 내부망 불가
+  Cloudera CDP: 레거시 Hadoop 기반, AI 기능 취약
+  자체 개발 스택: 통합 부재, 유지보수 인력 과다
 
-원하는 것:
-  - Databricks 수준의 기능
-  - 1/10 비용
-  - 쉬운 운영
-  - AI 기능 (SQL 생성, 코드 어시스트)
+DataPond의 답:
+  - Kubernetes 네이티브 → 어떤 인프라에서도 동작
+  - 에어갭 설치 지원 → 외부 인터넷 없이 배포 가능
+  - 엔터프라이즈 거버넌스 내장 (Apache Polaris)
+  - AI-Native → LiteLLM으로 내부망 LLM 연동 가능
 ```
 
-**Use Cases**:
-1. **데이터 팀 3-10명 규모**
-   - Databricks/Snowflake 비용 부담
-   - 자체 호스팅 가능한 인프라 팀 있음
-   - AWS/GCP/Azure Kubernetes 사용 중
+### 2. AI-Native 설계 (사후 추가가 아닌 핵심 아키텍처)
 
-2. **규제 산업 (금융, 헬스케어)**
-   - 데이터 외부 반출 불가
-   - On-premise 또는 Private Cloud 필수
-   - 감사 로그 및 거버넌스 중요
-
-3. **AI 스타트업**
-   - 다양한 LLM 실험 필요
-   - LLM API 비용 부담 큼
-   - 자체 모델 + 클라우드 모델 하이브리드
-
-### Secondary Persona: "Open Source Enthusiast"
-
-**프로필**:
 ```yaml
-직함: Data Engineer / ML Engineer
-회사 규모: 10-100명 (Startup)
-배경: 오픈소스 커뮤니티 활동
+Databricks AI는:
+  - 클라우드 외부 API 의존 (GPT, Gemini)
+  - 데이터가 외부로 나가는 구조
+  - 내부망 LLM 연동 불가
 
-가치관:
-  - 오픈소스 > 상용 소프트웨어
-  - 커스터마이징 자유 중요
-  - 커뮤니티 기여 의지
+DataPond AI는:
+  - LiteLLM 내장 → 내부망 LLM (Ollama, vLLM) 연결 가능
+  - 데이터가 내부망 밖으로 나가지 않음
+  - Claude/GPT/로컬 모델 선택적 사용
+  - AI가 데이터 레이크 내에서 동작
 
-원하는 것:
-  - Databricks 수준의 오픈소스 대안
-  - 투명한 아키텍처
-  - 확장 가능한 플랫폼
+실제 사용 시나리오:
+  - 금융사 내부 Llama3 모델 → 고객 데이터로 SQL 생성
+  - 병원 내부망 → 환자 데이터 AI 분석 (외부 유출 없음)
+  - 국방 에어갭 → 자체 LLM으로 정보 분석
+```
+
+### 3. 엔터프라이즈 거버넌스 내장
+
+```yaml
+Apache Polaris (Unity Catalog 수준):
+  - RBAC: 테이블/스키마/컬럼 레벨 권한
+  - 멀티테넌시: 부서별 데이터 격리
+  - 감사 로그: 누가 언제 무엇을 조회했는지
+  - 규정 준수: GDPR, 개인정보보호법 준수 증빙
+
+OpenMetadata (자동 Lineage):
+  - 데이터 출처 자동 추적
+  - 규제 감사 대응 (데이터 흐름 증명)
+  - PII 자동 분류
+
+이것이 왜 중요한가:
+  - 금감원 검사 시 "이 데이터 어디서 왔어?" → 즉시 답변 가능
+  - 개인정보 유출 사고 시 영향 범위 즉시 파악
+  - ISO 27001, ISMS-P 심사 대응
+```
+
+### 4. 실시간 + 배치 통합
+
+```yaml
+제조·금융의 요구:
+  - 공장 센서 데이터: 밀리초 단위 이상 감지
+  - 금융 거래: 실시간 사기 탐지
+  - 의료: 실시간 환자 모니터링
+
+DataPond 해법:
+  - RisingWave: PostgreSQL SQL로 스트리밍 처리
+  - 배치(Spark) + 실시간(RisingWave) 동일 Lakehouse에 저장
+  - 운영 복잡도 최소화 (Kafka+Flink → RisingWave 단일화)
 ```
 
 ---
 
-## 🆚 경쟁 분석
+## 🆚 경쟁 포지셔닝
 
-### Databricks (주요 경쟁자)
+### 실제 경쟁자
 
-| 항목 | Databricks | DataPond | DataPond 우위 |
-|------|-----------|----------|--------------|
-| **비용** | $20K-$100K+/월 | $2K-$5K/월 | **10배 저렴** |
-| **라이센스** | 상용 (Proprietary) | 오픈소스 | **자유** |
-| **AI Assistant** | 단일 모델 | 멀티모델 (Claude, GPT-4, Llama) | **선택 자유** |
-| **배포** | SaaS Only | Self-hosted (K8s) | **데이터 주권** |
-| **커스터마이징** | 제한적 | 완전 자유 | **확장성** |
-| **벤더 종속** | 높음 | 없음 | **독립성** |
-| **학습 곡선** | 높음 | 중간 (표준 도구) | **표준 기반** |
-| **엔터프라이즈** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | Databricks 우위 |
+DataPond의 경쟁 구도는 "Databricks 대비 가격"이 아니다. DataPond가 들어가는 환경에서의 실제 대안들:
 
-**결론**: DataPond는 Databricks 대비 **비용/자유도에서 압도적 우위**, 엔터프라이즈 기능은 열등
+| 경쟁자 | 실제 현황 | DataPond 차별화 |
+|--------|-----------|----------------|
+| **Cloudera CDP** | Hadoop 레거시, AI 기능 빈약 | 현대 Lakehouse 아키텍처 + AI Native |
+| **자체 개발 스택** | 통합 없음, 유지보수 인력 과다 | 5분 배포, 엔터프라이즈 기능 내장 |
+| **Oracle/Teradata** | 고비용, 클로즈드 생태계 | Kubernetes 표준, 오픈 포맷 |
+| **HPE Ezmeral** | 복잡, 특정 하드웨어 종속 | 하드웨어 독립, K8s 기반 |
+| **아무것도 안 함** | Excel + 수동 분석 | 데이터 팀 생산성 혁신 |
 
-### Snowflake + dbt + Airflow (레거시 스택)
+### Databricks와의 관계
 
-| 항목 | 레거시 스택 | DataPond | DataPond 우위 |
-|------|-----------|----------|--------------|
-| **통합도** | 낮음 (3-5개 도구) | 높음 (통합 플랫폼) | **단순성** |
-| **AI 기능** | 없음 | LiteLLM 통합 | **생산성** |
-| **데이터 레이크** | 별도 (S3 + 수동 관리) | Iceberg 네이티브 | **일관성** |
-| **학습 곡선** | 매우 높음 | 중간 | **온보딩** |
-| **비용** | $10K-$30K/월 | $2K-$5K/월 | **3-6배 저렴** |
+Databricks는 **직접 경쟁자가 아니다**. 오히려 DataPond의 시장을 정의해주는 기준점이다.
 
-### Airbyte + Superset + 오픈소스 조합 (DIY)
+```
+"Databricks를 쓰고 싶지만 클라우드에 데이터를 올릴 수 없는 조직"
+= DataPond의 핵심 고객
+```
 
-| 항목 | DIY 스택 | DataPond | DataPond 우위 |
-|------|-----------|----------|--------------|
-| **설정 시간** | 2-4주 | 5분 (Helm) | **즉시 사용** |
-| **통합 품질** | 낮음 (수동) | 높음 (사전 통합) | **안정성** |
-| **AI 기능** | 없음 | LiteLLM 포함 | **차별화** |
-| **유지보수** | 높음 (팀 부담) | 낮음 (Helm 업그레이드) | **운영 부담** |
-| **비용** | 무료 (인건비 높음) | 무료 | 비슷 |
+Databricks가 성장할수록 → "Databricks 같은 걸 내부망에서" 수요 증가 → DataPond 시장 확대
 
 ---
 
-## 🎨 제품 포지셔닝
+## 🗺️ 제품 로드맵
 
-### Positioning Statement
-```
-DataPond는 비용을 줄이면서도 Databricks 수준의 기능을 원하는 
-중소 규모 데이터 팀을 위한 오픈소스 레이크하우스 플랫폼입니다.
+### Phase 1: 온프렘 배포 완성도 (현재 ~ 3개월)
 
-Databricks와 달리 100% 오픈소스로 자체 호스팅할 수 있으며,
-멀티모델 AI Assistant로 더 유연하고 저렴하게 데이터 작업을 지원합니다.
-```
-
-### Positioning Map (2D)
-
-```
-              고가격 ($100K+/년)
-                    │
-         Databricks │ Snowflake
-                    │
-    ────────────────┼────────────────
-                    │
-          DataPond  │  DIY Stack
-                    │
-              저가격 (무료 ~ $10K/년)
-
-              ────────────────────────
-              낮은 통합도    높은 통합도
-```
-
-### Key Messages
-
-**For 데이터 리더**:
-> "Databricks 비용의 1/10로 같은 수준의 AI-powered 데이터 플랫폼을 구축하세요"
-
-**For 데이터 엔지니어**:
-> "Spark, Iceberg, Trino, Airflow를 5분 만에 통합된 플랫폼으로"
-
-**For ML 엔지니어**:
-> "Claude, GPT-4, Llama 중 최고의 모델을 선택하는 AI Assistant"
-
-**For DevOps**:
-> "Kubernetes 네이티브로 어디서나 실행되는 데이터 플랫폼"
-
----
-
-## 🚀 제품 로드맵 (LiteLLM 통합 후)
-
-### Phase 1: AI-Native Foundation (현재)
 ```yaml
-완료:
-  - ✅ Lakehouse 아키텍처 (SeaweedFS + Iceberg + Trino)
-  - ✅ 통합 오케스트레이션 (Airflow + Spark)
-  - ✅ ML 플랫폼 (MLflow + JupyterLab)
-  - ✅ LiteLLM 통합 (멀티모델 AI)
-  - ✅ Valkey (라이센스 안전)
+목표: 규제 환경에서 걱정 없이 배포할 수 있는 제품
 
-기능:
-  - 자연어 → SQL 생성
-  - 코드 에러 수정
-  - 데이터 인사이트 생성
+핵심 과제:
+  에어갭 지원:
+    - 이미지 레지스트리 내재화 (harbor 통합)
+    - 오프라인 Helm Chart 패키지
+    - 인터넷 없이 완전 동작 검증
+
+  보안 강화:
+    - TLS 전 구간 암호화
+    - Secret 관리 (HashiCorp Vault 통합)
+    - Kubernetes RBAC 최소 권한 원칙
+
+  운영 편의:
+    - 단일 노드 → 멀티 노드 마이그레이션 가이드
+    - 백업/복구 자동화
+    - 모니터링 대시보드 (Prometheus + Grafana)
+
+  인증 준비:
+    - CC(Common Criteria) 요건 분석
+    - ISMS-P 체크리스트 대응
 ```
 
-### Phase 2: Enterprise-Ready (3개월)
+### Phase 2: 엔터프라이즈 거버넌스 완성 (3~6개월)
+
 ```yaml
-목표: 프로덕션 환경 대응
+목표: 금융·공공 고객의 규제 요건 100% 충족
 
-주요 기능:
-  - 🔐 OAuth2 + RBAC 인증
-  - 🗄️ Unity Catalog 스타일 통합 거버넌스
-  - 📊 Databricks SQL 스타일 BI 통합
-  - 📝 Declarative Pipelines (Delta Live Tables 스타일)
-  - 📈 통합 모니터링 (Prometheus + Grafana)
+핵심 과제:
+  인증·인가:
+    - LDAP/Active Directory 통합
+    - SAML 2.0 / OpenID Connect
+    - MFA 지원
 
-AI 고도화:
-  - AI 기반 쿼리 최적화
-  - 자동 데이터 품질 체크
-  - 리니지 시각화
+  고급 거버넌스:
+    - 행/열 레벨 보안 (Polaris 확장)
+    - 데이터 마스킹 정책
+    - 감사 로그 무결성 보장 (tamper-proof)
+    - 데이터 분류 레이블 (기밀/내부/일반)
+
+  규정 준수:
+    - 개인정보보호법 Right-to-Erasure 지원
+    - 데이터 보존 정책 자동화
+    - 규정 준수 리포팅 자동화
 ```
 
-### Phase 3: AI-First Platform (6개월)
+### Phase 3: AI-Native 기능 고도화 (6~12개월)
+
 ```yaml
-목표: AI를 모든 워크플로우에 통합
+목표: 내부망에서도 최고 수준의 AI 경험
 
-주요 기능:
-  - 🤖 AI Co-pilot (모든 UI에서 AI 호출)
-  - 🔍 시맨틱 검색 (벡터 DB 통합)
-  - 📊 자동 인사이트 생성 (데이터 프로파일링)
-  - 🧪 AutoML (모델 자동 학습/최적화)
-  - 📖 자동 문서화 (코드 → 문서)
+핵심 과제:
+  내부망 LLM 최적화:
+    - vLLM / Ollama 자동 배포
+    - GPU 노드 자동 스케줄링
+    - 모델 레지스트리 (MLflow 연동)
 
-차별화:
-  - "No-Code Data Analysis" (자연어만으로 분석)
-  - "AI-Powered Data Quality" (자동 이상 감지)
-  - "Intelligent Cost Optimization" (쿼리 비용 예측)
+  AI 기능 확장:
+    - 자연어 SQL (스키마 인식 자동완성)
+    - 이상 탐지 자동화 (데이터 품질)
+    - AI 파이프라인 오케스트레이션
+    - RAG (Retrieval-Augmented Generation) 내장
+
+  Vector DB 통합:
+    - pgvector (PostgreSQL 확장)
+    - Milvus / Qdrant 옵션
+    - 시맨틱 데이터 검색
 ```
 
-### Phase 4: Platform Ecosystem (12개월)
+### Phase 4: 산업별 솔루션 (12개월+)
+
 ```yaml
-목표: 커뮤니티 생태계 구축
+금융 패키지:
+  - 거래 분석 사전 빌트인 DAG
+  - 리스크 모델 템플릿
+  - 금감원 보고서 자동화
 
-주요 기능:
-  - 🔌 Plugin System (커스텀 컴포넌트)
-  - 🏪 Marketplace (공유 대시보드, 모델, DAG)
-  - 🌍 Multi-tenancy (조직별 격리)
-  - 🔗 Partner Connect (써드파티 통합)
-  - 📱 Mobile App (모니터링/알림)
+공공 패키지:
+  - 클라우드 보안인증(CSAP) 대응 설정
+  - 공공데이터 수집 커넥터
+  - 통계청 데이터 연동
 
-커뮤니티:
-  - 오픈소스 커뮤니티 성장 (GitHub Stars 10K+ 목표)
-  - Enterprise Edition 제공 (상업 지원)
-  - 교육/인증 프로그램
+의료 패키지:
+  - FHIR 커넥터
+  - 임상 데이터 Medallion 아키텍처
+  - 의료 AI 모델 마켓플레이스
+
+제조 패키지:
+  - OPC-UA / MQTT 커넥터
+  - 설비 예지보전 템플릿
+  - 품질 관리 이상 탐지
 ```
 
 ---
 
 ## 💰 비즈니스 모델
 
-### Open Core Model
+### 제품 판매 모델 (엔터프라이즈 소프트웨어)
 
 ```yaml
-Community Edition (무료):
-  - 100% 오픈소스 (GitHub)
-  - 모든 핵심 기능 포함
-  - 커뮤니티 지원 (Discord, GitHub Issues)
-  - Self-hosted only
+기본 원칙:
+  - 오픈소스 공개: 당장 고려 안 함
+  - 가격 경쟁: 포지셔닝 전략 아님
+  - 포지셔닝: 엔터프라이즈 소프트웨어 (Databricks 진입 불가 시장)
 
-Enterprise Edition (유료):
-  가격: $2K-$10K/월 (노드 수 기반)
-  추가 기능:
-    - LDAP/SAML 통합
-    - Multi-tenancy (조직별 격리)
-    - Advanced RBAC (행/열 레벨 보안)
-    - SLA 보장 (99.9% uptime)
-    - 24/7 지원
-    - Training & Onboarding
-    - Managed Service 옵션
+라이선스 모델:
+  제품 라이선스:
+    - 노드 기반 (Core-based / Node-based)
+    - 연간 계약 (SLA 포함)
+    - 사이트 라이선스 (대규모 배포)
+
+  에디션:
+    Standard:
+      - 단일 클러스터
+      - 기본 거버넌스
+      - 커뮤니티 지원
+
+    Enterprise:
+      - 멀티 클러스터
+      - 고급 거버넌스 (행/열 보안, LDAP, SSO)
+      - 에어갭 지원
+      - 전담 기술 지원 (24/7)
+      - SLA 보장
+
+    Government:
+      - Enterprise 기능 전체
+      - CC 인증 대응 문서
+      - 망분리 설치 가이드
+      - 전담 SA(Solution Architect)
 
 Professional Services:
-  - 구축 컨설팅: $10K-$50K
-  - 커스터마이징: $5K-$20K
-  - 교육: $2K-$5K
+  - 구축 컨설팅: 설치 + 아키텍처 설계
+  - 데이터 마이그레이션
+  - 교육 프로그램 (관리자, 개발자, 데이터 분석가)
+  - 유지보수 계약
 ```
 
-### Revenue Streams
-
-```yaml
-Year 1:
-  - Community Edition: 100+ 설치
-  - Enterprise Pilot: 5-10 고객
-  - Revenue: $100K-$300K
-
-Year 2:
-  - Community Edition: 1000+ 설치
-  - Enterprise: 50-100 고객
-  - Revenue: $1M-$3M
-
-Year 3:
-  - Community Edition: 5000+ 설치
-  - Enterprise: 200-500 고객
-  - Revenue: $5M-$10M
-```
-
----
-
-## 🎯 Go-to-Market 전략
-
-### 1. Developer Marketing (커뮤니티 우선)
+### 영업 전략
 
 ```yaml
 채널:
-  - GitHub: 오픈소스 공개
-  - Hacker News: Launch post
-  - Reddit: r/dataengineering, r/kubernetes
-  - Dev.to: Technical blog posts
-  - YouTube: 설치/사용법 튜토리얼
+  직접 영업:
+    - 타겟: CIO, CDO, 데이터 아키텍트
+    - 접근: POC(개념 검증) 우선
+    - 기간: 3-6개월 세일즈 사이클
 
-콘텐츠:
-  - "Databricks Alternative for $0/month"
-  - "How we built AI-powered Data Platform with K8s"
-  - "Multi-model AI vs Single-model: Cost Comparison"
+  SI 파트너:
+    - 삼성SDS, LG CNS, SK C&C 등 대형 SI
+    - 금융·공공 프로젝트 참여
+    - SI가 DataPond를 솔루션으로 제안
 
-목표: GitHub Stars 1K+ (3개월)
-```
+  RFP 대응:
+    - 금융사 차세대 시스템 구축 RFP
+    - 공공기관 데이터 플랫폼 구축 사업
+    - 국방부 데이터 분석 인프라
 
-### 2. Thought Leadership
-
-```yaml
-콘텐츠:
-  - "Open Lakehouse Architecture Best Practices"
-  - "Why We Chose Valkey over Redis"
-  - "Multi-model AI: Claude vs GPT-4 vs Llama"
-  - "Databricks vs Snowflake vs DataPond: TCO Analysis"
-
-채널:
-  - Medium
-  - LinkedIn
-  - Conference Talks (KubeCon, Data Summit)
-```
-
-### 3. Product-Led Growth
-
-```yaml
-전략:
-  - 5분 Helm 설치 (마찰 최소화)
-  - Demo 환경 제공 (datapond.demo)
-  - 온보딩 가이드 충실
-  - 커뮤니티 Discord 운영
-
-Conversion Funnel:
-  1. GitHub Star → 2. 설치 시도 → 3. 프로덕션 배포 → 4. Enterprise 문의
-```
-
-### 4. Enterprise Sales (나중에)
-
-```yaml
-타겟:
-  - 중견기업 (500-5000명)
-  - 규제 산업 (금융, 헬스케어)
-  - AI 스타트업
-
-접근:
-  - POC (Proof of Concept) 지원
-  - ROI 계산기 제공
-  - 레퍼런스 고객 확보
+레퍼런스 전략:
+  - 1호 고객: 파일럿 프로젝트 (무상 또는 저가)
+  - 성공 사례 작성 (허락 하에)
+  - 동종 업계 확산 (금융 1곳 → 다른 금융사)
 ```
 
 ---
 
-## 📊 Success Metrics
+## 📊 성공 지표
 
-### Community Metrics
-
-```yaml
-3개월:
-  - GitHub Stars: 1,000+
-  - Docker Pulls: 10,000+
-  - Active Installations: 100+
-  - Discord Members: 500+
-
-6개월:
-  - GitHub Stars: 5,000+
-  - Docker Pulls: 50,000+
-  - Active Installations: 500+
-  - Community Contributors: 20+
-
-12개월:
-  - GitHub Stars: 10,000+
-  - Docker Pulls: 200,000+
-  - Active Installations: 2,000+
-  - Fortune 500 Adoption: 5+
-```
-
-### Business Metrics
+### 제품 성숙도 (1년 내)
 
 ```yaml
-Year 1:
-  - MRR (월 반복 매출): $10K-$30K
-  - Enterprise Customers: 5-10
-  - Avg Deal Size: $2K/월
+기술:
+  - 에어갭 환경 배포 성공률: 95%+
+  - 업타임 SLA: 99.9%
+  - 보안 취약점 CVE: Critical 0건
 
-Year 2:
-  - MRR: $100K-$300K
-  - Enterprise Customers: 50-100
-  - Avg Deal Size: $3K/월
+고객:
+  - 파일럿 고객 (Tier 1): 3개사
+  - 정식 계약 고객: 2개사
+  - 고객 NPS: 40+
 
-Year 3:
-  - MRR: $500K-$1M
-  - Enterprise Customers: 200-500
-  - Avg Deal Size: $5K/월
+파트너:
+  - SI 파트너 계약: 2개사
+  - 클라우드 파트너 (on-prem 전용 클라우드): 1개사
 ```
 
 ---
 
-## 🎨 Branding
+## 🎯 핵심 메시지
 
-### Name: **DataPond**
-```yaml
-의미:
-  - "Pond" = 연못 (Lake보다 작지만 관리 가능한 크기)
-  - 친근하고 접근 가능한 이미지
-  - "Data Lake"와 연결되면서도 차별화
+### 한 줄 포지셔닝
 
-발음: "데이터폰드" (한국어로도 자연스러움)
+```
+"DataPond는 Databricks가 들어올 수 없는 곳에서
+엔터프라이즈 AI 데이터 플랫폼을 운영하는 유일한 방법입니다."
 ```
 
-### Tagline 옵션
-```
-1. "AI-Native Open Lakehouse Platform"
-   (기술 중심, 명확)
+### 산업별 메시지
 
-2. "Databricks Alternative for Modern Teams"
-   (경쟁자 기반, 직관적)
+**금융사 CIO/CDO에게:**
+> "금감원 규제와 망분리 의무를 지키면서 데이터 팀의 생산성을
+> Databricks 수준으로 끌어올릴 수 있습니다."
 
-3. "Your Data Platform, Your Rules, 1/10 the Cost"
-   (가치 중심, 임팩트)
+**공공기관 IT 담당자에게:**
+> "에어갭 환경에서도 완전히 동작하는 AI-Native 데이터 플랫폼입니다.
+> 인터넷 연결 없이 설치부터 운영까지 가능합니다."
 
-4. "Open-Source Data Platform Powered by AI"
-   (균형잡힌, 포괄적)
+**의료기관 정보화 담당자에게:**
+> "환자 데이터가 병원 밖으로 나가지 않으면서
+> AI 기반 임상 데이터 분석을 시작할 수 있습니다."
 
-추천: #3 (가치 제안 명확)
-```
-
-### Visual Identity
-```yaml
-컬러:
-  - Primary: Deep Blue (#0A4D8C) - 신뢰, 전문성
-  - Secondary: Teal (#00A9A5) - 혁신, AI
-  - Accent: Orange (#FF6B35) - 에너지, 오픈소스
-
-로고:
-  - 연못 + 데이터 웨이브 조합
-  - 간결하고 현대적
-  - GitHub/문서에서 눈에 띄게
-```
-
----
-
-## 🎯 핵심 메시지 요약
-
-### 제품 정체성
-```
-DataPond는 Kubernetes 기반의 오픈소스 AI-Native 레이크하우스 플랫폼입니다.
-
-Databricks의 기능을 1/10 비용으로 제공하며,
-멀티모델 AI Assistant로 데이터 작업 생산성을 극대화합니다.
-
-100% 오픈소스, 자체 호스팅 가능, 라이센스 걱정 없음.
-```
-
-### 차별화 포인트 (Top 3)
-1. **10배 저렴** - Databricks $20K/월 → DataPond $2K/월
-2. **멀티모델 AI** - Claude, GPT-4, Gemini, Llama 선택 자유
-3. **완전한 오픈소스** - 벤더 종속 없음, 커스터마이징 자유
-
-### Target Audience
-- **Primary**: 중소 규모 데이터 팀 (3-50명)
-- **Pain Point**: Databricks는 비싸고, DIY는 복잡하다
-- **Sweet Spot**: Kubernetes 운영 가능, 비용 민감, AI 필요
-
-### Call-to-Action
-```bash
-# 5분 만에 시작
-helm repo add datapond https://datapond.io/charts
-helm install datapond datapond/datapond
-
-# GitHub
-⭐ Star us: github.com/datapond/datapond
-```
-
----
-
-## 📝 Next Steps
-
-### Immediate (이번 주)
-- [ ] README.md 업데이트 (새 컨셉 반영)
-- [ ] 홈페이지 컨셉 (datapond.io)
-- [ ] Demo 환경 구축 (demo.datapond.io)
-
-### Short-term (1개월)
-- [ ] GitHub 공개 준비 (라이센스, CONTRIBUTING.md)
-- [ ] Hacker News Launch Post 작성
-- [ ] YouTube 설치 튜토리얼 제작
-
-### Mid-term (3개월)
-- [ ] Enterprise Edition 기능 정의
-- [ ] 첫 번째 Enterprise Pilot 고객 확보
-- [ ] Conference Talk 제출 (KubeCon 등)
-
----
-
-## 결론
-
-**DataPond는 이제 단순한 데이터 플랫폼이 아닙니다.**
-
-LiteLLM 통합으로 **"AI-Native Open Lakehouse Platform"**으로 진화했으며,
-Databricks의 저비용 오픈소스 대안으로 명확히 포지셔닝됩니다.
-
-**핵심 차별화**:
-1. 비용 (10배 저렴)
-2. AI (멀티모델 선택)
-3. 자유 (오픈소스 + 자체 호스팅)
-
-이제 개발자 커뮤니티와 중소 규모 데이터 팀을 타겟으로
-제품을 공개하고 성장시킬 준비가 되었습니다.
+**제조사 데이터 엔지니어에게:**
+> "OT 망에서 직접 IoT 데이터를 실시간 분석하고
+> 예지보전 AI를 구동하는 가장 빠른 방법입니다."

@@ -18,70 +18,67 @@ Lead the DataPond project to successful launch and growth by:
 
 ## 📊 Project Context
 
-**Product**: DataPond - Databricks alternative at 1/10 cost
-**Stage**: Pre-launch (preparing for public release)
-**Goal**: Launch in 2 weeks, achieve 1,000+ GitHub stars in 3 months
+**Product**: DataPond - AI-Native Lakehouse for Sovereign Infrastructure
+**Stage**: Enterprise product development (on-prem/air-gapped market)
+**Goal**: Land first paying enterprise customer in 6 months
 
 ### Key Differentiators
-1. **10x Cheaper**: $2K/month vs Databricks $20K/month
-2. **Multi-Model AI**: Claude, GPT-4, Gemini, Llama choice
-3. **100% Open Source**: Apache 2.0, no vendor lock-in
+1. **On-Prem First**: Databricks is SaaS-only — DataPond fills the market Databricks cannot enter
+2. **AI-Native**: LiteLLM with internal LLM support — data never leaves the customer's network
+3. **Enterprise Governance**: Apache Polaris (Unity Catalog equivalent) + OpenMetadata lineage built-in
+
+### Positioning (Critical — Do NOT revert)
+- ❌ NOT "1/10 the cost of Databricks" — price is not the positioning
+- ❌ NOT open-source community play — no GitHub public launch planned yet
+- ✅ "Databricks가 진입할 수 없는 온프렘 환경을 위한 AI-Native Lakehouse"
+- ✅ Target: Regulated industries (finance, public sector, healthcare, defense) with data sovereignty requirements
 
 ### Current Status
 ```yaml
 Architecture: ✅ Complete
   - Lakehouse: SeaweedFS + Iceberg + Trino
+  - Streaming: RisingWave (Kafka+Flink replacement)
+  - Catalog: Apache Polaris (Unity Catalog equivalent)
   - Compute: Spark + Airflow
-  - ML: MLflow + JupyterLab
-  - AI: LiteLLM multi-model
-  - Ingestion: Airbyte integration designed
+  - ML: MLflow + JupyterLab + DuckDB
+  - AI: LiteLLM multi-model (internal LLM support)
+  - Observability: OpenMetadata (lineage + catalog)
 
-Documentation: ✅ Complete
-  - 10,000+ lines of docs
-  - Lab guides, architecture, roadmap
-  - Production readiness review
+Documentation: ✅ Complete (repositioned)
+  - Product concept: On-prem / sovereign infrastructure focus
+  - Architecture docs, lab guides
+  - Go-to-Market: Enterprise sales focus
 
-Implementation: 🔴 Critical Gap
-  - Docker images: NOT BUILT
-  - Helm chart: NOT PACKAGED
-  - Frontend: STUB ONLY
-  - Backend: STUB ONLY
-  - UI Integration: NOT IMPLEMENTED
+Critical Gaps for Enterprise Sales:
+  - Air-gap deployment: External dependencies not fully eliminated
+  - Security: TLS end-to-end, Vault integration not complete
+  - Auth: LDAP/AD/SSO not implemented
+  - Monitoring: Prometheus + Grafana not wired up
 ```
 
-## 🎯 Immediate Priorities (Next 2 Weeks)
+## 🎯 Immediate Priorities (Next 6 Weeks)
 
-### Week 1: Foundation
-1. **Docker Images** (Critical)
-   - Backend Dockerfile
-   - Frontend Dockerfile
-   - CI/CD automation
-   
-2. **Helm Chart** (Critical)
-   - Package and publish
-   - Test installation
-   - One-click installer
+### Priority 1: Air-Gap Deployment (Blocker for all enterprise deals)
+- Audit all container images for external dependencies
+- Offline Helm package (tar.gz deliverable)
+- Internal registry guide (Harbor)
+- End-to-end air-gap install test
 
-3. **Core Backend** (High)
-   - FastAPI skeleton
-   - Authentication
-   - Database models
+### Priority 2: Security Hardening
+- TLS across all inter-pod communication
+- HashiCorp Vault integration guide
+- Network Policy for all services
+- Container image CVE scanning (Trivy)
 
-### Week 2: Launch Prep
-4. **Frontend MVP** (High)
-   - Landing page
-   - Basic navigation
-   - iframe integration
-   
-5. **SQL Lab** (High)
-   - Trino integration
-   - Query editor
-   - Results display
+### Priority 3: Enterprise Auth
+- LDAP/Active Directory integration
+- SAML 2.0 / OIDC
+- MFA support
 
-6. **Documentation** (Medium)
-   - README polish
-   - Quick start guide
-   - YouTube video
+### Priority 4: PoC Readiness
+- PoC proposal template
+- ROI analysis document (on-prem cost vs legacy stack)
+- Demo environment script (reproducible)
 
 ## 👥 Sub-Agent Team
 
@@ -219,14 +216,14 @@ Low Impact + Low Urgency:
 - [ ] Documentation complete
 
 ### 1-Month Metrics
-- GitHub Stars: 500+
-- Active Installations: 50+
-- Discord Members: 200+
+- Air-gap deployment: verified working in isolated environment
+- Security hardening: TLS + Network Policy complete
+- PoC proposal template: ready
 
 ### 3-Month Metrics
-- GitHub Stars: 2,000+
-- Active Installations: 200+
-- Enterprise Leads: 20+
+- PoC completed with customer: 1+
+- SI partner meetings: 2+
+- Pipeline (active deals): 5+
 
 ## 🚨 Risk Management
 

@@ -1,860 +1,337 @@
 # DataPond Go-to-Market 실행 계획
 
-**작성일**: 2026-04-28  
-**버전**: 1.0.0  
-**목적**: 제품화 단계별 실행 계획
+**작성일**: 2026-04-29
+**버전**: 2.0.0
+**목적**: 엔터프라이즈 온프렘 시장 진입 전략
 
 ---
 
 ## 📋 Executive Summary
 
-DataPond를 시장에 출시하기 위한 6개월 실행 계획입니다.
+DataPond는 Databricks가 진입할 수 없는 온프렘·에어갭 시장을 타겟으로 하는 엔터프라이즈 소프트웨어다.
 
-### 목표
+오픈소스 공개는 현 단계의 전략이 아니다. GitHub Stars나 커뮤니티 성장 대신, 국내 규제 산업(금융·공공·의료·제조)에서 파일럿 고객을 확보하고 레퍼런스를 쌓는 것이 목표다.
+
+### 6개월 목표
+
 ```yaml
-3개월:
-  - GitHub Stars: 1,000+
-  - 활성 설치: 100+
-  - Discord 커뮤니티: 500+
+제품:
+  - 에어갭 환경 배포 성공: 1건
+  - 금융·공공 환경 PoC 완료: 2건
 
-6개월:
-  - GitHub Stars: 5,000+
-  - 활성 설치: 500+
-  - 첫 Enterprise 고객: 5+
-  - MRR: $10K-$30K
+영업:
+  - 파일럿 고객 (무상/저가): 3개사
+  - 정식 계약: 1개사
+
+파트너:
+  - SI 파트너 협의: 2개사 (삼성SDS, LG CNS 등)
 ```
 
 ---
 
-## 🎯 Phase 0: 출시 준비 (2주)
+## 🎯 Phase 0: 제품 완성도 (현재 ~ 6주)
 
-### Week 1: 기술적 완성도
+### 에어갭 배포 지원 (최우선)
 
-#### 1. Docker 이미지 빌드 및 배포
-```bash
-# 우선순위: 🔴 Critical
+```yaml
+목표: 인터넷 없이 완전 설치·운영 가능
 
 작업:
-  - [ ] Backend Dockerfile 작성
-  - [ ] Frontend Dockerfile 작성
-  - [ ] Docker Compose 테스트
-  - [ ] Docker Hub / GitHub Container Registry 배포
-  - [ ] 자동 빌드 CI/CD (GitHub Actions)
+  - [ ] 모든 컨테이너 이미지 내부 레지스트리 지원
+        → Harbor / 사내 registry 연동 가이드
+  - [ ] 오프라인 Helm 패키지 (tar.gz)
+        → USB/이동매체로 전달 가능
+  - [ ] 인터넷 의존성 제거 확인
+        → Chart Hook, init container, 이미지 pull 전수 검사
+  - [ ] 에어갭 환경 테스트
+        → 외부 차단된 VM에서 처음부터 끝까지 설치 검증
 
 결과물:
-  - datapond/backend:latest
-  - datapond/frontend:latest
-  - datapond/jupyter:latest (커스텀 이미지)
-
-예상 시간: 3일
+  - 에어갭 설치 가이드 (단계별)
+  - 오프라인 패키지 (.tar.gz)
+  - 검증 체크리스트
 ```
 
-**실행 파일**:
+### 보안 강화
+
 ```yaml
-# .github/workflows/docker-build.yml
-name: Build and Push Docker Images
-on:
-  push:
-    branches: [main]
-    tags: ['v*']
-
-jobs:
-  build-backend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: docker/build-push-action@v4
-        with:
-          context: ./backend
-          push: true
-          tags: |
-            ghcr.io/datapond/backend:latest
-            ghcr.io/datapond/backend:${{ github.sha }}
-
-  build-frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: docker/build-push-action@v4
-        with:
-          context: ./frontend
-          push: true
-          tags: |
-            ghcr.io/datapond/frontend:latest
-            ghcr.io/datapond/frontend:${{ github.sha }}
-```
-
-#### 2. Helm Chart 패키징 및 배포
-```bash
-# 우선순위: 🔴 Critical
+목표: 금융·공공 보안 요건 충족
 
 작업:
-  - [ ] Chart.yaml 버전 관리
-  - [ ] values.yaml 기본값 검증
-  - [ ] helm lint 통과
-  - [ ] helm package 생성
-  - [ ] GitHub Pages로 Helm Repository 배포
-  - [ ] helm repo add datapond 테스트
+  - [ ] TLS 전 구간 (Ingress → Pod 간 통신)
+  - [ ] Secret 관리 (HashiCorp Vault 연동 가이드)
+  - [ ] Pod Security Standards (Restricted)
+  - [ ] Network Policy 전 서비스 적용
+  - [ ] 컨테이너 이미지 취약점 스캔 (Trivy)
 
 결과물:
-  - https://datapond.github.io/charts/
-  - helm repo add datapond https://datapond.github.io/charts
-
-예상 시간: 2일
+  - 보안 설정 가이드
+  - CIS Kubernetes Benchmark 체크리스트
 ```
 
-**실행 스크립트**:
-```bash
-# scripts/package-helm-chart.sh
-#!/bin/bash
-set -e
+### 운영 편의성
 
-VERSION=$(grep 'version:' helm/datapond/Chart.yaml | awk '{print $2}')
-echo "Packaging DataPond Helm Chart version $VERSION"
-
-# Package
-helm package helm/datapond -d docs/charts/
-
-# Update index
-helm repo index docs/charts/ --url https://datapond.github.io/charts
-
-# Commit and push
-git add docs/charts/
-git commit -m "chore: release helm chart v$VERSION"
-git push origin main
-
-echo "✅ Helm chart published: helm repo add datapond https://datapond.github.io/charts"
-```
-
-#### 3. 설치 스크립트 작성
-```bash
-# 우선순위: 🟡 High
-
+```yaml
 작업:
-  - [ ] 원클릭 설치 스크립트 (install.sh)
-  - [ ] K3s 자동 설치 옵션
-  - [ ] Prerequisites 자동 체크
-  - [ ] 설치 후 검증 스크립트
-
-결과물:
-  - curl -sSL https://get.datapond.io | bash
-
-예상 시간: 2일
-```
-
-**install.sh**:
-```bash
-#!/bin/bash
-# DataPond One-Click Installer
-set -e
-
-echo "🚀 DataPond Installer"
-echo "====================="
-
-# Check prerequisites
-check_prerequisites() {
-  echo "📋 Checking prerequisites..."
-  
-  if ! command -v kubectl &> /dev/null; then
-    echo "❌ kubectl not found. Please install kubectl first."
-    exit 1
-  fi
-  
-  if ! command -v helm &> /dev/null; then
-    echo "❌ helm not found. Please install helm first."
-    exit 1
-  fi
-  
-  echo "✅ Prerequisites OK"
-}
-
-# Install K3s (optional)
-install_k3s() {
-  read -p "Do you want to install K3s? (y/N) " -n 1 -r
-  echo
-  if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo "📦 Installing K3s..."
-    curl -sfL https://get.k3s.io | sh -
-    mkdir -p ~/.kube
-    sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
-    sudo chown $USER ~/.kube/config
-    echo "✅ K3s installed"
-  fi
-}
-
-# Install DataPond
-install_datapond() {
-  echo "📦 Installing DataPond..."
-  
-  # Add Helm repo
-  helm repo add datapond https://datapond.github.io/charts
-  helm repo update
-  
-  # Create namespace
-  kubectl create namespace datapond --dry-run=client -o yaml | kubectl apply -f -
-  
-  # Install
-  helm install datapond datapond/datapond \
-    -n datapond \
-    --wait --timeout 10m
-  
-  echo "✅ DataPond installed"
-}
-
-# Display access info
-show_access_info() {
-  echo ""
-  echo "🎉 Installation Complete!"
-  echo "========================="
-  echo ""
-  echo "Access DataPond:"
-  echo "  Frontend:   http://datapond.local"
-  echo "  JupyterLab: http://datapond.local/jupyter"
-  echo "  Airflow:    http://datapond.local/airflow"
-  echo "  MLflow:     http://datapond.local/mlflow"
-  echo ""
-  echo "Default credentials:"
-  echo "  Jupyter Token: jupyter"
-  echo "  Airflow User:  admin / admin"
-  echo ""
-  echo "Check status: kubectl get pods -n datapond"
-  echo "Documentation: https://docs.datapond.io"
-  echo ""
-}
-
-# Main
-check_prerequisites
-install_k3s
-install_datapond
-show_access_info
-```
-
-### Week 2: 마케팅 자료 준비
-
-#### 1. 웹사이트 (Landing Page)
-```bash
-# 우선순위: 🔴 Critical
-
-기술 스택:
-  - Next.js (또는 Hugo/Jekyll for static)
-  - Tailwind CSS
-  - GitHub Pages 배포
-
-페이지 구성:
-  - Hero Section: "AI-Native Open Lakehouse Platform"
-  - Feature Highlights: AI, Cost, Open Source
-  - Databricks 비교 표
-  - Quick Start (설치 명령어)
-  - Use Cases
-  - Community / GitHub Stars
-  - Call-to-Action
-
-도메인:
-  - datapond.io (구매 필요)
-  - 또는 datapond.github.io
-
-예상 시간: 5일
-```
-
-**Landing Page 구조**:
-```html
-<!DOCTYPE html>
-<html>
-<head>
-  <title>DataPond - AI-Native Open Lakehouse Platform</title>
-</head>
-<body>
-  <!-- Hero -->
-  <section class="hero">
-    <h1>AI-Native Open Lakehouse Platform</h1>
-    <p>Databricks alternative at 1/10 the cost</p>
-    <button>Get Started</button>
-    <button>View Demo</button>
-  </section>
-  
-  <!-- Features -->
-  <section class="features">
-    <div>💰 10x Cheaper</div>
-    <div>🤖 Multi-Model AI</div>
-    <div>🔓 100% Open Source</div>
-  </section>
-  
-  <!-- Comparison -->
-  <section class="comparison">
-    <h2>Databricks vs DataPond</h2>
-    <table><!-- 비교 표 --></table>
-  </section>
-  
-  <!-- Quick Start -->
-  <section class="quickstart">
-    <pre>curl -sSL https://get.datapond.io | bash</pre>
-  </section>
-  
-  <!-- Community -->
-  <section class="community">
-    <a href="https://github.com/datapond/datapond">⭐ Star on GitHub</a>
-    <a href="https://discord.gg/datapond">💬 Join Discord</a>
-  </section>
-</body>
-</html>
-```
-
-#### 2. 데모 환경 구축
-```bash
-# 우선순위: 🟡 High
-
-옵션 1: 라이브 데모 (demo.datapond.io)
-  - 소규모 K8s 클러스터 (AWS EKS / GKE)
-  - 샘플 데이터 사전 로드
-  - 읽기 전용 모드
-  - 비용: $100-$200/월
-
-옵션 2: 비디오 데모
-  - YouTube: "DataPond in 5 minutes"
-  - Loom: 기능별 데모 영상
-  - 비용: 무료
-
-옵션 3: Interactive Tutorial (권장)
-  - Killercoda / Katacoda 스타일
-  - 브라우저에서 직접 체험
-  - 비용: 무료 (GitHub Codespaces)
-
-예상 시간: 3일 (옵션 2 선택 시)
-```
-
-#### 3. YouTube 튜토리얼 제작
-```bash
-# 우선순위: 🟡 High
-
-영상 목록:
-  1. "DataPond Introduction" (3분)
-     - 제품 소개, Databricks 비교
-  
-  2. "DataPond Installation Guide" (5분)
-     - K3s 설치 → DataPond 배포 → 접속
-  
-  3. "AI Assistant Tutorial" (7분)
-     - 자연어 SQL 생성
-     - 코드 에러 수정
-     - 데이터 인사이트
-  
-  4. "Building Your First Pipeline" (10분)
-     - Airflow DAG 생성
-     - Spark job 실행
-     - Trino 쿼리
-
-도구:
-  - OBS Studio (화면 녹화)
-  - DaVinci Resolve (편집)
-  - Canva (썸네일)
-
-예상 시간: 5일
-```
-
-#### 4. 마케팅 자료
-```bash
-# 우선순위: 🟢 Medium
-
-자료 목록:
-  - [ ] 1-pager PDF (제품 소개)
-  - [ ] Slide deck (피칭용)
-  - [ ] Case study template
-  - [ ] ROI Calculator (Databricks 대비 절감액)
-  - [ ] Architecture diagram (high-res)
-  - [ ] Logo variants (SVG, PNG)
-
-도구:
-  - Figma (디자인)
-  - Canva (프레젠테이션)
-
-예상 시간: 3일
+  - [ ] 헬스 체크 엔드포인트 표준화
+  - [ ] 로그 수집 설정 (Fluentd → 사내 SIEM)
+  - [ ] Prometheus + Grafana 대시보드
+  - [ ] 백업/복구 자동화 스크립트
+  - [ ] 업그레이드 가이드 (Helm upgrade 절차)
 ```
 
 ---
 
-## 🚀 Phase 1: Launch (Week 3-4)
+## 🏢 Phase 1: 레퍼런스 확보 (6주 ~ 4개월)
 
-### Week 3: 소프트 런치 (Soft Launch)
+### 타겟 고객 우선순위
 
-#### 1. GitHub 공개
 ```yaml
-Day 1:
-  - [ ] Repository를 Public으로 전환
-  - [ ] README.md 최종 검토
-  - [ ] LICENSE 파일 확인
-  - [ ] CONTRIBUTING.md 작성
-  - [ ] CODE_OF_CONDUCT.md 추가
-  - [ ] Issue/PR 템플릿 설정
+Priority 1: 금융
+  - 시중은행 데이터 팀
+  - 증권사 AI/빅데이터팀
+  - 접근 경로: CIO/CDO 직접 접촉, 금융 IT 컨퍼런스
 
-Day 2:
-  - [ ] GitHub Topics 설정
-        - kubernetes, data-platform, lakehouse, ai
-        - databricks-alternative, open-source
-  - [ ] GitHub About 업데이트
-  - [ ] Social preview 이미지 설정
+Priority 2: 공공
+  - 공공기관 정보화 담당 (행정안전부 산하)
+  - 금융 감독 기관
+  - 접근 경로: 공공 IT 전시회, SI 파트너
+
+Priority 3: 의료
+  - 상급종합병원 의료정보팀
+  - 바이오 연구소
+  - 접근 경로: HIMSS, 병원 IT 컨퍼런스
+
+Priority 4: 제조
+  - 반도체, 자동차 대기업 데이터 팀
+  - 접근 경로: 스마트 팩토리 컨퍼런스, 직접 영업
 ```
 
-#### 2. 커뮤니티 채널 오픈
+### PoC 전략
+
 ```yaml
-Discord:
-  - [ ] Discord 서버 생성 (discord.gg/datapond)
-  - [ ] 채널 구성:
-        - #announcements
-        - #general
-        - #support
-        - #show-and-tell
-        - #development
-  - [ ] 봇 설정 (GitHub 알림)
+기간: 4-8주
 
-Twitter:
-  - [ ] @DataPond 계정 생성
-  - [ ] 프로필 설정
-  - [ ] 첫 트윗: Launch announcement
+PoC 범위 (제안):
+  - 기존 데이터 환경 연결 (PostgreSQL/Oracle 커넥터)
+  - Iceberg 테이블 생성 및 쿼리
+  - AI Assistant 자연어 SQL 시연
+  - 거버넌스 (Polaris) 권한 설정 시연
+  - Lineage 시각화 (OpenMetadata)
 
-LinkedIn:
-  - [ ] DataPond 페이지 생성
-  - [ ] 회사 소개
+성공 기준:
+  - 내부망 완전 설치 성공
+  - 기존 데이터 수집 및 쿼리 동작
+  - 성능: 현재 대비 동등 이상
+  - 담당자 만족도 (사용 편의성)
+
+지원:
+  - SA(Solution Architect) 상주 지원 (주 2회)
+  - 기술 문의 1일 내 응답
+  - 아키텍처 리뷰 세션
 ```
 
-#### 3. 초기 콘텐츠 발행
+### SI 파트너 전략
+
 ```yaml
-Blog Posts (Medium / Dev.to):
-  Day 1: "Introducing DataPond: Open Source Alternative to Databricks"
-  Day 3: "Why We Built DataPond (and Why You Should Care)"
-  Day 5: "DataPond vs Databricks: A Detailed Comparison"
+타겟 파트너:
+  - 삼성SDS: 금융·공공 SI 강점
+  - LG CNS: 제조·통신 SI 강점
+  - SK C&C: 금융 SI 강점
+  - KTDS: 공공 SI 강점
+  - 중소 SI: 특정 산업 전문 파트너
 
-Social Media:
-  - Twitter: 매일 1-2 트윗
-  - LinkedIn: 주 3회 포스트
-  - Reddit: r/dataengineering, r/kubernetes 소개글
-```
+파트너 가치 제안:
+  - 제품 통합 (DataPond + SI 커스텀 개발)
+  - 마진: 파트너 마진 구조 제공
+  - 교육: 파트너 기술 인증 프로그램
+  - 지원: 영업·기술 공동 대응
 
-### Week 4: 하드 런치 (Hard Launch)
-
-#### 1. Hacker News Launch
-```yaml
-제목: "DataPond – Open-source AI-native lakehouse (Databricks alternative)"
-링크: https://datapond.io
-본문 (Show HN):
-  """
-  Hi HN! I'm the creator of DataPond.
-  
-  TL;DR: Open-source data platform with AI assistant, 
-  costs 10x less than Databricks, runs on any Kubernetes.
-  
-  Why we built this:
-  - Databricks costs $100K+/year, too expensive for most teams
-  - We wanted multi-model AI (Claude, GPT-4, Llama)
-  - Open source = no vendor lock-in
-  
-  Stack: Spark, Iceberg, Trino, Airflow, MLflow, LiteLLM
-  Install: curl -sSL https://get.datapond.io | bash
-  
-  Happy to answer questions!
-  """
-
-타이밍:
-  - 화요일-목요일
-  - 오전 9-11시 (PST)
-  - Product Hunt와 겹치지 않게
-
-목표: Front page 진입 (200+ upvotes)
-```
-
-#### 2. Product Hunt Launch
-```yaml
-준비물:
-  - [ ] Product Hunt 계정 생성
-  - [ ] Maker 프로필 설정
-  - [ ] 제품 설명 (300자)
-  - [ ] 썸네일 이미지 (1270x760)
-  - [ ] 갤러리 이미지 5장
-  - [ ] 데모 영상 (YouTube)
-  - [ ] Promo code (할당 불필요, 무료 제품)
-
-헌팅:
-  - Hunter: 영향력 있는 사람에게 요청
-  - 시간: 00:01 PST (Pacific Time)
-  - 첫날 집중 홍보 (팀/커뮤니티 동원)
-
-목표: Top 5 Product of the Day
-
-댓글 대응:
-  - 모든 질문에 1시간 내 답변
-  - 피드백 수용 및 로드맵 공유
-```
-
-#### 3. Tech Media 배포
-```yaml
-Press Release:
-  제목: "DataPond Launches as Open-Source Alternative to Databricks"
-  배포처:
-    - TechCrunch (tip@techcrunch.com)
-    - VentureBeat
-    - The New Stack
-    - InfoWorld
-    - ZDNet
-
-보도자료 핵심:
-  - "10배 저렴한 Databricks 대안"
-  - "AI-native with multi-model support"
-  - "100% open source, no vendor lock-in"
-  - GitHub Stars 목표 (1K in 30 days)
-
-Founder Quote:
-  "기업들은 Databricks 수준의 플랫폼을 원하지만 
-   비용 때문에 포기합니다. DataPond는 오픈소스로 
-   이 문제를 해결합니다."
+파트너십 단계:
+  Week 1-2: 파트너 후보 리스트업 및 접촉
+  Week 3-4: 파트너 데모 및 기술 브리핑
+  Month 2: MOU 협약
+  Month 3: 첫 공동 영업 기회
 ```
 
 ---
 
-## 📈 Phase 2: Growth (Month 2-3)
+## 📣 Phase 2: 인지도 확장 (4~6개월)
 
-### Month 2: 커뮤니티 성장
+### 타겟 마케팅 채널
 
-#### 1. 콘텐츠 마케팅
 ```yaml
-Weekly Cadence:
-  Monday: Blog post 발행
-  Wednesday: YouTube 영상
-  Friday: Newsletter (이메일 구독자)
+산업별 컨퍼런스:
+  금융:
+    - 금융IT 혁신 컨퍼런스
+    - Korea FinTech Week
+    - 한국금융정보화 사업 관련 행사
 
-주제:
-  Week 1: "How to Migrate from Databricks to DataPond"
-  Week 2: "LiteLLM Deep Dive: Multi-Model AI Strategy"
-  Week 3: "Building Real-Time Data Pipelines with DataPond"
-  Week 4: "Cost Optimization: $100K/year → $10K/year"
-  Week 5: "Apache Iceberg Best Practices"
-  Week 6: "Kubernetes Native Data Platform Architecture"
-  Week 7: "AI-Powered SQL Generation: Claude vs GPT-4"
-  Week 8: "DataPond vs Snowflake vs Azure Synapse"
+  공공:
+    - 대한민국 디지털 전략 포럼
+    - 공공 클라우드 컨퍼런스
+
+  의료:
+    - HIMSS Korea
+    - 의료정보학회
+
+  제조/IT:
+    - 스마트 팩토리 엑스포
+    - KubeCon Korea (기술 발표)
+
+콘텐츠:
+  - "망분리 환경에서 AI 데이터 플랫폼 구축" 백서
+  - "금융 규제 환경에서의 Lakehouse 아키텍처" 가이드
+  - PoC 성공 사례 (고객 허락 시)
+  - 기술 블로그 (아키텍처, 운영 노하우)
 ```
 
-#### 2. 커뮤니티 이벤트
+### 기술 커뮤니티 참여
+
 ```yaml
-Online Meetup (월 1회):
-  - Zoom / YouTube Live
-  - 주제: User showcase, Roadmap, Q&A
-  - 참석자: 50-100명 목표
+목표: 데이터 엔지니어 인지도 확보 (영업 지원)
 
-Office Hours (주 1회):
-  - Discord Voice Channel
-  - 1:1 지원, 피드백 수집
+채널:
+  - 한국 Kubernetes 사용자 그룹 (KCSG)
+  - 한국 데이터 엔지니어링 밋업
+  - Naver Tech Blog, 카카오 Tech Blog 등 기고
 
-Contribution Sprint:
-  - Hacktoberfest 참여
-  - "Good First Issue" 라벨링
-  - 기여자 인센티브 (티셔츠, 스티커)
-```
-
-#### 3. 파트너십
-```yaml
-Technology Partners:
-  - Kubernetes 클라우드 (AWS, GCP, Azure)
-    → "DataPond on EKS" 가이드
-  
-  - Observability (Datadog, New Relic)
-    → 통합 가이드 공동 작성
-  
-  - BI 도구 (Metabase, Superset)
-    → DataPond 커넥터 개발
-
-Community Partners:
-  - CNCF (Cloud Native Computing Foundation)
-    → Landscape 등재 신청
-  
-  - Apache Software Foundation
-    → Iceberg/Spark 커뮤니티 참여
-```
-
-### Month 3: 엔터프라이즈 검증
-
-#### 1. Enterprise Edition 개발
-```yaml
-기능 추가:
-  - [ ] LDAP/SAML 통합
-  - [ ] Advanced RBAC (행/열 레벨)
-  - [ ] Audit Logging 강화
-  - [ ] Multi-tenancy (네임스페이스 격리)
-  - [ ] SLA 모니터링
-  - [ ] Backup/Restore 자동화
-
-라이센스:
-  - Community: Apache 2.0 (무료)
-  - Enterprise: Commercial License ($2K-$10K/월)
-
-패키징:
-  - Enterprise Helm Chart (별도 repo)
-  - License Key 검증 시스템
-```
-
-#### 2. Lead Generation
-```yaml
-Inbound:
-  - "Request Enterprise Demo" 폼
-  - "Calculate Your Savings" ROI 계산기
-  - Whitepaper: "Data Platform TCO Analysis"
-
-Outbound:
-  - LinkedIn Sales Navigator
-  - 타겟: Head of Data, VP Engineering (500-5000명 회사)
-  - 메시지: "We help companies save $100K/year on data platforms"
-
-Webinar:
-  - "Databricks to DataPond Migration"
-  - 참석자 → Sales 파이프라인
-```
-
-#### 3. 첫 Enterprise 고객
-```yaml
-POC (Proof of Concept):
-  - 기간: 30일
-  - 무료 지원
-  - Success Criteria 명확화
-  - Migration 지원
-
-Pricing:
-  - Startup (<50명): $2K/월
-  - SMB (50-500명): $5K/월
-  - Enterprise (500+): Custom
-
-Success Story:
-  - 고객 인터뷰 (허락 받고)
-  - Case Study 작성
-  - 웹사이트/블로그 게재
+발표 주제:
+  - "Kubernetes 위에서 Databricks 수준의 Lakehouse 구현"
+  - "Apache Polaris로 엔터프라이즈 데이터 거버넌스 구현"
+  - "망분리 환경의 AI Native 데이터 플랫폼"
 ```
 
 ---
 
-## 📊 Phase 3: Scale (Month 4-6)
+## 💰 수익화 모델
 
-### Month 4-6: 수익화 및 확장
+### 라이선스 구조
 
-#### 1. Sales Playbook
 ```yaml
-Lead Qualification:
-  - BANT (Budget, Authority, Need, Timeline)
-  - 예산: $50K+ 데이터 인프라 지출
-  - 의사결정자: Head of Data, CTO
-  - 니즈: Databricks 대안 찾는 중
-  - 타임라인: 3-6개월 내 결정
+Standard:
+  대상: 파일럿, 소규모 팀
+  포함: 단일 클러스터, 기본 거버넌스
+  지원: 이메일 지원
 
-Sales Cycle:
-  Week 1: Discovery call (30분)
-  Week 2: Demo (1시간)
-  Week 3: POC 제안
-  Week 4-6: POC 진행
-  Week 7: 결과 리뷰
-  Week 8: Contract negotiation
-  Week 9: Onboarding
+Enterprise:
+  대상: 중견·대기업 정식 계약
+  포함:
+    - Standard 전체
+    - LDAP/AD/SSO 통합
+    - 고급 거버넌스 (행/열 보안)
+    - 에어갭 지원
+    - 멀티 클러스터
+    - 24/7 기술 지원
+    - SLA 보장 (99.9%)
+    - 전담 SA
 
-Tools:
-  - CRM: HubSpot (무료)
-  - Email: Calendly + Loom
-  - Proposal: PandaDoc
+Government:
+  대상: 공공기관, 국방
+  포함:
+    - Enterprise 전체
+    - CC 인증 대응 문서
+    - 망분리 설치 지원
+    - 보안 감사 대응
+    - 전담 계약 관리
 ```
 
-#### 2. Customer Success
+### Professional Services
+
 ```yaml
-Onboarding:
-  - Kickoff call
-  - Architecture review
-  - Migration plan
-  - 2주 내 production 배포
+구축 서비스:
+  - 환경 분석 및 아키텍처 설계
+  - 설치 및 구성
+  - 기존 데이터 마이그레이션
+  - 초기 파이프라인 구축
 
-Support:
-  - Community: Discord (무료)
-  - Enterprise: Email + Slack Connect
-  - SLA: 24시간 응답 (P0: 4시간)
+교육:
+  - 관리자 교육 (인프라, 운영)
+  - 개발자 교육 (데이터 파이프라인, Spark, Trino)
+  - 분석가 교육 (JupyterLab, DuckDB, AI Assistant)
 
-Training:
-  - Admin training: 2시간
-  - User training: 4시간
-  - Developer training: 8시간
-  - Certification program (roadmap)
-```
-
-#### 3. Product-Market Fit 검증
-```yaml
-Metrics:
-  - NPS (Net Promoter Score): 50+ 목표
-  - Retention: 80%+ (6개월)
-  - Expansion: 20%+ (upsell)
-  - CAC Payback: <12개월
-
-피드백 수집:
-  - 월간 사용자 서베이
-  - Quarterly Business Review (QBR)
-  - Feature 요청 투표 (GitHub Discussions)
-
-Iteration:
-  - 2주 Sprint
-  - 월 1회 Release
-  - Customer-driven roadmap
+유지보수:
+  - 정기 업그레이드 지원
+  - 기술 지원 계약 (SLA 포함)
+  - 연간 아키텍처 리뷰
 ```
 
 ---
 
-## 💰 예산 계획
+## 📊 성공 지표
 
-### Phase 0-1 (첫 2개월)
+### 6개월 KPI
+
 ```yaml
-Infrastructure:
-  - Demo 환경: $200/월 x 2 = $400
-  - CI/CD (GitHub Actions): $0 (무료)
+제품:
+  에어갭 설치 성공률: 95%+
+  PoC 완료 건수: 2건 이상
 
-Marketing:
-  - 도메인 (datapond.io): $30
-  - Email (GSuite): $12/월 x 2 = $24
-  - Canva Pro: $13/월 x 2 = $26
+영업:
+  파일럿 고객: 3개사
+  정식 계약: 1개사 이상
+  파이프라인 (진행 중 상담): 10개사 이상
 
-총: ~$500
-```
+파트너:
+  SI 파트너 MOU: 2개사
 
-### Phase 2-3 (Month 3-6)
-```yaml
-Infrastructure:
-  - Demo 환경: $200/월 x 4 = $800
-  - Production support: $500/월 x 4 = $2,000
-
-Marketing:
-  - Paid ads (선택): $1,000/월 x 4 = $4,000
-  - Events: $500
-
-Sales Tools:
-  - HubSpot: $0 (무료)
-  - Loom: $0 (무료)
-
-총: ~$7,300
-```
-
-### 6개월 총 예산: ~$8,000
-
----
-
-## 📊 Success Metrics
-
-### Leading Indicators (선행 지표)
-```yaml
-Week 1:
-  - GitHub Stars: 100+
-  - Website visits: 1,000+
-
-Month 1:
-  - GitHub Stars: 500+
-  - Active installs: 50+
-  - Discord members: 200+
-
-Month 3:
-  - GitHub Stars: 2,000+
-  - Active installs: 200+
-  - Enterprise leads: 20+
-
-Month 6:
-  - GitHub Stars: 5,000+
-  - Active installs: 500+
-  - Enterprise customers: 5+
-```
-
-### Lagging Indicators (후행 지표)
-```yaml
-Month 6:
-  - MRR (월 반복 매출): $10K-$30K
-  - Total installs: 2,000+
-  - Community contributors: 50+
-  - Press mentions: 10+
-  - Conference talks: 3+
+인지도:
+  컨퍼런스 발표: 2회 이상
+  기술 블로그 게재: 월 2편
 ```
 
 ---
 
-## 🎯 Critical Success Factors
+## 🚨 리스크 및 대응
 
-### Must-Have (없으면 실패)
-1. **제품 안정성**: 설치 후 5분 내 동작
-2. **문서 품질**: 비개발자도 이해 가능
-3. **커뮤니티 응답성**: 24시간 내 답변
-4. **차별화 명확성**: "Databricks 대비 10배 저렴" 메시지 일관성
+### Risk 1: 에어갭 배포 기술적 난이도
 
-### Nice-to-Have (있으면 가속)
-1. **Influencer 지원**: 유명 데이터 엔지니어 추천
-2. **Press Coverage**: TechCrunch 등 메이저 언론
-3. **Conference 발표**: KubeCon, Data Council 등
-4. **Fortune 500 고객**: 신뢰도 상승
-
----
-
-## 🚨 Risk & Mitigation
-
-### Risk 1: 초기 관심 부족
 ```yaml
-증상: GitHub Stars < 100 (1개월)
-원인: 메시지 불명확, 타겟 잘못 설정
+증상: 일부 컴포넌트가 외부 인터넷에 의존
 대응:
-  - Hacker News 재시도 (다른 각도)
-  - Reddit AMA 진행
-  - 유튜버 협업
+  - 배포 전 외부 의존성 전수 검사
+  - 이미지 레지스트리 미러링 자동화
+  - 에어갭 전용 테스트 환경 구축
 ```
 
-### Risk 2: 기술적 문제
+### Risk 2: 긴 영업 사이클 (공공·금융)
+
 ```yaml
-증상: 설치 실패율 > 50%
-원인: Dependencies, Documentation
+증상: 6개월 이상 의사결정 지연
 대응:
-  - One-click installer 개선
-  - Troubleshooting 가이드 확충
-  - Discord에서 실시간 지원
+  - 담당자 레벨 기술 확신 먼저
+  - 경영진 보고 자료 (ROI 계산기, 비교 분석)
+  - SI 파트너를 통한 진입 가속
 ```
 
-### Risk 3: Enterprise 전환 실패
+### Risk 3: 보안 요건 불충족
+
 ```yaml
-증상: POC → Paid 전환율 < 20%
-원인: Feature 부족, Price 비싸거나 저렴
+증상: 금융·공공의 보안 심의 통과 실패
 대응:
-  - Exit interview로 원인 파악
-  - Feature 우선순위 조정
-  - Pricing 재검토
+  - 보안 체크리스트 사전 준비
+  - 외부 보안 컨설팅 (침투 테스트)
+  - ISMS-P 컨설턴트 활용
 ```
 
 ---
 
-## 📝 Action Items (이번 주)
+## 📝 즉시 실행 항목
 
-### 최우선 (이번 주 완료)
-- [ ] Backend Dockerfile 작성 및 테스트
-- [ ] Frontend Dockerfile 작성 및 테스트
-- [ ] GitHub Actions CI/CD 설정
-- [ ] Helm Chart 패키징 스크립트
-- [ ] README.md 설치 명령어 검증
+### 이번 주
 
-### 다음 주
-- [ ] Landing page 디자인 및 개발
-- [ ] YouTube 첫 영상 제작
-- [ ] Discord 서버 오픈
-- [ ] Hacker News 런치 준비
+```yaml
+- [ ] 에어갭 환경 테스트 VM 구성
+- [ ] 외부 의존성 전수 조사 (모든 Helm Chart)
+- [ ] 보안 설정 가이드 초안 작성
+- [ ] SI 파트너 후보 5개사 리스트업
+```
 
 ### 이번 달
-- [ ] GitHub Public 전환
-- [ ] Product Hunt 런치
-- [ ] 첫 블로그 포스트 3개
-- [ ] Demo 환경 구축
 
----
-
-## 🎯 Conclusion
-
-DataPond를 성공적으로 런칭하기 위한 6개월 플랜입니다.
-
-**핵심은 속도와 실행력**:
-- 2주 내 출시 준비
-- 1개월 내 Hard Launch
-- 3개월 내 PMF (Product-Market Fit) 검증
-- 6개월 내 첫 수익화
-
-지금 당장 시작할 것:
-1. Docker 이미지 빌드
-2. Helm Chart 패키징
-3. Landing page 제작
-
-**Let's ship it! 🚀**
+```yaml
+- [ ] 에어갭 배포 패키지 v1 완성
+- [ ] PoC 제안서 템플릿 작성
+- [ ] SI 파트너 1개사 미팅
+- [ ] 금융 타겟 고객 콜드 아웃리치 (5개사)
+```
