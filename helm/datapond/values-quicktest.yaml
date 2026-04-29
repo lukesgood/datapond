@@ -121,9 +121,9 @@ seaweedfs:
     persistence:
       size: 20Gi
 
-# Trino - Disabled for quick test
+# Trino - Minimal (SQL query engine)
 trino:
-  enabled: false
+  enabled: true
   replicas: 1
   resources:
     requests:

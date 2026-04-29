@@ -141,7 +141,8 @@ data:
     iceberg.catalog.type=rest
     iceberg.rest-catalog.uri=http://{{ .Values.polaris.name }}:{{ .Values.polaris.service.port }}/api/catalog/v1
     iceberg.rest-catalog.warehouse={{ .Values.polaris.storage.defaultBaseLocation }}
-    iceberg.rest-catalog.credential={{ .Values.polaris.auth.clientId }}:{{ .Values.polaris.auth.clientSecret }}
+    iceberg.rest-catalog.security=OAUTH2
+    iceberg.rest-catalog.oauth2.credential={{ .Values.polaris.auth.clientId }}:{{ .Values.polaris.auth.clientSecret }}
     {{- else }}
     # Fallback: JDBC Catalog (deprecated)
     iceberg.catalog.type=jdbc
