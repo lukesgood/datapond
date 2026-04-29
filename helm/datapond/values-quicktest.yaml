@@ -148,9 +148,9 @@ polaris:
       cpu: 500m
       memory: 1Gi
 
-# RisingWave - Disabled (S3 storage issues)
+# RisingWave - Minimal (real-time streaming SQL)
 risingwave:
-  enabled: false
+  enabled: true
   meta:
     replicas: 1
     resources:

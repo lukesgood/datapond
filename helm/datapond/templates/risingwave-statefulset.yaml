@@ -40,9 +40,7 @@ spec:
           - --sql-endpoint
           - "postgresql://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.password }}@{{ .Values.postgres.name }}:{{ .Values.postgres.service.port }}/{{ .Values.risingwave.database }}"
           - --state-store
-          - "s3://{{ .Values.risingwave.storage.bucket }}"
-          - --data-directory
-          - "{{ .Values.risingwave.storage.dataDirectory }}"
+          - "hummock+memory"
         env:
         # S3 (SeaweedFS) credentials
         - name: AWS_ACCESS_KEY_ID
@@ -141,7 +139,7 @@ spec:
           - "0.0.0.0:{{ .Values.risingwave.frontend.service.port }}"
           - --advertise-addr
           - "$(POD_IP):{{ .Values.risingwave.frontend.service.port }}"
-          - --meta-address
+          - --meta-addr
           - "http://{{ .Values.risingwave.name }}-meta-0.{{ .Values.risingwave.name }}-meta:{{ .Values.risingwave.meta.service.port }}"
         env:
         - name: POD_IP
