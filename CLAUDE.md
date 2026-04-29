@@ -172,17 +172,56 @@ kubectl logs <pod-name> -n datapond
 
 ## Agent Team
 
-The `.claude/agents/` directory contains specialized sub-agents for this project:
+DataPond uses a **hierarchical AI agent system** for project management. The PM Agent coordinates specialized sub-agents to handle different aspects of the project.
 
-- `pm-agent.md` — product/strategy decisions, coordinates other agents
-- `architecture-agent.md` — system design and technology choices
-- `backend-agent.md` — FastAPI, database schema, API design
-- `frontend-agent.md` — Next.js, UI/UX
-- `devops-agent.md` — Kubernetes, Helm, CI/CD
-- `ml-consultant-agent.md` — LiteLLM, MLflow, AI features
-- `design-agent.md` — visual design, UX patterns
+### Available Agents
 
-See `.claude/AGENT_TEAM_GUIDE.md` for coordination workflow.
+| Agent | Model | Specialization | File |
+|-------|-------|----------------|------|
+| **PM Agent** | Opus 4.7 | Project leadership, strategy, coordination | `pm-agent.md` |
+| **Architecture Agent** | Opus 4.7 | System design, tech decisions, ADRs | `architecture-agent.md` |
+| **ML Consultant Agent** | Opus 4.7 | ML strategy, data science workflows | `ml-consultant-agent.md` |
+| **Backend Agent** | Sonnet 4.6 | FastAPI, database, API implementation | `backend-agent.md` |
+| **Frontend Agent** | Sonnet 4.6 | Next.js, React, UI implementation | `frontend-agent.md` |
+| **Design Agent** | Sonnet 4.6 | UI/UX design, design system | `design-agent.md` |
+| **DevOps Agent** | Sonnet 4.6 | Kubernetes, Docker, CI/CD | `devops-agent.md` |
+
+### How to Use Agents
+
+**When you need coordinated multi-agent work:**
+```
+User: "shadcn/ui 기반으로 통합 관리 UI를 만들어줘"
+
+Claude will:
+1. Read pm-agent.md to understand PM responsibilities
+2. Read relevant specialist agents (frontend-agent.md, design-agent.md, backend-agent.md)
+3. Coordinate implementation across agents
+4. Ensure consistency with project architecture and standards
+```
+
+**Agent Workflow:**
+```
+User Request → Main Claude (reads pm-agent.md)
+                      ↓
+            PM Agent Analysis & Planning
+                      ↓
+        ┌─────────────┼─────────────┐
+        ↓             ↓             ↓
+  Architecture    Backend      Frontend
+  Agent Context   Agent        Agent
+  (design review) (API impl)   (UI impl)
+                      ↓
+            Integration & Deployment
+```
+
+**Direct Agent Reference:**
+When Claude needs specialized knowledge, it will:
+1. Read the relevant agent file from `.claude/agents/`
+2. Apply that agent's expertise and guidelines
+3. Follow that agent's code standards and practices
+4. Report back with agent-appropriate recommendations
+
+See `.claude/AGENT_TEAM_GUIDE.md` for detailed coordination workflow and best practices.
 
 ## Key Documentation
 

@@ -128,28 +128,109 @@ You coordinate these specialized agents:
 
 ## 🔄 Workflow
 
+### How to Use Sub-Agents
+
+**CRITICAL**: When you need specialized expertise, you MUST read and apply the relevant agent file(s) from `.claude/agents/`.
+
+**Process:**
+
+1. **Identify Required Expertise**
+   ```
+   User Request: "shadcn/ui 기반으로 통합 관리 UI를 만들어줘"
+   
+   Analysis:
+   - Frontend development needed → frontend-agent.md
+   - UI/UX design needed → design-agent.md
+   - Backend API needed → backend-agent.md
+   - Docker/K8s deployment → devops-agent.md
+   ```
+
+2. **Read Agent Files**
+   ```
+   Use Read tool to load:
+   - .claude/agents/frontend-agent.md (for Next.js + shadcn/ui)
+   - .claude/agents/design-agent.md (for UI/UX patterns)
+   - .claude/agents/backend-agent.md (for API design)
+   - .claude/agents/devops-agent.md (for Docker images)
+   ```
+
+3. **Apply Agent Expertise**
+   - Follow agent's coding standards
+   - Use agent's recommended libraries
+   - Apply agent's best practices
+   - Adopt agent's file structure
+
+4. **Coordinate Multiple Agents**
+   - Read all relevant agent files
+   - Create coherent plan across agents
+   - Ensure consistency between agents
+   - Document cross-agent decisions
+
+**Example Coordination:**
+
+```yaml
+Task: "Build unified management UI"
+
+Step 1: Read Agent Files
+  - Read .claude/agents/frontend-agent.md
+  - Read .claude/agents/backend-agent.md
+  - Read .claude/agents/design-agent.md
+
+Step 2: Create Plan
+  Frontend Agent approach:
+    - Next.js 14 with App Router
+    - shadcn/ui components
+    - TypeScript strict mode
+    - Tailwind CSS
+    
+  Backend Agent approach:
+    - FastAPI with async
+    - Pydantic models
+    - PostgreSQL with SQLAlchemy
+    - RESTful API design
+    
+  Design Agent approach:
+    - Consistent color palette
+    - Accessible components (WCAG 2.1 AA)
+    - Responsive design
+    - Dark/light theme support
+
+Step 3: Execute
+  - Implement frontend following frontend-agent.md
+  - Implement backend following backend-agent.md
+  - Apply design patterns from design-agent.md
+  - Package with devops-agent.md guidance
+
+Step 4: Integrate
+  - Ensure API contracts match
+  - Test end-to-end
+  - Document for devops-agent deployment
+```
+
 ### Task Assignment Process
 
 1. **Analyze Request**
    - Understand user requirement
    - Break down into subtasks
    - Identify responsible agent(s)
+   - **Read relevant agent files**
 
 2. **Make Decisions**
-   - Architecture choices
-   - Technology selection
+   - Architecture choices (consult architecture-agent.md)
+   - Technology selection (check agent recommendations)
    - Priority ordering
    - Trade-off evaluation
 
 3. **Delegate to Agents**
-   - Assign clear, specific tasks
+   - **Read agent file to understand their expertise**
+   - Assign clear, specific tasks aligned with agent strengths
    - Provide context and constraints
-   - Set success criteria
-   - Define deliverables
+   - Set success criteria based on agent standards
+   - Define deliverables in agent's domain
 
 4. **Review & Integrate**
-   - Review agent outputs
-   - Ensure consistency
+   - Review against agent guidelines
+   - Ensure consistency with agent standards
    - Integrate solutions
    - Update roadmap
 
