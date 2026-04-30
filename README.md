@@ -2,6 +2,8 @@
 
 **Databricks가 진입할 수 없는 온프렘·에어갭 환경을 위한 엔터프라이즈 AI 데이터 플랫폼**
 
+**Last Updated:** 2026-04-30
+
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.25+-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
 [![Helm](https://img.shields.io/badge/Helm-3.12+-0F1689?logo=helm&logoColor=white)](https://helm.sh/)
 [![LiteLLM](https://img.shields.io/badge/AI-Multi--Model-FF6B35)](https://litellm.ai/)
@@ -275,14 +277,19 @@ kubectl get ingress -n datapond
   - ✅ 라이선스 안전 (Valkey → Redis 대체)
   - ✅ Helm Chart (개발/프로덕션 환경 분리)
 
-진행 중 (Phase 1):
-  - 🔄 에어갭 배포 지원 (오프라인 이미지 패키지)
-  - 🔄 OAuth2 + LDAP/AD 통합
-  - 🔄 TLS 전 구간 자동화
+Phase 1 (완료):
+  - ✅ 통합 관리 UI (15개 페이지)
+  - ✅ SQL Lab (Monaco Editor)
+  - ✅ Data Catalog (Polaris REST API)
+  - ✅ Data Connectors (PostgreSQL, MySQL, S3)
+  - ✅ Help & Documentation System
+  - ✅ Database schemas (8 tables, indexes, triggers)
 
-계획 중 (Phase 2):
-  - 📋 행/열 레벨 보안 (Polaris 확장)
-  - 📋 감사 로그 무결성 보장
+Phase 2 (설계 완료):
+  - 📋 Authentication System (LDAP/SAML/OIDC/MFA)
+  - 📋 에어갭 배포 지원 (오프라인 이미지 패키지)
+  - 📋 TLS 전 구간 자동화
+  - 📋 행/열 레벨 보안 (Trino plugin)
   - 📋 Prometheus + Grafana 모니터링
 ```
 
