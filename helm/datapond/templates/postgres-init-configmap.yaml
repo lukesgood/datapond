@@ -5,34 +5,52 @@ metadata:
   name: postgres-init-scripts
   namespace: {{ .Values.namespace }}
 data:
-  01-init-databases.sql: |
-    -- Create databases for DataPond components
+  01-init-databases.sh: |
+    #!/bin/bash
+    # DataPond database initialization
+    # Runs once on first PostgreSQL startup (when data directory is empty)
+    set -e
 
-    -- Polaris catalog metadata
-    CREATE DATABASE {{ .Values.polaris.database }};
-    GRANT ALL PRIVILEGES ON DATABASE {{ .Values.polaris.database }} TO {{ .Values.postgres.auth.username }};
+    PG_USER="{{ .Values.postgres.auth.username }}"
 
-    -- Iceberg catalog (fallback for JDBC mode)
-    CREATE DATABASE iceberg_catalog;
-    GRANT ALL PRIVILEGES ON DATABASE iceberg_catalog TO {{ .Values.postgres.auth.username }};
+    create_db() {
+      local db="$1"
+      psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+        SELECT 'CREATE DATABASE ${db} OWNER ${PG_USER}'
+        WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${db}')
+        \gexec
+        GRANT ALL PRIVILEGES ON DATABASE ${db} TO ${PG_USER};
+    EOSQL
+      echo "[init] Database '${db}' ready"
+    }
 
-    -- MLflow tracking
-    CREATE DATABASE mlflow;
-    GRANT ALL PRIVILEGES ON DATABASE mlflow TO {{ .Values.postgres.auth.username }};
+    echo "[init] Creating DataPond databases..."
 
-    -- Airflow metadata
-    CREATE DATABASE airflow;
-    GRANT ALL PRIVILEGES ON DATABASE airflow TO {{ .Values.postgres.auth.username }};
+    # Core application database (already created by POSTGRES_DB env, ensure ownership)
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+      -c "GRANT ALL PRIVILEGES ON DATABASE \"$POSTGRES_DB\" TO ${PG_USER};" || true
+
+    # MLflow experiment tracking
+    create_db "mlflow"
+
+    # Airflow workflow metadata
+    create_db "airflow"
+
+    # Apache Polaris / Iceberg catalog
+    create_db "{{ .Values.polaris.database | default "polaris_catalog" }}"
+
+    # Iceberg JDBC catalog (fallback)
+    create_db "iceberg_catalog"
 
     {{- if .Values.risingwave.enabled }}
-    -- RisingWave metadata
-    CREATE DATABASE {{ .Values.risingwave.database }};
-    GRANT ALL PRIVILEGES ON DATABASE {{ .Values.risingwave.database }} TO {{ .Values.postgres.auth.username }};
+    # RisingWave streaming metadata
+    create_db "{{ .Values.risingwave.database | default "risingwave" }}"
     {{- end }}
 
     {{- if .Values.openmetadata.enabled }}
-    -- OpenMetadata catalog
-    CREATE DATABASE {{ .Values.openmetadata.database }};
-    GRANT ALL PRIVILEGES ON DATABASE {{ .Values.openmetadata.database }} TO {{ .Values.postgres.auth.username }};
+    # OpenMetadata data catalog
+    create_db "{{ .Values.openmetadata.database | default "openmetadata_catalog" }}"
     {{- end }}
+
+    echo "[init] All DataPond databases initialized successfully"
 {{- end }}

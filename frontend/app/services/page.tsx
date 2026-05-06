@@ -1,0 +1,275 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Input } from "@/components/ui/input"
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb"
+import {
+  Activity,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  Search,
+  RefreshCw,
+  ExternalLink,
+} from "lucide-react"
+
+interface Service {
+  name: string
+  status: "healthy" | "unhealthy" | "unknown"
+  url?: string
+  version?: string
+  description?: string
+}
+
+// Internal K8s DNS → browser-accessible ingress path
+const EXTERNAL_URLS: Record<string, string> = {
+  jupyterlab:    "/jupyter",
+  mlflow:        "/mlflow",
+  trino:         "/api/trino",
+  openmetadata:  "/openmetadata",
+  seaweedfs:     "/storage",
+  airflow:       "/airflow",
+}
+
+function getExternalUrl(name: string): string | null {
+  return EXTERNAL_URLS[name] ?? null
+}
+
+export default function ServicesPage() {
+  const router = useRouter()
+  const [services, setServices] = useState<Service[]>([])
+  const [loading, setLoading] = useState(true)
+  const [searchQuery, setSearchQuery] = useState("")
+
+  const fetchServices = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch("/api/services")
+      const data = await response.json()
+      setServices(data)
+    } catch (error) {
+      console.error("Failed to fetch services:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchServices()
+
+    const interval = setInterval(fetchServices, 30000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const serviceDescriptions: Record<string, string> = {
+    postgres: "PostgreSQL database - metadata storage",
+    mlflow: "ML experiment tracking and model registry",
+    jupyterlab: "Interactive data science notebooks",
+    trino: "Distributed SQL query engine",
+    risingwave: "Streaming SQL database",
+    openmetadata: "Data catalog and lineage tracking",
+    seaweedfs: "S3-compatible object storage",
+    polaris: "Apache Iceberg REST catalog",
+    valkey: "Redis-compatible cache",
+  }
+
+  const filteredServices = services.filter((service) =>
+    service.name.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
+  const healthyCount = services.filter((s) => s.status === "healthy").length
+  const unhealthyCount = services.filter((s) => s.status === "unhealthy" || s.status === "unknown").length
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "healthy":
+        return (
+          <Badge variant="default" className="bg-green-600">
+            <CheckCircle2 className="mr-1 h-3 w-3" />
+            Healthy
+          </Badge>
+        )
+      case "unhealthy":
+        return (
+          <Badge variant="destructive">
+            <XCircle className="mr-1 h-3 w-3" />
+            Unhealthy
+          </Badge>
+        )
+      default:
+        return (
+          <Badge variant="secondary">
+            <AlertCircle className="mr-1 h-3 w-3" />
+            Unknown
+          </Badge>
+        )
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex-1 space-y-4 p-8 pt-6">
+        <Skeleton className="h-5 w-[200px]" />
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-[150px]" />
+          <Skeleton className="h-4 w-[300px]" />
+        </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          {[...Array(3)].map((_, i) => (
+            <Skeleton key={i} className="h-[120px]" />
+          ))}
+        </div>
+        <Skeleton className="h-[400px]" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex-1 space-y-4 p-8 pt-6">
+      {/* Breadcrumb */}
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/dashboard">Home</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Services</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+
+      {/* Page Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Platform Services</h2>
+          <p className="text-muted-foreground">
+            Monitor and manage all DataPond infrastructure services
+          </p>
+        </div>
+
+        <Button variant="outline" size="sm" onClick={fetchServices}>
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Refresh
+        </Button>
+      </div>
+
+      {/* Search */}
+      <div className="relative max-w-md">
+        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search services..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-8"
+        />
+      </div>
+
+      {/* Statistics Cards */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">Total Services</CardTitle>
+              <Activity className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{services.length}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">Healthy</CardTitle>
+              <CheckCircle2 className="h-4 w-4 text-green-500" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">{healthyCount}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">Issues</CardTitle>
+              <XCircle className="h-4 w-4 text-red-500" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">{unhealthyCount}</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Services Grid */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {filteredServices.map((service) => (
+          <Card
+            key={service.name}
+            className="hover:shadow-md transition-shadow cursor-pointer"
+            onClick={() => router.push(`/services/${service.name}`)}
+          >
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base capitalize">{service.name}</CardTitle>
+                {getStatusBadge(service.status)}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground line-clamp-2">
+                {serviceDescriptions[service.name] || "DataPond platform service"}
+              </p>
+
+              {service.version && (
+                <div className="text-xs text-muted-foreground">
+                  Version: {service.version}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    router.push(`/services/${service.name}`)
+                  }}
+                >
+                  Details
+                </Button>
+                {getExternalUrl(service.name) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      window.open(getExternalUrl(service.name)!, "_blank")
+                    }}
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  )
+}

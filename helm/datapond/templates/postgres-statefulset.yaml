@@ -69,6 +69,9 @@ spec:
         volumeMounts:
         - name: postgres-data
           mountPath: /var/lib/postgresql/data
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+          readOnly: true
         livenessProbe:
           exec:
             command:
@@ -85,6 +88,10 @@ spec:
             - pg_isready -U $POSTGRES_USER
           initialDelaySeconds: 5
           periodSeconds: 5
+      volumes:
+      - name: init-scripts
+        configMap:
+          name: postgres-init-scripts
   volumeClaimTemplates:
   - metadata:
       name: postgres-data

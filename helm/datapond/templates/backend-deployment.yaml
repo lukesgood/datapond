@@ -72,6 +72,18 @@ spec:
           value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/iceberg_catalog"
         - name: ICEBERG_WAREHOUSE
           value: "s3a://iceberg/warehouse"
+        # Airflow integration - BASE_URL is /airflow so API is at /airflow/api/v1
+        - name: AIRFLOW_API_URL
+          value: "http://airflow.{{ .Values.namespace }}.svc.cluster.local:8080/airflow/api/v1"
+        - name: AIRFLOW_USERNAME
+          value: "{{ .Values.airflow.auth.username }}"
+        - name: AIRFLOW_PASSWORD
+          value: "{{ .Values.airflow.auth.password }}"
+        - name: AIRFLOW_DAGS_PATH
+          value: "/opt/airflow/dags"
+        {{- if .Values.backend.env }}
+        {{- toYaml .Values.backend.env | nindent 8 }}
+        {{- end }}
         resources:
           requests:
             cpu: {{ .Values.backend.resources.requests.cpu }}
@@ -95,6 +107,13 @@ spec:
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 3
+        volumeMounts:
+        - name: airflow-dags
+          mountPath: /opt/airflow/dags
+      volumes:
+      - name: airflow-dags
+        persistentVolumeClaim:
+          claimName: airflow-dags-pvc
 ---
 apiVersion: v1
 kind: Service

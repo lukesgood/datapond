@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import ReactFlow, {
   Node,
@@ -21,7 +21,7 @@ import ReactFlow, {
   useReactFlow,
 } from "reactflow"
 import "reactflow/dist/style.css"
-import dagre from "dagre"
+import ELK from "elkjs/lib/elk.bundled.js"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -42,7 +42,10 @@ import {
   Search,
   Undo2,
   Redo2,
+  LayoutTemplate,
+  Save,
 } from "lucide-react"
+import { PIPELINE_TEMPLATES, PipelineTemplate } from "@/components/pipelines/pipeline-templates"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -176,21 +179,40 @@ const LAYER_HEADER_CONFIG: Record<string, { label: string; color: string; barCol
   gold:   { label: "GOLD",    color: "text-yellow-600", barColor: "bg-yellow-400" },
 }
 
-function getLayoutedElements(nodes: Node[], edges: Edge[]) {
-  // Filter out existing header nodes before layout
+const elk = new ELK()
+const NODE_W = 224
+const NODE_H = 120
+
+async function getLayoutedElements(nodes: Node[], edges: Edge[]) {
   const dataNodes = nodes.filter(n => n.type !== "layerHeader")
 
-  const g = new dagre.graphlib.Graph()
-  g.setDefaultEdgeLabel(() => ({}))
-  g.setGraph({ rankdir: "LR", ranksep: 80, nodesep: 40 })
+  const graph = {
+    id: "root",
+    layoutOptions: {
+      "elk.algorithm": "layered",
+      "elk.direction": "RIGHT",
+      "elk.spacing.nodeNode": "40",
+      "elk.layered.spacing.nodeNodeBetweenLayers": "80",
+      "elk.layered.spacing.edgeNodeBetweenLayers": "20",
+      "elk.edgeRouting": "SPLINES",
+    },
+    children: dataNodes.map((n) => ({
+      id: n.id,
+      width: NODE_W,
+      height: NODE_H,
+    })),
+    edges: edges.map((e) => ({
+      id: e.id,
+      sources: [e.source],
+      targets: [e.target],
+    })),
+  }
 
-  dataNodes.forEach((n) => g.setNode(n.id, { width: 224, height: 120 }))
-  edges.forEach((e) => g.setEdge(e.source, e.target))
-  dagre.layout(g)
+  const layout = await elk.layout(graph)
 
   const layoutedData = dataNodes.map((n) => {
-    const pos = g.node(n.id)
-    return { ...n, position: { x: pos.x - 112, y: pos.y - 60 } }
+    const elkNode = layout.children?.find((c) => c.id === n.id)
+    return { ...n, position: { x: elkNode?.x ?? 0, y: elkNode?.y ?? 0 } }
   })
 
   // Compute column x-center per layer and insert header nodes
@@ -201,7 +223,7 @@ function getLayoutedElements(nodes: Node[], edges: Edge[]) {
     if (!presentLayers.has(layer)) continue
     const layerNds = layoutedData.filter(n => (n.data as any).layer === layer)
     const xs = layerNds.map(n => n.position.x)
-    const centerX = (Math.min(...xs) + Math.max(...xs) + 224) / 2
+    const centerX = (Math.min(...xs) + Math.max(...xs) + NODE_W) / 2
     const topY = Math.min(...layerNds.map(n => n.position.y))
     headerNodes.push({
       id: `__header_${layer}`,
@@ -299,10 +321,11 @@ function generateCode(nodes: Node<NodeData>[], edges: Edge[], pipeline: Pipeline
     const deps = getDependsOn(n.id)
     lines.push(``)
     lines.push(`@live_table(`)
+    lines.push(`    name="${d.name}",`)
     lines.push(`    mode="${d.mode}",`)
     lines.push(`    depends_on=${JSON.stringify(deps)},`)
     if (d.primaryKey)   lines.push(`    primary_key="${d.primaryKey}",`)
-    if (d.partitionBy)  lines.push(`    partition_by="${d.partitionBy}",`)
+    if (d.partitionBy)  lines.push(`    partition_by=["${d.partitionBy}"],`)
     if (d.description)  lines.push(`    description="${d.description}",`)
     lines.push(`)`)
     lines.push(`def ${d.name}():`)
@@ -322,9 +345,10 @@ function generateCode(nodes: Node<NodeData>[], edges: Edge[], pipeline: Pipeline
     const deps = getDependsOn(n.id)
     lines.push(``)
     lines.push(`@live_table(`)
+    lines.push(`    name="${d.name}",`)
     lines.push(`    mode="full_refresh",`)
     lines.push(`    depends_on=${JSON.stringify(deps)},`)
-    if (d.partitionBy)  lines.push(`    partition_by="${d.partitionBy}",`)
+    if (d.partitionBy)  lines.push(`    partition_by=["${d.partitionBy}"],`)
     if (d.description)  lines.push(`    description="${d.description}",`)
     lines.push(`)`)
     lines.push(`def ${d.name}():`)
@@ -385,10 +409,12 @@ function FocusNode({ nodeId, nodes }: { nodeId: string | null; nodes: Node[] }) 
 
 function BronzeNode({ data, selected }: NodeProps<BronzeData>) {
   const style = LAYER_STYLES.bronze
+  const hasError = (data as any)._hasError
   return (
     <div
       className={`relative w-56 rounded-xl border-2 bg-white shadow-sm transition-all
-        ${selected ? `${style.selectedBorder} shadow-md ring-2 ${style.ring}` : style.border}`}
+        ${hasError ? "border-red-400 ring-2 ring-red-200 shadow-red-100" :
+          selected ? `${style.selectedBorder} shadow-md ring-2 ${style.ring}` : style.border}`}
     >
       {/* Left color bar */}
       <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-xl ${style.bar}`} />
@@ -444,13 +470,15 @@ function BronzeNode({ data, selected }: NodeProps<BronzeData>) {
 
 function SilverNode({ data, selected }: NodeProps<SilverData>) {
   const style = LAYER_STYLES.silver
+  const hasError = (data as any)._hasError
   const sqlPreview = data.sql
     ? data.sql.split("\n").slice(0, 3).join("\n")
     : "No SQL"
   return (
     <div
       className={`relative w-56 rounded-xl border-2 bg-white shadow-sm transition-all
-        ${selected ? `${style.selectedBorder} shadow-md ring-2 ${style.ring}` : style.border}`}
+        ${hasError ? "border-red-400 ring-2 ring-red-200 shadow-red-100" :
+          selected ? `${style.selectedBorder} shadow-md ring-2 ${style.ring}` : style.border}`}
     >
       {/* Left color bar */}
       <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-xl ${style.bar}`} />
@@ -508,13 +536,15 @@ function SilverNode({ data, selected }: NodeProps<SilverData>) {
 
 function GoldNode({ data, selected }: NodeProps<GoldData>) {
   const style = LAYER_STYLES.gold
+  const hasError = (data as any)._hasError
   const sqlPreview = data.sql
     ? data.sql.split("\n").slice(0, 3).join("\n")
     : "No SQL"
   return (
     <div
       className={`relative w-56 rounded-xl border-2 bg-white shadow-sm transition-all
-        ${selected ? `${style.selectedBorder} shadow-md ring-2 ${style.ring}` : style.border}`}
+        ${hasError ? "border-red-400 ring-2 ring-red-200 shadow-red-100" :
+          selected ? `${style.selectedBorder} shadow-md ring-2 ${style.ring}` : style.border}`}
     >
       {/* Left color bar */}
       <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-xl ${style.bar}`} />
@@ -678,6 +708,57 @@ interface BronzeFormProps {
 
 function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) {
   const style = LAYER_STYLES.bronze
+  const [tables, setTables] = useState<string[]>([])
+  const [columns, setColumns] = useState<{ name: string; type: string }[]>([])
+  const [loadingTables, setLoadingTables] = useState(false)
+  const [loadingColumns, setLoadingColumns] = useState(false)
+
+  // Cache to avoid redundant API calls
+  const cacheRef = useRef<{ tables: Record<string, string[]>; columns: Record<string, { name: string; type: string }[]> }>({ tables: {}, columns: {} })
+
+  // Auto-generate name from connection + table
+  const autoName = (connName: string, table: string) => {
+    const base = table ? table.replace(/\./g, "_") : connName
+    return `raw_${base}`.replace(/[^a-z0-9_]/gi, "_").toLowerCase()
+  }
+
+  // Fetch tables when connection changes (with cache)
+  const fetchTables = useCallback(async (connectionId: string) => {
+    if (cacheRef.current.tables[connectionId]) {
+      setTables(cacheRef.current.tables[connectionId])
+      return
+    }
+    setLoadingTables(true)
+    try {
+      const res = await fetch(`/api/connectors/${connectionId}/tables`)
+      if (res.ok) {
+        const json = await res.json()
+        const result = json.tables || []
+        cacheRef.current.tables[connectionId] = result
+        setTables(result)
+      }
+    } catch { /* ignore */ } finally { setLoadingTables(false) }
+  }, [])
+
+  // Fetch columns when table changes (with cache)
+  const fetchColumns = useCallback(async (connectionId: string, tableName: string) => {
+    const cacheKey = `${connectionId}:${tableName}`
+    if (cacheRef.current.columns[cacheKey]) {
+      setColumns(cacheRef.current.columns[cacheKey])
+      return
+    }
+    setLoadingColumns(true)
+    try {
+      const res = await fetch(`/api/connectors/${connectionId}/schema/${encodeURIComponent(tableName)}`)
+      if (res.ok) {
+        const json = await res.json()
+        const result = json.columns || []
+        cacheRef.current.columns[cacheKey] = result
+        setColumns(result)
+      }
+    } catch { /* ignore */ } finally { setLoadingColumns(false) }
+  }, [])
+
   return (
     <div className="p-5">
       <div className="flex items-center gap-2 mb-4">
@@ -687,32 +768,25 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
 
       <div className="grid grid-cols-2 gap-4">
       <div className="space-y-1.5">
-        <Label className="text-xs">Name</Label>
-        <Input
-          value={data.name}
-          onChange={(e) => onChange({ name: e.target.value.replace(/\s/g, "_") })}
-          className="font-mono text-sm h-9"
-          placeholder="raw_orders"
-        />
-      </div>
-
-      <div className="space-y-1.5">
-        <Label className="text-xs">Connection</Label>
+        <Label className="text-xs">Connection <span className="text-destructive">*</span></Label>
         <Select
           value={data.connectionName}
           onValueChange={(v) => {
             if (!v) return
             const conn = connections.find((c) => c.name === v)
-            onChange({ connectionName: v, connectionType: conn?.connector_type ?? "postgresql" })
+            const connType = conn?.connector_type ?? "postgresql"
+            const name = data.name || autoName(v, data.table)
+            onChange({ connectionName: v, connectionType: connType, name })
+            if (conn) fetchTables(conn.id)
           }}
         >
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue placeholder="Select connection..." />
+          <SelectTrigger className="h-9 text-sm">
+            <SelectValue placeholder="커넥션 선택..." />
           </SelectTrigger>
           <SelectContent>
             {connections.length === 0 ? (
               <SelectItem value="__none" disabled>
-                No connections available
+                커넥션 없음 — 먼저 커넥터를 설정하세요
               </SelectItem>
             ) : (
               connections.map((c) => (
@@ -724,13 +798,55 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
             )}
           </SelectContent>
         </Select>
+        {data.connectionType && (
+          <p className="text-[11px] text-muted-foreground">타입: {data.connectionType}</p>
+        )}
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-xs">Table</Label>
-        <Input value={data.table}
-          onChange={(e) => onChange({ table: e.target.value })}
-          className="font-mono text-sm h-9" placeholder="public.orders" />
+        <Label className="text-xs">Table <span className="text-destructive">*</span></Label>
+        {tables.length > 0 ? (
+          <Select
+            value={data.table}
+            onValueChange={(v) => {
+              if (!v) return
+              const name = autoName(data.connectionName, v)
+              onChange({ table: v, name })
+              const conn = connections.find((c) => c.name === data.connectionName)
+              if (conn) fetchColumns(conn.id, v)
+            }}
+          >
+            <SelectTrigger className="h-9 text-sm font-mono">
+              <SelectValue placeholder={loadingTables ? "로딩중..." : "테이블 선택..."} />
+            </SelectTrigger>
+            <SelectContent>
+              {tables.map((t) => (
+                <SelectItem key={t} value={t} className="text-xs font-mono">{t}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Input value={data.table}
+            onChange={(e) => {
+              const table = e.target.value
+              const name = autoName(data.connectionName, table)
+              onChange({ table, name })
+            }}
+            className="font-mono text-sm h-9" placeholder="public.orders" />
+        )}
+        <p className="text-[11px] text-muted-foreground">
+          {tables.length > 0 ? "조회된 테이블에서 선택" : "커넥션 선택 시 자동 조회"}
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs">Name <span className="text-muted-foreground">(자동생성)</span></Label>
+        <Input
+          value={data.name}
+          onChange={(e) => onChange({ name: e.target.value.replace(/\s/g, "_") })}
+          className="font-mono text-sm h-9"
+          placeholder="raw_orders"
+        />
       </div>
 
       <div className="space-y-1.5">
@@ -738,7 +854,7 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
         <Select value={data.mode} onValueChange={(v) => { if (v) onChange({ mode: v as BronzeData["mode"] }) }}>
           <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="incremental">Incremental — 증분</SelectItem>
+            <SelectItem value="incremental">Incremental — 증분 (권장)</SelectItem>
             <SelectItem value="full_refresh">Full Refresh — 전체</SelectItem>
             <SelectItem value="merge">Merge (Upsert)</SelectItem>
           </SelectContent>
@@ -748,9 +864,24 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
       {data.mode === "incremental" && (
         <div className="space-y-1.5">
           <Label className="text-xs">Watermark Column</Label>
-          <Input value={data.watermarkColumn}
-            onChange={(e) => onChange({ watermarkColumn: e.target.value })}
-            className="font-mono text-sm h-9" placeholder="updated_at" />
+          {columns.length > 0 ? (
+            <Select value={data.watermarkColumn} onValueChange={(v) => { if (v) onChange({ watermarkColumn: v }) }}>
+              <SelectTrigger className="h-9 text-sm font-mono">
+                <SelectValue placeholder={loadingColumns ? "로딩중..." : "컬럼 선택..."} />
+              </SelectTrigger>
+              <SelectContent>
+                {columns.map((c) => (
+                  <SelectItem key={c.name} value={c.name} className="text-xs font-mono">
+                    {c.name} <span className="text-muted-foreground">({c.type})</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input value={data.watermarkColumn}
+              onChange={(e) => onChange({ watermarkColumn: e.target.value })}
+              className="font-mono text-sm h-9" placeholder="updated_at" />
+          )}
           <p className="text-[11px] text-muted-foreground">마지막 실행 이후 변경된 행만 추출</p>
         </div>
       )}
@@ -758,9 +889,24 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
       {(data.mode === "incremental" || data.mode === "merge") && (
         <div className="space-y-1.5">
           <Label className="text-xs">Primary Key</Label>
-          <Input value={data.primaryKey}
-            onChange={(e) => onChange({ primaryKey: e.target.value })}
-            className="font-mono text-sm h-9" placeholder="id" />
+          {columns.length > 0 ? (
+            <Select value={data.primaryKey} onValueChange={(v) => { if (v) onChange({ primaryKey: v }) }}>
+              <SelectTrigger className="h-9 text-sm font-mono">
+                <SelectValue placeholder="키 컬럼 선택..." />
+              </SelectTrigger>
+              <SelectContent>
+                {columns.map((c) => (
+                  <SelectItem key={c.name} value={c.name} className="text-xs font-mono">
+                    {c.name} <span className="text-muted-foreground">({c.type})</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input value={data.primaryKey}
+              onChange={(e) => onChange({ primaryKey: e.target.value })}
+              className="font-mono text-sm h-9" placeholder="id" />
+          )}
           <p className="text-[11px] text-muted-foreground">복합키: id,tenant_id</p>
         </div>
       )}
@@ -779,6 +925,21 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
           className="font-mono text-sm h-9" type="number" placeholder="10000" />
       </div>
       </div>{/* end grid */}
+
+      {columns.length > 0 && (
+        <div className="mt-4 p-3 bg-muted/50 rounded-lg">
+          <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase mb-2">
+            테이블 스키마 ({columns.length}개 컬럼)
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {columns.map((c) => (
+              <span key={c.name} className="text-[10px] font-mono bg-background border rounded px-1.5 py-0.5">
+                {c.name}<span className="text-muted-foreground ml-1">{c.type}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-5 pt-4 border-t">
         <button onClick={onDelete}
@@ -986,11 +1147,12 @@ function PipelineForm({
     <div className="p-5 space-y-0 divide-y">
 
       {/* ── 1. Basic ─────────────────────────────────────────────── */}
-      <div className="pb-5 grid grid-cols-3 gap-4">
+      <div className="pb-5 space-y-3">
         <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
           Basic
         </p>
 
+        <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1.5">
           <Label className="text-xs font-medium">
             Pipeline Name <span className="text-destructive">*</span>
@@ -1026,6 +1188,7 @@ function PipelineForm({
             placeholder="data-engineering-team"
           />
           <p className="text-[11px] text-muted-foreground">담당자 또는 팀 (Airflow DAG owner)</p>
+        </div>
         </div>
       </div>
 
@@ -1249,29 +1412,82 @@ export default function NewPipelinePage() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
+  const [templateOpen, setTemplateOpen] = useState(false)
+  const [errorNodeIds, setErrorNodeIds] = useState<Set<string>>(new Set())
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [canvasHeight, setCanvasHeight] = useState(320)  // px, draggable
   const isResizingPanel = useRef(false)
+  const reactFlowInstance = useRef<any>(null)
   const [deployed, setDeployed] = useState(false)
 
-  const [pipeline, setPipeline] = useState<PipelineState>({
-    pipelineName: "my_pipeline",
-    schedule: "@daily",
-    description: "",
-    advanced: {
-      retries: "2",
-      retryDelay: "5",
-      owner: "data-team",
-      alertOnFailure: true,
-      alertEmail: "",
-      tags: "datapond",
-      catchup: false,
-      maxActiveRuns: "1",
-    },
+  const [pipeline, setPipeline] = useState<PipelineState>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("datapond_pipeline_draft")
+      if (saved) {
+        try { return JSON.parse(saved).pipeline } catch { /* ignore */ }
+      }
+    }
+    return {
+      pipelineName: "my_pipeline",
+      schedule: "@daily",
+      description: "",
+      advanced: {
+        retries: "2",
+        retryDelay: "5",
+        owner: "data-team",
+        alertOnFailure: true,
+        alertEmail: "",
+        tags: "datapond",
+        catchup: false,
+        maxActiveRuns: "1",
+      },
+    }
   })
 
-  const [nodes, setNodes, onNodesChange] = useNodesState<NodeData>([])
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
+  const [nodes, setNodes, onNodesChange] = useNodesState<NodeData>(
+    typeof window !== "undefined" && localStorage.getItem("datapond_pipeline_draft")
+      ? (() => { try { return JSON.parse(localStorage.getItem("datapond_pipeline_draft")!).nodes || [] } catch { return [] } })()
+      : []
+  )
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(
+    typeof window !== "undefined" && localStorage.getItem("datapond_pipeline_draft")
+      ? (() => { try { return JSON.parse(localStorage.getItem("datapond_pipeline_draft")!).edges || [] } catch { return [] } })()
+      : []
+  )
+
+  // ── Auto-save to localStorage ──────────────────────────────────────────────
+  const [draftRestored, setDraftRestored] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("datapond_pipeline_draft")
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved)
+          return (parsed.nodes?.length > 0 || parsed.edges?.length > 0)
+        } catch { return false }
+      }
+    }
+    return false
+  })
+
+  const clearDraft = useCallback(() => {
+    localStorage.removeItem("datapond_pipeline_draft")
+    setDraftRestored(false)
+    setNodes([])
+    setEdges([])
+    setPipeline({
+      pipelineName: "my_pipeline",
+      schedule: "@daily",
+      description: "",
+      advanced: { retries: "2", retryDelay: "5", owner: "data-team", alertOnFailure: true, alertEmail: "", tags: "datapond", catchup: false, maxActiveRuns: "1" },
+    })
+  }, [setNodes, setEdges])
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      localStorage.setItem("datapond_pipeline_draft", JSON.stringify({ pipeline, nodes, edges }))
+    }, 1000)
+    return () => clearTimeout(timer)
+  }, [pipeline, nodes, edges])
 
   // ── Undo / Redo history ────────────────────────────────────────────────────
   const historyRef = useRef<Array<{ nodes: Node<NodeData>[]; edges: Edge[] }>>([{ nodes: [], edges: [] }])
@@ -1315,13 +1531,36 @@ export default function NewPipelinePage() {
       .then((r) => r.json())
       .then((d) => setConnections(Array.isArray(d) ? d : []))
       .catch(() => {})
+
+    // Load saved pipeline if ?load= param present
+    const params = new URLSearchParams(window.location.search)
+    const loadName = params.get("load")
+    if (loadName) {
+      fetch(`/api/pipelines/${encodeURIComponent(loadName)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(saved => {
+          if (!saved) return
+          if (saved.nodes?.length) setNodes(saved.nodes)
+          if (saved.edges?.length) setEdges(saved.edges)
+          const cfg = saved.config || {}
+          setPipeline({
+            pipelineName: saved.name,
+            schedule: saved.schedule || "@daily",
+            description: saved.description || "",
+            advanced: cfg.advanced || { retries: "2", retryDelay: "5", owner: "data-team", alertOnFailure: true, alertEmail: "", tags: "datapond", catchup: false, maxActiveRuns: "1" },
+          })
+        })
+        .catch(() => {})
+    }
   }, [])
 
-  // ── Keyboard shortcuts (Ctrl+Z / Ctrl+Y / Ctrl+K) ───────────────────────
+  // ── Keyboard shortcuts (Ctrl+Z / Ctrl+Y / Ctrl+K / Ctrl+S) ──────────────
+  const handleSaveRef = useRef<() => void>(() => {})
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const meta = e.metaKey || e.ctrlKey
       if (meta && e.key === "k") { e.preventDefault(); setSearchOpen(v => !v); setSearchQuery("") }
+      if (meta && e.key === "s") { e.preventDefault(); handleSaveRef.current() }
       if (e.key === "Escape") setSearchOpen(false)
       if (meta && e.key === "z" && !e.shiftKey) { e.preventDefault(); undo() }
       if (meta && (e.key === "y" || (e.key === "z" && e.shiftKey))) { e.preventDefault(); redo() }
@@ -1461,8 +1700,93 @@ export default function NewPipelinePage() {
     [nodes, edges, setNodes, saveHistoryWith],
   )
 
-  const autoLayout = useCallback(() => {
-    const { nodes: ln, edges: le } = getLayoutedElements(nodes, edges)
+  const applyTemplate = useCallback((template: PipelineTemplate) => {
+    setNodes(template.nodes.map(n => ({ ...n })))
+    setEdges(template.edges.map(e => ({ ...e })))
+    setPipeline(p => ({
+      ...p,
+      schedule: template.pipelineDefaults.schedule,
+      description: template.pipelineDefaults.description,
+    }))
+    setTemplateOpen(false)
+  }, [setNodes, setEdges])
+
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "move"
+  }, [])
+
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    const layer = e.dataTransfer.getData("application/datapond-layer") as "bronze" | "silver" | "gold"
+    if (!layer) return
+    if (!reactFlowInstance.current) return
+
+    const position = reactFlowInstance.current.screenToFlowPosition({
+      x: e.clientX,
+      y: e.clientY,
+    })
+
+    const id = `${layer}-${uid()}`
+    const baseData: Record<string, NodeData> = {
+      bronze: { layer: "bronze", name: `raw_${uid()}`, connectionName: "", connectionType: "postgresql", table: "", mode: "incremental", watermarkColumn: "updated_at", primaryKey: "id", filterSql: "", batchSize: "" } as BronzeData,
+      silver: { layer: "silver", name: `clean_${uid()}`, sql: "SELECT *\nFROM {{ source('') }}\n{{ incremental_filter('updated_at') }}", mode: "incremental", qualityCheck: "", partitionBy: "", primaryKey: "id", description: "" } as SilverData,
+      gold: { layer: "gold", name: `agg_${uid()}`, aggregation: "daily", sql: "SELECT\n  date,\n  SUM(amount) as total\nFROM {{ ref('') }}\nGROUP BY 1", partitionBy: "date", description: "" } as GoldData,
+    }
+    const typeMap = { bronze: "bronzeNode", silver: "silverNode", gold: "goldNode" }
+
+    const newNode: Node<NodeData> = { id, type: typeMap[layer], position, data: baseData[layer] }
+    const newNodes = [...nodes, newNode]
+    setNodes(newNodes)
+    saveHistoryWith(newNodes, edges)
+    setSelectedNodeId(id)
+  }, [nodes, edges, setNodes, saveHistoryWith])
+
+  // ── Propagate error highlight to node data ──────────────────────────────────
+  useEffect(() => {
+    if (errorNodeIds.size === 0) {
+      // Clear any existing error flags
+      const hasFlags = nodes.some(n => (n.data as any)._hasError)
+      if (hasFlags) {
+        setNodes(ns => ns.map(n => (n.data as any)._hasError ? { ...n, data: { ...n.data, _hasError: false } } : n))
+      }
+      return
+    }
+    setNodes(ns => ns.map(n => ({
+      ...n,
+      data: { ...n.data, _hasError: errorNodeIds.has(n.id) },
+    })))
+  }, [errorNodeIds, setNodes])
+
+  // ── Keyboard shortcuts ───────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Don't trigger shortcuts when typing in inputs
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase()
+      if (tag === "input" || tag === "textarea" || tag === "select") return
+
+      // Ctrl+Z / Cmd+Z → Undo
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === "z") {
+        e.preventDefault()
+        undo()
+      }
+      // Ctrl+Shift+Z / Cmd+Shift+Z → Redo
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "z") {
+        e.preventDefault()
+        redo()
+      }
+      // Delete / Backspace → Delete selected node
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedNodeId) {
+        e.preventDefault()
+        deleteNode(selectedNodeId)
+      }
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [undo, redo, deleteNode, selectedNodeId])
+
+  const autoLayout = useCallback(async () => {
+    const { nodes: ln, edges: le } = await getLayoutedElements(nodes, edges)
     setNodes(ln as Node<NodeData>[])
     setEdges(le)
   }, [nodes, edges, setNodes, setEdges])
@@ -1470,12 +1794,29 @@ export default function NewPipelinePage() {
   const effectiveSchedule =
     pipeline.schedule === "custom" ? customSchedule || "@daily" : pipeline.schedule
 
-  const currentCode = generateCode(nodes, edges, {
+  const currentCode = useMemo(() => generateCode(nodes, edges, {
     ...pipeline,
     schedule: effectiveSchedule,
-  })
+  }), [nodes, edges, pipeline, effectiveSchedule])
 
   const handleValidate = async () => {
+    // Run local validation first
+    const localErrors = validatePipeline()
+    if (localErrors.length > 0) {
+      setError(localErrors.join("\n"))
+      const errIds = new Set<string>()
+      const dataNodes = nodes.filter(n => n.type !== "layerHeader")
+      for (const err of localErrors) {
+        const match = err.match(/^\[(.+?)\]/)
+        if (match) {
+          const node = dataNodes.find(n => (n.data as NodeData).name === match[1])
+          if (node) errIds.add(node.id)
+        }
+      }
+      setErrorNodeIds(errIds)
+      return
+    }
+    setErrorNodeIds(new Set())
     setLoading(true)
     setError(null)
     setValidateResult(null)
@@ -1495,7 +1836,147 @@ export default function NewPipelinePage() {
     }
   }
 
+  // ── Validation ────────────────────────────────────────────────────────────────
+  const validatePipeline = (): string[] => {
+    const errors: string[] = []
+    const dataNodes = nodes.filter(n => n.type !== "layerHeader")
+
+    // 1. Pipeline name required
+    if (!pipeline.pipelineName || pipeline.pipelineName.trim() === "") {
+      errors.push("Pipeline Name은 필수입니다.")
+    }
+
+    // 2. At least one node required
+    if (dataNodes.length === 0) {
+      errors.push("최소 1개 이상의 노드가 필요합니다.")
+    }
+
+    // 3. Validate bronze nodes
+    const bronzeNodes = dataNodes.filter(n => n.type === "bronzeNode")
+    for (const n of bronzeNodes) {
+      const d = n.data as BronzeData
+      if (!d.connectionName) errors.push(`[${d.name || "Bronze"}] Connection은 필수입니다.`)
+      if (!d.table) errors.push(`[${d.name || "Bronze"}] Table은 필수입니다.`)
+      if (!d.name) errors.push(`[${d.name || "Bronze"}] Name은 필수입니다.`)
+      if (d.mode === "incremental" && !d.watermarkColumn) {
+        errors.push(`[${d.name}] Incremental 모드에서는 Watermark Column이 필수입니다.`)
+      }
+      if ((d.mode === "incremental" || d.mode === "merge") && !d.primaryKey) {
+        errors.push(`[${d.name}] ${d.mode} 모드에서는 Primary Key가 필수입니다.`)
+      }
+    }
+
+    // 4. Validate silver nodes
+    const silverNodes = dataNodes.filter(n => n.type === "silverNode")
+    for (const n of silverNodes) {
+      const d = n.data as SilverData
+      if (!d.name) errors.push(`[Silver] Name은 필수입니다.`)
+      if (!d.sql) errors.push(`[${d.name || "Silver"}] SQL은 필수입니다.`)
+    }
+
+    // 5. Validate gold nodes
+    const goldNodes = dataNodes.filter(n => n.type === "goldNode")
+    for (const n of goldNodes) {
+      const d = n.data as GoldData
+      if (!d.name) errors.push(`[Gold] Name은 필수입니다.`)
+      if (!d.sql) errors.push(`[${d.name || "Gold"}] SQL은 필수입니다.`)
+    }
+
+    // 6. Check for isolated nodes (no edges)
+    for (const n of dataNodes) {
+      const hasEdge = edges.some(e => e.source === n.id || e.target === n.id)
+      if (!hasEdge && dataNodes.length > 1) {
+        errors.push(`[${(n.data as NodeData).name || n.id}] 다른 노드와 연결되지 않았습니다.`)
+      }
+    }
+
+    // 7. Check for circular dependencies
+    const hasCycle = (): boolean => {
+      const visited = new Set<string>()
+      const recStack = new Set<string>()
+      const adj = new Map<string, string[]>()
+      for (const n of dataNodes) adj.set(n.id, [])
+      for (const e of edges) {
+        const targets = adj.get(e.source)
+        if (targets) targets.push(e.target)
+      }
+      const dfs = (nodeId: string): boolean => {
+        visited.add(nodeId)
+        recStack.add(nodeId)
+        for (const neighbor of (adj.get(nodeId) || [])) {
+          if (!visited.has(neighbor)) { if (dfs(neighbor)) return true }
+          else if (recStack.has(neighbor)) return true
+        }
+        recStack.delete(nodeId)
+        return false
+      }
+      for (const n of dataNodes) {
+        if (!visited.has(n.id) && dfs(n.id)) return true
+      }
+      return false
+    }
+    if (hasCycle()) {
+      errors.push("순환 참조가 감지되었습니다. 노드 간 의존성에 순환이 없어야 합니다.")
+    }
+
+    return errors
+  }
+
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
+
+  const handleSave = async () => {
+    const localErrors = validatePipeline()
+    if (localErrors.length > 0) {
+      setError(localErrors.join("\n"))
+      return
+    }
+    setSaveStatus("saving")
+    try {
+      const res = await fetch("/api/pipelines/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: pipeline.pipelineName,
+          description: pipeline.description,
+          schedule: effectiveSchedule,
+          code: currentCode,
+          nodes: nodes.filter(n => n.type !== "layerHeader").map(n => ({ id: n.id, type: n.type, position: n.position, data: n.data })),
+          edges: edges.map(e => ({ id: e.id, source: e.source, target: e.target })),
+          config: { advanced: pipeline.advanced },
+        }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      setSaveStatus("saved")
+      setTimeout(() => setSaveStatus("idle"), 2000)
+      localStorage.removeItem("datapond_pipeline_draft")
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "저장 실패")
+      setSaveStatus("idle")
+    }
+  }
+  handleSaveRef.current = handleSave
+
   const handleDeploy = async () => {
+    // Run validation first
+    const validationErrors = validatePipeline()
+    if (validationErrors.length > 0) {
+      setError(validationErrors.join("\n"))
+      // Highlight nodes with errors
+      const errIds = new Set<string>()
+      const dataNodes = nodes.filter(n => n.type !== "layerHeader")
+      for (const err of validationErrors) {
+        const match = err.match(/^\[(.+?)\]/)
+        if (match) {
+          const name = match[1]
+          const node = dataNodes.find(n => (n.data as NodeData).name === name)
+          if (node) errIds.add(node.id)
+        }
+      }
+      setErrorNodeIds(errIds)
+      return
+    }
+    setErrorNodeIds(new Set())
+
     setLoading(true)
     setError(null)
     try {
@@ -1504,14 +1985,18 @@ export default function NewPipelinePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: currentCode }),
       })
+      if (!compRes.ok) {
+        const errText = await compRes.text()
+        throw new Error(`컴파일 서버 오류 (${compRes.status}): ${errText}`)
+      }
       const compData = await compRes.json()
       if (!compData.success)
-        throw new Error(compData.errors?.join("\n") || "Compile failed")
+        throw new Error(compData.errors?.join("\n") || "컴파일 실패")
 
       const dagArtifact = compData.artifacts?.find(
         (a: { type: string; content: string }) => a.type === "airflow_dag",
       )
-      if (!dagArtifact?.content) throw new Error("No DAG code generated")
+      if (!dagArtifact?.content) throw new Error("DAG 코드가 생성되지 않았습니다.")
 
       const deployRes = await fetch("/api/pipelines/deploy", {
         method: "POST",
@@ -1522,17 +2007,23 @@ export default function NewPipelinePage() {
           overwrite,
         }),
       })
+      if (!deployRes.ok && deployRes.status !== 409) {
+        const errText = await deployRes.text()
+        throw new Error(`배포 서버 오류 (${deployRes.status}): ${errText}`)
+      }
       const deployData = await deployRes.json()
       if (deployRes.status === 409) {
-        setError(`Pipeline '${compData.pipeline_name}' already exists.`)
+        setError(`파이프라인 '${compData.pipeline_name}'이(가) 이미 존재합니다. 덮어쓰기를 활성화하세요.`)
         setOverwrite(true)
         return
       }
-      if (!deployData.success) throw new Error(deployData.message || "Deploy failed")
+      if (!deployData.success) throw new Error(deployData.message || "배포 실패")
       setDeployResult(deployData)
       setDeployed(true)
+      // Clear draft after successful deploy
+      localStorage.removeItem("datapond_pipeline_draft")
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Deploy failed")
+      setError(e instanceof Error ? e.message : "배포 중 알 수 없는 오류가 발생했습니다.")
     } finally {
       setLoading(false)
     }
@@ -1572,6 +2063,7 @@ export default function NewPipelinePage() {
               setDeployed(false)
               setDeployResult(null)
               setError(null)
+              setErrorNodeIds(new Set())
               setValidateResult(null)
               setOverwrite(false)
             }}
@@ -1635,10 +2127,31 @@ export default function NewPipelinePage() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {draftRestored && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span>초안 복원됨</span>
+              <button onClick={clearDraft} className="text-destructive hover:underline text-[11px]">초기화</button>
+            </div>
+          )}
           {error && (
-            <div className="flex items-center gap-1.5 text-xs text-destructive">
-              <XCircle className="h-3.5 w-3.5 shrink-0" />
-              <span className="max-w-48 truncate">{error}</span>
+            <div className="relative group">
+              <div className="flex items-center gap-1.5 text-xs text-destructive cursor-pointer">
+                <XCircle className="h-3.5 w-3.5 shrink-0" />
+                <span className="max-w-48 truncate">{error.split("\n")[0]}{error.includes("\n") ? ` (+${error.split("\n").length - 1})` : ""}</span>
+              </div>
+              {error.includes("\n") && (
+                <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block w-80 p-3 bg-background border rounded-lg shadow-lg">
+                  <p className="text-[10px] font-bold text-destructive mb-1.5">검증 오류 ({error.split("\n").length}건)</p>
+                  <ul className="space-y-1">
+                    {error.split("\n").map((e, i) => (
+                      <li key={i} className="text-[11px] text-destructive/80 flex items-start gap-1">
+                        <span className="shrink-0 mt-0.5">•</span>
+                        <span>{e}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
           {validateResult?.success && (
@@ -1660,6 +2173,22 @@ export default function NewPipelinePage() {
               <CheckCircle2 className="h-3.5 w-3.5" />
             )}
             Validate
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs gap-1.5"
+            onClick={handleSave}
+            disabled={loading || saveStatus === "saving"}
+          >
+            {saveStatus === "saving" ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : saveStatus === "saved" ? (
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+            ) : (
+              <Save className="h-3.5 w-3.5" />
+            )}
+            {saveStatus === "saved" ? "Saved" : "Save"}
           </Button>
           <Button
             size="sm"
@@ -1690,8 +2219,12 @@ export default function NewPipelinePage() {
             onConnect={onConnect}
             onNodeClick={onNodeClick}
             onPaneClick={onPaneClick}
+            onDragOver={onDragOver}
+            onDrop={onDrop}
+            onInit={(instance) => { reactFlowInstance.current = instance }}
             nodeTypes={nodeTypes}
             fitView
+            fitViewOptions={{ padding: 0.3, maxZoom: 1 }}
             className="bg-background"
           >
             <FocusNode nodeId={selectedNodeId} nodes={nodes} />
@@ -1714,28 +2247,31 @@ export default function NewPipelinePage() {
                   <div className="rounded-2xl border-2 border-dashed border-muted-foreground/20 bg-background/80 backdrop-blur px-10 py-8 space-y-3">
                     <p className="text-base font-semibold">빈 파이프라인</p>
                     <p className="text-sm text-muted-foreground max-w-xs">
-                      하단 팔레트에서 노드를 추가하거나<br />예시 Medallion 파이프라인으로 시작하세요
+                      템플릿으로 시작하거나 하단 팔레트에서 노드를 추가하세요
                     </p>
-                    <div className="flex gap-2 justify-center pt-1">
-                      <button
-                        onClick={() => addNode("bronze")}
-                        className="px-3 py-1.5 rounded-lg border-2 border-amber-200 bg-amber-50
-                          hover:bg-amber-100 text-xs font-medium text-amber-800 transition-colors"
-                      >
-                        + Bronze Source
-                      </button>
-                      <button
-                        onClick={() => {
-                          setNodes(EXAMPLE_NODES.map(n => ({...n})))
-                          setEdges(EXAMPLE_EDGES.map(e => ({...e})))
-                          setTimeout(autoLayout, 50)
-                        }}
-                        className="px-3 py-1.5 rounded-lg border bg-background
-                          hover:bg-muted text-xs font-medium text-muted-foreground transition-colors"
-                      >
-                        예시 불러오기
-                      </button>
+                    <div className="grid grid-cols-2 gap-2 pt-2">
+                      {PIPELINE_TEMPLATES.map((t) => (
+                        <button
+                          key={t.id}
+                          onClick={() => applyTemplate(t)}
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-background
+                            hover:bg-muted text-left transition-colors"
+                        >
+                          <span className="text-lg">{t.icon}</span>
+                          <div>
+                            <div className="text-xs font-medium">{t.name}</div>
+                            <div className="text-[10px] text-muted-foreground">{t.category}</div>
+                          </div>
+                        </button>
+                      ))}
                     </div>
+                    <button
+                      onClick={() => addNode("bronze")}
+                      className="px-3 py-1.5 rounded-lg border-2 border-amber-200 bg-amber-50
+                        hover:bg-amber-100 text-xs font-medium text-amber-800 transition-colors mt-2"
+                    >
+                      + 빈 Bronze Source로 시작
+                    </button>
                   </div>
                 </div>
               </Panel>
@@ -1859,8 +2395,10 @@ export default function NewPipelinePage() {
         {/* Bronze */}
         <button
           onClick={() => addNode("bronze")}
+          draggable
+          onDragStart={(e) => { e.dataTransfer.setData("application/datapond-layer", "bronze"); e.dataTransfer.effectAllowed = "move" }}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 border-amber-200
-            bg-amber-50 hover:bg-amber-100 transition-colors text-xs font-medium text-amber-800"
+            bg-amber-50 hover:bg-amber-100 transition-colors text-xs font-medium text-amber-800 cursor-grab active:cursor-grabbing"
         >
           <div className="h-3 w-0.5 bg-amber-500 rounded" />
           Bronze Source
@@ -1869,8 +2407,10 @@ export default function NewPipelinePage() {
         {/* Silver */}
         <button
           onClick={() => addNode("silver")}
+          draggable
+          onDragStart={(e) => { e.dataTransfer.setData("application/datapond-layer", "silver"); e.dataTransfer.effectAllowed = "move" }}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 border-slate-200
-            bg-slate-50 hover:bg-slate-100 transition-colors text-xs font-medium text-slate-700"
+            bg-slate-50 hover:bg-slate-100 transition-colors text-xs font-medium text-slate-700 cursor-grab active:cursor-grabbing"
         >
           <div className="h-3 w-0.5 bg-slate-400 rounded" />
           Silver Transform
@@ -1879,8 +2419,10 @@ export default function NewPipelinePage() {
         {/* Gold */}
         <button
           onClick={() => addNode("gold")}
+          draggable
+          onDragStart={(e) => { e.dataTransfer.setData("application/datapond-layer", "gold"); e.dataTransfer.effectAllowed = "move" }}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 border-yellow-200
-            bg-yellow-50 hover:bg-yellow-100 transition-colors text-xs font-medium text-yellow-800"
+            bg-yellow-50 hover:bg-yellow-100 transition-colors text-xs font-medium text-yellow-800 cursor-grab active:cursor-grabbing"
         >
           <div className="h-3 w-0.5 bg-yellow-400 rounded" />
           Gold Aggregate
@@ -1894,6 +2436,16 @@ export default function NewPipelinePage() {
         >
           <Search className="h-3.5 w-3.5" />
           Search
+        </button>
+
+        {/* Templates */}
+        <button
+          onClick={() => setTemplateOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-background hover:bg-muted transition-colors text-xs text-muted-foreground"
+          title="Pipeline templates"
+        >
+          <LayoutTemplate className="h-3.5 w-3.5" />
+          Templates
         </button>
 
         <div className="flex-1" />
@@ -1965,6 +2517,47 @@ export default function NewPipelinePage() {
               <span><kbd className="border rounded px-1">↑↓</kbd> navigate</span>
               <span><kbd className="border rounded px-1">↵</kbd> select</span>
               <span><kbd className="border rounded px-1">esc</kbd> close</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Template picker overlay */}
+      {templateOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/40 backdrop-blur-sm"
+          onClick={() => setTemplateOpen(false)}
+        >
+          <div
+            className="bg-background rounded-xl border shadow-2xl w-full max-w-lg overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <div>
+                <h3 className="text-sm font-semibold">파이프라인 템플릿</h3>
+                <p className="text-xs text-muted-foreground">패턴을 선택하면 현재 캔버스를 대체합니다</p>
+              </div>
+              <button onClick={() => setTemplateOpen(false)} className="p-1 rounded hover:bg-muted">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 p-4">
+              {PIPELINE_TEMPLATES.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => applyTemplate(t)}
+                  className="flex flex-col gap-1.5 p-3 rounded-lg border hover:border-primary/50 hover:bg-muted/50 text-left transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">{t.icon}</span>
+                    <div>
+                      <div className="text-sm font-medium">{t.name}</div>
+                      <div className="text-[10px] text-muted-foreground font-medium">{t.category} · {t.nodes.length} nodes</div>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{t.description}</p>
+                </button>
+              ))}
             </div>
           </div>
         </div>

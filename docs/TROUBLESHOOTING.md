@@ -735,3 +735,172 @@ df -h >> system-info.txt
 ---
 
 **문제가 해결되지 않으면 GitHub Issues에 위 정보와 함께 문의하세요.**
+
+---
+
+# Phase 1 Deployment Troubleshooting
+
+## Image Building Issues
+
+### Docker/nerdctl not installed
+
+```bash
+# Install Docker or nerdctl
+bash scripts/install-docker.sh
+```
+
+### Images not in K3s
+
+```bash
+# Rebuild and import
+bash scripts/build-images.sh
+
+# Verify
+sudo crictl images | grep datapond
+```
+
+## Backend Deployment Issues
+
+### Backend pod not starting
+
+```bash
+# Check logs
+kubectl logs -n datapond -l app=backend
+
+# Check image pull
+kubectl describe pod -n datapond -l app=backend
+
+# Rebuild image
+bash scripts/build-images.sh
+kubectl rollout restart deployment/backend -n datapond
+```
+
+### Database connection failed
+
+```bash
+# Check postgres
+kubectl get pod -n datapond -l app=postgres
+
+# Test connection
+BACKEND_POD=$(kubectl get pod -n datapond -l app=backend -o jsonpath="{.items[0].metadata.name}")
+kubectl exec -n datapond $BACKEND_POD -- env | grep DATABASE_URL
+```
+
+## Frontend Deployment Issues
+
+### Frontend build failed
+
+```bash
+# Check Next.js config has standalone output
+cat frontend/next.config.mjs | grep standalone
+
+# Rebuild locally
+cd frontend
+npm install
+npm run build
+cd ..
+bash scripts/build-images.sh
+```
+
+### Frontend pod crashing
+
+```bash
+# Check logs
+kubectl logs -n datapond -l app=frontend
+
+# Check environment
+FRONTEND_POD=$(kubectl get pod -n datapond -l app=frontend -o jsonpath="{.items[0].metadata.name}")
+kubectl exec -n datapond $FRONTEND_POD -- env | grep NEXT_PUBLIC
+```
+
+## Quick Recovery
+
+### Full reset
+```bash
+helm uninstall datapond -n datapond
+kubectl delete namespace datapond
+bash scripts/quick-deploy.sh
+```
+
+### Rebuild images only
+```bash
+bash scripts/build-images.sh
+kubectl rollout restart deployment/backend -n datapond
+kubectl rollout restart deployment/frontend -n datapond
+
+---
+
+## 실제 운영 중 발생한 이슈 (v2.3.0)
+
+### MLflow 502 Bad Gateway
+
+**증상:** `/mlflow` 접근 시 502 오류
+
+**원인 1: `mlflow` 데이터베이스 없음**
+```bash
+# 확인
+kubectl exec postgres-0 -n datapond -- psql -U datapond -c "\l" | grep mlflow
+
+# 수동 해결 (신규 설치에서는 자동 처리됨)
+kubectl exec postgres-0 -n datapond -- psql -U datapond -c "CREATE DATABASE mlflow OWNER datapond;"
+kubectl rollout restart deployment/mlflow -n datapond
+```
+
+**원인 2: `--static-prefix /mlflow` 누락**
+MLflow는 `BASE_URL` 설정 시 REST API 경로도 prefix가 붙음.
+`helm/datapond/templates/mlflow-deployment.yaml`에 `--static-prefix /mlflow` 확인.
+
+---
+
+### Pod Pending — Insufficient memory
+
+**증상:** Pod이 계속 `Pending` 상태, describe 시 "Insufficient memory"
+
+**원인:** RollingUpdate 전략으로 구버전+신버전 Pod 동시 실행 시 메모리 부족
+
+**해결:**
+```bash
+# Pending Pod 삭제
+kubectl delete pods -n datapond --field-selector=status.phase=Pending
+
+# 구버전 ReplicaSet 강제 0으로 축소
+kubectl get replicaset -n datapond --no-headers | awk '$2>0 && $4==0 {print $1}' | \
+  xargs kubectl scale replicaset --replicas=0 -n datapond
+
+# HPA minReplicas 확인 (2로 설정되어 있으면 1로 변경)
+kubectl get hpa -n datapond
+kubectl patch hpa backend -n datapond -p '{"spec":{"minReplicas":1}}'
+kubectl patch hpa frontend -n datapond -p '{"spec":{"minReplicas":1}}'
+```
+
+**근본 해결:** `values-quicktest.yaml`에 `autoscaling.minReplicas: 1`, 모든 Deployment 템플릿에 `strategy: Recreate` 설정 (v2.3.0에 적용 완료).
+
+---
+
+### Airflow REST API 403/401
+
+**증상:** `/api/airflow/dags` 호출 시 401 Unauthorized
+
+**원인:** `AIRFLOW__API__AUTH_BACKENDS` 미설정 — Airflow 2.8 기본값은 session only
+
+**해결:** `airflow-deployment.yaml` webserver 컨테이너에 환경변수 추가:
+```yaml
+- name: AIRFLOW__API__AUTH_BACKENDS
+  value: "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
+```
+
+**추가:** Backend에서 Airflow 내부 접근 시 URL은 `/airflow/api/v1` (BASE_URL prefix 포함):
+```
+AIRFLOW_API_URL=http://airflow.datapond.svc.cluster.local:8080/airflow/api/v1
+```
+
+---
+
+### Trino 쿼리 세미콜론 오류
+
+**증상:** `Syntax error: mismatched input ';'. Expecting: <EOF>`
+
+**원인:** Trino는 단일 쿼리에 `;` 종결자를 허용하지 않음
+
+**해결:** 백엔드 `add_limit_to_query()` 함수에서 `.rstrip(";")` 처리, 프론트엔드에서도 `.replace(/;+$/, "")` 처리 (v2.3.0 적용 완료).
+```

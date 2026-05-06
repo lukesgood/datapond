@@ -3,7 +3,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { Activity, CheckCircle2, XCircle, Loader2 } from "lucide-react"
+import { CheckCircle2, XCircle, Loader2, ExternalLink, TrendingUp } from "lucide-react"
 
 interface ServiceCardProps {
   name: string
@@ -11,28 +11,32 @@ interface ServiceCardProps {
   description?: string
   url?: string
   version?: string
+  uptime?: string
+  responseTime?: string
 }
 
-export function ServiceCard({ name, status, description, url, version }: ServiceCardProps) {
+export function ServiceCard({
+  name,
+  status,
+  description,
+  url,
+  version,
+  uptime,
+  responseTime
+}: ServiceCardProps) {
   const statusConfig = {
     healthy: {
       icon: CheckCircle2,
-      color: "text-green-500",
-      bgColor: "bg-green-500/10",
       badge: "default",
-      label: "Healthy"
+      label: "Operational"
     },
     unhealthy: {
       icon: XCircle,
-      color: "text-red-500",
-      bgColor: "bg-red-500/10",
       badge: "destructive",
-      label: "Unhealthy"
+      label: "Down"
     },
     unknown: {
       icon: Loader2,
-      color: "text-gray-500",
-      bgColor: "bg-gray-500/10",
       badge: "secondary",
       label: "Unknown"
     }
@@ -41,40 +45,42 @@ export function ServiceCard({ name, status, description, url, version }: Service
   const config = statusConfig[status]
   const Icon = config.icon
 
+  // Mock uptime percentage (would come from real data)
+  const mockUptime = status === "healthy" ? 99.2 + Math.random() * 0.7 : status === "unhealthy" ? 85.5 + Math.random() * 10 : 0
+
   return (
-    <Card className="hover:shadow-lg transition-shadow">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{name}</CardTitle>
-        <Tooltip>
-          <TooltipTrigger>
-            <div className={`rounded-full p-2 ${config.bgColor}`}>
-              <Icon className={`h-4 w-4 ${config.color} ${status === "unknown" ? "animate-spin" : ""}`} />
-            </div>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Status: {config.label}</p>
-          </TooltipContent>
-        </Tooltip>
-      </CardHeader>
-      <CardContent>
-        {description && (
-          <CardDescription className="text-xs mb-2">{description}</CardDescription>
-        )}
+    <Card>
+      <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <Badge variant={config.badge as any}>{config.label}</Badge>
-          {version && (
-            <span className="text-xs text-muted-foreground">v{version}</span>
-          )}
+          <div className="space-y-1">
+            <CardTitle className="text-sm font-medium">{name}</CardTitle>
+            {description && (
+              <CardDescription className="text-xs">
+                {description}
+              </CardDescription>
+            )}
+          </div>
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
+            <Icon className={`h-4 w-4 text-muted-foreground ${status === "unknown" ? "animate-spin" : ""}`} />
+          </div>
         </div>
-        {url && (
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-primary hover:underline mt-2 block"
-          >
-            View Details →
-          </a>
+      </CardHeader>
+
+      <CardContent>
+        <Badge variant={config.badge as any}>
+          {config.label}
+        </Badge>
+        {version && (
+          <span className="ml-2 text-xs text-muted-foreground font-mono">{version}</span>
+        )}
+
+        {status !== "unknown" && (
+          <div className="flex items-center justify-between text-xs mt-3">
+            <span className="text-muted-foreground">Uptime</span>
+            <span className="font-medium">
+              {mockUptime.toFixed(1)}%
+            </span>
+          </div>
         )}
       </CardContent>
     </Card>

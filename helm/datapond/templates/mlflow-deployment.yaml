@@ -8,6 +8,8 @@ metadata:
     app: {{ .Values.mlflow.name }}
 spec:
   replicas: {{ .Values.mlflow.replicas }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: {{ .Values.mlflow.name }}
@@ -31,7 +33,8 @@ spec:
             --host 0.0.0.0 \
             --port {{ .Values.mlflow.service.port }} \
             --backend-store-uri postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/mlflow \
-            --default-artifact-root s3://mlflow-artifacts
+            --default-artifact-root s3://mlflow-artifacts \
+            --static-prefix /mlflow
         env:
         - name: POSTGRES_USER
           valueFrom:

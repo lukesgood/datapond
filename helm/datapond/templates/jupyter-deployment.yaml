@@ -8,6 +8,8 @@ metadata:
     app: {{ .Values.jupyter.name }}
 spec:
   replicas: {{ .Values.jupyter.replicas }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: {{ .Values.jupyter.name }}
@@ -16,6 +18,28 @@ spec:
       labels:
         app: {{ .Values.jupyter.name }}
     spec:
+      initContainers:
+      - name: install-extensions
+        image: "{{ .Values.jupyter.image.repository }}:{{ .Values.jupyter.image.tag }}"
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "Installing JupyterLab extensions..."
+          {{- if .Values.jupyter.extensions }}
+          {{- if .Values.jupyter.extensions.git }}
+          pip install --no-cache-dir jupyterlab-git
+          {{- end }}
+          {{- if .Values.jupyter.extensions.nbdime }}
+          pip install --no-cache-dir nbdime
+          jupyter labextension enable nbdime-jupyterlab
+          {{- end }}
+          {{- end }}
+          echo "Extensions installed successfully"
+        volumeMounts:
+        - name: extensions
+          mountPath: /opt/conda/share/jupyter/lab/extensions
       containers:
       - name: jupyter
         image: "{{ .Values.jupyter.image.repository }}:{{ .Values.jupyter.image.tag }}"
@@ -23,10 +47,29 @@ spec:
         - containerPort: {{ .Values.jupyter.service.port }}
           name: jupyter
         command:
-        - start-notebook.sh
-        - --NotebookApp.token=jupyter
-        - --NotebookApp.base_url=/jupyter
-        - --NotebookApp.allow_origin='*'
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          {{- if .Values.jupyter.extensions }}
+          {{- if .Values.jupyter.extensions.git }}
+          echo "Installing jupyterlab-git..."
+          pip install --no-cache-dir jupyterlab-git
+          {{- end }}
+          {{- if .Values.jupyter.extensions.nbdime }}
+          echo "Installing nbdime..."
+          pip install --no-cache-dir nbdime
+          jupyter labextension enable nbdime-jupyterlab
+          {{- end }}
+          {{- end }}
+          {{- if .Values.jupyter.gitConfig }}
+          echo "Configuring Git defaults..."
+          git config --global user.name "{{ .Values.jupyter.gitConfig.defaultUser }}"
+          git config --global user.email "{{ .Values.jupyter.gitConfig.defaultEmail }}"
+          git config --global init.defaultBranch main
+          {{- end }}
+          echo "Starting JupyterLab..."
+          exec start-notebook.sh --NotebookApp.token=jupyter --NotebookApp.base_url=/jupyter --NotebookApp.allow_origin='*'
         env:
         - name: JUPYTER_ENABLE_LAB
           value: "yes"
@@ -78,6 +121,8 @@ spec:
         persistentVolumeClaim:
           claimName: iceberg-warehouse-pvc
       {{- end }}
+      - name: extensions
+        emptyDir: {}
       {{- end }}
 ---
 apiVersion: v1

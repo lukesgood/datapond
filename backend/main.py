@@ -8,6 +8,17 @@ from pydantic import BaseModel
 from typing import List, Optional
 import httpx
 import os
+from k8s_client import k8s_client
+from app.api.queries import router as queries_router
+from app.api.catalog import router as catalog_router
+from app.api.connectors import router as connectors_router
+from app.api.services import router as services_router
+from app.api.notebooks import router as notebooks_router
+from app.api.mlflow_integration import router as mlflow_router
+from app.api.airflow import router as airflow_router
+from app.api.dashboards import router as dashboards_router
+from app.api.pipelines import router as pipelines_router
+from app.api.storage import router as storage_router
 
 app = FastAPI(
     title="DataPond API",
@@ -23,6 +34,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include API routers
+app.include_router(queries_router, prefix="/api")
+app.include_router(catalog_router, prefix="/api")
+app.include_router(connectors_router, prefix="/api")
+app.include_router(services_router, prefix="/api")
+app.include_router(notebooks_router, prefix="/api")
+app.include_router(mlflow_router, prefix="/api")
+app.include_router(airflow_router, prefix="/api")
+app.include_router(dashboards_router, prefix="/api")
+app.include_router(pipelines_router, prefix="/api")
+app.include_router(storage_router, prefix="/api")
 
 # Service endpoints (internal Kubernetes DNS)
 SERVICES = {
@@ -62,57 +85,72 @@ async def root():
     }
 
 
-@app.get("/api/health")
+@app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint for K8s probes"""
+    return {"status": "healthy"}
+
+@app.get("/api/health")
+async def api_health_check():
+    """Health check endpoint (API path)"""
     return {"status": "healthy"}
 
 
 @app.get("/api/services", response_model=List[ServiceStatus])
 async def get_services():
-    """Get status of all DataPond services"""
+    """Get status of all DataPond services from K8s"""
     services_status = []
 
-    for name, url in SERVICES.items():
-        try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                if name == "trino":
-                    response = await client.get(f"{url}/v1/info")
-                elif name == "openmetadata":
-                    response = await client.get(f"{url}/api/v1/system/version")
-                elif name == "mlflow":
-                    response = await client.get(f"{url}/health")
-                else:
-                    response = await client.get(url)
+    # Service name mapping (API name -> K8s label)
+    service_mappings = {
+        "postgres": "postgres",
+        "mlflow": "mlflow",
+        "jupyterlab": "jupyterlab",
+        "trino": "trino",
+        "risingwave": "risingwave",
+        "openmetadata": "openmetadata",
+        "seaweedfs": "seaweedfs",
+        "polaris": "polaris",
+        "valkey": "valkey"
+    }
 
-                status = "healthy" if response.status_code == 200 else "unhealthy"
-                services_status.append(ServiceStatus(
-                    name=name,
-                    status=status,
-                    url=url
-                ))
-        except Exception as e:
-            services_status.append(ServiceStatus(
-                name=name,
-                status="unhealthy",
-                url=url
-            ))
+    for name, k8s_name in service_mappings.items():
+        status = await k8s_client.get_service_health(k8s_name)
+        pods = await k8s_client.get_service_pods(k8s_name)
+
+        # Get version from pod labels if available
+        version = None
+        if pods:
+            # Mark as running if we have pods
+            version = "Running"
+
+        services_status.append(ServiceStatus(
+            name=name,
+            status=status,
+            url=SERVICES.get(name),
+            version=version
+        ))
 
     return services_status
 
 
 @app.get("/api/dashboard/stats", response_model=DashboardStats)
 async def get_dashboard_stats():
-    """Get dashboard statistics"""
-    services = await get_services()
+    """Get dashboard statistics from real K8s metrics"""
+    # Get K8s metrics
+    k8s_metrics = await k8s_client.get_pod_metrics()
 
+    # Get service health
+    services = await get_services()
     healthy = sum(1 for s in services if s.status == "healthy")
     unhealthy = sum(1 for s in services if s.status == "unhealthy")
 
     return DashboardStats(
         total_services=len(services),
         healthy_services=healthy,
-        unhealthy_services=unhealthy
+        unhealthy_services=unhealthy,
+        cpu_usage=k8s_metrics["cpu_usage_percent"],
+        memory_usage=k8s_metrics["memory_usage_percent"]
     )
 
 
@@ -127,15 +165,7 @@ async def get_trino_catalogs():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/mlflow/experiments")
-async def get_mlflow_experiments():
-    """Get MLflow experiments"""
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{SERVICES['mlflow']}/api/2.0/mlflow/experiments/search")
-            return response.json()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# Legacy MLflow endpoint removed - use /api/mlflow/experiments from mlflow_integration router
 
 
 if __name__ == "__main__":

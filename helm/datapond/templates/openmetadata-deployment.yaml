@@ -12,6 +12,8 @@ metadata:
 spec:
   serviceName: {{ .Values.openmetadata.name }}-elasticsearch
   replicas: {{ .Values.openmetadata.elasticsearch.replicas }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: {{ .Values.openmetadata.name }}
@@ -117,6 +119,8 @@ metadata:
     component: server
 spec:
   replicas: {{ .Values.openmetadata.server.replicas }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: {{ .Values.openmetadata.name }}

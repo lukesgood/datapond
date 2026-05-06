@@ -189,6 +189,16 @@ jupyter:
     - name: JUPYTER_TOKEN
       value: "jupyter"
 
+  # Git integration extensions
+  extensions:
+    git: true        # jupyterlab-git extension (GUI for Git operations)
+    nbdime: true     # nbdime (notebook diff/merge tool)
+
+  # Default Git configuration
+  gitConfig:
+    defaultUser: "DataPond User"
+    defaultEmail: "user@datapond.local"
+
 # MLflow
 mlflow:
   enabled: true
@@ -279,6 +289,18 @@ airflow:
   auth:
     username: airflow
     password: airflow
+
+  # SMTP alert configuration
+  # Set smtp.enabled: true and configure your mail server to enable email alerts
+  smtp:
+    enabled: false
+    host: "smtp.gmail.com"
+    port: "587"
+    starttls: "True"
+    ssl: "False"
+    user: ""                              # SMTP username (e.g. alerts@company.com)
+    # password: set via AIRFLOW_SMTP_PASSWORD in datapond-secrets
+    mailFrom: "DataPond Alerts <datapond-alerts@company.com>"
 
 # Spark
 spark:
@@ -467,6 +489,7 @@ polaris:
 
   # Authentication
   auth:
+    realm: default-realm
     clientId: polaris-client
     clientSecret: changeme-polaris-secret
     adminPassword: changeme-admin-password

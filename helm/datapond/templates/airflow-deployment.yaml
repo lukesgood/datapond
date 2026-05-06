@@ -60,6 +60,28 @@ spec:
           value: "http://{{ .Values.global.domain }}/airflow"
         - name: AIRFLOW__WEBSERVER__WEB_SERVER_PORT
           value: "{{ .Values.airflow.webserver.service.port }}"
+        - name: AIRFLOW__API__AUTH_BACKENDS
+          value: "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
+        {{- if .Values.airflow.smtp.enabled }}
+        - name: AIRFLOW__SMTP__SMTP_HOST
+          value: "{{ .Values.airflow.smtp.host }}"
+        - name: AIRFLOW__SMTP__SMTP_PORT
+          value: "{{ .Values.airflow.smtp.port }}"
+        - name: AIRFLOW__SMTP__SMTP_STARTTLS
+          value: "{{ .Values.airflow.smtp.starttls }}"
+        - name: AIRFLOW__SMTP__SMTP_SSL
+          value: "{{ .Values.airflow.smtp.ssl }}"
+        - name: AIRFLOW__SMTP__SMTP_USER
+          value: "{{ .Values.airflow.smtp.user }}"
+        - name: AIRFLOW__SMTP__SMTP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: AIRFLOW_SMTP_PASSWORD
+              optional: true
+        - name: AIRFLOW__SMTP__SMTP_MAIL_FROM
+          value: "{{ .Values.airflow.smtp.mailFrom }}"
+        {{- end }}
         resources:
           requests:
             cpu: {{ .Values.airflow.webserver.resources.requests.cpu }}
@@ -165,7 +187,7 @@ metadata:
   namespace: {{ .Values.namespace }}
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   storageClassName: {{ .Values.global.storageClass }}
   resources:
     requests:
@@ -178,7 +200,7 @@ metadata:
   namespace: {{ .Values.namespace }}
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   storageClassName: {{ .Values.global.storageClass }}
   resources:
     requests:

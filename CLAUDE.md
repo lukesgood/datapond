@@ -42,9 +42,11 @@ AI Layer: LiteLLM (multi-model proxy: Claude, GPT-4, Gemini, Llama)
 
 **DuckDB** runs embedded inside JupyterLab (no separate pod). It reads Iceberg tables directly from SeaweedFS via S3 API — no Spark cluster needed for exploratory queries under ~100GB.
 
-**PostgreSQL** is shared across services: `datapond` (app data), `mlflow` (experiment metadata), `airflow` (workflow metadata), `iceberg_catalog` (Polaris metastore).
+**PostgreSQL** is shared across services: `datapond` (app data), `mlflow` (experiment metadata), `airflow` (workflow metadata), `iceberg_catalog` (Polaris metastore), `openmetadata_catalog`, `polaris_catalog`. All databases are auto-created on first PostgreSQL startup via `/docker-entrypoint-initdb.d/01-init-databases.sh` (mounted from `postgres-init-configmap.yaml`).
 
 **Valkey** is used instead of Redis (license-compatible drop-in replacement).
+
+**All Deployments use `strategy: Recreate`** (not RollingUpdate) to prevent memory pressure from simultaneous old+new pods on single-node K3s. This is set in all Helm templates.
 
 ### Data paths
 
@@ -81,22 +83,28 @@ mlflow.datapond.svc.cluster.local:5000
 ### Install K3s + Helm (on-prem bootstrap)
 
 ```bash
-sudo bash scripts/install-k3s.sh
-echo "127.0.0.1  datapond.local" | sudo tee -a /etc/hosts
+# Full install (interactive, handles K3s + Helm + deploy)
+sudo bash scripts/install.sh --domain datapond.local
+
+# Air-gapped environment
+sudo bash scripts/bundle-airgap.sh          # on internet machine
+sudo bash datapond-airgap-*/install.sh       # on target machine
 ```
 
 ### Deploy / upgrade
 
 ```bash
-# First install (dev)
-bash scripts/deploy.sh values-dev.yaml
-
-# Upgrade existing release
-bash scripts/deploy.sh values-dev.yaml
-# (script detects existing release and prompts for upgrade)
+# Upgrade existing release (recommended — always use values-quicktest.yaml on single node)
+helm upgrade datapond helm/datapond \
+  --namespace datapond \
+  --values helm/datapond/values-quicktest.yaml \
+  --wait=false
 
 # Production
-bash scripts/deploy.sh values-prod.yaml
+helm upgrade datapond helm/datapond \
+  --namespace datapond \
+  --values helm/datapond/values-prod.yaml \
+  --wait=false
 ```
 
 ### Helm operations
@@ -122,28 +130,34 @@ kubectl top nodes
 
 ## Key URLs (dev)
 
-| Service | URL |
-|---------|-----|
-| Frontend | http://datapond.local |
-| Backend API | http://datapond.local/api |
-| JupyterLab | http://datapond.local/jupyter (token: `jupyter`) |
-| Airflow | http://datapond.local/airflow (airflow/airflow) |
-| MLflow | http://datapond.local/mlflow |
-| Spark UI | http://datapond.local/spark |
-| SeaweedFS Console | http://datapond.local/seaweedfs-console |
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| Frontend (Management UI) | http://datapond.local | — |
+| Backend API + Docs | http://datapond.local/api | — |
+| JupyterLab | http://datapond.local/jupyter | token: `jupyter` |
+| Airflow | http://datapond.local/airflow | airflow / airflow |
+| MLflow | http://datapond.local/mlflow | — |
+| OpenMetadata | http://datapond.local/openmetadata | — |
+| SeaweedFS Console | http://datapond.local/seaweedfs-console | — |
+
+> **Note:** Spark is currently disabled (`spark.enabled: false` in values-quicktest.yaml) due to image issues.
+> **Note:** Airflow Webserver uses `BASE_URL=/airflow` and `AUTH_BACKENDS=basic_auth,session` — the REST API is at `/airflow/api/v1` internally.
 
 ## Helm Chart Structure
 
 ```
 helm/datapond/
-  values.yaml          # Base defaults (all services)
-  values-dev.yaml      # Dev overrides (minimal resources, 1 replica)
-  values-prod.yaml     # Prod overrides (HA, full resources)
-  values-quicktest.yaml
-  Chart.yaml
+  values.yaml            # Base defaults (HA, production scale)
+  values-quicktest.yaml  # Single-node dev/test (Recreate strategy, 1 replica)
+  values-dev.yaml        # Dev overrides
+  values-prod.yaml       # Production (HA, full resources)
+  Chart.yaml             # v2.3.0
+  templates/
+    postgres-init-configmap.yaml  # Auto-creates all DBs on first startup
+    *-deployment.yaml             # All use strategy: Recreate
 ```
 
-When adding a new component, follow the existing pattern in `values.yaml`: enabled flag, image, replicas, resources (requests + limits), service ports, autoscaling config.
+When adding a new component: add `enabled` flag, `image`, `replicas`, `resources`, `strategy: Recreate` to template, and mount `postgres-init-configmap` if DB needed.
 
 ## Operational Commands
 
@@ -176,52 +190,148 @@ DataPond uses a **hierarchical AI agent system** for project management. The PM 
 
 ### Available Agents
 
-| Agent | Model | Specialization | File |
-|-------|-------|----------------|------|
-| **PM Agent** | Opus 4.7 | Project leadership, strategy, coordination | `pm-agent.md` |
-| **Architecture Agent** | Opus 4.7 | System design, tech decisions, ADRs | `architecture-agent.md` |
-| **ML Consultant Agent** | Opus 4.7 | ML strategy, data science workflows | `ml-consultant-agent.md` |
-| **Backend Agent** | Sonnet 4.6 | FastAPI, database, API implementation | `backend-agent.md` |
-| **Frontend Agent** | Sonnet 4.6 | Next.js, React, UI implementation | `frontend-agent.md` |
-| **Design Agent** | Sonnet 4.6 | UI/UX design, design system | `design-agent.md` |
-| **DevOps Agent** | Sonnet 4.6 | Kubernetes, Docker, CI/CD | `devops-agent.md` |
+| Agent | Model | Agent Tool Param | Specialization | File |
+|-------|-------|------------------|----------------|------|
+| **PM Agent** | Opus 4.7 | `model: "opus"` | Project leadership, strategy, coordination | `pm-agent.md` |
+| **Architecture Agent** | Opus 4.7 | `model: "opus"` | System design, tech decisions, ADRs | `architecture-agent.md` |
+| **ML Consultant Agent** | Opus 4.7 | `model: "opus"` | ML strategy, data science workflows | `ml-consultant-agent.md` |
+| **Backend Agent** | Sonnet 4.6 | `model: "sonnet"` | FastAPI, database, API implementation | `backend-agent.md` |
+| **Frontend Agent** | Sonnet 4.6 | `model: "sonnet"` | Next.js, React, UI implementation | `frontend-agent.md` |
+| **Design Agent** | Sonnet 4.6 | `model: "sonnet"` | UI/UX design, design system | `design-agent.md` |
+| **DevOps Agent** | Sonnet 4.6 | `model: "sonnet"` | Kubernetes, Docker, CI/CD | `devops-agent.md` |
+| **Error Correction Agent** | Sonnet 4.6 | `model: "sonnet"` | Debugging, error fixes, quality assurance | `error-correction-agent.md` |
+| **Technical Writer Agent** | Sonnet 4.6 | `model: "sonnet"` | Documentation, help guides, user manuals | `technical-writer-agent.md` |
+
+**Model Selection Rationale:**
+- **Opus**: Strategic thinking, architecture decisions, complex reasoning (PM, Architecture, ML)
+- **Sonnet**: Fast implementation, code generation, following patterns (Frontend, Backend, Design, DevOps, Error Correction)
 
 ### How to Use Agents
 
-**When you need coordinated multi-agent work:**
-```
-User: "shadcn/ui 기반으로 통합 관리 UI를 만들어줘"
+DataPond agents can be utilized in **TWO ways**:
 
-Claude will:
-1. Read pm-agent.md to understand PM responsibilities
-2. Read relevant specialist agents (frontend-agent.md, design-agent.md, backend-agent.md)
-3. Coordinate implementation across agents
-4. Ensure consistency with project architecture and standards
+#### Method 1: Read & Apply (Simple Tasks)
+For straightforward implementation, Claude reads agent files and applies their guidelines directly.
+
+```
+User: "@pm-agent! shadcn/ui 기반으로 통합 관리 UI를 만들어줘"
+
+Claude (as PM Agent):
+1. Reads .claude/agents/frontend-agent.md
+2. Reads .claude/agents/design-agent.md
+3. Reads .claude/agents/backend-agent.md
+4. Implements directly following their standards
+5. Coordinates integration across components
 ```
 
-**Agent Workflow:**
+**When to use:** Task requires <5 file changes, straightforward implementation
+
+#### Method 2: Spawn Agent (Complex Tasks)
+For complex work, PM Agent spawns specialized agents using the Agent tool.
+
+**IMPORTANT: Each agent uses a specific model**
+- **Opus**: PM, Architecture, ML Consultant (strategic thinking)
+- **Sonnet**: Frontend, Backend, Design, DevOps (implementation)
+
 ```
-User Request → Main Claude (reads pm-agent.md)
-                      ↓
-            PM Agent Analysis & Planning
+User: "@pm-agent! ui가 별로임. Databricks 수준의 ui로 다시 작성"
+
+Claude (as PM Agent):
+1. Reads frontend-agent.md (model: claude-sonnet-4-6)
+2. Reads design-agent.md (model: claude-sonnet-4-6)
+3. Analyzes scope: Large redesign, data visualization needed
+4. Spawns Frontend Agent with correct model:
+
+Agent({
+  description: "Redesign dashboard to Databricks-level UI",
+  model: "sonnet",  // ← Frontend Agent uses Sonnet for fast implementation
+  prompt: `You are the Frontend Agent for DataPond.
+
+AGENT IDENTITY:
+[Full contents of frontend-agent.md]
+
+SUPPORTING CONTEXT:
+[Contents of design-agent.md]
+
+TASK:
+Redesign entire dashboard with:
+- Advanced data visualization (sparklines, trend charts)
+- Professional layout (split panels, collapsible sections)
+- Rich interactions (tooltips, smooth transitions)
+- Databricks-level polish
+
+FILES TO MODIFY:
+- components/dashboard/stats-cards.tsx
+- components/dashboard/service-card.tsx
+- app/dashboard/page.tsx
+...
+
+Report back with implementation details.`
+})
+```
+
+**When to use:** Task requires >5 file changes, extensive research, deep domain expertise, or user wants parallel work
+
+**Model Selection:**
+| Agent | Model | Use Case |
+|-------|-------|----------|
+| PM, Architecture, ML | `opus` | Strategy, complex decisions |
+| Frontend, Backend, Design, DevOps | `sonnet` | Fast implementation |
+
+#### Parallel Agent Execution
+
+For truly independent tasks, spawn multiple agents in **single message** with correct models:
+
+```typescript
+// Read agent files to get model info
+const frontendAgent = Read(".claude/agents/frontend-agent.md")  // sonnet
+const backendAgent = Read(".claude/agents/backend-agent.md")    // sonnet
+const devopsAgent = Read(".claude/agents/devops-agent.md")      // sonnet
+
+// Spawn all in single message
+Agent({
+  description: "Frontend redesign",
+  model: "sonnet",
+  prompt: `${frontendAgent}\n\nTASK: ...`
+})
+
+Agent({
+  description: "Backend APIs",
+  model: "sonnet",
+  prompt: `${backendAgent}\n\nTASK: ...`
+})
+
+Agent({
+  description: "DevOps deployment",
+  model: "sonnet",
+  prompt: `${devopsAgent}\n\nTASK: ...`
+})
+```
+
+**Agent Workflow (Complex Tasks):**
+```
+User Request → PM Agent Analysis
                       ↓
         ┌─────────────┼─────────────┐
         ↓             ↓             ↓
-  Architecture    Backend      Frontend
-  Agent Context   Agent        Agent
-  (design review) (API impl)   (UI impl)
-                      ↓
-            Integration & Deployment
+   Spawn Agent    Spawn Agent   Spawn Agent
+   (Frontend)     (Backend)     (DevOps)
+        ↓             ↓             ↓
+   Implementation Implementation Implementation
+        ↓             ↓             ↓
+   Agent Reports → PM Integration → User
 ```
 
-**Direct Agent Reference:**
-When Claude needs specialized knowledge, it will:
-1. Read the relevant agent file from `.claude/agents/`
-2. Apply that agent's expertise and guidelines
-3. Follow that agent's code standards and practices
-4. Report back with agent-appropriate recommendations
+### Agent Coordination Protocol
 
-See `.claude/AGENT_TEAM_GUIDE.md` for detailed coordination workflow and best practices.
+1. **PM Agent receives task**
+2. **Analyzes complexity**: Simple → Read & Apply, Complex → Spawn Agent
+3. **Reads agent files** for context and standards
+4. **Executes or Spawns**: Direct implementation or Agent tool
+5. **Reviews & Integrates**: Ensures consistency across agents
+6. **Reports to user**: Summary of work completed
+
+See `.claude/agents/pm-agent.md` for detailed spawning examples and coordination workflow.
 
 ## Key Documentation
 
