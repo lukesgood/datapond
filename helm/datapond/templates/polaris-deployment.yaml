@@ -1,33 +1,5 @@
 {{- if .Values.polaris.enabled }}
 ---
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ .Values.polaris.name }}-config
-  namespace: {{ .Values.namespace }}
-data:
-  polaris.yml: |
-    metaStoreManager:
-      type: postgres
-      conf:
-        host: {{ .Values.postgres.name }}
-        port: {{ .Values.postgres.service.port }}
-        database: {{ .Values.polaris.database }}
-        user: {{ .Values.postgres.auth.username }}
-        password: {{ .Values.postgres.auth.password }}
-
-    defaultRealm:
-      default:
-        type: default-service
-        base-uri: http://{{ .Values.polaris.name }}:{{ .Values.polaris.service.port }}/api/catalog
-
-    oauth2:
-      type: default
-
-    callContext:
-      resolverClass: io.polaris.service.context.CallContextResolver
-
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -38,6 +10,8 @@ metadata:
     component: catalog
 spec:
   replicas: {{ .Values.polaris.replicas }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: {{ .Values.polaris.name }}
@@ -48,7 +22,7 @@ spec:
         component: catalog
     spec:
       initContainers:
-      - name: wait-for-postgres
+      - name: wait-for-bootstrap
         image: postgres:16-alpine
         command:
           - sh
@@ -58,7 +32,19 @@ spec:
               echo "Waiting for PostgreSQL..."
               sleep 2
             done
-            echo "PostgreSQL is ready"
+            echo "PostgreSQL ready. Waiting for Polaris schema bootstrap..."
+            export PGPASSWORD="$POSTGRES_PASSWORD"
+            until psql -h {{ .Values.postgres.name }} -U {{ .Values.postgres.auth.username }} -d {{ .Values.polaris.database }} -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='principal_authentication_data'" | grep -q 1; do
+              echo "Waiting for polaris-bootstrap Job to create schema..."
+              sleep 3
+            done
+            echo "Polaris schema present. Starting server."
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_PASSWORD
 
       containers:
       - name: polaris
@@ -74,24 +60,40 @@ spec:
           protocol: TCP
 
         env:
-        # PostgreSQL connection
-        - name: POLARIS_METASTORE_TYPE
-          value: "postgres"
-        - name: POLARIS_METASTORE_HOST
-          value: "{{ .Values.postgres.name }}"
-        - name: POLARIS_METASTORE_PORT
-          value: "{{ .Values.postgres.service.port }}"
-        - name: POLARIS_METASTORE_DATABASE
-          value: "{{ .Values.polaris.database }}"
-        - name: POLARIS_METASTORE_USER
+        # ── Persistence: PostgreSQL via relational-jdbc ───────────
+        - name: POLARIS_PERSISTENCE_TYPE
+          value: "relational-jdbc"
+        - name: POLARIS_PERSISTENCE_RELATIONAL_JDBC_DATABASE_TYPE
+          value: "postgresql"
+
+        # ── Quarkus datasource (used by relational-jdbc) ──────────
+        - name: QUARKUS_DATASOURCE_DB_KIND
+          value: "postgresql"
+        - name: QUARKUS_DATASOURCE_JDBC_URL
+          value: "jdbc:postgresql://{{ .Values.postgres.name }}:{{ .Values.postgres.service.port }}/{{ .Values.polaris.database }}"
+        - name: QUARKUS_DATASOURCE_USERNAME
           value: "{{ .Values.postgres.auth.username }}"
-        - name: POLARIS_METASTORE_PASSWORD
+        - name: QUARKUS_DATASOURCE_PASSWORD
           valueFrom:
             secretKeyRef:
               name: datapond-secrets
               key: POSTGRES_PASSWORD
 
-        # S3 Configuration (SeaweedFS)
+        # ── Auth: internal token broker, OIDC disabled ────────────
+        - name: QUARKUS_OIDC_TENANT_ENABLED
+          value: "false"
+        - name: POLARIS_AUTHENTICATION_TYPE
+          value: "internal"
+
+        # ── Realm context ─────────────────────────────────────────
+        - name: POLARIS_REALM_CONTEXT_TYPE
+          value: "default"
+        - name: POLARIS_REALM_CONTEXT_REALMS
+          value: "{{ .Values.polaris.auth.realm | default "default-realm" }}"
+        - name: POLARIS_REALM_CONTEXT_REQUIRE_HEADER
+          value: "false"
+
+        # ── S3 storage (SeaweedFS) ────────────────────────────────
         - name: AWS_REGION
           value: "us-east-1"
         - name: AWS_ACCESS_KEY_ID
@@ -104,37 +106,57 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: SEAWEEDFS_S3_PASSWORD
-        - name: S3_ENDPOINT
+        # AWS SDK v2 respects this to redirect S3 traffic to on-prem SeaweedFS
+        # instead of the default real AWS endpoint. Force path-style addressing
+        # (bucket in URL path, not hostname) since SeaweedFS does not provide
+        # DNS for `<bucket>.<endpoint-host>`.
+        - name: AWS_ENDPOINT_URL_S3
           value: "http://seaweedfs-s3:8333"
-
-        # Polaris Configuration
-        - name: POLARIS_BOOTSTRAP_REALM_NAME
-          value: "default-realm"
-        - name: POLARIS_BOOTSTRAP_CLIENT_ID
-          value: "{{ .Values.polaris.auth.clientId }}"
-        - name: POLARIS_BOOTSTRAP_CLIENT_SECRET
+        - name: AWS_ENDPOINT_URL
+          value: "http://seaweedfs-s3:8333"
+        - name: AWS_S3_FORCE_PATH_STYLE
+          value: "true"
+        - name: POLARIS_STORAGE_AWS_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: polaris-secret
-              key: clientSecret
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_USER
+        - name: POLARIS_STORAGE_AWS_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_PASSWORD
 
-        volumeMounts:
-        - name: config
-          mountPath: /app/conf
-          readOnly: true
+        # ── Feature flags ─────────────────────────────────────────
+        # Polaris feature keys are quoted in properties form (e.g. polaris.features."KEY"=val).
+        # The env-var convention lowercases and splits on underscores, so we pass the
+        # uppercase-preserving properties through JAVA_OPTS_APPEND as -D system properties.
+        - name: JAVA_OPTS_APPEND
+          value: >-
+            -Dpolaris.readiness.ignore-severe-issues=true
+            -Dpolaris.features."ENFORCE_PRINCIPAL_CREDENTIAL_ROTATION_REQUIRED_CHECKING"=false
+            -Dpolaris.features."ALLOW_SPECIFYING_FILE_IO_IMPL"=true
+            -Dpolaris.features."ALLOW_INSECURE_STORAGE_TYPES"=true
+            -Dpolaris.features."SKIP_CREDENTIAL_SUBSCOPING_INDIRECTION"=true
+            -Dpolaris.features."ALLOW_EXTERNAL_CATALOG_CREDENTIAL_VENDING"=false
+            -Dpolaris.features."SUPPORTED_CATALOG_STORAGE_TYPES"=["S3","GCS","AZURE","FILE"]
+            -Daws.s3UseArnRegion=false
+            -Dsoftware.amazon.awssdk.http.service.impl=software.amazon.awssdk.http.apache.ApacheSdkHttpService
 
         livenessProbe:
-          tcpSocket:
-            port: 8181
-          initialDelaySeconds: 30
+          httpGet:
+            path: /q/health/live
+            port: 8182
+          initialDelaySeconds: 60
           periodSeconds: 10
           timeoutSeconds: 5
-          failureThreshold: 3
+          failureThreshold: 5
 
         readinessProbe:
-          tcpSocket:
-            port: 8181
-          initialDelaySeconds: 10
+          httpGet:
+            path: /q/health/ready
+            port: 8182
+          initialDelaySeconds: 30
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 3
@@ -146,11 +168,6 @@ spec:
           limits:
             cpu: {{ .Values.polaris.resources.limits.cpu }}
             memory: {{ .Values.polaris.resources.limits.memory }}
-
-      volumes:
-      - name: config
-        configMap:
-          name: {{ .Values.polaris.name }}-config
 
 ---
 apiVersion: v1
@@ -182,7 +199,8 @@ metadata:
   namespace: {{ .Values.namespace }}
 type: Opaque
 stringData:
+  clientId: {{ .Values.polaris.auth.clientId | quote }}
   clientSecret: {{ .Values.polaris.auth.clientSecret | quote }}
-  adminPassword: {{ .Values.polaris.auth.adminPassword | quote }}
+  realm: {{ .Values.polaris.auth.realm | default "default-realm" | quote }}
 
 {{- end }}

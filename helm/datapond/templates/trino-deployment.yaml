@@ -11,6 +11,8 @@ metadata:
     app.kubernetes.io/component: analytics
 spec:
   replicas: {{ .Values.trino.replicas }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: {{ .Values.trino.name }}
@@ -139,10 +141,12 @@ data:
     {{- if .Values.polaris.enabled }}
     # Polaris REST Catalog (Unity Catalog alternative)
     iceberg.catalog.type=rest
-    iceberg.rest-catalog.uri=http://{{ .Values.polaris.name }}:{{ .Values.polaris.service.port }}/api/catalog/v1
-    iceberg.rest-catalog.warehouse={{ .Values.polaris.storage.defaultBaseLocation }}
+    iceberg.rest-catalog.uri=http://{{ .Values.polaris.name }}:{{ .Values.polaris.service.port }}/api/catalog
+    # Polaris uses the catalog NAME (not the S3 path) as the warehouse identifier
+    iceberg.rest-catalog.warehouse={{ .Values.polaris.catalogName | default "iceberg" }}
     iceberg.rest-catalog.security=OAUTH2
     iceberg.rest-catalog.oauth2.credential={{ .Values.polaris.auth.clientId }}:{{ .Values.polaris.auth.clientSecret }}
+    iceberg.rest-catalog.oauth2.scope=PRINCIPAL_ROLE:ALL
     {{- else }}
     # Fallback: JDBC Catalog (deprecated)
     iceberg.catalog.type=jdbc

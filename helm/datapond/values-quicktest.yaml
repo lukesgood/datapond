@@ -33,6 +33,11 @@ frontend:
     limits:
       cpu: 500m
       memory: 512Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 80
 
 # Backend - API Server
 backend:
@@ -42,6 +47,12 @@ backend:
     repository: datapond/backend
     tag: latest
     pullPolicy: IfNotPresent
+  env:
+    - name: ENCRYPTION_KEY
+      valueFrom:
+        secretKeyRef:
+          name: datapond-secrets
+          key: encryption-key
   resources:
     requests:
       cpu: 200m
@@ -49,6 +60,11 @@ backend:
     limits:
       cpu: 500m
       memory: 512Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
 
 # PostgreSQL - Reduced resources
 postgres:
@@ -91,6 +107,12 @@ jupyter:
   persistence:
     enabled: true
     size: 10Gi
+  extensions:
+    git: true
+    nbdime: true
+  gitConfig:
+    defaultUser: "DataPond User"
+    defaultEmail: "user@datapond.local"
 
 # MLflow - Minimal
 mlflow:
@@ -106,9 +128,67 @@ mlflow:
     enabled: true
     size: 10Gi
 
-# Airflow - Disabled for quick test (heavy)
+# Airflow - Minimal activation for Sprint 2 (LocalExecutor)
 airflow:
-  enabled: false
+  enabled: true
+  name: airflow
+  image:
+    repository: apache/airflow
+    tag: "2.8.1"
+  executor: LocalExecutor
+  webserver:
+    replicas: 1
+    service:
+      type: ClusterIP
+      port: 8080
+    resources:
+      requests:
+        cpu: 300m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1.5Gi
+  scheduler:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 300m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1.5Gi
+  worker:
+    enabled: false
+  persistence:
+    enabled: true
+    dags:
+      size: 5Gi
+    logs:
+      size: 5Gi
+  auth:
+    username: airflow
+    password: airflow
+
+  # SMTP: disabled by default — configure to enable email alerts
+  # smtp:
+  #   enabled: true
+  #   host: "smtp.gmail.com"
+  #   port: "587"
+  #   starttls: "True"
+  #   ssl: "False"
+  #   user: "alerts@company.com"
+  #   mailFrom: "DataPond <alerts@company.com>"
+  # Then set AIRFLOW_SMTP_PASSWORD in datapond-secrets:
+  #   kubectl create secret generic datapond-secrets -n datapond \
+  #     --from-literal=AIRFLOW_SMTP_PASSWORD="your-app-password" --dry-run=client -o yaml | kubectl apply -f -
+  smtp:
+    enabled: false
+    host: ""
+    port: "587"
+    starttls: "True"
+    ssl: "False"
+    user: ""
+    mailFrom: "DataPond Alerts <noreply@datapond.local>"
 
 # Spark - Disabled (image issues)
 spark:
@@ -257,8 +337,6 @@ postgres:
 
 jupyter:
   env:
-    - name: JUPYTER_ENABLE_LAB
-      value: "yes"
     - name: JUPYTER_TOKEN
       value: "jupyter"
 
@@ -266,3 +344,9 @@ seaweedfs:
   auth:
     s3User: datapond
     s3Password: datapond_dev
+  s3:
+    # Static ClusterIP so the CoreDNS override (coredns-custom-configmap.yaml)
+    # always resolves virtual-host bucket hostnames to the same endpoint.
+    # Verify the IP is inside the service CIDR (k3s default 10.43.0.0/16) and
+    # not in use: `kubectl get svc -A | grep 10.43.107.150`
+    clusterIP: 10.43.107.150

@@ -273,6 +273,33 @@ spec:
       storage: {{ .Values.seaweedfs.filer.persistence.size }}
 {{- end }}
 ---
+# SeaweedFS S3 identity/credential config.
+# The standalone `weed s3` binary ignores WEED_S3_DEFAULT_USER/PWD — those envs only
+# affect `weed server -s3`. To accept AWS SigV4 signed requests (which Trino/Polaris
+# always send when AWS_ACCESS_KEY_ID is set), we must pass `-config=<path>.json`.
+# A single identity with Admin permissions is sufficient for on-prem Iceberg use.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.seaweedfs.name }}-s3-config
+  namespace: {{ .Values.namespace }}
+data:
+  s3.json: |
+    {
+      "identities": [
+        {
+          "name": "{{ .Values.seaweedfs.auth.s3User }}",
+          "credentials": [
+            {
+              "accessKey": "{{ .Values.seaweedfs.auth.s3User }}",
+              "secretKey": "{{ .Values.seaweedfs.auth.s3Password }}"
+            }
+          ],
+          "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+        }
+      ]
+    }
+---
 # SeaweedFS S3 Gateway
 apiVersion: apps/v1
 kind: Deployment
@@ -284,6 +311,8 @@ metadata:
     component: s3
 spec:
   replicas: {{ .Values.seaweedfs.s3.replicas }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: {{ .Values.seaweedfs.name }}
@@ -293,6 +322,9 @@ spec:
       labels:
         app: {{ .Values.seaweedfs.name }}
         component: s3
+      annotations:
+        # Force pod rollout when the identity/credential pair in values.yaml changes
+        checksum/s3-config: {{ printf "%s:%s" .Values.seaweedfs.auth.s3User .Values.seaweedfs.auth.s3Password | sha256sum | trunc 16 }}
     spec:
       containers:
       - name: s3
@@ -302,21 +334,16 @@ spec:
         - s3
         - -filer={{ .Values.seaweedfs.name }}-filer:8888
         - -port=8333
+        - -config=/etc/seaweedfs/s3.json
         env:
         - name: POD_IP
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
-        - name: WEED_S3_DEFAULT_USER
-          valueFrom:
-            secretKeyRef:
-              name: datapond-secrets
-              key: SEAWEEDFS_S3_USER
-        - name: WEED_S3_DEFAULT_PWD
-          valueFrom:
-            secretKeyRef:
-              name: datapond-secrets
-              key: SEAWEEDFS_S3_PASSWORD
+        volumeMounts:
+        - name: s3-config
+          mountPath: /etc/seaweedfs
+          readOnly: true
         ports:
         - containerPort: 8333
           name: s3
@@ -327,18 +354,22 @@ spec:
           limits:
             cpu: {{ .Values.seaweedfs.s3.resources.limits.cpu }}
             memory: {{ .Values.seaweedfs.s3.resources.limits.memory }}
+        # With IAM auth enabled, GET / returns 403 for anonymous requests, so HTTP
+        # probes fail. Use TCP socket probes — they only verify the port is open.
         livenessProbe:
-          httpGet:
-            path: /
+          tcpSocket:
             port: 8333
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
-          httpGet:
-            path: /
+          tcpSocket:
             port: 8333
           initialDelaySeconds: 10
           periodSeconds: 5
+      volumes:
+      - name: s3-config
+        configMap:
+          name: {{ .Values.seaweedfs.name }}-s3-config
 ---
 # SeaweedFS S3 Service
 apiVersion: v1
@@ -348,6 +379,11 @@ metadata:
   namespace: {{ .Values.namespace }}
 spec:
   type: {{ .Values.seaweedfs.s3.service.type }}
+  {{- if .Values.seaweedfs.s3.clusterIP }}
+  # Pin ClusterIP so the CoreDNS virtual-host A-record override stays valid
+  # across re-installs (see coredns-custom-configmap.yaml).
+  clusterIP: {{ .Values.seaweedfs.s3.clusterIP }}
+  {{- end }}
   ports:
   - port: {{ .Values.seaweedfs.s3.service.port }}
     targetPort: 8333

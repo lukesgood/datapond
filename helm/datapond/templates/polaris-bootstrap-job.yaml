@@ -1,0 +1,123 @@
+{{- if .Values.polaris.enabled }}
+---
+# Polaris 1.4.0 requires an out-of-band bootstrap step to:
+#   1. Create the relational-jdbc schema (postgres/schema-v4.sql) in polaris_catalog DB
+#   2. Insert the root principal credentials for the realm
+#
+# The apache/polaris-admin-tool:1.4.0 image performs both steps but is NOT idempotent —
+# re-running it against an already-bootstrapped realm exits non-zero. So this Job
+# pre-checks the schema and short-circuits when the realm is already provisioned,
+# letting Helm upgrade cleanly across deploys.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.polaris.name }}-bootstrap
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.polaris.name }}
+    component: catalog-bootstrap
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.polaris.name }}-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      shareProcessNamespace: true
+      volumes:
+      - name: shared
+        emptyDir: {}
+      initContainers:
+      # Step 1 — wait for PostgreSQL, ensure polaris_catalog DB exists,
+      # and set a skip flag if bootstrap has already been run.
+      - name: precheck
+        image: postgres:16-alpine
+        volumeMounts:
+        - name: shared
+          mountPath: /shared
+        command:
+          - sh
+          - -c
+          - |
+            set -e
+            until pg_isready -h {{ .Values.postgres.name }} -p {{ .Values.postgres.service.port }} -U {{ .Values.postgres.auth.username }}; do
+              echo "Waiting for PostgreSQL..."
+              sleep 2
+            done
+            export PGPASSWORD="$POSTGRES_PASSWORD"
+
+            # Create DB if missing (postgres-init ConfigMap normally handles this)
+            psql -h {{ .Values.postgres.name }} -U {{ .Values.postgres.auth.username }} -d postgres \
+              -tAc "SELECT 1 FROM pg_database WHERE datname='{{ .Values.polaris.database }}'" \
+              | grep -q 1 || \
+              psql -h {{ .Values.postgres.name }} -U {{ .Values.postgres.auth.username }} -d postgres \
+              -c "CREATE DATABASE {{ .Values.polaris.database }}"
+
+            # Skip bootstrap when a principal already exists for this realm
+            ALREADY=$(psql -h {{ .Values.postgres.name }} -U {{ .Values.postgres.auth.username }} -d {{ .Values.polaris.database }} -tAc \
+              "SELECT COUNT(*) FROM information_schema.tables WHERE table_name='principal_authentication_data'" \
+              2>/dev/null || echo 0)
+            if [ "$ALREADY" = "1" ]; then
+              CNT=$(psql -h {{ .Values.postgres.name }} -U {{ .Values.postgres.auth.username }} -d {{ .Values.polaris.database }} -tAc \
+                "SELECT COUNT(*) FROM polaris_schema.principal_authentication_data WHERE realm_id='{{ .Values.polaris.auth.realm | default "default-realm" }}'")
+              if [ "$CNT" -gt 0 ] 2>/dev/null; then
+                echo "Realm '{{ .Values.polaris.auth.realm | default "default-realm" }}' already bootstrapped (principal count=$CNT). Skipping."
+                touch /shared/skip
+                exit 0
+              fi
+            fi
+            echo "Realm not bootstrapped yet. Admin-tool will run next."
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_PASSWORD
+
+      containers:
+      - name: polaris-admin-tool
+        image: apache/polaris-admin-tool:{{ .Values.polaris.image.tag }}
+        imagePullPolicy: {{ .Values.polaris.image.pullPolicy }}
+        volumeMounts:
+        - name: shared
+          mountPath: /shared
+        command: ["sh", "-c"]
+        args:
+          - |
+            if [ -f /shared/skip ]; then
+              echo "Bootstrap skipped (realm already provisioned)."
+              exit 0
+            fi
+            exec java -jar /deployments/polaris-admin-tool.jar bootstrap \
+              --realm={{ .Values.polaris.auth.realm | default "default-realm" }} \
+              --credential={{ .Values.polaris.auth.realm | default "default-realm" }},{{ .Values.polaris.auth.clientId }},{{ .Values.polaris.auth.clientSecret }}
+        env:
+        - name: POLARIS_PERSISTENCE_TYPE
+          value: "relational-jdbc"
+        - name: POLARIS_PERSISTENCE_RELATIONAL_JDBC_DATABASE_TYPE
+          value: "postgresql"
+        - name: QUARKUS_DATASOURCE_DB_KIND
+          value: "postgresql"
+        - name: QUARKUS_DATASOURCE_JDBC_URL
+          value: "jdbc:postgresql://{{ .Values.postgres.name }}:{{ .Values.postgres.service.port }}/{{ .Values.polaris.database }}"
+        - name: QUARKUS_DATASOURCE_USERNAME
+          value: "{{ .Values.postgres.auth.username }}"
+        - name: QUARKUS_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_PASSWORD
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 768Mi
+{{- end }}
