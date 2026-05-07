@@ -20,6 +20,7 @@ from app.api.dashboards import router as dashboards_router
 from app.api.pipelines import router as pipelines_router
 from app.api.storage import router as storage_router
 from app.api.streaming import router as streaming_router
+from app.api.auth import router as auth_router
 
 app = FastAPI(
     title="DataPond API",
@@ -71,6 +72,7 @@ app.include_router(dashboards_router, prefix="/api")
 app.include_router(pipelines_router, prefix="/api")
 app.include_router(storage_router, prefix="/api")
 app.include_router(streaming_router, prefix="/api")
+app.include_router(auth_router, prefix="/api")
 
 # Service endpoints (internal Kubernetes DNS)
 SERVICES = {

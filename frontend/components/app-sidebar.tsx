@@ -3,10 +3,12 @@
 import {
   Home, Database, FlaskConical, Code2, Settings, Activity,
   Workflow, BarChart3, BookOpen, HelpCircle, FileCode,
-  HardDrive, Radio, ArrowDownToLine, GitMerge,
+  HardDrive, Radio, ArrowDownToLine, GitMerge, LogOut, User,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
+import { getUser, logout, type AuthUser } from "@/lib/auth"
 
 import {
   Sidebar,
@@ -55,9 +57,18 @@ const bottomItems = [
 ]
 
 export function AppSidebar() {
-  const pathname = usePathname()
+  const pathname  = usePathname()
+  const router    = useRouter()
+  const [user, setUser] = useState<AuthUser | null>(null)
+
+  useEffect(() => { setUser(getUser()) }, [])
 
   const isActive = (url: string) => pathname === url
+
+  const handleLogout = async () => {
+    await logout()
+    router.push("/login")
+  }
 
   return (
     <Sidebar>
@@ -110,8 +121,8 @@ export function AppSidebar() {
           ))}
         </div>
 
-        {/* Bottom: Help / Docs */}
-        <div className="px-2 py-3 border-t shrink-0">
+        {/* Bottom: Help / Docs + User */}
+        <div className="px-2 py-3 border-t shrink-0 space-y-1">
           <SidebarMenu>
             {bottomItems.map((item) => (
               <SidebarMenuItem key={item.title}>
@@ -124,6 +135,28 @@ export function AppSidebar() {
               </SidebarMenuItem>
             ))}
           </SidebarMenu>
+
+          {/* User info + logout */}
+          {user && (
+            <div className="mt-2 pt-2 border-t">
+              <div className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 group">
+                <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <User className="h-3.5 w-3.5 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium truncate">{user.display_name}</p>
+                  <p className="text-[10px] text-muted-foreground capitalize">{user.role}</p>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  title="Sign out"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </SidebarContent>
     </Sidebar>
