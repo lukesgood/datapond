@@ -52,7 +52,7 @@ THIRD_PARTY_IMAGES=(
   "apache/airflow:2.8.1"
   "ghcr.io/projectpolaris/polaris:0.5.0"
   "trinodb/trino:435"
-  "jupyter/datascience-notebook:latest"
+  "datapond/jupyter:latest"
   "mlflow/mlflow:2.10.2"
   "ghcr.io/risingwavelabs/risingwave:v1.6.0"
   "opensearchproject/opensearch:2.11.0"

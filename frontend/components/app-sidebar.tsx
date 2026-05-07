@@ -3,7 +3,7 @@
 import {
   Home, Database, FlaskConical, Code2, Settings, Activity,
   Workflow, BarChart3, BookOpen, HelpCircle, FileCode,
-  HardDrive, Radio, ArrowDownToLine,
+  HardDrive, Radio, ArrowDownToLine, GitMerge,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -41,9 +41,10 @@ const mainSections = [
   {
     label: "Platform",
     items: [
-      { title: "Services", url: "/services", icon: Activity },
-      { title: "Storage",  url: "/storage",  icon: HardDrive },
-      { title: "Settings", url: "/settings", icon: Settings },
+      { title: "Services",     url: "/services",             icon: Activity },
+      { title: "Storage",      url: "/storage",              icon: HardDrive },
+      { title: "Governance",   url: "http://datapond.local:30585", icon: GitMerge, external: true },
+      { title: "Settings",     url: "/settings",             icon: Settings },
     ]
   },
 ]
@@ -86,12 +87,21 @@ export function AppSidebar() {
                 <SidebarMenu>
                   {section.items.map((item) => (
                     <SidebarMenuItem key={item.title}>
-                      <Link href={item.url}>
-                        <SidebarMenuButton isActive={isActive(item.url)}>
-                          <item.icon />
-                          <span>{item.title}</span>
-                        </SidebarMenuButton>
-                      </Link>
+                      {(item as any).external ? (
+                        <a href={item.url} target="_blank" rel="noopener noreferrer">
+                          <SidebarMenuButton>
+                            <item.icon />
+                            <span>{item.title}</span>
+                          </SidebarMenuButton>
+                        </a>
+                      ) : (
+                        <Link href={item.url}>
+                          <SidebarMenuButton isActive={isActive(item.url)}>
+                            <item.icon />
+                            <span>{item.title}</span>
+                          </SidebarMenuButton>
+                        </Link>
+                      )}
                     </SidebarMenuItem>
                   ))}
                 </SidebarMenu>

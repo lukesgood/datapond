@@ -147,24 +147,56 @@ def write_dataframe_to_iceberg(
     location = f"{ICEBERG_WAREHOUSE}/{schema}/{tbl}"
     fqtn     = f"{TRINO_CATALOG}.{schema}.{tbl}"
 
-    # ── 1. Schema check ───────────────────────────────────────────────────────
-    step("schema_check", f"Checking schema for {tbl}…")
+    # ── 1. Drop existing table (overwrite = always fresh) ────────────────────
+    #      This prevents Parquet file accumulation across syncs.
     if mode == "overwrite":
+        step("schema_check", f"Checking existing table {tbl}…")
         check_cur = _trino_conn().cursor()
-        if not _schemas_match(check_cur, TRINO_CATALOG, schema, tbl, df):
-            step("drop", f"Schema mismatch — dropping {tbl}…", action="drop")
+        exists = _table_exists(check_cur, TRINO_CATALOG, schema, tbl)
+        if exists:
+            # Try Trino DROP first, fall back to S3 wipe + catalog unregister
+            step("drop", f"Dropping {tbl} for clean overwrite…", action="drop")
+            dropped = False
             try:
                 drop_cur = _trino_conn().cursor()
                 drop_cur.execute(f"DROP TABLE {fqtn}")
                 drop_cur.fetchall()
+                dropped = True
                 step("drop", f"Dropped {tbl}", action="done")
-            except Exception as e:
-                step("drop", f"Drop skipped: {e}", action="skip")
+            except Exception:
+                pass
+
+            if not dropped:
+                # S3 wipe + catalog unregister
+                try:
+                    import boto3
+                    from botocore.config import Config
+                    import os
+                    s3 = boto3.client("s3",
+                        endpoint_url=f"http://{os.getenv('S3_ENDPOINT','seaweedfs-s3:8333')}",
+                        aws_access_key_id=os.getenv("S3_ACCESS_KEY","datapond"),
+                        aws_secret_access_key=os.getenv("S3_SECRET_KEY","datapond_dev"),
+                        config=Config(signature_version="s3v4"), region_name="us-east-1",
+                    )
+                    bucket = "iceberg"
+                    prefix = f"warehouse/{schema}/{tbl}/"
+                    while True:
+                        resp = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
+                        objs = resp.get("Contents", [])
+                        if not objs: break
+                        s3.delete_objects(Bucket=bucket, Delete={"Objects": [{"Key": o["Key"]} for o in objs]})
+                    # Unregister from catalog
+                    unreg_cur = _trino_conn().cursor()
+                    unreg_cur.execute(f"CALL iceberg.system.unregister_table(schema_name=>'{schema}', table_name=>'{tbl}')")
+                    unreg_cur.fetchall()
+                    step("drop", f"Wiped S3 + unregistered {tbl}", action="done")
+                except Exception as e:
+                    step("drop", f"Wipe partial: {e}", action="skip")
         else:
-            step("schema_check", f"Schema OK for {tbl}", action="ok")
+            step("schema_check", f"Table {tbl} does not exist yet", action="ok")
 
     # ── 2. Create table ───────────────────────────────────────────────────────
-    step("create", f"Creating table {tbl} if not exists…")
+    step("create", f"Creating table {tbl}…")
     create_cur = _trino_conn().cursor()
     create_cur.execute(f"""
 CREATE TABLE IF NOT EXISTS {fqtn} (
@@ -175,17 +207,6 @@ CREATE TABLE IF NOT EXISTS {fqtn} (
 )""")
     create_cur.fetchall()
     step("create", f"Table {tbl} ready", action="done")
-
-    # ── 3. Clear existing rows (overwrite) ────────────────────────────────────
-    if mode == "overwrite":
-        step("clear", f"Clearing existing rows from {tbl}…")
-        try:
-            del_cur = _trino_conn().cursor()
-            del_cur.execute(f"DELETE FROM {fqtn}")
-            del_cur.fetchall()
-            step("clear", f"Cleared {tbl}", action="done")
-        except Exception as e:
-            step("clear", f"Clear skipped: {e}", action="skip")
 
     # ── 4. Insert batches ─────────────────────────────────────────────────────
     BATCH = 500
