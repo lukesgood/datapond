@@ -16,6 +16,8 @@ import { availableConnectors } from "@/lib/connectors"
 import {
   Plus, RefreshCw, Database, Search, MoreHorizontal,
   Trash2, HardDrive, Radio, Cloud, AlertCircle, Plug,
+  Rows3, ShieldAlert, TrendingUp, TableProperties,
+  ArrowRight, ArrowDownToLine, Layers, BarChart2, Zap,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -34,6 +36,117 @@ interface ConnStats {
   successRate: number | null
 }
 
+// ── Ingestion flow empty state ────────────────────────────────────────────────
+
+const FLOW_STEPS = [
+  {
+    icon: Database,
+    label: "Source",
+    desc: "PostgreSQL, MySQL, REST API, S3, Custom Python",
+    color: "bg-blue-500/10 text-primary border-primary/20",
+    dot: "bg-primary",
+  },
+  {
+    icon: ArrowDownToLine,
+    label: "Ingest",
+    desc: "Batch sync with full or incremental mode",
+    color: "bg-purple-500/10 text-purple-600 border-purple-200",
+    dot: "bg-purple-500",
+  },
+  {
+    icon: Layers,
+    label: "Iceberg",
+    desc: "ACID tables in SeaweedFS S3 via Apache Polaris",
+    color: "bg-amber-500/10 text-amber-600 border-amber-200",
+    dot: "bg-amber-500",
+  },
+  {
+    icon: BarChart2,
+    label: "Query",
+    desc: "Trino SQL Lab, DuckDB in Notebooks, BI tools",
+    color: "bg-green-500/10 text-green-600 border-green-200",
+    dot: "bg-green-500",
+  },
+]
+
+const SOURCE_TYPES = [
+  { name: "PostgreSQL",  icon: "🐘" },
+  { name: "MySQL",       icon: "🐬" },
+  { name: "REST API",    icon: "🌐" },
+  { name: "S3 Storage",  icon: "🪣" },
+  { name: "Universal DB",icon: "🔗" },
+  { name: "Custom Python", icon: "🐍" },
+]
+
+function IngestionEmptyState({ onAddSource, hideTitle }: { onAddSource: () => void; hideTitle?: boolean }) {
+  return (
+    <div className="px-8 py-10 space-y-8">
+      {/* Title — hidden when used as collapsible panel */}
+      {!hideTitle && (
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium mb-2">
+            <Zap className="h-3.5 w-3.5" />
+            Get started with Ingestion
+          </div>
+          <h3 className="text-xl font-bold">Connect your data sources to the Lakehouse</h3>
+          <p className="text-sm text-muted-foreground max-w-lg mx-auto">
+            DataPond pulls data from any source into Iceberg tables — queryable instantly via Trino, DuckDB, or any SQL tool.
+          </p>
+        </div>
+      )}
+
+      {/* Flow diagram */}
+      <div className="flex items-stretch justify-center gap-2">
+        {FLOW_STEPS.map((step, i) => (
+          <div key={step.label} className="flex items-center gap-2">
+            {/* Step card */}
+            <div className={`flex flex-col items-center gap-3 px-5 py-5 rounded-xl border-2 w-44 ${step.color}`}>
+              <div className={`h-10 w-10 rounded-full flex items-center justify-center border-2 ${step.color}`}>
+                <step.icon className="h-5 w-5" />
+              </div>
+              <div className="text-center space-y-1">
+                <div className="text-sm font-bold">{step.label}</div>
+                <div className="text-[11px] leading-relaxed opacity-75">{step.desc}</div>
+              </div>
+            </div>
+            {/* Arrow */}
+            {i < FLOW_STEPS.length - 1 && (
+              <ArrowRight className="h-5 w-5 text-muted-foreground/30 shrink-0" />
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Supported sources */}
+      <div className="space-y-3">
+        <p className="text-center text-xs text-muted-foreground font-medium uppercase tracking-wide">
+          Supported sources
+        </p>
+        <div className="flex flex-wrap justify-center gap-2">
+          {SOURCE_TYPES.map(s => (
+            <span key={s.name}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-muted/30 text-xs font-medium text-muted-foreground hover:bg-muted/60 transition-colors">
+              <span>{s.icon}</span>
+              {s.name}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* CTA */}
+      <div className="flex justify-center">
+        <button
+          onClick={onAddSource}
+          className="flex items-center gap-2 px-6 py-3 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors shadow-sm"
+        >
+          <Plus className="h-4 w-4" />
+          Add Your First Source
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function ConnectorsPage() {
   // ── Connections state ──────────────────────────────────────────────────────
   const [connections, setConnections] = useState<Connection[]>([])
@@ -41,6 +154,7 @@ export default function ConnectorsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [showOnboarding, setShowOnboarding] = useState(false)
 
   const fetchConnections = async () => {
     try {
@@ -140,6 +254,17 @@ export default function ConnectorsPage() {
   const activeCount = connections.filter(c => c.status === "active").length
   const errorCount  = connections.filter(c => c.status === "error").length
 
+  // ── Platform-level metrics ────────────────────────────────────────────────
+  const totalTables  = Array.from(connStats.values()).reduce((s, c) => s + c.tables, 0)
+  const totalLastRows = Array.from(connStats.values()).reduce((s, c) => s + (c.lastRows ?? 0), 0)
+  const rates = Array.from(connStats.values()).map(c => c.successRate).filter((r): r is number => r !== null)
+  const avgSuccessRate = rates.length > 0 ? Math.round(rates.reduce((a, b) => a + b, 0) / rates.length) : null
+  const now = Date.now()
+  const staleSources = connections.filter(c => {
+    if (!c.last_sync_at) return true
+    return now - new Date(c.last_sync_at).getTime() > 86_400_000 // > 24h
+  }).length
+
   return (
     <div className="flex-1 space-y-5 px-6 py-5">
 
@@ -159,6 +284,52 @@ export default function ConnectorsPage() {
           </Button>
         </div>
       </div>
+
+      {/* Platform metrics */}
+      {!loading && connections.length > 0 && (
+        <div className="grid grid-cols-4 gap-3">
+          {[
+            {
+              label: "Managed Tables",
+              value: totalTables || "—",
+              sub: `across ${connections.length} source${connections.length !== 1 ? "s" : ""}`,
+              icon: TableProperties,
+              color: "",
+            },
+            {
+              label: "Last Sync Rows",
+              value: totalLastRows > 0 ? totalLastRows.toLocaleString() : "—",
+              sub: "total rows — most recent sync",
+              icon: Rows3,
+              color: "",
+            },
+            {
+              label: "Avg Success Rate",
+              value: avgSuccessRate !== null ? `${avgSuccessRate}%` : "—",
+              sub: "across all sources",
+              icon: TrendingUp,
+              color: avgSuccessRate !== null && avgSuccessRate < 80 ? "text-destructive" : avgSuccessRate !== null && avgSuccessRate >= 95 ? "text-green-600" : "",
+            },
+            {
+              label: "Stale Sources",
+              value: staleSources,
+              sub: staleSources === 0 ? "all sources up to date" : "last sync > 24h ago",
+              icon: ShieldAlert,
+              color: staleSources > 0 ? "text-amber-500" : "text-green-600",
+              highlight: staleSources > 0,
+            },
+          ].map(({ label, value, sub, icon: Icon, color, highlight }) => (
+            <div key={label} className={`rounded-lg border px-4 py-3 ${highlight ? "border-amber-400/50 bg-amber-50/30" : "bg-card"}`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-muted-foreground">{label}</span>
+                <Icon className={`h-3.5 w-3.5 ${color || "text-muted-foreground"}`} />
+              </div>
+              <div className={`text-2xl font-bold ${color}`}>{value}</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">{sub}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Tabs: Connections (default) + Marketplace */}
       <Tabs defaultValue="connections" className="space-y-4">
@@ -183,21 +354,41 @@ export default function ConnectorsPage() {
         {/* ── Active Connections tab ─────────────────────────────────────── */}
         <TabsContent value="connections" className="space-y-4">
 
-          {/* Stats */}
-          <div className="flex items-center gap-4 text-sm">
-            <span className="text-muted-foreground">
-              <span className="font-semibold text-foreground">{connections.length}</span> total
-            </span>
-            <span className="text-green-600">
-              <span className="font-semibold">{activeCount}</span> active
-            </span>
-            {errorCount > 0 && (
-              <span className="text-red-500 flex items-center gap-1">
-                <AlertCircle className="h-3.5 w-3.5" />
-                <span className="font-semibold">{errorCount}</span> error
+          {/* Stats + How it works toggle */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4 text-sm">
+              <span className="text-muted-foreground">
+                <span className="font-semibold text-foreground">{connections.length}</span> total
               </span>
-            )}
+              <span className="text-green-600">
+                <span className="font-semibold">{activeCount}</span> active
+              </span>
+              {errorCount > 0 && (
+                <span className="text-destructive flex items-center gap-1">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  <span className="font-semibold">{errorCount}</span> error
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => setShowOnboarding(v => !v)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Zap className="h-3.5 w-3.5" />
+              {showOnboarding ? "Hide" : "How it works"}
+            </button>
           </div>
+
+          {/* Onboarding panel — collapsible */}
+          {showOnboarding && (
+            <div className="rounded-xl border bg-card">
+              <IngestionEmptyState onAddSource={() => {
+                setShowOnboarding(false)
+                const tab = document.querySelector('[data-state="inactive"][value="marketplace"]') as HTMLElement
+                tab?.click()
+              }} hideTitle />
+            </div>
+          )}
 
           {/* Error */}
           {error && (
@@ -208,7 +399,18 @@ export default function ConnectorsPage() {
             </div>
           )}
 
+          {/* Empty state — outside table to avoid border/cell conflicts */}
+          {!loading && connections.length === 0 && (
+            <div className="rounded-xl border bg-card">
+              <IngestionEmptyState onAddSource={() => {
+                const tab = document.querySelector('[data-state="inactive"][value="marketplace"]') as HTMLElement
+                tab?.click()
+              }} />
+            </div>
+          )}
+
           {/* Table */}
+          {(loading || connections.length > 0) && (
           <div className="rounded-lg border overflow-hidden">
             <Table>
               <TableHeader className="bg-muted/40">
@@ -232,18 +434,6 @@ export default function ConnectorsPage() {
                       ))}
                     </TableRow>
                   ))
-                ) : connections.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="py-16 text-center">
-                      <div className="flex flex-col items-center gap-3">
-                        <Database className="h-10 w-10 text-muted-foreground/30" />
-                        <p className="text-sm text-muted-foreground">No connections yet</p>
-                        <p className="text-xs text-muted-foreground/60">
-                          Click <strong>Add Connection</strong> tab to connect a data source
-                        </p>
-                      </div>
-                    </TableCell>
-                  </TableRow>
                 ) : (
                   connections.map(conn => (
                     <TableRow
@@ -312,6 +502,7 @@ export default function ConnectorsPage() {
               </TableBody>
             </Table>
           </div>
+          )}
         </TabsContent>
 
         {/* ── Marketplace tab ────────────────────────────────────────────── */}

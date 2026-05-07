@@ -13,8 +13,64 @@ import { SyncHistory, SyncSession } from "@/components/connectors/sync-history"
 import {
   ChevronLeft, RefreshCw, Database, Rows3, Trash2,
   AlertTriangle, Pencil, X, Check, Wifi, BarChart2, Calendar,
+  Clock, Zap, Power, PowerOff,
 } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
+
+const SCHEDULE_PRESETS = [
+  { label: "Every 15 minutes", value: "*/15 * * * *",  desc: "High-frequency" },
+  { label: "Hourly",           value: "0 * * * *",     desc: "Every hour at :00" },
+  { label: "Every 6 hours",    value: "0 */6 * * *",   desc: "4× per day" },
+  { label: "Daily at 2am",     value: "0 2 * * *",     desc: "Recommended for batch" },
+  { label: "Daily at 6am",     value: "0 6 * * *",     desc: "Morning refresh" },
+  { label: "Weekly (Mon 2am)", value: "0 2 * * 1",     desc: "Weekly batch" },
+  { label: "Monthly (1st 2am)",value: "0 2 1 * *",     desc: "Monthly snapshot" },
+]
+
+function parseCron(cron: string): string {
+  const p = SCHEDULE_PRESETS.find(p => p.value === cron)
+  if (p) return p.label
+  // basic human-readable for common patterns
+  const parts = cron.split(" ")
+  if (parts.length !== 5) return cron
+  const [min, hour, dom, , dow] = parts
+  if (min === "*" && hour === "*") return `Every minute`
+  if (min.startsWith("*/")) return `Every ${min.slice(2)} minutes`
+  if (hour === "*") return `Every hour at :${min.padStart(2,"0")}`
+  if (dow === "*" && dom === "*") return `Daily at ${hour.padStart(2,"0")}:${min.padStart(2,"0")}`
+  if (dom === "*" && dow !== "*") return `Weekly at ${hour}:${min.padStart(2,"0")}`
+  return cron
+}
+
+function nextRun(cron: string): string {
+  // Approximate next run (rough calculation)
+  try {
+    const parts = cron.split(" ")
+    if (parts.length !== 5) return ""
+    const now = new Date()
+    const next = new Date(now)
+    next.setSeconds(0, 0)
+    next.setMinutes(next.getMinutes() + 1)
+
+    const [min, hour] = parts
+    if (min !== "*" && !min.startsWith("*/")) {
+      next.setMinutes(parseInt(min))
+      if (!hour.startsWith("*/") && hour !== "*") {
+        next.setHours(parseInt(hour))
+        if (next <= now) next.setDate(next.getDate() + 1)
+      } else {
+        if (next <= now) next.setHours(next.getHours() + 1)
+      }
+    }
+    const diff = next.getTime() - now.getTime()
+    const mins = Math.floor(diff / 60_000)
+    if (mins < 60) return `in ${mins}m`
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return `in ${hrs}h ${mins % 60}m`
+    return `in ${Math.floor(hrs / 24)}d`
+  } catch { return "" }
+}
 import Link from "next/link"
 import { ConnectionForm } from "@/components/connectors/connection-form"
 import { getConnector } from "@/lib/connectors"
@@ -29,7 +85,8 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const router = useRouter()
 
   const [connector, setConnector]         = useState<Connector | null>(null)
-  const [tables, setTables]               = useState<string[]>([])
+  const [tables, setTables]               = useState<{name: string; enabled: boolean}[]>([])
+  const [togglingTable, setTogglingTable] = useState<string | null>(null)
   const [configPreview, setConfigPreview] = useState<Record<string, any>>({})
   const [loading, setLoading]             = useState(true)
   const [error, setError]                 = useState<string | null>(null)
@@ -95,8 +152,12 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
       setConnector(await connRes.json())
       if (tablesRes.ok) {
         const t = await tablesRes.json()
-        setTables(Array.isArray(t.tables) ? t.tables.map((tb: any) =>
-          typeof tb === "string" ? tb : tb.name ?? String(tb)) : [])
+        const raw = Array.isArray(t.tables) ? t.tables : []
+        setTables(raw.map((tb: any) =>
+          typeof tb === "string"
+            ? { name: tb, enabled: true }
+            : { name: tb.name ?? String(tb), enabled: tb.enabled !== false }
+        ))
       }
       if (cfgRes.ok) {
         const cfg = await cfgRes.json()
@@ -118,16 +179,18 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
     }
   }
 
-  const handleSaveSchedule = async () => {
+  const handleSaveSchedule = async (overrideSchedule?: string | null) => {
+    const value = overrideSchedule !== undefined ? overrideSchedule : (scheduleInput || null)
     setSavingSchedule(true); setScheduleMsg(null)
     try {
       const res = await fetch(`/api/connectors/${id}/schedule`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schedule: scheduleInput || null }),
+        body: JSON.stringify({ schedule: value }),
       })
       const d = await res.json()
       if (!res.ok) throw new Error(d.detail ?? "Failed")
-      setSchedule(scheduleInput || null)
+      setSchedule(value)
+      if (!value) setScheduleInput("")
       setScheduleMsg(d.message)
     } catch (e) {
       setScheduleMsg(e instanceof Error ? e.message : "Failed")
@@ -306,6 +369,17 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
     finally { setSaving(false) }
   }
 
+  const handleTableToggle = async (tableName: string, enabled: boolean) => {
+    setTogglingTable(tableName)
+    try {
+      await fetch(`/api/connectors/${id}/tables/${tableName}/enabled`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      })
+      setTables(prev => prev.map(t => t.name === tableName ? { ...t, enabled } : t))
+    } finally { setTogglingTable(null) }
+  }
+
   const handleDelete = async () => {
     if (!confirmDelete) { setConfirmDelete(true); return }
     setDeleting(true)
@@ -473,7 +547,11 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         <Card>
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1.5"><Database className="h-4 w-4" />Tables</CardDescription>
-            <CardTitle className="text-2xl">{tables.length || "—"}</CardTitle>
+            <CardTitle className="text-2xl">
+              {tables.length > 0
+                ? <>{tables.filter(t => t.enabled).length}<span className="text-sm font-normal text-muted-foreground">/{tables.length}</span></>
+                : "—"}
+            </CardTitle>
           </CardHeader>
         </Card>
       </div>
@@ -539,41 +617,71 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
-              Synced Tables
-              {tables.length > 0 && <Badge variant="secondary" className="text-xs font-normal">{tables.length} tables</Badge>}
+              Tables
+              {tables.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <Badge variant="secondary" className="text-xs font-normal">
+                    {tables.filter(t => t.enabled).length}/{tables.length} enabled
+                  </Badge>
+                </div>
+              )}
             </CardTitle>
-            <CardDescription>Iceberg 테이블 현황 · Query Lab에서 바로 조회 가능</CardDescription>
+            <CardDescription>Toggle to include/exclude from sync · Query in Iceberg</CardDescription>
           </CardHeader>
           <CardContent>
             {tables.length === 0 ? (
               <div className="flex flex-col items-center py-8 gap-2 text-muted-foreground">
                 <Database className="h-8 w-8 opacity-30" />
-                <p className="text-sm">No tables synced yet</p>
-                <p className="text-xs opacity-60">Click Sync Now to ingest tables into Iceberg</p>
+                <p className="text-sm">No tables found</p>
+                <p className="text-xs opacity-60">Click Sync Now to discover tables</p>
               </div>
             ) : (
               <div className="space-y-0 max-h-64 overflow-y-auto">
-                <div className="grid grid-cols-[1fr_auto_auto] gap-2 px-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground border-b">
+                {/* Header */}
+                <div className="grid grid-cols-[auto_1fr_auto_auto] gap-2 px-2 pb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground border-b">
+                  <span className="w-8">Sync</span>
                   <span>Table</span>
                   <span className="text-right w-16">Last Rows</span>
                   <span className="w-14" />
                 </div>
                 {tables.map((table) => {
-                  const rows = latestTableRows.get(table)
-                  const queryUrl = `/query?sql=${encodeURIComponent(`SELECT * FROM iceberg.default.${table} LIMIT 100`)}`
+                  const rows = latestTableRows.get(table.name)
+                  const queryUrl = `/query?sql=${encodeURIComponent(`SELECT * FROM iceberg.default.${table.name} LIMIT 100`)}`
+                  const isToggling = togglingTable === table.name
                   return (
-                    <div key={table} className="grid grid-cols-[1fr_auto_auto] gap-2 items-center px-2 py-1.5 rounded hover:bg-muted/40 group">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <Database className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                        <span className="font-mono text-xs truncate">{table}</span>
+                    <div key={table.name}
+                      className={`grid grid-cols-[auto_1fr_auto_auto] gap-2 items-center px-2 py-1.5 rounded group transition-colors ${
+                        table.enabled ? "hover:bg-muted/40" : "opacity-50 hover:bg-muted/20"
+                      }`}>
+                      {/* Toggle */}
+                      <div className="w-8 flex items-center justify-center">
+                        <Switch
+                          checked={table.enabled}
+                          disabled={isToggling}
+                          onCheckedChange={(v) => handleTableToggle(table.name, v)}
+                          className="scale-75"
+                        />
                       </div>
+                      {/* Table name */}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Database className={`h-3.5 w-3.5 shrink-0 ${table.enabled ? "text-muted-foreground" : "text-muted-foreground/40"}`} />
+                        <span className={`font-mono text-xs truncate ${!table.enabled ? "line-through text-muted-foreground/50" : ""}`}>
+                          {table.name}
+                        </span>
+                      </div>
+                      {/* Last rows */}
                       <span className="text-xs text-right text-muted-foreground w-16 font-mono">
                         {rows != null ? rows.toLocaleString() : "—"}
                       </span>
-                      <a href={queryUrl}
-                        className="w-14 text-[10px] text-primary hover:text-primary/70 opacity-0 group-hover:opacity-100 transition-opacity text-right">
-                        Query →
-                      </a>
+                      {/* Query link */}
+                      {table.enabled ? (
+                        <a href={queryUrl}
+                          className="w-14 text-[10px] text-primary hover:text-primary/70 opacity-0 group-hover:opacity-100 transition-opacity text-right">
+                          Query →
+                        </a>
+                      ) : (
+                        <span className="w-14 text-[10px] text-muted-foreground/40 text-right">skipped</span>
+                      )}
                     </div>
                   )
                 })}
@@ -585,63 +693,98 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
 
       {/* Schedule */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Calendar className="h-4 w-4" />Schedule
-          </CardTitle>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Calendar className="h-4 w-4" />Schedule
+            </CardTitle>
+            {/* Toggle switch */}
+            <div className="flex items-center gap-2">
+              {schedule && (
+                <span className="text-xs text-muted-foreground">
+                  Next run: <span className="font-medium text-foreground">{nextRun(schedule)}</span>
+                </span>
+              )}
+              <Switch
+                checked={!!schedule}
+                disabled={savingSchedule || (!schedule && !scheduleInput)}
+                onCheckedChange={(checked) => {
+                  if (!checked) handleSaveSchedule(null)
+                  else if (scheduleInput) handleSaveSchedule()
+                }}
+              />
+            </div>
+          </div>
           <CardDescription>
-            {schedule
-              ? <>Airflow DAG active — <span className="font-mono text-xs">{schedule}</span></>
-              : "Set a cron schedule to automate sync via Airflow"}
+            {schedule ? (
+              <span className="flex items-center gap-1.5">
+                <Zap className="h-3.5 w-3.5 text-green-600" />
+                <span className="text-green-600 font-medium">{parseCron(schedule)}</span>
+                <span className="text-muted-foreground font-mono text-[10px]">({schedule})</span>
+              </span>
+            ) : (
+              "Automate sync on a schedule via Airflow DAG"
+            )}
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex gap-2 items-end">
-            <div className="space-y-1 flex-1">
-              <Label className="text-xs">Cron Expression</Label>
+        <CardContent className="space-y-4">
+          {/* Preset buttons */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground uppercase tracking-wide">Presets</Label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {SCHEDULE_PRESETS.map(p => (
+                <button
+                  key={p.value}
+                  onClick={() => setScheduleInput(p.value)}
+                  className={`text-left px-3 py-2 rounded-md border text-xs transition-colors ${
+                    scheduleInput === p.value
+                      ? "border-primary bg-primary/5 text-primary font-medium"
+                      : "border-border hover:border-muted-foreground/50 hover:bg-muted/30"
+                  }`}
+                >
+                  <div className="font-medium">{p.label}</div>
+                  <div className="text-muted-foreground font-mono text-[10px] mt-0.5">{p.value}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Custom cron input */}
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground uppercase tracking-wide">Custom Expression</Label>
+            <div className="flex gap-2">
               <Input
                 value={scheduleInput}
                 onChange={e => setScheduleInput(e.target.value)}
-                placeholder="e.g. 0 2 * * * (daily at 2am)"
-                className="font-mono text-sm"
+                placeholder="e.g. 0 */4 * * *"
+                className="font-mono text-sm flex-1"
               />
-            </div>
-            <Select onValueChange={(v) => { if (typeof v === "string") setScheduleInput(v) }}>
-              <SelectTrigger className="h-9 w-36 text-xs">
-                <SelectValue placeholder="Presets" />
-              </SelectTrigger>
-              <SelectContent>
-                {[
-                  { label: "Hourly",    value: "0 * * * *" },
-                  { label: "Daily 2am", value: "0 2 * * *" },
-                  { label: "Daily 6am", value: "0 6 * * *" },
-                  { label: "Weekly",    value: "0 2 * * 0" },
-                  { label: "Monthly",   value: "0 2 1 * *" },
-                ].map(p => (
-                  <SelectItem key={p.value} value={p.value} className="text-xs font-mono">
-                    {p.label} — {p.value}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button size="sm" onClick={handleSaveSchedule} disabled={savingSchedule}>
-              <Check className="h-4 w-4 mr-1" />
-              {savingSchedule ? "Saving…" : schedule ? "Update Schedule" : "Enable Schedule"}
-            </Button>
-            {schedule && (
-              <Button size="sm" variant="ghost" className="text-destructive"
-                onClick={() => { setScheduleInput(""); handleSaveSchedule() }}
-                disabled={savingSchedule}>
-                <X className="h-4 w-4 mr-1" />Disable
+              <Button
+                size="sm" onClick={() => handleSaveSchedule()}
+                disabled={savingSchedule || !scheduleInput}
+                className="shrink-0"
+              >
+                {savingSchedule
+                  ? <RefreshCw className="h-4 w-4 animate-spin" />
+                  : <Check className="h-4 w-4" />}
+                {schedule ? "Update" : "Enable"}
               </Button>
+            </div>
+            {scheduleInput && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {parseCron(scheduleInput)}
+              </p>
             )}
           </div>
 
           {scheduleMsg && (
-            <p className={`text-xs ${scheduleMsg.includes("removed") || scheduleMsg.includes("set") || scheduleMsg.includes("updated") ? "text-green-600" : "text-destructive"}`}>
+            <p className={`text-xs flex items-center gap-1 ${
+              scheduleMsg.includes("removed") || scheduleMsg.includes("set") || scheduleMsg.includes("Schedule")
+                ? "text-green-600" : "text-destructive"
+            }`}>
+              {scheduleMsg.includes("removed") || scheduleMsg.includes("set") || scheduleMsg.includes("Schedule")
+                ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
               {scheduleMsg}
             </p>
           )}

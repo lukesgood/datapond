@@ -640,20 +640,66 @@ async def delete_connection(connection_id: str):
 
 @router.get("/connectors/{connection_id}/tables")
 async def list_tables(connection_id: str):
-    """List tables available in connection"""
+    """List tables with enabled status from connector_sync_jobs."""
     try:
-        # Get connection from database
         connector = await _get_connector_instance(connection_id)
-
-        # List tables
         tables = await connector.get_tables()
 
-        return {"tables": tables}
+        # Load enabled state per table from DB
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT source_table, enabled FROM connector_sync_jobs WHERE connection_id=$1",
+                uuid.UUID(connection_id)
+            )
+        enabled_map = {r['source_table']: r['enabled'] for r in rows}
+
+        return {
+            "tables": [
+                {
+                    "name": t,
+                    "enabled": enabled_map.get(t, True)  # default enabled if not yet synced
+                }
+                for t in tables
+            ]
+        }
 
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list tables: {str(e)}")
+
+
+@router.patch("/connectors/{connection_id}/tables/{table_name}/enabled")
+async def set_table_enabled(connection_id: str, table_name: str, body: dict):
+    """Enable or disable a table for sync."""
+    try:
+        enabled = bool(body.get("enabled", True))
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            existing = await conn.fetchval(
+                "SELECT id FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
+                uuid.UUID(connection_id), table_name
+            )
+            if existing:
+                await conn.execute(
+                    "UPDATE connector_sync_jobs SET enabled=$1 WHERE connection_id=$2 AND source_table=$3",
+                    enabled, uuid.UUID(connection_id), table_name
+                )
+            else:
+                # Insert a placeholder row so the enabled flag is stored
+                await conn.execute(
+                    """INSERT INTO connector_sync_jobs
+                       (id, connection_id, source_table, target_table, sync_mode, enabled)
+                       VALUES ($1,$2,$3,$4,'full',$5)""",
+                    uuid.UUID(str(uuid.uuid4())), uuid.UUID(connection_id),
+                    table_name, f"datapond.default.{table_name}", enabled
+                )
+        return {"table": table_name, "enabled": enabled}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/connectors/{connection_id}/schema/{table_name}")
@@ -704,15 +750,33 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
             yield sse("step", {"step": "discover", "message": "Discovering tables…", "status": "running"})
             await asyncio.sleep(0)
             mode = SyncMode(sync_mode) if sync_mode in [m.value for m in SyncMode] else SyncMode.FULL
-            tables = await connector.get_tables()
-            if not tables:
+            all_tables = await connector.get_tables()
+            if not all_tables:
                 yield sse("done", {"message": "No tables found", "rows_processed": 0, "tables": 0})
                 return
-            yield sse("step", {"step": "discover", "message": f"Found {len(tables)} tables", "status": "done", "tables": tables})
+
+            # Filter to enabled tables only
+            pool = await get_db_pool()
+            async with pool.acquire() as conn:
+                enabled_rows = await conn.fetch(
+                    "SELECT source_table, enabled FROM connector_sync_jobs WHERE connection_id=$1",
+                    uuid.UUID(connection_id)
+                )
+            enabled_map = {r['source_table']: r['enabled'] for r in enabled_rows}
+            # Tables not yet in DB are enabled by default
+            tables = [t for t in all_tables if enabled_map.get(t, True)]
+            skipped = [t for t in all_tables if not enabled_map.get(t, True)]
+
+            yield sse("step", {
+                "step": "discover",
+                "message": f"Found {len(all_tables)} tables, {len(tables)} enabled" + (f", {len(skipped)} skipped" if skipped else ""),
+                "status": "done", "tables": tables, "skipped": skipped
+            })
             await asyncio.sleep(0)
 
-            # Sync each table
-            pool = await get_db_pool()
+            if not tables:
+                yield sse("done", {"message": "All tables disabled — nothing to sync", "rows_processed": 0, "tables": 0})
+                return
             results = []
             for i, table in enumerate(tables):
                 target = f"datapond.default.{table}"
