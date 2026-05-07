@@ -12,8 +12,9 @@ import { Label } from "@/components/ui/label"
 import { SyncHistory, SyncSession } from "@/components/connectors/sync-history"
 import {
   ChevronLeft, RefreshCw, Database, Rows3, Trash2,
-  AlertTriangle, Pencil, X, Check, Wifi, BarChart2,
+  AlertTriangle, Pencil, X, Check, Wifi, BarChart2, Calendar,
 } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import Link from "next/link"
 import { ConnectionForm } from "@/components/connectors/connection-form"
 import { getConnector } from "@/lib/connectors"
@@ -50,6 +51,12 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const [saveMessage, setSaveMessage]     = useState<string | null>(null)
   const [testing, setTesting]             = useState(false)
   const [testResult, setTestResult]       = useState<{ success: boolean; message: string } | null>(null)
+
+  // Schedule
+  const [schedule, setSchedule]           = useState<string | null>(null)
+  const [scheduleInput, setScheduleInput] = useState("")
+  const [savingSchedule, setSavingSchedule] = useState(false)
+  const [scheduleMsg, setScheduleMsg]     = useState<string | null>(null)
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
@@ -102,9 +109,35 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
     }
   }
 
+  const fetchSchedule = async () => {
+    const res = await fetch(`/api/connectors/${id}/schedule`)
+    if (res.ok) {
+      const d = await res.json()
+      setSchedule(d.schedule ?? null)
+      setScheduleInput(d.schedule ?? "")
+    }
+  }
+
+  const handleSaveSchedule = async () => {
+    setSavingSchedule(true); setScheduleMsg(null)
+    try {
+      const res = await fetch(`/api/connectors/${id}/schedule`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schedule: scheduleInput || null }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.detail ?? "Failed")
+      setSchedule(scheduleInput || null)
+      setScheduleMsg(d.message)
+    } catch (e) {
+      setScheduleMsg(e instanceof Error ? e.message : "Failed")
+    } finally { setSavingSchedule(false) }
+  }
+
   useEffect(() => {
     fetchConnector()
     fetchHistory()
+    fetchSchedule()
   }, [id])
 
   // ── Sync Now (SSE → live session in history) ───────────────────────────────
@@ -549,6 +582,71 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           </CardContent>
         </Card>
       </div>
+
+      {/* Schedule */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Calendar className="h-4 w-4" />Schedule
+          </CardTitle>
+          <CardDescription>
+            {schedule
+              ? <>Airflow DAG active — <span className="font-mono text-xs">{schedule}</span></>
+              : "Set a cron schedule to automate sync via Airflow"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex gap-2 items-end">
+            <div className="space-y-1 flex-1">
+              <Label className="text-xs">Cron Expression</Label>
+              <Input
+                value={scheduleInput}
+                onChange={e => setScheduleInput(e.target.value)}
+                placeholder="e.g. 0 2 * * * (daily at 2am)"
+                className="font-mono text-sm"
+              />
+            </div>
+            <Select onValueChange={(v) => { if (typeof v === "string") setScheduleInput(v) }}>
+              <SelectTrigger className="h-9 w-36 text-xs">
+                <SelectValue placeholder="Presets" />
+              </SelectTrigger>
+              <SelectContent>
+                {[
+                  { label: "Hourly",    value: "0 * * * *" },
+                  { label: "Daily 2am", value: "0 2 * * *" },
+                  { label: "Daily 6am", value: "0 6 * * *" },
+                  { label: "Weekly",    value: "0 2 * * 0" },
+                  { label: "Monthly",   value: "0 2 1 * *" },
+                ].map(p => (
+                  <SelectItem key={p.value} value={p.value} className="text-xs font-mono">
+                    {p.label} — {p.value}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={handleSaveSchedule} disabled={savingSchedule}>
+              <Check className="h-4 w-4 mr-1" />
+              {savingSchedule ? "Saving…" : schedule ? "Update Schedule" : "Enable Schedule"}
+            </Button>
+            {schedule && (
+              <Button size="sm" variant="ghost" className="text-destructive"
+                onClick={() => { setScheduleInput(""); handleSaveSchedule() }}
+                disabled={savingSchedule}>
+                <X className="h-4 w-4 mr-1" />Disable
+              </Button>
+            )}
+          </div>
+
+          {scheduleMsg && (
+            <p className={`text-xs ${scheduleMsg.includes("removed") || scheduleMsg.includes("set") || scheduleMsg.includes("updated") ? "text-green-600" : "text-destructive"}`}>
+              {scheduleMsg}
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Sync History — unified: live progress + past sessions */}
       <SyncHistory sessions={allSessions} />
