@@ -15,11 +15,14 @@ Endpoints:
 """
 
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, AsyncGenerator
 from datetime import datetime
 import uuid
 import asyncpg
+import asyncio
+import json
 import os
 
 from ..connectors.base import (
@@ -542,6 +545,213 @@ async def get_table_schema(connection_id: str, table_name: str):
         raise HTTPException(status_code=500, detail=f"Failed to get schema: {str(e)}")
 
 
+@router.get("/connectors/{connection_id}/sync/stream")
+async def sync_stream(connection_id: str, sync_mode: str = "full"):
+    """SSE endpoint — streams sync progress step by step."""
+
+    def sse(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+    async def generate() -> AsyncGenerator[str, None]:
+        started_at = datetime.utcnow()
+        total_rows = 0
+        job_id = str(uuid.uuid4())
+
+        try:
+            yield sse("start", {"job_id": job_id, "message": "Initializing sync…", "ts": started_at.isoformat()})
+            await asyncio.sleep(0)
+
+            # Get connector
+            yield sse("step", {"step": "connect", "message": "Connecting to source…", "status": "running"})
+            await asyncio.sleep(0)
+            try:
+                connector = await _get_connector_instance(connection_id)
+            except HTTPException as e:
+                yield sse("error", {"message": e.detail})
+                return
+
+            yield sse("step", {"step": "connect", "message": "Connection established", "status": "done"})
+            await asyncio.sleep(0)
+
+            # Discover tables
+            yield sse("step", {"step": "discover", "message": "Discovering tables…", "status": "running"})
+            await asyncio.sleep(0)
+            mode = SyncMode(sync_mode) if sync_mode in [m.value for m in SyncMode] else SyncMode.FULL
+            tables = await connector.get_tables()
+            if not tables:
+                yield sse("done", {"message": "No tables found", "rows_processed": 0, "tables": 0})
+                return
+            yield sse("step", {"step": "discover", "message": f"Found {len(tables)} tables", "status": "done", "tables": tables})
+            await asyncio.sleep(0)
+
+            # Sync each table
+            pool = await get_db_pool()
+            results = []
+            for i, table in enumerate(tables):
+                target = f"datapond.default.{table}"
+
+                # Load watermark for incremental mode
+                last_value = None
+                incremental_column = None
+                if mode == SyncMode.INCREMENTAL:
+                    async with pool.acquire() as conn:
+                        wm_row = await conn.fetchrow('''
+                            SELECT incremental_column, last_value
+                            FROM connector_sync_jobs
+                            WHERE connection_id=$1 AND source_table=$2
+                              AND last_run_status='success'
+                            ORDER BY last_run_at DESC LIMIT 1
+                        ''', uuid.UUID(connection_id), table)
+                    if wm_row:
+                        incremental_column = wm_row['incremental_column']
+                        last_value = wm_row['last_value']
+
+                yield sse("table_start", {
+                    "table": table, "index": i, "total": len(tables),
+                    "message": f"Syncing {table}… ({i+1}/{len(tables)})"
+                    + (f" [incremental since {last_value}]" if last_value else ""),
+                })
+                await asyncio.sleep(0)
+
+                # Collect sub-steps from iceberg_writer via callback queue
+                step_queue: list[dict] = []
+
+                def on_iceberg_step(step_name: str, msg: str, extra: dict):
+                    step_queue.append({
+                        "table": table, "step": step_name,
+                        "message": msg, **extra
+                    })
+
+                status = await connector.sync_to_iceberg(
+                    source_table=table, target_table=target,
+                    sync_mode=mode,
+                    incremental_column=incremental_column,
+                    last_value=last_value,
+                    on_step=on_iceberg_step,
+                )
+
+                # Emit all sub-steps collected during sync
+                for step_data in step_queue:
+                    yield sse("table_step", step_data)
+                    await asyncio.sleep(0)
+
+                rows = status.rows_processed
+                total_rows += rows
+                ok = status.status == SyncStatus.SUCCESS
+
+                # Derive new watermark from metadata if incremental
+                new_last_value = None
+                if ok and mode == SyncMode.INCREMENTAL and status.metadata:
+                    new_last_value = status.metadata.get("max_value")
+
+                yield sse("table_done", {
+                    "table": table, "index": i, "total": len(tables),
+                    "rows": rows, "status": "success" if ok else "failed",
+                    "error": status.error_message if not ok else None,
+                    "message": f"{'✓' if ok else '✗'} {table} — {rows:,} rows"
+                })
+                await asyncio.sleep(0)
+
+                results.append((table, target, ok, rows, status))
+
+                # Persist job record (UPSERT by connection+table)
+                run_at = datetime.utcnow()
+                async with pool.acquire() as conn:
+                    existing = await conn.fetchval(
+                        "SELECT id FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
+                        uuid.UUID(connection_id), table
+                    )
+                    if existing:
+                        await conn.execute('''
+                            UPDATE connector_sync_jobs
+                            SET sync_mode=$1, last_run_at=$2, last_run_status=$3,
+                                rows_synced=$4, last_value=$5
+                            WHERE id=$6
+                        ''', mode.value, run_at, status.status.value, rows,
+                            new_last_value, existing)
+                    else:
+                        await conn.execute('''
+                            INSERT INTO connector_sync_jobs
+                            (id, connection_id, source_table, target_table,
+                             sync_mode, last_run_at, last_run_status, rows_synced, last_value)
+                            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                        ''', uuid.UUID(str(uuid.uuid4())), uuid.UUID(connection_id),
+                            table, target, mode.value, run_at,
+                            status.status.value, rows, new_last_value)
+
+            # Update last_sync_at
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE connector_connections SET last_sync_at=$1 WHERE id=$2",
+                    datetime.utcnow(), uuid.UUID(connection_id)
+                )
+
+            success_count = sum(1 for _, _, ok, _, _ in results if ok)
+            failed_count  = len(results) - success_count
+            duration_ms   = int((datetime.utcnow() - started_at).total_seconds() * 1000)
+            completed_at  = datetime.utcnow()
+
+            # Persist session to connector_sync_history
+            import json as _json
+            table_details = [
+                {
+                    "table": tbl,
+                    "target": tgt,
+                    "status": "success" if ok else "failed",
+                    "rows": rows,
+                    "error": st.error_message if not ok else None,
+                }
+                for tbl, tgt, ok, rows, st in results
+            ]
+            history_id = str(uuid.uuid4())
+            # Fetch a real job_id (most recent job for this connection) to satisfy FK
+            async with pool.acquire() as conn:
+                real_job = await conn.fetchval(
+                    "SELECT id FROM connector_sync_jobs WHERE connection_id=$1 ORDER BY created_at DESC LIMIT 1",
+                    uuid.UUID(connection_id)
+                )
+            real_job_id = real_job if real_job else uuid.UUID(job_id)
+
+            async with pool.acquire() as conn:
+                await conn.execute('''
+                    INSERT INTO connector_sync_history
+                    (id, job_id, started_at, completed_at, status,
+                     rows_processed, rows_failed, metadata)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                ''',
+                    uuid.UUID(history_id),
+                    real_job_id,
+                    started_at,
+                    completed_at,
+                    "success" if failed_count == 0 else "failed",
+                    total_rows,
+                    failed_count,
+                    _json.dumps({
+                        "connection_id": connection_id,
+                        "sync_mode": mode.value,
+                        "duration_ms": duration_ms,
+                        "tables": table_details,
+                    })
+                )
+
+            yield sse("done", {
+                "job_id": job_id,
+                "history_id": history_id,
+                "message": f"Sync complete — {len(tables)} tables, {total_rows:,} rows",
+                "tables_synced": len(tables),
+                "tables_success": success_count,
+                "tables_failed": failed_count,
+                "rows_processed": total_rows,
+                "duration_ms": duration_ms,
+            })
+
+        except Exception as e:
+            yield sse("error", {"message": str(e)})
+
+    return StreamingResponse(generate(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @router.post("/connectors/{connection_id}/sync")
 async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None):
     """Trigger a data sync job"""
@@ -572,17 +782,24 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
                 async with pool.acquire() as conn:
                     await conn.execute('''
                         INSERT INTO connector_sync_jobs
-                        (id, connection_id, source_table, target_table, sync_mode, last_run_status, rows_synced)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7)
+                        (id, connection_id, source_table, target_table, sync_mode, last_run_at, last_run_status, rows_synced)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                     ''',
                         uuid.UUID(job_id),
                         uuid.UUID(connection_id),
                         table,
                         target,
                         request.sync_mode.value,
+                        datetime.utcnow(),
                         status.status.value,
                         status.rows_processed
                     )
+            # Update last_sync_at on connection
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE connector_connections SET last_sync_at = $1 WHERE id = $2",
+                    datetime.utcnow(), uuid.UUID(connection_id)
+                )
             return {
                 "job_id": job_id,
                 "status": last_status.status.value,
@@ -604,16 +821,23 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
         async with pool.acquire() as conn:
             await conn.execute('''
                 INSERT INTO connector_sync_jobs
-                (id, connection_id, source_table, target_table, sync_mode, last_run_status, rows_synced)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                (id, connection_id, source_table, target_table, sync_mode, last_run_at, last_run_status, rows_synced)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ''',
                 uuid.UUID(job_id),
                 uuid.UUID(connection_id),
                 source_table,
                 target_table,
                 request.sync_mode.value,
+                datetime.utcnow(),
                 status.status.value,
                 status.rows_processed
+            )
+        # Update last_sync_at on connection
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE connector_connections SET last_sync_at = $1 WHERE id = $2",
+                datetime.utcnow(), uuid.UUID(connection_id)
             )
         return {
             "job_id": job_id,
@@ -643,8 +867,6 @@ async def get_sync_status(connection_id: str):
                 LIMIT 10
             ''', uuid.UUID(connection_id))
 
-
-
         jobs = []
         for row in rows:
             jobs.append({
@@ -658,6 +880,45 @@ async def get_sync_status(connection_id: str):
             })
 
         return {"jobs": jobs}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/connectors/{connection_id}/history")
+async def get_sync_history(connection_id: str, limit: int = 20):
+    """Get sync session history — one row per Sync Now click."""
+    try:
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch('''
+                SELECT id, started_at, completed_at, status,
+                       rows_processed, rows_failed, error_message, metadata
+                FROM connector_sync_history
+                WHERE metadata->>'connection_id' = $1
+                ORDER BY started_at DESC
+                LIMIT $2
+            ''', connection_id, limit)
+
+        sessions = []
+        for row in rows:
+            import json as _json
+            meta = row['metadata'] or {}
+            if isinstance(meta, str):
+                meta = _json.loads(meta)
+            sessions.append({
+                "id": str(row['id']),
+                "started_at": row['started_at'].isoformat() if row['started_at'] else None,
+                "completed_at": row['completed_at'].isoformat() if row['completed_at'] else None,
+                "status": row['status'],
+                "rows_processed": row['rows_processed'] or 0,
+                "rows_failed": row['rows_failed'] or 0,
+                "error_message": row['error_message'],
+                "tables": meta.get("tables", []),
+                "duration_ms": meta.get("duration_ms"),
+                "sync_mode": meta.get("sync_mode", "full"),
+            })
+        return sessions
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

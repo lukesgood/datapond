@@ -343,7 +343,8 @@ class S3Connector(BaseConnector):
         target_table: str,
         sync_mode: SyncMode = SyncMode.FULL,
         incremental_column: Optional[str] = None,
-        last_value: Optional[Any] = None
+        last_value: Optional[Any] = None,
+        on_step=None,
     ) -> SyncJobStatus:
         """
         Synchronize files from S3 to Iceberg table.

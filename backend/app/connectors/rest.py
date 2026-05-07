@@ -253,6 +253,7 @@ class RestConnector(BaseConnector):
         sync_mode: SyncMode = SyncMode.FULL,
         incremental_column: Optional[str] = None,
         last_value: Optional[Any] = None,
+        on_step=None,
     ) -> SyncJobStatus:
         """Sync REST API data to Iceberg."""
         from datetime import datetime

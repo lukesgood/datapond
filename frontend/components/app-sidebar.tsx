@@ -1,9 +1,9 @@
 "use client"
 
 import {
-  Home, Database, FlaskConical, Code2, Settings, Activity, Plug,
-  Workflow, BarChart3, BookOpen, HelpCircle, FileCode, Boxes, GitBranch,
-  HardDrive,
+  Home, Database, FlaskConical, Code2, Settings, Activity,
+  Workflow, BarChart3, BookOpen, HelpCircle, FileCode,
+  HardDrive, Radio, ArrowDownToLine,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -19,86 +19,102 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 
-// Sidebar follows the natural data lifecycle:
-// Ingest → Process → Catalog → Explore → Model → Visualize → Operate
-const menuSections = [
+const mainSections = [
   {
-    label: "Overview",
+    label: "Data",
     items: [
-      { title: "Dashboard",    url: "/dashboard",   icon: Home },
+      { title: "Ingestion",  url: "/connectors", icon: ArrowDownToLine },
+      { title: "Streaming",  url: "/streaming",  icon: Radio },
+      { title: "Pipelines",  url: "/pipelines",  icon: Workflow },
+      { title: "Catalog",    url: "/catalog",    icon: Database },
     ]
   },
   {
-    // 1단계: 데이터 수집 & 파이프라인
-    label: "Data Engineering",
+    label: "Analyze",
     items: [
-      { title: "Connectors",   url: "/connectors",  icon: Plug },      // 외부 소스 연결
-      { title: "Pipelines",    url: "/pipelines",   icon: Workflow },  // DAG 정의·실행
-      { title: "Jobs",         url: "/jobs",         icon: GitBranch }, // 실행 이력·로그
-      { title: "Data Catalog", url: "/catalog",     icon: Database },  // 테이블 탐색
-      { title: "Storage",      url: "/storage",     icon: HardDrive }, // Object Storage
+      { title: "Query Lab",    url: "/query",       icon: Code2 },
+      { title: "Notebooks",    url: "/notebooks",   icon: FileCode },
+      { title: "Experiments",  url: "/experiments", icon: FlaskConical },
+      { title: "Dashboards",   url: "/dashboards",  icon: BarChart3 },
     ]
   },
   {
-    // 2단계: 분석 → 노트북 → 실험 → 대시보드 (워크플로우 순서)
-    label: "Analytics & Science",
+    label: "Platform",
     items: [
-      { title: "Query Lab",       url: "/query",       icon: Code2 },       // SQL 탐색·분석
-      { title: "Notebooks",       url: "/notebooks",   icon: FileCode },    // 코드 실험
-      { title: "ML Experiments",  url: "/experiments", icon: FlaskConical },// 결과 추적·비교
-      { title: "Dashboards",      url: "/dashboards",  icon: BarChart3 },   // 인사이트 공유
+      { title: "Services", url: "/services", icon: Activity },
+      { title: "Storage",  url: "/storage",  icon: HardDrive },
+      { title: "Settings", url: "/settings", icon: Settings },
     ]
   },
-  {
-    // 3단계: 플랫폼 운영
-    label: "Operations",
-    items: [
-      { title: "Services",  url: "/services",  icon: Activity },
-      { title: "Settings",  url: "/settings",  icon: Settings },
-    ]
-  },
-  {
-    label: "Help",
-    items: [
-      { title: "Documentation", url: "/docs",  icon: BookOpen },
-      { title: "Guides",        url: "/help",  icon: HelpCircle },
-    ]
-  }
+]
+
+const bottomItems = [
+  { title: "Documentation", url: "/docs",  icon: BookOpen },
+  { title: "Guides",        url: "/help",  icon: HelpCircle },
 ]
 
 export function AppSidebar() {
   const pathname = usePathname()
 
+  const isActive = (url: string) => pathname === url
+
   return (
     <Sidebar>
-      <SidebarContent>
-        <div className="px-4 py-6">
+      <SidebarContent className="flex flex-col h-full">
+        {/* Logo */}
+        <div className="px-4 py-5 shrink-0">
           <h1 className="text-xl font-bold">DataPond</h1>
           <p className="text-xs text-muted-foreground">AI-Native Lakehouse</p>
         </div>
 
-        {menuSections.map((section, idx) => (
-          <SidebarGroup key={idx}>
-            <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {section.items.map((item) => {
-                  const isActive = pathname === item.url
-                  return (
+        {/* Dashboard — top-level, no section label */}
+        <div className="px-2 pb-1 shrink-0">
+          <Link href="/dashboard">
+            <SidebarMenuButton isActive={isActive("/dashboard")}>
+              <Home />
+              <span>Dashboard</span>
+            </SidebarMenuButton>
+          </Link>
+        </div>
+
+        {/* Main sections */}
+        <div className="flex-1 overflow-y-auto">
+          {mainSections.map((section) => (
+            <SidebarGroup key={section.label}>
+              <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {section.items.map((item) => (
                     <SidebarMenuItem key={item.title}>
                       <Link href={item.url}>
-                        <SidebarMenuButton isActive={isActive}>
+                        <SidebarMenuButton isActive={isActive(item.url)}>
                           <item.icon />
                           <span>{item.title}</span>
                         </SidebarMenuButton>
                       </Link>
                     </SidebarMenuItem>
-                  )
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        ))}
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          ))}
+        </div>
+
+        {/* Bottom: Help / Docs */}
+        <div className="px-2 py-3 border-t shrink-0">
+          <SidebarMenu>
+            {bottomItems.map((item) => (
+              <SidebarMenuItem key={item.title}>
+                <Link href={item.url}>
+                  <SidebarMenuButton isActive={isActive(item.url)}>
+                    <item.icon />
+                    <span>{item.title}</span>
+                  </SidebarMenuButton>
+                </Link>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </div>
       </SidebarContent>
     </Sidebar>
   )

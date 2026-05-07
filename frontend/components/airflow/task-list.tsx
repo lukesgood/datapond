@@ -39,7 +39,7 @@ export function TaskList({ tasks, onViewLogs }: TaskListProps) {
       case "failed":
         return <XCircle className="h-4 w-4 text-red-500" />
       case "running":
-        return <Clock className="h-4 w-4 text-blue-500 animate-spin" />
+        return <Clock className="h-4 w-4 text-primary animate-spin" />
       case "queued":
         return <Play className="h-4 w-4 text-yellow-500" />
       case "upstream_failed":
@@ -58,7 +58,7 @@ export function TaskList({ tasks, onViewLogs }: TaskListProps) {
       case "failed":
         return <Badge variant="destructive">Failed</Badge>
       case "running":
-        return <Badge className="bg-blue-600">Running</Badge>
+        return <Badge className="bg-primary">Running</Badge>
       case "queued":
         return <Badge className="bg-yellow-600">Queued</Badge>
       case "upstream_failed":
@@ -146,7 +146,7 @@ export function TaskList({ tasks, onViewLogs }: TaskListProps) {
                       {task.state === "running" && (
                         <div className="mt-2">
                           <div className="h-1 bg-secondary rounded-full overflow-hidden">
-                            <div className="h-full bg-blue-600 animate-pulse w-2/3" />
+                            <div className="h-full bg-primary animate-pulse w-2/3" />
                           </div>
                         </div>
                       )}

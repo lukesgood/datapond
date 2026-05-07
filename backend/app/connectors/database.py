@@ -200,50 +200,49 @@ class PostgreSQLConnector(BaseConnector):
         target_table: str,
         sync_mode: SyncMode = SyncMode.FULL,
         incremental_column: Optional[str] = None,
-        last_value: Optional[Any] = None
+        last_value: Optional[Any] = None,
+        on_step=None
     ) -> SyncJobStatus:
-        """
-        Synchronize PostgreSQL table to Iceberg.
-
-        For now, this is a simplified implementation that reads data and returns status.
-        Full Iceberg integration would use Spark/Trino for actual writes.
-        """
+        """Synchronize PostgreSQL table to Iceberg via SeaweedFS S3 + Trino."""
+        from .iceberg_writer import write_dataframe_to_iceberg
         started_at = datetime.utcnow()
 
         try:
-            schema = self.config.schema or 'public'
+            src_schema = self.config.schema or 'public'
             engine = self._get_engine()
 
-            # Build query based on sync mode
-            query = f'SELECT * FROM "{schema}"."{source_table}"'
-
+            query = f'SELECT * FROM "{src_schema}"."{source_table}"'
             if sync_mode == SyncMode.INCREMENTAL and incremental_column and last_value:
-                query += f" WHERE {incremental_column} > '{last_value}'"
+                query += f" WHERE \"{incremental_column}\" > '{last_value}'"
+            elif sync_mode == SyncMode.INCREMENTAL and incremental_column and not last_value:
+                # First incremental run — read all, then track max value
+                pass
 
-            # Read data
             df = pd.read_sql(query, engine)
-            rows_processed = len(df)
+            logger.info(f"[pg_connector] Read {len(df)} rows from {src_schema}.{source_table}")
 
-            # TODO: Write to Iceberg using Spark/Trino
-            # For now, we'll just log the operation
-            logger.info(
-                f"Syncing {rows_processed} rows from {source_table} to {target_table} "
-                f"(mode: {sync_mode})"
-            )
+            write_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
+            rows_processed = write_dataframe_to_iceberg(df, source_table, mode=write_mode, on_step=on_step)
 
-            completed_at = datetime.utcnow()
+            # Compute new watermark max_value
+            max_value = None
+            if incremental_column and incremental_column in df.columns and not df.empty:
+                max_val = df[incremental_column].max()
+                max_value = str(max_val) if max_val is not None else None
 
             return SyncJobStatus(
-                job_id=None,  # Would be set by job scheduler
+                job_id=None,
                 status=SyncStatus.SUCCESS,
                 started_at=started_at,
-                completed_at=completed_at,
+                completed_at=datetime.utcnow(),
                 rows_processed=rows_processed,
                 rows_failed=0,
                 metadata={
                     "source_table": source_table,
                     "target_table": target_table,
-                    "sync_mode": sync_mode.value
+                    "sync_mode": sync_mode.value,
+                    "iceberg_table": f"iceberg.default.{source_table}",
+                    "max_value": max_value,
                 }
             )
 
@@ -399,40 +398,37 @@ class MySQLConnector(BaseConnector):
         target_table: str,
         sync_mode: SyncMode = SyncMode.FULL,
         incremental_column: Optional[str] = None,
-        last_value: Optional[Any] = None
+        last_value: Optional[Any] = None,
+        on_step=None
     ) -> SyncJobStatus:
-        """Synchronize MySQL table to Iceberg"""
-        # Similar implementation to PostgreSQL
+        """Synchronize MySQL table to Iceberg via SeaweedFS S3 + Trino."""
+        from .iceberg_writer import write_dataframe_to_iceberg
         started_at = datetime.utcnow()
 
         try:
             engine = self._get_engine()
-
             query = f'SELECT * FROM `{source_table}`'
-
             if sync_mode == SyncMode.INCREMENTAL and incremental_column and last_value:
                 query += f" WHERE `{incremental_column}` > '{last_value}'"
 
             df = pd.read_sql(query, engine)
-            rows_processed = len(df)
+            logger.info(f"[mysql_connector] Read {len(df)} rows from {source_table}")
 
-            logger.info(
-                f"Syncing {rows_processed} rows from {source_table} to {target_table}"
-            )
-
-            completed_at = datetime.utcnow()
+            write_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
+            rows_processed = write_dataframe_to_iceberg(df, source_table, mode=write_mode, on_step=on_step)
 
             return SyncJobStatus(
                 job_id=None,
                 status=SyncStatus.SUCCESS,
                 started_at=started_at,
-                completed_at=completed_at,
+                completed_at=datetime.utcnow(),
                 rows_processed=rows_processed,
                 rows_failed=0,
                 metadata={
                     "source_table": source_table,
                     "target_table": target_table,
-                    "sync_mode": sync_mode.value
+                    "sync_mode": sync_mode.value,
+                    "iceberg_table": f"iceberg.default.{source_table}",
                 }
             )
 
@@ -645,23 +641,28 @@ class DatabaseURLConnector(BaseConnector):
         incremental_column: Optional[str] = None,
         last_value: Optional[Any] = None,
     ) -> SyncJobStatus:
-        """Sync table data to Iceberg"""
+        """Sync table data to Iceberg via SeaweedFS S3 + Trino."""
+        from .iceberg_writer import write_dataframe_to_iceberg
         started_at = datetime.utcnow()
         try:
             engine = self._get_engine()
             if "." in source_table:
                 schema, tbl = source_table.split(".", 1)
                 qualified = f'"{schema}"."{tbl}"'
+                tbl_name = tbl
             else:
                 qualified = f'"{source_table}"'
+                tbl_name = source_table
 
             query = f"SELECT * FROM {qualified}"
             if sync_mode == SyncMode.INCREMENTAL and incremental_column and last_value:
                 query += f" WHERE {incremental_column} > '{last_value}'"
 
             df = pd.read_sql(query, engine)
-            rows_processed = len(df)
-            logger.info(f"Syncing {rows_processed} rows from {source_table} to {target_table} (mode: {sync_mode})")
+            logger.info(f"[dburl_connector] Read {len(df)} rows from {source_table}")
+
+            write_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
+            rows_processed = write_dataframe_to_iceberg(df, tbl_name, mode=write_mode, on_step=on_step)
 
             return SyncJobStatus(
                 job_id=None,
@@ -670,7 +671,12 @@ class DatabaseURLConnector(BaseConnector):
                 completed_at=datetime.utcnow(),
                 rows_processed=rows_processed,
                 rows_failed=0,
-                metadata={"source_table": source_table, "target_table": target_table, "sync_mode": sync_mode.value},
+                metadata={
+                    "source_table": source_table,
+                    "target_table": target_table,
+                    "sync_mode": sync_mode.value,
+                    "iceberg_table": f"iceberg.default.{tbl_name}",
+                },
             )
         except Exception as e:
             logger.error(f"DatabaseURL sync_to_iceberg failed: {e}")

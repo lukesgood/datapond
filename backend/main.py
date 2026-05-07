@@ -19,12 +19,36 @@ from app.api.airflow import router as airflow_router
 from app.api.dashboards import router as dashboards_router
 from app.api.pipelines import router as pipelines_router
 from app.api.storage import router as storage_router
+from app.api.streaming import router as streaming_router
 
 app = FastAPI(
     title="DataPond API",
     description="Unified management API for DataPond platform",
     version="0.1.0"
 )
+
+
+@app.on_event("startup")
+async def startup():
+    """Initialize Iceberg Medallion namespaces on startup."""
+    import asyncio, logging, os
+    logger = logging.getLogger(__name__)
+    try:
+        import trino
+        conn = trino.dbapi.connect(
+            host=os.getenv("TRINO_SERVICE_HOST", "trino.datapond.svc.cluster.local"),
+            port=int(os.getenv("TRINO_SERVICE_PORT", "8080")),
+            user="datapond", catalog="iceberg", http_scheme="http", request_timeout=10,
+        )
+        cur = conn.cursor()
+        for ns in ("raw", "refined", "serving"):
+            try:
+                cur.execute(f"CREATE SCHEMA IF NOT EXISTS iceberg.{ns}")
+                logger.info(f"[startup] Iceberg namespace '{ns}' ready")
+            except Exception as e:
+                logger.warning(f"[startup] Schema '{ns}' skip: {e}")
+    except Exception as e:
+        logger.warning(f"[startup] Medallion init skipped: {e}")
 
 # CORS configuration
 app.add_middleware(
@@ -46,6 +70,7 @@ app.include_router(airflow_router, prefix="/api")
 app.include_router(dashboards_router, prefix="/api")
 app.include_router(pipelines_router, prefix="/api")
 app.include_router(storage_router, prefix="/api")
+app.include_router(streaming_router, prefix="/api")
 
 # Service endpoints (internal Kubernetes DNS)
 SERVICES = {

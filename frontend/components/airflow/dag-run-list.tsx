@@ -22,11 +22,11 @@ interface DagRunListProps {
 
 function StateBadge({ state }: { state: string }) {
   if (state === "success")
-    return <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600"><CheckCircle2 className="h-3 w-3" />Success</span>
+    return <span className="flex items-center gap-1 text-[11px] font-medium text-green-600"><CheckCircle2 className="h-3 w-3" />Success</span>
   if (state === "failed")
     return <span className="flex items-center gap-1 text-[11px] font-medium text-red-500"><XCircle className="h-3 w-3" />Failed</span>
   if (state === "running")
-    return <span className="flex items-center gap-1 text-[11px] font-medium text-blue-500"><Clock className="h-3 w-3 animate-spin" />Running</span>
+    return <span className="flex items-center gap-1 text-[11px] font-medium text-primary"><Clock className="h-3 w-3 animate-spin" />Running</span>
   if (state === "queued")
     return <span className="flex items-center gap-1 text-[11px] font-medium text-yellow-600"><PlayCircle className="h-3 w-3" />Queued</span>
   return <Badge variant="secondary" className="text-[10px] h-4">{state}</Badge>
@@ -103,7 +103,7 @@ export function DagRunList({ runs, showDagId = false }: DagRunListProps) {
                 {/* Running progress */}
                 {run.state === "running" && (
                   <div className="mt-1.5 h-0.5 w-full rounded-full bg-muted overflow-hidden">
-                    <div className="h-full w-1/2 bg-blue-500 animate-pulse rounded-full" />
+                    <div className="h-full w-1/2 bg-primary animate-pulse rounded-full" />
                   </div>
                 )}
               </div>

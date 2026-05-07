@@ -28,9 +28,16 @@ interface Connection {
   last_sync_at: string | null
 }
 
+interface ConnStats {
+  tables: number
+  lastRows: number | null
+  successRate: number | null
+}
+
 export default function ConnectorsPage() {
   // ── Connections state ──────────────────────────────────────────────────────
   const [connections, setConnections] = useState<Connection[]>([])
+  const [connStats, setConnStats] = useState<Map<string, ConnStats>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -40,8 +47,40 @@ export default function ConnectorsPage() {
       setError(null)
       const res = await fetch("/api/connectors/connections")
       if (!res.ok) throw new Error(`Failed to load (${res.status})`)
-      const data = await res.json()
-      setConnections(Array.isArray(data) ? data : [])
+      const data: Connection[] = await res.json()
+      const list = Array.isArray(data) ? data : []
+      setConnections(list)
+
+      // Fetch per-connection stats in parallel
+      const statsEntries = await Promise.all(list.map(async (conn) => {
+        try {
+          const [tablesRes, statusRes] = await Promise.all([
+            fetch(`/api/connectors/${conn.id}/tables`),
+            fetch(`/api/connectors/${conn.id}/status`),
+          ])
+          const tables = tablesRes.ok ? (await tablesRes.json()).tables?.length ?? 0 : 0
+          let lastRows: number | null = null
+          let successRate: number | null = null
+          if (statusRes.ok) {
+            const s = await statusRes.json()
+            const jobs = s.jobs ?? []
+            if (jobs.length > 0) {
+              // last sync total rows = sum of most recent run per table
+              const byTable = new Map<string, any>()
+              for (const j of jobs) {
+                if (!byTable.has(j.source_table)) byTable.set(j.source_table, j)
+              }
+              lastRows = Array.from(byTable.values()).reduce((sum, j) => sum + (j.rows_synced ?? 0), 0)
+              const recent = jobs.slice(0, 20)
+              successRate = Math.round(recent.filter((j: any) => j.status === "success").length / recent.length * 100)
+            }
+          }
+          return [conn.id, { tables, lastRows, successRate }] as [string, ConnStats]
+        } catch {
+          return [conn.id, { tables: 0, lastRows: null, successRate: null }] as [string, ConnStats]
+        }
+      }))
+      setConnStats(new Map(statsEntries))
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load connections")
     } finally {
@@ -92,7 +131,7 @@ export default function ConnectorsPage() {
 
   const statusBadge = (status: string) => {
     if (status === "active")
-      return <Badge className="bg-emerald-500/15 text-emerald-700 border-emerald-200 text-[10px] h-5">Active</Badge>
+      return <Badge className="bg-green-500/10 text-green-700 border-green-200 text-[10px] h-5">Active</Badge>
     if (status === "error")
       return <Badge variant="destructive" className="text-[10px] h-5">Error</Badge>
     return <Badge variant="secondary" className="text-[10px] h-5 capitalize">{status}</Badge>
@@ -107,9 +146,9 @@ export default function ConnectorsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Connectors</h2>
+          <h2 className="text-2xl font-bold tracking-tight">Ingestion</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            데이터 소스 연결 관리
+            배치 수집 — 외부 소스에서 Iceberg로
           </p>
         </div>
         <div className="flex gap-2">
@@ -127,7 +166,7 @@ export default function ConnectorsPage() {
           <TabsList className="h-8">
             <TabsTrigger value="connections" className="text-xs h-7 gap-1.5">
               <Plug className="h-3.5 w-3.5" />
-              Active Connections
+              Active Sources
               {connections.length > 0 && (
                 <Badge variant="secondary" className="text-[9px] h-4 px-1 ml-0.5">
                   {connections.length}
@@ -136,7 +175,7 @@ export default function ConnectorsPage() {
             </TabsTrigger>
             <TabsTrigger value="marketplace" className="text-xs h-7 gap-1.5">
               <Plus className="h-3.5 w-3.5" />
-              Add Connection
+              Add Source
             </TabsTrigger>
           </TabsList>
         </div>
@@ -149,7 +188,7 @@ export default function ConnectorsPage() {
             <span className="text-muted-foreground">
               <span className="font-semibold text-foreground">{connections.length}</span> total
             </span>
-            <span className="text-emerald-600">
+            <span className="text-green-600">
               <span className="font-semibold">{activeCount}</span> active
             </span>
             {errorCount > 0 && (
@@ -178,7 +217,9 @@ export default function ConnectorsPage() {
                   <TableHead className="text-xs">Type</TableHead>
                   <TableHead className="text-xs">Status</TableHead>
                   <TableHead className="text-xs">Last Sync</TableHead>
-                  <TableHead className="text-xs">Created</TableHead>
+                  <TableHead className="text-xs text-right">Tables</TableHead>
+                  <TableHead className="text-xs text-right">Last Rows</TableHead>
+                  <TableHead className="text-xs text-right">Success Rate</TableHead>
                   <TableHead className="text-xs w-10" />
                 </TableRow>
               </TableHeader>
@@ -186,14 +227,14 @@ export default function ConnectorsPage() {
                 {loading ? (
                   Array(3).fill(0).map((_, i) => (
                     <TableRow key={i}>
-                      {Array(6).fill(0).map((_, j) => (
+                      {Array(8).fill(0).map((_, j) => (
                         <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                       ))}
                     </TableRow>
                   ))
                 ) : connections.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-16 text-center">
+                    <TableCell colSpan={8} className="py-16 text-center">
                       <div className="flex flex-col items-center gap-3">
                         <Database className="h-10 w-10 text-muted-foreground/30" />
                         <p className="text-sm text-muted-foreground">No connections yet</p>
@@ -225,8 +266,24 @@ export default function ConnectorsPage() {
                       <TableCell className="text-xs text-muted-foreground">
                         {formatDate(conn.last_sync_at)}
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {formatDate(conn.created_at)}
+                      <TableCell className="text-xs text-right text-muted-foreground">
+                        {connStats.get(conn.id)?.tables ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-xs text-right text-muted-foreground">
+                        {connStats.get(conn.id)?.lastRows != null
+                          ? connStats.get(conn.id)!.lastRows!.toLocaleString()
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-xs text-right">
+                        {(() => {
+                          const rate = connStats.get(conn.id)?.successRate
+                          if (rate == null) return <span className="text-muted-foreground">—</span>
+                          return (
+                            <span className={rate >= 80 ? "text-green-600 font-medium" : rate >= 50 ? "text-amber-500 font-medium" : "text-red-500 font-medium"}>
+                              {rate}%
+                            </span>
+                          )
+                        })()}
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>

@@ -1,6 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
+import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -14,7 +16,6 @@ import {
 } from "@/components/ui/breadcrumb"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DagCard } from "@/components/airflow/dag-card"
-import { DagRunList } from "@/components/airflow/dag-run-list"
 import { useRouter } from "next/navigation"
 import {
   Workflow,
@@ -24,7 +25,11 @@ import {
   XCircle,
   AlertCircle,
   RefreshCw,
+  CheckCircle2,
+  Play,
+  Timer,
 } from "lucide-react"
+import { formatDistance } from "date-fns"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   AlertDialog,
@@ -66,7 +71,9 @@ interface DagRun {
   run_type: string
 }
 
-export default function PipelinesPage() {
+function PipelinesPageInner() {
+  const searchParams = useSearchParams()
+  const defaultTab = searchParams.get("tab") === "history" ? "history" : "pipelines"
   const [dags, setDags] = useState<DAG[]>([])
   const [dagStats, setDagStats] = useState<Map<string, DagStats>>(new Map())
   const [recentRuns, setRecentRuns] = useState<DagRun[]>([])
@@ -135,26 +142,22 @@ export default function PipelinesPage() {
       )
       setDagStats(statsMap)
 
-      // Fetch recent runs across all DAGs
-      const runsPromises = dagsList.slice(0, 5).map(async (dag: DAG) => {
-        try {
-          const runsRes = await fetch(`/api/airflow/dags/${dag.dag_id}/runs?limit=5`)
-          if (runsRes.ok) {
-            return await runsRes.json()
-          }
-        } catch (err) {
-          console.error(`Failed to fetch runs for ${dag.dag_id}:`, err)
+      // Fetch recent runs across ALL DAGs via the global endpoint
+      try {
+        const allRunsRes = await fetch("/api/airflow/dag-runs?limit=50&order_by=-start_date")
+        if (allRunsRes.ok) {
+          const allRunsData = await allRunsRes.json()
+          const runs: DagRun[] = Array.isArray(allRunsData)
+            ? allRunsData
+            : (allRunsData.dag_runs ?? [])
+          runs.sort((a, b) =>
+            new Date(b.execution_date).getTime() - new Date(a.execution_date).getTime()
+          )
+          setRecentRuns(runs)
         }
-        return []
-      })
-
-      const runsResults = await Promise.all(runsPromises)
-      const allRuns = runsResults.flat()
-      // Sort by execution date descending
-      allRuns.sort((a, b) =>
-        new Date(b.execution_date).getTime() - new Date(a.execution_date).getTime()
-      )
-      setRecentRuns(allRuns.slice(0, 10))
+      } catch (err) {
+        console.error("Failed to fetch global runs:", err)
+      }
     } catch (err) {
       console.error("Failed to fetch data:", err)
       setError(err instanceof Error ? err.message : "Failed to load pipelines")
@@ -342,24 +345,28 @@ export default function PipelinesPage() {
             accent: Array.from(dagStats.values()).reduce((a, s) => a + s.failed_runs, 0) > 0,
           },
         ].map(({ label, value, sub, icon: Icon, accent }) => (
-          <Card key={label} className={accent ? "border-red-200 bg-red-50/30" : ""}>
+          <Card key={label} className={accent ? "border-destructive/20 bg-destructive/5/30" : ""}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs text-muted-foreground">{label}</span>
                 <Icon className={`h-3.5 w-3.5 ${accent ? "text-red-400" : "text-muted-foreground"}`} />
               </div>
-              <div className={`text-2xl font-bold ${accent ? "text-red-600" : ""}`}>{value}</div>
+              <div className={`text-2xl font-bold ${accent ? "text-destructive" : ""}`}>{value}</div>
               <div className="text-[11px] text-muted-foreground mt-0.5">{sub}</div>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      {/* Main: DAG list + recent runs */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-5">
+      {/* Main tabs: Pipelines / Run History */}
+      <Tabs defaultValue={defaultTab}>
+        <TabsList className="h-8">
+          <TabsTrigger value="pipelines" className="text-xs h-7">Pipelines ({dags.length})</TabsTrigger>
+          <TabsTrigger value="history" className="text-xs h-7">Recent Activity</TabsTrigger>
+        </TabsList>
 
-        {/* DAG list */}
-        <div className="space-y-3">
+        {/* Pipeline DAG list */}
+        <TabsContent value="pipelines" className="mt-4">
           <Tabs defaultValue="all">
             <div className="flex items-center justify-between mb-3">
               <TabsList className="h-8">
@@ -372,13 +379,89 @@ export default function PipelinesPage() {
             <TabsContent value="active">{renderDagCards(activeDags)}</TabsContent>
             <TabsContent value="paused">{renderDagCards(pausedDags)}</TabsContent>
           </Tabs>
-        </div>
+        </TabsContent>
 
-        {/* Recent runs — sticky top so it stays visible while scrolling DAG list */}
-        <div className="border rounded-lg bg-card p-4 self-start sticky top-4">
-          <DagRunList runs={recentRuns} showDagId={true} />
-        </div>
-      </div>
+        {/* Recent Activity — cross-pipeline run overview */}
+        <TabsContent value="history" className="mt-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              All pipelines · last 50 runs · click a pipeline name for full run history
+            </p>
+          </div>
+          <div className="rounded-lg border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-xs">
+                <tr>
+                  <th className="text-left px-4 py-2">Pipeline</th>
+                  <th className="text-left px-4 py-2">Run ID</th>
+                  <th className="text-left px-4 py-2">State</th>
+                  <th className="text-left px-4 py-2">Type</th>
+                  <th className="text-left px-4 py-2">Started</th>
+                  <th className="text-left px-4 py-2">Duration</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  [...Array(5)].map((_, i) => (
+                    <tr key={i} className="border-t">
+                      {[...Array(6)].map((_, j) => (
+                        <td key={j} className="px-4 py-2">
+                          <div className="h-4 bg-muted rounded animate-pulse" />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : recentRuns.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground text-sm">
+                      No run history yet. Trigger a pipeline to see runs here.
+                    </td>
+                  </tr>
+                ) : recentRuns.map((run) => {
+                  const stateColor = run.state === "success" ? "text-green-600"
+                    : run.state === "failed" ? "text-destructive"
+                    : run.state === "running" ? "text-primary"
+                    : "text-muted-foreground"
+                  const StateIcon = run.state === "success" ? CheckCircle2
+                    : run.state === "failed" ? XCircle
+                    : run.state === "running" ? Play
+                    : Clock
+                  const started = run.start_date ? new Date(run.start_date) : null
+                  const ended   = run.end_date   ? new Date(run.end_date)   : null
+                  const duration = started && ended
+                    ? formatDistance(started, ended, { includeSeconds: true })
+                    : started ? "Running…" : "—"
+
+                  return (
+                    <tr key={run.dag_run_id} className="border-t hover:bg-muted/30">
+                      <td className="px-4 py-2 font-medium">
+                        <Link href={`/pipelines/${run.dag_id}`}
+                          className="hover:underline underline-offset-2">
+                          {run.dag_id}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2 font-mono text-xs text-muted-foreground truncate max-w-[160px]">{run.dag_run_id}</td>
+                      <td className="px-4 py-2">
+                        <span className={`flex items-center gap-1 ${stateColor}`}>
+                          <StateIcon className="h-3.5 w-3.5" />
+                          <span className="capitalize">{run.state}</span>
+                        </span>
+                      </td>
+                      <td className="px-4 py-2 capitalize text-xs text-muted-foreground">{run.run_type}</td>
+                      <td className="px-4 py-2 text-xs text-muted-foreground">
+                        {started ? formatDistance(started, new Date(), { addSuffix: true }) : "—"}
+                      </td>
+                      <td className="px-4 py-2 text-xs text-muted-foreground flex items-center gap-1">
+                        <Timer className="h-3 w-3" />{duration}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Delete confirmation dialog */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
@@ -400,5 +483,13 @@ export default function PipelinesPage() {
       </AlertDialog>
 
     </div>
+  )
+}
+
+export default function PipelinesPage() {
+  return (
+    <Suspense>
+      <PipelinesPageInner />
+    </Suspense>
   )
 }
