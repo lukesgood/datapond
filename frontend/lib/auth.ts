@@ -6,6 +6,7 @@ export interface AuthUser {
   display_name: string
   email: string
   role: "admin" | "viewer"
+  require_password_change?: boolean
 }
 
 const TOKEN_KEY = "datapond_token"
@@ -98,10 +99,10 @@ export function installAuthInterceptor() {
       }
     }
     const res = await original(input, init)
-    // Auto-logout on 401
+    // Session expired on 401 — emit event for overlay (don't hard-redirect)
     if (res.status === 401 && url.includes("/api/") && !url.includes("/api/auth/")) {
       clearAuth()
-      window.location.href = "/login"
+      window.dispatchEvent(new Event("datapond:session-expired"))
     }
     return res
   }

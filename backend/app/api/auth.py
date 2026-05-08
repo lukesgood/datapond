@@ -171,7 +171,8 @@ async def login(request: LoginRequest):
     pool = await _get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            """SELECT id, username, password_hash, role, display_name, email, is_active
+            """SELECT id, username, password_hash, role, display_name, email,
+                      is_active, require_password_change
                FROM users WHERE username=$1""",
             request.username
         )
@@ -191,6 +192,7 @@ async def login(request: LoginRequest):
             "display_name": row["display_name"] or row["username"],
             "email": row["email"],
             "role": row["role"],
+            "require_password_change": bool(row["require_password_change"]),
         }
     )
 
@@ -221,12 +223,14 @@ async def setup_password(request: SetupRequest, user: dict = Depends(require_adm
     hashed = _hash_password(request.password)
     pool = await _get_pool()
     async with pool.acquire() as conn:
+        # New users must change password on first login
         await conn.execute("""
-            INSERT INTO users (id, email, username, password_hash, display_name, role, is_active)
-            VALUES (gen_random_uuid(), $1, $2, $3, $4, 'viewer', true)
+            INSERT INTO users (id, email, username, password_hash, display_name, role, is_active, require_password_change)
+            VALUES (gen_random_uuid(), $1, $2, $3, $4, 'viewer', true, true)
             ON CONFLICT (username) DO UPDATE
               SET password_hash = EXCLUDED.password_hash,
-                  display_name  = COALESCE(EXCLUDED.display_name, users.display_name)
+                  display_name  = COALESCE(EXCLUDED.display_name, users.display_name),
+                  require_password_change = false
         """,
             f"{request.username}@datapond.local",
             request.username,
@@ -236,7 +240,113 @@ async def setup_password(request: SetupRequest, user: dict = Depends(require_adm
     return {"message": f"Password set for '{request.username}'"}
 
 
+@router.post("/auth/change-password")
+async def change_password(body: dict, user: dict = Depends(require_user)):
+    """Change own password and clear require_password_change flag."""
+    new_password = body.get("new_password", "")
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    hashed = _hash_password(new_password)
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET password_hash=$1, require_password_change=false WHERE id=$2",
+            hashed, uuid.UUID(user["id"])
+        )
+    return {"message": "Password changed successfully"}
+
+
 @router.post("/auth/logout")
 async def logout():
     """Logout (client deletes token)."""
     return {"message": "Logged out"}
+
+
+# ── User management endpoints ──────────────────────────────────────────────────
+
+@router.get("/auth/users")
+async def list_users(admin: dict = Depends(require_admin)):
+    """Admin: list all users."""
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT id, username, email, display_name, role, is_active,
+                   require_password_change, created_at
+            FROM users
+            ORDER BY created_at ASC
+        """)
+    return [
+        {
+            "id": str(r["id"]),
+            "username": r["username"] or "",
+            "email": r["email"] or "",
+            "display_name": r["display_name"] or r["username"] or "",
+            "role": r["role"],
+            "is_active": r["is_active"],
+            "require_password_change": bool(r["require_password_change"]),
+            "created_at": r["created_at"].isoformat() + "Z" if r["created_at"] else None,
+        }
+        for r in rows
+    ]
+
+
+@router.patch("/auth/users/{user_id}")
+async def update_user(user_id: str, body: dict, admin: dict = Depends(require_admin)):
+    """Admin: update user role, active status, display_name."""
+    pool = await _get_pool()
+    updates = []
+    values = []
+    idx = 1
+
+    if "role" in body and body["role"] in ("admin", "viewer"):
+        updates.append(f"role = ${idx}"); values.append(body["role"]); idx += 1
+    if "is_active" in body:
+        updates.append(f"is_active = ${idx}"); values.append(bool(body["is_active"])); idx += 1
+    if "display_name" in body:
+        updates.append(f"display_name = ${idx}"); values.append(str(body["display_name"])); idx += 1
+    if "email" in body:
+        updates.append(f"email = ${idx}"); values.append(str(body["email"])); idx += 1
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    values.append(uuid.UUID(user_id))
+    async with pool.acquire() as conn:
+        await conn.execute(
+            f"UPDATE users SET {', '.join(updates)} WHERE id = ${idx}",
+            *values
+        )
+    return {"message": "User updated"}
+
+
+@router.delete("/auth/users/{user_id}")
+async def delete_user(user_id: str, admin: dict = Depends(require_admin)):
+    """Admin: delete a user. Cannot delete yourself."""
+    if user_id == admin["id"]:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "DELETE FROM users WHERE id = $1",
+            uuid.UUID(user_id)
+        )
+    if result == "DELETE 0":
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"message": "User deleted"}
+
+
+@router.patch("/auth/me")
+async def update_me(body: dict, user: dict = Depends(require_user)):
+    """Update own display_name or email."""
+    pool = await _get_pool()
+    updates = []; values = []; idx = 1
+    if "display_name" in body:
+        updates.append(f"display_name = ${idx}"); values.append(str(body["display_name"])); idx += 1
+    if "email" in body:
+        updates.append(f"email = ${idx}"); values.append(str(body["email"])); idx += 1
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    values.append(uuid.UUID(user["id"]))
+    async with pool.acquire() as conn:
+        await conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ${idx}", *values)
+    return {"message": "Profile updated"}

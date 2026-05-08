@@ -830,20 +830,22 @@ async def list_tables(connection_id: str):
         connector = await _get_connector_instance(connection_id)
         tables = await connector.get_tables()
 
-        # Load enabled state per table from DB
+        # Load full config per table from DB
         pool = await get_db_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT source_table, enabled FROM connector_sync_jobs WHERE connection_id=$1",
+                "SELECT source_table, enabled, sync_mode, incremental_column FROM connector_sync_jobs WHERE connection_id=$1",
                 uuid.UUID(connection_id)
             )
-        enabled_map = {r['source_table']: r['enabled'] for r in rows}
+        config_map = {r['source_table']: r for r in rows}
 
         return {
             "tables": [
                 {
                     "name": t,
-                    "enabled": enabled_map.get(t, True)  # default enabled if not yet synced
+                    "enabled": config_map[t]['enabled'] if t in config_map else True,
+                    "sync_mode": config_map[t]['sync_mode'] if t in config_map else "full",
+                    "incremental_column": config_map[t]['incremental_column'] if t in config_map else None,
                 }
                 for t in tables
             ]
@@ -857,9 +859,10 @@ async def list_tables(connection_id: str):
 
 @router.patch("/connectors/{connection_id}/tables/{table_name}/enabled")
 async def set_table_enabled(connection_id: str, table_name: str, body: dict):
-    """Enable or disable a table for sync."""
+    """Enable/disable a table and optionally set incremental_column."""
     try:
-        enabled = bool(body.get("enabled", True))
+        enabled             = bool(body.get("enabled", True))
+        incremental_column  = body.get("incremental_column")   # None = don't change
         pool = await get_db_pool()
         async with pool.acquire() as conn:
             existing = await conn.fetchval(
@@ -867,20 +870,47 @@ async def set_table_enabled(connection_id: str, table_name: str, body: dict):
                 uuid.UUID(connection_id), table_name
             )
             if existing:
+                sets = ["enabled=$1"]
+                vals = [enabled]
+                if incremental_column is not None:
+                    sets.append(f"incremental_column=${len(vals)+1}")
+                    vals.append(incremental_column or None)
+                vals += [uuid.UUID(connection_id), table_name]
                 await conn.execute(
-                    "UPDATE connector_sync_jobs SET enabled=$1 WHERE connection_id=$2 AND source_table=$3",
-                    enabled, uuid.UUID(connection_id), table_name
+                    f"UPDATE connector_sync_jobs SET {', '.join(sets)} "
+                    f"WHERE connection_id=${len(vals)-1} AND source_table=${len(vals)}",
+                    *vals
                 )
             else:
-                # Insert a placeholder row so the enabled flag is stored
                 await conn.execute(
                     """INSERT INTO connector_sync_jobs
-                       (id, connection_id, source_table, target_table, sync_mode, enabled)
-                       VALUES ($1,$2,$3,$4,'full',$5)""",
+                       (id, connection_id, source_table, target_table, sync_mode, enabled, incremental_column)
+                       VALUES ($1,$2,$3,$4,'full',$5,$6)""",
                     uuid.UUID(str(uuid.uuid4())), uuid.UUID(connection_id),
-                    table_name, f"datapond.default.{table_name}", enabled
+                    table_name, f"datapond.default.{table_name}",
+                    enabled, incremental_column or None
                 )
         return {"table": table_name, "enabled": enabled}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/connectors/{connection_id}/sync-mode")
+async def set_connection_sync_mode(connection_id: str, body: dict):
+    """Set sync_mode for all tables of a connection."""
+    try:
+        mode = body.get("sync_mode", "full")
+        if mode not in ("full", "incremental", "cdc", "snapshot"):
+            raise HTTPException(status_code=400, detail=f"Invalid sync_mode: {mode}")
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE connector_sync_jobs SET sync_mode=$1 WHERE connection_id=$2",
+                mode, uuid.UUID(connection_id)
+            )
+        return {"sync_mode": mode}
     except HTTPException:
         raise
     except Exception as e:

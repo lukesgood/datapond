@@ -74,6 +74,31 @@ function progressPct(tables: SyncTableResult[]) {
   return Math.round((done / tables.length) * 100)
 }
 
+// ── Error Detail (collapsible for long errors) ────────────────────────────────
+
+function ErrorDetail({ error }: { error: string }) {
+  const [expanded, setExpanded] = useState(false)
+  // Extract the human-readable part before query_id if present
+  const shortMsg = error.replace(/,\s*query_id=\S+/g, "").replace(/TrinoUserError\([^)]+\):\s*/g, "").replace(/TrinoExternalError\([^)]+\):\s*/g, "").trim()
+  const isLong = shortMsg.length > 120
+
+  return (
+    <div className="px-2 pb-2 ml-5 space-y-1">
+      <div className={`text-destructive text-xs leading-snug ${!expanded && isLong ? "line-clamp-2" : "break-all"}`}>
+        {shortMsg}
+      </div>
+      {isLong && (
+        <button
+          onClick={() => setExpanded(v => !v)}
+          className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+        >
+          {expanded ? "Show less" : "Show full error"}
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ── Session Row ────────────────────────────────────────────────────────────────
 
 function SessionRow({ session, defaultOpen }: { session: SyncSession; defaultOpen?: boolean }) {
@@ -220,11 +245,9 @@ function SessionRow({ session, defaultOpen }: { session: SyncSession; defaultOpe
                 </div>
               )}
 
-              {/* Row 3: error message — full width, clearly visible */}
+              {/* Row 3: error message — collapsible for long Trino errors */}
               {t.status === "failed" && t.error && (
-                <div className="flex items-start gap-1.5 px-2 pb-1.5 ml-5">
-                  <span className="text-destructive leading-snug break-all">{t.error}</span>
-                </div>
+                <ErrorDetail error={t.error} />
               )}
 
               {/* Row 4: completed steps summary (success, expanded) */}
@@ -282,7 +305,7 @@ export function SyncHistory({ sessions, onDismissLive }: SyncHistoryProps) {
 
         {/* Past sessions */}
         {pastSessions.map(s => (
-          <SessionRow key={s.id} session={s} defaultOpen={false} />
+          <SessionRow key={s.id} session={s} />
         ))}
       </CardContent>
     </Card>

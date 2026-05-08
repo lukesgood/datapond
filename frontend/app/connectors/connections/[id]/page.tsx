@@ -22,7 +22,7 @@ import { Switch } from "@/components/ui/switch"
 function TablesCard({
   tables, latestTableRows, togglingTable, onToggle,
 }: {
-  tables: { name: string; enabled: boolean }[]
+  tables: { name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null }[]
   latestTableRows: Map<string, number>
   togglingTable: string | null
   onToggle: (name: string, enabled: boolean) => void
@@ -71,22 +71,25 @@ function TablesCard({
         ) : (
           <div>
             {/* Header row */}
-            <div className="grid grid-cols-[auto_1fr_auto_auto] gap-2 px-2 pb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground border-b">
+            <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-2 px-2 pb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground border-b">
               <span className="w-8">Sync</span>
               <span>Table</span>
               <span className="text-right w-20">Last Rows</span>
+              <span className="w-24">Mode</span>
               <span className="w-16" />
             </div>
-            {/* Table rows — no max-h restriction */}
+            {/* Table rows */}
             <div className="divide-y">
               {filtered.length === 0 ? (
                 <p className="text-xs text-muted-foreground text-center py-4">No tables match "{search}"</p>
               ) : filtered.map(table => {
                 const rows = latestTableRows.get(table.name)
                 const queryUrl = `/query?sql=${encodeURIComponent(`SELECT * FROM iceberg.default.${table.name} LIMIT 100`)}`
+                const mode = table.sync_mode || "full"
+                const incCol = table.incremental_column
                 return (
                   <div key={table.name}
-                    className={`grid grid-cols-[auto_1fr_auto_auto] gap-2 items-center px-2 py-2 group transition-colors ${
+                    className={`grid grid-cols-[auto_1fr_auto_auto_auto] gap-2 items-center px-2 py-2 group transition-colors ${
                       table.enabled ? "hover:bg-muted/30" : "opacity-50 hover:bg-muted/10"
                     }`}>
                     <div className="w-8 flex items-center justify-center">
@@ -99,12 +102,28 @@ function TablesCard({
                     </div>
                     <div className="flex items-center gap-1.5 min-w-0">
                       <Database className={`h-3.5 w-3.5 shrink-0 ${table.enabled ? "text-muted-foreground" : "text-muted-foreground/40"}`} />
-                      <span className={`font-mono text-xs truncate ${!table.enabled ? "line-through text-muted-foreground/50" : ""}`}>
-                        {table.name}
-                      </span>
+                      <div className="min-w-0">
+                        <span className={`font-mono text-xs truncate block ${!table.enabled ? "line-through text-muted-foreground/50" : ""}`}>
+                          {table.name}
+                        </span>
+                        {incCol && (
+                          <span className="text-[10px] text-primary/70 font-mono block truncate">
+                            ↑ {incCol}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <span className="text-xs text-right text-muted-foreground w-20 font-mono">
                       {rows != null ? rows.toLocaleString() : "—"}
+                    </span>
+                    <span className="w-24">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                        mode === "incremental" ? "bg-primary/10 text-primary" :
+                        mode === "cdc"         ? "bg-purple-500/10 text-purple-600" :
+                        "bg-muted text-muted-foreground"
+                      }`}>
+                        {mode}
+                      </span>
                     </span>
                     {table.enabled ? (
                       <a href={queryUrl}
@@ -192,7 +211,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const router = useRouter()
 
   const [connector, setConnector]         = useState<Connector | null>(null)
-  const [tables, setTables]               = useState<{name: string; enabled: boolean}[]>([])
+  const [tables, setTables]               = useState<{name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null}[]>([])
   const [togglingTable, setTogglingTable] = useState<string | null>(null)
   const [configPreview, setConfigPreview] = useState<Record<string, any>>({})
   const [loading, setLoading]             = useState(true)
@@ -272,7 +291,12 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         setTables(raw.map((tb: any) =>
           typeof tb === "string"
             ? { name: tb, enabled: true }
-            : { name: tb.name ?? String(tb), enabled: tb.enabled !== false }
+            : {
+                name: tb.name ?? String(tb),
+                enabled: tb.enabled !== false,
+                sync_mode: tb.sync_mode ?? "full",
+                incremental_column: tb.incremental_column ?? null,
+              }
         ))
       }
       if (cfgRes.ok) {

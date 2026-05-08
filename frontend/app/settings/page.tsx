@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -8,144 +8,108 @@ import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import {
-  Settings, Server, Package, Database, Activity,
-  Cpu, MemoryStick, HardDrive, CheckCircle2,
-  ExternalLink, RefreshCw, Copy, Info, ShieldCheck,
-  GitBranch, Box, Clock, Layers, AlertCircle,
-  Users, Plus, Trash2, Eye, EyeOff, UserPlus, KeyRound,
+  Settings, Server, Package, Database, Activity, Cpu, HardDrive,
+  CheckCircle2, ExternalLink, RefreshCw, Copy, Info, ShieldCheck,
+  GitBranch, Box, Clock, Layers, AlertCircle, Users, Plus, Trash2,
+  Eye, EyeOff, UserPlus, KeyRound, Shield, UserX, UserCheck, X,
+  Link, Terminal,
 } from "lucide-react"
 import { getUser } from "@/lib/auth"
 
-interface Service {
-  name: string
-  status: "healthy" | "unhealthy" | "unknown"
-  url?: string
-  version?: string
+// ── Constants ──────────────────────────────────────────────────────────────────
+
+const SERVICE_META: Record<string, { label: string; desc: string; color: string; url?: string }> = {
+  postgres:     { label: "PostgreSQL 16",     desc: "Shared metadata database",      color: "text-blue-600" },
+  mlflow:       { label: "MLflow",            desc: "ML experiment tracking",         color: "text-orange-500", url: "/mlflow" },
+  jupyterlab:   { label: "JupyterLab",        desc: "Interactive notebooks",          color: "text-amber-500",  url: "/jupyter" },
+  trino:        { label: "Trino 435",         desc: "Distributed SQL query engine",   color: "text-indigo-600" },
+  risingwave:   { label: "RisingWave v1.6",   desc: "Streaming SQL database",         color: "text-cyan-600" },
+  openmetadata: { label: "OpenMetadata",      desc: "Data catalog & lineage",         color: "text-purple-600", url: "http://datapond.local:30585" },
+  seaweedfs:    { label: "SeaweedFS",         desc: "S3-compatible object storage",   color: "text-green-600",  url: "/seaweedfs-console" },
+  polaris:      { label: "Apache Polaris",    desc: "Iceberg REST catalog",           color: "text-red-500" },
+  valkey:       { label: "Valkey",            desc: "Redis-compatible cache",         color: "text-rose-500" },
+  airflow:      { label: "Airflow",           desc: "Pipeline orchestration",         color: "text-sky-600",    url: "/airflow" },
 }
 
-interface PlatformInfo {
-  services: Service[]
-  stats: {
-    total_services: number
-    healthy_services: number
-    unhealthy_services: number
-    cpu_usage?: number
-    memory_usage?: number
-  } | null
-}
-
-// Internal service → ingress URL mapping
-const SERVICE_URLS: Record<string, string> = {
-  jupyterlab:   "/jupyter",
-  mlflow:       "/mlflow",
-  openmetadata: "/openmetadata",
-  seaweedfs:    "/seaweedfs-console",
-  airflow:      "/airflow",
-}
-
-const SERVICE_META: Record<string, { label: string; desc: string; color: string }> = {
-  postgres:     { label: "PostgreSQL 16",        desc: "Shared metadata database",          color: "text-blue-600" },
-  mlflow:       { label: "MLflow 2.10",          desc: "ML experiment tracking",            color: "text-orange-500" },
-  jupyterlab:   { label: "JupyterLab",           desc: "Interactive notebooks",             color: "text-amber-500" },
-  trino:        { label: "Trino 435",            desc: "Distributed SQL query engine",       color: "text-indigo-600" },
-  risingwave:   { label: "RisingWave v1.6",      desc: "Streaming SQL database",            color: "text-cyan-600" },
-  openmetadata: { label: "OpenMetadata 1.2",     desc: "Data catalog & lineage",            color: "text-purple-600" },
-  seaweedfs:    { label: "SeaweedFS",            desc: "S3-compatible object storage",      color: "text-green-600" },
-  polaris:      { label: "Apache Polaris",       desc: "Iceberg REST catalog",              color: "text-red-500" },
-  valkey:       { label: "Valkey",               desc: "Redis-compatible cache",            color: "text-rose-500" },
-}
-
-const PLATFORM_STACK = [
-  { layer: "Ingress",    components: ["Traefik"],                                    color: "bg-slate-100 text-slate-700" },
-  { layer: "App",        components: ["Frontend (Next.js)", "Backend (FastAPI)", "JupyterLab", "Airflow", "MLflow"], color: "bg-blue-50 text-blue-800" },
-  { layer: "Compute",    components: ["Trino (OLAP)", "RisingWave (Streaming)"],     color: "bg-purple-50 text-purple-800" },
-  { layer: "Catalog",    components: ["Apache Polaris (Iceberg REST)"],              color: "bg-amber-50 text-amber-800" },
-  { layer: "Storage",    components: ["SeaweedFS (S3)", "Apache Iceberg"],           color: "bg-green-50 text-green-800" },
-  { layer: "Metadata",   components: ["PostgreSQL", "Valkey"],                       color: "bg-indigo-50 text-indigo-800" },
-  { layer: "Observability", components: ["OpenMetadata"],                            color: "bg-rose-50 text-rose-800" },
+const ACCESS_URLS = [
+  { service: "Management UI",   url: "http://datapond.local" },
+  { service: "Backend API",     url: "http://datapond.local/api" },
+  { service: "JupyterLab",      url: "http://datapond.local/jupyter",    cred: "token: jupyter" },
+  { service: "Airflow",         url: "http://datapond.local/airflow",    cred: "airflow / airflow" },
+  { service: "MLflow",          url: "http://datapond.local/mlflow" },
+  { service: "OpenMetadata",    url: "http://datapond.local:30585" },
+  { service: "SeaweedFS",       url: "http://datapond.local/seaweedfs-console" },
 ]
 
-const SMTP_PROVIDERS = [
-  {
-    name: "Gmail",
-    host: "smtp.gmail.com", port: "587", starttls: "True", ssl: "False",
-    note: "앱 비밀번호 필요 (Google 계정 → 보안 → 2단계 인증 → 앱 비밀번호)",
-  },
-  {
-    name: "Office 365",
-    host: "smtp.office365.com", port: "587", starttls: "True", ssl: "False",
-    note: "회사 Microsoft 365 계정 사용",
-  },
-  {
-    name: "AWS SES",
-    host: "email-smtp.ap-northeast-2.amazonaws.com", port: "587", starttls: "True", ssl: "False",
-    note: "IAM SMTP 자격증명 생성 필요",
-  },
-  {
-    name: "사내 SMTP",
-    host: "mail.company.com", port: "25", starttls: "False", ssl: "False",
-    note: "IT팀에 SMTP 릴레이 허용 요청",
-  },
+const HELM_CMDS = [
+  { label: "Check current values",  cmd: "helm get values datapond -n datapond" },
+  { label: "Upgrade (single-node)", cmd: "helm upgrade datapond helm/datapond \\\n  --namespace datapond \\\n  --values helm/datapond/values-quicktest.yaml \\\n  --wait=false" },
+  { label: "Pod status",            cmd: "kubectl get pods -n datapond" },
+  { label: "Resource usage",        cmd: "kubectl top pods -n datapond" },
+  { label: "Backend logs",          cmd: "kubectl logs -f deployment/backend -n datapond" },
 ]
 
-const HELM_COMMANDS = [
-  { label: "현재 설정 확인",    cmd: "helm get values datapond -n datapond" },
-  { label: "업그레이드",        cmd: "helm upgrade datapond helm/datapond \\\n  --namespace datapond \\\n  --values helm/datapond/values-quicktest.yaml \\\n  --wait=false" },
-  { label: "Pod 상태",          cmd: "kubectl get pods -n datapond" },
-  { label: "리소스 사용량",     cmd: "kubectl top pods -n datapond" },
-  { label: "백엔드 로그",       cmd: "kubectl logs -f deployment/backend -n datapond" },
-]
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   return (
-    <Button
-      variant="ghost" size="icon" className="h-6 w-6 shrink-0"
-      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
-    >
-      {copied
-        ? <CheckCircle2 className="h-3 w-3 text-emerald-500" />
-        : <Copy className="h-3 w-3 text-muted-foreground" />}
+    <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0"
+      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500) }}>
+      {copied ? <CheckCircle2 className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
     </Button>
   )
 }
 
-export default function SettingsPage() {
-  const [info, setInfo] = useState<PlatformInfo>({ services: [], stats: null })
-  const [loading, setLoading] = useState(true)
+function CodeBlock({ label, code }: { label: string; code: string }) {
+  return (
+    <div className="rounded-md border overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-muted/40 border-b">
+        <span className="text-[11px] text-muted-foreground font-medium">{label}</span>
+        <CopyButton text={code} />
+      </div>
+      <pre className="px-3 py-2.5 text-[11px] font-mono overflow-x-auto whitespace-pre leading-relaxed">{code}</pre>
+    </div>
+  )
+}
 
-  const load = async () => {
+// ── Main page ──────────────────────────────────────────────────────────────────
+
+export default function SettingsPage() {
+  const [services, setServices] = useState<any[]>([])
+  const [stats, setStats]       = useState<any>(null)
+  const [loading, setLoading]   = useState(true)
+  const currentUser             = getUser()
+
+  const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [svcRes, statsRes] = await Promise.all([
+      const [svcRes, statRes] = await Promise.all([
         fetch("/api/services"),
         fetch("/api/dashboard/stats"),
       ])
-      const services = await svcRes.json()
-      const stats = await statsRes.json()
-      setInfo({ services: Array.isArray(services) ? services : [], stats })
-    } finally {
-      setLoading(false)
-    }
-  }
+      if (svcRes.ok)  setServices(await svcRes.json())
+      if (statRes.ok) setStats(await statRes.json())
+    } finally { setLoading(false) }
+  }, [])
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [load])
 
-  const healthy = info.services.filter(s => s.status === "healthy").length
-  const total   = info.services.length
+  const healthy = services.filter(s => s.status === "healthy").length
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="max-w-5xl mx-auto px-6 py-6 space-y-6">
+      <div className="max-w-5xl mx-auto px-6 py-6 space-y-5">
 
-        {/* ── Header ── */}
+        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight">Platform Settings</h2>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              DataPond v2.3.0 · K3s cluster · 17 Helm revisions
-            </p>
+            <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">DataPond platform configuration and administration</p>
           </div>
           <Button variant="outline" size="sm" className="gap-1.5" onClick={load} disabled={loading}>
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
@@ -153,626 +117,717 @@ export default function SettingsPage() {
           </Button>
         </div>
 
-        {/* ── Platform Status strip ── */}
+        {/* Status strip */}
         <div className="grid grid-cols-4 gap-3">
           {[
-            {
-              label: "Services",
-              value: loading ? null : `${healthy}/${total}`,
-              sub: "all healthy",
-              icon: Activity,
-              ok: !loading && healthy === total,
-            },
-            {
-              label: "CPU Usage",
-              value: loading ? null : `${info.stats?.cpu_usage?.toFixed(0) ?? "—"}%`,
-              sub: "cluster total",
-              icon: Cpu,
-              ok: !loading && (info.stats?.cpu_usage ?? 0) < 90,
-            },
-            {
-              label: "Memory",
-              value: loading ? null : `${info.stats?.memory_usage?.toFixed(0) ?? "—"}%`,
-              sub: "cluster total",
-              icon: MemoryStick,
-              ok: !loading && (info.stats?.memory_usage ?? 0) < 90,
-            },
-            {
-              label: "Version",
-              value: "2.3.0",
-              sub: "Helm revision 17",
-              icon: Package,
-              ok: true,
-            },
-          ].map(({ label, value, sub, icon: Icon, ok }) => (
+            { label: "Services",   value: loading ? null : `${healthy}/${services.length}`,        sub: "healthy",         ok: !loading && healthy === services.length },
+            { label: "CPU",        value: loading ? null : stats?.cpu_usage != null ? `${stats.cpu_usage.toFixed(0)}%` : "—",
+              sub: "cluster",    ok: !loading && (stats?.cpu_usage ?? 0) < 90,   warn: (stats?.cpu_usage ?? 0) >= 90 },
+            { label: "Memory",     value: loading ? null : stats?.memory_usage != null ? `${stats.memory_usage.toFixed(0)}%` : "—",
+              sub: "cluster",    ok: !loading && (stats?.memory_usage ?? 0) < 90, warn: (stats?.memory_usage ?? 0) >= 90 },
+            { label: "Version",    value: "2.3.0",            sub: "DataPond",      ok: true },
+          ].map(({ label, value, sub, ok, warn }: any) => (
             <Card key={label}>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs text-muted-foreground">{label}</span>
-                  <Icon className={`h-3.5 w-3.5 ${ok ? "text-emerald-500" : "text-amber-500"}`} />
+                  <span className={`h-2 w-2 rounded-full ${ok ? "bg-green-500" : warn ? "bg-red-500" : "bg-amber-400"}`} />
                 </div>
-                {loading
+                {loading && value === null
                   ? <Skeleton className="h-7 w-16 mt-1" />
-                  : <div className={`text-2xl font-bold ${!ok ? "text-amber-600" : ""}`}>{value}</div>
-                }
+                  : <div className={`text-2xl font-bold ${warn ? "text-destructive" : ""}`}>{value}</div>}
                 <div className="text-[11px] text-muted-foreground mt-0.5">{sub}</div>
               </CardContent>
             </Card>
           ))}
         </div>
 
-        {/* ── Section grid ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Tabs */}
+        <Tabs defaultValue="overview">
+          <TabsList className="h-9">
+            <TabsTrigger value="overview"  className="text-xs">Overview</TabsTrigger>
+            <TabsTrigger value="users"     className="text-xs">Users</TabsTrigger>
+            <TabsTrigger value="security"  className="text-xs">Security</TabsTrigger>
+            <TabsTrigger value="system"    className="text-xs">System</TabsTrigger>
+          </TabsList>
 
-          {/* ── Service Health ── */}
-          <Card className="lg:col-span-2">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Server className="h-4 w-4 text-muted-foreground" />
-                    Service Health
-                  </CardTitle>
-                  <CardDescription>실행 중인 플랫폼 서비스 상태</CardDescription>
+          {/* ── Overview ── */}
+          <TabsContent value="overview" className="mt-5 space-y-5">
+            {/* Service Health */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Server className="h-4 w-4 text-muted-foreground" />Service Health
+                    </CardTitle>
+                    <CardDescription>Running platform services</CardDescription>
+                  </div>
+                  {!loading && healthy === services.length && services.length > 0 && (
+                    <Badge className="bg-green-500/10 text-green-700 border-green-200 gap-1">
+                      <CheckCircle2 className="h-3 w-3" />All Healthy
+                    </Badge>
+                  )}
                 </div>
-                {!loading && healthy === total && (
-                  <Badge className="bg-emerald-500/15 text-emerald-700 border-emerald-200 gap-1">
-                    <CheckCircle2 className="h-3 w-3" />All Healthy
-                  </Badge>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-3 gap-2">
-                {loading
-                  ? Array(9).fill(0).map((_, i) => <Skeleton key={i} className="h-16 rounded-lg" />)
-                  : info.services.map(svc => {
-                      const meta = SERVICE_META[svc.name]
-                      const extUrl = SERVICE_URLS[svc.name]
-                      return (
-                        <div key={svc.name}
-                          className="flex items-center gap-3 rounded-lg border p-3 bg-card hover:bg-muted/30 transition-colors">
-                          <div className={`shrink-0 ${meta?.color ?? "text-gray-500"}`}>
-                            <Database className="h-5 w-5" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs font-medium truncate">{meta?.label ?? svc.name}</span>
-                              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                                svc.status === "healthy" ? "bg-emerald-500" :
-                                svc.status === "unhealthy" ? "bg-red-500" : "bg-yellow-400"
-                              }`} />
-                            </div>
-                            <p className="text-[11px] text-muted-foreground truncate">{meta?.desc}</p>
-                          </div>
-                          {extUrl && (
-                            <a href={extUrl} target="_blank" rel="noreferrer"
-                              className="shrink-0 text-muted-foreground hover:text-foreground">
-                              <ExternalLink className="h-3.5 w-3.5" />
-                            </a>
-                          )}
-                        </div>
-                      )
-                    })}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ── Architecture Stack ── */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Layers className="h-4 w-4 text-muted-foreground" />
-                Architecture Stack
-              </CardTitle>
-              <CardDescription>플랫폼 레이어 구조</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {PLATFORM_STACK.map(({ layer, components, color }) => (
-                  <div key={layer} className={`rounded-lg px-3 py-2 ${color}`}>
-                    <div className="text-[10px] font-semibold uppercase tracking-wider mb-1.5 opacity-70">
-                      {layer}
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {components.map(c => (
-                        <span key={c} className="text-[11px] font-medium bg-white/60 rounded px-1.5 py-0.5">
-                          {c}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ── Cluster Info ── */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Box className="h-4 w-4 text-muted-foreground" />
-                Cluster Information
-              </CardTitle>
-              <CardDescription>K3s 클러스터 및 런타임 정보</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-0">
-                {[
-                  { label: "Platform",        value: "DataPond",                icon: Package },
-                  { label: "Version",         value: "v2.3.0",                  icon: GitBranch },
-                  { label: "Helm Release",    value: "datapond (rev 17)",        icon: Package },
-                  { label: "Kubernetes",      value: "v1.35.4+k3s1 (K3s)",      icon: Server },
-                  { label: "Container RT",    value: "containerd 2.2.3-k3s1",   icon: Box },
-                  { label: "OS",              value: "Ubuntu 24.04.4 LTS",       icon: HardDrive },
-                  { label: "Kernel",          value: "6.17.0-22-generic",        icon: Cpu },
-                  { label: "Namespace",       value: "datapond",                 icon: Layers },
-                  { label: "Ingress",         value: "Traefik",                  icon: Activity },
-                  { label: "Storage",         value: "local-path (K3s default)", icon: HardDrive },
-                ].map(({ label, value, icon: Icon }) => (
-                  <div key={label}>
-                    <div className="flex items-center justify-between py-2.5 text-sm">
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Icon className="h-3.5 w-3.5 shrink-0" />
-                        {label}
-                      </div>
-                      <span className="font-mono text-xs text-right">{value}</span>
-                    </div>
-                    <Separator />
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ── Resource Usage ── */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Cpu className="h-4 w-4 text-muted-foreground" />
-                Resource Usage
-              </CardTitle>
-              <CardDescription>클러스터 리소스 할당 현황</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              {[
-                { label: "CPU", value: info.stats?.cpu_usage, unit: "%" },
-                { label: "Memory", value: info.stats?.memory_usage, unit: "%" },
-              ].map(({ label, value, unit }) => (
-                <div key={label} className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">{label}</span>
-                    {loading
-                      ? <Skeleton className="h-4 w-12" />
-                      : <span className={`font-semibold tabular-nums ${
-                          (value ?? 0) >= 90 ? "text-red-600" :
-                          (value ?? 0) >= 75 ? "text-amber-600" : "text-emerald-600"
-                        }`}>{value?.toFixed(1)}{unit}</span>
-                    }
-                  </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                   {loading
-                    ? <Skeleton className="h-2 w-full" />
-                    : <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all ${
-                            (value ?? 0) >= 90 ? "bg-red-500" :
-                            (value ?? 0) >= 75 ? "bg-amber-500" : "bg-emerald-500"
-                          }`}
-                          style={{ width: `${Math.min(value ?? 0, 100)}%` }}
-                        />
-                      </div>
-                  }
+                    ? Array(9).fill(0).map((_,i) => <Skeleton key={i} className="h-16 rounded-lg" />)
+                    : services.map(svc => {
+                        const meta = SERVICE_META[svc.name]
+                        return (
+                          <div key={svc.name}
+                            className="flex items-center gap-3 rounded-lg border p-3 bg-card hover:bg-muted/30 transition-colors">
+                            <span className={`shrink-0 ${meta?.color ?? "text-muted-foreground"}`}>
+                              <Database className="h-4 w-4" />
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-medium truncate">{meta?.label ?? svc.name}</span>
+                                <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                                  svc.status === "healthy" ? "bg-green-500" :
+                                  svc.status === "unhealthy" ? "bg-red-500" : "bg-amber-400"}`} />
+                              </div>
+                              <p className="text-[11px] text-muted-foreground truncate">{meta?.desc}</p>
+                            </div>
+                            {meta?.url && (
+                              <a href={meta.url} target="_blank" rel="noreferrer"
+                                className="shrink-0 text-muted-foreground hover:text-foreground">
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </a>
+                            )}
+                          </div>
+                        )
+                      })}
                 </div>
-              ))}
+              </CardContent>
+            </Card>
 
-              <Separator />
-
-              <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800 space-y-1">
-                <div className="font-medium flex items-center gap-1.5">
-                  <Info className="h-3.5 w-3.5" />
-                  리소스 최적화 팁
-                </div>
-                <ul className="space-y-1 list-disc list-inside text-amber-700">
-                  <li>사용하지 않는 서비스는 <code className="bg-amber-100 px-1 rounded">values.yaml</code>에서 비활성화</li>
-                  <li>OpenMetadata·Jupyter는 메모리 사용량이 큼 (각 ~1GB)</li>
-                  <li>프로덕션은 16GB RAM 이상 권장</li>
-                </ul>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ── Configuration Management ── */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Settings className="h-4 w-4 text-muted-foreground" />
-                Configuration Management
-              </CardTitle>
-              <CardDescription>Helm 기반 설정 변경 방법</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-lg bg-muted/40 border p-3 text-xs space-y-1.5">
-                <p className="font-medium text-foreground">설정 변경 워크플로우</p>
-                <ol className="space-y-1 list-decimal list-inside text-muted-foreground">
-                  <li><code className="bg-background rounded px-1">helm/datapond/values-quicktest.yaml</code> 편집</li>
-                  <li>아래 upgrade 명령 실행</li>
-                  <li>Pod 재시작 후 변경사항 반영 확인</li>
-                </ol>
-              </div>
-
-              <div className="space-y-2">
-                {HELM_COMMANDS.map(({ label, cmd }) => (
-                  <div key={label} className="rounded-md border overflow-hidden">
-                    <div className="flex items-center justify-between px-3 py-1.5 bg-muted/30 border-b">
-                      <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
-                      <CopyButton text={cmd} />
-                    </div>
-                    <pre className="px-3 py-2 text-[11px] font-mono text-foreground overflow-x-auto whitespace-pre">
-                      {cmd}
-                    </pre>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ── Email Alert (SMTP) ── */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Activity className="h-4 w-4 text-muted-foreground" />
-                이메일 알림 (SMTP) 설정
-              </CardTitle>
-              <CardDescription>
-                파이프라인 실패 시 이메일 알림을 받으려면 Airflow SMTP를 설정하세요
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* 현재 상태 */}
-              <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-                <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
-                <div className="text-xs text-amber-800">
-                  <span className="font-medium">현재 비활성</span> —
-                  {" "}SMTP 미설정 상태입니다. 아래 가이드를 따라 설정하세요.
-                </div>
-              </div>
-
-              {/* 설정 방법 */}
-              <div className="space-y-2">
-                <p className="text-xs font-medium">Step 1 — SMTP 비밀번호를 K8s Secret에 저장</p>
-                <div className="rounded-md border overflow-hidden">
-                  <div className="flex items-center justify-between px-3 py-1.5 bg-muted/30 border-b">
-                    <span className="text-[11px] text-muted-foreground">kubectl</span>
-                    <CopyButton text={`kubectl create secret generic datapond-secrets -n datapond \\\n  --from-literal=AIRFLOW_SMTP_PASSWORD="your-smtp-password" \\\n  --dry-run=client -o yaml | kubectl apply -f -`} />
-                  </div>
-                  <pre className="px-3 py-2 text-[11px] font-mono overflow-x-auto whitespace-pre">
-{`kubectl create secret generic datapond-secrets -n datapond \\
-  --from-literal=AIRFLOW_SMTP_PASSWORD="your-smtp-password" \\
-  --dry-run=client -o yaml | kubectl apply -f -`}
-                  </pre>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-xs font-medium">Step 2 — values-quicktest.yaml SMTP 활성화</p>
-                <div className="rounded-md border overflow-hidden">
-                  <div className="flex items-center justify-between px-3 py-1.5 bg-muted/30 border-b">
-                    <span className="text-[11px] text-muted-foreground">helm/datapond/values-quicktest.yaml</span>
-                    <CopyButton text={`airflow:\n  smtp:\n    enabled: true\n    host: "smtp.gmail.com"\n    port: "587"\n    starttls: "True"\n    ssl: "False"\n    user: "alerts@company.com"\n    mailFrom: "DataPond <alerts@company.com>"`} />
-                  </div>
-                  <pre className="px-3 py-2 text-[11px] font-mono overflow-x-auto whitespace-pre text-muted-foreground">
-{`airflow:
-  smtp:
-    enabled: true
-    host: "smtp.gmail.com"
-    port: "587"
-    starttls: "True"
-    ssl: "False"
-    user: "alerts@company.com"
-    mailFrom: "DataPond <alerts@company.com>"`}
-                  </pre>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-xs font-medium">Step 3 — Helm 업그레이드</p>
-                <div className="rounded-md border overflow-hidden">
-                  <div className="flex items-center justify-between px-3 py-1.5 bg-muted/30 border-b">
-                    <span className="text-[11px] text-muted-foreground">helm upgrade</span>
-                    <CopyButton text="helm upgrade datapond helm/datapond --namespace datapond --values helm/datapond/values-quicktest.yaml --wait=false" />
-                  </div>
-                  <pre className="px-3 py-2 text-[11px] font-mono overflow-x-auto whitespace-pre">
-{`helm upgrade datapond helm/datapond \\
-  --namespace datapond \\
-  --values helm/datapond/values-quicktest.yaml \\
-  --wait=false`}
-                  </pre>
-                </div>
-              </div>
-
-              {/* SMTP 프로바이더 참고 */}
-              <div>
-                <p className="text-xs font-medium mb-2">SMTP 프로바이더별 설정 참고</p>
-                <div className="space-y-1">
-                  {SMTP_PROVIDERS.map(p => (
-                    <div key={p.name} className="rounded-md border px-3 py-2 text-xs space-y-0.5">
-                      <div className="flex items-center gap-3">
-                        <span className="font-medium w-24 shrink-0">{p.name}</span>
-                        <code className="text-muted-foreground">{p.host}:{p.port}</code>
-                      </div>
-                      <p className="text-[11px] text-muted-foreground pl-0">{p.note}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ── Access URLs ── */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <ExternalLink className="h-4 w-4 text-muted-foreground" />
-                Access URLs
-              </CardTitle>
-              <CardDescription>서비스별 접근 주소 및 인증 정보</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-0">
-                {[
-                  { service: "Frontend",     url: "http://datapond.local",           cred: "" },
-                  { service: "Backend API",  url: "http://datapond.local/api",        cred: "" },
-                  { service: "JupyterLab",   url: "http://datapond.local/jupyter",    cred: "token: jupyter" },
-                  { service: "Airflow",      url: "http://datapond.local/airflow",    cred: "airflow / airflow" },
-                  { service: "MLflow",       url: "http://datapond.local/mlflow",     cred: "" },
-                  { service: "OpenMetadata", url: "http://datapond.local/openmetadata", cred: "" },
-                  { service: "SeaweedFS",    url: "http://datapond.local/seaweedfs-console", cred: "" },
-                ].map(({ service, url, cred }) => (
-                  <div key={service}>
-                    <div className="flex items-center justify-between py-2.5 text-sm gap-2">
-                      <span className="text-muted-foreground shrink-0 w-28">{service}</span>
+            {/* Access URLs */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Link className="h-4 w-4 text-muted-foreground" />Access URLs
+                </CardTitle>
+                <CardDescription>Service endpoints and credentials</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="divide-y">
+                  {ACCESS_URLS.map(({ service, url, cred }) => (
+                    <div key={service} className="flex items-center gap-3 py-2.5 text-sm">
+                      <span className="text-muted-foreground w-28 shrink-0 text-xs">{service}</span>
                       <div className="flex items-center gap-1 flex-1 min-w-0">
                         <a href={url} target="_blank" rel="noreferrer"
-                          className="text-xs font-mono text-blue-600 hover:underline truncate">
-                          {url}
-                        </a>
+                          className="text-xs font-mono text-primary hover:underline truncate">{url}</a>
                         <CopyButton text={url} />
                       </div>
                       {cred && (
-                        <span className="text-[11px] text-muted-foreground font-mono shrink-0 bg-muted px-1.5 py-0.5 rounded">
-                          {cred}
-                        </span>
+                        <code className="text-[11px] text-muted-foreground shrink-0 bg-muted px-1.5 py-0.5 rounded">{cred}</code>
                       )}
                     </div>
-                    <Separator />
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-          {/* ── Security & Roadmap ── */}
-          <Card className="lg:col-span-2">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-                Security & Planned Features
-              </CardTitle>
-              <CardDescription>현재 보안 상태 및 향후 구현 예정 기능</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
-                    현재 상태
-                  </p>
-                  <div className="space-y-2">
+          {/* ── Users ── */}
+          <TabsContent value="users" className="mt-5">
+            <UserManagement />
+          </TabsContent>
+
+          {/* ── Security ── */}
+          <TabsContent value="security" className="mt-5 space-y-5">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-muted-foreground" />Security Status
+                </CardTitle>
+                <CardDescription>Current security configuration</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="divide-y">
+                  {[
+                    { label: "Authentication",       status: "ok",      note: "JWT-based login enabled" },
+                    { label: "Role-based Access",    status: "ok",      note: "admin / viewer roles" },
+                    { label: "API Protection",       status: "ok",      note: "Bearer token required" },
+                    { label: "Password Hashing",     status: "ok",      note: "bcrypt (rounds=12)" },
+                    { label: "Session Expiry",       status: "ok",      note: "24h JWT expiry" },
+                    { label: "First-login Policy",   status: "ok",      note: "Forced password change" },
+                    { label: "TLS/HTTPS",            status: "pending", note: "HTTP only — configure cert-manager" },
+                    { label: "LDAP / SSO",           status: "planned", note: "Planned for Phase 2" },
+                    { label: "MFA",                  status: "planned", note: "Planned for Phase 2" },
+                    { label: "Audit Log",            status: "planned", note: "Planned for Phase 2" },
+                    { label: "Column Masking",       status: "planned", note: "Planned for Phase 3" },
+                    { label: "Row-level Security",   status: "planned", note: "Planned for Phase 3" },
+                  ].map(({ label, status, note }) => (
+                    <div key={label} className="flex items-center gap-3 py-2.5 text-sm">
+                      <span className={`h-2 w-2 rounded-full shrink-0 ${
+                        status === "ok"      ? "bg-green-500" :
+                        status === "pending" ? "bg-amber-400" : "bg-muted-foreground/30"}`} />
+                      <span className="flex-1">{label}</span>
+                      <span className="text-xs text-muted-foreground">{note}</span>
+                      {status === "ok"      && <Badge variant="secondary" className="text-[10px] h-4 px-1.5 bg-green-500/10 text-green-700 border-green-200">Active</Badge>}
+                      {status === "pending" && <Badge variant="secondary" className="text-[10px] h-4 px-1.5 bg-amber-500/10 text-amber-700 border-amber-200">Pending</Badge>}
+                      {status === "planned" && <Badge variant="secondary" className="text-[10px] h-4 px-1.5">Planned</Badge>}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Network isolation */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Server className="h-4 w-4 text-muted-foreground" />Infrastructure Security
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="divide-y">
+                  {[
+                    { label: "Secret Encryption",  note: "K8s Secrets encrypted at rest" },
+                    { label: "Network Isolation",  note: "K8s namespace isolation" },
+                    { label: "Container Runtime",  note: "containerd — pod isolation" },
+                    { label: "Image Pull Policy",  note: "IfNotPresent — airgap compatible" },
+                    { label: "Deployment Strategy",note: "Recreate — no partial state" },
+                  ].map(({ label, note }) => (
+                    <div key={label} className="flex items-center gap-3 py-2.5 text-sm">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                      <span className="flex-1">{label}</span>
+                      <span className="text-xs text-muted-foreground">{note}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ── System ── */}
+          <TabsContent value="system" className="mt-5 space-y-5">
+            <div className="grid md:grid-cols-2 gap-5">
+              {/* Platform info */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Box className="h-4 w-4 text-muted-foreground" />Platform Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="divide-y">
                     {[
-                      { label: "TLS/HTTPS",           status: "pending",  note: "현재 HTTP" },
-                      { label: "인증 시스템",          status: "pending",  note: "미구현" },
-                      { label: "RBAC",                 status: "pending",  note: "미구현" },
-                      { label: "Secret 암호화",        status: "ok",       note: "K8s Secrets" },
-                      { label: "네트워크 격리",        status: "ok",       note: "K8s namespace" },
-                      { label: "컨테이너 분리",        status: "ok",       note: "Pod 격리" },
-                    ].map(({ label, status, note }) => (
-                      <div key={label} className="flex items-center gap-2 text-sm">
-                        <span className={`h-2 w-2 rounded-full shrink-0 ${
-                          status === "ok" ? "bg-emerald-500" :
-                          status === "pending" ? "bg-amber-400" : "bg-red-500"
-                        }`} />
-                        <span className="flex-1">{label}</span>
-                        <span className="text-xs text-muted-foreground">{note}</span>
+                      { label: "DataPond",      value: "v2.3.0" },
+                      { label: "Kubernetes",    value: "v1.35.4+k3s1" },
+                      { label: "Distribution",  value: "K3s" },
+                      { label: "Namespace",     value: "datapond" },
+                      { label: "Ingress",       value: "Traefik" },
+                      { label: "Storage",       value: "local-path (K3s)" },
+                      { label: "Container RT",  value: "containerd" },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="flex items-center justify-between py-2 text-sm">
+                        <span className="text-muted-foreground text-xs">{label}</span>
+                        <span className="font-mono text-xs">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Resource usage */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Cpu className="h-4 w-4 text-muted-foreground" />Resource Usage
+                  </CardTitle>
+                  <CardDescription>Cluster-wide resource allocation</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  {[
+                    { label: "CPU",    value: stats?.cpu_usage },
+                    { label: "Memory", value: stats?.memory_usage },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">{label}</span>
+                        {loading
+                          ? <Skeleton className="h-4 w-12" />
+                          : <span className={`font-semibold tabular-nums ${
+                              value == null ? "text-muted-foreground" :
+                              value >= 90 ? "text-destructive" :
+                              value >= 75 ? "text-amber-600" : "text-green-600"}`}>
+                              {value != null ? `${value.toFixed(1)}%` : "—"}
+                            </span>}
+                      </div>
+                      {loading ? <Skeleton className="h-2 w-full" /> : (
+                        <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                          <div className={`h-full rounded-full transition-all ${
+                            value == null ? "" :
+                            value >= 90 ? "bg-destructive" :
+                            value >= 75 ? "bg-amber-500" : "bg-green-500"}`}
+                            style={{ width: `${Math.min(value ?? 0, 100)}%` }} />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {((stats?.cpu_usage ?? 0) >= 75 || (stats?.memory_usage ?? 0) >= 75) && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2.5 text-xs text-amber-700 flex items-start gap-2">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-medium">High resource usage</p>
+                        <p className="mt-0.5 text-amber-600">Disable unused services in values.yaml or add more RAM. Production: 32GB+ recommended.</p>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Helm configuration */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Terminal className="h-4 w-4 text-muted-foreground" />Configuration Management
+                </CardTitle>
+                <CardDescription>Helm-based configuration workflow</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="rounded-lg bg-muted/40 border px-4 py-3 text-xs space-y-1.5">
+                  <p className="font-medium">How to apply changes</p>
+                  <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                    <li>Edit <code className="bg-background rounded px-1">helm/datapond/values-quicktest.yaml</code></li>
+                    <li>Run the upgrade command below</li>
+                    <li>Wait for pods to restart and verify</li>
+                  </ol>
+                </div>
+                <div className="space-y-2">
+                  {HELM_CMDS.map(({ label, cmd }) => (
+                    <CodeBlock key={label} label={label} code={cmd} />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* SMTP */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-muted-foreground" />Email Alerts (SMTP)
+                </CardTitle>
+                <CardDescription>Configure Airflow SMTP for pipeline failure notifications</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-3">
+                  <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+                  <p className="text-xs text-amber-700"><span className="font-medium">Not configured</span> — follow the steps below to enable email notifications.</p>
+                </div>
+
+                <CodeBlock label="Step 1 — Store SMTP password as K8s Secret"
+                  code={`kubectl create secret generic datapond-secrets -n datapond \\\n  --from-literal=AIRFLOW_SMTP_PASSWORD="your-password" \\\n  --dry-run=client -o yaml | kubectl apply -f -`} />
+
+                <CodeBlock label="Step 2 — Add to values-quicktest.yaml"
+                  code={`airflow:\n  smtp:\n    enabled: true\n    host: "smtp.gmail.com"\n    port: "587"\n    user: "alerts@company.com"\n    mailFrom: "DataPond <alerts@company.com>"`} />
+
+                <CodeBlock label="Step 3 — Apply with Helm upgrade"
+                  code="helm upgrade datapond helm/datapond -n datapond --values helm/datapond/values-quicktest.yaml --wait=false" />
+
+                <div>
+                  <p className="text-xs font-medium mb-2">Common SMTP providers</p>
+                  <div className="space-y-1.5">
+                    {[
+                      { name: "Gmail",       host: "smtp.gmail.com",                              port: "587", note: "Requires App Password (Google Account → Security → 2FA → App passwords)" },
+                      { name: "Office 365",  host: "smtp.office365.com",                          port: "587", note: "Use corporate Microsoft 365 account" },
+                      { name: "AWS SES",     host: "email-smtp.ap-northeast-2.amazonaws.com",     port: "587", note: "Create IAM SMTP credentials in SES console" },
+                      { name: "On-prem SMTP",host: "mail.company.com",                            port: "25",  note: "Request SMTP relay from IT team" },
+                    ].map(p => (
+                      <div key={p.name} className="rounded-md border px-3 py-2 text-xs">
+                        <div className="flex items-center gap-3">
+                          <span className="font-medium w-24 shrink-0">{p.name}</span>
+                          <code className="text-muted-foreground">{p.host}:{p.port}</code>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">{p.note}</p>
                       </div>
                     ))}
                   </div>
                 </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
-                    향후 계획
-                  </p>
-                  <div className="space-y-2">
-                    {[
-                      { label: "LDAP / Active Directory 연동" },
-                      { label: "SAML 2.0 / OIDC SSO" },
-                      { label: "MFA (Multi-Factor Auth)" },
-                      { label: "Row-level Security (RLS)" },
-                      { label: "Column Masking" },
-                      { label: "Audit Log" },
-                      { label: "Prometheus + Grafana 모니터링" },
-                    ].map(({ label }) => (
-                      <div key={label} className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Clock className="h-3 w-3 shrink-0 text-muted-foreground/50" />
-                        {label}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
 
-        </div>
-      </div>
-
-      {/* ── User Management ── */}
-      <div className="mt-8">
-        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <Users className="h-5 w-5" />User Management
-        </h2>
-        <UserManagement />
+        {/* User Management (moved outside tabs for clean separation) */}
       </div>
     </div>
   )
 }
 
-// ── User Management Component ──────────────────────────────────────────────────
+// ── User Management ────────────────────────────────────────────────────────────
+
+interface UserRecord {
+  id: string; username: string; email: string; display_name: string
+  role: "admin" | "viewer"; is_active: boolean
+  require_password_change: boolean; created_at: string | null
+}
 
 function UserManagement() {
   const currentUser = getUser()
-  const isAdmin = currentUser?.role === "admin"
+  const isAdmin     = currentUser?.role === "admin"
 
+  const [users, setUsers]         = useState<UserRecord[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [actionMsg, setActionMsg] = useState<{ text: string; ok: boolean } | null>(null)
+
+  const [showCreate, setShowCreate]   = useState(false)
   const [newUsername, setNewUsername] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [newDisplayName, setNewDisplayName] = useState("")
-  const [showPw, setShowPw] = useState(false)
-  const [creating, setCreating] = useState(false)
-  const [createMsg, setCreateMsg] = useState<string | null>(null)
+  const [newRole, setNewRole]         = useState<"admin"|"viewer">("viewer")
+  const [showNewPw, setShowNewPw]     = useState(false)
+  const [creating, setCreating]       = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
-  // Change own password
-  const [currentPw, setCurrentPw] = useState("")
-  const [newPw, setNewPw] = useState("")
-  const [changingPw, setChangingPw] = useState(false)
-  const [pwMsg, setPwMsg] = useState<string | null>(null)
+  const [resetTarget, setResetTarget] = useState<UserRecord | null>(null)
+  const [resetPw, setResetPw]         = useState("")
+  const [showResetPw, setShowResetPw] = useState(false)
+  const [resetting, setResetting]     = useState(false)
+  const [resetError, setResetError]   = useState<string | null>(null)
 
-  const getAuthHeaders = (): Record<string, string> => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("datapond_token") : null
-    const h: Record<string, string> = { "Content-Type": "application/json" }
-    if (token) h["Authorization"] = `Bearer ${token}`
-    return h
-  }
+  const [showProfile, setShowProfile] = useState(false)
+  const [profileName, setProfileName] = useState("")
+  const [ownPw, setOwnPw]             = useState("")
+  const [showOwnPw, setShowOwnPw]     = useState(false)
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [profileMsg, setProfileMsg]   = useState<string | null>(null)
 
-  const handleCreateUser = async () => {
-    if (!newUsername || !newPassword) return
-    setCreating(true); setCreateMsg(null)
+  const fetchUsers = useCallback(async () => {
+    if (!isAdmin) { setLoading(false); return }
+    setLoading(true)
     try {
-      const res = await fetch("/api/auth/setup", {
-        method: "POST",
-        headers: getAuthHeaders(),
+      const res = await fetch("/api/auth/users")
+      if (res.ok) setUsers(await res.json())
+    } finally { setLoading(false) }
+  }, [isAdmin])
+
+  useEffect(() => { fetchUsers() }, [fetchUsers])
+
+  const notify = (text: string, ok = true) => { setActionMsg({ text, ok }); setTimeout(() => setActionMsg(null), 4000) }
+
+  const handleCreate = async () => {
+    if (!newUsername || !newPassword) return
+    setCreating(true); setCreateError(null)
+    try {
+      const r = await fetch("/api/auth/setup", {
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: newUsername, password: newPassword, display_name: newDisplayName || undefined }),
       })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d.detail ?? "Failed")
-      setCreateMsg(`User '${newUsername}' created`)
-      setNewUsername(""); setNewPassword(""); setNewDisplayName("")
-    } catch (e) {
-      setCreateMsg(e instanceof Error ? e.message : "Failed")
-    } finally { setCreating(false) }
+      if (!r.ok) { const d = await r.json(); throw new Error(d.detail) }
+      if (newRole === "admin") {
+        const list: UserRecord[] = await (await fetch("/api/auth/users")).json()
+        const created = list.find(u => u.username === newUsername)
+        if (created) await fetch(`/api/auth/users/${created.id}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role: "admin" }),
+        })
+      }
+      setShowCreate(false); setNewUsername(""); setNewPassword(""); setNewDisplayName(""); setNewRole("viewer")
+      notify(`User '${newUsername}' created — must change password on first login`)
+      fetchUsers()
+    } catch (e) { setCreateError(e instanceof Error ? e.message : "Failed") }
+    finally { setCreating(false) }
   }
 
-  const handleChangePassword = async () => {
-    if (!newPw) return
-    setChangingPw(true); setPwMsg(null)
+  const handleResetPassword = async () => {
+    if (!resetTarget || !resetPw) return
+    setResetting(true); setResetError(null)
     try {
-      const res = await fetch("/api/auth/setup", {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ username: currentUser?.username, password: newPw }),
+      const r = await fetch("/api/auth/setup", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: resetTarget.username, password: resetPw }),
       })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d.detail ?? "Failed")
-      setPwMsg("Password updated successfully")
-      setCurrentPw(""); setNewPw("")
-    } catch (e) {
-      setPwMsg(e instanceof Error ? e.message : "Failed")
-    } finally { setChangingPw(false) }
+      if (!r.ok) { const d = await r.json(); throw new Error(d.detail) }
+      setResetTarget(null); setResetPw("")
+      notify(`Password reset for '${resetTarget.username}'`)
+    } catch (e) { setResetError(e instanceof Error ? e.message : "Failed") }
+    finally { setResetting(false) }
+  }
+
+  const handleToggleActive = async (u: UserRecord) => {
+    await fetch(`/api/auth/users/${u.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: !u.is_active }),
+    })
+    notify(`${u.username} ${!u.is_active ? "activated" : "deactivated"}`)
+    fetchUsers()
+  }
+
+  const handleToggleRole = async (u: UserRecord) => {
+    const r = u.role === "admin" ? "viewer" : "admin"
+    await fetch(`/api/auth/users/${u.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: r }),
+    })
+    notify(`${u.username} role changed to ${r}`)
+    fetchUsers()
+  }
+
+  const handleDelete = async (u: UserRecord) => {
+    if (!confirm(`Delete user '${u.username}'? This cannot be undone.`)) return
+    const r = await fetch(`/api/auth/users/${u.id}`, { method: "DELETE" })
+    if (r.ok) { notify(`User '${u.username}' deleted`); fetchUsers() }
+    else notify("Failed to delete user", false)
+  }
+
+  const handleSaveProfile = async () => {
+    setSavingProfile(true); setProfileMsg(null)
+    try {
+      if (profileName !== currentUser?.display_name) {
+        await fetch("/api/auth/me", {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ display_name: profileName }),
+        })
+      }
+      if (ownPw) {
+        const r = await fetch("/api/auth/change-password", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ new_password: ownPw }),
+        })
+        if (!r.ok) { const d = await r.json(); throw new Error(d.detail) }
+        setOwnPw("")
+      }
+      setProfileMsg("Profile updated successfully"); setShowProfile(false)
+    } catch (e) { setProfileMsg(e instanceof Error ? e.message : "Failed") }
+    finally { setSavingProfile(false) }
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      {/* Change own password */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <KeyRound className="h-4 w-4" />Change Password
-          </CardTitle>
-          <CardDescription>Update your account password</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs">Current User</Label>
-            <p className="text-sm font-medium">{currentUser?.display_name} <span className="text-muted-foreground text-xs">({currentUser?.username})</span></p>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">New Password</Label>
-            <div className="relative">
-              <Input
-                type={showPw ? "text" : "password"}
-                value={newPw}
-                onChange={e => setNewPw(e.target.value)}
-                placeholder="New password"
-                className="pr-9"
-              />
-              <button onClick={() => setShowPw(v => !v)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-          </div>
-          <Button size="sm" onClick={handleChangePassword} disabled={!newPw || changingPw}>
-            {changingPw ? "Updating…" : "Update Password"}
-          </Button>
-          {pwMsg && (
-            <p className={`text-xs ${pwMsg.includes("success") ? "text-green-600" : "text-destructive"}`}>{pwMsg}</p>
-          )}
-        </CardContent>
-      </Card>
+    <div className="space-y-4">
+      {/* Feedback banner */}
+      {actionMsg && (
+        <div className={`flex items-center justify-between rounded-lg border px-4 py-2.5 text-sm ${
+          actionMsg.ok
+            ? "border-green-200 bg-green-50/50 text-green-700"
+            : "border-destructive/20 bg-destructive/5 text-destructive"}`}>
+          <span>{actionMsg.text}</span>
+          <button onClick={() => setActionMsg(null)}><X className="h-4 w-4" /></button>
+        </div>
+      )}
 
-      {/* Create new user (admin only) */}
-      <Card className={!isAdmin ? "opacity-60" : ""}>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <UserPlus className="h-4 w-4" />Create User
-            {!isAdmin && <Badge variant="secondary" className="text-xs ml-auto">Admin only</Badge>}
-          </CardTitle>
-          <CardDescription>Add a new DataPond user account</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid grid-cols-2 gap-2">
+      {/* Toolbar */}
+      <div className="flex items-center gap-2">
+        {isAdmin && (
+          <Button size="sm" onClick={() => setShowCreate(true)}>
+            <UserPlus className="h-4 w-4 mr-1.5" />New User
+          </Button>
+        )}
+        <Button size="sm" variant="outline"
+          onClick={() => { setProfileName(currentUser?.display_name || ""); setOwnPw(""); setProfileMsg(null); setShowProfile(true) }}>
+          <KeyRound className="h-4 w-4 mr-1.5" />My Profile
+        </Button>
+        {isAdmin && (
+          <Button size="sm" variant="ghost" className="ml-auto" onClick={fetchUsers}>
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+          </Button>
+        )}
+      </div>
+
+      {/* Users table */}
+      {isAdmin && (
+        <Card>
+          <CardContent className="p-0">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 border-b">
+                <tr>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">User</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Role</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Status</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground hidden md:table-cell">Joined</th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {loading ? (
+                  [...Array(2)].map((_,i) => (
+                    <tr key={i}><td colSpan={5} className="px-4 py-3"><Skeleton className="h-8 w-full" /></td></tr>
+                  ))
+                ) : users.filter(u => u.username).map(u => (
+                  <tr key={u.id} className={`hover:bg-muted/20 transition-colors ${!u.is_active ? "opacity-50" : ""}`}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                          <span className="text-[11px] font-semibold text-primary">
+                            {(u.display_name || u.username || "?")[0].toUpperCase()}
+                          </span>
+                        </div>
+                        <div>
+                          <p className="font-medium text-sm leading-tight">
+                            {u.display_name || u.username}
+                            {u.id === currentUser?.id && <span className="ml-1.5 text-[10px] text-muted-foreground">(you)</span>}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">@{u.username}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-[10px] gap-1">
+                        {u.role === "admin" && <Shield className="h-2.5 w-2.5" />}
+                        {u.role}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3">
+                      {u.is_active
+                        ? <span className="flex items-center gap-1 text-green-600 text-xs"><CheckCircle2 className="h-3.5 w-3.5" />Active</span>
+                        : <span className="flex items-center gap-1 text-muted-foreground text-xs"><UserX className="h-3.5 w-3.5" />Inactive</span>}
+                      {u.require_password_change && (
+                        <span className="text-[10px] text-amber-500 block mt-0.5">Must change password</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground hidden md:table-cell">
+                      {u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      {u.id !== currentUser?.id && (
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Button variant="ghost" size="icon" className="h-7 w-7" title="Reset password"
+                            onClick={() => { setResetTarget(u); setResetPw(""); setResetError(null) }}>
+                            <KeyRound className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7"
+                            title={u.role === "admin" ? "Demote to viewer" : "Promote to admin"}
+                            onClick={() => handleToggleRole(u)}>
+                            <Shield className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7"
+                            title={u.is_active ? "Deactivate" : "Activate"}
+                            onClick={() => handleToggleActive(u)}>
+                            {u.is_active ? <UserX className="h-3.5 w-3.5" /> : <UserCheck className="h-3.5 w-3.5" />}
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                            title="Delete user" onClick={() => handleDelete(u)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Create User ── */}
+      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Create New User</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Username <span className="text-destructive">*</span></Label>
+                <Input value={newUsername} onChange={e => setNewUsername(e.target.value)} placeholder="username" autoFocus />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Display Name</Label>
+                <Input value={newDisplayName} onChange={e => setNewDisplayName(e.target.value)} placeholder="Full Name" />
+              </div>
+            </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">Username <span className="text-destructive">*</span></Label>
-              <Input value={newUsername} onChange={e => setNewUsername(e.target.value)} placeholder="username" disabled={!isAdmin} />
+              <Label className="text-xs">Initial Password <span className="text-destructive">*</span></Label>
+              <div className="relative">
+                <Input type={showNewPw ? "text" : "password"} value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)} placeholder="Min 6 characters" className="pr-9" />
+                <button onClick={() => setShowNewPw(v => !v)} tabIndex={-1}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  {showNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">User must change password on first login</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Role</Label>
+              <Select value={newRole} onValueChange={v => setNewRole((v || "viewer") as "admin"|"viewer")}>
+                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="viewer">Viewer — read-only access</SelectItem>
+                  <SelectItem value="admin">Admin — full access</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {createError && <p className="text-xs text-destructive">{createError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
+            <Button onClick={handleCreate} disabled={!newUsername || !newPassword || creating}>
+              {creating ? "Creating…" : "Create User"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Reset Password ── */}
+      <Dialog open={!!resetTarget} onOpenChange={o => !o && setResetTarget(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Reset Password — @{resetTarget?.username}</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">New Password <span className="text-destructive">*</span></Label>
+              <div className="relative">
+                <Input type={showResetPw ? "text" : "password"} value={resetPw}
+                  onChange={e => setResetPw(e.target.value)} placeholder="Min 6 characters" className="pr-9" autoFocus />
+                <button onClick={() => setShowResetPw(v => !v)} tabIndex={-1}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  {showResetPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">User will be prompted to change password on next login</p>
+            </div>
+            {resetError && <p className="text-xs text-destructive">{resetError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetTarget(null)}>Cancel</Button>
+            <Button onClick={handleResetPassword} disabled={!resetPw || resetting}>
+              {resetting ? "Resetting…" : "Reset Password"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── My Profile ── */}
+      <Dialog open={showProfile} onOpenChange={setShowProfile}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>My Profile</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="rounded-lg bg-muted/40 px-3 py-2.5 text-xs">
+              <p className="text-muted-foreground">Account: <span className="font-medium text-foreground">@{currentUser?.username}</span></p>
+              <p className="text-muted-foreground mt-0.5">Role: <span className="font-medium text-foreground capitalize">{currentUser?.role}</span></p>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Display Name</Label>
-              <Input value={newDisplayName} onChange={e => setNewDisplayName(e.target.value)} placeholder="Full Name" disabled={!isAdmin} />
+              <Input value={profileName} onChange={e => setProfileName(e.target.value)} placeholder="Your full name" autoFocus />
             </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Password <span className="text-destructive">*</span></Label>
-            <div className="relative">
-              <Input
-                type={showPw ? "text" : "password"}
-                value={newPassword}
-                onChange={e => setNewPassword(e.target.value)}
-                placeholder="Initial password"
-                disabled={!isAdmin}
-                className="pr-9"
-              />
-              <button onClick={() => setShowPw(v => !v)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
+            <Separator />
+            <div className="space-y-1.5">
+              <Label className="text-xs">New Password <span className="text-muted-foreground font-normal">(leave blank to keep current)</span></Label>
+              <div className="relative">
+                <Input type={showOwnPw ? "text" : "password"} value={ownPw}
+                  onChange={e => setOwnPw(e.target.value)} placeholder="New password (optional)" className="pr-9" />
+                <button onClick={() => setShowOwnPw(v => !v)} tabIndex={-1}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  {showOwnPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
+            {profileMsg && <p className={`text-xs ${profileMsg.includes("success") ? "text-green-600" : "text-destructive"}`}>{profileMsg}</p>}
           </div>
-          <Button size="sm" onClick={handleCreateUser} disabled={!isAdmin || !newUsername || !newPassword || creating}>
-            <Plus className="h-4 w-4 mr-1" />
-            {creating ? "Creating…" : "Create User"}
-          </Button>
-          {createMsg && (
-            <p className={`text-xs ${createMsg.includes("created") ? "text-green-600" : "text-destructive"}`}>{createMsg}</p>
-          )}
-        </CardContent>
-      </Card>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowProfile(false)}>Cancel</Button>
+            <Button onClick={handleSaveProfile} disabled={savingProfile}>
+              {savingProfile ? "Saving…" : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
