@@ -63,5 +63,46 @@ export async function logout() {
 
 export function authHeaders(): Record<string, string> {
   const token = getToken()
-  return token ? { Authorization: `Bearer ${token}` } : {}
+  if (token) return { Authorization: `Bearer ${token}` }
+  return {}
+}
+
+/**
+ * Install a global fetch interceptor that auto-attaches the Bearer token
+ * to all /api/ requests. Call once from a client component on mount.
+ */
+export function installAuthInterceptor() {
+  if (typeof window === "undefined") return
+  if ((window as any).__datapond_auth_interceptor) return
+  ;(window as any).__datapond_auth_interceptor = true
+
+  const original = window.fetch.bind(window)
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+    if (url.includes("/api/") && !url.includes("/api/auth/login")) {
+      const token = getToken()
+      if (token) {
+        init = { ...(init ?? {}) }
+        const existing: Record<string, string> = {}
+        if (init.headers) {
+          if (init.headers instanceof Headers) {
+            init.headers.forEach((v, k) => { existing[k] = v })
+          } else if (Array.isArray(init.headers)) {
+            init.headers.forEach(([k, v]) => { existing[k] = v })
+          } else {
+            Object.assign(existing, init.headers)
+          }
+        }
+        existing["Authorization"] = `Bearer ${token}`
+        init.headers = existing
+      }
+    }
+    const res = await original(input, init)
+    // Auto-logout on 401
+    if (res.status === 401 && url.includes("/api/") && !url.includes("/api/auth/")) {
+      clearAuth()
+      window.location.href = "/login"
+    }
+    return res
+  }
 }

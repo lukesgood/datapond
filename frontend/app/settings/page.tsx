@@ -6,12 +6,16 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Settings, Server, Package, Database, Activity,
   Cpu, MemoryStick, HardDrive, CheckCircle2,
   ExternalLink, RefreshCw, Copy, Info, ShieldCheck,
   GitBranch, Box, Clock, Layers, AlertCircle,
+  Users, Plus, Trash2, Eye, EyeOff, UserPlus, KeyRound,
 } from "lucide-react"
+import { getUser } from "@/lib/auth"
 
 interface Service {
   name: string
@@ -609,6 +613,166 @@ export default function SettingsPage() {
 
         </div>
       </div>
+
+      {/* ── User Management ── */}
+      <div className="mt-8">
+        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Users className="h-5 w-5" />User Management
+        </h2>
+        <UserManagement />
+      </div>
+    </div>
+  )
+}
+
+// ── User Management Component ──────────────────────────────────────────────────
+
+function UserManagement() {
+  const currentUser = getUser()
+  const isAdmin = currentUser?.role === "admin"
+
+  const [newUsername, setNewUsername] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [newDisplayName, setNewDisplayName] = useState("")
+  const [showPw, setShowPw] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [createMsg, setCreateMsg] = useState<string | null>(null)
+
+  // Change own password
+  const [currentPw, setCurrentPw] = useState("")
+  const [newPw, setNewPw] = useState("")
+  const [changingPw, setChangingPw] = useState(false)
+  const [pwMsg, setPwMsg] = useState<string | null>(null)
+
+  const getAuthHeaders = (): Record<string, string> => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("datapond_token") : null
+    const h: Record<string, string> = { "Content-Type": "application/json" }
+    if (token) h["Authorization"] = `Bearer ${token}`
+    return h
+  }
+
+  const handleCreateUser = async () => {
+    if (!newUsername || !newPassword) return
+    setCreating(true); setCreateMsg(null)
+    try {
+      const res = await fetch("/api/auth/setup", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ username: newUsername, password: newPassword, display_name: newDisplayName || undefined }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.detail ?? "Failed")
+      setCreateMsg(`User '${newUsername}' created`)
+      setNewUsername(""); setNewPassword(""); setNewDisplayName("")
+    } catch (e) {
+      setCreateMsg(e instanceof Error ? e.message : "Failed")
+    } finally { setCreating(false) }
+  }
+
+  const handleChangePassword = async () => {
+    if (!newPw) return
+    setChangingPw(true); setPwMsg(null)
+    try {
+      const res = await fetch("/api/auth/setup", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ username: currentUser?.username, password: newPw }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.detail ?? "Failed")
+      setPwMsg("Password updated successfully")
+      setCurrentPw(""); setNewPw("")
+    } catch (e) {
+      setPwMsg(e instanceof Error ? e.message : "Failed")
+    } finally { setChangingPw(false) }
+  }
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      {/* Change own password */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <KeyRound className="h-4 w-4" />Change Password
+          </CardTitle>
+          <CardDescription>Update your account password</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Current User</Label>
+            <p className="text-sm font-medium">{currentUser?.display_name} <span className="text-muted-foreground text-xs">({currentUser?.username})</span></p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">New Password</Label>
+            <div className="relative">
+              <Input
+                type={showPw ? "text" : "password"}
+                value={newPw}
+                onChange={e => setNewPw(e.target.value)}
+                placeholder="New password"
+                className="pr-9"
+              />
+              <button onClick={() => setShowPw(v => !v)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+          <Button size="sm" onClick={handleChangePassword} disabled={!newPw || changingPw}>
+            {changingPw ? "Updating…" : "Update Password"}
+          </Button>
+          {pwMsg && (
+            <p className={`text-xs ${pwMsg.includes("success") ? "text-green-600" : "text-destructive"}`}>{pwMsg}</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Create new user (admin only) */}
+      <Card className={!isAdmin ? "opacity-60" : ""}>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <UserPlus className="h-4 w-4" />Create User
+            {!isAdmin && <Badge variant="secondary" className="text-xs ml-auto">Admin only</Badge>}
+          </CardTitle>
+          <CardDescription>Add a new DataPond user account</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Username <span className="text-destructive">*</span></Label>
+              <Input value={newUsername} onChange={e => setNewUsername(e.target.value)} placeholder="username" disabled={!isAdmin} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Display Name</Label>
+              <Input value={newDisplayName} onChange={e => setNewDisplayName(e.target.value)} placeholder="Full Name" disabled={!isAdmin} />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Password <span className="text-destructive">*</span></Label>
+            <div className="relative">
+              <Input
+                type={showPw ? "text" : "password"}
+                value={newPassword}
+                onChange={e => setNewPassword(e.target.value)}
+                placeholder="Initial password"
+                disabled={!isAdmin}
+                className="pr-9"
+              />
+              <button onClick={() => setShowPw(v => !v)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+          <Button size="sm" onClick={handleCreateUser} disabled={!isAdmin || !newUsername || !newPassword || creating}>
+            <Plus className="h-4 w-4 mr-1" />
+            {creating ? "Creating…" : "Create User"}
+          </Button>
+          {createMsg && (
+            <p className={`text-xs ${createMsg.includes("created") ? "text-green-600" : "text-destructive"}`}>{createMsg}</p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

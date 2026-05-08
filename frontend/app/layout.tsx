@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { ToastProvider } from "@/lib/toast"
+import { AuthInterceptor } from "@/components/auth-interceptor"
 
 const inter = Inter({
   subsets: ["latin"],
@@ -25,6 +26,7 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex font-sans">
         <ToastProvider>
+          <AuthInterceptor />
           <TooltipProvider>
             <SidebarProvider>
               <AppSidebar />

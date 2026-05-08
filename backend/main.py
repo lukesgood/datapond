@@ -28,6 +28,52 @@ app = FastAPI(
     version="0.1.0"
 )
 
+# ── API-level auth middleware ──────────────────────────────────────────────────
+from fastapi import Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
+
+# Public paths that don't require authentication
+AUTH_EXEMPT = {
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/health",
+    "/api/health",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+}
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        # Only protect /api/ routes
+        if not path.startswith("/api/"):
+            return await call_next(request)
+        # Exempt public endpoints
+        if path in AUTH_EXEMPT:
+            return await call_next(request)
+        # Check for Bearer token
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            from app.api.auth import get_current_user
+            from fastapi.security import HTTPAuthorizationCredentials
+            try:
+                creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=auth[7:])
+                user = await get_current_user(creds)
+                if user:
+                    request.state.user = user
+                    return await call_next(request)
+            except Exception:
+                pass
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Not authenticated"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+app.add_middleware(AuthMiddleware)
+
 
 @app.on_event("startup")
 async def startup():
