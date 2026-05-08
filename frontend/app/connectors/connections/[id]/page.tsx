@@ -20,18 +20,55 @@ import { Switch } from "@/components/ui/switch"
 
 // ── Tables Card (full-width, searchable) ──────────────────────────────────────
 function TablesCard({
-  tables, latestTableRows, togglingTable, onToggle,
+  tables, latestTableRows, togglingTable, onToggle, connId,
 }: {
   tables: { name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null }[]
   latestTableRows: Map<string, number>
   togglingTable: string | null
   onToggle: (name: string, enabled: boolean) => void
+  connId: string
 }) {
-  const [search, setSearch] = useState("")
+  const [search, setSearch]         = useState("")
+  const [editingTable, setEditingTable] = useState<string | null>(null)
+  const [editMode, setEditMode]     = useState("full")
+  const [editIncCol, setEditIncCol] = useState("")
+  const [saving, setSaving]         = useState(false)
+
   const filtered = tables.filter(t =>
     t.name.toLowerCase().includes(search.toLowerCase())
   )
   const enabledCount = tables.filter(t => t.enabled).length
+
+  const startEdit = (t: typeof tables[0]) => {
+    setEditingTable(t.name)
+    setEditMode(t.sync_mode || "full")
+    setEditIncCol(t.incremental_column || "")
+  }
+
+  const saveEdit = async () => {
+    if (!editingTable) return
+    setSaving(true)
+    try {
+      await fetch(`/api/connectors/${connId}/tables/${editingTable}/enabled`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled: tables.find(t => t.name === editingTable)?.enabled ?? true,
+          incremental_column: editIncCol || null,
+        }),
+      })
+      await fetch(`/api/connectors/${connId}/sync-mode`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sync_mode: editMode, table_name: editingTable }),
+      })
+      // Reload page to reflect changes
+      window.location.reload()
+    } finally {
+      setSaving(false)
+      setEditingTable(null)
+    }
+  }
 
   return (
     <Card>
@@ -75,8 +112,8 @@ function TablesCard({
               <span className="w-8">Sync</span>
               <span>Table</span>
               <span className="text-right w-20">Last Rows</span>
-              <span className="w-24">Mode</span>
-              <span className="w-16" />
+              <span className="w-28">Mode</span>
+              <span className="w-20" />
             </div>
             {/* Table rows */}
             <div className="divide-y">
@@ -87,51 +124,114 @@ function TablesCard({
                 const queryUrl = `/query?sql=${encodeURIComponent(`SELECT * FROM iceberg.default.${table.name} LIMIT 100`)}`
                 const mode = table.sync_mode || "full"
                 const incCol = table.incremental_column
+                const isEditing = editingTable === table.name
+
                 return (
-                  <div key={table.name}
-                    className={`grid grid-cols-[auto_1fr_auto_auto_auto] gap-2 items-center px-2 py-2 group transition-colors ${
-                      table.enabled ? "hover:bg-muted/30" : "opacity-50 hover:bg-muted/10"
+                  <div key={table.name} className={`${table.enabled ? "" : "opacity-50"}`}>
+                    {/* Main row */}
+                    <div className={`grid grid-cols-[auto_1fr_auto_auto_auto] gap-2 items-center px-2 py-2 group transition-colors ${
+                      table.enabled ? "hover:bg-muted/30" : "hover:bg-muted/10"
                     }`}>
-                    <div className="w-8 flex items-center justify-center">
-                      <Switch
-                        checked={table.enabled}
-                        disabled={togglingTable === table.name}
-                        onCheckedChange={v => onToggle(table.name, v)}
-                        className="scale-75"
-                      />
-                    </div>
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Database className={`h-3.5 w-3.5 shrink-0 ${table.enabled ? "text-muted-foreground" : "text-muted-foreground/40"}`} />
-                      <div className="min-w-0">
-                        <span className={`font-mono text-xs truncate block ${!table.enabled ? "line-through text-muted-foreground/50" : ""}`}>
-                          {table.name}
-                        </span>
-                        {incCol && (
-                          <span className="text-[10px] text-primary/70 font-mono block truncate">
-                            ↑ {incCol}
+                      <div className="w-8 flex items-center justify-center">
+                        <Switch
+                          checked={table.enabled}
+                          disabled={togglingTable === table.name}
+                          onCheckedChange={v => onToggle(table.name, v)}
+                          className="scale-75"
+                        />
+                      </div>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Database className={`h-3.5 w-3.5 shrink-0 ${table.enabled ? "text-muted-foreground" : "text-muted-foreground/40"}`} />
+                        <div className="min-w-0">
+                          <span className={`font-mono text-xs truncate block ${!table.enabled ? "line-through text-muted-foreground/50" : ""}`}>
+                            {table.name}
                           </span>
+                          {incCol && (
+                            <span className="text-[10px] text-primary/70 font-mono block truncate">↑ {incCol}</span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-xs text-right text-muted-foreground w-20 font-mono">
+                        {rows != null ? rows.toLocaleString() : "—"}
+                      </span>
+                      {/* Mode badge — clickable to edit */}
+                      <button
+                        onClick={() => isEditing ? setEditingTable(null) : startEdit(table)}
+                        className={`w-28 text-left`}
+                      >
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${
+                          mode === "incremental" ? "bg-primary/10 text-primary border-primary/20" :
+                          mode === "cdc"         ? "bg-purple-500/10 text-purple-600 border-purple-200" :
+                          "bg-muted text-muted-foreground border-transparent"
+                        }`}>
+                          {mode}
+                          {incCol ? ` · ${incCol}` : ""}
+                        </span>
+                      </button>
+                      <div className="w-20 flex items-center justify-end gap-1">
+                        {table.enabled && (
+                          <>
+                            <button
+                              onClick={() => isEditing ? setEditingTable(null) : startEdit(table)}
+                              className="text-[10px] text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity px-1">
+                              {isEditing ? "✕" : "Edit"}
+                            </button>
+                            <button
+                              onClick={() => window.open(queryUrl, "_blank")}
+                              className="text-[10px] text-primary hover:text-primary/70 opacity-0 group-hover:opacity-100 transition-opacity">
+                              Query ↗
+                            </button>
+                          </>
+                        )}
+                        {!table.enabled && (
+                          <span className="text-[10px] text-muted-foreground/40">skipped</span>
                         )}
                       </div>
                     </div>
-                    <span className="text-xs text-right text-muted-foreground w-20 font-mono">
-                      {rows != null ? rows.toLocaleString() : "—"}
-                    </span>
-                    <span className="w-24">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                        mode === "incremental" ? "bg-primary/10 text-primary" :
-                        mode === "cdc"         ? "bg-purple-500/10 text-purple-600" :
-                        "bg-muted text-muted-foreground"
-                      }`}>
-                        {mode}
-                      </span>
-                    </span>
-                    {table.enabled ? (
-                      <a href={queryUrl}
-                        className="w-16 text-[10px] text-primary hover:text-primary/70 opacity-0 group-hover:opacity-100 transition-opacity text-right">
-                        Query →
-                      </a>
-                    ) : (
-                      <span className="w-16 text-[10px] text-muted-foreground/40 text-right">skipped</span>
+
+                    {/* Inline edit panel */}
+                    {isEditing && (
+                      <div className="px-10 pb-3 pt-1 bg-muted/20 border-t space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Sync Mode</label>
+                            <Select value={editMode} onValueChange={v => { setEditMode(v ?? "full"); if (v !== "incremental") setEditIncCol("") }}>
+                              <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="full" className="text-xs">Full Refresh — replace all data</SelectItem>
+                                <SelectItem value="incremental" className="text-xs">Incremental — append new rows</SelectItem>
+                                <SelectItem value="cdc" className="text-xs">CDC — capture all changes</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Watermark Column
+                              {editMode !== "incremental" && <span className="ml-1 font-normal normal-case">(incremental only)</span>}
+                            </label>
+                            <Input
+                              value={editIncCol}
+                              onChange={e => setEditIncCol(e.target.value)}
+                              placeholder={editMode === "incremental" ? "e.g. updated_at" : "—"}
+                              disabled={editMode !== "incremental"}
+                              className="h-7 text-xs font-mono"
+                            />
+                          </div>
+                        </div>
+                        {editMode === "incremental" && !editIncCol && (
+                          <p className="text-[10px] text-amber-600 flex items-center gap-1">
+                            ⚠ No watermark column set — incremental will load all rows on first run
+                          </p>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" className="h-6 text-xs" onClick={saveEdit} disabled={saving}>
+                            {saving ? "Saving…" : "Save"}
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setEditingTable(null)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 )
@@ -284,7 +384,13 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         fetch(`/api/connectors/${id}/config`),
       ])
       if (!connRes.ok) throw new Error(`Failed to load connector (HTTP ${connRes.status})`)
-      setConnector(await connRes.json())
+      const connData = await connRes.json()
+      setConnector(connData)
+      // Sync schedule state from connection data (single source of truth)
+      if (connData.schedule !== undefined) {
+        setSchedule(connData.schedule ?? null)
+        setScheduleInput(connData.schedule ?? "")
+      }
       if (tablesRes.ok) {
         const t = await tablesRes.json()
         const raw = Array.isArray(t.tables) ? t.tables : []
@@ -877,6 +983,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         latestTableRows={latestTableRows}
         togglingTable={togglingTable}
         onToggle={handleTableToggle}
+        connId={id}
       />
 
       {/* Sync History — full width */}

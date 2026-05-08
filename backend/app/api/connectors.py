@@ -74,6 +74,7 @@ class ConnectionResponse(BaseModel):
     status: str
     created_at: datetime
     last_sync_at: Optional[datetime] = None
+    schedule: Optional[str] = None
 
 
 class SyncRequest(BaseModel):
@@ -526,7 +527,7 @@ async def create_connection(request: ConnectionCreateRequest):
         raise HTTPException(status_code=500, detail=f"Failed to create connection: {str(e)}")
 
 
-@router.get("/connectors/connections", response_model=List[ConnectionResponse])
+@router.get("/connectors/connections")
 async def list_connections():
     """
     List all saved connections.
@@ -537,23 +538,22 @@ async def list_connections():
         pool = await get_db_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch('''
-                SELECT id, name, connector_type, status, created_at, last_sync_at
+                SELECT id, name, connector_type, status, created_at, last_sync_at, schedule
                 FROM connector_connections
                 ORDER BY created_at DESC
             ''')
 
-
-
         connections = []
         for row in rows:
-            connections.append(ConnectionResponse(
-                id=str(row['id']),
-                name=row['name'],
-                connector_type=row['connector_type'],
-                status=row['status'],
-                created_at=row['created_at'],
-                last_sync_at=row['last_sync_at']
-            ))
+            connections.append({
+                "id": str(row['id']),
+                "name": row['name'],
+                "connector_type": row['connector_type'],
+                "status": row['status'],
+                "created_at": row['created_at'].isoformat() + "Z",
+                "last_sync_at": row['last_sync_at'].isoformat() + "Z" if row['last_sync_at'] else None,
+                "schedule": row['schedule'],
+            })
 
         return connections
 
@@ -568,12 +568,10 @@ async def get_connection(connection_id: str):
         pool = await get_db_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow('''
-                SELECT id, name, connector_type, status, created_at, last_sync_at
+                SELECT id, name, connector_type, status, created_at, last_sync_at, schedule
                 FROM connector_connections
                 WHERE id = $1
             ''', uuid.UUID(connection_id))
-
-
 
         if not row:
             raise HTTPException(status_code=404, detail="Connection not found")
@@ -584,7 +582,8 @@ async def get_connection(connection_id: str):
             "connector_type": row['connector_type'],
             "status": row['status'],
             "created_at": row['created_at'].isoformat() + "Z",
-            "last_sync_at": row['last_sync_at'].isoformat() + "Z" if row['last_sync_at'] else None
+            "last_sync_at": row['last_sync_at'].isoformat() + "Z" if row['last_sync_at'] else None,
+            "schedule": row['schedule'],
         }
 
     except (HTTPException, ValueError) as e:
@@ -720,7 +719,7 @@ with DAG(
 
 @router.patch("/connectors/{connection_id}/schedule")
 async def set_schedule(connection_id: str, request: ScheduleRequest):
-    """Set or remove a sync schedule (creates/deletes Airflow DAG file)."""
+    """Set or remove a sync schedule. Stores in connector_connections.schedule (single source of truth)."""
     try:
         pool = await get_db_pool()
         async with pool.acquire() as conn:
@@ -736,22 +735,23 @@ async def set_schedule(connection_id: str, request: ScheduleRequest):
         dag_path = f"/opt/airflow/dags/datapond_sync_{safe_name}.py"
 
         if request.schedule:
-            # Write DAG file
+            # 1. Write DAG file
             dag_code = _generate_sync_dag(connection_id, connection_name, request.schedule)
             with open(dag_path, "w") as f:
                 f.write(dag_code)
 
-            # Save schedule to DB
+            # 2. Save to connector_connections (single source of truth)
             async with pool.acquire() as conn:
                 await conn.execute(
-                    "UPDATE connector_sync_jobs SET schedule=$1 WHERE connection_id=$2",
+                    "UPDATE connector_connections SET schedule=$1 WHERE id=$2",
                     request.schedule, uuid.UUID(connection_id)
                 )
 
             return {
                 "message": f"Schedule '{request.schedule}' set for '{connection_name}'",
                 "dag_id": f"datapond_sync_{safe_name}",
-                "dag_path": dag_path,
+                "schedule": request.schedule,
+                "dag_active": True,
             }
         else:
             # Remove DAG file
@@ -762,11 +762,11 @@ async def set_schedule(connection_id: str, request: ScheduleRequest):
 
             async with pool.acquire() as conn:
                 await conn.execute(
-                    "UPDATE connector_sync_jobs SET schedule=NULL WHERE connection_id=$1",
+                    "UPDATE connector_connections SET schedule=NULL WHERE id=$1",
                     uuid.UUID(connection_id)
                 )
 
-            return {"message": f"Schedule removed for '{connection_name}'"}
+            return {"message": f"Schedule removed for '{connection_name}'", "schedule": None, "dag_active": False}
 
     except HTTPException:
         raise
@@ -776,23 +776,38 @@ async def set_schedule(connection_id: str, request: ScheduleRequest):
 
 @router.get("/connectors/{connection_id}/schedule")
 async def get_schedule(connection_id: str):
-    """Get current schedule for a connection."""
+    """Get current schedule from connector_connections (single source of truth)."""
     try:
         pool = await get_db_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT schedule FROM connector_sync_jobs WHERE connection_id=$1 LIMIT 1",
+                "SELECT name, schedule FROM connector_connections WHERE id=$1",
                 uuid.UUID(connection_id)
             )
-        schedule = row['schedule'] if row else None
-        safe_conn = connection_id.replace("-", "_")
+        if not row:
+            raise HTTPException(status_code=404, detail="Connection not found")
 
-        # Check if DAG file exists
-        import pathlib, glob
-        dag_files = glob.glob(f"/opt/airflow/dags/datapond_sync_*.py")
-        dag_active = any(connection_id in open(f).read() for f in dag_files) if dag_files else False
+        schedule = row['schedule']
+        connection_name = row['name']
+        safe_name = connection_name.lower().replace(" ", "_").replace("-", "_")
 
-        return {"schedule": schedule, "dag_active": dag_active}
+        # Verify DAG file actually exists (schedule DB and file should be in sync)
+        import pathlib
+        dag_path = pathlib.Path(f"/opt/airflow/dags/datapond_sync_{safe_name}.py")
+        dag_file_exists = dag_path.exists()
+
+        # Auto-repair: if schedule set but DAG missing, recreate
+        if schedule and not dag_file_exists:
+            dag_code = _generate_sync_dag(connection_id, connection_name, schedule)
+            dag_path.write_text(dag_code)
+            dag_file_exists = True
+
+        # Auto-repair: if DAG exists but schedule cleared, remove DAG
+        if not schedule and dag_file_exists:
+            dag_path.unlink()
+            dag_file_exists = False
+
+        return {"schedule": schedule, "dag_active": dag_file_exists}
     except HTTPException:
         raise
     except Exception as e:
@@ -899,18 +914,40 @@ async def set_table_enabled(connection_id: str, table_name: str, body: dict):
 
 @router.patch("/connectors/{connection_id}/sync-mode")
 async def set_connection_sync_mode(connection_id: str, body: dict):
-    """Set sync_mode for all tables of a connection."""
+    """Set sync_mode — for a specific table or all tables of a connection."""
     try:
         mode = body.get("sync_mode", "full")
+        table_name = body.get("table_name")  # Optional: specific table only
         if mode not in ("full", "incremental", "cdc", "snapshot"):
             raise HTTPException(status_code=400, detail=f"Invalid sync_mode: {mode}")
         pool = await get_db_pool()
         async with pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE connector_sync_jobs SET sync_mode=$1 WHERE connection_id=$2",
-                mode, uuid.UUID(connection_id)
-            )
-        return {"sync_mode": mode}
+            if table_name:
+                # Per-table update
+                existing = await conn.fetchval(
+                    "SELECT id FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
+                    uuid.UUID(connection_id), table_name
+                )
+                if existing:
+                    await conn.execute(
+                        "UPDATE connector_sync_jobs SET sync_mode=$1 WHERE connection_id=$2 AND source_table=$3",
+                        mode, uuid.UUID(connection_id), table_name
+                    )
+                else:
+                    await conn.execute(
+                        """INSERT INTO connector_sync_jobs
+                           (id, connection_id, source_table, target_table, sync_mode, enabled)
+                           VALUES ($1,$2,$3,$4,$5,true)""",
+                        uuid.UUID(str(uuid.uuid4())), uuid.UUID(connection_id),
+                        table_name, f"datapond.default.{table_name}", mode
+                    )
+            else:
+                # All tables update
+                await conn.execute(
+                    "UPDATE connector_sync_jobs SET sync_mode=$1 WHERE connection_id=$2",
+                    mode, uuid.UUID(connection_id)
+                )
+        return {"sync_mode": mode, "table": table_name or "all"}
     except HTTPException:
         raise
     except Exception as e:
@@ -970,13 +1007,15 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                 yield sse("done", {"message": "No tables found", "rows_processed": 0, "tables": 0})
                 return
 
-            # Filter to enabled tables only
+            # Load full table config (enabled, sync_mode, incremental_column, last_value)
             pool = await get_db_pool()
             async with pool.acquire() as conn:
                 enabled_rows = await conn.fetch(
-                    "SELECT source_table, enabled FROM connector_sync_jobs WHERE connection_id=$1",
+                    """SELECT source_table, enabled, sync_mode, incremental_column, last_value
+                       FROM connector_sync_jobs WHERE connection_id=$1""",
                     uuid.UUID(connection_id)
                 )
+            job_map = {r['source_table']: r for r in enabled_rows}
             enabled_map = {r['source_table']: r['enabled'] for r in enabled_rows}
             # Tables not yet in DB are enabled by default
             tables = [t for t in all_tables if enabled_map.get(t, True)]
@@ -996,27 +1035,37 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
             for i, table in enumerate(tables):
                 target = f"datapond.default.{table}"
 
+                # Per-table mode: use stored sync_mode (overrides global mode)
+                job = job_map.get(table)
+                table_mode = SyncMode.FULL
+                if job and job['sync_mode']:
+                    try:
+                        table_mode = SyncMode(job['sync_mode'])
+                    except ValueError:
+                        table_mode = mode  # fallback to global
+
                 # Load watermark for incremental mode
                 last_value = None
                 incremental_column = None
-                if mode == SyncMode.INCREMENTAL:
-                    async with pool.acquire() as conn:
-                        wm_row = await conn.fetchrow('''
-                            SELECT incremental_column, last_value
-                            FROM connector_sync_jobs
-                            WHERE connection_id=$1 AND source_table=$2
-                              AND last_run_status='success'
-                            ORDER BY last_run_at DESC LIMIT 1
-                        ''', uuid.UUID(connection_id), table)
-                    if wm_row:
-                        incremental_column = wm_row['incremental_column']
-                        last_value = wm_row['last_value']
+                if table_mode == SyncMode.INCREMENTAL:
+                    incremental_column = job['incremental_column'] if job else None
+                    last_value = job['last_value'] if job else None
+                    if incremental_column:
+                        yield sse("table_start", {
+                            "table": table, "index": i, "total": len(tables),
+                            "message": f"Syncing {table}… ({i+1}/{len(tables)})"
+                            + (f" [incremental since {last_value}]" if last_value else " [first incremental run — full load]"),
+                        })
+                    else:
+                        # No incremental_column configured — fall back to full
+                        table_mode = SyncMode.FULL
 
-                yield sse("table_start", {
-                    "table": table, "index": i, "total": len(tables),
-                    "message": f"Syncing {table}… ({i+1}/{len(tables)})"
-                    + (f" [incremental since {last_value}]" if last_value else ""),
-                })
+                # Emit table_start (if not already emitted for incremental)
+                if table_mode != SyncMode.INCREMENTAL or not incremental_column:
+                    yield sse("table_start", {
+                        "table": table, "index": i, "total": len(tables),
+                        "message": f"Syncing {table}… ({i+1}/{len(tables)}) [{table_mode.value}]",
+                    })
                 await asyncio.sleep(0)
 
                 # Collect sub-steps from iceberg_writer via callback queue
@@ -1030,7 +1079,7 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
 
                 status = await connector.sync_to_iceberg(
                     source_table=table, target_table=target,
-                    sync_mode=mode,
+                    sync_mode=table_mode,          # ← per-table mode
                     incremental_column=incremental_column,
                     last_value=last_value,
                     on_step=on_iceberg_step,
@@ -1047,7 +1096,7 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
 
                 # Derive new watermark from metadata if incremental
                 new_last_value = None
-                if ok and mode == SyncMode.INCREMENTAL and status.metadata:
+                if ok and table_mode == SyncMode.INCREMENTAL and status.metadata:
                     new_last_value = status.metadata.get("max_value")
 
                 yield sse("table_done", {
@@ -1070,10 +1119,10 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                     if existing:
                         await conn.execute('''
                             UPDATE connector_sync_jobs
-                            SET sync_mode=$1, last_run_at=$2, last_run_status=$3,
-                                rows_synced=$4, last_value=$5
-                            WHERE id=$6
-                        ''', mode.value, run_at, status.status.value, rows,
+                            SET last_run_at=$1, last_run_status=$2,
+                                rows_synced=$3, last_value=$4
+                            WHERE id=$5
+                        ''', run_at, status.status.value, rows,
                             new_last_value, existing)
                     else:
                         await conn.execute('''

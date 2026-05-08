@@ -29,6 +29,7 @@ interface Connection {
   status: "active" | "paused" | "error" | "pending"
   created_at: string
   last_sync_at: string | null
+  schedule: string | null
 }
 
 interface ConnStats {
@@ -481,6 +482,7 @@ export default function ConnectorsPage() {
                   <TableHead className="text-xs">Type</TableHead>
                   <TableHead className="text-xs">Status</TableHead>
                   <TableHead className="text-xs">Last Sync</TableHead>
+                  <TableHead className="text-xs">Schedule</TableHead>
                   <TableHead className="text-xs text-right">Tables</TableHead>
                   <TableHead className="text-xs text-right">Last Rows</TableHead>
                   <TableHead className="text-xs text-right">Success Rate</TableHead>
@@ -491,7 +493,7 @@ export default function ConnectorsPage() {
                 {loading ? (
                   Array(3).fill(0).map((_, i) => (
                     <TableRow key={i}>
-                      {Array(8).fill(0).map((_, j) => (
+                      {Array(9).fill(0).map((_, j) => (
                         <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                       ))}
                     </TableRow>
@@ -517,6 +519,11 @@ export default function ConnectorsPage() {
                       <TableCell>{statusBadge(conn.status)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {formatDate(conn.last_sync_at)}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {conn.schedule
+                          ? <span className="font-mono text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">{conn.schedule}</span>
+                          : <span className="text-muted-foreground/50">manual</span>}
                       </TableCell>
                       <TableCell className="text-xs text-right text-muted-foreground">
                         {connStats.get(conn.id)?.tables ?? "—"}
