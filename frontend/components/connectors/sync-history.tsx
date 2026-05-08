@@ -51,7 +51,8 @@ interface SyncHistoryProps {
 
 function fmtDate(s: string | null | undefined) {
   if (!s) return "—"
-  const d = new Date(s)
+  const utc = s.endsWith("Z") || s.includes("+") ? s : s + "Z"
+  const d = new Date(utc)
   const now = Date.now()
   const diffMs = now - d.getTime()
   if (diffMs < 60_000)   return "just now"

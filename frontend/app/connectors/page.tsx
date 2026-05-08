@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -17,7 +18,7 @@ import {
   Plus, RefreshCw, Database, Search, MoreHorizontal,
   Trash2, HardDrive, Radio, Cloud, AlertCircle, Plug,
   Rows3, ShieldAlert, TrendingUp, TableProperties,
-  ArrowRight, ArrowDownToLine, Layers, BarChart2, Zap,
+  ArrowRight, ArrowDownToLine, Layers, BarChart2, Zap, Loader2,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -78,7 +79,33 @@ const SOURCE_TYPES = [
   { name: "Custom Python", icon: "🐍" },
 ]
 
-function IngestionEmptyState({ onAddSource, hideTitle }: { onAddSource: () => void; hideTitle?: boolean }) {
+function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated }: {
+  onAddSource: () => void
+  hideTitle?: boolean
+  onSampleCreated?: (id: string) => void
+}) {
+  const [creating, setCreating] = useState(false)
+  const [sampleMsg, setSampleMsg] = useState<string | null>(null)
+  const router = useRouter()
+
+  const handleTrySample = async () => {
+    setCreating(true)
+    setSampleMsg(null)
+    try {
+      const res = await fetch("/api/connectors/sample-db", { method: "POST" })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.detail ?? "Failed")
+      setSampleMsg(d.already_existed ? "Sample DB already exists — opening…" : "Sample DB created! Opening…")
+      setTimeout(() => {
+        if (onSampleCreated) onSampleCreated(d.id)
+        router.push(`/connectors/connections/${d.id}`)
+      }, 800)
+    } catch (e) {
+      setSampleMsg(e instanceof Error ? e.message : "Failed to create sample DB")
+      setCreating(false)
+    }
+  }
+
   return (
     <div className="px-8 py-10 space-y-8">
       {/* Title — hidden when used as collapsible panel */}
@@ -134,13 +161,46 @@ function IngestionEmptyState({ onAddSource, hideTitle }: { onAddSource: () => vo
       </div>
 
       {/* CTA */}
-      <div className="flex justify-center">
+      <div className="flex flex-col items-center gap-3">
+        {/* Primary: Try Sample DB */}
+        <button
+          onClick={handleTrySample}
+          disabled={creating}
+          className="flex items-center gap-2 px-6 py-3 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-60 min-w-56 justify-center"
+        >
+          {creating
+            ? <><Loader2 className="h-4 w-4 animate-spin" />Setting up…</>
+            : <><Database className="h-4 w-4" />Try with Sample DB</>}
+        </button>
+
+        {/* Sample DB description */}
+        {!creating && !sampleMsg && (
+          <p className="text-xs text-muted-foreground text-center max-w-xs">
+            Auto-creates an e-commerce PostgreSQL DB with customers, orders, products &amp; events — ready to sync in seconds.
+          </p>
+        )}
+
+        {/* Status message */}
+        {sampleMsg && (
+          <p className={`text-xs text-center ${sampleMsg.includes("Failed") ? "text-destructive" : "text-green-600"}`}>
+            {sampleMsg}
+          </p>
+        )}
+
+        {/* Divider */}
+        <div className="flex items-center gap-3 w-full max-w-xs">
+          <div className="flex-1 h-px bg-border" />
+          <span className="text-xs text-muted-foreground">or</span>
+          <div className="flex-1 h-px bg-border" />
+        </div>
+
+        {/* Secondary: connect own source */}
         <button
           onClick={onAddSource}
-          className="flex items-center gap-2 px-6 py-3 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors shadow-sm"
+          className="flex items-center gap-2 px-6 py-2.5 rounded-lg border text-sm font-medium hover:bg-muted/50 transition-colors min-w-56 justify-center"
         >
           <Plus className="h-4 w-4" />
-          Add Your First Source
+          Connect Your Own Source
         </button>
       </div>
     </div>
@@ -155,6 +215,7 @@ export default function ConnectorsPage() {
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
+  const [activeTab, setActiveTab] = useState("connections")
 
   const fetchConnections = async () => {
     try {
@@ -237,10 +298,11 @@ export default function ConnectorsPage() {
   // ── Helpers ────────────────────────────────────────────────────────────────
   const formatDate = (s: string | null) => {
     if (!s) return "Never"
+    const utc = s.endsWith("Z") || s.includes("+") ? s : s + "Z"
     return new Intl.DateTimeFormat("en-US", {
       month: "short", day: "numeric",
       hour: "2-digit", minute: "2-digit",
-    }).format(new Date(s))
+    }).format(new Date(utc))
   }
 
   const statusBadge = (status: string) => {
@@ -332,7 +394,7 @@ export default function ConnectorsPage() {
       )}
 
       {/* Tabs: Connections (default) + Marketplace */}
-      <Tabs defaultValue="connections" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <div className="flex items-center justify-between">
           <TabsList className="h-8">
             <TabsTrigger value="connections" className="text-xs h-7 gap-1.5">
@@ -370,13 +432,15 @@ export default function ConnectorsPage() {
                 </span>
               )}
             </div>
-            <button
-              onClick={() => setShowOnboarding(v => !v)}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Zap className="h-3.5 w-3.5" />
-              {showOnboarding ? "Hide" : "How it works"}
-            </button>
+            {connections.length > 0 && (
+              <button
+                onClick={() => setShowOnboarding(v => !v)}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Zap className="h-3.5 w-3.5" />
+                {showOnboarding ? "Hide" : "How it works"}
+              </button>
+            )}
           </div>
 
           {/* Onboarding panel — collapsible */}
@@ -384,8 +448,7 @@ export default function ConnectorsPage() {
             <div className="rounded-xl border bg-card">
               <IngestionEmptyState onAddSource={() => {
                 setShowOnboarding(false)
-                const tab = document.querySelector('[data-state="inactive"][value="marketplace"]') as HTMLElement
-                tab?.click()
+                setActiveTab("marketplace")
               }} hideTitle />
             </div>
           )}
@@ -403,8 +466,7 @@ export default function ConnectorsPage() {
           {!loading && connections.length === 0 && (
             <div className="rounded-xl border bg-card">
               <IngestionEmptyState onAddSource={() => {
-                const tab = document.querySelector('[data-state="inactive"][value="marketplace"]') as HTMLElement
-                tab?.click()
+                setActiveTab("marketplace")
               }} />
             </div>
           )}

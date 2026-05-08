@@ -13,10 +13,117 @@ import { SyncHistory, SyncSession } from "@/components/connectors/sync-history"
 import {
   ChevronLeft, RefreshCw, Database, Rows3, Trash2,
   AlertTriangle, Pencil, X, Check, Wifi, BarChart2, Calendar,
-  Clock, Zap, Power, PowerOff,
+  Clock, Zap, Power, PowerOff, Search,
 } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+
+// ── Tables Card (full-width, searchable) ──────────────────────────────────────
+function TablesCard({
+  tables, latestTableRows, togglingTable, onToggle,
+}: {
+  tables: { name: string; enabled: boolean }[]
+  latestTableRows: Map<string, number>
+  togglingTable: string | null
+  onToggle: (name: string, enabled: boolean) => void
+}) {
+  const [search, setSearch] = useState("")
+  const filtered = tables.filter(t =>
+    t.name.toLowerCase().includes(search.toLowerCase())
+  )
+  const enabledCount = tables.filter(t => t.enabled).length
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Database className="h-4 w-4" />Tables
+              {tables.length > 0 && (
+                <Badge variant="secondary" className="text-xs font-normal">
+                  {enabledCount}/{tables.length} enabled
+                </Badge>
+              )}
+            </CardTitle>
+            <CardDescription className="mt-0.5">Toggle to include/exclude from sync · Query in Iceberg</CardDescription>
+          </div>
+          {tables.length > 5 && (
+            <div className="relative shrink-0">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Filter tables…"
+                className="pl-8 h-8 text-xs w-48"
+              />
+            </div>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        {tables.length === 0 ? (
+          <div className="flex flex-col items-center py-8 gap-2 text-muted-foreground">
+            <Database className="h-8 w-8 opacity-30" />
+            <p className="text-sm">No tables found</p>
+            <p className="text-xs opacity-60">Click Sync Now to discover tables</p>
+          </div>
+        ) : (
+          <div>
+            {/* Header row */}
+            <div className="grid grid-cols-[auto_1fr_auto_auto] gap-2 px-2 pb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground border-b">
+              <span className="w-8">Sync</span>
+              <span>Table</span>
+              <span className="text-right w-20">Last Rows</span>
+              <span className="w-16" />
+            </div>
+            {/* Table rows — no max-h restriction */}
+            <div className="divide-y">
+              {filtered.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">No tables match "{search}"</p>
+              ) : filtered.map(table => {
+                const rows = latestTableRows.get(table.name)
+                const queryUrl = `/query?sql=${encodeURIComponent(`SELECT * FROM iceberg.default.${table.name} LIMIT 100`)}`
+                return (
+                  <div key={table.name}
+                    className={`grid grid-cols-[auto_1fr_auto_auto] gap-2 items-center px-2 py-2 group transition-colors ${
+                      table.enabled ? "hover:bg-muted/30" : "opacity-50 hover:bg-muted/10"
+                    }`}>
+                    <div className="w-8 flex items-center justify-center">
+                      <Switch
+                        checked={table.enabled}
+                        disabled={togglingTable === table.name}
+                        onCheckedChange={v => onToggle(table.name, v)}
+                        className="scale-75"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Database className={`h-3.5 w-3.5 shrink-0 ${table.enabled ? "text-muted-foreground" : "text-muted-foreground/40"}`} />
+                      <span className={`font-mono text-xs truncate ${!table.enabled ? "line-through text-muted-foreground/50" : ""}`}>
+                        {table.name}
+                      </span>
+                    </div>
+                    <span className="text-xs text-right text-muted-foreground w-20 font-mono">
+                      {rows != null ? rows.toLocaleString() : "—"}
+                    </span>
+                    {table.enabled ? (
+                      <a href={queryUrl}
+                        className="w-16 text-[10px] text-primary hover:text-primary/70 opacity-0 group-hover:opacity-100 transition-opacity text-right">
+                        Query →
+                      </a>
+                    ) : (
+                      <span className="w-16 text-[10px] text-muted-foreground/40 text-right">skipped</span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
 
 const SCHEDULE_PRESETS = [
   { label: "Every 15 minutes", value: "*/15 * * * *",  desc: "High-frequency" },
@@ -97,6 +204,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   // History sessions (past + live)
   const [sessions, setSessions]           = useState<SyncSession[]>([])
   const [liveSession, setLiveSession]     = useState<SyncSession | null>(null)
+  const [jobsRows, setJobsRows]           = useState<number | null>(null)  // fallback for lastRunRows
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Edit
@@ -118,6 +226,14 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
   const fetchHistory = async () => {
+    // Fetch jobs for fallback row count
+    const jobsRes = await fetch(`/api/connectors/${id}/status`)
+    if (jobsRes.ok) {
+      const j = await jobsRes.json()
+      const total = (j.jobs ?? []).reduce((sum: number, r: any) => sum + (r.rows_synced ?? 0), 0)
+      if (total > 0) setJobsRows(total)
+    }
+
     const res = await fetch(`/api/connectors/${id}/history`)
     if (!res.ok) return
     const data: any[] = await res.json()
@@ -395,9 +511,10 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
 
   const formatDateTime = (s: string | null) => {
     if (!s) return "Never"
+    const utc = s.endsWith("Z") || s.includes("+") ? s : s + "Z"
     return new Intl.DateTimeFormat("en-US", {
       month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit"
-    }).format(new Date(s))
+    }).format(new Date(utc))
   }
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -415,15 +532,17 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
     ([k]) => !SENSITIVE.some(s => k.toLowerCase().includes(s))
   )
 
-  // Stats from history
+  // Stats from history (fallback to syncRuns from /status if no history yet)
   const lastSession = sessions[0]
-  const lastRunRows = lastSession?.rows_processed ?? null
+  const lastRunRows = lastSession?.rows_processed ?? jobsRows
   const recentSessions = sessions.slice(0, 10)
   const successRate = recentSessions.length > 0
     ? Math.round(recentSessions.filter(s => s.status === "success").length / recentSessions.length * 100)
     : null
+  // Ensure UTC parsing — add Z if no timezone info to prevent local-time misinterpretation
+  const toUTC = (s: string) => s.endsWith("Z") || s.includes("+") ? s : s + "Z"
   const freshnessMs = connector?.last_sync_at
-    ? Date.now() - new Date(connector.last_sync_at).getTime() : null
+    ? Date.now() - new Date(toUTC(connector.last_sync_at)).getTime() : null
   const freshnessLabel = freshnessMs === null ? "Never synced"
     : freshnessMs < 60_000 ? "< 1 min ago"
     : freshnessMs < 3_600_000 ? `${Math.floor(freshnessMs / 60_000)}m ago`
@@ -519,46 +638,63 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         </div>
       )}
 
-      {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card className={freshnessStale ? "border-amber-500/40" : ""}>
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-1.5"><RefreshCw className="h-4 w-4" />Data Freshness</CardDescription>
-            <CardTitle className={`text-xl ${freshnessStale ? "text-amber-500" : ""}`}>{freshnessLabel}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-1.5"><Rows3 className="h-4 w-4" />Last Sync Rows</CardDescription>
-            <CardTitle className="text-2xl">{lastRunRows != null ? lastRunRows.toLocaleString() : "—"}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card className={successRate !== null && successRate < 80 ? "border-red-400/50" : ""}>
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-1.5">
-              <BarChart2 className="h-4 w-4" />Success Rate
-              {recentSessions.length > 0 && <span className="text-[10px] text-muted-foreground/60">last {recentSessions.length}</span>}
-            </CardDescription>
-            <CardTitle className={`text-2xl ${successRate !== null && successRate < 80 ? "text-destructive" : ""}`}>
-              {successRate !== null ? `${successRate}%` : "—"}
-            </CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-1.5"><Database className="h-4 w-4" />Tables</CardDescription>
+      {/* Stats — uniform height via items-stretch */}
+      <div className="grid gap-3 md:grid-cols-4">
+        {/* 1. Tables */}
+        <Card className="flex flex-col">
+          <CardHeader className="pb-2 flex-1">
+            <CardDescription className="flex items-center gap-1.5"><Database className="h-3.5 w-3.5" />Tables</CardDescription>
             <CardTitle className="text-2xl">
               {tables.length > 0
                 ? <>{tables.filter(t => t.enabled).length}<span className="text-sm font-normal text-muted-foreground">/{tables.length}</span></>
                 : "—"}
             </CardTitle>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              {tables.length > 0 ? `${tables.filter(t => !t.enabled).length} excluded` : "Sync to discover"}
+            </p>
+          </CardHeader>
+        </Card>
+        {/* 2. Last Sync Rows */}
+        <Card className="flex flex-col">
+          <CardHeader className="pb-2 flex-1">
+            <CardDescription className="flex items-center gap-1.5"><Rows3 className="h-3.5 w-3.5" />Last Sync Rows</CardDescription>
+            <CardTitle className="text-2xl">{lastRunRows != null ? lastRunRows.toLocaleString() : "—"}</CardTitle>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              {lastRunRows != null ? "rows ingested" : "no data yet"}
+            </p>
+          </CardHeader>
+        </Card>
+        {/* 3. Success Rate */}
+        <Card className={`flex flex-col ${successRate !== null && successRate < 80 ? "border-destructive/30" : ""}`}>
+          <CardHeader className="pb-2 flex-1">
+            <CardDescription className="flex items-center gap-1.5">
+              <BarChart2 className="h-3.5 w-3.5" />Success Rate
+            </CardDescription>
+            <CardTitle className={`text-2xl ${successRate !== null && successRate < 80 ? "text-destructive" : ""}`}>
+              {successRate !== null ? `${successRate}%` : "—"}
+            </CardTitle>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              {recentSessions.length > 0 ? `last ${recentSessions.length} syncs` : "no history"}
+            </p>
+          </CardHeader>
+        </Card>
+        {/* 4. Data Freshness */}
+        <Card className={`flex flex-col ${freshnessStale ? "border-amber-500/40" : ""}`}>
+          <CardHeader className="pb-2 flex-1">
+            <CardDescription className="flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5" />Data Freshness</CardDescription>
+            <CardTitle className={`text-xl ${freshnessStale ? "text-amber-500" : ""}`}>{freshnessLabel}</CardTitle>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              {connector.last_sync_at ? formatDateTime(connector.last_sync_at) : "never synced"}
+            </p>
           </CardHeader>
         </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Connection Details / Edit */}
-        <Card>
+      {/* ── Main 2-column layout — direct card children, no wrapper divs ── */}
+      <div className="grid gap-4 md:grid-cols-[1fr_300px]">
+
+        {/* Connection Details — stretches to match Schedule card height */}
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Connection Details</CardTitle>
             <CardDescription>
@@ -613,86 +749,8 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           </CardContent>
         </Card>
 
-        {/* Synced Tables */}
+        {/* Schedule — stretches to match Connection Details height */}
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              Tables
-              {tables.length > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <Badge variant="secondary" className="text-xs font-normal">
-                    {tables.filter(t => t.enabled).length}/{tables.length} enabled
-                  </Badge>
-                </div>
-              )}
-            </CardTitle>
-            <CardDescription>Toggle to include/exclude from sync · Query in Iceberg</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {tables.length === 0 ? (
-              <div className="flex flex-col items-center py-8 gap-2 text-muted-foreground">
-                <Database className="h-8 w-8 opacity-30" />
-                <p className="text-sm">No tables found</p>
-                <p className="text-xs opacity-60">Click Sync Now to discover tables</p>
-              </div>
-            ) : (
-              <div className="space-y-0 max-h-64 overflow-y-auto">
-                {/* Header */}
-                <div className="grid grid-cols-[auto_1fr_auto_auto] gap-2 px-2 pb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground border-b">
-                  <span className="w-8">Sync</span>
-                  <span>Table</span>
-                  <span className="text-right w-16">Last Rows</span>
-                  <span className="w-14" />
-                </div>
-                {tables.map((table) => {
-                  const rows = latestTableRows.get(table.name)
-                  const queryUrl = `/query?sql=${encodeURIComponent(`SELECT * FROM iceberg.default.${table.name} LIMIT 100`)}`
-                  const isToggling = togglingTable === table.name
-                  return (
-                    <div key={table.name}
-                      className={`grid grid-cols-[auto_1fr_auto_auto] gap-2 items-center px-2 py-1.5 rounded group transition-colors ${
-                        table.enabled ? "hover:bg-muted/40" : "opacity-50 hover:bg-muted/20"
-                      }`}>
-                      {/* Toggle */}
-                      <div className="w-8 flex items-center justify-center">
-                        <Switch
-                          checked={table.enabled}
-                          disabled={isToggling}
-                          onCheckedChange={(v) => handleTableToggle(table.name, v)}
-                          className="scale-75"
-                        />
-                      </div>
-                      {/* Table name */}
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <Database className={`h-3.5 w-3.5 shrink-0 ${table.enabled ? "text-muted-foreground" : "text-muted-foreground/40"}`} />
-                        <span className={`font-mono text-xs truncate ${!table.enabled ? "line-through text-muted-foreground/50" : ""}`}>
-                          {table.name}
-                        </span>
-                      </div>
-                      {/* Last rows */}
-                      <span className="text-xs text-right text-muted-foreground w-16 font-mono">
-                        {rows != null ? rows.toLocaleString() : "—"}
-                      </span>
-                      {/* Query link */}
-                      {table.enabled ? (
-                        <a href={queryUrl}
-                          className="w-14 text-[10px] text-primary hover:text-primary/70 opacity-0 group-hover:opacity-100 transition-opacity text-right">
-                          Query →
-                        </a>
-                      ) : (
-                        <span className="w-14 text-[10px] text-muted-foreground/40 text-right">skipped</span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Schedule */}
-      <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -728,25 +786,22 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Preset buttons */}
-          <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground uppercase tracking-wide">Presets</Label>
-            <div className="grid grid-cols-2 gap-1.5">
-              {SCHEDULE_PRESETS.map(p => (
-                <button
-                  key={p.value}
-                  onClick={() => setScheduleInput(p.value)}
-                  className={`text-left px-3 py-2 rounded-md border text-xs transition-colors ${
-                    scheduleInput === p.value
-                      ? "border-primary bg-primary/5 text-primary font-medium"
-                      : "border-border hover:border-muted-foreground/50 hover:bg-muted/30"
-                  }`}
-                >
-                  <div className="font-medium">{p.label}</div>
-                  <div className="text-muted-foreground font-mono text-[10px] mt-0.5">{p.value}</div>
-                </button>
-              ))}
-            </div>
+          {/* Preset buttons — compact single column */}
+          <div className="space-y-1">
+            {SCHEDULE_PRESETS.map(p => (
+              <button
+                key={p.value}
+                onClick={() => setScheduleInput(p.value)}
+                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md border text-xs transition-colors ${
+                  scheduleInput === p.value
+                    ? "border-primary bg-primary/5 text-primary font-medium"
+                    : "border-transparent hover:border-border hover:bg-muted/30"
+                }`}
+              >
+                <span>{p.label}</span>
+                <span className="font-mono text-[10px] text-muted-foreground">{p.value}</span>
+              </button>
+            ))}
           </div>
 
           {/* Custom cron input */}
@@ -789,9 +844,18 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
             </p>
           )}
         </CardContent>
-      </Card>
+        </Card>
+      </div>{/* end 2-col grid */}
 
-      {/* Sync History — unified: live progress + past sessions */}
+      {/* ── Tables — full width, searchable ── */}
+      <TablesCard
+        tables={tables}
+        latestTableRows={latestTableRows}
+        togglingTable={togglingTable}
+        onToggle={handleTableToggle}
+      />
+
+      {/* Sync History — full width */}
       <SyncHistory sessions={allSessions} />
     </div>
   )

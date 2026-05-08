@@ -62,7 +62,10 @@ export function ConnectionForm({
                 type="number"
                 placeholder={field.placeholder}
                 value={values[field.name] || field.default || ""}
-                onChange={(e) => onChange(field.name, parseInt(e.target.value))}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value)
+                  onChange(field.name, isNaN(v) ? (field.default ?? "") : v)
+                }}
                 required={field.required}
               />
             ) : field.type === "boolean" ? (

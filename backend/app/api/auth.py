@@ -18,7 +18,7 @@ import asyncpg
 from fastapi import APIRouter, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt as _bcrypt
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,15 @@ TOKEN_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "24"))
 DEFAULT_ADMIN_USER     = os.getenv("ADMIN_USERNAME", "admin")
 DEFAULT_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "datapond123")
 
-pwd_ctx  = CryptContext(schemes=["bcrypt"], deprecated="auto")
+def _hash_password(password: str) -> str:
+    return _bcrypt.hashpw(password.encode(), _bcrypt.gensalt(rounds=12)).decode()
+
+def _verify_password(password: str, hashed: str) -> bool:
+    try:
+        return _bcrypt.checkpw(password.encode(), hashed.encode())
+    except Exception:
+        return False
+
 security = HTTPBearer(auto_error=False)
 
 # ── DB pool (shared with connectors) ──────────────────────────────────────────
@@ -87,7 +95,7 @@ async def _ensure_admin_exists():
             "SELECT id FROM users WHERE username=$1", DEFAULT_ADMIN_USER
         )
         if not row:
-            hashed = pwd_ctx.hash(DEFAULT_ADMIN_PASSWORD)
+            hashed = _hash_password(DEFAULT_ADMIN_PASSWORD)
             await conn.execute("""
                 INSERT INTO users (id, email, username, password_hash, display_name, role, is_active)
                 VALUES ($1, $2, $3, $4, $5, 'admin', true)
@@ -108,7 +116,7 @@ async def _ensure_admin_exists():
                 "SELECT password_hash FROM users WHERE username=$1", DEFAULT_ADMIN_USER
             )
             if not pw_row or not pw_row["password_hash"]:
-                hashed = pwd_ctx.hash(DEFAULT_ADMIN_PASSWORD)
+                hashed = _hash_password(DEFAULT_ADMIN_PASSWORD)
                 await conn.execute(
                     "UPDATE users SET password_hash=$1, role='admin', is_active=true WHERE username=$2",
                     hashed, DEFAULT_ADMIN_USER
@@ -171,7 +179,7 @@ async def login(request: LoginRequest):
     if not row or not row["is_active"]:
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
-    if not row["password_hash"] or not pwd_ctx.verify(request.password, row["password_hash"]):
+    if not row["password_hash"] or not _verify_password(request.password, row["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
     token = _create_token(str(row["id"]), row["username"], row["role"])
@@ -210,7 +218,7 @@ async def get_me(user: dict = Depends(require_user)):
 @router.post("/auth/setup")
 async def setup_password(request: SetupRequest, user: dict = Depends(require_admin)):
     """Admin: set password for a user (or create user)."""
-    hashed = pwd_ctx.hash(request.password)
+    hashed = _hash_password(request.password)
     pool = await _get_pool()
     async with pool.acquire() as conn:
         await conn.execute("""

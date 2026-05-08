@@ -296,6 +296,191 @@ async def test_connection(request: ConnectionTestRequest):
         }
 
 
+@router.post("/connectors/sample-db")
+async def create_sample_db():
+    """
+    Create sample e-commerce DB in local PostgreSQL and register as a connector.
+    Idempotent — safe to call multiple times.
+    """
+    import asyncpg as _asyncpg
+
+    SAMPLE_DDL = """
+CREATE TABLE IF NOT EXISTS customers (
+    id SERIAL PRIMARY KEY, email VARCHAR(255) UNIQUE NOT NULL,
+    full_name VARCHAR(100) NOT NULL, country VARCHAR(50) DEFAULT 'KR',
+    tier VARCHAR(20) DEFAULT 'standard', signup_date DATE DEFAULT CURRENT_DATE,
+    is_active BOOLEAN DEFAULT true, created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS products (
+    id SERIAL PRIMARY KEY, sku VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(255) NOT NULL, category VARCHAR(50) NOT NULL,
+    price NUMERIC(10,2) NOT NULL, cost NUMERIC(10,2),
+    stock_qty INTEGER DEFAULT 0, is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS orders (
+    id SERIAL PRIMARY KEY, customer_id INTEGER REFERENCES customers(id),
+    status VARCHAR(20) DEFAULT 'pending', total_amount NUMERIC(10,2) NOT NULL,
+    discount NUMERIC(10,2) DEFAULT 0, channel VARCHAR(30) DEFAULT 'web',
+    ordered_at TIMESTAMPTZ DEFAULT NOW(), shipped_at TIMESTAMPTZ, delivered_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS order_items (
+    id SERIAL PRIMARY KEY, order_id INTEGER REFERENCES orders(id),
+    product_id INTEGER REFERENCES products(id),
+    quantity INTEGER NOT NULL DEFAULT 1, unit_price NUMERIC(10,2) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS page_events (
+    id BIGSERIAL PRIMARY KEY, customer_id INTEGER,
+    event_type VARCHAR(50) NOT NULL, page VARCHAR(255),
+    device VARCHAR(20) DEFAULT 'desktop', session_id VARCHAR(64),
+    occurred_at TIMESTAMPTZ DEFAULT NOW()
+);
+"""
+
+    try:
+        # 1. Create sampledb if not exists (connect to postgres db first)
+        sys_conn = await _asyncpg.connect(
+            host=os.getenv("POSTGRES_HOST", "postgres"),
+            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            database="postgres",
+            user=os.getenv("POSTGRES_USER", "datapond"),
+            password=os.getenv("POSTGRES_PASSWORD", "dev_password"),
+        )
+        db_exists = await sys_conn.fetchval(
+            "SELECT 1 FROM pg_database WHERE datname='sampledb'"
+        )
+        if not db_exists:
+            await sys_conn.execute("CREATE DATABASE sampledb")
+        await sys_conn.close()
+
+        # 2. Connect to sampledb and create schema + seed data
+        sample_conn = await _asyncpg.connect(
+            host=os.getenv("POSTGRES_HOST", "postgres"),
+            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            database="sampledb",
+            user=os.getenv("POSTGRES_USER", "datapond"),
+            password=os.getenv("POSTGRES_PASSWORD", "dev_password"),
+        )
+        await sample_conn.execute(SAMPLE_DDL)
+
+        # Check if data already exists
+        cust_count = await sample_conn.fetchval("SELECT COUNT(*) FROM customers")
+        if cust_count == 0:
+            await sample_conn.execute("""
+INSERT INTO customers (email,full_name,country,tier,signup_date) VALUES
+  ('alice@acme.com','Alice Kim','KR','vip','2023-01-15'),
+  ('bob@example.com','Bob Lee','KR','premium','2023-03-20'),
+  ('carol@corp.io','Carol Park','US','standard','2023-06-01'),
+  ('dave@startup.kr','Dave Choi','KR','premium','2023-08-12'),
+  ('eve@finance.co','Eve Jung','KR','vip','2024-01-05'),
+  ('frank@bank.com','Frank Oh','JP','standard','2024-02-18'),
+  ('grace@health.io','Grace Shin','KR','standard','2024-03-30'),
+  ('henry@mfg.com','Henry Han','KR','premium','2024-05-10'),
+  ('iris@defense.kr','Iris Yoon','KR','vip','2024-07-22'),
+  ('jake@data.com','Jake Kwon','SG','standard','2024-09-01')
+ON CONFLICT DO NOTHING
+""")
+            await sample_conn.execute("""
+INSERT INTO products (sku,name,category,price,cost,stock_qty) VALUES
+  ('SKU-001','DataPond Enterprise License','software',4990000,500000,999),
+  ('SKU-002','AI Analytics Add-on','software',1990000,200000,999),
+  ('SKU-003','On-Prem Support Package','service',2500000,800000,50),
+  ('SKU-004','GPU Compute Node 4xA100','hardware',45000000,35000000,10),
+  ('SKU-005','NVMe Storage Array 100TB','hardware',12000000,9000000,20),
+  ('SKU-006','Training and Onboarding','service',3000000,500000,100),
+  ('SKU-007','Migration Consulting','service',5000000,1000000,30),
+  ('SKU-008','Streaming Module License','software',1500000,150000,999)
+ON CONFLICT DO NOTHING
+""")
+            await sample_conn.execute("""
+INSERT INTO orders (customer_id,status,total_amount,discount,channel,ordered_at,shipped_at,delivered_at) VALUES
+  (1,'delivered',4990000,0,'direct',NOW()-'90 days'::interval,NOW()-'88 days'::interval,NOW()-'85 days'::interval),
+  (1,'delivered',1990000,199000,'web',NOW()-'60 days'::interval,NOW()-'58 days'::interval,NOW()-'55 days'::interval),
+  (2,'delivered',7490000,0,'direct',NOW()-'75 days'::interval,NOW()-'73 days'::interval,NOW()-'70 days'::interval),
+  (3,'shipped',2500000,0,'web',NOW()-'5 days'::interval,NOW()-'3 days'::interval,NULL),
+  (4,'confirmed',6490000,649000,'partner',NOW()-'2 days'::interval,NULL,NULL),
+  (5,'delivered',45000000,4500000,'direct',NOW()-'45 days'::interval,NOW()-'42 days'::interval,NOW()-'38 days'::interval),
+  (6,'pending',1500000,0,'web',NOW()-'1 day'::interval,NULL,NULL),
+  (7,'delivered',3000000,0,'partner',NOW()-'30 days'::interval,NOW()-'28 days'::interval,NOW()-'25 days'::interval),
+  (8,'delivered',12000000,600000,'direct',NOW()-'20 days'::interval,NOW()-'18 days'::interval,NOW()-'15 days'::interval),
+  (9,'confirmed',8490000,0,'web',NOW()-'3 days'::interval,NULL,NULL),
+  (10,'delivered',4990000,0,'web',NOW()-'10 days'::interval,NOW()-'8 days'::interval,NOW()-'5 days'::interval),
+  (1,'pending',5000000,0,'direct',NOW()-'1 day'::interval,NULL,NULL),
+  (2,'cancelled',2500000,0,'web',NOW()-'15 days'::interval,NULL,NULL)
+""")
+            await sample_conn.execute("""
+INSERT INTO order_items (order_id,product_id,quantity,unit_price) VALUES
+  (1,1,1,4990000),(2,2,1,1990000),(3,1,1,4990000),(3,3,1,2500000),
+  (4,3,1,2500000),(5,1,1,4990000),(5,2,1,1990000),(5,8,1,1500000),
+  (6,4,1,45000000),(7,8,1,1500000),(8,6,1,3000000),(9,5,1,12000000),
+  (10,1,1,4990000),(10,7,1,5000000),(11,1,1,4990000),(12,1,1,4990000)
+""")
+            await sample_conn.execute("""
+INSERT INTO page_events (customer_id,event_type,page,device,session_id) VALUES
+  (1,'page_view','/pricing','desktop','sess_001'),
+  (1,'click','/pricing','desktop','sess_001'),
+  (2,'page_view','/features','mobile','sess_002'),
+  (3,'page_view','/docs','desktop','sess_003'),
+  (4,'signup','/register','desktop','sess_004'),
+  (5,'page_view','/dashboard','desktop','sess_005'),
+  (NULL,'page_view','/landing','mobile','sess_006'),
+  (NULL,'page_view','/landing','desktop','sess_007'),
+  (6,'page_view','/pricing','tablet','sess_008'),
+  (7,'page_view','/blog','desktop','sess_009')
+""")
+        await sample_conn.close()
+
+        # 3. Register as connector (idempotent)
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            existing = await conn.fetchval(
+                "SELECT id FROM connector_connections WHERE name='Sample E-Commerce DB'"
+            )
+
+        if existing:
+            return {
+                "id": str(existing),
+                "name": "Sample E-Commerce DB",
+                "connector_type": "postgresql",
+                "status": "active",
+                "created_at": datetime.utcnow(),
+                "already_existed": True,
+            }
+
+        # Create new connector entry
+        connection_id = str(uuid.uuid4())
+        sample_config = {
+            "host": os.getenv("POSTGRES_HOST", "postgres"),
+            "port": int(os.getenv("POSTGRES_PORT", "5432")),
+            "database": "sampledb",
+            "username": os.getenv("POSTGRES_USER", "datapond"),
+            "password": os.getenv("POSTGRES_PASSWORD", "dev_password"),
+            "ssl": False,
+        }
+        encrypted = vault.encrypt_credentials(sample_config)
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO connector_connections
+                (id, name, connector_type, config_encrypted, status, created_at, updated_at)
+                VALUES ($1,$2,'postgresql',$3,'active',$4,$4)
+            """, connection_id, "Sample E-Commerce DB", encrypted, datetime.utcnow())
+
+        return {
+            "id": connection_id,
+            "name": "Sample E-Commerce DB",
+            "connector_type": "postgresql",
+            "status": "active",
+            "created_at": datetime.utcnow(),
+            "already_existed": False,
+            "tables": ["customers", "products", "orders", "order_items", "page_events"],
+            "message": "Sample DB created with 5 tables and demo data",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create sample DB: {str(e)}")
+
+
 @router.post("/connectors/create", response_model=ConnectionResponse)
 async def create_connection(request: ConnectionCreateRequest):
     """
@@ -398,8 +583,8 @@ async def get_connection(connection_id: str):
             "name": row['name'],
             "connector_type": row['connector_type'],
             "status": row['status'],
-            "created_at": row['created_at'].isoformat(),
-            "last_sync_at": row['last_sync_at'].isoformat() if row['last_sync_at'] else None
+            "created_at": row['created_at'].isoformat() + "Z",
+            "last_sync_at": row['last_sync_at'].isoformat() + "Z" if row['last_sync_at'] else None
         }
 
     except (HTTPException, ValueError) as e:
@@ -731,7 +916,7 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
         job_id = str(uuid.uuid4())
 
         try:
-            yield sse("start", {"job_id": job_id, "message": "Initializing sync…", "ts": started_at.isoformat()})
+            yield sse("start", {"job_id": job_id, "message": "Initializing sync…", "ts": started_at.isoformat() + "Z"})
             await asyncio.sleep(0)
 
             # Get connector
@@ -918,11 +1103,11 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                     total_rows,
                     failed_count,
                     _json.dumps({
-                        "connection_id": connection_id,
+                        "connection_id": str(connection_id),
                         "sync_mode": mode.value,
                         "duration_ms": duration_ms,
                         "tables": table_details,
-                    })
+                    }, default=str)  # default=str handles UUID/datetime
                 )
 
             yield sse("done", {
@@ -1065,7 +1250,7 @@ async def get_sync_status(connection_id: str):
                 "source_table": row['source_table'],
                 "target_table": row['target_table'],
                 "sync_mode": row['sync_mode'],
-                "last_run_at": row['last_run_at'].isoformat() if row['last_run_at'] else None,
+                "last_run_at": row['last_run_at'].isoformat() + "Z" if row['last_run_at'] else None,
                 "status": row['last_run_status'],
                 "rows_synced": row['rows_synced']
             })
@@ -1099,8 +1284,8 @@ async def get_sync_history(connection_id: str, limit: int = 20):
                 meta = _json.loads(meta)
             sessions.append({
                 "id": str(row['id']),
-                "started_at": row['started_at'].isoformat() if row['started_at'] else None,
-                "completed_at": row['completed_at'].isoformat() if row['completed_at'] else None,
+                "started_at": row['started_at'].isoformat() + "Z" if row['started_at'] else None,
+                "completed_at": row['completed_at'].isoformat() + "Z" if row['completed_at'] else None,
                 "status": row['status'],
                 "rows_processed": row['rows_processed'] or 0,
                 "rows_failed": row['rows_failed'] or 0,
