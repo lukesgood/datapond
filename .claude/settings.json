@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(kubectl port-forward *)",
+      "Bash(helm template *)",
+      "Bash(helm status *)",
+      "Bash(helm get *)",
+      "Bash(helm history *)",
+      "Bash(npx tsc *)",
+      "Bash(kubectl api-resources *)",
+      "Bash(kubectl api-versions *)"
+    ]
+  }
+}

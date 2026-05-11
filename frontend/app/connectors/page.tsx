@@ -21,6 +21,7 @@ import {
   ArrowRight, ArrowDownToLine, Layers, BarChart2, Zap, Loader2,
 } from "lucide-react"
 import Link from "next/link"
+import { parseCron, nextRun } from "@/lib/schedule"
 
 interface Connection {
   id: string
@@ -230,25 +231,21 @@ export default function ConnectorsPage() {
       // Fetch per-connection stats in parallel
       const statsEntries = await Promise.all(list.map(async (conn) => {
         try {
-          const [tablesRes, statusRes] = await Promise.all([
+          const [tablesRes, historyRes] = await Promise.all([
             fetch(`/api/connectors/${conn.id}/tables`),
-            fetch(`/api/connectors/${conn.id}/status`),
+            fetch(`/api/connectors/${conn.id}/history`),  // Fix #7: history-based rate
           ])
           const tables = tablesRes.ok ? (await tablesRes.json()).tables?.length ?? 0 : 0
           let lastRows: number | null = null
           let successRate: number | null = null
-          if (statusRes.ok) {
-            const s = await statusRes.json()
-            const jobs = s.jobs ?? []
-            if (jobs.length > 0) {
-              // last sync total rows = sum of most recent run per table
-              const byTable = new Map<string, any>()
-              for (const j of jobs) {
-                if (!byTable.has(j.source_table)) byTable.set(j.source_table, j)
-              }
-              lastRows = Array.from(byTable.values()).reduce((sum, j) => sum + (j.rows_synced ?? 0), 0)
-              const recent = jobs.slice(0, 20)
-              successRate = Math.round(recent.filter((j: any) => j.status === "success").length / recent.length * 100)
+          if (historyRes.ok) {
+            const sessions: any[] = await historyRes.json()
+            if (sessions.length > 0) {
+              // Last sync rows from most recent session
+              lastRows = sessions[0].rows_processed ?? null
+              // Success rate from recent sessions (accurate: session-level)
+              const recent = sessions.slice(0, 20)
+              successRate = Math.round(recent.filter((s: any) => s.status === "success").length / recent.length * 100)
             }
           }
           return [conn.id, { tables, lastRows, successRate }] as [string, ConnStats]
@@ -520,10 +517,19 @@ export default function ConnectorsPage() {
                       <TableCell className="text-xs text-muted-foreground">
                         {formatDate(conn.last_sync_at)}
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {conn.schedule
-                          ? <span className="font-mono text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">{conn.schedule}</span>
-                          : <span className="text-muted-foreground/50">manual</span>}
+                      <TableCell className="text-xs">
+                        {conn.schedule ? (
+                          <div className="space-y-0.5">
+                            <span className="flex items-center gap-1 text-primary font-medium">
+                              <Zap className="h-3 w-3" />{parseCron(conn.schedule)}
+                            </span>
+                            {nextRun(conn.schedule) && (
+                              <span className="text-[10px] text-muted-foreground">{nextRun(conn.schedule)}</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground/50">Manual</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-xs text-right text-muted-foreground">
                         {connStats.get(conn.id)?.tables ?? "—"}

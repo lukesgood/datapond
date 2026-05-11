@@ -1,0 +1,329 @@
+# On-Premises deployment profile — complete production-ready configuration
+# Based on values-quicktest.yaml, expanded for on-prem environments with:
+#   - All services enabled (SeaweedFS, Ollama, LiteLLM, Polaris, etc.)
+#   - Reasonable resource allocations for a 32GB+ RAM node
+#   - Air-gap friendly (no external dependencies required)
+#
+# Usage:
+#   helm upgrade datapond helm/datapond \
+#     --namespace datapond \
+#     --values helm/datapond/values-onprem.yaml
+
+# ── Global ────────────────────────────────────────────────────────────────────
+global:
+  domain: datapond.local          # Change to your actual hostname or IP
+  storageClass: local-path        # K3s default; use longhorn/rook for HA
+  imagePullPolicy: IfNotPresent
+
+namespace: datapond
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: traefik
+  tls:
+    enabled: false                # Set true + secretName for HTTPS with cert-manager
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+frontend:
+  enabled: true
+  replicas: 1
+  image:
+    repository: datapond/frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  autoscaling:
+    enabled: false
+
+# ── Backend ───────────────────────────────────────────────────────────────────
+backend:
+  enabled: true
+  replicas: 1
+  image:
+    repository: datapond/backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  env:
+    - name: ENCRYPTION_KEY
+      valueFrom:
+        secretKeyRef:
+          name: datapond-secrets
+          key: encryption-key
+    # LiteLLM is the primary AI provider — Ollama backend
+    - name: LITELLM_URL
+      value: "http://litellm.datapond.svc.cluster.local:4000"
+    - name: LITELLM_MODEL
+      value: "default"
+  resources:
+    requests:
+      cpu: 300m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  autoscaling:
+    enabled: false
+
+# ── PostgreSQL ────────────────────────────────────────────────────────────────
+postgres:
+  enabled: true
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  persistence:
+    enabled: true
+    size: 50Gi
+  auth:
+    database: datapond
+    username: datapond
+    password: datapond_password   # Change in production!
+
+# ── Valkey (Redis-compatible cache / sessions) ─────────────────────────────────
+valkey:
+  enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  persistence:
+    enabled: true
+    size: 2Gi
+
+# ── JupyterLab ────────────────────────────────────────────────────────────────
+jupyter:
+  enabled: true
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  persistence:
+    enabled: true
+    size: 20Gi
+  extensions:
+    git: true
+    nbdime: true
+  gitConfig:
+    defaultUser: "DataPond User"
+    defaultEmail: "user@datapond.local"
+  env:
+    - name: JUPYTER_TOKEN
+      value: "jupyter"
+
+# ── MLflow ────────────────────────────────────────────────────────────────────
+mlflow:
+  enabled: true
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  persistence:
+    enabled: true
+    size: 20Gi
+
+# ── Airflow (LocalExecutor — no worker pods needed) ────────────────────────────
+airflow:
+  enabled: true
+  executor: LocalExecutor
+  webserver:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 300m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1.5Gi
+  scheduler:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 300m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1.5Gi
+  worker:
+    enabled: false
+  persistence:
+    enabled: true
+    dags:
+      size: 10Gi
+    logs:
+      size: 10Gi
+  auth:
+    username: airflow
+    password: airflow
+  smtp:
+    enabled: false
+
+# ── Spark — disabled by default (heavy resource consumer) ─────────────────────
+# Enable when batch ETL workloads require distributed compute
+spark:
+  enabled: false
+
+# ── SeaweedFS (S3-compatible object storage) ──────────────────────────────────
+# Primary storage layer — all Iceberg data, MLflow artifacts, etc.
+seaweedfs:
+  enabled: true
+  volume:
+    replicas: 1
+    persistence:
+      size: 100Gi
+  auth:
+    s3User: datapond
+    s3Password: datapond_s3_password   # Change in production!
+  s3:
+    clusterIP: 10.43.107.150  # Static IP within K3s service CIDR (10.43.0.0/16)
+
+# ── Trino (OLAP SQL analytics engine) ────────────────────────────────────────
+trino:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  persistence:
+    enabled: true
+    size: 20Gi
+
+# ── Apache Polaris (Iceberg REST catalog — Unity Catalog equivalent) ──────────
+polaris:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# ── RisingWave (real-time streaming SQL) ──────────────────────────────────────
+risingwave:
+  enabled: true
+  meta:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+  frontend:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+  compute:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+  compactor:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+# ── OpenMetadata (data catalog & lineage) ────────────────────────────────────
+openmetadata:
+  enabled: true
+  server:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+    javaOpts:
+      xms: "512m"
+      xmx: "1024m"
+  elasticsearch:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1Gi
+      limits:
+        cpu: 500m
+        memory: 2Gi
+    javaOpts:
+      xms: "512m"
+      xmx: "1g"
+    persistence:
+      size: 20Gi
+
+# ── LiteLLM — AI model proxy ──────────────────────────────────────────────────
+# On-prem: routes to local Ollama instance (air-gap friendly, no API keys needed)
+litellm:
+  enabled: true
+  config:
+    model_list:
+      - model_name: "default"
+        litellm_params:
+          model: "ollama/qwen2.5-coder:7b"
+          api_base: "http://ollama.datapond.svc.cluster.local:11434"
+      - model_name: "chat"
+        litellm_params:
+          model: "ollama/qwen2.5-coder:7b"
+          api_base: "http://ollama.datapond.svc.cluster.local:11434"
+
+# ── Ollama — local LLM runtime ────────────────────────────────────────────────
+# Serves qwen2.5-coder:7b — strong SQL/code model, ~4GB, runs well on CPU
+# Model is auto-pulled from Docker Hub on first startup; cached in PVC thereafter
+ollama:
+  enabled: true
+  defaultModel: "qwen2.5-coder:7b"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 4Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+  persistence:
+    enabled: true
+    size: 20Gi
+
+# ── Monitoring — disabled by default (add Prometheus/Grafana separately) ──────
+monitoring:
+  enabled: false

@@ -38,6 +38,7 @@ export interface SyncSession {
   duration_ms?: number
   sync_mode?: string
   tables: SyncTableResult[]
+  error?: string                      // session-level error message
   // live-only: set while SSE is streaming
   isLive?: boolean
 }
@@ -179,6 +180,13 @@ function SessionRow({ session, defaultOpen }: { session: SyncSession; defaultOpe
         </span>
       </button>
 
+      {/* Session-level error (when no tables processed) */}
+      {open && session.status === "failed" && session.error && session.tables.length === 0 && (
+        <div className="pb-2 ml-1">
+          <ErrorDetail error={session.error} />
+        </div>
+      )}
+
       {/* Table details (expanded) */}
       {open && session.tables.length > 0 && (
         <div className="pb-2 ml-1 space-y-px">
@@ -275,20 +283,23 @@ function SessionRow({ session, defaultOpen }: { session: SyncSession; defaultOpe
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
+const DEFAULT_VISIBLE = 5
+
 export function SyncHistory({ sessions, onDismissLive }: SyncHistoryProps) {
+  const [showAll, setShowAll] = useState(false)
   const liveSession  = sessions.find(s => s.isLive)
   const pastSessions = sessions.filter(s => !s.isLive)
+  const visiblePast  = showAll ? pastSessions : pastSessions.slice(0, DEFAULT_VISIBLE)
+  const hiddenCount  = pastSessions.length - DEFAULT_VISIBLE
 
   return (
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base">Sync History</CardTitle>
-          {liveSession && onDismissLive && !liveSession.isLive && (
-            <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={onDismissLive}>
-              Dismiss
-            </Button>
-          )}
+          <span className="text-xs text-muted-foreground">
+            {pastSessions.length > 0 && `${pastSessions.length} runs`}
+          </span>
         </div>
       </CardHeader>
       <CardContent className="space-y-1">
@@ -298,15 +309,27 @@ export function SyncHistory({ sessions, onDismissLive }: SyncHistoryProps) {
           </div>
         )}
 
-        {/* Live session always on top */}
+        {/* Live session always on top, always open */}
         {liveSession && (
           <SessionRow key="live" session={liveSession} defaultOpen={true} />
         )}
 
-        {/* Past sessions */}
-        {pastSessions.map(s => (
+        {/* Past sessions — collapsed after DEFAULT_VISIBLE */}
+        {visiblePast.map(s => (
           <SessionRow key={s.id} session={s} />
         ))}
+
+        {/* Show more / less toggle */}
+        {pastSessions.length > DEFAULT_VISIBLE && (
+          <button
+            onClick={() => setShowAll(v => !v)}
+            className="w-full text-xs text-muted-foreground hover:text-foreground py-2 flex items-center justify-center gap-1 border-t mt-1 transition-colors"
+          >
+            {showAll
+              ? <><ChevronDown className="h-3 w-3 rotate-180" />Show less</>
+              : <><ChevronDown className="h-3 w-3" />Show {hiddenCount} older runs</>}
+          </button>
+        )}
       </CardContent>
     </Card>
   )

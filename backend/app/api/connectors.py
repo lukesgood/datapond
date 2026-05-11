@@ -24,6 +24,65 @@ import asyncpg
 import asyncio
 import json
 import os
+import logging
+import httpx
+
+logger = logging.getLogger(__name__)
+
+OPENMETADATA_URL = os.getenv("OPENMETADATA_URL", "http://openmetadata-server.datapond.svc.cluster.local:8585")
+OPENMETADATA_TOKEN: str | None = None
+
+
+async def _om_token() -> str | None:
+    """Obtain OpenMetadata JWT token (cached in module-level var)."""
+    global OPENMETADATA_TOKEN
+    if OPENMETADATA_TOKEN:
+        return OPENMETADATA_TOKEN
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            resp = await c.post(
+                f"{OPENMETADATA_URL}/api/v1/users/login",
+                json={"email": "admin@open-metadata.org", "password": "Admin1234!"},
+            )
+            if resp.status_code == 200:
+                OPENMETADATA_TOKEN = resp.json().get("accessToken")
+                return OPENMETADATA_TOKEN
+    except Exception:
+        pass
+    return None
+
+
+async def register_lineage(
+    source_name: str,
+    source_schema: str,
+    target_table: str,
+    target_schema: str,
+    connector_name: str,
+) -> None:
+    """Best-effort: register source→target lineage edge in OpenMetadata."""
+    try:
+        token = await _om_token()
+        if not token:
+            return
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        source_fqn = f"datapond.{source_schema}.{source_name}"
+        target_fqn = f"iceberg.{target_schema}.{target_table}"
+
+        payload = {
+            "edge": {
+                "fromEntity": {"type": "table", "fqn": source_fqn},
+                "toEntity":   {"type": "table", "fqn": target_fqn},
+                "lineageDetails": {
+                    "pipeline": {"type": "pipeline", "fqn": f"datapond.{connector_name}"},
+                    "description": f"Ingested by DataPond connector: {connector_name}",
+                },
+            }
+        }
+        async with httpx.AsyncClient(timeout=5) as c:
+            await c.put(f"{OPENMETADATA_URL}/api/v1/lineage", headers=headers, json=payload)
+    except Exception as e:
+        logger.debug(f"[lineage] best-effort registration failed: {e}")
+
 
 from ..connectors.base import (
     ConnectorType,
@@ -105,7 +164,7 @@ async def get_db_pool():
     if _db_pool is None or _db_pool._closed:
         _db_pool = await asyncpg.create_pool(
             host=os.getenv("POSTGRES_HOST", "postgres"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            port=5432,
             database=os.getenv("POSTGRES_DB", "datapond"),
             user=os.getenv("POSTGRES_USER", "datapond"),
             password=os.getenv("POSTGRES_PASSWORD", "dev_password"),
@@ -343,7 +402,7 @@ CREATE TABLE IF NOT EXISTS page_events (
         # 1. Create sampledb if not exists (connect to postgres db first)
         sys_conn = await _asyncpg.connect(
             host=os.getenv("POSTGRES_HOST", "postgres"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            port=5432,
             database="postgres",
             user=os.getenv("POSTGRES_USER", "datapond"),
             password=os.getenv("POSTGRES_PASSWORD", "dev_password"),
@@ -358,7 +417,7 @@ CREATE TABLE IF NOT EXISTS page_events (
         # 2. Connect to sampledb and create schema + seed data
         sample_conn = await _asyncpg.connect(
             host=os.getenv("POSTGRES_HOST", "postgres"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            port=5432,
             database="sampledb",
             user=os.getenv("POSTGRES_USER", "datapond"),
             password=os.getenv("POSTGRES_PASSWORD", "dev_password"),
@@ -453,7 +512,7 @@ INSERT INTO page_events (customer_id,event_type,page,device,session_id) VALUES
         connection_id = str(uuid.uuid4())
         sample_config = {
             "host": os.getenv("POSTGRES_HOST", "postgres"),
-            "port": int(os.getenv("POSTGRES_PORT", "5432")),
+            "port": 5432,
             "database": "sampledb",
             "username": os.getenv("POSTGRES_USER", "datapond"),
             "password": os.getenv("POSTGRES_PASSWORD", "dev_password"),
@@ -480,6 +539,35 @@ INSERT INTO page_events (customer_id,event_type,page,device,session_id) VALUES
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create sample DB: {str(e)}")
+
+
+@router.delete("/connectors/{connection_id}/draft")
+async def discard_draft_connection(connection_id: str):
+    """Discard a connection created during setup wizard (no sync history).
+    Used when user clicks Back/Cancel after Step 1 to prevent orphan records."""
+    try:
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            # Only allow deletion if never synced (no history, no jobs with last_run_at)
+            has_synced = await conn.fetchval(
+                "SELECT COUNT(*) FROM connector_sync_history WHERE metadata->>'connection_id'=$1",
+                connection_id
+            )
+            if has_synced and has_synced > 0:
+                raise HTTPException(status_code=409, detail="Cannot discard — connection has sync history")
+            # Remove DAG file if exists
+            import pathlib, glob
+            dag_files = glob.glob(f"/opt/airflow/dags/datapond_sync_*.py")
+            for f in dag_files:
+                if connection_id in open(f).read():
+                    pathlib.Path(f).unlink(missing_ok=True)
+            # Delete connection (cascade removes sync_jobs)
+            await conn.execute("DELETE FROM connector_connections WHERE id=$1", uuid.UUID(connection_id))
+        return {"message": "Draft connection discarded"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/connectors/create", response_model=ConnectionResponse)
@@ -646,10 +734,13 @@ async def update_connection(connection_id: str, request: ConnectionUpdateRequest
         new_name = request.name or row['name']
         if request.config is not None:
             # Merge with existing config (keep existing values for masked/empty fields)
+            # Always remove ingestion metadata that should not be in DB connection config
+            INGESTION_KEYS = {"sync_frequency", "sync_mode", "selected_tables", "schedule"}
             existing = vault.decrypt_credentials(row['config_encrypted'])
-            merged = {**existing}
+            # Strip ingestion keys from existing
+            merged = {k: v for k, v in existing.items() if k not in INGESTION_KEYS}
             for k, v in request.config.items():
-                if v not in ("••••••••", "") and k not in ("name", "connector_type"):
+                if v not in ("••••••••", "") and k not in ("name", "connector_type") and k not in INGESTION_KEYS:
                     merged[k] = v
             new_config = vault.encrypt_credentials(merged)
         else:
@@ -849,22 +940,31 @@ async def list_tables(connection_id: str):
         pool = await get_db_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT source_table, enabled, sync_mode, incremental_column FROM connector_sync_jobs WHERE connection_id=$1",
+                "SELECT source_table, enabled, sync_mode, incremental_column, last_value FROM connector_sync_jobs WHERE connection_id=$1",
                 uuid.UUID(connection_id)
             )
         config_map = {r['source_table']: r for r in rows}
 
-        return {
-            "tables": [
-                {
-                    "name": t,
-                    "enabled": config_map[t]['enabled'] if t in config_map else True,
-                    "sync_mode": config_map[t]['sync_mode'] if t in config_map else "full",
-                    "incremental_column": config_map[t]['incremental_column'] if t in config_map else None,
-                }
-                for t in tables
-            ]
-        }
+        def _table_info(t: str) -> dict:
+            cfg = config_map.get(t)
+            mode = (cfg['sync_mode'] or "full") if cfg else "full"
+            inc_col = cfg['incremental_column'] if cfg else None
+            last_val = cfg['last_value'] if cfg else None
+            enabled = cfg['enabled'] if cfg else True
+            # Warn: incremental set but no column → effectively full
+            effective_mode = mode
+            if mode == "incremental" and not inc_col:
+                effective_mode = "incremental_no_col"  # UI can show warning
+            return {
+                "name": t,
+                "enabled": enabled,
+                "sync_mode": mode,
+                "effective_mode": effective_mode,
+                "incremental_column": inc_col,
+                "last_value": last_val,
+            }
+
+        return {"tables": [_table_info(t) for t in tables]}
 
     except HTTPException:
         raise
@@ -918,7 +1018,7 @@ async def set_connection_sync_mode(connection_id: str, body: dict):
     try:
         mode = body.get("sync_mode", "full")
         table_name = body.get("table_name")  # Optional: specific table only
-        if mode not in ("full", "incremental", "cdc", "snapshot"):
+        if mode not in ("full", "incremental"):
             raise HTTPException(status_code=400, detail=f"Invalid sync_mode: {mode}")
         pool = await get_db_pool()
         async with pool.acquire() as conn:
@@ -1117,13 +1217,22 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                         uuid.UUID(connection_id), table
                     )
                     if existing:
-                        await conn.execute('''
-                            UPDATE connector_sync_jobs
-                            SET last_run_at=$1, last_run_status=$2,
-                                rows_synced=$3, last_value=$4
-                            WHERE id=$5
-                        ''', run_at, status.status.value, rows,
-                            new_last_value, existing)
+                        # Only advance watermark when new_last_value is set; never overwrite with NULL
+                        if new_last_value is not None:
+                            await conn.execute('''
+                                UPDATE connector_sync_jobs
+                                SET last_run_at=$1, last_run_status=$2,
+                                    rows_synced=$3, last_value=$4
+                                WHERE id=$5
+                            ''', run_at, status.status.value, rows,
+                                new_last_value, existing)
+                        else:
+                            await conn.execute('''
+                                UPDATE connector_sync_jobs
+                                SET last_run_at=$1, last_run_status=$2,
+                                    rows_synced=$3
+                                WHERE id=$4
+                            ''', run_at, status.status.value, rows, existing)
                     else:
                         await conn.execute('''
                             INSERT INTO connector_sync_jobs
@@ -1167,12 +1276,13 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                 )
             real_job_id = real_job if real_job else uuid.UUID(job_id)
 
+            first_error = next((t["error"] for t in table_details if t.get("error")), None)
             async with pool.acquire() as conn:
                 await conn.execute('''
                     INSERT INTO connector_sync_history
                     (id, job_id, started_at, completed_at, status,
-                     rows_processed, rows_failed, metadata)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                     rows_processed, rows_failed, error_message, metadata)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 ''',
                     uuid.UUID(history_id),
                     real_job_id,
@@ -1181,12 +1291,13 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                     "success" if failed_count == 0 else "failed",
                     total_rows,
                     failed_count,
+                    first_error,
                     _json.dumps({
                         "connection_id": str(connection_id),
                         "sync_mode": mode.value,
                         "duration_ms": duration_ms,
                         "tables": table_details,
-                    }, default=str)  # default=str handles UUID/datetime
+                    }, default=str)
                 )
 
             yield sse("done", {
@@ -1200,7 +1311,70 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                 "duration_ms": duration_ms,
             })
 
+            # Best-effort: run data quality checks for successful tables
+            from .quality import run_and_store_quality_checks
+            asyncio.create_task(run_and_store_quality_checks(pool, connection_id, results))
+
+            # Best-effort: register lineage in OpenMetadata for successful tables
+            async with pool.acquire() as conn:
+                conn_info = await conn.fetchrow(
+                    "SELECT name, connector_type FROM connector_connections WHERE id=$1",
+                    uuid.UUID(connection_id)
+                )
+            if conn_info:
+                for tbl, tgt, ok, rows, _ in results:
+                    if ok:
+                        asyncio.create_task(register_lineage(
+                            source_name=tbl,
+                            source_schema=conn_info["connector_type"],
+                            target_table=tbl,
+                            target_schema="default",
+                            connector_name=conn_info["name"],
+                        ))
+
         except Exception as e:
+            # Save failed history entry so errors are always recorded
+            try:
+                import json as _json
+                error_msg = str(e)
+                duration_ms = int((datetime.utcnow() - started_at).total_seconds() * 1000)
+                completed_at = datetime.utcnow()
+                table_details = [
+                    {
+                        "table": tbl, "target": tgt,
+                        "status": "success" if ok else "failed",
+                        "rows": rows,
+                        "error": st.error_message if not ok else None,
+                    }
+                    for tbl, tgt, ok, rows, st in results
+                ]
+                history_id = str(uuid.uuid4())
+                async with pool.acquire() as conn:
+                    real_job = await conn.fetchval(
+                        "SELECT id FROM connector_sync_jobs WHERE connection_id=$1 ORDER BY created_at DESC LIMIT 1",
+                        uuid.UUID(connection_id)
+                    )
+                real_job_id = real_job if real_job else uuid.UUID(job_id)
+                async with pool.acquire() as conn:
+                    await conn.execute('''
+                        INSERT INTO connector_sync_history
+                        (id, job_id, started_at, completed_at, status,
+                         rows_processed, rows_failed, error_message, metadata)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    ''',
+                        uuid.UUID(history_id), real_job_id,
+                        started_at, completed_at, "failed",
+                        total_rows, len(results) - sum(1 for _, _, ok, _, _ in results if ok),
+                        error_msg,
+                        _json.dumps({
+                            "connection_id": str(connection_id),
+                            "sync_mode": mode.value if 'mode' in dir() else "full",
+                            "duration_ms": duration_ms,
+                            "tables": table_details,
+                        }, default=str)
+                    )
+            except Exception:
+                pass  # Don't let history save failure mask the original error
             yield sse("error", {"message": str(e)})
 
     return StreamingResponse(generate(), media_type="text/event-stream",
@@ -1438,3 +1612,36 @@ async def _get_connector_instance(connection_id: str):
 
     connector_type = ConnectorType(row['connector_type'])
     return _create_connector(connector_type, config)
+
+
+@router.get("/connectors/{connection_id}/quality")
+async def get_quality_checks(connection_id: str, limit: int = 20):
+    """Get latest data quality check results for a connection."""
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT source_table, checked_at, rows_current, rows_previous,
+                      row_change_pct, row_change_status, null_checks,
+                      overall_status, warnings
+               FROM connector_quality_checks
+               WHERE connection_id=$1
+               ORDER BY checked_at DESC LIMIT $2""",
+            uuid.UUID(connection_id), limit
+        )
+    import json as _json
+    return {
+        "checks": [
+            {
+                "source_table": r["source_table"],
+                "checked_at": r["checked_at"].isoformat() + "Z",
+                "rows_current": r["rows_current"],
+                "rows_previous": r["rows_previous"],
+                "row_change_pct": r["row_change_pct"],
+                "row_change_status": r["row_change_status"],
+                "null_checks": _json.loads(r["null_checks"]) if r["null_checks"] else {},
+                "overall_status": r["overall_status"],
+                "warnings": _json.loads(r["warnings"]) if r["warnings"] else [],
+            }
+            for r in rows
+        ]
+    }

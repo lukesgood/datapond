@@ -63,7 +63,7 @@ backend:
   autoscaling:
     enabled: true
     minReplicas: 1
-    maxReplicas: 5
+    maxReplicas: 2
     targetCPUUtilizationPercentage: 70
 
 # PostgreSQL - Reduced resources
@@ -350,3 +350,35 @@ seaweedfs:
     # Verify the IP is inside the service CIDR (k3s default 10.43.0.0/16) and
     # not in use: `kubectl get svc -A | grep 10.43.107.150`
     clusterIP: 10.43.107.150
+
+# LiteLLM proxy — disabled when Ollama is off (single-node RAM constraint).
+# On 32GB+ nodes: set both litellm.enabled and ollama.enabled to true.
+# Fallback: ai_sql.py will use Bedrock/Anthropic directly if LiteLLM is unavailable.
+litellm:
+  enabled: false
+  config:
+    model_list:
+      - model_name: "default"
+        litellm_params:
+          model: "ollama/qwen2.5-coder:7b"
+          api_base: "http://ollama.datapond.svc.cluster.local:11434"
+      - model_name: "chat"
+        litellm_params:
+          model: "ollama/qwen2.5-coder:7b"
+          api_base: "http://ollama.datapond.svc.cluster.local:11434"
+
+# Ollama — reduced resources for single-node dev (16 CPU / 15GB RAM host)
+# qwen2.5-coder:7b ~4GB on disk, ~5GB RAM during inference
+# Ollama disabled on single-node dev (RAM requests already at 97%).
+# Enable on nodes with 32GB+ RAM or after reducing other service requests.
+# To enable: set enabled: true and ensure 6GB+ free memory.
+ollama:
+  enabled: false
+  defaultModel: "qwen2.5-coder:7b"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 4000m
+      memory: 6Gi

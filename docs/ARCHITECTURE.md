@@ -1,8 +1,8 @@
 # DataPond Kubernetes 아키텍처 문서
 
-**버전**: 3.0.0-enterprise  
+**버전**: 3.1.0-enterprise  
 **작성일**: 2026-04-28  
-**최종 수정**: 2026-04-28  
+**최종 수정**: 2026-05-11  
 **대상**: 개발자, DevOps, 아키텍트
 
 ---
@@ -27,7 +27,7 @@
 
 ### 목적
 
-DataPond는 **AI-Native Open Lakehouse Platform**으로, 배치/실시간 데이터 분석, ML 실험, 거버넌스를 통합 제공합니다. Databricks Unity Catalog 수준의 엔터프라이즈 기능을 100% 오픈소스로 구현합니다.
+DataPond는 **AI-Native Open Lakehouse Platform**으로, 배치/실시간 데이터 분석, ML 실험, 거버넌스를 통합 제공합니다. 데이터 주권 요구사항(금융, 공공, 의료, 제조)으로 인해 Databricks를 사용할 수 없는 환경에서 동급의 엔터프라이즈 기능을 온프레미스 또는 프라이빗 클라우드에서 실행합니다.
 
 ### 핵심 원칙
 
@@ -43,22 +43,32 @@ DataPond는 **AI-Native Open Lakehouse Platform**으로, 배치/실시간 데이
 
 ```yaml
 vs Databricks:
-  비용: 1/10 ($2K vs $20K/월)
+  포지셔닝: Databricks가 진입 불가한 데이터 주권 시장
   거버넌스: Polaris (Unity Catalog 대안)
   실시간: RisingWave (Spark Streaming 대체)
   관측성: OpenMetadata (자동 Lineage)
+  AI: LiteLLM + Ollama (온프레미스 AI, Bedrock fallback)
   라이선스: 100% 오픈소스
 
 vs Snowflake:
-  배포: Self-hosted (데이터 주권)
+  배포: Self-hosted (데이터 주권, 에어갭 지원)
   확장성: Kubernetes Auto-scaling
-  AI: Multi-model (Claude, GPT-4, Llama)
+  AI: Multi-model (Claude, GPT-4, Llama, Ollama)
   
 vs Dremio:
   비용: $0 (Polaris 카탈로그)
   실시간: RisingWave 통합
   ML: MLflow + JupyterLab 내장
+  AI: Text-to-SQL, Data Quality 자동화
 ```
+
+### 멀티 환경 프로파일
+
+| 환경 | Helm Values | RAM | 특징 |
+|------|-------------|-----|------|
+| **단일 노드 개발** | `values-quicktest.yaml` | 15 GB | LiteLLM/Ollama/Spark 비활성화 |
+| **온프레미스 프로덕션** | `values-onprem.yaml` | 32 GB+ | 전체 스택 (LiteLLM + Ollama 포함) |
+| **AWS EKS** | `values-aws.yaml` | — | S3 + Bedrock, SeaweedFS/Ollama/PG 비활성화 |
 
 ---
 
@@ -123,10 +133,10 @@ vs Dremio:
 
 ┌──────────────────────────────────────────────────────────────────────┐
 │                  Metadata & State Layer                              │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐              │
-│  │PostgreSQL│  │  Valkey  │  │  Airbyte (Phase 2)   │              │
-│  │(Primary) │  │ (Redis)  │  │  - Data Ingestion    │              │
-│  └──────────┘  └──────────┘  └──────────────────────┘              │
+│  ┌──────────┐  ┌──────────┐                                        │
+│  │PostgreSQL│  │  Valkey  │                                        │
+│  │(Primary) │  │(sessions)│                                        │
+│  └──────────┘  └──────────┘                                        │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -577,6 +587,60 @@ OpenMetadata UI:
 2. **Data Governance**: PII 태그 자동 분류
 3. **Data Quality**: Great Expectations 통합
 4. **Glossary**: 용어 사전 (ARR, MRR 정의)
+
+---
+
+### 5. AI Layer (LiteLLM + Ollama) 🤖
+
+**지위**: 2026-05-11 구현 완료  
+**역할**: 온프레미스 AI 추론 + 외부 LLM fallback chain
+
+#### 구성
+
+```
+[Query Lab 자연어 입력]
+         │
+         ▼
+[Backend: POST /api/ai/sql]
+         │
+         ├─1. LiteLLM (내부, litellm:4000)
+         │      └─ Ollama (qwen2.5-coder:7b) — on-prem only
+         │
+         ├─2. AWS Bedrock (us.anthropic.claude-haiku-4-5-20251001-v1:0)
+         │      — AWS 환경 또는 API key 있을 때
+         │
+         ├─3. Anthropic API (claude-haiku-4-5)
+         │      — 직접 API key 있을 때
+         │
+         └─4. Schema Template
+               — 모든 외부 연결 실패 시 기본 SQL 템플릿 반환
+```
+
+#### LiteLLM 기술 스펙
+```yaml
+Port: 4000
+ConfigMap: litellm-config (model_list YAML)
+Helm: values-onprem.yaml → litellm.enabled: true
+     values-quicktest.yaml → litellm.enabled: false  (RAM 부족)
+Image: ghcr.io/berriai/litellm:main-latest
+```
+
+#### Ollama 기술 스펙
+```yaml
+Port: 11434
+Type: StatefulSet
+Model: qwen2.5-coder:7b (initContainer로 auto-pull)
+PVC: 30Gi (모델 저장)
+Helm: values-onprem.yaml → ollama.enabled: true
+     values-quicktest.yaml → ollama.enabled: false
+RAM 요구: 8GB+ (전용)
+```
+
+#### AI 설정 (Settings UI)
+Settings → System → AI SQL Assistant 탭에서 설정 가능:
+- Provider URL (LiteLLM endpoint)
+- API Key (암호화 저장, CredentialVault)
+- 설정은 `system_settings` 테이블에 저장 → 재시작 시 자동 복원
 
 ---
 
@@ -1043,18 +1107,25 @@ StorageClass: local-path
 **데이터베이스 구조**:
 ```
 ├── datapond           # 메인 애플리케이션 DB
-│   ├── users          # 사용자
-│   ├── projects       # 프로젝트
-│   ├── datasets       # 데이터셋
-│   └── notebooks      # 노트북 메타데이터
+│   ├── users                     # 사용자
+│   ├── connectors                # 데이터 커넥터
+│   ├── connector_tables          # 테이블별 sync 설정
+│   ├── connector_sync_jobs       # Sync 이력
+│   ├── connector_quality_checks  # Data Quality 결과 (신규)
+│   ├── saved_transforms          # ELT Transform 정의 (신규)
+│   ├── system_settings           # 시스템 설정 / AI 키 (신규)
+│   └── notebooks                 # 노트북 메타데이터
 ├── mlflow             # MLflow 메타데이터
 │   ├── experiments
 │   ├── runs
 │   └── metrics
-└── airflow            # Airflow 메타데이터
-    ├── dags
-    ├── dag_run
-    └── task_instance
+├── airflow            # Airflow 메타데이터
+│   ├── dags
+│   ├── dag_run
+│   └── task_instance
+├── iceberg_catalog    # Apache Polaris metastore
+├── polaris_catalog    # Polaris 카탈로그
+└── openmetadata_catalog  # OpenMetadata 메타데이터
 ```
 
 **고가용성** (프로덕션):
@@ -1152,10 +1223,16 @@ Annotations:
 ```
 backend.datapond.svc.cluster.local:8000
 postgres.datapond.svc.cluster.local:5432
-redis.datapond.svc.cluster.local:6379
+valkey.datapond.svc.cluster.local:6379
 seaweedfs.datapond.svc.cluster.local:9000
-mlflow.datapond.svc.cluster.local:5000
+polaris.datapond.svc.cluster.local:8181
+trino.datapond.svc.cluster.local:8080
 spark-master.datapond.svc.cluster.local:7077
+risingwave.datapond.svc.cluster.local:4566
+openmetadata.datapond.svc.cluster.local:8585
+litellm.datapond.svc.cluster.local:4000    (AI proxy — disabled on quicktest)
+ollama.datapond.svc.cluster.local:11434    (LLM runtime — disabled on quicktest)
+mlflow.datapond.svc.cluster.local:5000
 ```
 
 #### 통신 패턴

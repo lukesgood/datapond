@@ -108,15 +108,40 @@ def _schemas_match(cur, catalog: str, schema: str, tbl: str, df: pd.DataFrame) -
                for c in df.columns}
         if set(existing.keys()) != set(new.keys()):
             return False
-        # Normalise type comparison: varchar == varchar(n), timestamp(6) == timestamp(6)
         for col in new:
-            e_type = existing[col].split("(")[0]  # strip precision
+            e_type = existing[col].split("(")[0]
             n_type = new[col].split("(")[0]
             if e_type != n_type:
                 return False
         return True
     except Exception:
         return True  # table doesn't exist — no conflict
+
+
+def _apply_schema_evolution(fqtn: str, df: pd.DataFrame, step_fn) -> list[str]:
+    """
+    Add columns present in df but missing from the Iceberg table (ALTER TABLE ADD COLUMN).
+    Returns list of added column names. Type mismatches on existing columns are left as-is
+    (Iceberg/Trino will cast on read for compatible types; incompatible ones surface at INSERT).
+    """
+    added = []
+    try:
+        cur = _trino_conn().cursor()
+        cur.execute(f"DESCRIBE {fqtn}")
+        existing_cols = {row[0].lower() for row in cur.fetchall()}
+
+        for col in df.columns:
+            safe = _safe_name(col)
+            if safe.lower() not in existing_cols:
+                trino_type = _pandas_to_trino_type(df[col].dtype)
+                alter_cur = _trino_conn().cursor()
+                alter_cur.execute(f'ALTER TABLE {fqtn} ADD COLUMN "{safe}" {trino_type}')
+                alter_cur.fetchall()
+                added.append(safe)
+                step_fn("schema_evolution", f"Added column {safe} {trino_type} to {fqtn}")
+    except Exception as e:
+        step_fn("schema_evolution", f"Schema evolution warning: {e}")
+    return added
 
 
 def write_dataframe_to_iceberg(
@@ -195,7 +220,7 @@ def write_dataframe_to_iceberg(
         else:
             step("schema_check", f"Table {tbl} does not exist yet", action="ok")
 
-    # ── 2. Create table ───────────────────────────────────────────────────────
+    # ── 2. Create table (or evolve schema for append mode) ───────────────────
     step("create", f"Creating table {tbl}…")
     create_cur = _trino_conn().cursor()
     create_cur.execute(f"""
@@ -207,6 +232,12 @@ CREATE TABLE IF NOT EXISTS {fqtn} (
 )""")
     create_cur.fetchall()
     step("create", f"Table {tbl} ready", action="done")
+
+    # For append mode, check for new columns and ALTER TABLE as needed
+    if mode == "append":
+        added = _apply_schema_evolution(fqtn, df, step)
+        if added:
+            step("schema_evolution", f"Schema evolved: added {len(added)} column(s): {', '.join(added)}", action="done")
 
     # ── 4. Insert batches ─────────────────────────────────────────────────────
     BATCH = 500

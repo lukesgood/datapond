@@ -1,31 +1,48 @@
 # DataPond vs Databricks 기능 비교 및 추가 필요 기능
 
 **작성일**: 2026-04-28  
-**버전**: 1.0.0  
-**목적**: Databricks와 비교하여 DataPond에 추가로 필요한 핵심 기능 식별
+**최종 수정**: 2026-05-11  
+**버전**: 2.0.0  
+**목적**: Databricks와 비교하여 DataPond 현재 구현 상태 및 추가 필요 기능 식별
 
 ---
 
 ## 📋 Executive Summary
 
-Databricks는 업계를 선도하는 통합 데이터 + AI 플랫폼입니다. DataPond가 프로덕션 환경에서 경쟁력을 갖추려면 다음 핵심 기능이 필요합니다:
+Databricks는 업계를 선도하는 통합 데이터 + AI 플랫폼입니다. DataPond는 Databricks가 진입할 수 없는 데이터 주권 시장(에어갭, 규제 환경)을 타겟으로 합니다.
 
-### 우선순위 높음 (P0 - 3개월 내 구현)
-1. **Delta Live Tables** 방식의 선언적 파이프라인
-2. **Unity Catalog** 수준의 통합 거버넌스
-3. **Databricks SQL** 스타일의 BI 통합
-4. **Auto Loader** 방식의 스트리밍 수집
+### 2026-05-11 기준 구현 상태
 
-### 우선순위 중간 (P1 - 6개월 내 구현)
-5. **Photon Engine** 스타일의 쿼리 가속화
-6. **MLflow Integration** 완전 통합
-7. **Workflows** 수준의 오케스트레이션
-8. **Repos** 방식의 Git 통합
+| 기능 | Databricks | DataPond | 비고 |
+|------|------------|----------|------|
+| **Incremental Sync** | Auto Loader | ✅ 구현 | watermark 기반 |
+| **Schema Evolution** | 자동 | ✅ 구현 | ALTER TABLE ADD COLUMN |
+| **ELT Transforms** | Delta Live Tables | ✅ 구현 | SQL Editor + Airflow CTAS DAG |
+| **CDC** | Delta CDC | ✅ 구현 | RisingWave postgres-cdc |
+| **Catalog Preview** | Unity Catalog | ✅ 구현 | 상위 100 rows + 컬럼 통계 |
+| **Data Quality** | DLT expectations | ✅ 구현 | row count 이상 + null rate |
+| **Text-to-SQL / AI Assistant** | Databricks Assistant | ✅ 구현 | LiteLLM + Bedrock + Anthropic |
+| **Auth + 사용자 관리** | Unity Catalog RBAC | ✅ 구현 | JWT + BCrypt + Role |
+| **Streaming (CDC)** | Delta CDC + Autoloader | ✅ 구현 | RisingWave 4단계 마법사 |
+| **ML Experiment 비교** | MLflow (통합) | ✅ 구현 | compare API + best ★ |
+| **Data Lineage** | Unity Catalog | 부분 구현 | OpenMetadata best-effort |
+| **LDAP/SSO** | SCIM provisioning | ❌ 미구현 | Sprint 3 예정 |
+| **Row-level Security** | Unity Catalog | ❌ 미구현 | Sprint 4 예정 |
+| **Air-gap Install** | ❌ 불가 | ⬜ 검증 중 | DataPond 핵심 차별화 포인트 |
 
-### 우선순위 낮음 (P2 - 12개월 내 구현)
-9. **Databricks Assistant** (AI 코파일럿)
-10. **Partner Connect** (써드파티 통합)
-11. **Marketplace** (데이터 공유)
+### 우선순위 높음 (P0 - 즉시 필요)
+1. **에어갭 설치 패키지** — bundle-airgap.sh 검증 (DataPond 핵심 차별화)
+2. **LDAP/SSO** — 엔터프라이즈 필수
+3. **Row-level Security** — Polaris RBAC 연동
+
+### 우선순위 중간 (P1 - 6개월 내)
+4. **PII 자동 감지** — 컬럼 패턴 매칭 + OpenMetadata 태그
+5. **자연어 파이프라인 생성** — LiteLLM 기반 ELT 자동 생성
+6. **Declarative Pipelines SDK** — Delta Live Tables 스타일 Python SDK
+
+### 우선순위 낮음 (P2 - 12개월 내)
+7. **Data Marketplace** — 데이터 공유
+8. **AutoML** — 자동 모델 선택
 
 ---
 
@@ -1392,41 +1409,33 @@ sql = assistant.generate_sql_from_natural_language(
 
 ## 📊 구현 로드맵
 
-### Phase 1 (3개월): P0 - 핵심 경쟁력
+### Phase 1 (2026-05): 핵심 Ingestion + AI — ✅ 완료
 ```yaml
-Month 1:
-  - ✅ Declarative Pipelines (Delta Live Tables 스타일)
-  - ✅ Unified Catalog 기본 기능
-
-Month 2:
-  - ✅ 행/열 레벨 보안
-  - ✅ 자동 데이터 리니지
-
-Month 3:
-  - ✅ SQL Workbench UI
-  - ✅ Auto Loader (스트리밍 수집)
+완료:
+  - ✅ Incremental Sync (watermark + schema evolution)
+  - ✅ ELT Transforms (SQL Editor + Airflow CTAS)
+  - ✅ CDC (RisingWave postgres-cdc)
+  - ✅ AI SQL Assistant (LiteLLM + Bedrock + Anthropic)
+  - ✅ Catalog Preview + Data Quality
+  - ✅ Auth + 사용자 관리
 ```
 
-### Phase 2 (6개월): P1 - 차별화
+### Phase 2 (2026-06): 거버넌스 + 에어갭
 ```yaml
-Month 4-5:
-  - ✅ Unified Orchestration (YAML 워크플로우)
-  - ✅ MLflow 완전 통합
-
-Month 6:
-  - ✅ Query Accelerator (DuckDB/Trino 하이브리드)
-  - ✅ Git Integration
+예정:
+  - ⬜ 에어갭 설치 패키지 (bundle-airgap.sh 검증)
+  - ⬜ LDAP/SSO 기초 연동
+  - ⬜ Iceberg VACUUM DAG
+  - ⬜ PII 자동 감지
 ```
 
-### Phase 3 (12개월): P2 - 미래 대비
+### Phase 3 (2026-07+): AI-Native 차별화
 ```yaml
-Month 7-9:
-  - ✅ AI Assistant (Claude 통합)
-  - ✅ Data Marketplace
-
-Month 10-12:
-  - ✅ Partner Connect
-  - ✅ Advanced Analytics (ML AutoML)
+예정:
+  - ⬜ 자연어 파이프라인 생성
+  - ⬜ Row-level Security (Polaris RBAC)
+  - ⬜ Declarative Pipelines SDK
+  - ⬜ AutoML 기초
 ```
 
 ---
@@ -1452,24 +1461,24 @@ Month 10-12:
 
 ## 📝 요약
 
-### Databricks 대비 DataPond가 추가로 필요한 핵심 기능
+### 구현 완료 (2026-05-11 기준)
 
-#### 🔴 Critical (즉시 필요)
-1. **Declarative Pipelines** - 선언적 파이프라인 (Delta Live Tables 스타일)
-2. **Unified Governance** - 통합 카탈로그 + 행/열 레벨 보안 (Unity Catalog 스타일)
-3. **SQL Workbench** - BI 통합 SQL 인터페이스 (Databricks SQL 스타일)
-4. **Auto Loader** - 자동 스트리밍 수집
+#### ✅ 구현됨
+1. **Incremental Sync** - watermark 기반, schema evolution 포함
+2. **ELT Transforms** - SQL Editor + Airflow CTAS DAG 자동 생성
+3. **CDC** - RisingWave postgres-cdc, 4단계 마법사
+4. **Catalog Preview** - 상위 100 rows + 컬럼 통계 (null rate, distinct, min/max)
+5. **Data Quality** - row count 이상 감지 + null rate 체크
+6. **AI SQL Assistant** - LiteLLM + Bedrock + Anthropic fallback chain
+7. **SQL Workbench** - Query Lab (Trino SQL 실행 + 자연어 입력)
+8. **Auth + 사용자 관리** - JWT, BCrypt, Role 기반
 
-#### 🟡 Important (6개월 내)
-5. **Query Accelerator** - 쿼리 가속화 (Photon 스타일)
-6. **MLflow Integration** - 완전 통합 (모델 레지스트리 + 카탈로그)
-7. **Unified Orchestration** - YAML 기반 워크플로우 (Workflows 스타일)
-8. **Git Integration** - 노트북 버전 관리 (Repos 스타일)
+#### ❌ 추가 필요 (우선순위 순)
+1. **에어갭 설치 패키지** — DataPond 핵심 차별화 포인트
+2. **LDAP/SSO** — 엔터프라이즈 필수 요구사항
+3. **Row-level Security** — Polaris RBAC 연동
+4. **PII 자동 감지** — 컬럼 패턴 매칭 + 태그
+5. **Declarative Pipelines SDK** - Delta Live Tables 스타일
 
-#### 🟢 Nice-to-have (12개월 내)
-9. **AI Assistant** - Claude 기반 코파일럿
-10. **Data Marketplace** - 데이터 공유 플랫폼
-11. **Partner Connect** - 써드파티 통합
-
-**최우선 구현**: Declarative Pipelines + Unified Governance + SQL Workbench
-→ 이 3가지만 구현해도 Databricks와 70% 수준 경쟁력 확보
+**현재 경쟁력**: Databricks 대비 핵심 Ingestion/Transform/AI 기능 구현 완료.
+에어갭 설치 + LDAP 완료 시 Databricks가 진입 불가한 데이터 주권 시장에서 완전한 경쟁력 확보.

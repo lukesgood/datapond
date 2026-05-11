@@ -1,0 +1,179 @@
+"""
+Data Quality checks for DataPond connectors.
+Runs after each sync: row count anomaly detection + null rate checks.
+Results stored in connector_quality_checks table.
+"""
+import logging
+import os
+import uuid
+from datetime import datetime
+from typing import Optional
+
+import asyncpg
+import trino
+
+logger = logging.getLogger(__name__)
+
+TRINO_HOST = os.getenv("TRINO_SERVICE_HOST", "trino.datapond.svc.cluster.local")
+TRINO_PORT = int(os.getenv("TRINO_SERVICE_PORT", "8080"))
+TRINO_CATALOG = "iceberg"
+
+ROW_CHANGE_WARN_PCT = 20.0   # warn if row count changes ±20%
+ROW_CHANGE_ALERT_PCT = 50.0  # alert if ±50%
+NULL_RATE_WARN = 30.0        # warn if null rate >30% for any column
+NULL_RATE_ALERT = 80.0       # alert if >80%
+
+
+def _trino_conn():
+    return trino.dbapi.connect(
+        host=TRINO_HOST, port=TRINO_PORT,
+        user="datapond", catalog=TRINO_CATALOG,
+        http_scheme="http", request_timeout=30,
+    )
+
+
+def _run_quality_check_sync(
+    table_name: str,
+    schema: str,
+    rows_current: int,
+    rows_previous: Optional[int],
+) -> dict:
+    """
+    Run quality checks against an Iceberg table via Trino.
+    Returns check result dict.
+    """
+    fqtn = f"{TRINO_CATALOG}.{schema}.{table_name}"
+    warnings = []
+    null_checks = {}
+    overall_status = "ok"
+
+    # 1. Row count anomaly
+    row_change_pct = None
+    row_change_status = "ok"
+    if rows_previous is not None and rows_previous > 0:
+        row_change_pct = ((rows_current - rows_previous) / rows_previous) * 100
+        abs_pct = abs(row_change_pct)
+        if abs_pct >= ROW_CHANGE_ALERT_PCT:
+            row_change_status = "alert"
+            overall_status = "alert"
+            warnings.append({
+                "type": "row_count_anomaly",
+                "message": f"Row count changed {row_change_pct:+.1f}% (previous: {rows_previous:,}, current: {rows_current:,})",
+                "severity": "alert",
+            })
+        elif abs_pct >= ROW_CHANGE_WARN_PCT:
+            row_change_status = "warning"
+            if overall_status == "ok":
+                overall_status = "warning"
+            warnings.append({
+                "type": "row_count_anomaly",
+                "message": f"Row count changed {row_change_pct:+.1f}% (previous: {rows_previous:,}, current: {rows_current:,})",
+                "severity": "warning",
+            })
+
+    # 2. Null rate per column
+    try:
+        cur = _trino_conn().cursor()
+        cur.execute(f"DESCRIBE {fqtn}")
+        columns = [row[0] for row in cur.fetchall()]
+
+        if columns and rows_current > 0:
+            # Build single query for all null counts
+            null_exprs = ", ".join(
+                f"SUM(CASE WHEN \"{col}\" IS NULL THEN 1 ELSE 0 END) AS \"{col}\""
+                for col in columns
+            )
+            cur2 = _trino_conn().cursor()
+            cur2.execute(f"SELECT {null_exprs} FROM {fqtn}")
+            row = cur2.fetchone()
+            if row:
+                for i, col in enumerate(columns):
+                    null_count = row[i] or 0
+                    null_rate = (null_count / rows_current) * 100
+                    status = "ok"
+                    if null_rate >= NULL_RATE_ALERT:
+                        status = "alert"
+                        overall_status = "alert"
+                        warnings.append({
+                            "type": "high_null_rate",
+                            "message": f"Column '{col}' has {null_rate:.1f}% null values",
+                            "severity": "alert",
+                        })
+                    elif null_rate >= NULL_RATE_WARN:
+                        status = "warning"
+                        if overall_status == "ok":
+                            overall_status = "warning"
+                        warnings.append({
+                            "type": "high_null_rate",
+                            "message": f"Column '{col}' has {null_rate:.1f}% null values",
+                            "severity": "warning",
+                        })
+                    null_checks[col] = {
+                        "null_count": null_count,
+                        "null_rate": round(null_rate, 2),
+                        "status": status,
+                    }
+    except Exception as e:
+        logger.warning(f"[quality] null check failed for {fqtn}: {e}")
+
+    return {
+        "rows_current": rows_current,
+        "rows_previous": rows_previous,
+        "row_change_pct": round(row_change_pct, 2) if row_change_pct is not None else None,
+        "row_change_status": row_change_status,
+        "null_checks": null_checks,
+        "overall_status": overall_status,
+        "warnings": warnings,
+    }
+
+
+async def run_and_store_quality_checks(
+    pool: asyncpg.Pool,
+    connection_id: str,
+    table_results: list[tuple],  # (table, target, ok, rows, status)
+    schema: str = "default",
+) -> None:
+    """
+    Run quality checks for all successfully synced tables and persist results.
+    Called as asyncio.create_task — best-effort, errors are swallowed.
+    """
+    import asyncio
+    import json as _json
+
+    for table, target, ok, rows_current, _ in table_results:
+        if not ok or rows_current == 0:
+            continue
+        try:
+            # Get previous row count from last quality check
+            async with pool.acquire() as conn:
+                prev = await conn.fetchval(
+                    """SELECT rows_current FROM connector_quality_checks
+                       WHERE connection_id=$1 AND source_table=$2
+                       ORDER BY checked_at DESC LIMIT 1""",
+                    uuid.UUID(connection_id), table
+                )
+
+            # Run checks in a thread (Trino is synchronous)
+            result = await asyncio.to_thread(
+                _run_quality_check_sync, table, schema, rows_current, prev
+            )
+
+            # Persist
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """INSERT INTO connector_quality_checks
+                       (connection_id, source_table, checked_at,
+                        rows_current, rows_previous, row_change_pct, row_change_status,
+                        null_checks, overall_status, warnings)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)""",
+                    uuid.UUID(connection_id), table, datetime.utcnow(),
+                    result["rows_current"], result["rows_previous"],
+                    result["row_change_pct"], result["row_change_status"],
+                    _json.dumps(result["null_checks"]),
+                    result["overall_status"],
+                    _json.dumps(result["warnings"]),
+                )
+            logger.info(f"[quality] {table}: {result['overall_status']} "
+                        f"({len(result['warnings'])} warnings)")
+        except Exception as e:
+            logger.warning(f"[quality] check failed for {table}: {e}")

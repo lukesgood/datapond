@@ -296,6 +296,257 @@ async def drop_sink(name: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ── CDC Connection Test ────────────────────────────────────────────────────────
+
+class CdcTestRequest(BaseModel):
+    db_host: str
+    db_port: int = 5432
+    db_name: str
+    db_user: str
+    db_password: str
+    db_schema: str = "public"
+
+
+@router.post("/streaming/cdc-test")
+async def test_cdc_connection(req: CdcTestRequest):
+    """Test PostgreSQL CDC connection and return table list."""
+    import psycopg2 as _pg
+    try:
+        conn = _pg.connect(
+            host=req.db_host, port=req.db_port, dbname=req.db_name,
+            user=req.db_user, password=req.db_password,
+            connect_timeout=10,
+        )
+        cur = conn.cursor()
+        # Check wal_level
+        cur.execute("SHOW wal_level")
+        wal_level = cur.fetchone()[0]
+        # List tables in schema
+        cur.execute("""
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = %s AND table_type = 'BASE TABLE'
+            ORDER BY table_name
+        """, (req.db_schema,))
+        tables = [row[0] for row in cur.fetchall()]
+        conn.close()
+        return {
+            "success": True,
+            "wal_level": wal_level,
+            "wal_ok": wal_level == "logical",
+            "tables": tables,
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e), "tables": []}
+
+
+# ── CDC Pipeline ──────────────────────────────────────────────────────────────
+
+class CdcPipelineRequest(BaseModel):
+    """Create a full CDC pipeline: RisingWave postgres-cdc source → Iceberg sink."""
+    pipeline_name: str          # unique name prefix for source/mv/sink
+    # Source DB connection
+    db_host: str
+    db_port: int = 5432
+    db_name: str
+    db_user: str
+    db_password: str
+    db_schema: str = "public"
+    # Tables to capture (list)
+    tables: List[str]
+    # Iceberg target namespace
+    iceberg_schema: str = "raw"
+    # Slot name (must be unique per pipeline in PostgreSQL)
+    slot_name: str = ""
+
+
+@router.post("/streaming/cdc-pipeline")
+async def create_cdc_pipeline(req: CdcPipelineRequest):
+    """
+    Create a complete CDC pipeline for each table:
+      1. CREATE SOURCE <name>_<table>_src  (postgres-cdc connector)
+      2. CREATE MATERIALIZED VIEW <name>_<table>_mv  AS SELECT * FROM source
+      3. CREATE SINK <name>_<table>_sink  (Iceberg sink)
+    Returns the generated SQL and status for each table.
+    """
+    s3_endpoint = os.getenv("S3_ENDPOINT", "seaweedfs-s3:8333")
+    s3_key      = os.getenv("S3_ACCESS_KEY", "datapond")
+    s3_secret   = os.getenv("S3_SECRET_KEY", "datapond_dev")
+    warehouse   = os.getenv("ICEBERG_WAREHOUSE", "s3a://iceberg/warehouse")
+    slot_name   = req.slot_name or f"datapond_{req.pipeline_name.lower().replace('-','_')}"
+
+    results = []
+    for table in req.tables:
+        safe   = table.lower().replace(".", "_")
+        prefix = f"{req.pipeline_name}_{safe}"
+        src_name  = f"{prefix}_src"
+        mv_name   = f"{prefix}_mv"
+        sink_name = f"{prefix}_sink"
+        sqls: List[str] = []
+        status = "success"
+        error  = None
+        try:
+            # 1. CDC Source
+            src_sql = f"""CREATE SOURCE IF NOT EXISTS {src_name}
+WITH (
+  connector        = 'postgres-cdc',
+  hostname         = '{req.db_host}',
+  port             = '{req.db_port}',
+  username         = '{req.db_user}',
+  password         = '{req.db_password}',
+  database.name    = '{req.db_name}',
+  schema.name      = '{req.db_schema}',
+  table.name       = '{table}',
+  slot.name        = '{slot_name}_{safe}'
+)"""
+            _execute(src_sql, fetch=False)
+            sqls.append(src_sql.strip())
+
+            # 2. Materialized View (captures all columns)
+            mv_sql = f"CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} AS SELECT * FROM {src_name}"
+            _execute(mv_sql, fetch=False)
+            sqls.append(mv_sql.strip())
+
+            # 3. Iceberg Sink
+            sink_sql = f"""CREATE SINK IF NOT EXISTS {sink_name}
+FROM {mv_name}
+WITH (
+  connector      = 'iceberg',
+  type           = 'upsert',
+  catalog.type   = 'storage',
+  warehouse.path = '{warehouse}',
+  s3.endpoint    = 'http://{s3_endpoint}',
+  s3.access.key  = '{s3_key}',
+  s3.secret.key  = '{s3_secret}',
+  database.name  = '{req.iceberg_schema}',
+  table.name     = '{safe}'
+)"""
+            _execute(sink_sql, fetch=False)
+            sqls.append(sink_sql.strip())
+
+        except Exception as e:
+            status = "failed"
+            error  = str(e)
+
+        results.append({
+            "table":     table,
+            "source":    src_name,
+            "view":      mv_name,
+            "sink":      sink_name,
+            "status":    status,
+            "error":     error,
+            "sqls":      sqls,
+        })
+
+    success_count = sum(1 for r in results if r["status"] == "success")
+    return {
+        "pipeline_name": req.pipeline_name,
+        "tables_total":   len(req.tables),
+        "tables_success": success_count,
+        "tables_failed":  len(req.tables) - success_count,
+        "results":        results,
+    }
+
+
+@router.get("/streaming/cdc-pipelines")
+async def list_cdc_pipelines():
+    """List CDC sources (postgres-cdc connector) from RisingWave catalog."""
+    try:
+        rows = _execute("""
+            SELECT id, name, connector, definition, created_at
+            FROM rw_catalog.rw_sources
+            WHERE connector = 'postgres-cdc'
+            ORDER BY created_at DESC
+        """)
+        return _serialize(rows)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Sample Streams ────────────────────────────────────────────────────────────
+
+SAMPLE_STREAMS = [
+    {
+        "name": "sample_clickstream",
+        "description": "Website click events (datagen)",
+        "source_sql": """CREATE SOURCE IF NOT EXISTS sample_clickstream_src (
+  user_id     BIGINT,
+  page        VARCHAR,
+  event_type  VARCHAR,
+  device      VARCHAR,
+  occurred_at TIMESTAMPTZ
+) WITH (
+  connector = 'datagen',
+  fields.user_id.kind      = 'sequence',
+  fields.user_id.start     = '1',
+  fields.user_id.end       = '10000',
+  fields.page.kind         = 'random',
+  fields.page.length       = '8',
+  fields.event_type.kind   = 'random',
+  fields.event_type.length = '6',
+  fields.device.kind       = 'random',
+  fields.device.length     = '7',
+  datagen.rows.per.second  = '10'
+) FORMAT PLAIN ENCODE JSON""",
+        "mv_sql": """CREATE MATERIALIZED VIEW IF NOT EXISTS sample_clickstream_mv AS
+SELECT * FROM sample_clickstream_src""",
+        "sink_sql": None,  # MV only — no Iceberg sink for sample
+    },
+    {
+        "name": "sample_orders",
+        "description": "E-commerce order events (datagen)",
+        "source_sql": """CREATE SOURCE IF NOT EXISTS sample_orders_src (
+  order_id   BIGINT,
+  customer_id BIGINT,
+  amount     DOUBLE,
+  status     VARCHAR,
+  created_at TIMESTAMPTZ
+) WITH (
+  connector = 'datagen',
+  fields.order_id.kind      = 'sequence',
+  fields.order_id.start     = '1',
+  fields.customer_id.kind   = 'random',
+  fields.customer_id.min    = '1',
+  fields.customer_id.max    = '5000',
+  fields.amount.kind        = 'random',
+  fields.amount.min         = '1',
+  fields.amount.max         = '500',
+  fields.status.kind        = 'random',
+  fields.status.length      = '7',
+  datagen.rows.per.second   = '5'
+) FORMAT PLAIN ENCODE JSON""",
+        "mv_sql": """CREATE MATERIALIZED VIEW IF NOT EXISTS sample_orders_mv AS
+SELECT * FROM sample_orders_src""",
+        "sink_sql": None,
+    },
+]
+
+
+@router.post("/streaming/sample-streams")
+async def create_sample_streams():
+    """Create sample datagen streams for demo/onboarding purposes."""
+    results = []
+    for s in SAMPLE_STREAMS:
+        status = "success"
+        error = None
+        sqls = []
+        try:
+            _execute(s["source_sql"], fetch=False)
+            sqls.append(s["source_sql"].strip().split("\n")[0])
+            _execute(s["mv_sql"], fetch=False)
+            sqls.append(s["mv_sql"].strip().split("\n")[0])
+            if s.get("sink_sql"):
+                _execute(s["sink_sql"], fetch=False)
+                sqls.append(s["sink_sql"].strip().split("\n")[0])
+        except Exception as e:
+            status = "failed"
+            error = str(e)
+        results.append({"name": s["name"], "description": s["description"],
+                        "status": status, "error": error})
+
+    success = sum(1 for r in results if r["status"] == "success")
+    return {"created": success, "total": len(results), "results": results}
+
+
 # ── DDL Progress ───────────────────────────────────────────────────────────────
 
 @router.get("/streaming/progress")

@@ -202,6 +202,64 @@ async def get_table_details(namespace: str, table: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/catalog/tables/{namespace}/{table}/preview")
+async def preview_table(namespace: str, table: str, limit: int = 100):
+    """Return top N rows and per-column statistics (null rate, distinct count, min, max)."""
+    try:
+        fqtn = f"{TRINO_CATALOG}.{namespace}.{table}"
+
+        # Sample rows
+        cur = _trino().cursor()
+        cur.execute(f"SELECT * FROM {fqtn} LIMIT {min(limit, 500)}")
+        rows_raw = cur.fetchall()
+        cols = [d[0] for d in cur.description]
+
+        rows = [dict(zip(cols, row)) for row in rows_raw]
+        # Serialise non-JSON-safe types
+        import math
+        for row in rows:
+            for k, v in row.items():
+                if v is None:
+                    continue
+                if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                    row[k] = None
+
+        # Column statistics (null rate, distinct count, min, max)
+        stats = []
+        total = len(rows)
+        for col in cols:
+            values = [r[col] for r in rows if r[col] is not None]
+            null_count = total - len(values)
+            null_rate = round(null_count / total * 100, 1) if total > 0 else 0.0
+            distinct = len(set(str(v) for v in values))
+            min_val = None
+            max_val = None
+            try:
+                if values:
+                    min_val = str(min(values))
+                    max_val = str(max(values))
+            except TypeError:
+                pass
+            stats.append({
+                "column": col,
+                "null_rate": null_rate,
+                "null_count": null_count,
+                "distinct_count": distinct,
+                "min": min_val,
+                "max": max_val,
+            })
+
+        return {
+            "columns": cols,
+            "rows": rows,
+            "total_returned": len(rows),
+            "column_stats": stats,
+        }
+    except Exception as e:
+        logger.error(f"catalog preview error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/catalog/health")
 async def catalog_health():
     try:

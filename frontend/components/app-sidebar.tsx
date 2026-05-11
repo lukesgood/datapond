@@ -3,7 +3,7 @@
 import {
   Home, Database, FlaskConical, Code2, Settings, Activity,
   Workflow, BarChart3, BookOpen, HelpCircle, FileCode,
-  HardDrive, Radio, ArrowDownToLine, GitMerge, LogOut, User,
+  HardDrive, Radio, ArrowDownToLine, GitMerge, LogOut, User, GitBranch,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
@@ -23,16 +23,24 @@ import {
 
 const mainSections = [
   {
-    label: "Data",
+    label: "Collect",
+    hint: "데이터 수집",
     items: [
-      { title: "Ingestion",  url: "/connectors", icon: ArrowDownToLine },
-      { title: "Streaming",  url: "/streaming",  icon: Radio },
-      { title: "Pipelines",  url: "/pipelines",  icon: Workflow },
-      { title: "Catalog",    url: "/catalog",    icon: Database },
+      { title: "Ingestion",   url: "/connectors", icon: ArrowDownToLine },
+      { title: "Streaming",   url: "/streaming",  icon: Radio },
+    ]
+  },
+  {
+    label: "Transform",
+    hint: "데이터 변환",
+    items: [
+      { title: "Transforms",  url: "/pipelines",  icon: GitBranch },
+      { title: "Catalog",     url: "/catalog",    icon: Database },
     ]
   },
   {
     label: "Analyze",
+    hint: "데이터 분석",
     items: [
       { title: "Query Lab",    url: "/query",       icon: Code2 },
       { title: "Notebooks",    url: "/notebooks",   icon: FileCode },
@@ -42,11 +50,12 @@ const mainSections = [
   },
   {
     label: "Platform",
+    hint: "",
     items: [
-      { title: "Services",     url: "/services",             icon: Activity },
-      { title: "Storage",      url: "/storage",              icon: HardDrive },
-      { title: "Governance",   url: "http://datapond.local:30585", icon: GitMerge, external: true },
-      { title: "Settings",     url: "/settings",             icon: Settings },
+      { title: "Services",     url: "/services",                           icon: Activity },
+      { title: "Storage",      url: "/storage",                            icon: HardDrive },
+      { title: "Governance",   url: "http://datapond.local:30585",         icon: GitMerge, external: true },
+      { title: "Settings",     url: "/settings",                           icon: Settings },
     ]
   },
 ]

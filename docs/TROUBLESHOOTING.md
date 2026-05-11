@@ -903,4 +903,108 @@ AIRFLOW_API_URL=http://airflow.datapond.svc.cluster.local:8080/airflow/api/v1
 **원인:** Trino는 단일 쿼리에 `;` 종결자를 허용하지 않음
 
 **해결:** 백엔드 `add_limit_to_query()` 함수에서 `.rstrip(";")` 처리, 프론트엔드에서도 `.replace(/;+$/, "")` 처리 (v2.3.0 적용 완료).
+
+---
+
+## 알려진 이슈 및 해결 (2026-05-11)
+
+### POSTGRES_PORT=tcp:// 파싱 오류
+
+**증상:** Backend pod CrashLoopBackOff, 로그에 `invalid connection string "tcp://..."` 오류
+
+**원인:** Kubernetes가 `postgres` 서비스명과 동일한 환경변수(`POSTGRES_PORT`)를 자동으로 `tcp://IP:PORT` 형식으로 주입함. Backend가 이를 포트 번호로 파싱 시도 시 실패.
+
+**해결 (v2.4.0에서 적용):**
+- postgres ClusterIP 서비스를 `postgres-headless`(Headless)와 `postgres`(ClusterIP) 두 개로 분리
+- Backend는 `POSTGRES_HOST=postgres-headless`를 사용하여 충돌 방지
+- `DATABASE_URL` 환경변수 선언 순서를 `POSTGRES_USER` 먼저로 변경
+
+```bash
+# 확인 방법
+kubectl exec -it deployment/backend -n datapond -- env | grep POSTGRES
+# POSTGRES_PORT=5432 (tcp://... 가 아닌 숫자여야 함)
+```
+
+---
+
+### SeaweedFS volume pod 재시작 반복 (25회+)
+
+**증상:** `seaweedfs-volume` pod가 CrashLoopBackOff, 25회 이상 재시작
+
+**원인:** master/filer가 완전히 준비되기 전에 volume pod가 시작되어 연결 실패
+
+**해결 (v2.4.0에서 적용):**
+- volume Deployment에 initContainer 추가: master `:9333/cluster/status` 헬스체크 통과 대기
+- liveness probe `initialDelaySeconds: 60`으로 조정
+
+```bash
+# 수동 해결 (긴급)
+kubectl rollout restart deployment/seaweedfs-volume -n datapond
+```
+
+---
+
+### LiteLLM / Ollama pod Pending (메모리 부족)
+
+**증상:** `litellm` 또는 `ollama` pod가 Pending 상태, `kubectl describe`에서 "Insufficient memory"
+
+**원인:** values-quicktest.yaml에서는 LiteLLM/Ollama가 비활성화되어야 하는데 활성화된 경우
+
+**해결:**
+```bash
+# values-quicktest.yaml 확인
+grep -A 2 "litellm:" helm/datapond/values-quicktest.yaml
+# enabled: false 여야 함
+
+# 또는 강제 비활성화
+helm upgrade datapond helm/datapond -n datapond \
+  --values helm/datapond/values-quicktest.yaml \
+  --set litellm.enabled=false \
+  --set ollama.enabled=false \
+  --wait=false
+```
+
+---
+
+### AI SQL Assistant 응답 timeout
+
+**증상:** Query Lab에서 자연어 입력 후 timeout 오류
+
+**원인 1:** Ingress 기본 타임아웃 (보통 60초)이 LLM 응답 시간보다 짧음
+
+**해결:** Ingress annotation에 타임아웃 설정 추가:
+```yaml
+# traefik
+traefik.ingress.kubernetes.io/request-timeout: "120s"
+
+# nginx
+nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+```
+
+**원인 2:** Ollama 모델 로딩 중 (첫 요청 시)
+
+**해결:** 첫 요청은 모델 로딩 시간(30-60초)이 포함됨. 이후 요청은 빠름.
+```bash
+# Ollama 상태 확인
+kubectl exec -it ollama-0 -n datapond -- ollama list
+```
+
+---
+
+### HPA minReplicas 관련 Pending
+
+**증상:** Helm upgrade 후 일부 pod가 Pending, 구버전 ReplicaSet이 남아있음
+
+**원인:** RollingUpdate 전략 + HPA minReplicas=2 조합으로 구버전+신버전 동시 실행 시 메모리 초과
+
+**해결 (v2.3.0에서 근본 해결):**
+- 모든 Deployment `strategy: Recreate` 설정
+- HPA `maxReplicas: 2` (단일 노드 기준)
+
+**긴급 해결:**
+```bash
+kubectl delete pods -n datapond --field-selector=status.phase=Pending
+kubectl get replicaset -n datapond --no-headers | awk '$2>0 && $4==0 {print $1}' | \
+  xargs kubectl scale replicaset --replicas=0 -n datapond
+```
 ```

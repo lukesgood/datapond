@@ -117,6 +117,18 @@ spec:
         app: {{ .Values.seaweedfs.name }}
         component: volume
     spec:
+      initContainers:
+      - name: wait-for-master
+        image: busybox:1.36
+        command:
+        - sh
+        - -c
+        - |
+          until nc -z {{ .Values.seaweedfs.name }}-master 9333; do
+            echo "Waiting for seaweedfs-master:9333..."
+            sleep 3
+          done
+          echo "Master is ready"
       containers:
       - name: volume
         image: "{{ .Values.seaweedfs.image.repository }}:{{ .Values.seaweedfs.image.tag }}"
@@ -127,6 +139,7 @@ spec:
         - -port=8080
         - -ip=$(POD_IP)
         - -max=100
+        - -dataCenter=dc1
         env:
         - name: POD_IP
           valueFrom:
@@ -144,6 +157,19 @@ spec:
           limits:
             cpu: {{ .Values.seaweedfs.volume.resources.limits.cpu }}
             memory: {{ .Values.seaweedfs.volume.resources.limits.memory }}
+        livenessProbe:
+          httpGet:
+            path: /status
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 20
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /status
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
         {{- if .Values.seaweedfs.persistence.enabled }}
         volumeMounts:
         - name: volume-data
@@ -201,6 +227,10 @@ spec:
         app: {{ .Values.seaweedfs.name }}
         component: filer
     spec:
+      initContainers:
+      - name: wait-for-master
+        image: busybox:1.36
+        command: ["sh","-c","until nc -z {{ .Values.seaweedfs.name }}-master 9333; do echo waiting; sleep 3; done"]
       containers:
       - name: filer
         image: "{{ .Values.seaweedfs.image.repository }}:{{ .Values.seaweedfs.image.tag }}"
@@ -326,6 +356,10 @@ spec:
         # Force pod rollout when the identity/credential pair in values.yaml changes
         checksum/s3-config: {{ printf "%s:%s" .Values.seaweedfs.auth.s3User .Values.seaweedfs.auth.s3Password | sha256sum | trunc 16 }}
     spec:
+      initContainers:
+      - name: wait-for-filer
+        image: busybox:1.36
+        command: ["sh","-c","until nc -z {{ .Values.seaweedfs.name }}-filer 8888; do echo waiting; sleep 3; done"]
       containers:
       - name: s3
         image: "{{ .Values.seaweedfs.image.repository }}:{{ .Values.seaweedfs.image.tag }}"

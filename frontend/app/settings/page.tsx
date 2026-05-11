@@ -16,7 +16,7 @@ import {
   CheckCircle2, ExternalLink, RefreshCw, Copy, Info, ShieldCheck,
   GitBranch, Box, Clock, Layers, AlertCircle, Users, Plus, Trash2,
   Eye, EyeOff, UserPlus, KeyRound, Shield, UserX, UserCheck, X,
-  Link, Terminal,
+  Link, Terminal, Sparkles, Loader2, CheckCheck,
 } from "lucide-react"
 import { getUser } from "@/lib/auth"
 
@@ -28,21 +28,22 @@ const SERVICE_META: Record<string, { label: string; desc: string; color: string;
   jupyterlab:   { label: "JupyterLab",        desc: "Interactive notebooks",          color: "text-amber-500",  url: "/jupyter" },
   trino:        { label: "Trino 435",         desc: "Distributed SQL query engine",   color: "text-indigo-600" },
   risingwave:   { label: "RisingWave v1.6",   desc: "Streaming SQL database",         color: "text-cyan-600" },
-  openmetadata: { label: "OpenMetadata",      desc: "Data catalog & lineage",         color: "text-purple-600", url: "http://datapond.local:30585" },
+  openmetadata: { label: "OpenMetadata",      desc: "Data catalog & lineage",         color: "text-purple-600", url: "/openmetadata" },
   seaweedfs:    { label: "SeaweedFS",         desc: "S3-compatible object storage",   color: "text-green-600",  url: "/seaweedfs-console" },
   polaris:      { label: "Apache Polaris",    desc: "Iceberg REST catalog",           color: "text-red-500" },
   valkey:       { label: "Valkey",            desc: "Redis-compatible cache",         color: "text-rose-500" },
   airflow:      { label: "Airflow",           desc: "Pipeline orchestration",         color: "text-sky-600",    url: "/airflow" },
 }
 
-const ACCESS_URLS = [
-  { service: "Management UI",   url: "http://datapond.local" },
-  { service: "Backend API",     url: "http://datapond.local/api" },
-  { service: "JupyterLab",      url: "http://datapond.local/jupyter",    cred: "token: jupyter" },
-  { service: "Airflow",         url: "http://datapond.local/airflow",    cred: "airflow / airflow" },
-  { service: "MLflow",          url: "http://datapond.local/mlflow" },
-  { service: "OpenMetadata",    url: "http://datapond.local:30585" },
-  { service: "SeaweedFS",       url: "http://datapond.local/seaweedfs-console" },
+// Access URLs are resolved dynamically at render time via useAccessUrls()
+const ACCESS_URL_DEFS = [
+  { service: "Management UI",  path: "",                  cred: undefined },
+  { service: "Backend API",    path: "/api",              cred: undefined },
+  { service: "JupyterLab",     path: "/jupyter",          cred: "token: jupyter" },
+  { service: "Airflow",        path: "/airflow",          cred: "airflow / airflow" },
+  { service: "MLflow",         path: "/mlflow",           cred: undefined },
+  { service: "OpenMetadata",   path: "/openmetadata",     cred: undefined },
+  { service: "SeaweedFS",      path: "/seaweedfs-console",cred: undefined },
 ]
 
 const HELM_CMDS = [
@@ -85,17 +86,79 @@ export default function SettingsPage() {
   const [loading, setLoading]   = useState(true)
   const currentUser             = getUser()
 
+  // AI Settings
+  const [aiSettings, setAiSettings]     = useState<Record<string, string>>({})
+  const [aiSaving, setAiSaving]         = useState(false)
+  const [aiSaved, setAiSaved]           = useState(false)
+  const [aiForm, setAiForm]             = useState({
+    provider: "litellm",
+    litellm_url: "http://litellm.datapond.svc.cluster.local:4000",
+    litellm_model: "default",
+    aws_bedrock_region: "",
+    bedrock_model_id: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    aws_access_key_id: "",
+    aws_secret_access_key: "",
+    anthropic_api_key: "",
+  })
+  const [showSecrets, setShowSecrets]   = useState(false)
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [svcRes, statRes] = await Promise.all([
+      const [svcRes, statRes, aiRes] = await Promise.all([
         fetch("/api/services"),
         fetch("/api/dashboard/stats"),
+        fetch("/api/settings/system/ai"),
       ])
       if (svcRes.ok)  setServices(await svcRes.json())
       if (statRes.ok) setStats(await statRes.json())
+      if (aiRes.ok) {
+        const aiData = await aiRes.json()
+        const s = aiData.settings || {}
+        setAiSettings(s)
+        setAiForm({
+          provider:            s["ai.provider"]            || "litellm",
+          litellm_url:         s["ai.litellm_url"]         || "http://litellm.datapond.svc.cluster.local:4000",
+          litellm_model:       s["ai.litellm_model"]       || "default",
+          aws_bedrock_region:  s["ai.aws_bedrock_region"]  || "",
+          bedrock_model_id:    s["ai.bedrock_model_id"]    || "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+          aws_access_key_id:   s["ai.aws_access_key_id"]   || "",
+          aws_secret_access_key: s["ai.aws_secret_access_key"] || "",
+          anthropic_api_key:   s["ai.anthropic_api_key"]   || "",
+        })
+      }
     } finally { setLoading(false) }
   }, [])
+
+  const saveAiSettings = async () => {
+    setAiSaving(true)
+    setAiSaved(false)
+    try {
+      const payload: Record<string, string> = {
+        "ai.provider":            aiForm.provider,
+        "ai.litellm_url":         aiForm.litellm_url,
+        "ai.litellm_model":       aiForm.litellm_model,
+        "ai.aws_bedrock_region":  aiForm.aws_bedrock_region,
+        "ai.bedrock_model_id":    aiForm.bedrock_model_id,
+      }
+      if (aiForm.aws_access_key_id && !aiForm.aws_access_key_id.startsWith("•"))
+        payload["ai.aws_access_key_id"] = aiForm.aws_access_key_id
+      if (aiForm.aws_secret_access_key && !aiForm.aws_secret_access_key.startsWith("•"))
+        payload["ai.aws_secret_access_key"] = aiForm.aws_secret_access_key
+      if (aiForm.anthropic_api_key && !aiForm.anthropic_api_key.startsWith("•"))
+        payload["ai.anthropic_api_key"] = aiForm.anthropic_api_key
+
+      const res = await fetch("/api/settings/system", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: payload }),
+      })
+      if (!res.ok) throw new Error("Save failed")
+      setAiSaved(true)
+      setTimeout(() => setAiSaved(false), 3000)
+    } catch { /* show error */ }
+    finally { setAiSaving(false) }
+  }
 
   useEffect(() => { load() }, [load])
 
@@ -214,19 +277,24 @@ export default function SettingsPage() {
               </CardHeader>
               <CardContent>
                 <div className="divide-y">
-                  {ACCESS_URLS.map(({ service, url, cred }) => (
-                    <div key={service} className="flex items-center gap-3 py-2.5 text-sm">
-                      <span className="text-muted-foreground w-28 shrink-0 text-xs">{service}</span>
-                      <div className="flex items-center gap-1 flex-1 min-w-0">
-                        <a href={url} target="_blank" rel="noreferrer"
-                          className="text-xs font-mono text-primary hover:underline truncate">{url}</a>
-                        <CopyButton text={url} />
+                  {ACCESS_URL_DEFS.map(({ service, path, cred }) => {
+                    const url = typeof window !== "undefined"
+                      ? `${window.location.protocol}//${window.location.host}${path}`
+                      : path
+                    return (
+                      <div key={service} className="flex items-center gap-3 py-2.5 text-sm">
+                        <span className="text-muted-foreground w-28 shrink-0 text-xs">{service}</span>
+                        <div className="flex items-center gap-1 flex-1 min-w-0">
+                          <a href={url} target="_blank" rel="noreferrer"
+                            className="text-xs font-mono text-primary hover:underline truncate">{url}</a>
+                          <CopyButton text={url} />
+                        </div>
+                        {cred && (
+                          <code className="text-[11px] text-muted-foreground shrink-0 bg-muted px-1.5 py-0.5 rounded">{cred}</code>
+                        )}
                       </div>
-                      {cred && (
-                        <code className="text-[11px] text-muted-foreground shrink-0 bg-muted px-1.5 py-0.5 rounded">{cred}</code>
-                      )}
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -450,6 +518,179 @@ export default function SettingsPage() {
                       </div>
                     ))}
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+            {/* ── AI SQL Assistant ── */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-primary" />AI SQL Assistant
+                </CardTitle>
+                <CardDescription>
+                  Configure the AI provider for natural language → SQL in Query Lab
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Provider selector */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Provider</Label>
+                  <Select
+                    value={aiForm.provider}
+                    onValueChange={v => v && setAiForm(f => ({ ...f, provider: v }))}
+                  >
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="litellm">LiteLLM (on-prem / Ollama)</SelectItem>
+                      <SelectItem value="bedrock">AWS Bedrock</SelectItem>
+                      <SelectItem value="anthropic">Anthropic API</SelectItem>
+                      <SelectItem value="none">None (disabled)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* LiteLLM fields */}
+                {aiForm.provider === "litellm" && (
+                  <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-medium text-muted-foreground">LiteLLM Proxy Configuration</p>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-600 font-medium">
+                        ✓ On-prem / Air-gap ready
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">LiteLLM URL</Label>
+                        <Input
+                          placeholder="http://litellm.datapond.svc.cluster.local:4000"
+                          value={aiForm.litellm_url}
+                          onChange={e => setAiForm(f => ({ ...f, litellm_url: e.target.value }))}
+                          className="h-8 text-sm font-mono"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Model Name</Label>
+                        <Input
+                          placeholder="default"
+                          value={aiForm.litellm_model}
+                          onChange={e => setAiForm(f => ({ ...f, litellm_model: e.target.value }))}
+                          className="h-8 text-sm font-mono"
+                        />
+                      </div>
+                    </div>
+                    <div className="rounded bg-muted/50 px-3 py-2 text-[10px] text-muted-foreground space-y-1">
+                      <p className="font-medium">Ollama models available on this cluster:</p>
+                      <p className="font-mono">qwen2.5-coder:7b — default, Text-to-SQL optimized</p>
+                      <p className="font-mono">llama3.1:8b — general chat (add to Helm values)</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* AWS Bedrock fields */}
+                {aiForm.provider === "bedrock" && (
+                  <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+                    <p className="text-xs font-medium text-muted-foreground">AWS Bedrock Configuration</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Region <span className="text-destructive">*</span></Label>
+                        <Input
+                          placeholder="us-east-1"
+                          value={aiForm.aws_bedrock_region}
+                          onChange={e => setAiForm(f => ({ ...f, aws_bedrock_region: e.target.value }))}
+                          className="h-8 text-sm font-mono"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Model ID</Label>
+                        <Input
+                          placeholder="us.anthropic.claude-haiku-4-5-20251001-v1:0"
+                          value={aiForm.bedrock_model_id}
+                          onChange={e => setAiForm(f => ({ ...f, bedrock_model_id: e.target.value }))}
+                          className="h-8 text-sm font-mono"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      Leave Access Key / Secret blank to use IAM role (EC2/EKS IRSA — recommended for on-prem)
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Access Key ID</Label>
+                        <div className="relative">
+                          <Input
+                            type={showSecrets ? "text" : "password"}
+                            placeholder="AKIA… (optional)"
+                            value={aiForm.aws_access_key_id}
+                            onChange={e => setAiForm(f => ({ ...f, aws_access_key_id: e.target.value }))}
+                            className="h-8 text-sm font-mono pr-8"
+                          />
+                          <button className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                            onClick={() => setShowSecrets(v => !v)}>
+                            {showSecrets ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Secret Access Key</Label>
+                        <Input
+                          type={showSecrets ? "text" : "password"}
+                          placeholder="optional"
+                          value={aiForm.aws_secret_access_key}
+                          onChange={e => setAiForm(f => ({ ...f, aws_secret_access_key: e.target.value }))}
+                          className="h-8 text-sm font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Anthropic API fields */}
+                {aiForm.provider === "anthropic" && (
+                  <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+                    <p className="text-xs font-medium text-muted-foreground">Anthropic API Configuration</p>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">API Key <span className="text-destructive">*</span></Label>
+                      <div className="relative">
+                        <Input
+                          type={showSecrets ? "text" : "password"}
+                          placeholder="sk-ant-…"
+                          value={aiForm.anthropic_api_key}
+                          onChange={e => setAiForm(f => ({ ...f, anthropic_api_key: e.target.value }))}
+                          className="h-8 text-sm font-mono pr-8"
+                        />
+                        <button className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                          onClick={() => setShowSecrets(v => !v)}>
+                          {showSecrets ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3 pt-1">
+                  <Button
+                    size="sm" className="h-8 text-xs gap-1.5"
+                    onClick={saveAiSettings}
+                    disabled={aiSaving}
+                  >
+                    {aiSaving
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : aiSaved
+                        ? <CheckCheck className="h-3.5 w-3.5 text-green-400" />
+                        : <Sparkles className="h-3.5 w-3.5" />}
+                    {aiSaved ? "Saved!" : "Save & Apply"}
+                  </Button>
+                  <p className="text-[10px] text-muted-foreground">
+                    {aiForm.provider === "litellm"
+                      ? "Uses internal LiteLLM proxy — no external API calls"
+                      : aiForm.provider === "bedrock"
+                        ? "AWS Bedrock — requires IAM credentials or instance profile"
+                        : aiForm.provider === "anthropic"
+                          ? "Anthropic API — requires internet access"
+                          : "AI SQL generation disabled"}
+                  </p>
                 </div>
               </CardContent>
             </Card>

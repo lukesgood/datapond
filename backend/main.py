@@ -21,6 +21,9 @@ from app.api.pipelines import router as pipelines_router
 from app.api.storage import router as storage_router
 from app.api.streaming import router as streaming_router
 from app.api.auth import router as auth_router
+from app.api.transforms import router as transforms_router
+from app.api.ai_sql import router as ai_sql_router
+from app.api.system_settings import router as system_settings_router, load_settings_on_startup
 
 app = FastAPI(
     title="DataPond API",
@@ -97,6 +100,22 @@ async def startup():
     except Exception as e:
         logger.warning(f"[startup] Medallion init skipped: {e}")
 
+    # Restore persisted system settings into env (retry — DB may not be ready immediately)
+    import asyncio as _asyncio
+    for attempt in range(5):
+        try:
+            from app.api.connectors import get_db_pool
+            pool = await get_db_pool()
+            await load_settings_on_startup(pool)
+            logger.info("[startup] System settings loaded from DB")
+            break
+        except Exception as e:
+            if attempt < 4:
+                logger.warning(f"[startup] Settings load attempt {attempt+1} failed: {e} — retrying in 3s")
+                await _asyncio.sleep(3)
+            else:
+                logger.warning(f"[startup] Settings load skipped after retries: {e}")
+
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
@@ -119,6 +138,9 @@ app.include_router(pipelines_router, prefix="/api")
 app.include_router(storage_router, prefix="/api")
 app.include_router(streaming_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
+app.include_router(transforms_router, prefix="/api")
+app.include_router(ai_sql_router, prefix="/api")
+app.include_router(system_settings_router, prefix="/api")
 
 # Service endpoints (internal Kubernetes DNS)
 SERVICES = {

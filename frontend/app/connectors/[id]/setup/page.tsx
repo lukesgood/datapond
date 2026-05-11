@@ -77,7 +77,8 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
 
   // Step 3
   const [syncMode, setSyncMode] = useState<"full" | "incremental">("full")
-  const [syncFrequency, setSyncFrequency] = useState("daily")
+  const [syncFrequency, setSyncFrequency] = useState("manual")
+  const [syncImmediately, setSyncImmediately] = useState(true)  // Fix #6: opt-in
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
@@ -116,11 +117,12 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
     setCreating(true)
     setCreateError(null)
     try {
-      // Create connection to get an ID for table fetching
+      // Create connection — store only pure DB connection config (no ingestion metadata)
+      const { sync_frequency: _, sync_mode: __, selected_tables: ___, ...pureConfig } = config as any
       const res = await fetch("/api/connectors/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: connectionName, connector_type: id, config }),
+        body: JSON.stringify({ name: connectionName, connector_type: id, config: pureConfig }),
       })
       if (!res.ok) {
         const d = await res.json()
@@ -166,6 +168,19 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
     setCurrentStep(2)
   }
 
+  // Fix #3: Back from Step2 → discard orphan connection
+  const handleBackFromStep2 = async () => {
+    if (createdId) {
+      try {
+        await fetch(`/api/connectors/${createdId}/draft`, { method: "DELETE" })
+      } catch {}
+      setCreatedId(null)
+      setTables([])
+      setTableConfigs({})
+    }
+    setCurrentStep(1)
+  }
+
   // Finalize: apply table config, schedule, sync mode
   const handleFinish = async () => {
     if (!createdId) return
@@ -201,12 +216,14 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
         })
       }
 
-      // 4. Optional: trigger initial sync
-      await fetch(`/api/connectors/${createdId}/sync`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sync_mode: syncMode }),
-      })
+      // 4. Fix #6: Trigger initial sync only if user opted in
+      if (syncImmediately) {
+        await fetch(`/api/connectors/${createdId}/sync`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sync_mode: syncMode }),
+        })
+      }
 
       router.push(`/connectors/connections/${createdId}`)
     } catch (e) {
@@ -588,15 +605,31 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                   </div>
                 ))}
               </div>
+
+              {/* Fix #6: Sync immediately option */}
+              <div className="flex items-center gap-2 pt-1">
+                <Switch
+                  checked={syncImmediately}
+                  onCheckedChange={setSyncImmediately}
+                  id="sync-now"
+                />
+                <label htmlFor="sync-now" className="text-sm cursor-pointer">
+                  Sync immediately after creation
+                </label>
+                <span className="text-xs text-muted-foreground">
+                  {syncImmediately ? "First sync will run now" : "Sync manually or wait for schedule"}
+                </span>
+              </div>
             </CardContent>
           </Card>
         )}
 
         {/* Navigation */}
         <div className="flex items-center justify-between">
+          {/* Fix #3: Back from step2 discards orphan connection */}
           <Button
             variant="outline" size="sm"
-            onClick={() => setCurrentStep(p => p - 1)}
+            onClick={currentStep === 2 ? handleBackFromStep2 : () => setCurrentStep(p => p - 1)}
             disabled={currentStep === 1 || creating}
           >
             <ChevronLeft className="h-4 w-4 mr-1" />Back

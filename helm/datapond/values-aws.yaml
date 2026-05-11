@@ -1,0 +1,72 @@
+# AWS deployment profile — EKS + S3 + Bedrock
+# Usage:
+#   helm upgrade datapond helm/datapond \
+#     --namespace datapond \
+#     --values helm/datapond/values-aws.yaml
+#
+# Before deploying, replace placeholder values:
+#   - global.domain
+#   - storage.bucket
+#   - storage.region
+#   - litellm.config model aws_region_name
+#   - externalDatabase.host (RDS endpoint)
+
+global:
+  domain: datapond.example.com   # Replace with actual domain
+  storageClass: gp3
+  imagePullPolicy: IfNotPresent
+
+ingress:
+  className: alb
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+
+# SeaweedFS disabled — use AWS S3 natively
+seaweedfs:
+  enabled: false
+
+# Storage: point all services at AWS S3
+storage:
+  provider: s3
+  endpoint: ""          # empty = use AWS native S3 endpoints
+  region: us-east-1
+  bucket: datapond-iceberg
+
+# LiteLLM: route to AWS Bedrock
+litellm:
+  enabled: true
+  config:
+    model_list:
+      - model_name: "default"
+        litellm_params:
+          model: "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0"
+          aws_region_name: "us-east-1"
+      - model_name: "chat"
+        litellm_params:
+          model: "bedrock/us.anthropic.claude-sonnet-4-6"
+          aws_region_name: "us-east-1"
+
+# Ollama disabled on AWS — use Bedrock instead
+ollama:
+  enabled: false
+
+# Backend: HA with autoscaling
+backend:
+  replicas: 2
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+
+# PostgreSQL: disabled — use AWS RDS
+postgres:
+  enabled: false
+
+# RDS connection (set host via secret or override)
+externalDatabase:
+  enabled: true
+  host: ""     # RDS endpoint — replace before deploying
+  port: 5432
+  name: datapond

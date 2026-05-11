@@ -145,12 +145,35 @@ vi values-prod.yaml
 
 ### **Step 3: DataPond 배포**
 
-```bash
-# 개발 환경으로 배포
-bash scripts/deploy.sh values-dev.yaml
+배포 환경에 따라 values 프로파일을 선택합니다:
 
-# 또는 프로덕션 환경으로 배포
-bash scripts/deploy.sh values-prod.yaml
+| 프로파일 | RAM | 용도 |
+|----------|-----|------|
+| `values-quicktest.yaml` | 15 GB | 단일 노드 개발 (LiteLLM/Ollama/Spark 비활성) |
+| `values-onprem.yaml` | 32 GB+ | 온프레미스 프로덕션 (전체 스택, LiteLLM+Ollama 포함) |
+| `values-aws.yaml` | — | AWS EKS (S3 + Bedrock, SeaweedFS/Ollama 비활성) |
+
+```bash
+# 단일 노드 개발 (현재 권장)
+helm upgrade --install datapond ./helm/datapond \
+  --namespace datapond \
+  --create-namespace \
+  --values helm/datapond/values-quicktest.yaml \
+  --wait=false
+
+# 온프레미스 프로덕션 (32GB+ 노드, LiteLLM+Ollama 포함)
+helm upgrade --install datapond ./helm/datapond \
+  --namespace datapond \
+  --create-namespace \
+  --values helm/datapond/values-onprem.yaml \
+  --wait=false
+
+# AWS EKS (S3 + Bedrock)
+helm upgrade --install datapond ./helm/datapond \
+  --namespace datapond \
+  --create-namespace \
+  --values helm/datapond/values-aws.yaml \
+  --wait=false
 ```
 
 **배포 시간**: 약 5-10분
@@ -335,6 +358,44 @@ curl http://datapond.local/api/health
 # Frontend
 curl http://datapond.local
 ```
+
+---
+
+## 🤖 AI SQL Assistant 설정
+
+DataPond에는 자연어 → Trino SQL 변환 기능이 내장되어 있습니다.
+LiteLLM → AWS Bedrock → Anthropic API 순으로 자동 fallback합니다.
+
+### Option 1: Settings UI에서 설정 (권장)
+
+1. 브라우저에서 `http://datapond.local` 접속
+2. Settings → System 탭 → AI SQL Assistant 섹션
+3. Provider URL, API Key 입력 후 저장
+
+### Option 2: kubectl로 환경변수 주입
+
+```bash
+# Anthropic API Key 사용 시
+kubectl set env deployment/backend \
+  ANTHROPIC_API_KEY=sk-ant-xxxx \
+  -n datapond
+
+# AWS Bedrock 사용 시 (EKS IAM Role 또는 키 직접 주입)
+kubectl set env deployment/backend \
+  AWS_ACCESS_KEY_ID=AKIA... \
+  AWS_SECRET_ACCESS_KEY=... \
+  AWS_DEFAULT_REGION=us-east-1 \
+  -n datapond
+```
+
+### Option 3: LiteLLM + Ollama (온프레미스 완전 오프라인)
+
+values-onprem.yaml 사용 시 자동으로 활성화됩니다.
+외부 API key 없이 Ollama (qwen2.5-coder:7b)로 동작합니다.
+Ollama pod 첫 시작 시 모델 다운로드에 5-10분 소요됩니다.
+
+> 참고: values-quicktest.yaml (단일 노드 15 GB)에서는 LiteLLM/Ollama가 비활성화됩니다.
+> Bedrock 또는 Anthropic API fallback을 사용하세요.
 
 ---
 

@@ -14,7 +14,8 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { Table, Database, FileText, BarChart3 } from "lucide-react"
+import { Table, Database, FileText, BarChart3, Eye, ExternalLink } from "lucide-react"
+import { useRouter } from "next/navigation"
 
 interface Column {
   name: string
@@ -38,6 +39,22 @@ interface TableStats {
   total_size?: number
 }
 
+interface ColumnStat {
+  column: string
+  null_rate: number
+  null_count: number
+  distinct_count: number
+  min?: string
+  max?: string
+}
+
+interface PreviewData {
+  columns: string[]
+  rows: Record<string, any>[]
+  total_returned: number
+  column_stats: ColumnStat[]
+}
+
 interface TableDetail {
   name: string
   namespace: string
@@ -54,37 +71,42 @@ interface TableDetail {
 
 export default function TableDetailPage() {
   const params = useParams()
+  const router = useRouter()
   const namespace = params.namespace as string
   const tableName = params.table as string
 
   const [tableDetail, setTableDetail] = useState<TableDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [preview, setPreview] = useState<PreviewData | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
 
   useEffect(() => {
     const fetchTableDetail = async () => {
       try {
         setLoading(true)
         setError(null)
-
         const res = await fetch(`/api/catalog/tables/${namespace}/${tableName}`)
-
-        if (!res.ok) {
-          throw new Error(`Failed to fetch table: ${res.statusText}`)
-        }
-
-        const data = await res.json()
-        setTableDetail(data)
+        if (!res.ok) throw new Error(`Failed to fetch table: ${res.statusText}`)
+        setTableDetail(await res.json())
       } catch (err) {
-        console.error("Failed to fetch table detail:", err)
         setError(err instanceof Error ? err.message : "Failed to load table")
       } finally {
         setLoading(false)
       }
     }
-
     fetchTableDetail()
   }, [namespace, tableName])
+
+  const loadPreview = async () => {
+    if (preview) return
+    setPreviewLoading(true)
+    try {
+      const res = await fetch(`/api/catalog/tables/${namespace}/${tableName}/preview?limit=100`)
+      if (res.ok) setPreview(await res.json())
+    } catch { /* non-critical */ }
+    finally { setPreviewLoading(false) }
+  }
 
   const formatBytes = (bytes?: number) => {
     if (!bytes) return "0 B"
@@ -221,13 +243,113 @@ export default function TableDetailPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="schema">
-        <TabsList>
-          <TabsTrigger value="schema">Schema</TabsTrigger>
-          <TabsTrigger value="partitions">Partitions</TabsTrigger>
-          <TabsTrigger value="statistics">Statistics</TabsTrigger>
-          <TabsTrigger value="metadata">Metadata</TabsTrigger>
-        </TabsList>
+      <Tabs defaultValue="preview" onValueChange={(v) => v === "preview" && loadPreview()}>
+        <div className="flex items-center justify-between">
+          <TabsList>
+            <TabsTrigger value="preview" className="gap-1.5"><Eye className="h-3.5 w-3.5" />Preview</TabsTrigger>
+            <TabsTrigger value="schema">Schema</TabsTrigger>
+            <TabsTrigger value="statistics">Statistics</TabsTrigger>
+            <TabsTrigger value="partitions">Partitions</TabsTrigger>
+            <TabsTrigger value="metadata">Metadata</TabsTrigger>
+          </TabsList>
+          <button
+            onClick={() => router.push(`/query?sql=${encodeURIComponent(`SELECT * FROM iceberg.${namespace}.${tableName} LIMIT 100`)}`)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />Open in Query Lab
+          </button>
+        </div>
+
+        {/* Preview Tab */}
+        <TabsContent value="preview" className="space-y-4">
+          {/* Column stats */}
+          {(preview?.column_stats ?? []).length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Column Statistics</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b bg-muted/40">
+                        <th className="px-4 py-2 text-left font-medium">Column</th>
+                        <th className="px-4 py-2 text-right font-medium">Null %</th>
+                        <th className="px-4 py-2 text-right font-medium">Distinct</th>
+                        <th className="px-4 py-2 text-left font-medium">Min</th>
+                        <th className="px-4 py-2 text-left font-medium">Max</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview!.column_stats.map(s => (
+                        <tr key={s.column} className="border-b last:border-0 hover:bg-muted/20">
+                          <td className="px-4 py-1.5 font-mono">{s.column}</td>
+                          <td className="px-4 py-1.5 text-right">
+                            <span className={s.null_rate > 20 ? "text-amber-500" : "text-muted-foreground"}>
+                              {s.null_rate}%
+                            </span>
+                          </td>
+                          <td className="px-4 py-1.5 text-right text-muted-foreground">{s.distinct_count.toLocaleString()}</td>
+                          <td className="px-4 py-1.5 font-mono text-muted-foreground truncate max-w-[160px]">{s.min ?? "—"}</td>
+                          <td className="px-4 py-1.5 font-mono text-muted-foreground truncate max-w-[160px]">{s.max ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Data rows */}
+          <Card>
+            <CardHeader className="pb-2 flex flex-row items-center justify-between">
+              <CardTitle className="text-sm">
+                {preview ? `Top ${preview.total_returned} rows` : "Data Preview"}
+              </CardTitle>
+              {!preview && !previewLoading && (
+                <button onClick={loadPreview} className="text-xs text-primary hover:underline">Load preview</button>
+              )}
+            </CardHeader>
+            <CardContent className="p-0">
+              {previewLoading ? (
+                <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+                  <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin mr-2" />
+                  Loading…
+                </div>
+              ) : !preview ? (
+                <div className="text-center py-12 text-sm text-muted-foreground">Click "Load preview" to fetch data</div>
+              ) : preview.rows.length === 0 ? (
+                <div className="text-center py-12 text-sm text-muted-foreground">Table is empty</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b bg-muted/40">
+                        {preview.columns.map(col => (
+                          <th key={col} className="px-3 py-2 text-left font-medium font-mono whitespace-nowrap">{col}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.rows.map((row, i) => (
+                        <tr key={i} className="border-b last:border-0 hover:bg-muted/20">
+                          {preview.columns.map(col => (
+                            <td key={col} className="px-3 py-1.5 font-mono text-muted-foreground whitespace-nowrap max-w-[200px] truncate">
+                              {row[col] === null || row[col] === undefined
+                                ? <span className="text-muted-foreground/40 italic">null</span>
+                                : String(row[col])}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* Schema Tab */}
         <TabsContent value="schema" className="space-y-4">

@@ -1,4 +1,21 @@
 {{- if .Values.postgres.enabled }}
+# Headless service required by StatefulSet for pod identity (postgres-0.postgres-headless)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.postgres.name }}-headless
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.postgres.name }}
+spec:
+  ports:
+  - port: {{ .Values.postgres.service.port }}
+    name: postgres
+  clusterIP: None
+  selector:
+    app: {{ .Values.postgres.name }}
+---
+# Stable ClusterIP service — survives pod restarts and IP changes
 apiVersion: v1
 kind: Service
 metadata:
@@ -9,8 +26,8 @@ metadata:
 spec:
   ports:
   - port: {{ .Values.postgres.service.port }}
+    targetPort: {{ .Values.postgres.service.port }}
     name: postgres
-  clusterIP: None
   selector:
     app: {{ .Values.postgres.name }}
 ---
@@ -25,7 +42,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: database
 spec:
-  serviceName: {{ .Values.postgres.name }}
+  serviceName: {{ .Values.postgres.name }}-headless
   replicas: 1
   selector:
     matchLabels:

@@ -43,6 +43,7 @@ import {
 import { MultiMetricsChart } from "@/components/mlflow/metrics-chart"
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { serviceUrls } from "@/lib/urls"
 
 interface Run {
   info: {
@@ -68,6 +69,8 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
   const [loading, setLoading] = useState(true)
   const [selectedRuns, setSelectedRuns] = useState<string[]>([])
   const [sortBy, setSortBy] = useState<string>("start_time")
+  const [compareData, setCompareData] = useState<any>(null)
+  const [comparing, setComparing] = useState(false)
 
   useEffect(() => {
     fetchExperimentDetails()
@@ -161,6 +164,20 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
     new Set(runs.flatMap((run) => run.data.params?.map((p) => p.key) || []))
   )
 
+  const handleCompare = async () => {
+    if (selectedRuns.length < 2) return
+    setComparing(true)
+    try {
+      const res = await fetch("/api/mlflow/runs/compare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ run_ids: selectedRuns }),
+      })
+      if (res.ok) setCompareData(await res.json())
+    } catch { /* non-critical */ }
+    finally { setComparing(false) }
+  }
+
   if (loading) {
     return (
       <div className="flex-1 space-y-4 p-8 pt-6">
@@ -225,9 +242,9 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
             New Run
           </Button>
           {selectedRuns.length > 0 && (
-            <Button variant="default" size="sm">
+            <Button variant="default" size="sm" onClick={handleCompare} disabled={comparing}>
               <BarChart3 className="mr-2 h-4 w-4" />
-              Compare {selectedRuns.length} Runs
+              {comparing ? "Comparing…" : `Compare ${selectedRuns.length} Runs`}
             </Button>
           )}
           <Button
@@ -235,7 +252,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
             size="sm"
             onClick={() =>
               window.open(
-                `http://datapond.local/mlflow/#/experiments/${params.id}`,
+                `${serviceUrls.mlflow()}/#/experiments/${params.id}`,
                 "_blank"
               )
             }
@@ -388,16 +405,125 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
         </CardContent>
       </Card>
 
-      {/* Metrics Comparison (if runs selected) */}
-      {selectedRuns.length > 1 && (
+      {/* Metrics Comparison */}
+      {compareData && (
         <Card>
-          <CardHeader>
-            <CardTitle>Metrics Comparison</CardTitle>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Run Comparison</CardTitle>
+              <Button variant="ghost" size="sm" className="h-7 text-xs"
+                onClick={() => { setCompareData(null); setSelectedRuns([]) }}>
+                Clear
+              </Button>
+            </div>
           </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground">
-              Comparing {selectedRuns.length} runs - detailed comparison view coming soon
-            </p>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40">
+                    <th className="text-left px-4 py-2 font-medium text-xs w-40">Field</th>
+                    {compareData.runs.map((run: any) => (
+                      <th key={run.info.run_id} className="text-left px-4 py-2 font-medium text-xs">
+                        <div className="font-mono truncate max-w-[160px]">
+                          {run.info.run_name || run.info.run_id.slice(0, 8)}
+                        </div>
+                        <div className="text-[10px] font-normal text-muted-foreground">
+                          {run.info.run_id.slice(0, 8)}
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* Metrics section */}
+                  {compareData.common_metrics?.length > 0 && (
+                    <>
+                      <tr className="bg-muted/20">
+                        <td colSpan={compareData.runs.length + 1} className="px-4 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                          Metrics
+                        </td>
+                      </tr>
+                      {compareData.common_metrics.map((metric: string) => {
+                        const vals = compareData.runs.map((r: any) =>
+                          r.data.metrics?.find((m: any) => m.key === metric)?.value
+                        )
+                        const numVals = vals.filter((v: any) => v != null) as number[]
+                        const best = numVals.length ? Math.max(...numVals) : null
+                        return (
+                          <tr key={metric} className="border-b hover:bg-muted/20">
+                            <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{metric}</td>
+                            {vals.map((v: any, i: number) => (
+                              <td key={i} className={`px-4 py-2 font-mono text-xs font-medium ${
+                                v === best && numVals.length > 1 ? "text-green-600" : ""
+                              }`}>
+                                {v != null ? Number(v).toFixed(4) : "—"}
+                                {v === best && numVals.length > 1 && (
+                                  <span className="ml-1 text-[10px]">★</span>
+                                )}
+                              </td>
+                            ))}
+                          </tr>
+                        )
+                      })}
+                    </>
+                  )}
+                  {/* Params section */}
+                  {compareData.common_params?.length > 0 && (
+                    <>
+                      <tr className="bg-muted/20">
+                        <td colSpan={compareData.runs.length + 1} className="px-4 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                          Parameters
+                        </td>
+                      </tr>
+                      {compareData.common_params.map((param: string) => {
+                        const vals = compareData.runs.map((r: any) =>
+                          r.data.params?.find((p: any) => p.key === param)?.value
+                        )
+                        const allSame = new Set(vals).size === 1
+                        return (
+                          <tr key={param} className="border-b hover:bg-muted/20">
+                            <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{param}</td>
+                            {vals.map((v: any, i: number) => (
+                              <td key={i} className={`px-4 py-2 font-mono text-xs ${
+                                !allSame ? "font-medium" : "text-muted-foreground"
+                              }`}>
+                                {v ?? "—"}
+                              </td>
+                            ))}
+                          </tr>
+                        )
+                      })}
+                    </>
+                  )}
+                  {/* Diff params */}
+                  {compareData.diff_params?.length > 0 && (
+                    <>
+                      <tr className="bg-amber-50/50 dark:bg-amber-900/10">
+                        <td colSpan={compareData.runs.length + 1} className="px-4 py-1 text-[10px] font-semibold text-amber-600 uppercase tracking-wide">
+                          Differing Parameters
+                        </td>
+                      </tr>
+                      {compareData.diff_params.map((param: string) => {
+                        const vals = compareData.runs.map((r: any) =>
+                          r.data.params?.find((p: any) => p.key === param)?.value
+                        )
+                        return (
+                          <tr key={param} className="border-b hover:bg-muted/20">
+                            <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{param}</td>
+                            {vals.map((v: any, i: number) => (
+                              <td key={i} className="px-4 py-2 font-mono text-xs font-medium text-amber-600">
+                                {v ?? <span className="text-muted-foreground/40">—</span>}
+                              </td>
+                            ))}
+                          </tr>
+                        )
+                      })}
+                    </>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </CardContent>
         </Card>
       )}

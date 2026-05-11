@@ -6,8 +6,10 @@ import { Badge } from "@/components/ui/badge"
 import {
   Play, Save, History, Settings, ChevronRight, ChevronLeft,
   FlaskConical, Code2, Database, Trash2, AlignLeft,
-  TableProperties, BarChart2, AlertCircle, FileCode
+  TableProperties, BarChart2, AlertCircle, FileCode,
+  Sparkles, Loader2, X,
 } from "lucide-react"
+import { Input } from "@/components/ui/input"
 import { SqlEditor } from "@/components/query/sql-editor"
 import { SchemaTree } from "@/components/query/schema-tree"
 import { QueryResults } from "@/components/query/query-results"
@@ -51,6 +53,11 @@ export default function QueryPage() {
   const [editorHeight, setEditorHeight]     = useState(240)
   const [trinoStatus, setTrinoStatus]       = useState<"healthy" | "unhealthy" | "unknown">("unknown")
   const [catalogs, setCatalogs]             = useState<string[]>([])
+
+  // AI Assistant
+  const [aiQuestion, setAiQuestion]         = useState("")
+  const [aiLoading, setAiLoading]           = useState(false)
+  const [aiExplanation, setAiExplanation]   = useState<string | null>(null)
 
   const isResizingSchema   = useRef(false)
   const isResizingEditor   = useRef(false)
@@ -113,6 +120,31 @@ export default function QueryPage() {
     }
     window.addEventListener("mousemove", onMove)
     window.addEventListener("mouseup", onUp)
+  }
+
+  // ── AI SQL generation ────────────────────────────────────────────────────────
+  const handleAskAI = async () => {
+    if (!aiQuestion.trim() || aiLoading) return
+    setAiLoading(true)
+    setAiExplanation(null)
+    try {
+      const res = await fetch("/api/ai/sql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: aiQuestion }),
+      })
+      if (!res.ok) throw new Error("AI request failed")
+      const data = await res.json()
+      setQuery(data.sql)
+      setAiExplanation(data.explanation)
+      if (!data.has_ai) {
+        toast("Set ANTHROPIC_API_KEY to enable AI SQL generation", "info")
+      }
+    } catch (e: any) {
+      toast(e.message || "AI request failed", "error")
+    } finally {
+      setAiLoading(false)
+    }
   }
 
   // ── Query execution ──────────────────────────────────────────────────────────
@@ -295,6 +327,36 @@ export default function QueryPage() {
                            rounded px-1 py-px font-mono">⌘↵</kbd>
           </Button>
         </div>
+      </div>
+
+      {/* ── AI Assistant bar ────────────────────────────────────────────────── */}
+      <div className="shrink-0 border-b bg-primary/5 px-3 py-2 flex items-center gap-2">
+        <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+        <Input
+          placeholder="Ask AI: e.g. 'Show top 5 customers by total order value'"
+          value={aiQuestion}
+          onChange={e => setAiQuestion(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && handleAskAI()}
+          className="h-7 text-xs flex-1 bg-background"
+        />
+        <Button
+          size="sm" variant="outline" className="h-7 text-xs gap-1.5 shrink-0"
+          onClick={handleAskAI}
+          disabled={!aiQuestion.trim() || aiLoading}
+        >
+          {aiLoading
+            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            : <Sparkles className="h-3.5 w-3.5" />}
+          {aiLoading ? "Generating…" : "Generate SQL"}
+        </Button>
+        {aiExplanation && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground max-w-xs truncate">
+            <span className="truncate">{aiExplanation}</span>
+            <button onClick={() => setAiExplanation(null)}>
+              <X className="h-3 w-3 hover:text-foreground" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Main body ───────────────────────────────────────────────────────── */}

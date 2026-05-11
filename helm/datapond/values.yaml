@@ -16,6 +16,9 @@ ingress:
   className: traefik  # or nginx
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    traefik.ingress.kubernetes.io/router.middlewares: ""
+    # WebSocket support — required for log streaming and real-time features
+    nginx.org/websocket-services: "backend,frontend"
   tls:
     enabled: false
     secretName: datapond-tls
@@ -638,3 +641,68 @@ openmetadata:
   pipelineServiceClient:
     enabled: true
     className: "org.openmetadata.service.clients.pipeline.airflow.AirflowRESTClient"
+
+# LiteLLM — AI model proxy (OpenAI-compatible API)
+litellm:
+  enabled: true
+  name: litellm
+  replicas: 1
+  image:
+    repository: ghcr.io/berriai/litellm
+    tag: "main-latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 4000
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # model_list is rendered into a ConfigMap and mounted as /app/config.yaml
+  # Override per environment profile (values-onprem.yaml, values-aws.yaml, etc.)
+  config:
+    model_list:
+      - model_name: "default"
+        litellm_params:
+          model: "ollama/qwen2.5-coder:7b"
+          api_base: "http://ollama.datapond.svc.cluster.local:11434"
+      - model_name: "chat"
+        litellm_params:
+          model: "ollama/qwen2.5-coder:7b"
+          api_base: "http://ollama.datapond.svc.cluster.local:11434"
+
+# Ollama — local LLM runtime (on-prem / air-gap)
+ollama:
+  enabled: true
+  name: ollama
+  image:
+    repository: ollama/ollama
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 11434
+
+  # Default model to auto-pull on startup
+  # qwen2.5-coder:7b — strong SQL/code model, ~4GB download
+  defaultModel: "qwen2.5-coder:7b"
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 4Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: ""  # inherit global.storageClass

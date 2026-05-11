@@ -28,6 +28,7 @@ import {
   CheckCircle2,
   Play,
   Timer,
+  Loader2,
 } from "lucide-react"
 import { formatDistance } from "date-fns"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -41,6 +42,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { NewTransformModal } from "@/components/transforms/new-transform-modal"
+import { ArrowRight, Layers } from "lucide-react"
 
 interface DAG {
   dag_id: string
@@ -71,6 +74,19 @@ interface DagRun {
   run_type: string
 }
 
+interface Transform {
+  id: string
+  name: string
+  description?: string
+  source_namespace: string
+  target_namespace: string
+  target_table: string
+  schedule?: string
+  status: string
+  dag_id?: string
+  updated_at?: string
+}
+
 function PipelinesPageInner() {
   const searchParams = useSearchParams()
   const defaultTab = searchParams.get("tab") === "history" ? "history" : "pipelines"
@@ -80,6 +96,9 @@ function PipelinesPageInner() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const [transforms, setTransforms] = useState<Transform[]>([])
+  const [showNewTransform, setShowNewTransform] = useState(false)
+  const [triggeringTransform, setTriggeringTransform] = useState<string | null>(null)
   const [savedStatuses, setSavedStatuses] = useState<Map<string, string>>(new Map())
   const router = useRouter()
 
@@ -158,12 +177,35 @@ function PipelinesPageInner() {
       } catch (err) {
         console.error("Failed to fetch global runs:", err)
       }
+
+      // Fetch transforms
+      try {
+        const trRes = await fetch("/api/transforms")
+        if (trRes.ok) {
+          const trData = await trRes.json()
+          setTransforms(trData.transforms || [])
+        }
+      } catch { /* non-critical */ }
+
     } catch (err) {
       console.error("Failed to fetch data:", err)
       setError(err instanceof Error ? err.message : "Failed to load pipelines")
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleTriggerTransform = async (id: string, dagId: string) => {
+    setTriggeringTransform(id)
+    try {
+      await fetch(`/api/transforms/${id}/trigger`, { method: "POST" })
+    } catch { /* best effort */ }
+    finally { setTriggeringTransform(null) }
+  }
+
+  const handleDeleteTransform = async (id: string) => {
+    await fetch(`/api/transforms/${id}`, { method: "DELETE" })
+    setTransforms(prev => prev.filter(t => t.id !== id))
   }
 
   useEffect(() => {
@@ -305,9 +347,9 @@ function PipelinesPageInner() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Data Pipelines</h2>
+          <h2 className="text-2xl font-bold tracking-tight">Transforms</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Airflow DAG 오케스트레이션
+            ELT transformations — raw → refined → serving via Airflow
           </p>
         </div>
         <div className="flex gap-2">
@@ -316,9 +358,9 @@ function PipelinesPageInner() {
             Refresh
           </Button>
           <Button size="sm" className="h-8 text-xs gap-1.5"
-            onClick={() => router.push("/pipelines/new")}>
+            onClick={() => setShowNewTransform(true)}>
             <Plus className="h-3.5 w-3.5" />
-            New Pipeline
+            New Transform
           </Button>
         </div>
       </div>
@@ -358,12 +400,99 @@ function PipelinesPageInner() {
         ))}
       </div>
 
-      {/* Main tabs: Pipelines / Run History */}
-      <Tabs defaultValue={defaultTab}>
+      {/* Main tabs: Transforms / Pipelines / History */}
+      <Tabs defaultValue="transforms">
         <TabsList className="h-8">
+          <TabsTrigger value="transforms" className="text-xs h-7">
+            <Layers className="h-3 w-3 mr-1" />Transforms ({transforms.length})
+          </TabsTrigger>
           <TabsTrigger value="pipelines" className="text-xs h-7">Pipelines ({dags.length})</TabsTrigger>
           <TabsTrigger value="history" className="text-xs h-7">Recent Activity</TabsTrigger>
         </TabsList>
+
+        {/* Transforms tab */}
+        <TabsContent value="transforms" className="mt-4">
+          {transforms.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 border rounded-lg bg-muted/20 text-center">
+              <Layers className="h-10 w-10 text-muted-foreground/30 mb-3" />
+              <p className="text-sm font-medium text-muted-foreground mb-1">No transforms yet</p>
+              <p className="text-xs text-muted-foreground mb-4">
+                SQL-based ELT: raw → refined → serving via Airflow + Trino CTAS
+              </p>
+              <Button size="sm" className="h-7 text-xs gap-1.5" onClick={() => setShowNewTransform(true)}>
+                <Plus className="h-3 w-3" />New Transform
+              </Button>
+            </div>
+          ) : (
+            <div className="rounded-lg border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40 text-xs">
+                  <tr>
+                    <th className="text-left px-4 py-2">Name</th>
+                    <th className="text-left px-4 py-2">Flow</th>
+                    <th className="text-left px-4 py-2">Target Table</th>
+                    <th className="text-left px-4 py-2">Schedule</th>
+                    <th className="text-left px-4 py-2">Status</th>
+                    <th className="text-left px-4 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {transforms.map(t => (
+                    <tr key={t.id} className="border-t hover:bg-muted/20">
+                      <td className="px-4 py-2.5">
+                        <div className="font-medium text-sm">{t.name}</div>
+                        {t.description && <div className="text-xs text-muted-foreground">{t.description}</div>}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className="flex items-center gap-1 text-xs font-mono">
+                          <span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{t.source_namespace}</span>
+                          <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                          <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary">{t.target_namespace}</span>
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
+                        iceberg.{t.target_namespace}.{t.target_table}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground">
+                        {t.schedule || <span className="text-muted-foreground/50">manual</span>}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                          t.status === "deployed" ? "bg-green-500/10 text-green-600" : "bg-muted text-muted-foreground"
+                        }`}>
+                          {t.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-1 justify-end">
+                          <Button
+                            variant="ghost" size="sm"
+                            className="h-6 text-[10px] px-2"
+                            disabled={triggeringTransform === t.id}
+                            onClick={() => handleTriggerTransform(t.id, t.dag_id || "")}
+                          >
+                            {triggeringTransform === t.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Play className="h-3 w-3" />
+                            )}
+                          </Button>
+                          <Button
+                            variant="ghost" size="sm"
+                            className="h-6 text-[10px] px-2 text-destructive hover:text-destructive"
+                            onClick={() => handleDeleteTransform(t.id)}
+                          >
+                            <XCircle className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </TabsContent>
 
         {/* Pipeline DAG list */}
         <TabsContent value="pipelines" className="mt-4">
@@ -462,6 +591,13 @@ function PipelinesPageInner() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* New Transform modal */}
+      <NewTransformModal
+        open={showNewTransform}
+        onClose={() => setShowNewTransform(false)}
+        onCreated={() => { setShowNewTransform(false); fetchData() }}
+      />
 
       {/* Delete confirmation dialog */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>

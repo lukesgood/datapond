@@ -31,6 +31,21 @@ spec:
         env:
         - name: ENVIRONMENT
           value: "production"
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_DB
         - name: DATABASE_URL
           value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)"
         - name: REDIS_URL
@@ -52,21 +67,6 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: JWT_SECRET
-        - name: POSTGRES_USER
-          valueFrom:
-            secretKeyRef:
-              name: datapond-secrets
-              key: POSTGRES_USER
-        - name: POSTGRES_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: datapond-secrets
-              key: POSTGRES_PASSWORD
-        - name: POSTGRES_DB
-          valueFrom:
-            secretKeyRef:
-              name: datapond-secrets
-              key: POSTGRES_DB
         # Iceberg catalog connection
         - name: ICEBERG_CATALOG_URI
           value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/iceberg_catalog"
@@ -81,6 +81,11 @@ spec:
           value: "{{ .Values.airflow.auth.password }}"
         - name: AIRFLOW_DAGS_PATH
           value: "/opt/airflow/dags"
+        # AI provider configuration
+        - name: LITELLM_URL
+          value: "http://{{ .Values.litellm.name }}.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.litellm.service.port }}"
+        - name: OPENMETADATA_URL
+          value: "http://openmetadata-server.{{ .Values.namespace }}.svc.cluster.local:8585"
         {{- if .Values.backend.env }}
         {{- toYaml .Values.backend.env | nindent 8 }}
         {{- end }}

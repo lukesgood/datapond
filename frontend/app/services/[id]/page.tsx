@@ -105,6 +105,9 @@ export default function ServiceDetailPage() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [showScaleDialog, setShowScaleDialog] = useState(false)
   const [scaleValue, setScaleValue] = useState(1)
+  const [activeTab, setActiveTab] = useState("overview")
+  const [selectedPod, setSelectedPod] = useState<string | null>(null)
+  const [logsLoading, setLogsLoading] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
 
   const fetchServiceDetail = async () => {
@@ -121,15 +124,20 @@ export default function ServiceDetailPage() {
     }
   }
 
-  const fetchLogs = async () => {
+  const fetchLogs = async (podName?: string | null) => {
     try {
-      const response = await fetch(`/api/services/${serviceId}/logs?lines=100`)
+      setLogsLoading(true)
+      const params = new URLSearchParams({ lines: "200" })
+      if (podName) params.set("pod", podName)
+      const response = await fetch(`/api/services/${serviceId}/logs?${params}`)
       const data = await response.json()
-      if (data.logs && Array.isArray(data.logs)) {
-        setLogs(data.logs)
+      if (data.lines && Array.isArray(data.lines)) {
+        setLogs(data.lines)
       }
     } catch (error) {
       console.error("Failed to fetch logs:", error)
+    } finally {
+      setLogsLoading(false)
     }
   }
 
@@ -215,7 +223,7 @@ export default function ServiceDetailPage() {
     if (streaming) {
       // Start WebSocket connection
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-      const host = window.location.host.replace("datapond.local", "localhost:8000")
+      const host = window.location.host
       const ws = new WebSocket(
         `${protocol}//${host}/api/services/${serviceId}/logs/stream`
       )
@@ -462,7 +470,7 @@ export default function ServiceDetailPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="logs" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="logs">Logs</TabsTrigger>
           <TabsTrigger value="metrics">Metrics</TabsTrigger>
@@ -471,11 +479,30 @@ export default function ServiceDetailPage() {
         </TabsList>
 
         <TabsContent value="logs" className="space-y-4">
-          <LogsViewer
-            logs={logs}
-            isStreaming={isStreaming}
-            onToggleStream={toggleLogStreaming}
-          />
+          {selectedPod && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 rounded px-3 py-1.5">
+              <span>Showing logs for pod:</span>
+              <span className="font-mono font-medium text-foreground">{selectedPod}</span>
+              <button
+                className="ml-auto text-xs underline hover:no-underline"
+                onClick={() => { setSelectedPod(null); fetchLogs(null) }}
+              >
+                Show all pods
+              </button>
+            </div>
+          )}
+          {logsLoading ? (
+            <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
+              <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin mr-2" />
+              Loading logs…
+            </div>
+          ) : (
+            <LogsViewer
+              logs={logs}
+              isStreaming={isStreaming}
+              onToggleStream={toggleLogStreaming}
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="metrics" className="space-y-4">
@@ -486,8 +513,9 @@ export default function ServiceDetailPage() {
           <PodList
             pods={pods}
             onViewLogs={(podName) => {
-              // TODO: Implement pod-specific log viewing
-              console.log("View logs for pod:", podName)
+              setSelectedPod(podName)
+              fetchLogs(podName)
+              setActiveTab("logs")
             }}
             onDeletePod={handleDeletePod}
             onRefresh={fetchPods}

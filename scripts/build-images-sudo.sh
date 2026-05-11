@@ -51,14 +51,19 @@ fi
 log_info "Building frontend image..."
 cd "$PROJECT_ROOT/frontend"
 
-# Check if .next exists, if not run npm install and build
-if [ ! -d ".next" ]; then
-    log_warning ".next directory not found. Running npm install and build..."
-    npm install
-    npm run build
+log_info "Running npm install and build..."
+REAL_USER="${SUDO_USER:-luke}"
+# Find nvm node version dir
+NVM_NODE_DIR=$(ls -d /home/$REAL_USER/.nvm/versions/node/*/bin 2>/dev/null | tail -1)
+if [ -z "$NVM_NODE_DIR" ]; then
+    log_error "nvm node not found for user $REAL_USER"
+    exit 1
 fi
+NPM_BIN="$NVM_NODE_DIR/npm"
+log_info "Using npm at: $NPM_BIN (node dir: $NVM_NODE_DIR)"
+su -c "export PATH=$NVM_NODE_DIR:\$PATH; cd $PROJECT_ROOT/frontend && $NVM_NODE_DIR/npm install && $NVM_NODE_DIR/npm run build" "$REAL_USER"
 
-$BUILD_CMD build -t datapond/frontend:latest .
+$BUILD_CMD build --no-cache -t datapond/frontend:latest .
 if [ $? -eq 0 ]; then
     log_success "Frontend image built successfully"
 else
@@ -78,8 +83,8 @@ $SAVE_CMD datapond/frontend:latest -o /tmp/frontend.tar
 sudo k3s ctr images import /tmp/backend.tar
 sudo k3s ctr images import /tmp/frontend.tar
 
-# Clean up tar files
-rm -f /tmp/backend.tar /tmp/frontend.tar
+# Clean up tar files (use sudo since they were created by sudo docker save)
+sudo rm -f /tmp/backend.tar /tmp/frontend.tar
 
 log_success "Images imported into K3s successfully"
 

@@ -180,16 +180,8 @@ def run_to_dict(run) -> RunDetails:
         ),
         data=RunData(
             metrics=[
-                MetricValue(
-                    key=key,
-                    value=metric.value,
-                    timestamp=metric.timestamp,
-                    step=metric.step
-                )
-                for key, metric in run.data._metric_objs.items()
-            ] if hasattr(run.data, '_metric_objs') and run.data._metric_objs else [
                 MetricValue(key=k, value=v, timestamp=0, step=0)
-                for k, v in run.data.metrics.items()
+                for k, v in (run.data.metrics or {}).items()
             ],
             params=[
                 ParamValue(key=k, value=v)

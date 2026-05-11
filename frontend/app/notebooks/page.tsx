@@ -41,6 +41,7 @@ import {
 import { NotebookCard } from "@/components/notebooks/notebook-card"
 import { JupyterEmbed } from "@/components/notebooks/jupyter-embed"
 import { KernelStatus } from "@/components/notebooks/kernel-status"
+import { serviceUrls } from "@/lib/urls"
 
 interface NotebookItem {
   name: string
@@ -124,11 +125,11 @@ export default function NotebooksPage() {
   }, [searchQuery, notebooks])
 
   const openJupyter = () => {
-    window.open("http://datapond.local/jupyter", "_blank")
+    window.open(serviceUrls.jupyter(), "_blank")
   }
 
   const openNotebook = (notebook: NotebookItem) => {
-    window.open(`http://datapond.local/jupyter/lab/tree/${notebook.path}`, "_blank")
+    window.open(`${serviceUrls.jupyter()}/lab/tree/${notebook.path}`, "_blank")
   }
 
   const handleCreateNotebook = async () => {
@@ -149,7 +150,7 @@ export default function NotebooksPage() {
         setShowCreateDialog(false)
         await fetchNotebooks()
         // Open the newly created notebook
-        window.open(`http://datapond.local/jupyter/lab/tree/${name}`, "_blank")
+        window.open(`${serviceUrls.jupyter()}/lab/tree/${name}`, "_blank")
         return
       }
     } catch (error) {

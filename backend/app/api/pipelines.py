@@ -474,30 +474,83 @@ async def delete_pipeline(pipeline_name: str):
     return {"success": True, "dag_id": dag_id, "file_removed": file_removed, "airflow_deleted": airflow_deleted}
 
 
+OPENMETADATA_URL = os.getenv("OPENMETADATA_URL", "http://openmetadata-server.datapond.svc.cluster.local:8585")
+_om_token_cache: str | None = None
+
+
+async def _get_om_token() -> str | None:
+    global _om_token_cache
+    if _om_token_cache:
+        return _om_token_cache
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.post(f"{OPENMETADATA_URL}/api/v1/users/login",
+                             json={"email": "admin@open-metadata.org", "password": "Admin1234!"})
+            if r.status_code == 200:
+                _om_token_cache = r.json().get("accessToken")
+                return _om_token_cache
+    except Exception:
+        pass
+    return None
+
+
 @router.get("/pipelines/{pipeline_name}/lineage")
 async def get_pipeline_lineage(pipeline_name: str):
-    """Get lineage graph for a pipeline from OpenMetadata"""
-    # TODO: Implement using OpenMetadata API
-
-    return {
-        "pipeline_name": pipeline_name,
-        "lineage": {
-            "nodes": [],
-            "edges": []
-        }
-    }
+    """Get lineage graph for a pipeline from OpenMetadata."""
+    token = await _get_om_token()
+    empty = {"pipeline_name": pipeline_name, "lineage": {"nodes": [], "edges": []}}
+    if not token:
+        return empty
+    try:
+        fqn = f"datapond.{pipeline_name}"
+        async with httpx.AsyncClient(timeout=8) as c:
+            r = await c.get(
+                f"{OPENMETADATA_URL}/api/v1/lineage/pipeline/name/{fqn}",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"upstreamDepth": 2, "downstreamDepth": 2},
+            )
+        if r.status_code != 200:
+            return empty
+        data = r.json()
+        nodes = [
+            {"id": n.get("id"), "name": n.get("name"), "type": n.get("type")}
+            for n in data.get("nodes", [])
+        ]
+        edges = data.get("edges", [])
+        return {"pipeline_name": pipeline_name, "lineage": {"nodes": nodes, "edges": edges}}
+    except Exception:
+        return empty
 
 
 @router.get("/pipelines/{pipeline_name}/quality")
 async def get_pipeline_quality(pipeline_name: str):
-    """Get latest quality check results"""
-    # TODO: Implement using OpenMetadata API
-
-    return {
-        "pipeline_name": pipeline_name,
-        "checks": [],
-        "last_updated": None
-    }
+    """Get latest data quality results from OpenMetadata."""
+    token = await _get_om_token()
+    empty = {"pipeline_name": pipeline_name, "checks": [], "last_updated": None}
+    if not token:
+        return empty
+    try:
+        async with httpx.AsyncClient(timeout=8) as c:
+            r = await c.get(
+                f"{OPENMETADATA_URL}/api/v1/dataQuality/testSuites",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"q": pipeline_name, "limit": 10},
+            )
+        if r.status_code != 200:
+            return empty
+        data = r.json()
+        checks = [
+            {
+                "name": s.get("name"),
+                "status": s.get("testCaseResultSummary", {}).get("statusCounts", {}),
+                "updated": s.get("updatedAt"),
+            }
+            for s in data.get("data", [])
+        ]
+        return {"pipeline_name": pipeline_name, "checks": checks,
+                "last_updated": checks[0]["updated"] if checks else None}
+    except Exception:
+        return empty
 
 
 # === File upload endpoint ===

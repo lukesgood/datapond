@@ -12,7 +12,7 @@ import json
 router = APIRouter()
 
 # Configuration
-JUPYTER_URL = os.getenv("JUPYTER_URL", "http://jupyterlab:8888")
+JUPYTER_URL = os.getenv("JUPYTER_URL", "http://jupyterlab:8888/jupyter")
 JUPYTER_TOKEN = os.getenv("JUPYTER_TOKEN", "jupyter")
 REQUEST_TIMEOUT = 30.0
 

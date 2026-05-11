@@ -1,16 +1,13 @@
 "use client"
 
 import { useEffect, useState, useRef } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
-} from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle,
@@ -19,24 +16,19 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 import {
-  Radio, RefreshCw, AlertCircle, CheckCircle2, XCircle,
-  Plus, Trash2, Play, Eye, Server, ArrowRight, Database,
-  ChevronRight, Code2, Loader2, Zap,
+  AlertCircle, CheckCircle2, XCircle,
+  Plus, Trash2, Play, Eye, ArrowRight,
+  ChevronRight, ChevronDown, Code2, Loader2, Zap, RefreshCw,
+  Radio, Database, Search, AlertTriangle, Copy,
 } from "lucide-react"
 
-// ── Types ──────────────────────────────────────────────────────────────────────
 
-interface Worker {
-  id: number; host: string; port: string; type: string; state: string
-  parallelism: number; rw_version: string
-  total_memory_bytes: number; total_cpu_cores: number; started_at: string
-}
+// ── Types ──────────────────────────────────────────────────────────────────────
 
 interface ClusterInfo {
   status: "healthy" | "degraded" | "down"
   version: string; worker_count: number
   source_count: number; sink_count: number; mv_count: number
-  workers: Worker[]
 }
 
 interface Source {
@@ -61,6 +53,97 @@ interface SqlResult {
   columns?: string[]; rows?: any[][]; row_count?: number
   execution_time_ms?: number; message?: string
 }
+
+// ── CDC Prerequisites (shown on marketplace card) ─────────────────────────────
+
+function CopyBtn({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+      className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+    >
+      <Copy className="h-3 w-3" />{copied ? "Copied!" : "Copy"}
+    </button>
+  )
+}
+
+const CDC_PREREQS = [
+  {
+    label: "WAL Level = logical",
+    desc: "PostgreSQL must use logical replication. Requires DB restart.",
+    sql: `-- Run as superuser, then restart PostgreSQL
+ALTER SYSTEM SET wal_level = logical;`,
+  },
+  {
+    label: "REPLICATION privilege",
+    desc: "The connecting user must have REPLICATION role.",
+    sql: `ALTER ROLE {user} REPLICATION LOGIN;`,
+  },
+  {
+    label: "CREATE on database",
+    desc: "Required to create replication slots.",
+    sql: `GRANT CREATE ON DATABASE {db} TO {user};`,
+  },
+]
+
+function CdcPrereqPanel({ dbName, dbUser }: { dbName?: string; dbUser?: string }) {
+  const [open, setOpen] = useState(false)
+  const db = dbName || "your_db"
+  const user = dbUser || "your_user"
+
+  return (
+    <div className="mt-2.5 rounded-lg border border-amber-200 bg-amber-50/70 overflow-hidden">
+      <button
+        onClick={e => { e.stopPropagation(); setOpen(v => !v) }}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left"
+      >
+        <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+        <span className="text-xs font-medium text-amber-800">Prerequisites required</span>
+        <ChevronDown className={`h-3.5 w-3.5 text-amber-500 ml-auto transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="border-t border-amber-200 px-3 pb-3 space-y-3">
+          {CDC_PREREQS.map((p, i) => (
+            <div key={i} className="pt-2.5">
+              <p className="text-xs font-semibold text-amber-800">{i + 1}. {p.label}</p>
+              <p className="text-[11px] text-amber-700 mt-0.5 mb-1.5">{p.desc}</p>
+              <div className="relative rounded bg-amber-900/8 border border-amber-200 px-3 py-1.5">
+                <pre className="text-[11px] font-mono text-amber-900 whitespace-pre-wrap pr-12">
+                  {p.sql.replace("{db}", db).replace(/{user}/g, user)}
+                </pre>
+                <div className="absolute top-1.5 right-2">
+                  <CopyBtn text={p.sql.replace("{db}", db).replace(/{user}/g, user)} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Streaming sources (marketplace) ───────────────────────────────────────────
+
+const STREAMING_SOURCES = [
+  { id: "postgres-cdc", type: "cdc",   name: "PostgreSQL CDC",   icon: "🐘",
+    description: "WAL 기반 실시간 변경 캡처 (INSERT / UPDATE / DELETE)",
+    features: ["Zero latency", "No source load", "DELETE 반영"], available: true },
+  { id: "mysql-cdc",    type: "cdc",   name: "MySQL CDC",         icon: "🐬",
+    description: "binlog 기반 MySQL / MariaDB 실시간 변경 캡처",
+    features: ["binlog 기반", "MariaDB 지원"], available: false },
+  { id: "kafka",        type: "event", name: "Apache Kafka",      icon: "📨",
+    description: "Kafka 토픽을 Iceberg 테이블로 실시간 수집",
+    features: ["JSON / Avro / CSV", "Schema Registry"], available: true },
+  { id: "kinesis",      type: "event", name: "Amazon Kinesis",    icon: "☁️",
+    description: "AWS Kinesis Data Streams → Iceberg",
+    features: ["AWS 네이티브", "at-least-once"], available: true },
+  { id: "pulsar",       type: "event", name: "Apache Pulsar",     icon: "⚡",
+    description: "Pulsar 토픽 스트리밍",
+    features: ["멀티테넌시"], available: false },
+] as const
 
 // ── SQL Templates ──────────────────────────────────────────────────────────────
 
@@ -120,12 +203,6 @@ WITH (
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function fmtBytes(b: number) {
-  if (b > 1e9) return `${(b / 1e9).toFixed(1)} GB`
-  if (b > 1e6) return `${(b / 1e6).toFixed(0)} MB`
-  return `${(b / 1e3).toFixed(0)} KB`
-}
-
 function fmtDate(s: string | null) {
   if (!s) return "—"
   return new Intl.DateTimeFormat("en-US", {
@@ -133,9 +210,103 @@ function fmtDate(s: string | null) {
   }).format(new Date(s))
 }
 
+// ── Pipeline grouping helper ───────────────────────────────────────────────────
+// CDC pipelines are named: {pipeline}_{table}_src / _mv / _sink
+// Event pipelines are named: {pipeline}_src / _mv / _sink
+// Group by common prefix to show one row per pipeline
+
+interface PipelineGroup {
+  name: string          // pipeline prefix
+  tables: string[]      // table names
+  sources: string[]     // source object names
+  views: string[]       // mv object names
+  sinks: string[]       // sink object names
+  connector: string     // postgres-cdc / kafka / kinesis / etc
+  pipeline_type: "cdc" | "event" | "custom"
+  created_at: string
+}
+
+function getPipelineType(connector: string): "cdc" | "event" | "custom" {
+  if (connector === "postgres-cdc") return "cdc"
+  if (connector === "kafka" || connector === "kinesis") return "event"
+  return "custom"
+}
+
+function groupPipelines(sources: Source[], views: MV[], sinks: Sink[]): PipelineGroup[] {
+  const map = new Map<string, PipelineGroup>()
+
+  for (const s of sources) {
+    if (!s.name.endsWith("_src")) continue
+    const prefix = s.name.slice(0, -4)  // strip _src
+    const parts = prefix.split("_")
+
+    let pipelineName: string
+    let table: string
+
+    if (parts.length === 1) {
+      // e.g. "orders_src" → pipeline="orders", table=""
+      pipelineName = parts[0]
+      table = ""
+    } else {
+      // e.g. "orders_cdc_customers_src" → pipeline="orders_cdc", table="customers"
+      // vs "sample_clickstream_src" → pipeline="sample", table="clickstream"
+      // Use last segment as table, rest as pipeline
+      table = parts[parts.length - 1]
+      pipelineName = parts.slice(0, -1).join("_")
+    }
+
+    if (!pipelineName) continue
+    if (!map.has(pipelineName)) {
+      map.set(pipelineName, {
+        name: pipelineName, tables: [], sources: [], views: [], sinks: [],
+        connector: s.connector, pipeline_type: getPipelineType(s.connector),
+        created_at: s.created_at
+      })
+    }
+    const g = map.get(pipelineName)!
+    if (table && !g.tables.includes(table)) g.tables.push(table)
+    g.sources.push(s.name)
+  }
+
+  // _mv matching — try pipeline_table_mv first, then pipeline_mv
+  for (const v of views) {
+    if (!v.name.endsWith("_mv")) continue
+    const prefix = v.name.slice(0, -3)
+    const parts = prefix.split("_")
+    // Try longest pipeline name match
+    for (let i = parts.length - 1; i >= 1; i--) {
+      const pipelineName = parts.slice(0, i).join("_")
+      if (map.has(pipelineName)) {
+        map.get(pipelineName)!.views.push(v.name)
+        break
+      }
+    }
+    // Also try full prefix as pipeline name (no table segment)
+    if (map.has(prefix)) map.get(prefix)!.views.push(v.name)
+  }
+
+  // _sink matching
+  for (const s of sinks) {
+    if (!s.name.endsWith("_sink")) continue
+    const prefix = s.name.slice(0, -5)
+    const parts = prefix.split("_")
+    for (let i = parts.length - 1; i >= 1; i--) {
+      const pipelineName = parts.slice(0, i).join("_")
+      if (map.has(pipelineName)) {
+        map.get(pipelineName)!.sinks.push(s.name)
+        break
+      }
+    }
+    if (map.has(prefix)) map.get(prefix)!.sinks.push(s.name)
+  }
+
+  return Array.from(map.values()).sort((a, b) => b.created_at.localeCompare(a.created_at))
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export default function StreamingPage() {
+  const router = useRouter()
   const [cluster, setCluster] = useState<ClusterInfo | null>(null)
   const [sources, setSources] = useState<Source[]>([])
   const [sinks, setSinks] = useState<Sink[]>([])
@@ -159,23 +330,18 @@ export default function StreamingPage() {
   // DDL dialogs
   const [showDdl, setShowDdl] = useState<string | null>(null)
 
-  // Create dialogs
-  const [createSource, setCreateSource] = useState(false)
-  const [createSink, setCreateSink] = useState(false)
-  const [createMv, setCreateMv] = useState(false)
+  // Pipeline row expansion
+  const [expandedPipeline, setExpandedPipeline] = useState<string | null>(null)
 
-  // Create form state
-  const [sourceForm, setSourceForm] = useState({
-    name: "", connector: "kafka", topic: "", bootstrap_servers: "",
-    format: "plain", row_encode: "json", columns_sql: "user_id BIGINT, event VARCHAR, ts TIMESTAMPTZ",
-  })
-  const [sinkForm, setSinkForm] = useState({
-    name: "", from_mv: "", connector: "iceberg",
-    sink_type: "append-only", iceberg_schema: "default", iceberg_table: "",
-  })
-  const [mvForm, setMvForm] = useState({ name: "", definition: "SELECT * FROM my_source" })
-  const [creating, setCreating] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
+  // Tab control — ?tab=add-source from back navigation
+  const [activeTab, setActiveTab] = useState(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "add-source"
+      ? "add-source" : "streams"
+  )
+
+  // Add Source tab filter state
+  const [sourceSearch, setSourceSearch] = useState("")
+  const [sourceCat, setSourceCat] = useState("all")
 
   const fetchAll = async () => {
     setLoading(true)
@@ -247,43 +413,25 @@ export default function StreamingPage() {
     setPreviewLoading(false)
   }
 
-  const handleCreateSource = async () => {
-    setCreating(true); setCreateError(null)
-    const res = await fetch("/api/streaming/sources", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(sourceForm),
-    })
-    if (res.ok) { setCreateSource(false); fetchAll() }
-    else { const d = await res.json(); setCreateError(d.detail) }
-    setCreating(false)
+  const handleDropPipeline = async (pipeline: PipelineGroup) => {
+    if (!confirm(`Delete pipeline "${pipeline.name}" and all ${pipeline.tables.length * 3} associated objects?`)) return
+    for (const name of pipeline.sinks)   await fetch(`/api/streaming/sinks/${name}`,   { method: "DELETE" })
+    for (const name of pipeline.views)   await fetch(`/api/streaming/views/${name}`,   { method: "DELETE" })
+    for (const name of pipeline.sources) await fetch(`/api/streaming/sources/${name}`, { method: "DELETE" })
+    fetchAll()
   }
 
-  const handleCreateSink = async () => {
-    setCreating(true); setCreateError(null)
-    const res = await fetch("/api/streaming/sinks", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(sinkForm),
-    })
-    if (res.ok) { setCreateSink(false); fetchAll() }
-    else { const d = await res.json(); setCreateError(d.detail) }
-    setCreating(false)
-  }
-
-  const handleCreateMv = async () => {
-    setCreating(true); setCreateError(null)
-    const res = await fetch("/api/streaming/views", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(mvForm),
-    })
-    if (res.ok) { setCreateMv(false); fetchAll() }
-    else { const d = await res.json(); setCreateError(d.detail) }
-    setCreating(false)
-  }
+  const pipelines = groupPipelines(sources, views, sinks)
 
   const statusColor = cluster?.status === "healthy" ? "text-green-600"
     : cluster?.status === "degraded" ? "text-amber-500" : "text-red-500"
   const StatusIcon = cluster?.status === "healthy" ? CheckCircle2
     : cluster?.status === "degraded" ? AlertCircle : XCircle
+
+  // Find source/mv/sink objects for a given pipeline object name
+  const findSourceObj = (name: string) => sources.find(s => s.name === name)
+  const findViewObj   = (name: string) => views.find(v => v.name === name)
+  const findSinkObj   = (name: string) => sinks.find(s => s.name === name)
 
   return (
     <div className="flex-1 space-y-5 px-6 py-5">
@@ -293,7 +441,7 @@ export default function StreamingPage() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Streaming</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            RisingWave 실시간 파이프라인 관리
+            Real-time CDC pipelines via RisingWave — captures every change with sub-second latency
           </p>
         </div>
         <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5"
@@ -324,198 +472,332 @@ export default function StreamingPage() {
         </div>
       )}
 
-      {/* Cluster stats */}
-      <div className="grid gap-4 md:grid-cols-5">
-        <Card className="md:col-span-1">
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-1.5">
-              <Zap className="h-4 w-4" />Cluster
-            </CardDescription>
-            <CardTitle className={`text-lg flex items-center gap-1.5 ${statusColor}`}>
-              {cluster && <StatusIcon className="h-5 w-5" />}
-              <span className="capitalize">{loading ? "…" : (cluster?.status ?? "—")}</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-xs text-muted-foreground">
-            {cluster?.version ?? ""}
-          </CardContent>
-        </Card>
-        {[
-          { label: "Sources",  value: cluster?.source_count, icon: Radio,     action: () => setCreateSource(true) },
-          { label: "Views",    value: cluster?.mv_count,     icon: Database,   action: () => setCreateMv(true) },
-          { label: "Sinks",    value: cluster?.sink_count,   icon: ArrowRight, action: () => setCreateSink(true) },
-          { label: "Workers",  value: cluster?.worker_count, icon: Server,     action: null },
-        ].map(({ label, value, icon: Icon, action }) => (
-          <Card key={label} className="cursor-default">
-            <CardHeader className="pb-2">
-              <CardDescription className="flex items-center justify-between">
-                <span className="flex items-center gap-1.5"><Icon className="h-4 w-4" />{label}</span>
-                {action && (
-                  <button onClick={action}
-                    className="h-5 w-5 rounded flex items-center justify-center hover:bg-muted transition-colors">
-                    <Plus className="h-3 w-3" />
-                  </button>
-                )}
-              </CardDescription>
-              <CardTitle className="text-2xl">{loading ? "…" : (value ?? "—")}</CardTitle>
-            </CardHeader>
-          </Card>
-        ))}
+      {/* Cluster status banner */}
+      <div className="flex items-center gap-4 px-4 py-2.5 rounded-lg border bg-muted/30 text-sm">
+        {loading ? (
+          <Skeleton className="h-4 w-48" />
+        ) : (
+          <>
+            <span className="flex items-center gap-1.5">
+              <StatusIcon className={`h-4 w-4 ${statusColor}`} />
+              <span className="font-medium">RisingWave</span>
+              {cluster?.version && (
+                <span className="text-muted-foreground">{cluster.version}</span>
+              )}
+            </span>
+            <Separator orientation="vertical" className="h-4" />
+            <span className="text-muted-foreground">{pipelines.length} pipeline{pipelines.length !== 1 ? "s" : ""}</span>
+            <Separator orientation="vertical" className="h-4" />
+            <span className="text-muted-foreground">{cluster?.worker_count ?? "—"} worker{(cluster?.worker_count ?? 0) !== 1 ? "s" : ""}</span>
+          </>
+        )}
       </div>
 
       {/* Main tabs */}
-      <Tabs defaultValue="sources">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="h-8">
-          <TabsTrigger value="sources" className="text-xs h-7">Sources ({sources.length})</TabsTrigger>
-          <TabsTrigger value="views"   className="text-xs h-7">Materialized Views ({views.length})</TabsTrigger>
-          <TabsTrigger value="sinks"   className="text-xs h-7">Sinks ({sinks.length})</TabsTrigger>
+          <TabsTrigger value="streams" className="text-xs h-7 gap-1.5">
+            <Zap className="h-3.5 w-3.5" />
+            Active Streams
+            {pipelines.length > 0 && (
+              <Badge variant="secondary" className="text-[9px] h-4 px-1 ml-0.5">{pipelines.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="add-source" className="text-xs h-7 gap-1.5">
+            <Plus className="h-3.5 w-3.5" />
+            Add Source
+          </TabsTrigger>
           <TabsTrigger value="console" className="text-xs h-7">SQL Console</TabsTrigger>
-          <TabsTrigger value="cluster" className="text-xs h-7">Cluster</TabsTrigger>
         </TabsList>
 
-        {/* ── Sources ── */}
-        <TabsContent value="sources" className="mt-4">
-          <div className="flex justify-end mb-3">
-            <Button size="sm" className="h-8 text-xs gap-1.5" onClick={() => setCreateSource(true)}>
-              <Plus className="h-3.5 w-3.5" />New Source
-            </Button>
-          </div>
-          <div className="rounded-lg border overflow-hidden">
-            <Table>
-              <TableHeader className="bg-muted/40">
-                <TableRow>
-                  <TableHead className="text-xs">Name</TableHead>
-                  <TableHead className="text-xs">Connector</TableHead>
-                  <TableHead className="text-xs">Format</TableHead>
-                  <TableHead className="text-xs">Encode</TableHead>
-                  <TableHead className="text-xs">Created</TableHead>
-                  <TableHead className="text-xs w-20" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sources.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">
-                    No sources. Click <strong>New Source</strong> to create one.
-                  </TableCell></TableRow>
-                ) : sources.map(s => (
-                  <TableRow key={s.id}>
-                    <TableCell className="font-medium text-sm">{s.name}</TableCell>
-                    <TableCell><Badge variant="outline" className="text-xs">{s.connector}</Badge></TableCell>
-                    <TableCell className="text-xs text-muted-foreground uppercase">{s.format}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground uppercase">{s.row_encode}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{fmtDate(s.created_at)}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" className="h-7 w-7"
-                          onClick={() => setShowDdl(s.definition)}>
-                          <Code2 className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
-                          onClick={() => handleDrop("sources", s.name)}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
+        {/* ── Pipelines (default) ── */}
+        <TabsContent value="streams" className="mt-4">
+          {loading ? (
+            <div className="rounded-lg border overflow-hidden">
+              <Table>
+                <TableHeader className="bg-muted/40">
+                  <TableRow>{["Pipeline","Type","Connector","Tables","Objects","Created",""].map(h => <TableHead key={h} className="text-xs">{h}</TableHead>)}</TableRow>
+                </TableHeader>
+                <TableBody>
+                  {Array(3).fill(0).map((_, i) => (
+                    <TableRow key={i}>{Array(6).fill(0).map((_, j) => <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>)}</TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : pipelines.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 space-y-4 text-center border rounded-lg bg-muted/20">
+              <div className="rounded-full bg-primary/10 p-4">
+                <Zap className="h-8 w-8 text-primary" />
+              </div>
+              <div>
+                <p className="font-medium">No streaming pipelines yet</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Capture database changes or stream events from Kafka/Kinesis into Iceberg
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <Button onClick={() => setActiveTab("add-source")} className="gap-1.5">
+                  <Plus className="h-4 w-4" />Add Source
+                </Button>
+                <Button variant="outline" className="gap-1.5" onClick={async () => {
+                  const res = await fetch("/api/streaming/sample-streams", { method: "POST" })
+                  if (res.ok) fetchAll()
+                }}>
+                  <Play className="h-4 w-4" />Make Sample Streams
+                </Button>
+              </div>
+              <div className="flex items-center gap-6 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1"><ArrowRight className="h-3 w-3" />Source → RisingWave</span>
+                <span className="flex items-center gap-1"><ArrowRight className="h-3 w-3" />Materialized View</span>
+                <span className="flex items-center gap-1"><ArrowRight className="h-3 w-3" />Iceberg Sink</span>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border overflow-hidden">
+              <Table>
+                <TableHeader className="bg-muted/40">
+                  <TableRow>
+                    <TableHead className="text-xs w-6" />
+                    <TableHead className="text-xs">Pipeline</TableHead>
+                    <TableHead className="text-xs">Type</TableHead>
+                    <TableHead className="text-xs">Connector</TableHead>
+                    <TableHead className="text-xs">Tables</TableHead>
+                    <TableHead className="text-xs">Objects</TableHead>
+                    <TableHead className="text-xs">Created</TableHead>
+                    <TableHead className="text-xs w-16" />
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {pipelines.map(p => (
+                    <>
+                      <TableRow
+                        key={p.name}
+                        className="cursor-pointer hover:bg-muted/30"
+                        onClick={() => setExpandedPipeline(prev => prev === p.name ? null : p.name)}
+                      >
+                        <TableCell className="pr-0">
+                          {expandedPipeline === p.name
+                            ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                            : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                        </TableCell>
+                        <TableCell className="font-medium text-sm">{p.name}</TableCell>
+                        <TableCell>
+                          {p.pipeline_type === "cdc" && (
+                            <Badge className="text-xs bg-primary/10 text-primary border-primary/20 hover:bg-primary/10">CDC</Badge>
+                          )}
+                          {p.pipeline_type === "event" && (
+                            <Badge className="text-xs bg-purple-500/10 text-purple-600 border-purple-200 hover:bg-purple-500/10">Event</Badge>
+                          )}
+                          {p.pipeline_type === "custom" && (
+                            <Badge variant="outline" className="text-xs">Custom</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-xs">{p.connector}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1 max-w-[280px]">
+                            {p.tables.map(t => (
+                              <span key={t} className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded">{t}</span>
+                            ))}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {p.sources.length} src · {p.views.length} mv · {p.sinks.length} sink
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{fmtDate(p.created_at)}</TableCell>
+                        <TableCell onClick={e => e.stopPropagation()}>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                            onClick={() => handleDropPipeline(p)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+
+                      {expandedPipeline === p.name && (
+                        <TableRow key={`${p.name}-detail`}>
+                          <TableCell colSpan={8} className="bg-muted/20 px-4 py-3">
+                            <div className="space-y-2.5 text-xs">
+
+                              {/* Sources */}
+                              {p.sources.length > 0 && (
+                                <div className="flex items-start gap-2">
+                                  <span className="flex items-center gap-1 text-muted-foreground font-medium w-16 shrink-0 mt-0.5">
+                                    <Radio className="h-3 w-3" />Sources
+                                  </span>
+                                  <div className="flex flex-wrap gap-2">
+                                    {p.sources.map(sName => {
+                                      const obj = findSourceObj(sName)
+                                      return (
+                                        <span key={sName} className="flex items-center gap-1.5 bg-background border rounded px-2 py-0.5 font-mono">
+                                          {sName}
+                                          {obj && (
+                                            <button
+                                              className="text-muted-foreground hover:text-foreground transition-colors"
+                                              onClick={() => setShowDdl(obj.definition)}
+                                              title="View DDL"
+                                            >
+                                              <Code2 className="h-3 w-3" />
+                                            </button>
+                                          )}
+                                        </span>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Materialized Views */}
+                              {p.views.length > 0 && (
+                                <div className="flex items-start gap-2">
+                                  <span className="flex items-center gap-1 text-muted-foreground font-medium w-16 shrink-0 mt-0.5">
+                                    <Database className="h-3 w-3" />Views
+                                  </span>
+                                  <div className="flex flex-wrap gap-2">
+                                    {p.views.map(vName => {
+                                      const obj = findViewObj(vName)
+                                      return (
+                                        <span key={vName} className="flex items-center gap-1.5 bg-background border rounded px-2 py-0.5 font-mono">
+                                          {vName}
+                                          {obj && (
+                                            <>
+                                              <button
+                                                className="text-muted-foreground hover:text-foreground transition-colors"
+                                                onClick={() => handlePreview(obj)}
+                                                title="Preview data"
+                                              >
+                                                <Eye className="h-3 w-3" />
+                                              </button>
+                                              <button
+                                                className="text-muted-foreground hover:text-foreground transition-colors"
+                                                onClick={() => setShowDdl(obj.definition)}
+                                                title="View DDL"
+                                              >
+                                                <Code2 className="h-3 w-3" />
+                                              </button>
+                                            </>
+                                          )}
+                                        </span>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Sinks */}
+                              {p.sinks.length > 0 && (
+                                <div className="flex items-start gap-2">
+                                  <span className="flex items-center gap-1 text-muted-foreground font-medium w-16 shrink-0 mt-0.5">
+                                    <ArrowRight className="h-3 w-3" />Sinks
+                                  </span>
+                                  <div className="flex flex-wrap gap-2">
+                                    {p.sinks.map(sName => {
+                                      const obj = findSinkObj(sName)
+                                      return (
+                                        <span key={sName} className="flex items-center gap-1.5 bg-background border rounded px-2 py-0.5 font-mono">
+                                          {sName}
+                                          {obj && (
+                                            <button
+                                              className="text-muted-foreground hover:text-foreground transition-colors"
+                                              onClick={() => setShowDdl(obj.definition)}
+                                              title="View DDL"
+                                            >
+                                              <Code2 className="h-3 w-3" />
+                                            </button>
+                                          )}
+                                        </span>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </TabsContent>
 
-        {/* ── Materialized Views ── */}
-        <TabsContent value="views" className="mt-4">
-          <div className="flex justify-end mb-3">
-            <Button size="sm" className="h-8 text-xs gap-1.5" onClick={() => setCreateMv(true)}>
-              <Plus className="h-3.5 w-3.5" />New View
-            </Button>
+        {/* ── Add Source ── */}
+        <TabsContent value="add-source" className="space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Search sources..."
+                className="pl-8 h-8 text-sm"
+                value={sourceSearch}
+                onChange={e => setSourceSearch(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-1">
+              {[
+                { id: "all",   label: "All" },
+                { id: "cdc",   label: "CDC" },
+                { id: "event", label: "Event Stream" },
+              ].map(c => (
+                <Button key={c.id} variant={sourceCat === c.id ? "secondary" : "ghost"}
+                  size="sm" className="h-8 text-xs" onClick={() => setSourceCat(c.id)}>
+                  {c.label}
+                </Button>
+              ))}
+            </div>
           </div>
-          <div className="rounded-lg border overflow-hidden">
-            <Table>
-              <TableHeader className="bg-muted/40">
-                <TableRow>
-                  <TableHead className="text-xs">Name</TableHead>
-                  <TableHead className="text-xs">Created</TableHead>
-                  <TableHead className="text-xs w-28" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {views.length === 0 ? (
-                  <TableRow><TableCell colSpan={3} className="py-12 text-center text-sm text-muted-foreground">
-                    No materialized views. Click <strong>New View</strong> to create one.
-                  </TableCell></TableRow>
-                ) : views.map(v => (
-                  <TableRow key={v.id}>
-                    <TableCell className="font-medium text-sm">{v.name}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{fmtDate(v.created_at)}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" className="h-7 w-7"
-                          onClick={() => handlePreview(v)}>
-                          <Eye className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7"
-                          onClick={() => setShowDdl(v.definition)}>
-                          <Code2 className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
-                          onClick={() => handleDrop("views", v.name)}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </TabsContent>
 
-        {/* ── Sinks ── */}
-        <TabsContent value="sinks" className="mt-4">
-          <div className="flex justify-end mb-3">
-            <Button size="sm" className="h-8 text-xs gap-1.5" onClick={() => setCreateSink(true)}>
-              <Plus className="h-3.5 w-3.5" />New Sink
-            </Button>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {STREAMING_SOURCES.filter(s => {
+              const matchCat = sourceCat === "all" || s.type === sourceCat
+              const q = sourceSearch.toLowerCase()
+              const matchSearch = !q || s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)
+              return matchCat && matchSearch
+            }).map(src => (
+              <div key={src.id} className="flex flex-col">
+                <button
+                  disabled={!src.available}
+                  onClick={() => { if (!src.available) return; router.push(`/streaming/new?source=${src.id}`) }}
+                  className={`flex items-start gap-4 p-4 rounded-xl border text-left transition-all group ${
+                    src.available
+                      ? "border-border hover:border-primary hover:shadow-sm hover:bg-primary/5 cursor-pointer bg-card"
+                      : "border-border/50 opacity-40 cursor-not-allowed bg-muted/20"
+                  }`}
+                >
+                  <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-muted text-2xl shrink-0">
+                    {src.icon}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-semibold">{src.name}</span>
+                      {!src.available && <Badge variant="secondary" className="text-[10px] h-4 px-1">Soon</Badge>}
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{src.description}</p>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {src.features.map(f => (
+                        <span key={f} className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-medium">{f}</span>
+                      ))}
+                    </div>
+                  </div>
+                  {src.available && (
+                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  )}
+                </button>
+                {/* CDC prerequisites panel — outside card button to prevent click propagation */}
+                {src.type === "cdc" && src.available && (
+                  <CdcPrereqPanel />
+                )}
+              </div>
+            ))}
           </div>
-          <div className="rounded-lg border overflow-hidden">
-            <Table>
-              <TableHeader className="bg-muted/40">
-                <TableRow>
-                  <TableHead className="text-xs">Name</TableHead>
-                  <TableHead className="text-xs">Connector</TableHead>
-                  <TableHead className="text-xs">Type</TableHead>
-                  <TableHead className="text-xs">Created</TableHead>
-                  <TableHead className="text-xs w-20" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sinks.length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="py-12 text-center text-sm text-muted-foreground">
-                    No sinks. Click <strong>New Sink</strong> to route data to Iceberg or other targets.
-                  </TableCell></TableRow>
-                ) : sinks.map(s => (
-                  <TableRow key={s.id}>
-                    <TableCell className="font-medium text-sm">{s.name}</TableCell>
-                    <TableCell><Badge variant="outline" className="text-xs">{s.connector}</Badge></TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{s.sink_type}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{fmtDate(s.created_at)}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" className="h-7 w-7"
-                          onClick={() => setShowDdl(s.definition)}>
-                          <Code2 className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
-                          onClick={() => handleDrop("sinks", s.name)}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+
+          <div className="border-t pt-3 flex justify-between text-xs text-muted-foreground">
+            <span>{STREAMING_SOURCES.filter(s => s.available).length} available</span>
+            <span>{STREAMING_SOURCES.filter(s => !s.available).length} coming soon</span>
           </div>
         </TabsContent>
 
@@ -598,48 +880,6 @@ export default function StreamingPage() {
             </div>
           )}
         </TabsContent>
-
-        {/* ── Cluster ── */}
-        <TabsContent value="cluster" className="mt-4">
-          <div className="rounded-lg border overflow-hidden">
-            <Table>
-              <TableHeader className="bg-muted/40">
-                <TableRow>
-                  <TableHead className="text-xs">ID</TableHead>
-                  <TableHead className="text-xs">Host</TableHead>
-                  <TableHead className="text-xs">Type</TableHead>
-                  <TableHead className="text-xs">State</TableHead>
-                  <TableHead className="text-xs">Memory</TableHead>
-                  <TableHead className="text-xs">CPUs</TableHead>
-                  <TableHead className="text-xs">Version</TableHead>
-                  <TableHead className="text-xs">Started</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(cluster?.workers ?? []).map(w => (
-                  <TableRow key={w.id}>
-                    <TableCell className="text-xs font-mono">{w.id}</TableCell>
-                    <TableCell className="text-xs font-mono">{w.host}:{w.port}</TableCell>
-                    <TableCell className="text-xs">
-                      <Badge variant="outline" className="text-[10px]">
-                        {w.type.replace("WORKER_TYPE_", "")}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <span className={`text-xs font-medium ${w.state === "RUNNING" ? "text-green-600" : "text-amber-500"}`}>
-                        {w.state}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{fmtBytes(w.total_memory_bytes)}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{w.total_cpu_cores || "—"}</TableCell>
-                    <TableCell className="text-xs font-mono text-muted-foreground">{w.rw_version}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{fmtDate(w.started_at)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </TabsContent>
       </Tabs>
 
       {/* ── DDL Viewer ── */}
@@ -695,142 +935,6 @@ export default function StreamingPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Create Source ── */}
-      <Dialog open={createSource} onOpenChange={setCreateSource}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>New Source</DialogTitle>
-            <DialogDescription>Connect a streaming data source to RisingWave</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            {[
-              { label: "Name", field: "name", placeholder: "my_kafka_source" },
-              { label: "Topic", field: "topic", placeholder: "my-topic" },
-              { label: "Bootstrap Servers", field: "bootstrap_servers", placeholder: "kafka:9092" },
-              { label: "Column Definitions", field: "columns_sql", placeholder: "user_id BIGINT, event VARCHAR, ts TIMESTAMPTZ" },
-            ].map(({ label, field, placeholder }) => (
-              <div key={field} className="space-y-1">
-                <Label className="text-xs">{label}</Label>
-                <Input value={(sourceForm as any)[field]} placeholder={placeholder}
-                  onChange={e => setSourceForm(p => ({ ...p, [field]: e.target.value }))} />
-              </div>
-            ))}
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { label: "Connector", field: "connector", options: ["kafka", "kinesis", "pulsar", "nexmark"] },
-                { label: "Format", field: "format", options: ["plain", "upsert", "debezium", "maxwell"] },
-                { label: "Encode", field: "row_encode", options: ["json", "avro", "protobuf", "csv"] },
-              ].map(({ label, field, options }) => (
-                <div key={field} className="space-y-1">
-                  <Label className="text-xs">{label}</Label>
-                  <Select value={(sourceForm as any)[field]}
-                    onValueChange={v => setSourceForm(p => ({ ...p, [field]: v }))}>
-                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>{options.map(o => <SelectItem key={o} value={o} className="text-xs">{o}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-              ))}
-            </div>
-            {createError && <p className="text-xs text-destructive font-mono">{createError}</p>}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateSource(false)}>Cancel</Button>
-            <Button onClick={handleCreateSource} disabled={creating}>
-              {creating ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating…</> : "Create Source"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Create MV ── */}
-      <Dialog open={createMv} onOpenChange={setCreateMv}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>New Materialized View</DialogTitle>
-            <DialogDescription>Define a streaming SQL transformation</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Name</Label>
-              <Input value={mvForm.name} placeholder="event_counts"
-                onChange={e => setMvForm(p => ({ ...p, name: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">SQL Definition (after AS)</Label>
-              <textarea value={mvForm.definition}
-                onChange={e => setMvForm(p => ({ ...p, definition: e.target.value }))}
-                className="w-full h-36 p-2 font-mono text-xs rounded-md border bg-background resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-                placeholder="SELECT date_trunc('minute', ts), event, COUNT(*) FROM my_source GROUP BY 1, 2" />
-            </div>
-            {createError && <p className="text-xs text-destructive font-mono">{createError}</p>}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateMv(false)}>Cancel</Button>
-            <Button onClick={handleCreateMv} disabled={creating}>
-              {creating ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating…</> : "Create View"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Create Sink (Iceberg pre-filled) ── */}
-      <Dialog open={createSink} onOpenChange={setCreateSink}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>New Sink</DialogTitle>
-            <DialogDescription>Route streaming data to Iceberg or other targets</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            {[
-              { label: "Sink Name", field: "name", placeholder: "my_iceberg_sink" },
-              { label: "From (MV or Table)", field: "from_mv", placeholder: "event_counts" },
-              { label: "Iceberg Schema", field: "iceberg_schema", placeholder: "default" },
-              { label: "Iceberg Table Name", field: "iceberg_table", placeholder: "leave blank to use sink name" },
-            ].map(({ label, field, placeholder }) => (
-              <div key={field} className="space-y-1">
-                <Label className="text-xs">{label}</Label>
-                <Input value={(sinkForm as any)[field]} placeholder={placeholder}
-                  onChange={e => setSinkForm(p => ({ ...p, [field]: e.target.value }))} />
-              </div>
-            ))}
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <Label className="text-xs">Connector</Label>
-                <Select value={sinkForm.connector} onValueChange={v => setSinkForm(p => ({ ...p, connector: v ?? "iceberg" }))}>
-                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {["iceberg", "kafka", "jdbc", "elasticsearch"].map(o =>
-                      <SelectItem key={o} value={o} className="text-xs">{o}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Sink Type</Label>
-                <Select value={sinkForm.sink_type} onValueChange={v => setSinkForm(p => ({ ...p, sink_type: v ?? "append-only" }))}>
-                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {["append-only", "upsert"].map(o =>
-                      <SelectItem key={o} value={o} className="text-xs">{o}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            {sinkForm.connector === "iceberg" && (
-              <p className="text-xs text-muted-foreground bg-muted/40 rounded-md px-3 py-2">
-                SeaweedFS S3 credentials auto-filled from environment.
-                Data will be written to <code className="font-mono">iceberg.{sinkForm.iceberg_schema}.{sinkForm.iceberg_table || sinkForm.name || "…"}</code>
-              </p>
-            )}
-            {createError && <p className="text-xs text-destructive font-mono">{createError}</p>}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateSink(false)}>Cancel</Button>
-            <Button onClick={handleCreateSink} disabled={creating}>
-              {creating ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating…</> : "Create Sink"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

@@ -68,7 +68,8 @@ trino.datapond.svc.cluster.local:8080
 spark-master.datapond.svc.cluster.local:7077
 risingwave.datapond.svc.cluster.local:4566
 openmetadata.datapond.svc.cluster.local:8585
-litellm.datapond.svc.cluster.local:4000
+litellm.datapond.svc.cluster.local:4000    (AI proxy — disabled on values-quicktest)
+ollama.datapond.svc.cluster.local:11434    (LLM runtime — disabled on values-quicktest)
 mlflow.datapond.svc.cluster.local:5000
 ```
 
@@ -93,17 +94,31 @@ sudo bash datapond-airgap-*/install.sh       # on target machine
 
 ### Deploy / upgrade
 
+Three values profiles are available depending on the environment:
+
+| Profile | File | RAM | Use case |
+|---------|------|-----|----------|
+| Single-node dev | `values-quicktest.yaml` | 15 GB | Local dev, CI — LiteLLM/Ollama disabled |
+| On-prem production | `values-onprem.yaml` | 32 GB+ | Full stack incl. LiteLLM + Ollama |
+| AWS EKS | `values-aws.yaml` | — | S3 + Bedrock, no SeaweedFS/Ollama/PG |
+
 ```bash
-# Upgrade existing release (recommended — always use values-quicktest.yaml on single node)
+# Single-node dev (current default)
 helm upgrade datapond helm/datapond \
   --namespace datapond \
   --values helm/datapond/values-quicktest.yaml \
   --wait=false
 
-# Production
+# On-prem production (all services, LiteLLM + Ollama)
 helm upgrade datapond helm/datapond \
   --namespace datapond \
-  --values helm/datapond/values-prod.yaml \
+  --values helm/datapond/values-onprem.yaml \
+  --wait=false
+
+# AWS EKS (S3 + Bedrock)
+helm upgrade datapond helm/datapond \
+  --namespace datapond \
+  --values helm/datapond/values-aws.yaml \
   --wait=false
 ```
 
@@ -337,11 +352,70 @@ See `.claude/agents/pm-agent.md` for detailed spawning examples and coordination
 
 | Doc | Purpose |
 |-----|---------|
-| `docs/ARCHITECTURE.md` | Full component specs, resource sizing, HA config |
+| `docs/ARCHITECTURE.md` | Full component specs, AI layer, multi-env profiles |
 | `docs/PRODUCT_CONCEPT.md` | Product strategy, positioning, roadmap |
-| `docs/DATABRICKS_FEATURE_COMPARISON.md` | Feature parity analysis |
-| `docs/LITELLM_INTEGRATION.md` | AI assistant configuration |
-| `docs/RISINGWAVE_INTEGRATION.md` | Streaming SQL setup |
+| `docs/DATABRICKS_FEATURE_COMPARISON.md` | Feature parity analysis (updated 2026-05-11) |
+| `docs/LITELLM_INTEGRATION.md` | AI assistant config — LiteLLM + Ollama + Bedrock |
+| `docs/RISINGWAVE_INTEGRATION.md` | Streaming SQL setup (CDC) |
 | `docs/OPENMETADATA_INTEGRATION.md` | Lineage and catalog setup |
-| `docs/TROUBLESHOOTING.md` | Common failure modes |
-| `docs/INSTALLATION.md` | Detailed install guide |
+| `docs/TROUBLESHOOTING.md` | Common failure modes incl. POSTGRES_PORT, SeaweedFS |
+| `docs/INSTALLATION.md` | Detailed install guide (quicktest/onprem/aws profiles) |
+| `docs/SPRINT_PLAN.md` | Sprint 진행 현황 및 완료 항목 |
+
+## Current Status (2026-05-11)
+
+### Sprint 1: Ingestion (완료)
+- ✅ Incremental Sync: watermark 기반, max_value DB 저장, 빈 결과 시 덮어쓰기 방지
+- ✅ Schema Evolution: append 모드에서 `ALTER TABLE ADD COLUMN` 자동 실행
+- ✅ ELT Transform UI: Pipelines 페이지 SQL Editor + Source/Target namespace + Airflow CTAS DAG 생성
+- ✅ CDC: RisingWave postgres-cdc (Streaming 탭 4단계 마법사)
+
+### Sprint 2: 분석 & 품질 (완료)
+- ✅ Catalog 데이터 미리보기: Preview 탭, 상위 100 rows, 컬럼 통계 (null rate, distinct count, min/max)
+- ✅ Dashboard 인라인 미니 차트: 목록 카드에 실시간 쿼리 + Recharts 렌더링
+- ✅ Data Quality: sync 후 row count 이상(±20% warn, ±50% alert) + null rate 체크, connector_quality_checks 테이블
+- ✅ AI SQL Assistant: LiteLLM → Bedrock → Anthropic fallback chain, Query Lab 자연어 입력
+
+### 완성도 개선 (완료)
+- ✅ Notebook view 실제 JupyterLab API 연동 (mock 제거)
+- ✅ Services 로그 뷰어: pod-specific 로그, 선택한 pod 배너 표시
+- ✅ Experiment run 비교: MLflow compare API, metrics/params 비교 테이블 (best 값 ★ 표시)
+- ✅ OpenMetadata lineage: sync 완료 후 best-effort 등록, pipelines lineage/quality 엔드포인트 실제 OM API 호출
+- ✅ Per-table sync mode 편집: 테이블별 sync_mode/incremental_column 인라인 편집
+- ✅ 실제 K8s metrics: kubectl top 기반 CPU/Memory 실시간 조회
+
+### 인프라 & 안정성 (완료)
+- ✅ PostgreSQL: Headless(postgres-headless) + ClusterIP(postgres) 분리로 Pod 재시작 시 안정성 확보
+- ✅ SeaweedFS: initContainer로 master/filer 준비 대기, liveness probe 조정
+- ✅ HPA maxReplicas: 5→2 (단일 노드 메모리 부족 방지)
+- ✅ POSTGRES_PORT 버그: K8s 자동 주입 `tcp://...` 파싱 오류 수정
+- ✅ DATABASE_URL env 순서 버그 수정
+- ✅ Airflow trino_default connection 자동 업데이트 (Transform 배포 시)
+
+### AI 아키텍처 (완료)
+- ✅ LiteLLM Helm template: ConfigMap(model_list) + Deployment + Service
+- ✅ Ollama Helm template: StatefulSet + initContainer(모델 auto-pull) + PVC
+- ✅ AI Provider 우선순위 체인: LiteLLM(내부) → Bedrock(AWS) → Anthropic → 스키마 템플릿
+- ✅ values-onprem.yaml: 완전한 온프레미스 프로파일 (SeaweedFS, Ollama, LiteLLM, 32GB+ 노드)
+- ✅ values-aws.yaml: EKS + S3 + Bedrock 프로파일
+- ✅ Settings UI → System → AI SQL Assistant: provider/URL/key 설정
+- ✅ System Settings API: DB 저장 + 암호화(CredentialVault) + startup 복원
+
+### 새로 추가된 DB 테이블
+- `connector_quality_checks`: Data Quality 결과 저장
+- `saved_transforms`: ELT Transform 정의 저장
+- `system_settings`: 시스템 설정 (암호화 저장)
+
+### 새로 추가된 API 엔드포인트
+- `POST /api/ai/sql`: 자연어 → Trino SQL (provider fallback chain)
+- `GET/PATCH /api/settings/system`: 시스템 설정 CRUD
+- `GET /api/settings/system/ai`: AI 설정 조회
+- `GET /api/connectors/{id}/quality`: Data Quality 결과
+- `POST /api/transforms`: ELT Transform CRUD
+- `GET /api/catalog/tables/{namespace}/{table}/preview`: 데이터 미리보기 + 컬럼 통계
+
+### 미완성 항목
+- [ ] 에어갭 설치 패키지 (bundle-airgap.sh 검증)
+- [ ] LDAP/SSO 연동
+- [ ] Iceberg VACUUM DAG
+- [ ] Row-level security

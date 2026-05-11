@@ -7,15 +7,18 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from contextlib import contextmanager
 
-# Database configuration from environment
-POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres.datapond.svc.cluster.local")
-POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
-POSTGRES_DB = os.getenv("POSTGRES_DB", "datapond")
-POSTGRES_USER = os.getenv("POSTGRES_USER", "datapond")
-POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "datapond")
-
-# Build database URL
-DATABASE_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+# DATABASE_URL takes precedence; fall back to individual vars.
+# POSTGRES_PORT must not be read directly — K8s injects POSTGRES_PORT=tcp://...
+# for the ClusterIP service, which breaks int parsing.
+DATABASE_URL = os.getenv("DATABASE_URL") or (
+    "postgresql://{user}:{password}@{host}:{port}/{db}".format(
+        user=os.getenv("POSTGRES_USER", "datapond"),
+        password=os.getenv("POSTGRES_PASSWORD", "datapond"),
+        host=os.getenv("POSTGRES_HOST", "postgres.datapond.svc.cluster.local"),
+        port="5432",
+        db=os.getenv("POSTGRES_DB", "datapond"),
+    )
+)
 
 # Create engine with connection pooling
 engine = create_engine(

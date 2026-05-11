@@ -17,31 +17,49 @@ import {
 } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import Link from "next/link"
+import { ConnectionForm } from "@/components/connectors/connection-form"
+import { getConnector } from "@/lib/connectors"
+import { FREQ_OPTIONS, HOUR_OPTIONS, parseCron, cronToFreqHour, nextRun } from "@/lib/schedule"
 
 // ── Tables Card (full-width, searchable) ──────────────────────────────────────
 function TablesCard({
   tables, latestTableRows, togglingTable, onToggle, connId,
 }: {
-  tables: { name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null }[]
+  tables: { name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null; last_value?: string | null; effective_mode?: string }[]
   latestTableRows: Map<string, number>
   togglingTable: string | null
   onToggle: (name: string, enabled: boolean) => void
   connId: string
 }) {
-  const [search, setSearch]         = useState("")
+  const [search, setSearch]             = useState("")
   const [editingTable, setEditingTable] = useState<string | null>(null)
-  const [editMode, setEditMode]     = useState("full")
-  const [editIncCol, setEditIncCol] = useState("")
-  const [saving, setSaving]         = useState(false)
+  const [editMode, setEditMode]         = useState("full")
+  const [editIncCol, setEditIncCol]     = useState("")
+  const [saving, setSaving]             = useState(false)
+  const [schemaColumns, setSchemaColumns] = useState<{name:string;type:string}[]>([])
+  const [loadingSchema, setLoadingSchema] = useState(false)
 
   const filtered = tables.filter(t =>
     t.name.toLowerCase().includes(search.toLowerCase())
   )
   const enabledCount = tables.filter(t => t.enabled).length
 
-  const startEdit = (t: typeof tables[0]) => {
+  const startEdit = async (t: typeof tables[0]) => {
     setEditingTable(t.name)
     setEditMode(t.sync_mode || "full")
+    setEditIncCol(t.incremental_column || "")
+    setSchemaColumns([])
+    // Load column list for watermark dropdown
+    setLoadingSchema(true)
+    try {
+      const res = await fetch(`/api/connectors/${connId}/schema/${t.name}`)
+      if (res.ok) {
+        const d = await res.json()
+        setSchemaColumns((d.columns || []).map((c: any) => ({ name: c.name, type: c.type })))
+      }
+    } catch {}
+    finally { setLoadingSchema(false) }
     setEditIncCol(t.incremental_column || "")
   }
 
@@ -121,10 +139,13 @@ function TablesCard({
                 <p className="text-xs text-muted-foreground text-center py-4">No tables match "{search}"</p>
               ) : filtered.map(table => {
                 const rows = latestTableRows.get(table.name)
-                const queryUrl = `/query?sql=${encodeURIComponent(`SELECT * FROM iceberg.default.${table.name} LIMIT 100`)}`
                 const mode = table.sync_mode || "full"
                 const incCol = table.incremental_column
+                const lastVal = (table as any).last_value
+                const effectiveMode = (table as any).effective_mode || mode
                 const isEditing = editingTable === table.name
+                // Fix #1: incremental set but no column → warn
+                const incMisconfigured = mode === "incremental" && !incCol
 
                 return (
                   <div key={table.name} className={`${table.enabled ? "" : "opacity-50"}`}>
@@ -147,7 +168,12 @@ function TablesCard({
                             {table.name}
                           </span>
                           {incCol && (
-                            <span className="text-[10px] text-primary/70 font-mono block truncate">↑ {incCol}</span>
+                            <span className="text-[10px] text-primary/70 font-mono block truncate">
+                              ↑ {incCol}{lastVal ? ` · last: ${String(lastVal).slice(0,16)}` : " · no watermark yet"}
+                            </span>
+                          )}
+                          {incMisconfigured && (
+                            <span className="text-[10px] text-amber-500 block">⚠ no watermark column</span>
                           )}
                         </div>
                       </div>
@@ -160,30 +186,22 @@ function TablesCard({
                         className={`w-28 text-left`}
                       >
                         <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${
+                          incMisconfigured       ? "bg-amber-500/10 text-amber-600 border-amber-200" :
                           mode === "incremental" ? "bg-primary/10 text-primary border-primary/20" :
-                          mode === "cdc"         ? "bg-purple-500/10 text-purple-600 border-purple-200" :
                           "bg-muted text-muted-foreground border-transparent"
                         }`}>
-                          {mode}
-                          {incCol ? ` · ${incCol}` : ""}
+                          {incMisconfigured ? "⚠ incremental" : mode}
+                          {incCol && !incMisconfigured ? ` · ${incCol}` : ""}
                         </span>
                       </button>
                       <div className="w-20 flex items-center justify-end gap-1">
-                        {table.enabled && (
-                          <>
-                            <button
-                              onClick={() => isEditing ? setEditingTable(null) : startEdit(table)}
-                              className="text-[10px] text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity px-1">
-                              {isEditing ? "✕" : "Edit"}
-                            </button>
-                            <button
-                              onClick={() => window.open(queryUrl, "_blank")}
-                              className="text-[10px] text-primary hover:text-primary/70 opacity-0 group-hover:opacity-100 transition-opacity">
-                              Query ↗
-                            </button>
-                          </>
-                        )}
-                        {!table.enabled && (
+                        {table.enabled ? (
+                          <button
+                            onClick={() => isEditing ? setEditingTable(null) : startEdit(table)}
+                            className="text-[10px] text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+                            {isEditing ? "Cancel" : "Edit"}
+                          </button>
+                        ) : (
                           <span className="text-[10px] text-muted-foreground/40">skipped</span>
                         )}
                       </div>
@@ -198,9 +216,8 @@ function TablesCard({
                             <Select value={editMode} onValueChange={v => { setEditMode(v ?? "full"); if (v !== "incremental") setEditIncCol("") }}>
                               <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="full" className="text-xs">Full Refresh — replace all data</SelectItem>
-                                <SelectItem value="incremental" className="text-xs">Incremental — append new rows</SelectItem>
-                                <SelectItem value="cdc" className="text-xs">CDC — capture all changes</SelectItem>
+                                <SelectItem value="full" className="text-xs">Full Refresh</SelectItem>
+                                <SelectItem value="incremental" className="text-xs">Incremental</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
@@ -209,13 +226,57 @@ function TablesCard({
                               Watermark Column
                               {editMode !== "incremental" && <span className="ml-1 font-normal normal-case">(incremental only)</span>}
                             </label>
-                            <Input
-                              value={editIncCol}
-                              onChange={e => setEditIncCol(e.target.value)}
-                              placeholder={editMode === "incremental" ? "e.g. updated_at" : "—"}
-                              disabled={editMode !== "incremental"}
-                              className="h-7 text-xs font-mono"
-                            />
+                            {schemaColumns.length > 0 && editMode === "incremental" ? (
+                              <Select
+                                value={editIncCol || "__none__"}
+                                onValueChange={v => setEditIncCol(v === "__none__" ? "" : (v ?? ""))}
+                              >
+                                <SelectTrigger className="h-7 text-xs">
+                                  <SelectValue placeholder="Select column…" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__none__" className="text-xs text-muted-foreground">None</SelectItem>
+                                  {/* Recommended: timestamp/date columns first */}
+                                  {schemaColumns.filter(c =>
+                                    c.type.toLowerCase().includes("timestamp") ||
+                                    c.type.toLowerCase().includes("date") ||
+                                    c.name.includes("updated_at") || c.name.includes("created_at") || c.name.includes("modified")
+                                  ).length > 0 && (
+                                    <>
+                                      <div className="px-2 py-1 text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Recommended</div>
+                                      {schemaColumns.filter(c =>
+                                        c.type.toLowerCase().includes("timestamp") || c.type.toLowerCase().includes("date") ||
+                                        c.name.includes("updated_at") || c.name.includes("created_at") || c.name.includes("modified")
+                                      ).map(c => (
+                                        <SelectItem key={c.name} value={c.name} className="text-xs">
+                                          {c.name} <span className="text-muted-foreground font-mono ml-1">{c.type}</span>
+                                        </SelectItem>
+                                      ))}
+                                      <div className="px-2 py-1 text-[10px] text-muted-foreground uppercase tracking-wide font-medium">All Columns</div>
+                                    </>
+                                  )}
+                                  {schemaColumns.filter(c =>
+                                    !c.type.toLowerCase().includes("timestamp") && !c.type.toLowerCase().includes("date") &&
+                                    !c.name.includes("updated_at") && !c.name.includes("created_at") && !c.name.includes("modified")
+                                  ).map(c => (
+                                    <SelectItem key={c.name} value={c.name} className="text-xs">
+                                      {c.name} <span className="text-muted-foreground font-mono ml-1">{c.type}</span>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Input
+                                value={editIncCol}
+                                onChange={e => setEditIncCol(e.target.value)}
+                                placeholder={
+                                  editMode !== "incremental" ? "—" :
+                                  loadingSchema ? "Loading columns…" : "e.g. updated_at"
+                                }
+                                disabled={editMode !== "incremental" || loadingSchema}
+                                className="h-7 text-xs font-mono"
+                              />
+                            )}
                           </div>
                         </div>
                         {editMode === "incremental" && !editIncCol && (
@@ -239,67 +300,138 @@ function TablesCard({
             </div>
           </div>
         )}
+
+        {/* CDC callout */}
+        <div className="mt-3 flex items-start gap-2 rounded-md bg-muted/40 border px-3 py-2 text-xs text-muted-foreground">
+          <Zap className="h-3.5 w-3.5 shrink-0 mt-0.5 text-primary/60" />
+          <span>
+            Real-time CDC (Change Data Capture) is available via{" "}
+            <Link href="/streaming" className="text-primary underline underline-offset-2">Streaming</Link>
+            {" "}— captures every INSERT/UPDATE/DELETE with sub-second latency.
+          </span>
+        </div>
       </CardContent>
     </Card>
   )
 }
 
-const SCHEDULE_PRESETS = [
-  { label: "Every 15 minutes", value: "*/15 * * * *",  desc: "High-frequency" },
-  { label: "Hourly",           value: "0 * * * *",     desc: "Every hour at :00" },
-  { label: "Every 6 hours",    value: "0 */6 * * *",   desc: "4× per day" },
-  { label: "Daily at 2am",     value: "0 2 * * *",     desc: "Recommended for batch" },
-  { label: "Daily at 6am",     value: "0 6 * * *",     desc: "Morning refresh" },
-  { label: "Weekly (Mon 2am)", value: "0 2 * * 1",     desc: "Weekly batch" },
-  { label: "Monthly (1st 2am)",value: "0 2 1 * *",     desc: "Monthly snapshot" },
-]
+// Schedule frequency options (user-facing)
+// ── Schedule Card ─────────────────────────────────────────────────────────────
+function ScheduleCard({
+  schedule, savingSchedule, scheduleMsg, onSave,
+}: {
+  schedule: string | null
+  savingSchedule: boolean
+  scheduleMsg: string | null
+  onSave: (val: string | null) => void
+}) {
+  const { freqId: initFreq, hour: initHour } = schedule ? cronToFreqHour(schedule) : { freqId: "daily", hour: 2 }
+  const [freqId, setFreqId] = useState(initFreq)
+  const [hour, setHour]     = useState(initHour)
 
-function parseCron(cron: string): string {
-  const p = SCHEDULE_PRESETS.find(p => p.value === cron)
-  if (p) return p.label
-  // basic human-readable for common patterns
-  const parts = cron.split(" ")
-  if (parts.length !== 5) return cron
-  const [min, hour, dom, , dow] = parts
-  if (min === "*" && hour === "*") return `Every minute`
-  if (min.startsWith("*/")) return `Every ${min.slice(2)} minutes`
-  if (hour === "*") return `Every hour at :${min.padStart(2,"0")}`
-  if (dow === "*" && dom === "*") return `Daily at ${hour.padStart(2,"0")}:${min.padStart(2,"0")}`
-  if (dom === "*" && dow !== "*") return `Weekly at ${hour}:${min.padStart(2,"0")}`
-  return cron
-}
+  const freq = FREQ_OPTIONS.find(f => f.id === freqId) ?? FREQ_OPTIONS[4]
+  const builtCron = freq.buildCron(hour)
+  const isDirty = builtCron !== schedule
 
-function nextRun(cron: string): string {
-  // Approximate next run (rough calculation)
-  try {
-    const parts = cron.split(" ")
-    if (parts.length !== 5) return ""
-    const now = new Date()
-    const next = new Date(now)
-    next.setSeconds(0, 0)
-    next.setMinutes(next.getMinutes() + 1)
-
-    const [min, hour] = parts
-    if (min !== "*" && !min.startsWith("*/")) {
-      next.setMinutes(parseInt(min))
-      if (!hour.startsWith("*/") && hour !== "*") {
-        next.setHours(parseInt(hour))
-        if (next <= now) next.setDate(next.getDate() + 1)
-      } else {
-        if (next <= now) next.setHours(next.getHours() + 1)
-      }
+  // Sync local state when schedule changes externally
+  useEffect(() => {
+    if (schedule) {
+      const { freqId: f, hour: h } = cronToFreqHour(schedule)
+      setFreqId(f); setHour(h)
     }
-    const diff = next.getTime() - now.getTime()
-    const mins = Math.floor(diff / 60_000)
-    if (mins < 60) return `in ${mins}m`
-    const hrs = Math.floor(mins / 60)
-    if (hrs < 24) return `in ${hrs}h ${mins % 60}m`
-    return `in ${Math.floor(hrs / 24)}d`
-  } catch { return "" }
+  }, [schedule])
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Calendar className="h-4 w-4" />Schedule
+          </CardTitle>
+          <Switch
+            checked={!!schedule}
+            disabled={savingSchedule}
+            onCheckedChange={checked => onSave(checked ? builtCron : null)}
+          />
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+
+        {/* Status */}
+        {schedule ? (
+          <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-3 py-2">
+            <Zap className="h-4 w-4 text-green-600 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-green-700">{parseCron(schedule)}</p>
+              {nextRun(schedule) && (
+                <p className="text-xs text-green-600/70 flex items-center gap-1 mt-0.5">
+                  <Clock className="h-3 w-3" />Next run {nextRun(schedule)}
+                </p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-lg bg-muted/30 border border-dashed px-3 py-2.5 text-xs text-muted-foreground text-center">
+            Off — sync manually with <strong>Sync Now</strong>
+          </div>
+        )}
+
+        {/* Frequency selector */}
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">How often</Label>
+          <Select value={freqId} onValueChange={v => v && setFreqId(v)}>
+            <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {FREQ_OPTIONS.map(f => (
+                <SelectItem key={f.id} value={f.id}>{f.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Time selector — only shown for daily/weekly/monthly */}
+        {freq.hasTime && (
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Start time</Label>
+            <Select value={String(hour)} onValueChange={v => v && setHour(parseInt(v))}>
+              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {HOUR_OPTIONS.map(o => (
+                  <SelectItem key={o.value} value={String(o.value)}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* Apply button */}
+        <Button
+          className="w-full"
+          size="sm"
+          disabled={savingSchedule || !isDirty}
+          onClick={() => onSave(builtCron)}
+        >
+          {savingSchedule
+            ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Saving…</>
+            : schedule
+              ? <><Check className="h-4 w-4 mr-2" />Apply Changes</>
+              : <><Zap className="h-4 w-4 mr-2" />Enable Schedule</>}
+        </Button>
+
+        {scheduleMsg && (
+          <p className={`text-xs flex items-center gap-1 ${
+            scheduleMsg.toLowerCase().includes("error") || scheduleMsg.toLowerCase().includes("fail")
+              ? "text-destructive" : "text-green-600"
+          }`}>
+            {scheduleMsg.toLowerCase().includes("error") || scheduleMsg.toLowerCase().includes("fail")
+              ? <X className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
+            {scheduleMsg}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
 }
-import Link from "next/link"
-import { ConnectionForm } from "@/components/connectors/connection-form"
-import { getConnector } from "@/lib/connectors"
 
 interface Connector {
   id: string; name: string; connector_type: string
@@ -311,7 +443,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const router = useRouter()
 
   const [connector, setConnector]         = useState<Connector | null>(null)
-  const [tables, setTables]               = useState<{name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null}[]>([])
+  const [tables, setTables]               = useState<{name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null; last_value?: string | null; effective_mode?: string}[]>([])
   const [togglingTable, setTogglingTable] = useState<string | null>(null)
   const [configPreview, setConfigPreview] = useState<Record<string, any>>({})
   const [loading, setLoading]             = useState(true)
@@ -342,6 +474,9 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const [savingSchedule, setSavingSchedule] = useState(false)
   const [scheduleMsg, setScheduleMsg]     = useState<string | null>(null)
 
+  // Quality
+  const [qualityChecks, setQualityChecks] = useState<any[]>([])
+
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
   const fetchHistory = async () => {
@@ -365,6 +500,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
       rows_failed: s.rows_failed,
       duration_ms: s.duration_ms,
       sync_mode: s.sync_mode,
+      error: s.error_message ?? s.error,
       tables: (s.tables ?? []).map((t: any) => ({
         table: t.table,
         status: t.status,
@@ -402,6 +538,8 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                 enabled: tb.enabled !== false,
                 sync_mode: tb.sync_mode ?? "full",
                 incremental_column: tb.incremental_column ?? null,
+                last_value: tb.last_value ?? null,
+                effective_mode: tb.effective_mode ?? tb.sync_mode ?? "full",
               }
         ))
       }
@@ -443,10 +581,21 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
     } finally { setSavingSchedule(false) }
   }
 
+  const fetchQuality = async () => {
+    try {
+      const res = await fetch(`/api/connectors/${id}/quality?limit=30`)
+      if (res.ok) {
+        const data = await res.json()
+        setQualityChecks(data.checks || [])
+      }
+    } catch { /* non-critical */ }
+  }
+
   useEffect(() => {
     fetchConnector()
     fetchHistory()
     fetchSchedule()
+    fetchQuality()
   }, [id])
 
   // ── Sync Now (SSE → live session in history) ───────────────────────────────
@@ -475,95 +624,106 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
     }, 1000)
 
     try {
-      const es = new EventSource(`/api/connectors/${id}/sync/stream`)
-
-      es.addEventListener("step", (e) => {
-        const d = JSON.parse(e.data)
-        if (d.step === "discover" && d.tables) {
-          setLiveSession(prev => prev ? {
-            ...prev,
-            tables: d.tables.map((t: string) => ({ table: t, status: "pending" as const })),
-          } : prev)
-        }
+      const res = await fetch(`/api/connectors/${id}/sync/stream`, {
+        credentials: "include",
       })
+      if (!res.ok || !res.body) {
+        const msg = `Sync failed (HTTP ${res.status})`
+        setLiveSession(prev => prev ? { ...prev, status: "failed", isLive: false, error: msg } : prev)
+        setSyncing(false)
+        if (elapsedRef.current) clearInterval(elapsedRef.current)
+        return
+      }
 
-      es.addEventListener("table_start", (e) => {
-        const d = JSON.parse(e.data)
-        setLiveSession(prev => prev ? {
-          ...prev,
-          tables: prev.tables.map(s => s.table === d.table ? { ...s, status: "running" as const } : s),
-        } : prev)
-      })
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
 
-      es.addEventListener("table_step", (e) => {
-        const d = JSON.parse(e.data)
-        setLiveSession(prev => {
-          if (!prev) return prev
-          return {
-            ...prev,
-            tables: prev.tables.map(t =>
-              t.table === d.table
-                ? { ...t, steps: [...(t.steps ?? []), { step: d.step, message: d.message, pct: d.pct, rows_done: d.rows_done, rows_total: d.rows_total, action: d.action }] }
-                : t
-            )
+      const handleEvent = (eventType: string, dataStr: string) => {
+        try {
+          const d = JSON.parse(dataStr)
+          if (eventType === "step") {
+            if (d.step === "discover" && d.tables) {
+              setLiveSession(prev => prev ? {
+                ...prev,
+                tables: d.tables.map((t: string) => ({ table: t, status: "pending" as const })),
+              } : prev)
+            }
+          } else if (eventType === "table_start") {
+            setLiveSession(prev => prev ? {
+              ...prev,
+              tables: prev.tables.map(s => s.table === d.table ? { ...s, status: "running" as const } : s),
+            } : prev)
+          } else if (eventType === "table_step") {
+            setLiveSession(prev => {
+              if (!prev) return prev
+              return {
+                ...prev,
+                tables: prev.tables.map(t =>
+                  t.table === d.table
+                    ? { ...t, steps: [...(t.steps ?? []), { step: d.step, message: d.message, pct: d.pct, rows_done: d.rows_done, rows_total: d.rows_total, action: d.action }] }
+                    : t
+                )
+              }
+            })
+          } else if (eventType === "table_done") {
+            setLiveSession(prev => {
+              if (!prev) return prev
+              const tables = prev.tables.map(s =>
+                s.table === d.table
+                  ? { ...s, status: d.status as "success" | "failed", rows: d.rows, error: d.error }
+                  : s
+              )
+              const rows = tables.reduce((sum, t) => sum + (t.rows ?? 0), 0)
+              const failed = tables.filter(t => t.status === "failed").length
+              return { ...prev, tables, rows_processed: rows, rows_failed: failed }
+            })
+          } else if (eventType === "done") {
+            if (elapsedRef.current) clearInterval(elapsedRef.current)
+            setSyncing(false)
+            setLiveSession(prev => prev ? {
+              ...prev, isLive: false,
+              status: d.tables_failed > 0 ? "failed" : "success",
+              duration_ms: d.duration_ms,
+            } : prev)
+            fetchConnector()
+            fetchHistory().then(() => setLiveSession(null))
+            setTimeout(fetchQuality, 5000) // quality checks run async after sync
+          } else if (eventType === "error") {
+            if (elapsedRef.current) clearInterval(elapsedRef.current)
+            setSyncing(false)
+            setLiveSession(prev => prev ? { ...prev, status: "failed", isLive: false, error: d.message } : prev)
+            fetchHistory().then(() => setLiveSession(null))
           }
-        })
-      })
+        } catch {}
+      }
 
-      es.addEventListener("table_done", (e) => {
-        const d = JSON.parse(e.data)
-        setLiveSession(prev => {
-          if (!prev) return prev
-          const tables = prev.tables.map(s =>
-            s.table === d.table
-              ? { ...s, status: d.status as "success" | "failed", rows: d.rows, error: d.error }
-              : s
-          )
-          const rows = tables.reduce((sum, t) => sum + (t.rows ?? 0), 0)
-          const failed = tables.filter(t => t.status === "failed").length
-          return { ...prev, tables, rows_processed: rows, rows_failed: failed }
-        })
-      })
-
-      es.addEventListener("done", (e) => {
-        const d = JSON.parse(e.data)
-        if (elapsedRef.current) clearInterval(elapsedRef.current)
-        es.close()
-        setSyncing(false)
-
-        // Mark live session as completed (not live anymore) — keep visible
-        setLiveSession(prev => prev ? {
-          ...prev,
-          isLive: false,
-          status: d.tables_failed > 0 ? "failed" : "success",
-          duration_ms: d.duration_ms,
-        } : prev)
-
-        fetchConnector()
-
-        // Load history, then remove live session (history row replaces it)
-        fetchHistory().then(() => {
-          setLiveSession(null)
-        })
-      })
-
-      es.addEventListener("error", (e: any) => {
-        if (elapsedRef.current) clearInterval(elapsedRef.current)
-        const msg = e.data ? JSON.parse(e.data).message : "Sync failed"
-        setLiveSession(prev => prev ? { ...prev, status: "failed", isLive: false } : prev)
-        es.close()
-        setSyncing(false)
-      })
-
-      es.onerror = () => {
-        if (elapsedRef.current) clearInterval(elapsedRef.current)
-        setLiveSession(prev => prev ? { ...prev, status: "failed", isLive: false } : prev)
-        es.close()
-        setSyncing(false)
+      // Parse SSE stream manually
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split("\n")
+        buffer = lines.pop() ?? ""
+        let eventType = "message"
+        let dataLines: string[] = []
+        for (const line of lines) {
+          if (line.startsWith("event:")) {
+            eventType = line.slice(6).trim()
+          } else if (line.startsWith("data:")) {
+            dataLines.push(line.slice(5).trim())
+          } else if (line === "") {
+            if (dataLines.length > 0) {
+              handleEvent(eventType, dataLines.join("\n"))
+              eventType = "message"
+              dataLines = []
+            }
+          }
+        }
       }
     } catch (err) {
       if (elapsedRef.current) clearInterval(elapsedRef.current)
-      setLiveSession(null)
+      setLiveSession(prev => prev ? { ...prev, status: "failed", isLive: false, error: String(err) } : prev)
       setSyncing(false)
     }
   }
@@ -657,9 +817,13 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
     }
   }
 
+  // Filter: hide sensitive values AND ingestion metadata stored in config by old wizard
   const SENSITIVE = ["password", "secret", "key", "token"]
+  const INGESTION_META = ["sync_frequency", "sync_mode", "selected_tables", "schedule"]
   const previewEntries = Object.entries(configPreview).filter(
-    ([k]) => !SENSITIVE.some(s => k.toLowerCase().includes(s))
+    ([k]) =>
+      !SENSITIVE.some(s => k.toLowerCase().includes(s)) &&
+      !INGESTION_META.includes(k)
   )
 
   // Stats from history (fallback to syncRuns from /status if no history yet)
@@ -861,123 +1025,47 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                 </div>
               </div>
             ) : (
-              <div className="space-y-2 text-sm">
-                {previewEntries.map(([key, val], i) => (
-                  <div key={key}>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground capitalize">{key.replace(/_/g, " ")}</span>
-                      <span className="font-mono text-xs">{String(val)}</span>
+              <div className="space-y-1">
+                {previewEntries.map(([key, val]) => {
+                  const isSensitive = SENSITIVE.some(s => key.toLowerCase().includes(s))
+                  const displayVal = isSensitive ? "••••••••" : String(val)
+                  return (
+                    <div key={key} className="flex items-center justify-between py-1.5 px-2 rounded-md hover:bg-muted/30 group">
+                      <span className="text-xs text-muted-foreground capitalize min-w-0 mr-3">
+                        {key.replace(/_/g, " ")}
+                      </span>
+                      <span className={`font-mono text-xs text-right truncate max-w-[60%] ${isSensitive ? "text-muted-foreground/50" : "text-foreground"}`}>
+                        {displayVal}
+                      </span>
                     </div>
-                    {i < previewEntries.length - 1 && <Separator className="mt-2" />}
-                  </div>
-                ))}
+                  )
+                })}
                 {previewEntries.length === 0 && (
-                  <p className="text-muted-foreground text-xs">No configuration preview available.</p>
+                  <p className="text-muted-foreground text-xs text-center py-4">No configuration preview available.</p>
                 )}
+                <div className="pt-2 border-t mt-2">
+                  <button
+                    onClick={startEdit}
+                    className="w-full text-xs text-muted-foreground hover:text-foreground flex items-center justify-center gap-1.5 py-1.5 rounded-md hover:bg-muted/30 transition-colors"
+                  >
+                    <Pencil className="h-3 w-3" />Edit connection settings
+                  </button>
+                </div>
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Schedule — stretches to match Connection Details height */}
-        <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Calendar className="h-4 w-4" />Schedule
-            </CardTitle>
-            {/* Toggle switch */}
-            <div className="flex items-center gap-2">
-              {schedule && (
-                <span className="text-xs text-muted-foreground">
-                  Next run: <span className="font-medium text-foreground">{nextRun(schedule)}</span>
-                </span>
-              )}
-              <Switch
-                checked={!!schedule}
-                disabled={savingSchedule || (!schedule && !scheduleInput)}
-                onCheckedChange={(checked) => {
-                  if (!checked) handleSaveSchedule(null)
-                  else if (scheduleInput) handleSaveSchedule()
-                }}
-              />
-            </div>
-          </div>
-          <CardDescription>
-            {schedule ? (
-              <span className="flex items-center gap-1.5">
-                <Zap className="h-3.5 w-3.5 text-green-600" />
-                <span className="text-green-600 font-medium">{parseCron(schedule)}</span>
-                <span className="text-muted-foreground font-mono text-[10px]">({schedule})</span>
-              </span>
-            ) : (
-              "Automate sync on a schedule via Airflow DAG"
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Preset buttons — compact single column */}
-          <div className="space-y-1">
-            {SCHEDULE_PRESETS.map(p => (
-              <button
-                key={p.value}
-                onClick={() => setScheduleInput(p.value)}
-                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md border text-xs transition-colors ${
-                  scheduleInput === p.value
-                    ? "border-primary bg-primary/5 text-primary font-medium"
-                    : "border-transparent hover:border-border hover:bg-muted/30"
-                }`}
-              >
-                <span>{p.label}</span>
-                <span className="font-mono text-[10px] text-muted-foreground">{p.value}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Custom cron input */}
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground uppercase tracking-wide">Custom Expression</Label>
-            <div className="flex gap-2">
-              <Input
-                value={scheduleInput}
-                onChange={e => setScheduleInput(e.target.value)}
-                placeholder="e.g. 0 */4 * * *"
-                className="font-mono text-sm flex-1"
-              />
-              <Button
-                size="sm" onClick={() => handleSaveSchedule()}
-                disabled={savingSchedule || !scheduleInput}
-                className="shrink-0"
-              >
-                {savingSchedule
-                  ? <RefreshCw className="h-4 w-4 animate-spin" />
-                  : <Check className="h-4 w-4" />}
-                {schedule ? "Update" : "Enable"}
-              </Button>
-            </div>
-            {scheduleInput && (
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                {parseCron(scheduleInput)}
-              </p>
-            )}
-          </div>
-
-          {scheduleMsg && (
-            <p className={`text-xs flex items-center gap-1 ${
-              scheduleMsg.includes("removed") || scheduleMsg.includes("set") || scheduleMsg.includes("Schedule")
-                ? "text-green-600" : "text-destructive"
-            }`}>
-              {scheduleMsg.includes("removed") || scheduleMsg.includes("set") || scheduleMsg.includes("Schedule")
-                ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
-              {scheduleMsg}
-            </p>
-          )}
-        </CardContent>
-        </Card>
+        {/* Schedule */}
+        <ScheduleCard
+          schedule={schedule}
+          savingSchedule={savingSchedule}
+          scheduleMsg={scheduleMsg}
+          onSave={handleSaveSchedule}
+        />
       </div>{/* end 2-col grid */}
 
-      {/* ── Tables — full width, searchable ── */}
+      {/* ── Tables: 동기화 범위 정의 (원인) ── */}
       <TablesCard
         tables={tables}
         latestTableRows={latestTableRows}
@@ -986,8 +1074,112 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         connId={id}
       />
 
-      {/* Sync History — full width */}
-      <SyncHistory sessions={allSessions} />
+      {/* ── Sync History: 실행 결과 (결과) ── */}
+      {(liveSession || sessions.length > 0) && (
+        <SyncHistory sessions={allSessions} />
+      )}
+
+      {/* ── Data Quality ── */}
+      {qualityChecks.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold">Data Quality</h3>
+                {qualityChecks.some(c => c.overall_status === "alert") && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-destructive/10 text-destructive font-medium">Alert</span>
+                )}
+                {!qualityChecks.some(c => c.overall_status === "alert") &&
+                  qualityChecks.some(c => c.overall_status === "warning") && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 font-medium">Warning</span>
+                )}
+              </div>
+              <button onClick={fetchQuality} className="text-[10px] text-muted-foreground hover:text-foreground">Refresh</button>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {/* Group by table, show latest check per table */}
+            {(() => {
+              const byTable: Record<string, any> = {}
+              for (const c of qualityChecks) {
+                if (!byTable[c.source_table]) byTable[c.source_table] = c
+              }
+              return Object.entries(byTable).map(([table, check]) => (
+                <div key={table} className="border-t px-4 py-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-mono text-xs font-medium">{table}</span>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                        check.overall_status === "ok" ? "bg-green-500/10 text-green-600" :
+                        check.overall_status === "alert" ? "bg-destructive/10 text-destructive" :
+                        "bg-amber-500/10 text-amber-600"
+                      }`}>{check.overall_status}</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {new Date(check.checked_at).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Row count */}
+                  <div className="flex items-center gap-4 text-xs mb-2">
+                    <span className="text-muted-foreground">Rows:</span>
+                    <span className="font-mono font-medium">{check.rows_current?.toLocaleString()}</span>
+                    {check.row_change_pct != null && (
+                      <span className={`font-mono text-[10px] ${
+                        check.row_change_status === "alert" ? "text-destructive" :
+                        check.row_change_status === "warning" ? "text-amber-500" :
+                        "text-muted-foreground"
+                      }`}>
+                        {check.row_change_pct > 0 ? "+" : ""}{check.row_change_pct.toFixed(1)}% vs prev
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Warnings */}
+                  {check.warnings?.length > 0 && (
+                    <div className="space-y-1 mb-2">
+                      {check.warnings.map((w: any, i: number) => (
+                        <div key={i} className={`text-[10px] px-2 py-1 rounded flex items-start gap-1.5 ${
+                          w.severity === "alert" ? "bg-destructive/10 text-destructive" : "bg-amber-500/10 text-amber-700"
+                        }`}>
+                          <span>{w.severity === "alert" ? "⚠" : "○"}</span>
+                          <span>{w.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Null rates — only show problematic columns */}
+                  {Object.entries(check.null_checks || {})
+                    .filter(([, v]: [string, any]) => v.null_rate > 0)
+                    .sort(([, a]: [string, any], [, b]: [string, any]) => b.null_rate - a.null_rate)
+                    .slice(0, 5)
+                    .map(([col, v]: [string, any]) => (
+                      <div key={col} className="flex items-center gap-2 mt-1">
+                        <span className="font-mono text-[10px] text-muted-foreground w-32 truncate">{col}</span>
+                        <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${
+                              v.status === "alert" ? "bg-destructive" :
+                              v.status === "warning" ? "bg-amber-500" :
+                              "bg-primary/40"
+                            }`}
+                            style={{ width: `${Math.min(v.null_rate, 100)}%` }}
+                          />
+                        </div>
+                        <span className={`text-[10px] font-mono w-10 text-right ${
+                          v.status === "alert" ? "text-destructive" :
+                          v.status === "warning" ? "text-amber-500" :
+                          "text-muted-foreground"
+                        }`}>{v.null_rate}%</span>
+                      </div>
+                    ))}
+                </div>
+              ))
+            })()}
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

@@ -1,0 +1,127 @@
+{{- if .Values.ollama.enabled }}
+---
+# Ollama StatefulSet — local LLM runtime with persistent model storage
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.ollama.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.ollama.name }}
+    app.kubernetes.io/name: {{ .Values.ollama.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: llm-runtime
+spec:
+  serviceName: {{ .Values.ollama.name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.ollama.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.ollama.name }}
+    spec:
+      # Pull the default model before the main container starts.
+      # If the model is already cached in the PVC the pull completes in seconds.
+      initContainers:
+      - name: pull-model
+        image: "{{ .Values.ollama.image.repository }}:{{ .Values.ollama.image.tag }}"
+        imagePullPolicy: {{ .Values.ollama.image.pullPolicy }}
+        command:
+          - sh
+          - -c
+          - |
+            ollama serve &
+            SERVER_PID=$!
+            echo "Waiting for Ollama to start..."
+            sleep 5
+            echo "Pulling model {{ .Values.ollama.defaultModel }}..."
+            ollama pull {{ .Values.ollama.defaultModel }}
+            echo "Model pull complete."
+            kill $SERVER_PID
+        env:
+        - name: OLLAMA_HOST
+          value: "0.0.0.0"
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+        resources:
+          requests:
+            cpu: {{ .Values.ollama.resources.requests.cpu }}
+            memory: {{ .Values.ollama.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.ollama.resources.limits.cpu }}
+            memory: {{ .Values.ollama.resources.limits.memory }}
+      containers:
+      - name: ollama
+        image: "{{ .Values.ollama.image.repository }}:{{ .Values.ollama.image.tag }}"
+        imagePullPolicy: {{ .Values.ollama.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.ollama.service.port }}
+          name: http
+          protocol: TCP
+        env:
+        - name: OLLAMA_HOST
+          value: "0.0.0.0"
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+        resources:
+          requests:
+            cpu: {{ .Values.ollama.resources.requests.cpu }}
+            memory: {{ .Values.ollama.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.ollama.resources.limits.cpu }}
+            memory: {{ .Values.ollama.resources.limits.memory }}
+        livenessProbe:
+          httpGet:
+            path: /api/tags
+            port: {{ .Values.ollama.service.port }}
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/tags
+            port: {{ .Values.ollama.service.port }}
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+  volumeClaimTemplates:
+  {{- if .Values.ollama.persistence.enabled }}
+  - metadata:
+      name: ollama-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      {{- $sc := .Values.ollama.persistence.storageClass }}
+      {{- if $sc }}
+      storageClassName: {{ $sc | quote }}
+      {{- else }}
+      storageClassName: {{ .Values.global.storageClass | quote }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.ollama.persistence.size }}
+  {{- end }}
+---
+# Ollama Service (headless for StatefulSet + ClusterIP for clients)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.ollama.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.ollama.name }}
+spec:
+  type: {{ .Values.ollama.service.type }}
+  ports:
+  - port: {{ .Values.ollama.service.port }}
+    targetPort: {{ .Values.ollama.service.port }}
+    protocol: TCP
+    name: http
+  selector:
+    app: {{ .Values.ollama.name }}
+{{- end }}

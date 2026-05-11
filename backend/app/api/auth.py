@@ -54,7 +54,7 @@ async def _get_pool():
     if _db_pool is None or _db_pool._closed:
         _db_pool = await asyncpg.create_pool(
             host=os.getenv("POSTGRES_HOST", "postgres"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            port=5432,
             database=os.getenv("POSTGRES_DB", "datapond"),
             user=os.getenv("POSTGRES_USER", "datapond"),
             password=os.getenv("POSTGRES_PASSWORD", "dev_password"),

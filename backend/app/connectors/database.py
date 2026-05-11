@@ -417,6 +417,11 @@ class MySQLConnector(BaseConnector):
             write_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
             rows_processed = write_dataframe_to_iceberg(df, source_table, mode=write_mode, on_step=on_step)
 
+            max_value = None
+            if incremental_column and incremental_column in df.columns and not df.empty:
+                max_val = df[incremental_column].max()
+                max_value = str(max_val) if max_val is not None else None
+
             return SyncJobStatus(
                 job_id=None,
                 status=SyncStatus.SUCCESS,
@@ -429,6 +434,7 @@ class MySQLConnector(BaseConnector):
                     "target_table": target_table,
                     "sync_mode": sync_mode.value,
                     "iceberg_table": f"iceberg.default.{source_table}",
+                    "max_value": max_value,
                 }
             )
 
@@ -640,6 +646,7 @@ class DatabaseURLConnector(BaseConnector):
         sync_mode: SyncMode = SyncMode.FULL,
         incremental_column: Optional[str] = None,
         last_value: Optional[Any] = None,
+        on_step=None,
     ) -> SyncJobStatus:
         """Sync table data to Iceberg via SeaweedFS S3 + Trino."""
         from .iceberg_writer import write_dataframe_to_iceberg
@@ -664,6 +671,11 @@ class DatabaseURLConnector(BaseConnector):
             write_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
             rows_processed = write_dataframe_to_iceberg(df, tbl_name, mode=write_mode, on_step=on_step)
 
+            max_value = None
+            if incremental_column and incremental_column in df.columns and not df.empty:
+                max_val = df[incremental_column].max()
+                max_value = str(max_val) if max_val is not None else None
+
             return SyncJobStatus(
                 job_id=None,
                 status=SyncStatus.SUCCESS,
@@ -676,6 +688,7 @@ class DatabaseURLConnector(BaseConnector):
                     "target_table": target_table,
                     "sync_mode": sync_mode.value,
                     "iceberg_table": f"iceberg.default.{tbl_name}",
+                    "max_value": max_value,
                 },
             )
         except Exception as e:
