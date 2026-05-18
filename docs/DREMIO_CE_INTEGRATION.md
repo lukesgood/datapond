@@ -1,589 +1,352 @@
-# Dremio Community Edition — DataPond 통합 분석
+# Dremio Community Edition — 벤치마크 분석 및 자체 구현 전략
 
 **작성일**: 2026-05-18
-**버전**: 1.0.0
-**목적**: Dremio CE(Apache 2.0)를 DataPond 플랫폼에 통합하는 전략과 구현 계획
+**버전**: 2.0.0
+**목적**: Dremio CE 기능 분석 후 DataPond 자체 구현 방향 결정
 
 ---
 
-## 🔑 핵심 발견
+## 📌 결정: 통합하지 않고 벤치마크한다
+
+Dremio CE를 DataPond에 컴포넌트로 통합하는 방안을 검토했으나, **자체 구현(벤치마크)**이 올바른 방향이다.
+
+---
+
+## 🔑 Dremio CE 분석 결과
 
 | 항목 | 내용 |
 |------|------|
-| **라이선스** | Apache License 2.0 — 상업적 통합 제약 없음 |
-| **Docker 이미지** | `dremio/dremio-oss:latest` |
-| **CE에 포함된 것** | Reflections(수동), Virtual Datasets, Spaces, Arrow Flight, Iceberg, S3 호환, 직접 파일 쿼리, JDBC 커넥터 40+ |
-| **CE에 없는 것** | Autonomous Reflections, Iceberg REST Catalog(Polaris), 고급 보안(RLS/컬럼마스킹), SSO/LDAP |
-| **카탈로그** | **Nessie** 사용 — Polaris(REST Catalog)는 Enterprise only |
+| **라이선스** | Apache License 2.0 |
+| **CE에 포함된 것** | Reflections(수동), Virtual Datasets, Spaces, Arrow Flight, 직접 파일 쿼리, JDBC 커넥터 40+ |
+| **CE에 없는 것** | **RLS, 컬럼 마스킹, LDAP/SSO** (모두 Enterprise only) |
+| **카탈로그** | Nessie 전용 — Polaris(REST Catalog) 미지원 |
 
 ---
 
-## ⚠️ 핵심 제약: Polaris → Nessie 전환 필요
+## ❌ 통합을 선택하지 않는 이유
 
-Dremio CE는 Iceberg REST Catalog(현재 DataPond의 Polaris)를 지원하지 않는다.  
-Dremio CE가 사용하는 카탈로그는 **Project Nessie** (Apache Foundation, Apache 2.0).
-
-**좋은 소식**: Nessie는 Polaris보다 더 많은 기능을 제공한다.
-
-| | Polaris (현재) | Nessie (전환 후) |
-|---|---|---|
-| Iceberg REST 스펙 | ✅ | ✅ |
-| Trino 지원 | ✅ | ✅ |
-| Spark 지원 | ✅ | ✅ |
-| Dremio CE 지원 | ❌ | ✅ |
-| Git-like 브랜치/태그 | ❌ | ✅ |
-| 데이터 롤백 | ❌ | ✅ |
-| 다중 엔진 공유 | ✅ | ✅ |
-
-**결론**: Polaris → Nessie 전환 자체가 기능 향상이며, Dremio CE 통합의 전제조건이다.
-
----
-
-## 🏗️ 통합 후 DataPond 아키텍처
+### 이유 1: DataPond 타겟 고객에게 필요한 것이 CE에 없다
 
 ```
-분석가 (Analyst)          엔지니어 (Engineer)         데이터 사이언티스트
-      ↓                          ↓                          ↓
- Dremio CE UI              DataPond UI                  JupyterLab
- - Virtual Datasets        - Airflow (파이프라인)        - DuckDB
- - Spaces (협업)           - Spark (배치 처리)           - MLflow
- - Reflections (가속)      - SQL Workbench (Trino)      - LiteLLM (AI)
- - 직접 파일 쿼리
-      ↓                          ↓
-   Arrow Flight            Trino / RisingWave
-      ↓                          ↓
- ┌─────────────────────────────────────────┐
- │         Nessie (공유 Iceberg 카탈로그)   │
- │         Git-like 브랜치 + 태그 + 롤백    │
- └─────────────────────────────────────────┘
-                    ↓
- ┌─────────────────────────────────────────┐
- │     SeaweedFS (S3 호환 오브젝트 스토리지) │
- │         Apache Iceberg 테이블 포맷        │
- └─────────────────────────────────────────┘
+DataPond 타겟 = 금융·공공·의료·국방 (규제 환경)
+
+규제 고객 필수 기능              Dremio CE 지원 여부
+─────────────────────────────────────────────────
+행 수준 보안 (RLS)            →  ❌ Enterprise only
+컬럼 마스킹                   →  ❌ Enterprise only
+LDAP / AD 통합                →  ❌ Enterprise only
+쿼리 수준 감사 로그            →  ❌ Enterprise only
+
+CE가 제공하는 것               DataPond 자체 구현 가능 여부
+─────────────────────────────────────────────────
+Virtual Datasets              →  ✅ Trino VIEW + UI
+Spaces                        →  ✅ DB 모델 + UI
+Reflections (수동)            →  ✅ Iceberg MV + UI
+Arrow Flight                  →  ✅ Trino 설정 1줄
+직접 파일 쿼리                →  ✅ Trino Hive connector
 ```
 
-**핵심**: Dremio CE와 Trino가 **동일한 Nessie 카탈로그**를 바라보므로  
-두 엔진에서 생성한 테이블을 서로 즉시 쿼리할 수 있다.
+CE가 주는 기능은 DataPond가 자체 구현할 수 있고,  
+DataPond 고객에게 결정적인 기능(RLS, 마스킹)은 CE에 없다.
+
+### 이유 2: 통합 비용이 편익보다 크다
+
+```
+필수 선행 작업:
+  Polaris → Nessie 카탈로그 마이그레이션 (2주)
+  Trino, Spark, RisingWave 설정 전면 재작업
+
+추가 리소스:
+  Nessie:    +512MB RAM
+  Dremio CE: +8~16GB RAM  ← 현재 전체 스택과 맞먹는 수준
+
+아키텍처 문제:
+  쿼리 엔진 2개 공존 (Trino + Dremio)
+  "이 쿼리는 어디서?" → 사용자 혼란
+  인증 시스템 이중화 (DataPond JWT + Dremio 별도 계정)
+
+라이선스 리스크:
+  HashiCorp(Terraform), Elastic: Apache 2.0 → BSL 전환 선례
+  외부 제품 의존 → DataPond 로드맵 통제 불가
+```
+
+### 이유 3: 자체 구현이 결과물이 더 낫다
+
+Trino 기반으로 구현하면 Dremio CE보다 DataPond 고객에게 더 적합한 제품이 나온다.
+
+| 기능 | Dremio CE | DataPond 자체 구현 |
+|------|-----------|-------------------|
+| Virtual Datasets | ✅ | ✅ (Trino VIEW + UI) |
+| Spaces | ✅ | ✅ (DB + UI) |
+| Reflections | ✅ (수동) | ✅ (Iceberg MV + 추천) |
+| Arrow Flight | ✅ | ✅ (Trino 설정) |
+| 직접 파일 쿼리 | ✅ | ✅ (Trino Hive) |
+| **행 수준 보안** | ❌ | **✅ (Trino ACL)** |
+| **컬럼 마스킹** | ❌ | **✅ (Trino masking)** |
+| **LDAP/SSO** | ❌ | **✅ (DataPond 자체)** |
+| **스트리밍 쿼리 통합** | ❌ | **✅ (RisingWave)** |
+| **ML 인라인** | ❌ | **✅ (MLflow 연동)** |
+| **단일 인증** | ❌ (이중) | **✅** |
+| **Polaris 유지** | ❌ (Nessie 필요) | **✅** |
 
 ---
 
-## 🎁 Dremio CE 통합으로 DataPond가 얻는 것
+## ✅ 자체 구현 전략: DataPond SQL Workbench
 
-### 즉시 획득 (추가 개발 없음)
+Dremio CE의 좋은 UX를 참조 기준(벤치마크)으로 삼아,  
+DataPond의 기존 스택(Trino + Polaris + Iceberg) 위에서 동등 이상의 기능을 구현한다.
 
-**1. Virtual Datasets (시맨틱 레이어)**
+### 목표 아키텍처 (변경 없음)
+
+```
+분석가                    엔지니어                데이터 사이언티스트
+    ↓                         ↓                          ↓
+DataPond SQL Workbench    DataPond UI               JupyterLab
+  Managed Views             Airflow                  DuckDB
+  Spaces (협업)             Spark                    MLflow
+  MV 관리 (가속)            RisingWave               LiteLLM
+  직접 파일 쿼리
+  RLS + 컬럼 마스킹  ← Dremio CE에 없는 것
+  LDAP/SSO          ← Dremio CE에 없는 것
+    ↓                         ↓
+         Trino (단일 쿼리 엔진)
+                  ↓
+         Apache Polaris (현행 유지)
+                  ↓
+         SeaweedFS + Apache Iceberg
+```
+
+---
+
+## 🗺️ 구현 로드맵
+
+### Phase 1 — SQL Workbench 핵심 (4주, 엔지니어 2명)
+
+Dremio의 Sonar SQL Workbench를 벤치마크 삼아 DataPond 전용으로 구현.
+
+**Arrow Flight 활성화 (1일)**
+```properties
+# Trino config.properties에 추가 — 설정만으로 완료
+flight.enabled=true
+flight.server.port=32010
+```
+→ Tableau, Power BI가 Arrow Flight로 Trino에 직접 연결 가능.  
+→ Dremio CE의 BI 연결 속도와 동등.
+
+**SQL 에디터**
+```
+Monaco Editor (VS Code 동일 엔진)
+  + Polaris 카탈로그 자동완성 (테이블 / 컬럼)
+  + LiteLLM 연동: "자연어 → SQL" 버튼
+  + 실행 결과 테이블 + Chart.js 시각화
+  + 쿼리 저장 / 히스토리
+```
+
+**직접 파일 쿼리 UI**
 ```sql
--- Dremio CE에서 분석가가 직접 생성
--- 복잡한 조인을 비즈니스 친화적 뷰로 추상화
-CREATE VDS analytics.customer_revenue AS
+-- Trino Hive connector (이미 지원) 위에 UI만 추가
+-- SeaweedFS 경로 입력 → 스키마 자동 추론 → 즉시 쿼리
+SELECT * FROM hive."s3a://raw-uploads/orders_2026.csv" LIMIT 100;
+```
+→ 파일 브라우저 UI에서 파일 선택 → "Query" 버튼 한 번.
+
+---
+
+### Phase 2 — Managed Views + Spaces (3주, 엔지니어 2명)
+
+**Managed Views (Virtual Datasets 벤치마크)**
+
+Dremio CE의 Virtual Datasets와 동등한 기능을 Trino VIEW로 구현.  
+차이점: Polaris 카탈로그에 버전 관리되므로 Dremio보다 추적성이 높다.
+
+```sql
+-- DataPond SQL Workbench에서 분석가가 생성
+-- UI: "New Managed View" 버튼 → SQL 입력 → 저장
+CREATE OR REPLACE VIEW "analytics"."customer_revenue" AS
 SELECT
     c.customer_name,
     c.segment,
-    SUM(s.revenue) as total_revenue,
-    COUNT(s.id)    as order_count
-FROM iceberg.raw.sales_fact s
-JOIN iceberg.raw.customers c ON s.customer_id = c.id
+    SUM(s.revenue)  AS total_revenue,
+    COUNT(s.id)     AS order_count
+FROM iceberg.raw.sales_fact  s
+JOIN iceberg.raw.customers   c ON s.customer_id = c.id
 GROUP BY 1, 2;
-
--- 분석가는 이렇게만 씀 (조인 모름)
-SELECT segment, AVG(total_revenue) FROM analytics.customer_revenue GROUP BY 1;
 ```
 
-**2. Reflections (쿼리 자동 가속)**
+Polaris에 뷰 메타데이터 저장 → OpenMetadata 자동 리니지 추적.
+
+**Spaces (협업 워크스페이스)**
+
 ```
-[Dremio CE UI에서 클릭 한 번]
-"Create Reflection for: analytics.customer_revenue"
+DB 테이블: workspaces, workspace_members, saved_queries
 
-종류 선택:
-  ○ Raw Reflection    (원본 데이터 물리적 캐시)
-  ● Aggregation Reflection (집계 결과 캐시)
-    - 집계 키: segment, order_date
-    - 측정값: SUM(revenue), COUNT(id)
+My Space (개인)
+├── 내가 만든 Managed View
+├── 저장된 쿼리
+└── 실험 작업
 
-→ 동일 쿼리 재실행 시 0.1초 응답 (원본 30초)
-→ 분석가 / DBA가 CLI 없이 UI로 관리
-```
-
-**3. Spaces (팀 협업)**
-```
-My Space (개인 실험 공간)
-├── draft_revenue_analysis.sql
-├── customer_churn_vds
-└── temp_experiments/
-
-Analytics Team (공유 공간)
-├── official_kpi_vds/          ← 공식 지표 (변경 이력 추적)
-├── monthly_reports/           ← 팀 공유 쿼리
-└── bi_dashboards/             ← Tableau/Power BI 연결용
-
-Finance (공유 공간)
-└── cfo_metrics_vds/
-```
-
-**4. 직접 파일 쿼리 (ETL 없이)**
-```sql
--- SeaweedFS에 올라온 원본 CSV/JSON/Parquet 즉시 쿼리
--- ETL 없음, 스키마 자동 추론
-SELECT * FROM s3."datapond-raw"."uploads/2026/05/orders.csv" LIMIT 100;
-
--- 폴더 전체 (파티션 자동 인식)
-SELECT region, SUM(amount)
-FROM s3."datapond-raw"."transactions/"
-WHERE year = 2026
-GROUP BY region;
-```
-
-**5. Arrow Flight (BI 도구 고속 연결)**
-```
-Tableau → Dremio CE (Arrow Flight, port 32010) → Nessie → SeaweedFS
-Power BI → Dremio CE (Arrow Flight) → Nessie → SeaweedFS
-
-→ JDBC 대비 5-10배 빠른 데이터 전송
-→ Dremio Tableau/Power BI 공식 커넥터 사용 가능
-```
-
-**6. 40+ 외부 데이터 소스 커넥터**
-```
-[Dremio CE가 기본 제공하는 커넥터]
-데이터베이스: Oracle, SQL Server, MySQL, PostgreSQL,
-             MongoDB, Elasticsearch, Cassandra
-클라우드:    S3, ADLS, GCS, MinIO
-파일:        Parquet, ORC, JSON, CSV, Excel, Arrow
-레거시:      HDFS, Hive, HBase
-
-→ DataPond의 Trino 커넥터와 중복되지만,
-  Dremio CE는 UI에서 클릭 몇 번으로 연결 가능
-  (Trino는 ConfigMap 직접 편집 필요)
+Analytics Team (공유)
+├── official_kpi_view   ← 공식 지표
+├── monthly_reports     ← 팀 공유
+└── bi_exports          ← Tableau 연결용
 ```
 
 ---
 
-## 🛠️ 구현 계획
+### Phase 3 — 규제 기능 (Dremio CE에 없는 것) (4주, 엔지니어 2명)
 
-### Phase 1: Polaris → Nessie 전환 (2주)
+이 단계에서 DataPond는 Dremio Enterprise도 부분 초과한다.
 
-**1-1. Nessie Helm 템플릿 추가**
+**행 수준 보안 (RLS)**
+```java
+// Trino system access control plugin 구현
+// DataPond 사용자 컨텍스트 → 쿼리에 자동 WHERE 절 주입
 
-```yaml
-# helm/datapond/templates/nessie-deployment.yaml
-{{- if .Values.nessie.enabled }}
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: nessie
-  namespace: {{ .Values.namespace }}
-spec:
-  replicas: 1
-  strategy:
-    type: Recreate
-  selector:
-    matchLabels:
-      app: nessie
-  template:
-    spec:
-      containers:
-      - name: nessie
-        image: "{{ .Values.nessie.image.repository }}:{{ .Values.nessie.image.tag }}"
-        ports:
-        - containerPort: 19120  # REST API + UI
-        env:
-        - name: QUARKUS_DATASOURCE_JDBC_URL
-          value: "jdbc:postgresql://postgres:5432/nessie_catalog"
-        - name: QUARKUS_DATASOURCE_USERNAME
-          value: "{{ .Values.postgres.auth.username }}"
-        - name: QUARKUS_DATASOURCE_PASSWORD
-          value: "{{ .Values.postgres.auth.password }}"
-        - name: NESSIE_VERSION_STORE_TYPE
-          value: "JDBC"
-        resources:
-          requests:
-            memory: 512Mi
-            cpu: 250m
-          limits:
-            memory: 1Gi
-            cpu: 500m
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: nessie
-  namespace: {{ .Values.namespace }}
-spec:
-  ports:
-  - port: 19120
-    targetPort: 19120
-    name: api
-  selector:
-    app: nessie
-{{- end }}
-```
-
-**1-2. Trino 카탈로그 → Nessie로 전환**
-
-```properties
-# helm/datapond/templates/configmap.yaml (trino-catalog 부분)
-iceberg.properties: |
-  connector.name=iceberg
-  iceberg.catalog.type=nessie
-  iceberg.nessie.uri=http://nessie:19120/api/v1
-  iceberg.nessie.default-reference.name=main
-  fs.native-s3.enabled=true
-  s3.endpoint=http://seaweedfs-s3:8333
-  s3.path-style-access=true
-  s3.aws-access-key={{ .Values.seaweedfs.accessKey }}
-  s3.aws-secret-key={{ .Values.seaweedfs.secretKey }}
-```
-
-**1-3. postgres-init에 nessie_catalog DB 추가**
-
-```bash
-# helm/datapond/templates/postgres-init-configmap.yaml 에 추가
-{{- if .Values.nessie.enabled }}
-create_db "nessie_catalog"
-{{- end }}
-```
-
----
-
-### Phase 2: Dremio CE 추가 (1주)
-
-**2-1. Dremio CE Helm 템플릿**
-
-```yaml
-# helm/datapond/templates/dremio-deployment.yaml
-{{- if .Values.dremio.enabled }}
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: dremio
-  namespace: {{ .Values.namespace }}
-spec:
-  replicas: 1
-  strategy:
-    type: Recreate
-  selector:
-    matchLabels:
-      app: dremio
-  template:
-    spec:
-      containers:
-      - name: dremio
-        image: "{{ .Values.dremio.image.repository }}:{{ .Values.dremio.image.tag }}"
-        ports:
-        - containerPort: 9047   # Web UI
-          name: ui
-        - containerPort: 31010  # JDBC
-          name: jdbc
-        - containerPort: 32010  # Arrow Flight
-          name: flight
-        env:
-        - name: DREMIO_MAX_MEMORY_SIZE_MB
-          value: "{{ .Values.dremio.memoryMb | default 8192 }}"
-        volumeMounts:
-        - name: dremio-data
-          mountPath: /opt/dremio/data
-        - name: dremio-config
-          mountPath: /opt/dremio/conf
-        resources:
-          requests:
-            memory: "{{ .Values.dremio.resources.requests.memory }}"
-            cpu: "{{ .Values.dremio.resources.requests.cpu }}"
-          limits:
-            memory: "{{ .Values.dremio.resources.limits.memory }}"
-            cpu: "{{ .Values.dremio.resources.limits.cpu }}"
-      volumes:
-      - name: dremio-data
-        emptyDir: {}
-      - name: dremio-config
-        configMap:
-          name: dremio-config
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: dremio-config
-  namespace: {{ .Values.namespace }}
-data:
-  dremio.conf: |
-    paths: {
-      local: "/opt/dremio/data"
-      dist: "dremioS3:///dremio-spill"
+public class DataPondAccessControl implements SystemAccessControl {
+    @Override
+    public void checkCanSelectFromTable(
+            SystemSecurityContext ctx, CatalogSchemaTableName table) {
+        // 사용자의 부서/역할 조회
+        String dept = userService.getDepartment(ctx.getIdentity().getUser());
+        // Trino 쿼리 플랜에 row filter 자동 추가
+        // → 서울 지점 직원은 서울 거래만, 전국 관리자는 전체 조회
     }
-    services: {
-      coordinator.enabled: true,
-      coordinator.master.enabled: true,
-      executor.enabled: true
-    }
-  core-site.xml: |
-    <configuration>
-      <!-- SeaweedFS S3 연결 -->
-      <property>
-        <name>fs.s3a.endpoint</name>
-        <value>http://seaweedfs-s3:8333</value>
-      </property>
-      <property>
-        <name>fs.s3a.path.style.access</name>
-        <value>true</value>
-      </property>
-      <property>
-        <name>fs.s3a.access.key</name>
-        <value>{{ .Values.seaweedfs.accessKey }}</value>
-      </property>
-      <property>
-        <name>fs.s3a.secret.key</name>
-        <value>{{ .Values.seaweedfs.secretKey }}</value>
-      </property>
-    </configuration>
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: dremio
-  namespace: {{ .Values.namespace }}
-spec:
-  ports:
-  - port: 9047
-    targetPort: 9047
-    name: ui
-  - port: 31010
-    targetPort: 31010
-    name: jdbc
-  - port: 32010
-    targetPort: 32010
-    name: flight
-  selector:
-    app: dremio
-{{- end }}
+}
 ```
 
-**2-2. Ingress에 Dremio CE 추가**
+**동적 컬럼 마스킹**
+```java
+// 동일 Trino plugin에서 컬럼 마스킹 정책 적용
+@Override
+public Optional<ViewExpression> getColumnMask(
+        SystemSecurityContext ctx, CatalogSchemaTableName table, String column, Type type) {
 
-```yaml
-# ingress.yaml에 추가
-- path: /dremio
-  pathType: Prefix
-  backend:
-    service:
-      name: dremio
-      port:
-        number: 9047
+    MaskPolicy policy = policyRepo.findPolicy(table, column);
+    if (policy == null) return Optional.empty();
+
+    boolean canUnmask = roleService.hasPrivilege(ctx.getIdentity(), "UNMASK", table, column);
+    if (canUnmask) return Optional.empty();
+
+    return switch (policy.type()) {
+        case FULL    -> Optional.of(new ViewExpression("'***'"));
+        case PARTIAL -> Optional.of(new ViewExpression(
+                           "CONCAT(SUBSTRING(" + column + ", 1, 3), '***')"));
+        case HASH    -> Optional.of(new ViewExpression("TO_HEX(SHA256(TO_UTF8(" + column + ")))"));
+    };
+}
 ```
 
-**2-3. values.yaml에 Dremio CE 설정 추가**
-
-```yaml
-# helm/datapond/values.yaml
-nessie:
-  enabled: true
-  image:
-    repository: ghcr.io/projectnessie/nessie
-    tag: "0.76.3"
-
-dremio:
-  enabled: false  # 기본 비활성화 (리소스 집약적)
-  image:
-    repository: dremio/dremio-oss
-    tag: "latest"
-  memoryMb: 8192
-  resources:
-    requests:
-      memory: 8Gi
-      cpu: 2000m
-    limits:
-      memory: 16Gi
-      cpu: 4000m
+**DataPond UI에서 정책 관리**
+```
+[카탈로그] → [테이블: customers] → [보안] 탭
+  컬럼별 마스킹 정책:
+    email    → 부분 마스킹 (j***@example.com)
+    ssn      → 전체 마스킹 (***)
+    phone    → 해시 (SHA256)
+  
+  행 필터:
+    분석가 그룹 → branch = current_user_branch()
+    DBA 그룹   → (필터 없음)
 ```
 
 ---
 
-### Phase 3: Dremio CE 초기 설정 자동화 (1주)
+### Phase 4 — Materialized View 관리 (3주, 엔지니어 1명)
 
-Dremio CE 최초 배포 시 Nessie + SeaweedFS 소스를 자동으로 구성하는 Job:
+Dremio CE Reflections의 기능적 동등물을 Trino + Iceberg MV로 구현.
 
-```yaml
-# helm/datapond/templates/dremio-bootstrap-job.yaml
-{{- if .Values.dremio.enabled }}
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: dremio-bootstrap
-  namespace: {{ .Values.namespace }}
-spec:
-  template:
-    spec:
-      restartPolicy: OnFailure
-      initContainers:
-      - name: wait-dremio
-        image: curlimages/curl:latest
-        command: ['sh', '-c',
-          'until curl -sf http://dremio:9047/apiv2/info; do sleep 5; done']
-      containers:
-      - name: bootstrap
-        image: curlimages/curl:latest
-        command:
-        - sh
-        - -c
-        - |
-          # 1. Dremio 첫 사용자 설정
-          curl -X PUT http://dremio:9047/apiv2/bootstrap/firstuser \
-            -H "Content-Type: application/json" \
-            -d '{
-              "userName": "admin",
-              "firstName": "DataPond",
-              "lastName": "Admin",
-              "email": "admin@datapond.local",
-              "createdAt": 0,
-              "password": "{{ .Values.dremio.adminPassword | default "changeme" }}"
-            }'
+**MV 관리 UI**
+```
+[SQL Workbench] → 쿼리 실행 후 → "이 쿼리 가속하기" 버튼
 
-          # 2. 로그인 토큰 획득
-          TOKEN=$(curl -s -X POST http://dremio:9047/apiv2/login \
-            -H "Content-Type: application/json" \
-            -d '{"userName":"admin","password":"{{ .Values.dremio.adminPassword | default "changeme" }}"}' \
-            | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+팝업:
+  집계 키: [segment ▾] [order_date ▾]
+  측정값:  [SUM(revenue) ✓] [COUNT(*) ✓]
+  갱신 주기: [매시간 ▾]
+  
+  → "MV 생성" 클릭
+  → CREATE MATERIALIZED VIEW 자동 실행
+  → 다음 실행부터 MV에서 읽음 (0.1초 vs 원본 30초)
+```
 
-          # 3. Nessie 카탈로그 소스 등록
-          curl -X POST http://dremio:9047/apiv2/source/nessie_iceberg \
-            -H "Authorization: _dremio$TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "name": "nessie_iceberg",
-              "type": "NESSIE",
-              "config": {
-                "nessieEndpoint": "http://nessie:19120/api/v1",
-                "nessieAuthType": "NONE",
-                "awsAccessKey": "{{ .Values.seaweedfs.accessKey }}",
-                "awsAccessSecret": "{{ .Values.seaweedfs.secretKey }}",
-                "awsRootPath": "s3a://iceberg-warehouse",
-                "propertyList": [
-                  {"name": "fs.s3a.endpoint", "value": "http://seaweedfs-s3:8333"},
-                  {"name": "fs.s3a.path.style.access", "value": "true"}
-                ]
-              }
-            }'
+**MV 추천 시스템 (Dremio Autonomous Reflections 벤치마크)**
+```python
+# 쿼리 로그 분석 → 반복 패턴 탐지 → MV 추천
+# (Dremio CE는 수동, DataPond는 반자동으로 동등 수준 달성)
 
-          # 4. DataPond Analytics 공유 Space 생성
-          curl -X POST http://dremio:9047/apiv2/space/datapond_analytics \
-            -H "Authorization: _dremio$TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '{"name": "DataPond Analytics", "description": "Official DataPond metrics and reports"}'
+def analyze_query_log(window_hours=24):
+    frequent_patterns = db.query("""
+        SELECT normalized_query, COUNT(*) as freq,
+               AVG(duration_ms) as avg_duration
+        FROM query_log
+        WHERE created_at > NOW() - INTERVAL '{h} hours'
+          AND duration_ms > 5000   -- 5초 초과 쿼리만
+        GROUP BY normalized_query
+        HAVING COUNT(*) >= 3       -- 3회 이상 반복
+        ORDER BY freq * avg_duration DESC
+    """, h=window_hours)
 
-          echo "Dremio CE bootstrap complete"
-{{- end }}
+    for pattern in frequent_patterns:
+        notify_user(
+            f"이 쿼리가 지난 {window_hours}시간 동안 {pattern.freq}회 실행됐습니다. "
+            f"평균 {pattern.avg_duration/1000:.1f}초 소요. "
+            f"Materialized View를 만들면 0.1초로 단축됩니다.",
+            action="MV 생성하기"
+        )
 ```
 
 ---
 
-## 📊 통합 전후 비교
+## 📊 최종 기능 매트릭스
 
-### DataPond 기능 매트릭스 (통합 후)
+DataPond SQL Workbench 완성 후 Dremio CE와 비교:
 
-| 기능 | 통합 전 | 통합 후 | 제공 방식 |
-|------|---------|---------|-----------|
-| **분석가 셀프서비스 SQL** | ❌ | ✅ | Dremio CE |
-| **Virtual Datasets** | ❌ | ✅ | Dremio CE |
-| **Spaces (협업)** | ❌ | ✅ | Dremio CE |
-| **Reflections (쿼리 가속)** | ❌ | ✅ | Dremio CE |
-| **Arrow Flight BI 연결** | ❌ | ✅ | Dremio CE |
-| **직접 파일 쿼리** | ❌ | ✅ | Dremio CE |
-| **Git-like 데이터 브랜치** | ❌ | ✅ | Nessie |
-| **데이터 롤백** | ❌ | ✅ | Nessie |
-| **실시간 스트리밍** | ✅ | ✅ | RisingWave |
-| **배치 파이프라인** | ✅ | ✅ | Airflow + Spark |
-| **ML 실험 추적** | ✅ | ✅ | MLflow |
-| **내부망 AI** | ✅ | ✅ | LiteLLM |
-| **에어갭 스토리지** | ✅ | ✅ | SeaweedFS |
-| **데이터 리니지** | ✅ | ✅ | OpenMetadata |
-
----
-
-## ⚠️ 한계 및 고려사항
-
-### Dremio CE의 한계 (Enterprise 기능 없음)
-
-| 기능 | 상황 | 대안 |
-|------|------|------|
-| Autonomous Reflections | ❌ CE 없음 | 수동 Reflection + MV 추천 시스템 자체 개발 |
-| 컬럼 마스킹 | ❌ CE 없음 | Trino system access control로 구현 |
-| 행 수준 보안(RLS) | ❌ CE 없음 | Trino system access control로 구현 |
-| LDAP/SSO 통합 | ❌ CE 없음 | Trino + DataPond 자체 LDAP 연동 |
-
-→ **거버넌스 기능은 Trino 레이어에서 구현해야 함** (Dremio CE를 통하지 않는 경로)
-
-### 리소스 요구사항
-
-```yaml
-# Dremio CE 최소 요건 (단일 노드 기준)
-RAM: 8GB (최소), 16GB+ (권장)
-CPU: 4코어 (권장)
-Storage: 50GB+ (spill, data)
-
-# DataPond 전체 스택 (Dremio CE 추가 후)
-총 RAM: 최소 40GB+ (dev 환경)
-         권장 64GB+ (안정적 운영)
-
-→ values-quicktest.yaml에서는 dremio.enabled: false 유지
-→ values-prod.yaml에서 활성화
-```
-
-### 인증 이중화 문제
-
-```
-현재:  DataPond 사용자 (JWT)
-추가:  Dremio CE 사용자 (별도 관리)
-
-단기:  두 시스템 별도 계정 (허용 가능)
-중기:  DataPond LDAP → Dremio CE LDAP 연동
-       (단, LDAP 연동은 Dremio Enterprise 기능)
-장기:  Dremio CE에 OAuth2 프록시 추가
-       (oauth2-proxy 컨테이너로 DataPond 인증 적용)
-```
+| 기능 | Dremio CE | DataPond (완성 후) |
+|------|-----------|-------------------|
+| SQL 에디터 + 자동완성 | ✅ | ✅ |
+| Virtual Datasets / Managed Views | ✅ | ✅ |
+| Spaces (개인/팀 협업) | ✅ | ✅ |
+| Reflections / MV 관리 | ✅ (수동) | ✅ (반자동 추천) |
+| Arrow Flight BI 연결 | ✅ | ✅ |
+| 직접 파일 쿼리 | ✅ | ✅ |
+| 40+ 외부 소스 커넥터 | ✅ | ✅ (Trino) |
+| **행 수준 보안 (RLS)** | ❌ Enterprise | **✅** |
+| **동적 컬럼 마스킹** | ❌ Enterprise | **✅** |
+| **LDAP / SSO** | ❌ Enterprise | **✅** |
+| **쿼리 수준 감사 로그** | ❌ Enterprise | **✅** |
+| **실시간 스트리밍 쿼리** | ❌ | **✅ (RisingWave)** |
+| **ML 실험 인라인** | ❌ | **✅ (MLflow)** |
+| **자연어 → SQL (AI)** | 제한적 | **✅ (LiteLLM)** |
+| **단일 인증** | ❌ (이중) | **✅** |
+| **에어갭 완전 지원** | △ | **✅** |
+| **추가 RAM 필요** | +8~16GB | **0 (기존 Trino 활용)** |
 
 ---
 
-## 🎯 최종 통합 포지셔닝
-
-### DataPond + Dremio CE + Nessie = 완전한 플랫폼
+## 🎯 포지셔닝
 
 ```
-[분석가 UX]                    [엔지니어 UX]            [데이터 사이언티스트]
-Dremio CE Sonar                DataPond UI               JupyterLab
-  Virtual Datasets               Airflow DAG              DuckDB + Iceberg
-  Spaces + 협업                  Spark 배치               MLflow 실험
-  Reflections UI                 RisingWave 실시간        LiteLLM AI
-  Arrow Flight                   Trino SQL
-  직접 파일 쿼리
-         ↓                          ↓
-    동일한 Nessie 카탈로그에 접근 (브랜치/롤백/태그)
-         ↓
-    SeaweedFS Iceberg 테이블 (에어갭 완전 내재화)
+Dremio CE가 할 수 있는 것 → DataPond도 다 한다.
+Dremio CE가 못 하는 것   → DataPond는 한다.
+DataPond가 Dremio CE에 의존하지 않는다.
 ```
 
-### 세일즈 메시지
-
-**기존**: "Databricks가 못 들어가는 곳의 대안"
-
-**통합 후**: "Dremio + Databricks를 에어갭에서 하나로"
-
-> 분석가는 Dremio CE로 셀프서비스 분석을,  
-> 엔지니어는 Spark + Airflow로 파이프라인을,  
-> 데이터 사이언티스트는 MLflow + JupyterLab으로 모델을,  
-> 모두가 동일한 Nessie Iceberg 카탈로그 위에서.  
-> 인터넷 없이, 규제 환경 안에서.
+규제 환경 고객에게:
+> "Dremio Enterprise에서 돈 내야 쓸 수 있는 RLS·컬럼마스킹·SSO가  
+> DataPond에서는 기본으로 포함됩니다.  
+> 분석가 셀프서비스 UI도 동등 수준입니다.  
+> 그리고 실시간 스트리밍, ML, AI까지 하나의 플랫폼에서."
 
 ---
 
-## 📋 구현 우선순위
+## 📋 구현 우선순위 요약
 
-| 단계 | 작업 | 기간 | 선행 조건 |
-|------|------|------|----------|
-| **1** | Nessie Helm 템플릿 추가 | 3일 | 없음 |
-| **2** | postgres-init에 nessie_catalog 추가 | 1일 | Step 1 |
-| **3** | Trino 카탈로그 → Nessie 전환 | 2일 | Step 1 |
-| **4** | Spark → Nessie 전환 | 2일 | Step 1 |
-| **5** | Dremio CE Helm 템플릿 | 3일 | Step 1 |
-| **6** | Dremio bootstrap Job (자동 설정) | 2일 | Step 5 |
-| **7** | Ingress /dremio 경로 추가 | 1일 | Step 5 |
-| **8** | values-prod.yaml에 dremio 활성화 | 1일 | Step 7 |
-| **총** | **~2.5주 (엔지니어 1명)** | | |
+| 단계 | 내용 | 기간 | 비고 |
+|------|------|------|------|
+| **P0** | Arrow Flight 활성화 (Trino 설정) | 1일 | 즉시 가능 |
+| **P0** | SQL Workbench MVP (에디터 + 실행 + 결과) | 4주 | 2명 |
+| **P0** | 직접 파일 쿼리 UI | 1주 | 1명 |
+| **P1** | Managed Views + Spaces | 3주 | 2명 |
+| **P1** | RLS + 컬럼 마스킹 (Trino plugin) | 4주 | 2명 |
+| **P2** | MV 관리 UI + 추천 시스템 | 3주 | 1명 |
+| **총** | **~3.5개월** | | **엔지니어 2명 기준** |
