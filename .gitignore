@@ -28,3 +28,20 @@ Thumbs.db
 
 # User-specific values
 my-values.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+backend/venv/
+
+# Testing
+backend/tests/
+pytest_cache/
+.coverage
+htmlcov/

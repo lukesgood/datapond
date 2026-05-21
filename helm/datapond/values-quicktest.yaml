@@ -267,7 +267,7 @@ risingwave:
         cpu: 500m
         memory: 1Gi
   frontend:
-    replicas: 1
+    replicas: 0
     resources:
       requests:
         cpu: 200m
@@ -276,7 +276,7 @@ risingwave:
         cpu: 500m
         memory: 1Gi
   compute:
-    replicas: 1
+    replicas: 0
     resources:
       requests:
         cpu: 500m
@@ -285,7 +285,7 @@ risingwave:
         cpu: 1000m
         memory: 2Gi
   compactor:
-    replicas: 1
+    replicas: 0
     resources:
       requests:
         cpu: 200m

@@ -137,3 +137,60 @@ export const dashboardApi = {
     }
   },
 }
+
+export interface GovernanceStats {
+  queries_today: number
+  ai_sql_count: number
+  pii_detections: number
+  blocked_count: number
+}
+
+export interface AuditLogItem {
+  id: string
+  event_type: string
+  user_email: string
+  resource: string
+  action: string
+  result: string
+  details: Record<string, any>
+  created_at: string
+}
+
+export interface PiiTable {
+  table: string
+  pii_columns: { column: string; type: string }[]
+}
+
+export interface AiSafetyFlag {
+  sql_preview: string
+  risk: string
+  user: string
+  ts: string
+}
+
+export const governanceApi = {
+  stats: async (): Promise<GovernanceStats> => {
+    const r = await fetch('/api/governance/stats')
+    if (!r.ok) throw new Error('Failed to fetch governance stats')
+    return r.json()
+  },
+  auditLog: async (params?: { limit?: number; offset?: number; event_type?: string }): Promise<{ items: AuditLogItem[]; total: number }> => {
+    const qs = new URLSearchParams()
+    if (params?.limit) qs.set('limit', String(params.limit))
+    if (params?.offset) qs.set('offset', String(params.offset))
+    if (params?.event_type) qs.set('event_type', params.event_type)
+    const r = await fetch(`/api/governance/audit-log?${qs}`)
+    if (!r.ok) throw new Error('Failed to fetch audit log')
+    return r.json()
+  },
+  piiReport: async (): Promise<{ tables: PiiTable[] }> => {
+    const r = await fetch('/api/governance/pii-report')
+    if (!r.ok) throw new Error('Failed to fetch PII report')
+    return r.json()
+  },
+  aiSafety: async (): Promise<{ risk_distribution: { low: number; medium: number; high: number }; recent_flags: AiSafetyFlag[] }> => {
+    const r = await fetch('/api/governance/ai-safety')
+    if (!r.ok) throw new Error('Failed to fetch AI safety data')
+    return r.json()
+  },
+}

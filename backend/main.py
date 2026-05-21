@@ -24,6 +24,7 @@ from app.api.auth import router as auth_router
 from app.api.transforms import router as transforms_router
 from app.api.ai_sql import router as ai_sql_router
 from app.api.system_settings import router as system_settings_router, load_settings_on_startup
+from app.api.governance import router as governance_router
 
 app = FastAPI(
     title="DataPond API",
@@ -141,6 +142,7 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(transforms_router, prefix="/api")
 app.include_router(ai_sql_router, prefix="/api")
 app.include_router(system_settings_router, prefix="/api")
+app.include_router(governance_router, prefix="/api")
 
 # Service endpoints (internal Kubernetes DNS)
 SERVICES = {

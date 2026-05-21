@@ -551,7 +551,8 @@ async def get_dag_structure(dag_id: str):
 async def list_all_dag_runs(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    state: Optional[str] = Query(None)
+    state: Optional[str] = Query(None),
+    order_by: str = Query("-start_date")
 ):
     """
     List all DAG runs across all DAGs
@@ -560,11 +561,12 @@ async def list_all_dag_runs(
         limit: Number of runs to return
         offset: Offset for pagination
         state: Filter by state
+        order_by: Sort order (e.g. -start_date)
 
     Returns:
         List of DAG runs
     """
-    params = {"limit": limit, "offset": offset}
+    params = {"limit": limit, "offset": offset, "order_by": order_by}
     if state:
         params["state"] = state
 
