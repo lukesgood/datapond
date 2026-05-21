@@ -566,7 +566,8 @@ async def list_all_dag_runs(
     Returns:
         List of DAG runs
     """
-    params = {"limit": limit, "offset": offset, "order_by": order_by}
+    # Airflow API uses page_limit and page_offset, not limit and offset
+    params = {"page_limit": limit, "page_offset": offset, "order_by": order_by}
     if state:
         params["state"] = state
 
