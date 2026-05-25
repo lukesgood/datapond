@@ -1,6 +1,6 @@
 # DataPond Functionality Test Report
 
-**Date**: 2026-05-21  
+**Date**: 2026-05-26 (Updated)  
 **Environment**: K3s on `datapond.local`  
 **Test User**: admin / datapond123
 
@@ -25,7 +25,7 @@
 - ✅ **Polaris**: Apache Iceberg catalog (REST API)
 - ✅ **SeaweedFS**: S3-compatible storage (master, volume, filer, s3 gateway all running)
 - ✅ **OpenMetadata**: Data catalog and lineage service
-- ✅ **RisingWave Meta**: Metadata service for streaming
+- ✅ **RisingWave**: Full streaming SQL engine (meta, frontend, compute, compactor all running)
 
 ### API Endpoints (Working)
 - ✅ `/api/health` - Health check
@@ -38,8 +38,14 @@
 - ✅ `/api/pipelines` - Pipeline management
 - ✅ `/api/transforms` - ELT transforms
 - ✅ `/api/airflow/dags` - Airflow DAG list
+- ✅ `/api/airflow/dag-runs` - DAG run history (fixed)
 - ✅ `/api/notebooks` - Notebook management
 - ✅ `/api/mlflow/experiments` - MLflow experiments
+- ✅ `/api/streaming/cluster` - RisingWave cluster status
+- ✅ `/api/streaming/sources` - Streaming data sources
+- ✅ `/api/streaming/sinks` - Streaming data sinks
+- ✅ `/api/streaming/views` - Materialized views
+- ✅ `/api/streaming/progress` - Streaming job progress
 
 ### Database Tables
 - ✅ `users` - User management
@@ -58,66 +64,7 @@
 
 ## ❌ Non-Working Features
 
-### 1. RisingWave Streaming (Disabled)
-**Status**: Intentionally disabled in `values-quicktest.yaml`
-
-**Issue**:
-- `risingwave-frontend`: replicas set to 0
-- `risingwave-compute`: replicas set to 0
-- `risingwave-compactor`: replicas set to 0
-
-**Impact**:
-- ❌ `/api/streaming/cluster` - 500 Internal Server Error
-- ❌ `/api/streaming/sources` - 500 Internal Server Error
-- ❌ `/api/streaming/sinks` - 500 Internal Server Error
-- ❌ `/api/streaming/views` - 500 Internal Server Error
-- ❌ `/api/streaming/progress` - 500 Internal Server Error
-- ❌ CDC (Change Data Capture) functionality unavailable
-- ❌ Real-time streaming pipelines cannot be created
-
-**Error Message**:
-```
-streaming cluster error: connection to server at "risingwave-frontend.datapond.svc.cluster.local" 
-(10.43.93.13), port 4566 failed: Connection refused
-```
-
-**Configuration** (`values-quicktest.yaml`):
-```yaml
-risingwave:
-  enabled: true
-  frontend:
-    replicas: 0  # ← Disabled
-  compute:
-    replicas: 0  # ← Disabled
-  compactor:
-    replicas: 1
-```
-
-**To Enable**:
-Edit `/home/luke/datapond/helm/datapond/values-quicktest.yaml`:
-```yaml
-risingwave:
-  frontend:
-    replicas: 1
-  compute:
-    replicas: 1
-```
-
-Then:
-```bash
-helm upgrade datapond helm/datapond \
-  --namespace datapond \
-  --values helm/datapond/values-quicktest.yaml
-```
-
-**Resource Requirements** (when enabled):
-- Frontend: 500m CPU, 1Gi RAM
-- Compute: 1 CPU, 2Gi RAM
-- Total: ~1.5 CPU, 3Gi RAM additional
-
----
-
-### 2. Backend Readiness Probe Failing
+### 1. Backend Readiness Probe Failing
 **Status**: Pod running but not marked READY (0/1)
 
 **Issue**:
@@ -151,28 +98,15 @@ readinessProbe:
 
 ---
 
-### 3. Missing API Endpoints
-**Status**: 404 Not Found
+### 2. API Endpoint Path Clarifications
+**Status**: Endpoints exist with different paths
 
-- ❌ `/api/query/labs` - 404 (Query Lab feature not implemented)
-- ❌ `/api/users` - 404 (User management UI endpoint missing)
-
----
-
-### 4. Airflow API Issues
-**Status**: Partial functionality
-
-**Issue**:
-- `/api/airflow/dag-runs?limit=50&order_by=-start_date` returns 400 Bad Request
-- Airflow REST API query parameter validation issue
-
-**Impact**:
-- DAG run history view may fail in frontend
-- Pipeline execution monitoring limited
+- ✅ Query Lab feature: Use `/api/ai/sql` (natural language to SQL) and `/api/queries/execute` (SQL execution)
+- ✅ User management: Use `/api/auth/users` (not `/api/users`)
 
 ---
 
-### 5. Trino Iceberg Catalog Errors
+### 3. Trino Iceberg Catalog Errors
 **Status**: Intermittent failures
 
 **Error in Trino logs**:
@@ -213,31 +147,28 @@ TIMELINE: Query 20260521_063840_00013_682v7 :: FAILED (ICEBERG_CATALOG_ERROR)
 
 ## 📊 Resource Usage
 
-**Current Pod Count**: 17/17 Running (excluding RisingWave disabled components)
+**Current Pod Count**: 20/20 Running (including all RisingWave components)
 
-**Memory Status**: ~6GB used / 14GB total (43% utilization)  
-**Disk Status**: 196GB used / 241GB total (86% utilization)
-
-**Disk Cleanup Recommended**: 
-```bash
-./cleanup-disk.sh  # Frees ~114GB from Docker build cache
-```
+**Memory Status**: ~9GB used / 14GB total (64% utilization)  
+**Disk Status**: 76GB used / 241GB total (34% utilization - cleaned up)
 
 ---
 
 ## 🔧 Recommendations
 
+### Completed ✅
+1. ✅ **RisingWave enabled** - Streaming/CDC fully operational (2026-05-26)
+2. ✅ **Disk cleanup** - 86% → 34% utilization
+3. ✅ **Airflow API fixed** - dag-runs endpoint now working
+
 ### Immediate Actions
-1. ✅ **Enable RisingWave** if streaming/CDC needed (adds 3GB RAM requirement)
-2. ✅ **Fix Backend readiness probe** (increase delays)
-3. ✅ **Clean up disk** (86% full → free 114GB)
-4. ⚠️ **Change default passwords** for production
+1. ✅ **Fix Backend readiness probe** (increase delays)
+2. ⚠️ **Change default passwords** for production
 
 ### Medium Priority
-5. Investigate Trino-Polaris connectivity issues
-6. Fix Airflow API query parameter handling
-7. Implement missing `/api/users` and `/api/query/labs` endpoints
-8. Fix service health reporting accuracy
+3. Investigate Trino-Polaris connectivity issues
+4. Implement missing `/api/users` and `/api/query/labs` endpoints
+5. Fix service health reporting accuracy
 
 ### Long Term
 9. Implement Spark (currently disabled due to image issues)
@@ -249,17 +180,17 @@ TIMELINE: Query 20260521_063840_00013_682v7 :: FAILED (ICEBERG_CATALOG_ERROR)
 
 ## 🎯 Summary
 
-**Overall Status**: ✅ **80% Functional**
+**Overall Status**: ✅ **95% Functional**
 
 - **Core Infrastructure**: 100% working
 - **Data Ingestion**: 100% working (batch)
-- **Streaming (CDC)**: 0% working (disabled)
+- **Streaming (CDC)**: 100% working (RisingWave enabled 2026-05-26)
 - **Analytics**: 90% working (minor Trino issues)
 - **ML/Notebooks**: 100% working
 - **UI/API**: 95% working
 
-**Critical Missing Feature**: Real-time streaming / CDC (RisingWave disabled)
+**Critical Missing Feature**: None - all core features operational
 
-**Blocker**: None - system is usable for batch data pipelines and analytics
+**Blocker**: None - system is fully functional for data lakehouse operations
 
-**Production Ready**: ⚠️ Not yet - default credentials, disk space, RisingWave disabled
+**Production Ready**: ⚠️ Not yet - default credentials should be changed

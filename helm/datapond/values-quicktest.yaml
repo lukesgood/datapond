@@ -190,7 +190,7 @@ airflow:
     user: ""
     mailFrom: "DataPond Alerts <noreply@datapond.local>"
 
-# Spark - Disabled (image issues)
+# Spark - Disabled (insufficient memory: needs 2GB, system at 64% with current workload)
 spark:
   enabled: false
   master:
@@ -267,7 +267,7 @@ risingwave:
         cpu: 500m
         memory: 1Gi
   frontend:
-    replicas: 0
+    replicas: 1
     resources:
       requests:
         cpu: 200m
@@ -276,7 +276,7 @@ risingwave:
         cpu: 500m
         memory: 1Gi
   compute:
-    replicas: 0
+    replicas: 1
     resources:
       requests:
         cpu: 500m
@@ -285,7 +285,7 @@ risingwave:
         cpu: 1000m
         memory: 2Gi
   compactor:
-    replicas: 0
+    replicas: 1
     resources:
       requests:
         cpu: 200m
