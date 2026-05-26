@@ -752,7 +752,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
       }
       const res = await fetch("/api/connectors/test", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connector_type: editConnectorType, config: merged }),
+        body: JSON.stringify({ connector_type: editConnectorType, config: merged, connection_id: id }),
       })
       const data = await res.json()
       setTestResult({ success: data.success, message: data.message })
