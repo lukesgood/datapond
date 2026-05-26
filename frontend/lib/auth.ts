@@ -99,10 +99,23 @@ export function installAuthInterceptor() {
       }
     }
     const res = await original(input, init)
-    // Session expired on 401 — emit event for overlay (don't hard-redirect)
+    // Session expired on 401 — only if the response explicitly says "Not authenticated"
+    // (avoid false positives from upstream service auth failures like Polaris OAuth)
     if (res.status === 401 && url.includes("/api/") && !url.includes("/api/auth/")) {
-      clearAuth()
-      window.dispatchEvent(new Event("datapond:session-expired"))
+      try {
+        const body = await res.clone().json()
+        if (body?.detail === "Not authenticated" || body?.detail === "Invalid token" || body?.detail === "Token expired") {
+          clearAuth()
+          window.dispatchEvent(new Event("datapond:session-expired"))
+        }
+      } catch {
+        // If we can't parse the body, check if token is actually expired
+        const token = getToken()
+        if (!token) {
+          clearAuth()
+          window.dispatchEvent(new Event("datapond:session-expired"))
+        }
+      }
     }
     return res
   }
