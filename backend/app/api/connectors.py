@@ -575,11 +575,22 @@ async def create_connection(request: ConnectionCreateRequest):
     """
     Create and save a new connector connection.
 
-    Credentials are encrypted before storage.
+    Tests connectivity first, then encrypts credentials before storage.
+    Status is set to 'active' on success, 'error' on connection failure.
     """
     try:
         # Generate connection ID
         connection_id = str(uuid.uuid4())
+
+        # Test connection before saving
+        status = ConnectionStatus.ACTIVE.value
+        try:
+            connector = _create_connector(request.connector_type, request.config)
+            result = await connector.test_connection()
+            if not result.success:
+                status = "error"
+        except Exception:
+            status = "error"
 
         # Encrypt credentials
         encrypted_config = vault.encrypt_credentials(request.config)
@@ -596,18 +607,16 @@ async def create_connection(request: ConnectionCreateRequest):
                 request.name,
                 request.connector_type.value,
                 encrypted_config,
-                ConnectionStatus.ACTIVE.value,
+                status,
                 datetime.utcnow(),
                 datetime.utcnow()
             )
-
-
 
         return ConnectionResponse(
             id=connection_id,
             name=request.name,
             connector_type=request.connector_type.value,
-            status=ConnectionStatus.ACTIVE.value,
+            status=status,
             created_at=datetime.utcnow()
         )
 
