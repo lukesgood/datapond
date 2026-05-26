@@ -115,6 +115,7 @@ class ConnectionTestRequest(BaseModel):
     """Request to test a connection"""
     connector_type: ConnectorType
     config: Dict[str, Any]
+    connection_id: Optional[str] = None  # If editing existing, merge masked fields
 
 
 class ConnectionCreateRequest(BaseModel):
@@ -332,10 +333,29 @@ async def test_connection(request: ConnectionTestRequest):
     Test a connector connection without saving it.
 
     Validates credentials and connectivity.
+    If connection_id is provided, masked fields (••••••••) are replaced with stored values.
     """
     try:
+        config = dict(request.config)
+
+        # If editing existing connection, replace masked fields with stored originals
+        if request.connection_id:
+            has_masked = any(v == "••••••••" for v in config.values() if isinstance(v, str))
+            if has_masked:
+                pool = await get_db_pool()
+                async with pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        "SELECT config_encrypted FROM connector_connections WHERE id=$1",
+                        uuid.UUID(request.connection_id)
+                    )
+                if row:
+                    stored = vault.decrypt_credentials(row['config_encrypted'])
+                    for k, v in config.items():
+                        if v == "••••••••":
+                            config[k] = stored.get(k, v)
+
         # Create connector instance based on type
-        connector = _create_connector(request.connector_type, request.config)
+        connector = _create_connector(request.connector_type, config)
 
         # Test connection
         result = await connector.test_connection()
