@@ -92,7 +92,7 @@ def _trino_exec(sql):
 def run_maintenance(**_):
     tables = _trino_exec(
         "SELECT table_schema, table_name FROM iceberg.information_schema.tables "
-        "WHERE table_schema NOT IN ('information_schema')"
+        "WHERE table_schema NOT IN ('information_schema', 'system')"
     )
     summary = {{"tables": len(tables), "optimize": 0, "expire": 0, "orphan": 0, "errors": 0}}
 
