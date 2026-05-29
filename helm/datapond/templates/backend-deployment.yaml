@@ -72,6 +72,17 @@ spec:
           value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/iceberg_catalog"
         - name: ICEBERG_WAREHOUSE
           value: "s3a://iceberg/warehouse"
+        {{- if .Values.polaris.enabled }}
+        # Polaris REST catalog — PyIceberg 직접 쓰기용 (Trino iceberg.properties와 동일 자격)
+        - name: POLARIS_URI
+          value: "http://{{ .Values.polaris.name }}.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.polaris.service.port }}/api/catalog"
+        - name: POLARIS_WAREHOUSE
+          value: "{{ .Values.polaris.catalogName | default "iceberg" }}"
+        - name: POLARIS_CLIENT_ID
+          value: "{{ .Values.polaris.auth.clientId }}"
+        - name: POLARIS_CLIENT_SECRET
+          value: "{{ .Values.polaris.auth.clientSecret }}"
+        {{- end }}
         # Airflow integration - BASE_URL is /airflow so API is at /airflow/api/v1
         - name: AIRFLOW_API_URL
           value: "http://airflow.{{ .Values.namespace }}.svc.cluster.local:8080/airflow/api/v1"
