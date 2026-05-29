@@ -25,6 +25,7 @@ from app.api.transforms import router as transforms_router
 from app.api.ai_sql import router as ai_sql_router
 from app.api.system_settings import router as system_settings_router, load_settings_on_startup
 from app.api.governance import router as governance_router
+from app.api.maintenance import router as maintenance_router, deploy_maintenance_dag
 
 app = FastAPI(
     title="DataPond API",
@@ -117,6 +118,13 @@ async def startup():
             else:
                 logger.warning(f"[startup] Settings load skipped after retries: {e}")
 
+    # Iceberg 유지보수 DAG 배포 (best-effort — Airflow/PVC 미준비 시 건너뜀)
+    try:
+        await deploy_maintenance_dag()
+        logger.info("[startup] Iceberg maintenance DAG deployed")
+    except Exception as e:
+        logger.warning(f"[startup] Maintenance DAG deploy skipped: {e}")
+
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
@@ -143,6 +151,7 @@ app.include_router(transforms_router, prefix="/api")
 app.include_router(ai_sql_router, prefix="/api")
 app.include_router(system_settings_router, prefix="/api")
 app.include_router(governance_router, prefix="/api")
+app.include_router(maintenance_router, prefix="/api")
 
 # Service endpoints (internal Kubernetes DNS)
 SERVICES = {

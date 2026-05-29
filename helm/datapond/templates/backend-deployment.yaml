@@ -83,6 +83,15 @@ spec:
         - name: POLARIS_CLIENT_SECRET
           value: "{{ .Values.polaris.auth.clientSecret }}"
         {{- end }}
+        # Iceberg 유지보수 DAG 설정 (P0-3)
+        - name: DATAPOND_MAINTENANCE_SCHEDULE
+          value: "{{ .Values.maintenance.schedule | default "0 3 * * *" }}"
+        - name: DATAPOND_MAINTENANCE_FILE_SIZE
+          value: "{{ .Values.maintenance.fileSize | default "128MB" }}"
+        - name: DATAPOND_MAINTENANCE_SNAPSHOT_RETENTION
+          value: "{{ .Values.maintenance.snapshotRetention | default "7d" }}"
+        - name: DATAPOND_MAINTENANCE_ORPHAN_RETENTION
+          value: "{{ .Values.maintenance.orphanRetention | default "7d" }}"
         # Airflow integration - BASE_URL is /airflow so API is at /airflow/api/v1
         - name: AIRFLOW_API_URL
           value: "http://airflow.{{ .Values.namespace }}.svc.cluster.local:8080/airflow/api/v1"
