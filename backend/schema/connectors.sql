@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS connector_sync_jobs (
     schedule VARCHAR(50),
     incremental_column VARCHAR(100),
     last_value TEXT,
+    partition_spec JSONB,          -- [{"column":"created_at","transform":"day"}] · NULL이면 자동 추론
     primary_keys TEXT[],
     last_run_at TIMESTAMP,
     last_run_status VARCHAR(20),

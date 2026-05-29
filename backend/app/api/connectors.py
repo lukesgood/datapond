@@ -158,10 +158,11 @@ class SyncStatusResponse(BaseModel):
 # Database connection helper
 
 _db_pool = None
+_schema_ensured = False
 
 async def get_db_pool():
     """Get shared PostgreSQL connection pool (singleton)"""
-    global _db_pool
+    global _db_pool, _schema_ensured
     if _db_pool is None or _db_pool._closed:
         _db_pool = await asyncpg.create_pool(
             host=os.getenv("POSTGRES_HOST", "postgres"),
@@ -172,6 +173,17 @@ async def get_db_pool():
             min_size=2,
             max_size=10,
         )
+        _schema_ensured = False
+    if not _schema_ensured:
+        # 기존 DB 마이그레이션: CREATE TABLE IF NOT EXISTS는 컬럼을 추가하지 않으므로 멱등 ALTER
+        try:
+            async with _db_pool.acquire() as conn:
+                await conn.execute(
+                    "ALTER TABLE connector_sync_jobs ADD COLUMN IF NOT EXISTS partition_spec JSONB"
+                )
+            _schema_ensured = True
+        except Exception as e:
+            logger.warning(f"[connectors] partition_spec 컬럼 ensure 실패(무시): {e}")
     return _db_pool
 
 
@@ -969,7 +981,7 @@ async def list_tables(connection_id: str):
         pool = await get_db_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT source_table, enabled, sync_mode, incremental_column, last_value FROM connector_sync_jobs WHERE connection_id=$1",
+                "SELECT source_table, enabled, sync_mode, incremental_column, last_value, partition_spec FROM connector_sync_jobs WHERE connection_id=$1",
                 uuid.UUID(connection_id)
             )
         config_map = {r['source_table']: r for r in rows}
@@ -980,6 +992,11 @@ async def list_tables(connection_id: str):
             inc_col = cfg['incremental_column'] if cfg else None
             last_val = cfg['last_value'] if cfg else None
             enabled = cfg['enabled'] if cfg else True
+            raw_ps = cfg['partition_spec'] if cfg else None
+            try:
+                part_spec = json.loads(raw_ps) if isinstance(raw_ps, str) else raw_ps
+            except (ValueError, TypeError):
+                part_spec = None
             # Warn: incremental set but no column → effectively full
             effective_mode = mode
             if mode == "incremental" and not inc_col:
@@ -991,6 +1008,7 @@ async def list_tables(connection_id: str):
                 "effective_mode": effective_mode,
                 "incremental_column": inc_col,
                 "last_value": last_val,
+                "partition_spec": part_spec,
             }
 
         return {"tables": [_table_info(t) for t in tables]}
@@ -1035,6 +1053,54 @@ async def set_table_enabled(connection_id: str, table_name: str, body: dict):
                     enabled, incremental_column or None
                 )
         return {"table": table_name, "enabled": enabled}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+_PARTITION_TRANSFORMS = {"day", "month", "year", "identity", "bucket"}
+
+
+@router.patch("/connectors/{connection_id}/tables/{table_name}/partition")
+async def set_table_partition(connection_id: str, table_name: str, body: dict):
+    """
+    테이블별 파티션 spec 설정.
+    body: {"partition_spec": [{"column":"created_at","transform":"day"}, ...]}  · null/[] = 무파티션(자동추론 해제)
+    """
+    try:
+        spec = body.get("partition_spec")
+        if spec is not None:
+            if not isinstance(spec, list):
+                raise HTTPException(status_code=400, detail="partition_spec must be a list or null")
+            for f in spec:
+                if not isinstance(f, dict) or not f.get("column"):
+                    raise HTTPException(status_code=400, detail="each partition field needs a 'column'")
+                tr = f.get("transform", "identity")
+                if tr not in _PARTITION_TRANSFORMS:
+                    raise HTTPException(status_code=400, detail=f"invalid transform '{tr}' (allowed: {sorted(_PARTITION_TRANSFORMS)})")
+        spec_json = json.dumps(spec) if spec is not None else None
+
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            existing = await conn.fetchval(
+                "SELECT id FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
+                uuid.UUID(connection_id), table_name
+            )
+            if existing:
+                await conn.execute(
+                    "UPDATE connector_sync_jobs SET partition_spec=$1 WHERE connection_id=$2 AND source_table=$3",
+                    spec_json, uuid.UUID(connection_id), table_name
+                )
+            else:
+                await conn.execute(
+                    """INSERT INTO connector_sync_jobs
+                       (id, connection_id, source_table, target_table, sync_mode, enabled, partition_spec)
+                       VALUES ($1,$2,$3,$4,'full',true,$5)""",
+                    uuid.UUID(str(uuid.uuid4())), uuid.UUID(connection_id),
+                    table_name, f"datapond.default.{table_name}", spec_json
+                )
+        return {"table": table_name, "partition_spec": spec}
     except HTTPException:
         raise
     except Exception as e:
@@ -1140,7 +1206,7 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
             pool = await get_db_pool()
             async with pool.acquire() as conn:
                 enabled_rows = await conn.fetch(
-                    """SELECT source_table, enabled, sync_mode, incremental_column, last_value
+                    """SELECT source_table, enabled, sync_mode, incremental_column, last_value, partition_spec
                        FROM connector_sync_jobs WHERE connection_id=$1""",
                     uuid.UUID(connection_id)
                 )
@@ -1197,6 +1263,15 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                     })
                 await asyncio.sleep(0)
 
+                # Per-table 파티션 spec (JSONB) — 미설정 시 None → writer가 자동 추론
+                partition_spec = None
+                if job and job['partition_spec']:
+                    raw = job['partition_spec']
+                    try:
+                        partition_spec = json.loads(raw) if isinstance(raw, str) else raw
+                    except (ValueError, TypeError):
+                        partition_spec = None
+
                 # Collect sub-steps from iceberg_writer via callback queue
                 step_queue: list[dict] = []
 
@@ -1212,6 +1287,7 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                     incremental_column=incremental_column,
                     last_value=last_value,
                     on_step=on_iceberg_step,
+                    partition_spec=partition_spec,
                 )
 
                 # Emit all sub-steps collected during sync

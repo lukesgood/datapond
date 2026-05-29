@@ -201,7 +201,8 @@ class PostgreSQLConnector(BaseConnector):
         sync_mode: SyncMode = SyncMode.FULL,
         incremental_column: Optional[str] = None,
         last_value: Optional[Any] = None,
-        on_step=None
+        on_step=None,
+        partition_spec: Optional[list] = None,
     ) -> SyncJobStatus:
         """Synchronize PostgreSQL table to Iceberg via SeaweedFS S3 + Trino."""
         from .iceberg_writer import write_dataframe_to_iceberg
@@ -222,7 +223,7 @@ class PostgreSQLConnector(BaseConnector):
             logger.info(f"[pg_connector] Read {len(df)} rows from {src_schema}.{source_table}")
 
             write_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
-            rows_processed = write_dataframe_to_iceberg(df, source_table, mode=write_mode, on_step=on_step)
+            rows_processed = write_dataframe_to_iceberg(df, source_table, mode=write_mode, on_step=on_step, partition_spec=partition_spec)
 
             # Compute new watermark max_value
             max_value = None
@@ -399,7 +400,8 @@ class MySQLConnector(BaseConnector):
         sync_mode: SyncMode = SyncMode.FULL,
         incremental_column: Optional[str] = None,
         last_value: Optional[Any] = None,
-        on_step=None
+        on_step=None,
+        partition_spec: Optional[list] = None,
     ) -> SyncJobStatus:
         """Synchronize MySQL table to Iceberg via SeaweedFS S3 + Trino."""
         from .iceberg_writer import write_dataframe_to_iceberg
@@ -415,7 +417,7 @@ class MySQLConnector(BaseConnector):
             logger.info(f"[mysql_connector] Read {len(df)} rows from {source_table}")
 
             write_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
-            rows_processed = write_dataframe_to_iceberg(df, source_table, mode=write_mode, on_step=on_step)
+            rows_processed = write_dataframe_to_iceberg(df, source_table, mode=write_mode, on_step=on_step, partition_spec=partition_spec)
 
             max_value = None
             if incremental_column and incremental_column in df.columns and not df.empty:
@@ -669,7 +671,7 @@ class DatabaseURLConnector(BaseConnector):
             logger.info(f"[dburl_connector] Read {len(df)} rows from {source_table}")
 
             write_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
-            rows_processed = write_dataframe_to_iceberg(df, tbl_name, mode=write_mode, on_step=on_step)
+            rows_processed = write_dataframe_to_iceberg(df, tbl_name, mode=write_mode, on_step=on_step, partition_spec=partition_spec)
 
             max_value = None
             if incremental_column and incremental_column in df.columns and not df.empty:

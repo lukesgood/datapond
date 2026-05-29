@@ -345,6 +345,7 @@ class S3Connector(BaseConnector):
         incremental_column: Optional[str] = None,
         last_value: Optional[Any] = None,
         on_step=None,
+        partition_spec: Optional[list] = None,
     ) -> SyncJobStatus:
         """
         Synchronize files from S3 to Iceberg table.
