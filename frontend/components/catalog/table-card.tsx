@@ -8,13 +8,23 @@ import Link from "next/link"
 interface TableCardProps {
   name: string
   namespace: string
+  catalog?: string
+  catalogType?: string
   tableType: string
   lastUpdated?: string
+}
+
+const CATALOG_TYPE_STYLES: Record<string, { label: string; cls: string }> = {
+  managed:  { label: "Managed",  cls: "bg-emerald-100 text-emerald-700 border-emerald-200" },
+  external: { label: "External", cls: "bg-amber-100 text-amber-700 border-amber-200" },
+  foreign:  { label: "Foreign",  cls: "bg-blue-100 text-blue-700 border-blue-200" },
 }
 
 export function TableCard({
   name,
   namespace,
+  catalog,
+  catalogType,
   tableType,
   lastUpdated,
 }: TableCardProps) {
@@ -39,8 +49,10 @@ export function TableCard({
     }
   }
 
+  const catStyle = CATALOG_TYPE_STYLES[catalogType || "managed"] || CATALOG_TYPE_STYLES.managed
+
   return (
-    <Link href={`/catalog/${namespace}/${name}`}>
+    <Link href={`/catalog/${namespace}/${name}${catalog ? `?catalog=${catalog}` : ""}`}>
       <Card className="cursor-pointer hover:shadow-md transition-shadow">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
@@ -52,9 +64,9 @@ export function TableCard({
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
-            <div className="flex gap-2">
-              <Badge variant="secondary">{namespace}</Badge>
-              <Badge variant="outline">{tableType}</Badge>
+            <div className="flex gap-2 flex-wrap">
+              <Badge variant="secondary">{catalog ? `${catalog}.${namespace}` : namespace}</Badge>
+              <Badge variant="outline" className={catStyle.cls}>{catStyle.label}</Badge>
             </div>
             <p className="text-xs text-muted-foreground">
               Updated {formatLastUpdated(lastUpdated)}

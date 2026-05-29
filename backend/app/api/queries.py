@@ -67,6 +67,7 @@ class CatalogSchema(BaseModel):
 class Catalog(BaseModel):
     name: str
     schemas: List[CatalogSchema]
+    catalog_type: str = "managed"
 
 
 class CatalogTree(BaseModel):
@@ -296,85 +297,108 @@ async def get_query_history(
 @router.get("/catalog/schemas", response_model=CatalogTree)
 async def get_catalog_schemas():
     """
-    Get catalog tree structure from Trino
-
-    Returns: catalogs -> schemas -> tables -> columns
+    Get catalog tree structure — only catalogs registered in Polaris (governance gate).
+    Uses Polaris for catalog/namespace/table listing, Trino for column metadata.
+    Cached in Valkey (TTL 60s).
     """
+    # Try Valkey cache first
     try:
-        conn = get_trino_connection()
-        cursor = conn.cursor()
+        import redis, json as _json
+        _redis = redis.Redis(
+            host=os.getenv("VALKEY_HOST", "valkey.datapond.svc.cluster.local"),
+            port=int(os.getenv("VALKEY_PORT", "6379")),
+            decode_responses=True, socket_timeout=1,
+        )
+        cached = _redis.get("catalog:schemas:v2")
+        if cached:
+            return CatalogTree(**_json.loads(cached))
+    except Exception:
+        _redis = None
 
+    try:
+        from app.api.polaris_client import list_catalogs, list_namespaces, list_tables, get_catalog_type
+
+        polaris_catalogs = list_catalogs()
         catalogs = []
 
-        # Get all catalogs
-        cursor.execute("SHOW CATALOGS")
-        catalog_names = [row[0] for row in cursor.fetchall()]
+        # Get Trino connection for column info
+        try:
+            conn = get_trino_connection()
+            cursor = conn.cursor()
+            has_trino = True
+        except Exception:
+            has_trino = False
+            cursor = None
 
-        for catalog_name in catalog_names:
-            schemas = []
+        for pcat in polaris_catalogs:
+            cat_name = pcat["name"]
+            cat_type = get_catalog_type(pcat)
+            schemas_list = []
 
-            # Get schemas for this catalog
             try:
-                cursor.execute(f"SHOW SCHEMAS FROM {catalog_name}")
-                schema_names = [row[0] for row in cursor.fetchall()]
+                namespaces = list_namespaces(cat_name)
+            except Exception:
+                namespaces = []
 
-                for schema_name in schema_names:
-                    tables = []
+            for ns in namespaces:
+                tables_list = []
+                try:
+                    table_names = list_tables(cat_name, ns)
+                except Exception:
+                    table_names = []
 
-                    # Get tables for this schema
+                # Batch column fetch from Trino if available
+                col_map: dict = {}
+                if has_trino and table_names:
                     try:
-                        cursor.execute(f"SHOW TABLES FROM {catalog_name}.{schema_name}")
-                        table_names = [row[0] for row in cursor.fetchall()]
-
-                        for table_name in table_names:
-                            columns = []
-
-                            # Get columns for this table
-                            try:
-                                cursor.execute(f"DESCRIBE {catalog_name}.{schema_name}.{table_name}")
-                                column_rows = cursor.fetchall()
-                                columns = [
-                                    CatalogColumn(name=col[0], type=col[1])
-                                    for col in column_rows
-                                ]
-                            except Exception:
-                                # Skip if table describe fails
-                                pass
-
-                            tables.append(CatalogTable(
-                                name=table_name,
-                                columns=columns if columns else None
-                            ))
+                        cursor.execute(
+                            f"SELECT table_name, column_name, data_type "
+                            f"FROM {cat_name}.information_schema.columns "
+                            f"WHERE table_schema = '{ns}' "
+                            f"ORDER BY table_name, ordinal_position"
+                        )
+                        for tbl, col, dtype in cursor.fetchall():
+                            col_map.setdefault(tbl, []).append(
+                                CatalogColumn(name=col, type=dtype)
+                            )
                     except Exception:
-                        # Skip if schema has no accessible tables
                         pass
 
-                    schemas.append(CatalogSchema(
-                        name=schema_name,
-                        tables=tables
-                    ))
+                for tbl in table_names:
+                    cols = col_map.get(tbl)
+                    tables_list.append(CatalogTable(name=tbl, columns=cols))
+
+                schemas_list.append(CatalogSchema(name=ns, tables=tables_list))
+
+            catalogs.append(Catalog(name=cat_name, schemas=schemas_list, catalog_type=cat_type))
+
+        if has_trino and cursor:
+            try:
+                cursor.close()
+                conn.close()
             except Exception:
-                # Skip if catalog has no accessible schemas
                 pass
 
-            catalogs.append(Catalog(
-                name=catalog_name,
-                schemas=schemas
-            ))
+        result = CatalogTree(catalogs=catalogs)
 
-        cursor.close()
-        conn.close()
+        # Cache result
+        try:
+            if _redis:
+                import json as _json
+                _redis.setex("catalog:schemas:v2", 60, result.model_dump_json())
+        except Exception:
+            pass
 
-        return CatalogTree(catalogs=catalogs)
+        return result
 
     except HTTPException:
         raise
     except Exception as e:
-        # If Trino is not available, return mock data for development
         if "connection" in str(e).lower() or "refused" in str(e).lower():
             return CatalogTree(catalogs=[
                 Catalog(
                     name="polaris",
+                    catalog_type="managed",
                     schemas=[
                         CatalogSchema(
                             name="default",

@@ -1,9 +1,11 @@
 """
-Data Catalog API — reads from Trino iceberg catalog directly.
-Polaris stores metadata, Trino exposes it via INFORMATION_SCHEMA.
+Data Catalog API — reads from Polaris (governance gate) + Trino for details.
+Only data registered in Polaris is visible.
 """
 import os
 import logging
+import re
+import math
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
@@ -11,26 +13,19 @@ import trino
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app.api.polaris_client import list_catalogs, list_namespaces, list_tables, get_catalog_type
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 TRINO_HOST    = os.getenv("TRINO_SERVICE_HOST", "trino.datapond.svc.cluster.local")
 TRINO_PORT    = int(os.getenv("TRINO_SERVICE_PORT", "8080"))
-TRINO_CATALOG = "iceberg"
-
-# Tables to hide from catalog (internal DataPond bookkeeping)
-HIDDEN_TABLES = {
-    "_test_datapond", "_writer_test", "t1",
-    "connector_connections", "connector_credentials_audit",
-    "connector_sync_jobs", "connector_sync_history",
-    "query_history", "dashboards", "pipelines", "users",
-}
 
 
-def _trino():
+def _trino(catalog: str = "iceberg"):
     return trino.dbapi.connect(
         host=TRINO_HOST, port=TRINO_PORT,
-        user="datapond", catalog=TRINO_CATALOG,
+        user="datapond", catalog=catalog,
         http_scheme="http", request_timeout=15,
     )
 
@@ -39,6 +34,8 @@ def _trino():
 
 class NamespaceInfo(BaseModel):
     name: str
+    catalog: str = "iceberg"
+    catalog_type: str = "managed"
     properties: Dict[str, Any] = {}
 
 class NamespacesResponse(BaseModel):
@@ -47,6 +44,8 @@ class NamespacesResponse(BaseModel):
 class TableInfo(BaseModel):
     name: str
     namespace: str
+    catalog: str = "iceberg"
+    catalog_type: str = "managed"
     table_type: str = "iceberg"
     metadata_location: Optional[str] = None
     last_updated: Optional[str] = None
@@ -76,65 +75,52 @@ class CatalogTree(BaseModel):
     catalogs: List[Dict[str, Any]] = []
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
-
-def _user_schema(schema: str) -> bool:
-    """Only show user-visible schemas."""
-    return schema not in ("information_schema", "system")
-
-def _user_table(schema: str, table: str) -> bool:
-    """Filter internal bookkeeping tables from default schema."""
-    if schema == "default" and table in HIDDEN_TABLES:
-        return False
-    return True
-
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @router.get("/catalog/namespaces", response_model=NamespacesResponse)
-async def list_namespaces():
-    """List Iceberg schemas from Trino."""
+async def list_all_namespaces():
+    """List namespaces across all Polaris-registered catalogs."""
     try:
-        cur = _trino().cursor()
-        cur.execute(f"SHOW SCHEMAS FROM {TRINO_CATALOG}")
-        schemas = [row[0] for row in cur.fetchall() if _user_schema(row[0])]
-        return NamespacesResponse(namespaces=[
-            NamespaceInfo(name=s, properties={"description": f"{s} namespace"})
-            for s in schemas
-        ])
+        polaris_cats = list_catalogs()
+        namespaces = []
+        for pcat in polaris_cats:
+            cat_name = pcat["name"]
+            cat_type = get_catalog_type(pcat)
+            try:
+                for ns in list_namespaces(cat_name):
+                    namespaces.append(NamespaceInfo(
+                        name=ns, catalog=cat_name, catalog_type=cat_type,
+                    ))
+            except Exception:
+                continue
+        return NamespacesResponse(namespaces=namespaces)
     except Exception as e:
         logger.error(f"catalog namespaces error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/catalog/tables", response_model=TablesResponse)
-async def list_tables():
-    """List all user-visible Iceberg tables across all schemas."""
+async def list_all_tables():
+    """List all tables across all Polaris-registered catalogs."""
     try:
-        cur = _trino().cursor()
-        # Get all schemas first
-        cur.execute(f"SHOW SCHEMAS FROM {TRINO_CATALOG}")
-        schemas = [row[0] for row in cur.fetchall() if _user_schema(row[0])]
-
+        polaris_cats = list_catalogs()
         tables = []
-        for schema in schemas:
+        for pcat in polaris_cats:
+            cat_name = pcat["name"]
+            cat_type = get_catalog_type(pcat)
             try:
-                cur2 = _trino().cursor()
-                cur2.execute(
-                    f"SELECT table_name FROM {TRINO_CATALOG}.information_schema.tables "
-                    f"WHERE table_schema='{schema}' AND table_type='BASE TABLE'"
-                )
-                for row in cur2.fetchall():
-                    tbl = row[0]
-                    if _user_table(schema, tbl):
-                        tables.append(TableInfo(
-                            name=tbl,
-                            namespace=schema,
-                            table_type="iceberg",
-                        ))
+                for ns in list_namespaces(cat_name):
+                    try:
+                        for tbl in list_tables(cat_name, ns):
+                            tables.append(TableInfo(
+                                name=tbl, namespace=ns,
+                                catalog=cat_name, catalog_type=cat_type,
+                            ))
+                    except Exception:
+                        continue
             except Exception:
                 continue
-
         return TablesResponse(tables=tables)
     except Exception as e:
         logger.error(f"catalog tables error: {e}")
@@ -142,15 +128,15 @@ async def list_tables():
 
 
 @router.get("/catalog/tables/{namespace}/{table}", response_model=TableDetails)
-async def get_table_details(namespace: str, table: str):
+async def get_table_details(namespace: str, table: str, catalog: str = "iceberg"):
     """Get table schema, properties, and row count from Trino."""
     try:
-        cur = _trino().cursor()
+        cur = _trino(catalog).cursor()
 
         # Columns
         cur.execute(
             f"SELECT column_name, data_type, is_nullable "
-            f"FROM {TRINO_CATALOG}.information_schema.columns "
+            f"FROM {catalog}.information_schema.columns "
             f"WHERE table_schema='{namespace}' AND table_name='{table}' "
             f"ORDER BY ordinal_position"
         )
@@ -165,8 +151,8 @@ async def get_table_details(namespace: str, table: str):
         # Row count
         row_count = None
         try:
-            cur2 = _trino().cursor()
-            cur2.execute(f"SELECT COUNT(*) FROM {TRINO_CATALOG}.{namespace}.{table}")
+            cur2 = _trino(catalog).cursor()
+            cur2.execute(f"SELECT COUNT(*) FROM {catalog}.{namespace}.{table}")
             row_count = cur2.fetchone()[0]
         except Exception:
             pass
@@ -174,11 +160,10 @@ async def get_table_details(namespace: str, table: str):
         # Table properties (location, format)
         props: Dict[str, Any] = {}
         try:
-            cur3 = _trino().cursor()
-            cur3.execute(f"SHOW CREATE TABLE {TRINO_CATALOG}.{namespace}.{table}")
+            cur3 = _trino(catalog).cursor()
+            cur3.execute(f"SHOW CREATE TABLE {catalog}.{namespace}.{table}")
             ddl = cur3.fetchone()[0]
             if "location" in ddl.lower():
-                import re
                 m = re.search(r"location\s*=\s*'([^']+)'", ddl, re.IGNORECASE)
                 if m:
                     props["location"] = m.group(1)
@@ -203,13 +188,13 @@ async def get_table_details(namespace: str, table: str):
 
 
 @router.get("/catalog/tables/{namespace}/{table}/preview")
-async def preview_table(namespace: str, table: str, limit: int = 100):
+async def preview_table(namespace: str, table: str, catalog: str = "iceberg", limit: int = 100):
     """Return top N rows and per-column statistics (null rate, distinct count, min, max)."""
     try:
-        fqtn = f"{TRINO_CATALOG}.{namespace}.{table}"
+        fqtn = f"{catalog}.{namespace}.{table}"
 
         # Sample rows
-        cur = _trino().cursor()
+        cur = _trino(catalog).cursor()
         cur.execute(f"SELECT * FROM {fqtn} LIMIT {min(limit, 500)}")
         rows_raw = cur.fetchall()
         cols = [d[0] for d in cur.description]
@@ -263,46 +248,9 @@ async def preview_table(namespace: str, table: str, limit: int = 100):
 @router.get("/catalog/health")
 async def catalog_health():
     try:
-        cur = _trino().cursor()
-        cur.execute(f"SHOW SCHEMAS FROM {TRINO_CATALOG}")
-        schemas = [r[0] for r in cur.fetchall()]
-        return {"status": "healthy", "catalog": TRINO_CATALOG, "schemas": schemas}
+        cats = list_catalogs()
+        return {"status": "healthy", "catalogs": [c["name"] for c in cats]}
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
 
 
-@router.get("/catalog/schemas", response_model=CatalogTree)
-async def get_catalog_tree():
-    """Used by Query Lab schema browser."""
-    try:
-        cur = _trino().cursor()
-        cur.execute("SHOW CATALOGS")
-        catalogs_raw = [r[0] for r in cur.fetchall()]
-
-        catalogs = []
-        for cat in catalogs_raw:
-            try:
-                cur2 = _trino().cursor()
-                cur2.execute(f"SHOW SCHEMAS FROM {cat}")
-                schemas = []
-                for (schema,) in cur2.fetchall():
-                    if not _user_schema(schema):
-                        continue
-                    try:
-                        cur3 = _trino().cursor()
-                        cur3.execute(
-                            f"SELECT table_name FROM {cat}.information_schema.tables "
-                            f"WHERE table_schema='{schema}' AND table_type='BASE TABLE'"
-                        )
-                        tbls = [r[0] for r in cur3.fetchall()
-                                if _user_table(schema, r[0])]
-                        schemas.append({"name": schema, "tables": tbls})
-                    except Exception:
-                        schemas.append({"name": schema, "tables": []})
-                catalogs.append({"name": cat, "schemas": schemas})
-            except Exception:
-                catalogs.append({"name": cat, "schemas": []})
-
-        return CatalogTree(catalogs=catalogs)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))

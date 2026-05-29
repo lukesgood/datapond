@@ -12,7 +12,13 @@ import { Skeleton } from "@/components/ui/skeleton"
 interface Column { name: string; type: string }
 interface Table  { name: string; columns: Column[] | null }
 interface Schema { name: string; tables: Table[] }
-interface Catalog { name: string; schemas: Schema[] }
+interface Catalog { name: string; catalog_type?: string; schemas: Schema[] }
+
+const CATALOG_TYPE_BADGE: Record<string, { label: string; cls: string }> = {
+  managed:  { label: "M", cls: "text-emerald-700 bg-emerald-100" },
+  external: { label: "E", cls: "text-amber-700 bg-amber-100" },
+  foreign:  { label: "F", cls: "text-blue-700 bg-blue-100" },
+}
 
 interface Props {
   onTableSelect: (catalog: string, schema: string, table: string) => void
@@ -222,6 +228,11 @@ export function SchemaTree({ onTableSelect }: Props) {
                   <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${catOpen ? "rotate-90" : ""}`} />
                   <Database className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <span className="truncate">{cat.name}</span>
+                  {cat.catalog_type && CATALOG_TYPE_BADGE[cat.catalog_type] && (
+                    <span className={`text-[9px] font-medium px-1 rounded shrink-0 ${CATALOG_TYPE_BADGE[cat.catalog_type].cls}`}>
+                      {CATALOG_TYPE_BADGE[cat.catalog_type].label}
+                    </span>
+                  )}
                   <span className="ml-auto text-[10px] text-muted-foreground font-normal">
                     {cat.schemas.reduce((a, s) => a + s.tables.length, 0)}
                   </span>

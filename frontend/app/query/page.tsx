@@ -10,17 +10,23 @@ import {
   Sparkles, Loader2, X,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
-import { SqlEditor } from "@/components/query/sql-editor"
+import dynamic from "next/dynamic"
 import { SchemaTree } from "@/components/query/schema-tree"
 import { QueryResults } from "@/components/query/query-results"
 import { addToQueryHistory } from "@/components/query/query-history"
 import { QueryHistorySidebar } from "@/components/query/query-history-sidebar"
 import { ChartSelector } from "@/components/query/chart-selector"
-import { ChartRenderer, ChartType } from "@/components/query/chart-renderer"
 import { ChartConfigPanel } from "@/components/query/chart-config-panel"
-import { SaveDashboardModal } from "@/components/query/save-dashboard-modal"
-import { LogToMlflowModal } from "@/components/query/log-to-mlflow-modal"
-import { OpenInNotebookModal } from "@/components/query/open-in-notebook-modal"
+import type { ChartType } from "@/components/query/chart-renderer"
+
+const SqlEditor = dynamic(() => import("@/components/query/sql-editor").then(m => ({ default: m.SqlEditor })), {
+  ssr: false,
+  loading: () => <div className="h-full flex items-center justify-center text-sm text-muted-foreground">Loading editor...</div>,
+})
+const ChartRenderer = dynamic(() => import("@/components/query/chart-renderer").then(m => ({ default: m.ChartRenderer })), { ssr: false })
+const SaveDashboardModal = dynamic(() => import("@/components/query/save-dashboard-modal").then(m => ({ default: m.SaveDashboardModal })), { ssr: false })
+const LogToMlflowModal = dynamic(() => import("@/components/query/log-to-mlflow-modal").then(m => ({ default: m.LogToMlflowModal })), { ssr: false })
+const OpenInNotebookModal = dynamic(() => import("@/components/query/open-in-notebook-modal").then(m => ({ default: m.OpenInNotebookModal })), { ssr: false })
 import { useToast } from "@/lib/toast"
 
 interface QueryResult {
@@ -52,7 +58,6 @@ export default function QueryPage() {
   const [schemaWidth, setSchemaWidth]       = useState(224)
   const [editorHeight, setEditorHeight]     = useState(240)
   const [trinoStatus, setTrinoStatus]       = useState<"healthy" | "unhealthy" | "unknown">("unknown")
-  const [catalogs, setCatalogs]             = useState<string[]>([])
 
   // AI Assistant
   const [aiQuestion, setAiQuestion]         = useState("")
@@ -63,7 +68,7 @@ export default function QueryPage() {
   const isResizingEditor   = useRef(false)
   const { toast } = useToast()
 
-  // Fetch actual engine status and catalogs on mount
+  // Fetch engine status on mount
   useEffect(() => {
     fetch("/api/services")
       .then(r => r.json())
@@ -72,16 +77,6 @@ export default function QueryPage() {
         setTrinoStatus((trino?.status as "healthy" | "unhealthy" | "unknown") ?? "unknown")
       })
       .catch(() => setTrinoStatus("unknown"))
-
-    fetch("/api/catalog/schemas")
-      .then(r => r.json())
-      .then(data => {
-        const names = (data.catalogs ?? [])
-          .map((c: { name: string }) => c.name)
-          .filter((n: string) => n !== "system")
-        setCatalogs(names)
-      })
-      .catch(() => {})
   }, [])
 
   // ── Schema panel horizontal resize ──────────────────────────────────────────
@@ -415,18 +410,13 @@ export default function QueryPage() {
                 <Badge
                   variant="outline"
                   className="text-[10px] h-4 px-1.5 font-normal gap-1"
-                  title={`Query engine: Trino (${trinoStatus})\nCatalogs: ${catalogs.join(", ") || "loading..."}`}
+                  title={`Query engine: Trino (${trinoStatus})`}
                 >
                   <span className={`h-1.5 w-1.5 rounded-full inline-block ${
                     trinoStatus === "healthy" ? "bg-emerald-500" :
                     trinoStatus === "unhealthy" ? "bg-red-500" : "bg-yellow-400"
                   }`} />
                   Trino
-                  {catalogs.length > 0 && (
-                    <span className="text-muted-foreground">
-                      · {catalogs.join(", ")}
-                    </span>
-                  )}
                 </Badge>
               </div>
               <div className="flex items-center gap-0.5">

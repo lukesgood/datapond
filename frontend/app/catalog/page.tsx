@@ -19,6 +19,8 @@ import { Search, Database, FolderOpen } from "lucide-react"
 interface Table {
   name: string
   namespace: string
+  catalog: string
+  catalog_type: string
   table_type: string
   last_updated?: string
 }
@@ -140,7 +142,7 @@ export default function CatalogPage() {
       <div>
         <h2 className="text-3xl font-bold tracking-tight">Data Catalog</h2>
         <p className="text-muted-foreground">
-          Browse and explore Iceberg tables across all namespaces
+          Browse and explore tables registered in the Lakehouse catalog
         </p>
       </div>
 
@@ -224,9 +226,11 @@ export default function CatalogPage() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filteredTables.map((table) => (
               <TableCard
-                key={`${table.namespace}.${table.name}`}
+                key={`${table.catalog}.${table.namespace}.${table.name}`}
                 name={table.name}
                 namespace={table.namespace}
+                catalog={table.catalog}
+                catalogType={table.catalog_type}
                 tableType={table.table_type}
                 lastUpdated={table.last_updated}
               />
