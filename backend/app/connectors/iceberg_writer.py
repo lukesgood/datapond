@@ -109,14 +109,7 @@ def write_dataframe_to_iceberg(
         step("drop", f"Dropped {tbl_name}", action="done")
 
     if not exists:
-        table = cat.create_table(ident, schema=arrow.schema)
-        spec_def = partition_spec if partition_spec is not None else infer_default_partition(arrow.schema)
-        if spec_def:
-            applied = apply_partition_spec(table, spec_def)
-            table = cat.load_table(ident)
-            step("create", f"Created {tbl_name} (partition={applied})", action="done")
-        else:
-            step("create", f"Created {tbl_name} (unpartitioned)", action="done")
+        table = _create_table_with_partition(cat, ident, arrow, partition_spec, step)
 
     # ── 2. append 모드: 스키마 진화 (신규 컬럼 union-by-name) ───────────────────
     if exists and mode == "append":
@@ -128,18 +121,36 @@ def write_dataframe_to_iceberg(
 
     # ── 3. 단일 커밋 쓰기 ──────────────────────────────────────────────────────
     rows = len(df)
-    # 테이블 스키마에 맞춰 컬럼 정렬 + 누락 컬럼 null 보충
-    write_arrow = _align_to_table(table, arrow)
-    # overwrite는 기존 데이터가 있을 때만 — 갓 생성/재생성된 빈 테이블은 append(불필요한 delete 스캔/경고 방지)
     if mode == "overwrite" and exists:
-        table.overwrite(write_arrow)
+        # 컬럼 정렬 후 overwrite. 타입 변경 등 스키마 비호환이면 drop 후 재생성(과거 동작 유지).
+        try:
+            table.overwrite(_align_to_table(table, arrow))
+        except Exception as e:
+            step("drop", f"Overwrite 비호환 ({e}) — {tbl_name} 재생성", action="drop")
+            cat.drop_table(ident)
+            table = _create_table_with_partition(cat, ident, arrow, partition_spec, step)
+            table.append(arrow)
     else:
-        table.append(write_arrow)
+        # 갓 생성/재생성된 빈 테이블 또는 append 모드
+        table.append(_align_to_table(table, arrow))
     step("insert", f"Wrote {rows:,} rows ({mode}, 1 commit)",
          rows_done=rows, rows_total=rows, pct=100)
 
     step("done", f"Wrote {rows} rows → {fqtn}", rows=rows)
     return rows
+
+
+def _create_table_with_partition(cat, ident, arrow, partition_spec, step):
+    """테이블 생성 + 파티션 적용 후 (재)로드한 테이블 반환."""
+    table = cat.create_table(ident, schema=arrow.schema)
+    spec_def = partition_spec if partition_spec is not None else infer_default_partition(arrow.schema)
+    if spec_def:
+        applied = apply_partition_spec(table, spec_def)
+        table = cat.load_table(ident)
+        step("create", f"Created {ident[1]} (partition={applied})", action="done")
+    else:
+        step("create", f"Created {ident[1]} (unpartitioned)", action="done")
+    return table
 
 
 # ── 헬퍼 ────────────────────────────────────────────────────────────────────
@@ -168,20 +179,22 @@ def _evolve_schema(table, arrow: pa.Table, step) -> list[str]:
 
 def _align_to_table(table, arrow: pa.Table) -> pa.Table:
     """
-    테이블 스키마 기준으로 arrow 컬럼을 정렬하고, 누락 컬럼은 null로 채운다.
-    (append 시 일부 컬럼이 없는 배치를 안전하게 쓰기 위함.)
+    테이블 스키마 기준으로 arrow 컬럼을 정렬하고, 누락 컬럼은 해당 필드 타입의 null로 채운다.
+    (append 시 일부 컬럼이 없는 배치를 안전하게 쓰기 위함. 누락 컬럼을 type=null로 채우면
+    PyIceberg append가 스키마 비호환으로 거부하므로 반드시 필드 타입을 지정한다.)
     """
-    table_names = [f.name for f in table.schema().fields]
+    from pyiceberg.io.pyarrow import schema_to_pyarrow
+    table_schema = schema_to_pyarrow(table.schema())
+    table_names = [f.name for f in table_schema]
     incoming = set(arrow.schema.names)
     if list(arrow.schema.names) == table_names:
         return arrow
     cols = {name: arrow.column(name) for name in arrow.schema.names}
     n = arrow.num_rows
-    arrays, names = [], []
-    for name in table_names:
-        names.append(name)
-        if name in incoming:
-            arrays.append(cols[name])
+    arrays = []
+    for field in table_schema:
+        if field.name in incoming:
+            arrays.append(cols[field.name])
         else:
-            arrays.append(pa.nulls(n))
-    return pa.table(arrays, names=names)
+            arrays.append(pa.nulls(n, type=field.type))
+    return pa.table(arrays, names=table_names)

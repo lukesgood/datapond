@@ -54,7 +54,11 @@ def apply_partition_spec(tbl, spec_def: list[dict]) -> str:
                     logger.warning(f"[partitioning] 알 수 없는 transform '{transform_name}' — 건너뜀")
                     continue
                 transform = transform_cls()
-            us.add_field(col, transform, f"{col}_{transform_name}")
+            # 파티션 필드명이 기존 데이터 컬럼과 충돌하지 않도록 보정
+            part_name = f"{col}_{transform_name}"
+            while part_name in existing_cols:
+                part_name += "_part"
+            us.add_field(col, transform, part_name)
     return str(tbl.spec())
 
 

@@ -649,6 +649,7 @@ class DatabaseURLConnector(BaseConnector):
         incremental_column: Optional[str] = None,
         last_value: Optional[Any] = None,
         on_step=None,
+        partition_spec: Optional[list] = None,
     ) -> SyncJobStatus:
         """Sync table data to Iceberg via SeaweedFS S3 + Trino."""
         from .iceberg_writer import write_dataframe_to_iceberg

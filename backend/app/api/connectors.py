@@ -158,11 +158,10 @@ class SyncStatusResponse(BaseModel):
 # Database connection helper
 
 _db_pool = None
-_schema_ensured = False
 
 async def get_db_pool():
     """Get shared PostgreSQL connection pool (singleton)"""
-    global _db_pool, _schema_ensured
+    global _db_pool
     if _db_pool is None or _db_pool._closed:
         _db_pool = await asyncpg.create_pool(
             host=os.getenv("POSTGRES_HOST", "postgres"),
@@ -173,18 +172,41 @@ async def get_db_pool():
             min_size=2,
             max_size=10,
         )
-        _schema_ensured = False
-    if not _schema_ensured:
-        # 기존 DB 마이그레이션: CREATE TABLE IF NOT EXISTS는 컬럼을 추가하지 않으므로 멱등 ALTER
+        # 풀 생성 시 1회 멱등 마이그레이션 (CREATE TABLE IF NOT EXISTS는 컬럼을 추가하지 않음).
+        # 실패해도 무시하되, 매 호출이 아닌 풀 재생성 시에만 재시도한다.
         try:
             async with _db_pool.acquire() as conn:
                 await conn.execute(
                     "ALTER TABLE connector_sync_jobs ADD COLUMN IF NOT EXISTS partition_spec JSONB"
                 )
-            _schema_ensured = True
         except Exception as e:
             logger.warning(f"[connectors] partition_spec 컬럼 ensure 실패(무시): {e}")
     return _db_pool
+
+
+def _parse_partition_spec(raw):
+    """JSONB partition_spec 값을 list|None으로 정규화. []('무파티션')도 그대로 보존한다.
+
+    asyncpg는 기본적으로 JSONB를 str로 반환하지만(codec 미등록), codec이 등록된 환경에서는
+    list를 반환할 수 있으므로 두 경우를 모두 처리한다. None(자동 추론)과 [](무파티션)을
+    구분하기 위해 호출부는 falsy 검사 대신 이 함수를 사용한다.
+    """
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw) if isinstance(raw, str) else raw
+    except (ValueError, TypeError):
+        return None
+
+
+async def _load_partition_spec(pool, connection_id: str, table: str):
+    """connector_sync_jobs에서 테이블의 partition_spec을 읽어 list|None으로 반환."""
+    async with pool.acquire() as conn:
+        raw = await conn.fetchval(
+            "SELECT partition_spec FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
+            uuid.UUID(connection_id), table
+        )
+    return _parse_partition_spec(raw)
 
 
 # Credential vault instance
@@ -1263,14 +1285,8 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                     })
                 await asyncio.sleep(0)
 
-                # Per-table 파티션 spec (JSONB) — 미설정 시 None → writer가 자동 추론
-                partition_spec = None
-                if job and job['partition_spec']:
-                    raw = job['partition_spec']
-                    try:
-                        partition_spec = json.loads(raw) if isinstance(raw, str) else raw
-                    except (ValueError, TypeError):
-                        partition_spec = None
+                # Per-table 파티션 spec (JSONB) — None=자동 추론, []=무파티션(둘을 구분 보존)
+                partition_spec = _parse_partition_spec(job['partition_spec']) if job else None
 
                 # Collect sub-steps from iceberg_writer via callback queue
                 step_queue: list[dict] = []
@@ -1508,7 +1524,8 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
                     source_table=table,
                     target_table=target,
                     sync_mode=request.sync_mode,
-                    incremental_column=request.incremental_column
+                    incremental_column=request.incremental_column,
+                    partition_spec=await _load_partition_spec(pool, connection_id, table),
                 )
                 total_rows += status.rows_processed
                 last_status = status
@@ -1544,14 +1561,15 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
         # Sync a specific table
         source_table = request.source_table
         target_table = request.target_table or f"datapond.default.{source_table}"
+        pool = await get_db_pool()
         status = await connector.sync_to_iceberg(
             source_table=source_table,
             target_table=target_table,
             sync_mode=request.sync_mode,
-            incremental_column=request.incremental_column
+            incremental_column=request.incremental_column,
+            partition_spec=await _load_partition_spec(pool, connection_id, source_table),
         )
         job_id = str(uuid.uuid4())
-        pool = await get_db_pool()
         async with pool.acquire() as conn:
             await conn.execute('''
                 INSERT INTO connector_sync_jobs

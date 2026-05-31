@@ -65,31 +65,33 @@ def test_infer_default_partition_none():
     assert infer_default_partition(schema) == []
 
 
-class _FakeField:
-    def __init__(self, name): self.name = name
-
-
-class _FakeSchema:
-    def __init__(self, names): self.fields = [_FakeField(n) for n in names]
+from pyiceberg.schema import Schema
+from pyiceberg.types import NestedField, LongType, DoubleType, StringType
 
 
 class _FakeTable:
-    """_align_to_table는 table.schema().fields만 사용 → 최소 더블로 충분."""
-    def __init__(self, names): self._names = names
-    def schema(self): return _FakeSchema(self._names)
+    """_align_to_table는 table.schema()(iceberg Schema)만 사용 → 실제 Schema로 더블 구성."""
+    def __init__(self, fields):
+        # fields: list of (name, iceberg_type)
+        self._schema = Schema(*[
+            NestedField(i + 1, n, t, required=False) for i, (n, t) in enumerate(fields)
+        ])
+    def schema(self): return self._schema
 
 
 def test_align_reorders_and_fills_missing_with_null():
-    table = _FakeTable(["id", "amount", "region"])
-    arrow = pa.table({"amount": pa.array([1.0, 2.0]), "id": pa.array([1, 2])})  # region 없음, 순서 다름
+    table = _FakeTable([("id", LongType()), ("amount", DoubleType()), ("region", StringType())])
+    arrow = pa.table({"amount": pa.array([1.0, 2.0]), "id": pa.array([1, 2], type=pa.int64())})  # region 없음, 순서 다름
     out = _align_to_table(table, arrow)
     assert out.schema.names == ["id", "amount", "region"]
+    # 누락 컬럼은 null이되, type=null이 아니라 필드 타입(string)으로 채워져야 함
     assert out.column("region").null_count == 2
+    assert not pa.types.is_null(out.schema.field("region").type)
     assert out.column("id").to_pylist() == [1, 2]
 
 
 def test_align_noop_when_already_matching():
-    table = _FakeTable(["id", "amount"])
-    arrow = pa.table({"id": pa.array([1]), "amount": pa.array([1.0])})
+    table = _FakeTable([("id", LongType()), ("amount", DoubleType())])
+    arrow = pa.table({"id": pa.array([1], type=pa.int64()), "amount": pa.array([1.0])})
     out = _align_to_table(table, arrow)
     assert out is arrow
