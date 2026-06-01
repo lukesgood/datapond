@@ -101,9 +101,13 @@ spec:
           value: "{{ .Values.airflow.auth.password }}"
         - name: AIRFLOW_DAGS_PATH
           value: "/opt/airflow/dags"
-        # AI provider configuration
+        # AI provider configuration (BYO-LLM)
+        # litellm 활성 시 co-located 게이트웨이를, 아니면 ai.llmEndpoint(외부/사내 LLM)를 가리킴.
+        # 둘 다 없으면 빈 값 → AI 비활성(템플릿 폴백, 불필요한 타임아웃 없음).
         - name: LITELLM_URL
-          value: "http://{{ .Values.litellm.name }}.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.litellm.service.port }}"
+          value: "{{ if .Values.litellm.enabled }}http://{{ .Values.litellm.name }}.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.litellm.service.port }}{{ else }}{{ .Values.ai.llmEndpoint }}{{ end }}"
+        - name: LITELLM_MODEL
+          value: "{{ .Values.ai.llmModel | default "default" }}"
         - name: OPENMETADATA_URL
           value: "http://openmetadata-server.{{ .Values.namespace }}.svc.cluster.local:8585"
         {{- if .Values.backend.env }}
