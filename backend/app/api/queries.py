@@ -33,7 +33,9 @@ if trino_port_str.startswith("tcp://"):
 else:
     TRINO_PORT = int(trino_port_str)
 TRINO_USER = os.getenv("TRINO_USER", "datapond")
-TRINO_CATALOG = os.getenv("TRINO_CATALOG", "polaris")
+# Trino 카탈로그명은 'iceberg'(Polaris REST 카탈로그). writer/ai_sql/catalog/quality와 통일.
+# (과거 'polaris' 기본값은 Trino에 없는 카탈로그라 SHOW/USE/비수식 쿼리가 깨졌음)
+TRINO_CATALOG = os.getenv("TRINO_CATALOG", "iceberg")
 TRINO_SCHEMA = os.getenv("TRINO_SCHEMA", "default")
 QUERY_TIMEOUT_SECONDS = 30
 MAX_ROWS = 1000
@@ -397,7 +399,7 @@ async def get_catalog_schemas():
         if "connection" in str(e).lower() or "refused" in str(e).lower():
             return CatalogTree(catalogs=[
                 Catalog(
-                    name="polaris",
+                    name="iceberg",
                     catalog_type="managed",
                     schemas=[
                         CatalogSchema(
