@@ -239,5 +239,80 @@ class K8sClient:
         else:
             return "unhealthy"
 
+    def get_system_info(self) -> Dict[str, any]:
+        """
+        노드 사양/OS/런타임 + 컴포넌트 버전 + 스토리지(PVC) + 사용량.
+        블로킹 호출 — 엔드포인트에서 스레드로 오프로드해 호출한다.
+        """
+        info: Dict[str, any] = {"node": {}, "cluster": {}, "components": [], "storage": [], "usage": {}}
+
+        # ── 노드 사양/OS (backend pod가 떠 있는 노드) ──────────────────────────
+        try:
+            own_pod = self.core_v1.read_namespaced_pod(os.getenv("HOSTNAME", ""), self.namespace)
+            node = self.core_v1.read_node(own_pod.spec.node_name)
+            ni = node.status.node_info
+            cap = node.status.capacity or {}
+            info["node"] = {
+                "name": node.metadata.name,
+                "os": ni.os_image,
+                "kernel": ni.kernel_version,
+                "arch": ni.architecture,
+                "container_runtime": ni.container_runtime_version,
+                "kubelet": ni.kubelet_version,
+                "cpu_cores": int(self._parse_cpu_nano(cap.get("cpu", "0")) / 1_000_000_000),
+                "memory_gb": round(self._parse_mem_bytes(cap.get("memory", "0Ki")) / (1024 ** 3), 1),
+                "ephemeral_storage_gb": round(self._parse_mem_bytes(cap.get("ephemeral-storage", "0Ki")) / (1024 ** 3), 1),
+                "max_pods": int(cap.get("pods", "0")),
+            }
+            info["cluster"] = {"kubernetes": ni.kubelet_version}
+        except Exception as e:
+            logger.warning(f"node info unavailable: {e}")
+
+        # ── Pod 요약 ──────────────────────────────────────────────────────────
+        try:
+            pods = self._get_all_pods_cached()
+            info["cluster"]["pods_running"] = sum(1 for p in pods if p.status.phase == "Running")
+            info["cluster"]["pods_total"] = len(pods)
+        except Exception as e:
+            logger.warning(f"pod summary unavailable: {e}")
+
+        # ── 컴포넌트/이미지 버전 ──────────────────────────────────────────────
+        try:
+            comps = []
+            for d in self.apps_v1.list_namespaced_deployment(self.namespace).items:
+                comps.append({"name": d.metadata.name, "kind": "Deployment",
+                              "image": d.spec.template.spec.containers[0].image,
+                              "replicas": f"{d.status.ready_replicas or 0}/{d.spec.replicas or 0}"})
+            for s in self.apps_v1.list_namespaced_stateful_set(self.namespace).items:
+                comps.append({"name": s.metadata.name, "kind": "StatefulSet",
+                              "image": s.spec.template.spec.containers[0].image,
+                              "replicas": f"{s.status.ready_replicas or 0}/{s.spec.replicas or 0}"})
+            info["components"] = sorted(comps, key=lambda c: c["name"])
+        except Exception as e:
+            logger.warning(f"components unavailable: {e}")
+
+        # ── 영속 스토리지(PVC) ────────────────────────────────────────────────
+        try:
+            pvcs = self.core_v1.list_namespaced_persistent_volume_claim(self.namespace)
+            info["storage"] = sorted([
+                {"name": p.metadata.name,
+                 "capacity": (p.status.capacity or {}).get("storage", "-"),
+                 "status": p.status.phase,
+                 "storage_class": p.spec.storage_class_name}
+                for p in pvcs.items
+            ], key=lambda x: x["name"])
+        except Exception as e:
+            logger.warning(f"PVC info unavailable: {e}")
+
+        # ── 실시간 사용량 ─────────────────────────────────────────────────────
+        try:
+            cpu_pct, mem_pct = self._get_node_metrics()
+            info["usage"] = {"cpu_percent": cpu_pct, "memory_percent": mem_pct}
+        except Exception:
+            pass
+
+        return info
+
+
 # Global instance
 k8s_client = K8sClient()

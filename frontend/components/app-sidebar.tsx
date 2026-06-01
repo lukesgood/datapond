@@ -3,7 +3,7 @@
 import {
   Home, Database, FlaskConical, Code2, Settings, Activity,
   Workflow, BarChart3, BookOpen, HelpCircle, FileCode,
-  HardDrive, Radio, ArrowDownToLine, ShieldCheck, LogOut, User, GitBranch,
+  HardDrive, Radio, ArrowDownToLine, ShieldCheck, LogOut, User, GitBranch, Server,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
@@ -53,6 +53,7 @@ const mainSections = [
     hint: "",
     items: [
       { title: "Services",     url: "/services",                           icon: Activity },
+      { title: "System",       url: "/system",                             icon: Server },
       { title: "Storage",      url: "/storage",                            icon: HardDrive },
       { title: "Governance",   url: "/governance",                          icon: ShieldCheck },
       { title: "Settings",     url: "/settings",                           icon: Settings },
