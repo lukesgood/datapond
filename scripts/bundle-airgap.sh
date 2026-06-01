@@ -14,10 +14,11 @@ BUNDLE_NAME="datapond-airgap-${DATAPOND_VERSION}-$(date +%Y%m%d).tar.gz"
 BUNDLE_PATH="${OUTPUT_DIR}/${BUNDLE_NAME}"
 WORKDIR=$(mktemp -d)
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; NC='\033[0m'
-log() { echo -e "${BLUE}[•]${NC} $*"; }
-ok()  { echo -e "${GREEN}[✓]${NC} $*"; }
-die() { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
+log()  { echo -e "${BLUE}[•]${NC} $*"; }
+ok()   { echo -e "${GREEN}[✓]${NC} $*"; }
+warn() { echo -e "${YELLOW}[!]${NC} $*" >&2; }
+die()  { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
 
 cleanup() { rm -rf "$WORKDIR"; }
 trap cleanup EXIT
@@ -42,30 +43,60 @@ docker build -t "datapond/frontend:${DATAPOND_VERSION}" "$PROJECT_ROOT/frontend/
 docker save "datapond/frontend:${DATAPOND_VERSION}" -o "$WORKDIR/images/frontend.tar"
 ok "Frontend image saved"
 
-# ─── Pull third-party images ─────────────────────────────────────────────────
-log "Pulling third-party images (this may take a while)..."
+# ─── Derive image list from the actual chart (single source of truth) ─────────
+# 하드코딩 배열 대신 helm template으로 실제 차트가 쓰는 이미지를 추출 → 항상 정합.
+# (이전 하드코딩은 차트와 불일치해 redis≠valkey, opensearch≠elasticsearch 등으로 깨졌음)
+command -v helm &>/dev/null || die "Helm required to derive image list from chart"
 
-# Read image list from values.yaml
-THIRD_PARTY_IMAGES=(
-  "postgres:16-alpine"
-  "redis:7-alpine"
-  "apache/airflow:2.8.1"
-  "ghcr.io/projectpolaris/polaris:0.5.0"
-  "trinodb/trino:435"
-  "datapond/jupyter:latest"
-  "mlflow/mlflow:2.10.2"
-  "ghcr.io/risingwavelabs/risingwave:v1.6.0"
-  "opensearchproject/opensearch:2.11.0"
-  "open-metadata/server:1.2.0"
+VALUES_FILE="${VALUES_FILE:-$PROJECT_ROOT/helm/datapond/values-onprem.yaml}"
+log "Deriving image list from chart ($VALUES_FILE)..."
+
+# coredns 템플릿이 요구하는 clusterIP는 렌더 통과용 placeholder로만 주입(번들엔 영향 없음)
+mapfile -t ALL_IMAGES < <(
+  helm template datapond "$PROJECT_ROOT/helm/datapond" \
+    --values "$VALUES_FILE" \
+    --set seaweedfs.s3.clusterIP=10.0.0.1 2>/dev/null \
+  | grep -E '^[[:space:]]*image:' \
+  | sed -E 's/^[[:space:]]*image:[[:space:]]*//; s/^"//; s/"$//' \
+  | grep -v '{{' \
+  | sort -u
 )
+[[ ${#ALL_IMAGES[@]} -gt 0 ]] || die "Failed to derive images from chart (helm template returned nothing)"
 
+# datapond/* 는 위에서 직접 빌드하므로 제외
+THIRD_PARTY_IMAGES=()
+for img in "${ALL_IMAGES[@]}"; do
+  [[ -z "$img" ]] && continue
+  [[ "$img" == datapond/* ]] && continue
+  THIRD_PARTY_IMAGES+=("$img")
+done
+log "Found ${#THIRD_PARTY_IMAGES[@]} third-party images in chart"
+
+# ─── Pull & save third-party images, recording exact digests (bundle freeze) ──
+log "Pulling third-party images (this may take a while)..."
+IMAGES_MANIFEST="$WORKDIR/images-digests.txt"
+: > "$IMAGES_MANIFEST"
+MISSING=()
 for image in "${THIRD_PARTY_IMAGES[@]}"; do
-  safe_name=$(echo "$image" | tr '/: ' '___')
+  safe_name=$(echo "$image" | tr '/:@ ' '____')
   log "Pulling $image..."
-  docker pull "$image" 2>/dev/null || { echo "  [warn] Skipped: $image"; continue; }
+  if ! docker pull "$image" 2>/dev/null; then
+    echo "  [warn] FAILED: $image" >&2
+    MISSING+=("$image")
+    continue
+  fi
   docker save "$image" -o "$WORKDIR/images/${safe_name}.tar"
+  # 빌드시점 digest 기록 → moving/latest 태그라도 번들은 정확히 freeze됨(재현성)
+  digest=$(docker inspect --format '{{ index .RepoDigests 0 }}' "$image" 2>/dev/null || echo "$image")
+  echo "$image -> $digest" >> "$IMAGES_MANIFEST"
   ok "Saved: $image"
 done
+
+# 누락 이미지가 있으면 에어갭 설치가 깨지므로 명확히 실패시킴(silent skip 금지)
+if [[ ${#MISSING[@]} -gt 0 ]]; then
+  die "Pull 실패로 번들 불완전 — 에어갭 설치 시 기동 실패함: ${MISSING[*]}"
+fi
+ok "All ${#THIRD_PARTY_IMAGES[@]} third-party images saved (digests → images-digests.txt)"
 
 # ─── Pull K3s installer ───────────────────────────────────────────────────────
 log "Downloading K3s installer..."
@@ -133,8 +164,9 @@ Created: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 Host: $(hostname)
 
 Contents:
-  images/         Container images (*.tar)
-  helm/           Helm chart
+  images/             Container images (*.tar)
+  images-digests.txt  빌드시점 이미지 digest(재현성 기록)
+  helm/               Helm chart
   scripts/        Installation scripts
   install.sh      Main installer entrypoint
   k3s-binary      K3s binary (offline install)
