@@ -299,6 +299,30 @@ def _pod_metrics_blocking() -> dict:
     return asyncio.run(k8s_client.get_pod_metrics())
 
 
+_sysinfo_cache: dict = {"data": None, "ts": 0.0}
+_SYSINFO_TTL = 15.0
+
+
+@app.get("/api/system/info")
+async def get_system_info():
+    """서버 시스템 정보·사양 (노드 스펙/OS/컴포넌트 버전/스토리지/사용량).
+
+    블로킹 k8s 호출을 스레드 오프로드 + 타임아웃 + 캐시 + 오류허용으로 안전하게 노출.
+    """
+    now = time.monotonic()
+    if _sysinfo_cache["data"] is not None and now - _sysinfo_cache["ts"] < _SYSINFO_TTL:
+        return _sysinfo_cache["data"]
+    try:
+        data = await asyncio.wait_for(asyncio.to_thread(k8s_client.get_system_info), timeout=_K8S_TIMEOUT)
+        _sysinfo_cache.update(data=data, ts=now)
+        return data
+    except Exception as e:
+        _log.warning(f"[/api/system/info] 조회 실패/지연: {e}")
+        if _sysinfo_cache["data"] is not None:
+            return _sysinfo_cache["data"]
+        return {"node": {}, "cluster": {}, "components": [], "storage": [], "usage": {}}
+
+
 @app.get("/api/trino/catalogs")
 async def get_trino_catalogs():
     """Get Trino catalogs"""

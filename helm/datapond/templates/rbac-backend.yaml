@@ -1,0 +1,38 @@
+{{- if .Values.backend.enabled }}
+# 백엔드 System 정보(/api/system/info) + 서비스 상태 조회용 RBAC.
+# 기존 out-of-band Role과 충돌하지 않도록 별도 이름으로 추가(additive)한다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: datapond-backend-reader
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.backend.name }}
+    app.kubernetes.io/component: backend
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: datapond-backend-reader-binding
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.backend.name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.backend.serviceAccountName | default "backend" }}
+    namespace: {{ .Values.namespace }}
+roleRef:
+  kind: Role
+  name: datapond-backend-reader
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
