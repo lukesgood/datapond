@@ -8,7 +8,12 @@ from pydantic import BaseModel
 from typing import List, Optional
 import httpx
 import os
+import asyncio
+import time
+import logging
 from k8s_client import k8s_client
+
+_log = logging.getLogger(__name__)
 from app.api.queries import router as queries_router
 from app.api.catalog import router as catalog_router
 from app.api.connectors import router as connectors_router
@@ -202,62 +207,96 @@ async def api_health_check():
     return {"status": "healthy"}
 
 
+# API name → K8s app label
+SERVICE_MAPPINGS = {
+    "postgres": "postgres", "mlflow": "mlflow", "jupyterlab": "jupyterlab",
+    "trino": "trino", "risingwave": "risingwave", "openmetadata": "openmetadata",
+    "seaweedfs": "seaweedfs", "polaris": "polaris", "valkey": "valkey",
+}
+
+# 대시보드가 자주 폴링하므로 짧은 TTL 캐시 + 스레드 오프로드로 견고화.
+# 블로킹 k8s 호출(list_namespaced_pod / kubectl top)을 이벤트 루프에서 직접 실행하면
+# k8s API가 느릴 때 백엔드 전체가 멈추고 liveness 실패→재시작→502 연쇄가 발생한다.
+_K8S_TIMEOUT = 6.0
+_SERVICES_TTL = 8.0
+_services_cache: dict = {"data": None, "ts": 0.0}
+_stats_cache: dict = {"data": None, "ts": 0.0}
+
+
+def _compute_services_sync() -> List[ServiceStatus]:
+    """단일 pod 목록 캐시에서 서비스별 상태 산출 (블로킹 — 스레드에서 실행)."""
+    pods = k8s_client._get_all_pods_cached()
+    by_app: dict = {}
+    for pod in pods:
+        labels = (pod.metadata.labels or {})
+        app = labels.get("app") or labels.get("app.kubernetes.io/name")
+        if app:
+            by_app.setdefault(app, []).append(pod)
+
+    out = []
+    for name, k8s_name in SERVICE_MAPPINGS.items():
+        sp = by_app.get(k8s_name, [])
+        if not sp:
+            status = "unknown"
+        else:
+            all_running = all((p.status.phase == "Running") for p in sp)
+            all_ready = all(k8s_client._is_pod_ready(p) for p in sp)
+            status = "healthy" if (all_running and all_ready) else "unhealthy"
+        out.append(ServiceStatus(
+            name=name, status=status, url=SERVICES.get(name),
+            version="Running" if sp else None,
+        ))
+    return out
+
+
+def _degraded_services() -> List[ServiceStatus]:
+    return [ServiceStatus(name=n, status="unknown", url=SERVICES.get(n)) for n in SERVICE_MAPPINGS]
+
+
 @app.get("/api/services", response_model=List[ServiceStatus])
 async def get_services():
-    """Get status of all DataPond services from K8s"""
-    services_status = []
-
-    # Service name mapping (API name -> K8s label)
-    service_mappings = {
-        "postgres": "postgres",
-        "mlflow": "mlflow",
-        "jupyterlab": "jupyterlab",
-        "trino": "trino",
-        "risingwave": "risingwave",
-        "openmetadata": "openmetadata",
-        "seaweedfs": "seaweedfs",
-        "polaris": "polaris",
-        "valkey": "valkey"
-    }
-
-    for name, k8s_name in service_mappings.items():
-        status = await k8s_client.get_service_health(k8s_name)
-        pods = await k8s_client.get_service_pods(k8s_name)
-
-        # Get version from pod labels if available
-        version = None
-        if pods:
-            # Mark as running if we have pods
-            version = "Running"
-
-        services_status.append(ServiceStatus(
-            name=name,
-            status=status,
-            url=SERVICES.get(name),
-            version=version
-        ))
-
-    return services_status
+    """Get status of all DataPond services from K8s (캐시 + 타임아웃 + 오류허용)."""
+    now = time.monotonic()
+    if _services_cache["data"] is not None and now - _services_cache["ts"] < _SERVICES_TTL:
+        return _services_cache["data"]
+    try:
+        result = await asyncio.wait_for(asyncio.to_thread(_compute_services_sync), timeout=_K8S_TIMEOUT)
+        _services_cache.update(data=result, ts=now)
+        return result
+    except Exception as e:
+        _log.warning(f"[/api/services] k8s 조회 실패/지연 — 캐시/degraded 반환: {e}")
+        return _services_cache["data"] if _services_cache["data"] is not None else _degraded_services()
 
 
 @app.get("/api/dashboard/stats", response_model=DashboardStats)
 async def get_dashboard_stats():
-    """Get dashboard statistics from real K8s metrics"""
-    # Get K8s metrics
-    k8s_metrics = await k8s_client.get_pod_metrics()
+    """Get dashboard statistics from real K8s metrics (캐시 + 타임아웃 + 오류허용)."""
+    now = time.monotonic()
+    if _stats_cache["data"] is not None and now - _stats_cache["ts"] < _SERVICES_TTL:
+        return _stats_cache["data"]
 
-    # Get service health
-    services = await get_services()
+    services = await get_services()  # 자체적으로 캐시/오류허용
     healthy = sum(1 for s in services if s.status == "healthy")
     unhealthy = sum(1 for s in services if s.status == "unhealthy")
 
-    return DashboardStats(
-        total_services=len(services),
-        healthy_services=healthy,
-        unhealthy_services=unhealthy,
-        cpu_usage=k8s_metrics["cpu_usage_percent"],
-        memory_usage=k8s_metrics["memory_usage_percent"]
+    cpu = mem = None
+    try:
+        m = await asyncio.wait_for(asyncio.to_thread(_pod_metrics_blocking), timeout=_K8S_TIMEOUT)
+        cpu, mem = m.get("cpu_usage_percent"), m.get("memory_usage_percent")
+    except Exception as e:
+        _log.warning(f"[/api/dashboard/stats] 메트릭 조회 실패/지연 — 메트릭 생략: {e}")
+
+    stats = DashboardStats(
+        total_services=len(services), healthy_services=healthy,
+        unhealthy_services=unhealthy, cpu_usage=cpu, memory_usage=mem,
     )
+    _stats_cache.update(data=stats, ts=now)
+    return stats
+
+
+def _pod_metrics_blocking() -> dict:
+    """get_pod_metrics(async-but-blocking)를 워커 스레드의 별도 루프에서 실행."""
+    return asyncio.run(k8s_client.get_pod_metrics())
 
 
 @app.get("/api/trino/catalogs")
