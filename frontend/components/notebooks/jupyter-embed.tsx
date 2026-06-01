@@ -5,6 +5,7 @@ import { X, ExternalLink, Maximize2, Minimize2 } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { serviceUrls } from "@/lib/urls"
 
 interface JupyterEmbedProps {
   notebook: {
@@ -25,7 +26,7 @@ export function JupyterEmbed({ notebook, open, onClose }: JupyterEmbedProps) {
 
   if (!notebook) return null
 
-  const jupyterUrl = `http://datapond.local/jupyter/lab/tree${notebook.path}?token=jupyter`
+  const jupyterUrl = `${serviceUrls.jupyter()}/lab/tree${notebook.path}?token=jupyter`
 
   const openInNewTab = () => {
     window.open(jupyterUrl, "_blank")

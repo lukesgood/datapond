@@ -835,7 +835,8 @@ async def log_query_to_mlflow(request: LogQueryRequest):
 
         client.set_terminated(run_id, status="FINISHED")
 
-        mlflow_url = f"{MLFLOW_TRACKING_URI.replace('mlflow.datapond.svc.cluster.local:5000', 'datapond.local/mlflow')}/#/experiments/{request.experiment_id}/runs/{run_id}"
+        # 상대경로 — 브라우저가 현재 호스트 기준으로 해석(도메인 무관). 프론트는 href로 직접 사용.
+        mlflow_url = f"/mlflow/#/experiments/{request.experiment_id}/runs/{run_id}"
 
         return LogQueryResponse(
             run_id=run_id,
