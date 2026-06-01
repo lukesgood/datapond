@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { serviceUrls } from "@/lib/urls"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -330,7 +331,7 @@ export default function CatalogHelpPage() {
             <CheckCircle2 className="h-4 w-4" />
             <AlertTitle>Lineage not showing</AlertTitle>
             <AlertDescription>
-              Lineage collection may be delayed (up to 15 minutes). Ensure OpenMetadata ingestion is running. Check OpenMetadata UI at <code className="bg-muted px-1 py-0.5 rounded">datapond.local/openmetadata</code>.
+              Lineage collection may be delayed (up to 15 minutes). Ensure OpenMetadata ingestion is running. Check OpenMetadata UI at <code className="bg-muted px-1 py-0.5 rounded">{serviceUrls.openmetadata()}</code>.
             </AlertDescription>
           </Alert>
         </CardContent>

@@ -12,6 +12,7 @@ import {
   FileCode, Loader2, ExternalLink, CheckCircle2,
   Database, FlaskConical, BarChart2, Code2,
 } from "lucide-react"
+import { serviceUrls } from "@/lib/urls"
 
 interface Props {
   open: boolean
@@ -193,7 +194,7 @@ function buildNotebookCells(
         "    \n",
         "    run_id = mlflow.active_run().info.run_id\n",
         "    print(f'✓ Run logged: {run_id}')\n",
-        "    print(f'  View: http://datapond.local/mlflow/#/experiments')",
+        `    print(f'  View: ${serviceUrls.mlflow()}/#/experiments')`,
       ].join(""),
       metadata: {},
       outputs: [],
@@ -255,7 +256,7 @@ export function OpenInNotebookModal({
   const handleOpen = () => {
     if (createdPath) {
       window.open(
-        `http://datapond.local/jupyter/lab/tree/${encodeURIComponent(createdPath)}`,
+        `${serviceUrls.jupyter()}/lab/tree/${encodeURIComponent(createdPath)}`,
         "_blank"
       )
     }

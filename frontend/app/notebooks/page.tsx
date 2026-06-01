@@ -169,7 +169,7 @@ export default function NotebooksPage() {
     setNotebooks([newNotebook, ...notebooks])
     setNewNotebookName("")
     setShowCreateDialog(false)
-    window.open(`http://datapond.local/jupyter/lab/tree/${name}`, "_blank")
+    window.open(`${serviceUrls.jupyter()}/lab/tree/${name}`, "_blank")
   }
 
   const handleDeleteNotebook = async () => {
