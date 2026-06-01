@@ -28,8 +28,12 @@ metadata:
   labels:
     app: {{ .Values.backend.name }}
 subjects:
+  # backend 배포가 명시 SA를 안 쓰면 default SA로 실행되므로 둘 다 바인딩(환경별 차이 대응)
   - kind: ServiceAccount
-    name: {{ .Values.backend.serviceAccountName | default "backend" }}
+    name: {{ .Values.backend.serviceAccountName | default "default" }}
+    namespace: {{ .Values.namespace }}
+  - kind: ServiceAccount
+    name: backend
     namespace: {{ .Values.namespace }}
 roleRef:
   kind: Role
