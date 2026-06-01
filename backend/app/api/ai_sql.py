@@ -29,7 +29,9 @@ router = APIRouter()
 def _cfg():
     """Read provider config fresh from env each call so Settings UI changes apply immediately."""
     return {
-        "litellm_url":            os.getenv("LITELLM_URL", "http://litellm.datapond.svc.cluster.local:4000"),
+        # BYO-LLM: OpenAI 호환 LLM 엔드포인트. 비어 있으면 시도하지 않음(템플릿 폴백).
+        # 고객 사내 vLLM/Ollama/LiteLLM 또는 co-located LiteLLM(옵션)을 가리킨다.
+        "litellm_url":            os.getenv("LITELLM_URL", "").strip(),
         "litellm_model":          os.getenv("LITELLM_MODEL", "default"),
         "aws_bedrock_region":     os.getenv("AWS_BEDROCK_REGION", ""),
         "aws_access_key_id":      os.getenv("AWS_ACCESS_KEY_ID", ""),
@@ -193,18 +195,20 @@ async def generate_sql(req: AskRequest):
 
     cfg = _cfg()
 
-    # ── 1. LiteLLM proxy (Ollama / any configured model) ─────────────────────
-    try:
-        raw = await asyncio.to_thread(_call_litellm, system, messages)
-        data = _parse_response(raw)
-        return AskResponse(
-            sql=data["sql"].strip(),
-            explanation=data.get("explanation", ""),
-            has_ai=True,
-            provider=f"litellm:{cfg['litellm_model']}",
-        )
-    except Exception as e:
-        logger.warning(f"[ai_sql] LiteLLM unavailable: {e}")
+    # ── 1. LLM 엔드포인트 (OpenAI 호환 — BYO 또는 co-located LiteLLM) ──────────
+    # 미설정(빈 URL) 시 시도하지 않음 → 죽은 svc로의 불필요한 타임아웃 방지(BYO 기본).
+    if cfg["litellm_url"]:
+        try:
+            raw = await asyncio.to_thread(_call_litellm, system, messages)
+            data = _parse_response(raw)
+            return AskResponse(
+                sql=data["sql"].strip(),
+                explanation=data.get("explanation", ""),
+                has_ai=True,
+                provider=f"litellm:{cfg['litellm_model']}",
+            )
+        except Exception as e:
+            logger.warning(f"[ai_sql] LLM endpoint unavailable: {e}")
 
     # ── 2. AWS Bedrock direct ─────────────────────────────────────────────────
     if cfg["aws_bedrock_region"]:
@@ -244,15 +248,15 @@ async def generate_sql(req: AskRequest):
     return AskResponse(
         sql=(
             "-- AI SQL Assistant\n"
-            "-- No AI provider reachable. Configure one of:\n"
-            "--   LITELLM_URL          (LiteLLM proxy — default, on-prem/Ollama)\n"
+            "-- No LLM configured (BYO-LLM). Set an OpenAI-compatible endpoint:\n"
+            "--   LITELLM_URL          (사내 vLLM/Ollama/LiteLLM 등 — 권장)\n"
             "--   AWS_BEDROCK_REGION   (+ IAM credentials)\n"
             "--   ANTHROPIC_API_KEY    (direct Anthropic API)\n"
             "--\n"
             "-- Available tables:\n"
             f"{table_lines}"
         ),
-        explanation="No AI provider reachable. Set LITELLM_URL, AWS_BEDROCK_REGION, or ANTHROPIC_API_KEY.",
+        explanation="No LLM configured. Set LITELLM_URL (OpenAI-compatible endpoint), AWS_BEDROCK_REGION, or ANTHROPIC_API_KEY.",
         has_ai=False,
         provider="none",
     )

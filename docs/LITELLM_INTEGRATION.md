@@ -8,10 +8,24 @@
 
 ## 개요
 
-DataPond의 AI SQL Assistant는 LiteLLM 프록시를 통해 여러 LLM provider를 추상화합니다.
+DataPond의 AI SQL Assistant는 LiteLLM(OpenAI 호환) 추상화를 통해 LLM을 사용합니다.
 Query Lab에서 자연어로 입력하면 Trino SQL로 변환합니다.
 
 **API 엔드포인트**: `POST /api/ai/sql`
+
+### ⭐ BYO-LLM 기본 (Bring Your Own LLM)
+
+**DataPond는 LLM을 기본적으로 co-locate하지 않습니다.** 7B 모델은 4~8GB RAM + CPU 추론이
+무거워 lakehouse와 같은 노드(특히 단일/소형 노드)에 띄우면 자원·성능에 부담이 큽니다.
+
+- **기본**: `ai.llmEndpoint`(OpenAI 호환 base URL)를 **고객 사내 LLM**(vLLM/Ollama/LiteLLM 등)으로 설정.
+  - helm: `--set ai.llmEndpoint=http://my-llm.internal:8000`
+  - 또는 Settings UI → System → AI에서 엔드포인트 설정(런타임 즉시 반영).
+  - 비우면 AI(자연어 SQL)만 비활성(템플릿 폴백)되고 나머지 기능엔 영향 없음.
+- **옵션(co-located)**: `litellm.enabled`(인클러스터 게이트웨이) / `ollama.enabled`(모델 서버) — 기본 OFF.
+  GPU/여유 자원 보유 대규모 배포에서만, 가능하면 전용 노드에 스케줄.
+- **주권**: "내부망 LLM" = 내부 엔드포인트를 가리키는 것이지 lakehouse 노드에 co-locate하는 것이 아님.
+  BYO 엔드포인트를 사내 LLM으로 두면 데이터 주권을 지키면서 단일 노드 부담을 없앤다.
 
 ---
 

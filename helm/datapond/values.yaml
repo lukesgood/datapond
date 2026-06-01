@@ -642,9 +642,19 @@ openmetadata:
     enabled: true
     className: "org.openmetadata.service.clients.pipeline.airflow.AirflowRESTClient"
 
+# ── AI / LLM (BYO-LLM 기본) ───────────────────────────────────────────────────
+# DataPond는 LiteLLM 게이트웨이 추상화만 기본 제공하고, LLM 추론은 외부 엔드포인트에 위임한다.
+# 단일 노드에 무거운 모델(Ollama 7B 등)을 co-locate하지 않는다(자원·성능 부담).
+# ai.llmEndpoint를 고객 사내 OpenAI 호환 LLM(vLLM/Ollama/LiteLLM 등)으로 설정.
+# 비우면 AI(자연어 SQL)는 비활성(템플릿 폴백)되며 나머지 기능엔 영향 없음.
+ai:
+  llmEndpoint: ""        # OpenAI 호환 base URL. 예: http://my-llm.internal:8000  (co-located litellm 사용 시 자동 설정)
+  llmModel: "default"
+
 # LiteLLM — AI model proxy (OpenAI-compatible API)
+# 기본 OFF(BYO). co-located 게이트웨이가 필요할 때만 활성(멀티모델 라우팅/인클러스터 폴백).
 litellm:
-  enabled: true
+  enabled: false
   name: litellm
   replicas: 1
   image:
@@ -677,9 +687,12 @@ litellm:
           model: "ollama/qwen2.5-coder:7b"
           api_base: "http://ollama.datapond.svc.cluster.local:11434"
 
-# Ollama — local LLM runtime (on-prem / air-gap)
+# Ollama — co-located LLM runtime (옵션).
+# 기본 OFF: 7B 모델은 4~8GB RAM + CPU 추론이 무거워 단일/소형 노드에 부적합.
+# GPU 또는 여유 자원이 있는 대규모 배포에서만 활성화하고, 가능하면 전용 노드에 스케줄.
+# 대부분의 배포는 ai.llmEndpoint로 외부/전용 LLM을 가리키는 BYO 방식을 권장.
 ollama:
-  enabled: true
+  enabled: false
   name: ollama
   image:
     repository: ollama/ollama

@@ -292,26 +292,31 @@ openmetadata:
     persistence:
       size: 20Gi
 
-# ── LiteLLM — AI model proxy ──────────────────────────────────────────────────
-# On-prem: routes to local Ollama instance (air-gap friendly, no API keys needed)
+# ── AI / LLM (BYO-LLM 기본) ───────────────────────────────────────────────────
+# 온프렘 기본: 사내 OpenAI 호환 LLM 엔드포인트를 가리키는 BYO 방식.
+# 단일/소형 노드에 7B 모델을 co-locate하지 않는다(4~8GB RAM + CPU 추론 부담).
+# 아래 llmEndpoint를 사내 vLLM/Ollama/LiteLLM URL로 설정하면 AI(자연어 SQL) 활성화.
+ai:
+  llmEndpoint: ""        # 예: http://my-llm.internal:8000  (비우면 AI 비활성)
+  llmModel: "default"
+
+# ── LiteLLM — co-located 게이트웨이 (옵션, 기본 OFF) ──────────────────────────
+# 인클러스터 멀티모델 라우팅/폴백이 필요할 때만 활성. BYO면 불필요.
 litellm:
-  enabled: true
+  enabled: false
   config:
     model_list:
       - model_name: "default"
         litellm_params:
           model: "ollama/qwen2.5-coder:7b"
           api_base: "http://ollama.datapond.svc.cluster.local:11434"
-      - model_name: "chat"
-        litellm_params:
-          model: "ollama/qwen2.5-coder:7b"
-          api_base: "http://ollama.datapond.svc.cluster.local:11434"
 
-# ── Ollama — local LLM runtime ────────────────────────────────────────────────
-# Serves qwen2.5-coder:7b — strong SQL/code model, ~4GB, runs well on CPU
-# Model is auto-pulled from Docker Hub on first startup; cached in PVC thereafter
+# ── Ollama — co-located LLM runtime (옵션, 기본 OFF) ──────────────────────────
+# 7B 모델은 4~8GB RAM + CPU 추론이 무거워 단일 노드에 부적합(15GB 노드엔 스케줄 불가).
+# GPU/여유 자원 보유 대규모 배포에서만 활성화하고 가능하면 전용 노드에 스케줄.
+# ⚠️ 에어갭: defaultModel은 startup에 Docker Hub에서 pull됨 → 사전 적재 필요(별도 작업).
 ollama:
-  enabled: true
+  enabled: false
   defaultModel: "qwen2.5-coder:7b"
   resources:
     requests:
