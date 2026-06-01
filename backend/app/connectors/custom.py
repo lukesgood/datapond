@@ -281,6 +281,7 @@ class CustomConnector(BaseConnector):
         incremental_column: Optional[str] = None,
         last_value: Optional[Any] = None,
         on_step=None,
+        partition_spec: Optional[list] = None,
     ) -> SyncJobStatus:
         """Execute user code and sync results to Iceberg."""
         started_at = datetime.utcnow()

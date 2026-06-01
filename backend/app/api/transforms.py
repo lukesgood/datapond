@@ -93,10 +93,53 @@ Auto-generated ELT transform DAG: {transform.name}
 {transform.description or ""}
 Source: iceberg.{transform.source_namespace}  →  Target: {fqtn}
 Generated: {datetime.utcnow().isoformat()}
+
+stock Airflow 이미지에는 trino provider가 없으므로 Trino REST API(/v1/statement)를
+requests로 직접 호출한다(에어갭 환경에서 런타임 pip 설치 회피).
 """
-from airflow import DAG
-from airflow.providers.trino.operators.trino import TrinoOperator
+import time
 from datetime import datetime, timedelta
+
+import requests
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+
+TRINO_URL = "http://{TRINO_HOST}:{TRINO_PORT}"
+
+
+def _trino_exec(sql):
+    """Trino REST 프로토콜: POST 후 nextUri를 끝까지 폴링, 에러 시 예외."""
+    headers = {{"X-Trino-User": "datapond", "X-Trino-Catalog": "iceberg"}}
+    resp = requests.post(TRINO_URL + "/v1/statement", data=sql.encode("utf-8"),
+                         headers=headers, timeout=120)
+    resp.raise_for_status()
+    payload = resp.json()
+    while True:
+        err = payload.get("error")
+        if err:
+            raise RuntimeError(err.get("message", "trino error"))
+        nxt = payload.get("nextUri")
+        if not nxt:
+            break
+        time.sleep(0.2)
+        r = requests.get(nxt, headers=headers, timeout=120)
+        r.raise_for_status()
+        payload = r.json()
+
+
+# location은 명시하지 않는다 — Polaris REST 카탈로그가 warehouse 하위(s3://iceberg/warehouse/<ns>/<table>)로
+# 할당한다. 명시 시 's3a://' 스킴/경로가 Polaris 허용 위치를 벗어나 거부된다(구 transform 버그).
+CREATE_SCHEMA_SQL = "CREATE SCHEMA IF NOT EXISTS iceberg.{target_ns}"
+DROP_TABLE_SQL = "DROP TABLE IF EXISTS {fqtn}"
+CREATE_TABLE_SQL = """CREATE TABLE {fqtn}
+WITH (format = 'PARQUET')
+AS
+{sql_escaped}"""
+
+
+def run_sql(sql):
+    _trino_exec(sql)
+
 
 default_args = {{
     "owner": "datapond",
@@ -114,25 +157,14 @@ with DAG(
     default_args=default_args,
 ) as dag:
 
-    create_schema = TrinoOperator(
-        task_id="create_schema",
-        trino_conn_id="trino_default",
-        sql="CREATE SCHEMA IF NOT EXISTS iceberg.{target_ns} WITH (location = 's3a://iceberg/{target_ns}')",
+    create_schema = PythonOperator(
+        task_id="create_schema", python_callable=run_sql, op_args=[CREATE_SCHEMA_SQL],
     )
-
-    drop_table = TrinoOperator(
-        task_id="drop_table",
-        trino_conn_id="trino_default",
-        sql="DROP TABLE IF EXISTS {fqtn}",
+    drop_table = PythonOperator(
+        task_id="drop_table", python_callable=run_sql, op_args=[DROP_TABLE_SQL],
     )
-
-    create_table = TrinoOperator(
-        task_id="create_table",
-        trino_conn_id="trino_default",
-        sql="""CREATE TABLE {fqtn}
-WITH (format = 'PARQUET', location = 's3a://iceberg/{target_ns}/{target_tbl}')
-AS
-{sql_escaped}""",
+    create_table = PythonOperator(
+        task_id="create_table", python_callable=run_sql, op_args=[CREATE_TABLE_SQL],
     )
 
     create_schema >> drop_table >> create_table

@@ -26,7 +26,7 @@ import { FREQ_OPTIONS, HOUR_OPTIONS, parseCron, cronToFreqHour, nextRun } from "
 function TablesCard({
   tables, latestTableRows, togglingTable, onToggle, connId,
 }: {
-  tables: { name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null; last_value?: string | null; effective_mode?: string }[]
+  tables: { name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null; last_value?: string | null; effective_mode?: string; partition_spec?: {column:string;transform:string}[] | null }[]
   latestTableRows: Map<string, number>
   togglingTable: string | null
   onToggle: (name: string, enabled: boolean) => void
@@ -36,6 +36,9 @@ function TablesCard({
   const [editingTable, setEditingTable] = useState<string | null>(null)
   const [editMode, setEditMode]         = useState("full")
   const [editIncCol, setEditIncCol]     = useState("")
+  // 파티션: editPartCol "" = Auto(자동추론), "__none__" = 무파티션, 그 외 = 컬럼명
+  const [editPartCol, setEditPartCol]   = useState("")
+  const [editPartTransform, setEditPartTransform] = useState("day")
   const [saving, setSaving]             = useState(false)
   const [schemaColumns, setSchemaColumns] = useState<{name:string;type:string}[]>([])
   const [loadingSchema, setLoadingSchema] = useState(false)
@@ -49,6 +52,11 @@ function TablesCard({
     setEditingTable(t.name)
     setEditMode(t.sync_mode || "full")
     setEditIncCol(t.incremental_column || "")
+    // 파티션 초기화: null/undefined = Auto, [] = None, [{...}] = 첫 필드
+    const ps = t.partition_spec
+    if (ps == null)            { setEditPartCol(""); setEditPartTransform("day") }
+    else if (ps.length === 0)  { setEditPartCol("__none__"); setEditPartTransform("day") }
+    else                       { setEditPartCol(ps[0].column); setEditPartTransform(ps[0].transform || "day") }
     setSchemaColumns([])
     // Load column list for watermark dropdown
     setLoadingSchema(true)
@@ -79,6 +87,16 @@ function TablesCard({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sync_mode: editMode, table_name: editingTable }),
+      })
+      // 파티션 spec 저장: Auto→null, None→[], 컬럼→[{column,transform}]
+      const partitionSpec =
+        editPartCol === ""        ? null :
+        editPartCol === "__none__" ? [] :
+        [{ column: editPartCol, transform: editPartTransform }]
+      await fetch(`/api/connectors/${connId}/tables/${editingTable}/partition`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ partition_spec: partitionSpec }),
       })
       // Reload page to reflect changes
       window.location.reload()
@@ -174,6 +192,11 @@ function TablesCard({
                           )}
                           {incMisconfigured && (
                             <span className="text-[10px] text-amber-500 block">⚠ no watermark column</span>
+                          )}
+                          {table.partition_spec && table.partition_spec.length > 0 && (
+                            <span className="text-[10px] text-muted-foreground/70 font-mono block truncate">
+                              ⊞ {table.partition_spec.map(p => `${p.transform}(${p.column})`).join(", ")}
+                            </span>
                           )}
                         </div>
                       </div>
@@ -284,6 +307,42 @@ function TablesCard({
                             ⚠ No watermark column set — incremental will load all rows on first run
                           </p>
                         )}
+                        {/* 파티셔닝 (Iceberg) */}
+                        <div className="grid grid-cols-2 gap-3 pt-1 border-t">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Partition Column</label>
+                            <Select value={editPartCol || "__auto__"} onValueChange={v => setEditPartCol(v === "__auto__" ? "" : (v ?? ""))}>
+                              <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__auto__" className="text-xs">Auto (시간 컬럼 day)</SelectItem>
+                                <SelectItem value="__none__" className="text-xs text-muted-foreground">None (무파티션)</SelectItem>
+                                {schemaColumns.map(c => (
+                                  <SelectItem key={c.name} value={c.name} className="text-xs">
+                                    {c.name} <span className="text-muted-foreground font-mono ml-1">{c.type}</span>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Transform {(editPartCol === "" || editPartCol === "__none__") && <span className="font-normal normal-case">(컬럼 선택 시)</span>}
+                            </label>
+                            <Select value={editPartTransform} onValueChange={v => setEditPartTransform(v ?? "day")}>
+                              <SelectTrigger className="h-7 text-xs" disabled={editPartCol === "" || editPartCol === "__none__"}><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="day" className="text-xs">day (일별)</SelectItem>
+                                <SelectItem value="month" className="text-xs">month (월별)</SelectItem>
+                                <SelectItem value="year" className="text-xs">year (연별)</SelectItem>
+                                <SelectItem value="identity" className="text-xs">identity (값 그대로)</SelectItem>
+                                <SelectItem value="bucket" className="text-xs">bucket (해시 16버킷)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          파티션은 신규 테이블 생성 시 적용됩니다. 기존 테이블은 다음 full 동기화(재생성) 때 반영됩니다.
+                        </p>
                         <div className="flex items-center gap-2">
                           <Button size="sm" className="h-6 text-xs" onClick={saveEdit} disabled={saving}>
                             {saving ? "Saving…" : "Save"}
@@ -540,6 +599,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                 incremental_column: tb.incremental_column ?? null,
                 last_value: tb.last_value ?? null,
                 effective_mode: tb.effective_mode ?? tb.sync_mode ?? "full",
+                partition_spec: tb.partition_spec ?? null,
               }
         ))
       }

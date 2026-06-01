@@ -382,3 +382,10 @@ ollama:
     limits:
       cpu: 4000m
       memory: 6Gi
+
+# Iceberg 테이블 유지보수 DAG (P0-3) — compaction / expire_snapshots / remove_orphan_files
+maintenance:
+  schedule: "0 3 * * *"      # 매일 03:00 (cron). ""이면 수동 실행만
+  fileSize: "128MB"          # compaction 목표 파일 크기
+  snapshotRetention: "7d"    # 스냅샷 보존창 (시간여행 가능 범위) — Trino 최소 7d
+  orphanRetention: "7d"      # 고아 파일 보존창 — 동시 적재와의 경쟁 방지 위해 ≥1d 권장

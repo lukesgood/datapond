@@ -706,3 +706,11 @@ ollama:
     enabled: true
     size: 20Gi
     storageClass: ""  # inherit global.storageClass
+
+# ── Iceberg 테이블 유지보수 DAG (P0-3) ────────────────────────────────────────
+# 모든 프로파일이 상속하는 기본값. 프로파일에서 override 가능.
+maintenance:
+  schedule: "0 3 * * *"      # 매일 03:00 (cron). ""이면 수동 실행만
+  fileSize: "128MB"          # compaction 목표 파일 크기
+  snapshotRetention: "7d"    # 스냅샷 보존창(시간여행 범위) — Trino 최소 7d
+  orphanRetention: "7d"      # 고아 파일 보존창
