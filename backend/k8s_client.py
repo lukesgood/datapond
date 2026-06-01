@@ -239,30 +239,65 @@ class K8sClient:
         else:
             return "unhealthy"
 
+    @staticmethod
+    def _res_cpu_milli(q) -> int:
+        """리소스 수량(cpu) → 밀리코어. '500m','2','2000m','100n' 처리."""
+        if not q:
+            return 0
+        q = str(q)
+        try:
+            if q.endswith("m"): return int(float(q[:-1]))
+            if q.endswith("n"): return int(float(q[:-1]) / 1_000_000)
+            return int(float(q) * 1000)
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _res_mem_bytes(q) -> int:
+        """리소스 수량(memory/storage) → bytes. Ki/Mi/Gi/Ti, K/M/G/T(십진) 처리."""
+        if not q:
+            return 0
+        q = str(q)
+        units = {"Ki": 1024, "Mi": 1024 ** 2, "Gi": 1024 ** 3, "Ti": 1024 ** 4,
+                 "K": 1000, "M": 1000 ** 2, "G": 1000 ** 3, "T": 1000 ** 4}
+        for u, m in units.items():
+            if q.endswith(u):
+                try: return int(float(q[:-len(u)]) * m)
+                except Exception: return 0
+        try: return int(float(q))
+        except Exception: return 0
+
     def get_system_info(self) -> Dict[str, any]:
         """
-        노드 사양/OS/런타임 + 컴포넌트 버전 + 스토리지(PVC) + 사용량.
+        노드 사양/OS/런타임 + 컴포넌트(리소스 포함) + 스토리지(PVC) + 사용량
+        + 필요/권장 사양 비교. 데이터는 모두 k8s API에서 얻으므로 환경(로컬/클라우드/온프렘) 무관.
+        권장치는 env로 설정 가능(DATAPOND_REC_CPU_CORES / MEMORY_GB / DISK_GB).
         블로킹 호출 — 엔드포인트에서 스레드로 오프로드해 호출한다.
         """
-        info: Dict[str, any] = {"node": {}, "cluster": {}, "components": [], "storage": [], "usage": {}}
+        info: Dict[str, any] = {"node": {}, "cluster": {}, "components": [], "storage": [],
+                                "usage": {}, "requirements": {}, "recommended": {}, "comparison": []}
 
-        # ── 노드 사양/OS (backend pod가 떠 있는 노드) ──────────────────────────
+        # ── 노드 사양/OS/상태 ─────────────────────────────────────────────────
         try:
             own_pod = self.core_v1.read_namespaced_pod(os.getenv("HOSTNAME", ""), self.namespace)
             node = self.core_v1.read_node(own_pod.spec.node_name)
             ni = node.status.node_info
             cap = node.status.capacity or {}
+            alloc = node.status.allocatable or {}
+            conds = {c.type: c.status for c in (node.status.conditions or [])}
             info["node"] = {
                 "name": node.metadata.name,
-                "os": ni.os_image,
-                "kernel": ni.kernel_version,
-                "arch": ni.architecture,
-                "container_runtime": ni.container_runtime_version,
-                "kubelet": ni.kubelet_version,
-                "cpu_cores": int(self._parse_cpu_nano(cap.get("cpu", "0")) / 1_000_000_000),
-                "memory_gb": round(self._parse_mem_bytes(cap.get("memory", "0Ki")) / (1024 ** 3), 1),
-                "ephemeral_storage_gb": round(self._parse_mem_bytes(cap.get("ephemeral-storage", "0Ki")) / (1024 ** 3), 1),
+                "os": ni.os_image, "kernel": ni.kernel_version, "arch": ni.architecture,
+                "container_runtime": ni.container_runtime_version, "kubelet": ni.kubelet_version,
+                "cpu_cores": round(self._res_cpu_milli(cap.get("cpu", "0")) / 1000, 1),
+                "memory_gb": round(self._res_mem_bytes(cap.get("memory", "0")) / (1024 ** 3), 1),
+                "ephemeral_storage_gb": round(self._res_mem_bytes(cap.get("ephemeral-storage", "0")) / (1024 ** 3), 1),
+                "allocatable_cpu_cores": round(self._res_cpu_milli(alloc.get("cpu", "0")) / 1000, 1),
+                "allocatable_memory_gb": round(self._res_mem_bytes(alloc.get("memory", "0")) / (1024 ** 3), 1),
                 "max_pods": int(cap.get("pods", "0")),
+                "ready": conds.get("Ready") == "True",
+                "memory_pressure": conds.get("MemoryPressure") == "True",
+                "disk_pressure": conds.get("DiskPressure") == "True",
             }
             info["cluster"] = {"kubernetes": ni.kubelet_version}
         except Exception as e:
@@ -276,29 +311,50 @@ class K8sClient:
         except Exception as e:
             logger.warning(f"pod summary unavailable: {e}")
 
-        # ── 컴포넌트/이미지 버전 ──────────────────────────────────────────────
+        # ── 컴포넌트(이미지+리소스) + 총 요청량 합산 ──────────────────────────
+        total_cpu_milli = 0
+        total_mem_bytes = 0
         try:
             comps = []
-            for d in self.apps_v1.list_namespaced_deployment(self.namespace).items:
-                comps.append({"name": d.metadata.name, "kind": "Deployment",
-                              "image": d.spec.template.spec.containers[0].image,
-                              "replicas": f"{d.status.ready_replicas or 0}/{d.spec.replicas or 0}"})
-            for s in self.apps_v1.list_namespaced_stateful_set(self.namespace).items:
-                comps.append({"name": s.metadata.name, "kind": "StatefulSet",
-                              "image": s.spec.template.spec.containers[0].image,
-                              "replicas": f"{s.status.ready_replicas or 0}/{s.spec.replicas or 0}"})
+
+            def _add(obj, kind):
+                nonlocal total_cpu_milli, total_mem_bytes
+                reps = obj.spec.replicas if obj.spec.replicas is not None else 1
+                cr = mr = cl = ml = 0
+                for c in obj.spec.template.spec.containers:
+                    res = c.resources
+                    req = (getattr(res, "requests", None) or {}) if res else {}
+                    lim = (getattr(res, "limits", None) or {}) if res else {}
+                    cr += self._res_cpu_milli(req.get("cpu")); mr += self._res_mem_bytes(req.get("memory"))
+                    cl += self._res_cpu_milli(lim.get("cpu")); ml += self._res_mem_bytes(lim.get("memory"))
+                total_cpu_milli += cr * reps
+                total_mem_bytes += mr * reps
+                comps.append({
+                    "name": obj.metadata.name, "kind": kind,
+                    "image": obj.spec.template.spec.containers[0].image,
+                    "replicas": f"{obj.status.ready_replicas or 0}/{obj.spec.replicas or 0}",
+                    "cpu_request": f"{cr}m" if cr else "-",
+                    "mem_request": f"{round(mr / (1024 ** 2))}Mi" if mr else "-",
+                    "cpu_limit": f"{cl}m" if cl else "-",
+                    "mem_limit": f"{round(ml / (1024 ** 2))}Mi" if ml else "-",
+                })
+
+            for d in self.apps_v1.list_namespaced_deployment(self.namespace).items: _add(d, "Deployment")
+            for s in self.apps_v1.list_namespaced_stateful_set(self.namespace).items: _add(s, "StatefulSet")
             info["components"] = sorted(comps, key=lambda c: c["name"])
         except Exception as e:
             logger.warning(f"components unavailable: {e}")
 
-        # ── 영속 스토리지(PVC) ────────────────────────────────────────────────
+        # ── 영속 스토리지(PVC) + 총 요청 용량 ─────────────────────────────────
+        total_disk_bytes = 0
         try:
             pvcs = self.core_v1.list_namespaced_persistent_volume_claim(self.namespace)
+            for p in pvcs.items:
+                total_disk_bytes += self._res_mem_bytes((p.status.capacity or {}).get("storage", "0"))
             info["storage"] = sorted([
                 {"name": p.metadata.name,
                  "capacity": (p.status.capacity or {}).get("storage", "-"),
-                 "status": p.status.phase,
-                 "storage_class": p.spec.storage_class_name}
+                 "status": p.status.phase, "storage_class": p.spec.storage_class_name}
                 for p in pvcs.items
             ], key=lambda x: x["name"])
         except Exception as e:
@@ -311,6 +367,34 @@ class K8sClient:
         except Exception:
             pass
 
+        # ── 필요(요청 합) / 권장(env) / 실제 비교 ──────────────────────────────
+        info["requirements"] = {
+            "cpu_cores": round(total_cpu_milli / 1000, 1),
+            "memory_gb": round(total_mem_bytes / (1024 ** 3), 1),
+            "disk_gb": round(total_disk_bytes / (1024 ** 3), 1),
+        }
+        rec = {
+            "cpu_cores": float(os.getenv("DATAPOND_REC_CPU_CORES", "8")),
+            "memory_gb": float(os.getenv("DATAPOND_REC_MEMORY_GB", "32")),
+            "disk_gb": float(os.getenv("DATAPOND_REC_DISK_GB", "100")),
+        }
+        info["recommended"] = rec
+
+        def _status(actual, required, recommended):
+            if actual is None: return "unknown"
+            if actual >= recommended: return "ok"        # 권장 충족
+            if actual >= required: return "warning"      # 최소 충족·권장 미달
+            return "insufficient"                         # 최소 미달
+
+        n = info["node"]; rq = info["requirements"]
+        info["comparison"] = [
+            {"resource": "CPU", "unit": "vCPU", "required": rq["cpu_cores"], "recommended": rec["cpu_cores"],
+             "actual": n.get("cpu_cores"), "status": _status(n.get("cpu_cores"), rq["cpu_cores"], rec["cpu_cores"])},
+            {"resource": "Memory", "unit": "GB", "required": rq["memory_gb"], "recommended": rec["memory_gb"],
+             "actual": n.get("memory_gb"), "status": _status(n.get("memory_gb"), rq["memory_gb"], rec["memory_gb"])},
+            {"resource": "Disk", "unit": "GB", "required": rq["disk_gb"], "recommended": rec["disk_gb"],
+             "actual": n.get("ephemeral_storage_gb"), "status": _status(n.get("ephemeral_storage_gb"), rq["disk_gb"], rec["disk_gb"])},
+        ]
         return info
 
 
