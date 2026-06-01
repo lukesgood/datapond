@@ -41,7 +41,9 @@ ENV/
 backend/venv/
 
 # Testing
-backend/tests/
+# (backend/tests/ 자체는 버전관리 대상 — CI 단위테스트. 캐시만 무시)
+backend/tests/**/__pycache__/
+.pytest_cache/
 pytest_cache/
 .coverage
 htmlcov/

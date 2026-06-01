@@ -1,0 +1,68 @@
+name: CI
+
+# PR·main push 시 머지 게이트 — 단위테스트 + 타입체크 + Helm lint.
+# (이번 세션의 DatabaseURLConnector NameError 같은 회귀를 머지 전에 차단)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-tests:
+    name: Backend unit tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+      - name: Run unit tests
+        working-directory: backend
+        # backend/tests = 서비스 비의존 단위테스트. 루트 test_*.py(통합 스크립트)는 제외.
+        run: python -m pytest tests -q
+
+  frontend-check:
+    name: Frontend type check + lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Type check
+        working-directory: frontend
+        run: npx tsc --noEmit
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+        continue-on-error: true   # 경고는 차단하지 않음(점진 정리)
+
+  helm-lint:
+    name: Helm chart lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Lint chart (quicktest profile = 게이트)
+        run: helm lint helm/datapond --values helm/datapond/values-quicktest.yaml
+      - name: Template render (모든 프로파일 — 구문 검증)
+        run: |
+          for v in values-quicktest values-onprem values-aws values-dev values-prod; do
+            f="helm/datapond/$v.yaml"
+            [ -f "$f" ] && { echo "== render $v =="; helm template datapond helm/datapond --values "$f" >/dev/null; }
+          done

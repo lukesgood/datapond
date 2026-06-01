@@ -1,0 +1,92 @@
+name: CD
+
+# main 머지(또는 v* 태그) 시 backend/frontend 이미지를 git-SHA로 태깅해 GHCR에 push.
+# 'latest' 단일 태그 + 수동 ctr import의 한계(버전 추적·롤백 불가)를 대체한다.
+#
+# 배포(helm upgrade) 단계는 기본 비활성 — 대상 클러스터 kubeconfig가 필요하므로
+# 다음을 설정해야 동작한다:
+#   - repo Variable  ENABLE_CD_DEPLOY = "true"
+#   - repo Secret    KUBE_CONFIG      = (대상 클러스터 kubeconfig 전체)
+# 설정 전까지는 이미지 push까지만 수행되고, 배포는 `helm upgrade --set *.image.tag=<sha>`로 수동.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BASE: ghcr.io/${{ github.repository_owner }}/datapond
+
+jobs:
+  build-and-push:
+    name: Build & push images (GHCR)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute tag (short SHA 또는 git tag)
+        id: meta
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=sha-$(echo "${GITHUB_SHA}" | cut -c1-12)" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build & push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.IMAGE_BASE }}-backend:${{ steps.meta.outputs.tag }}
+            ${{ env.IMAGE_BASE }}-backend:latest
+      - name: Build & push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.IMAGE_BASE }}-frontend:${{ steps.meta.outputs.tag }}
+            ${{ env.IMAGE_BASE }}-frontend:latest
+
+  deploy:
+    name: Deploy (helm upgrade)
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: ${{ vars.ENABLE_CD_DEPLOY == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG }}" > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+      - name: Helm upgrade (이미지 태그 = ${{ needs.build-and-push.outputs.tag }})
+        run: |
+          TAG="${{ needs.build-and-push.outputs.tag }}"
+          VALUES="${{ vars.HELM_VALUES_FILE || 'helm/datapond/values-onprem.yaml' }}"
+          helm upgrade --install datapond helm/datapond \
+            --namespace datapond --create-namespace \
+            --values "$VALUES" \
+            --set backend.image.repository=${{ env.IMAGE_BASE }}-backend \
+            --set backend.image.tag="$TAG" \
+            --set backend.image.pullPolicy=Always \
+            --set frontend.image.repository=${{ env.IMAGE_BASE }}-frontend \
+            --set frontend.image.tag="$TAG" \
+            --set frontend.image.pullPolicy=Always \
+            --wait=false
