@@ -9,6 +9,23 @@ import os
 import time
 import re
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
+
+# RLS (Layer 1) — gated by RLS_ENABLED (default off). See docs/RLS_DESIGN.md.
+# When off, query execution behaves exactly as before (no auth/policy required).
+RLS_ENABLED = os.getenv("RLS_ENABLED", "false").lower() in ("1", "true", "yes")
+try:
+    from app.api.auth import get_current_user
+    from app.rls.engine import enforce, RlsDenied
+    from app.rls import loader as rls_loader
+    _RLS_IMPORTS_OK = True
+except Exception as _rls_imp_err:  # pragma: no cover - import-time guard
+    logging.getLogger(__name__).warning(f"[rls] disabled, import failed: {_rls_imp_err}")
+    _RLS_IMPORTS_OK = False
+    async def get_current_user(*a, **k):  # type: ignore
+        return None
 
 # Trino connection (lazy import to handle missing dependency gracefully)
 try:
@@ -76,8 +93,9 @@ class CatalogTree(BaseModel):
     catalogs: List[Catalog]
 
 
-def get_trino_connection():
-    """Create Trino connection with timeout"""
+def get_trino_connection(trino_user: Optional[str] = None):
+    """Create Trino connection with timeout. `trino_user` overrides the session
+    user so RLS/Trino-native policies see the real identity (default: TRINO_USER)."""
     if not TRINO_AVAILABLE:
         raise HTTPException(
             status_code=503,
@@ -88,7 +106,7 @@ def get_trino_connection():
         conn = connect(
             host=TRINO_HOST,
             port=TRINO_PORT,
-            user=TRINO_USER,
+            user=trino_user or TRINO_USER,
             catalog=TRINO_CATALOG,
             schema=TRINO_SCHEMA,
             http_scheme="http",
@@ -127,7 +145,11 @@ def add_limit_to_query(query: str, limit: int = MAX_ROWS) -> str:
 
 
 @router.post("/queries/execute", response_model=QueryResult)
-async def execute_query(request: QueryExecuteRequest, db: Session = Depends(get_db)):
+async def execute_query(
+    request: QueryExecuteRequest,
+    db: Session = Depends(get_db),
+    user: Optional[dict] = Depends(get_current_user),
+):
     """
     Execute SQL query via Trino with optional history logging
 
@@ -146,6 +168,28 @@ async def execute_query(request: QueryExecuteRequest, db: Session = Depends(get_
     if not effective_query:
         raise HTTPException(status_code=400, detail="Query cannot be empty")
 
+    # ── RLS enforcement (Layer 1) — gated by RLS_ENABLED ──────────────────────
+    trino_user = TRINO_USER
+    if RLS_ENABLED and _RLS_IMPORTS_OK:
+        if not user:
+            raise HTTPException(status_code=401, detail="RLS 활성화됨 — 인증이 필요합니다")
+        try:
+            ctx = await rls_loader.load_user_context(user)
+            policies = await rls_loader.load_policies()
+            masks = await rls_loader.load_masks()
+            result = enforce(effective_query, ctx, policies, masks)
+            effective_query = result.sql
+            trino_user = ctx.username or TRINO_USER  # run as the real user
+        except RlsDenied as d:
+            await rls_loader.audit_denial(ctx, request.query, d.message, d.table)
+            raise HTTPException(status_code=403, detail=f"RLS 차단: {d.message}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            # fail-closed under default_deny posture
+            logger.warning(f"[rls] enforcement error, blocking: {e}")
+            raise HTTPException(status_code=403, detail="RLS 적용 중 오류로 쿼리가 차단되었습니다")
+
     # Add row limit for safety
     safe_query = add_limit_to_query(effective_query, MAX_ROWS)
 
@@ -156,7 +200,7 @@ async def execute_query(request: QueryExecuteRequest, db: Session = Depends(get_
     columns = []
 
     try:
-        conn = get_trino_connection()
+        conn = get_trino_connection(trino_user)
         cursor = conn.cursor()
 
         # Execute query
