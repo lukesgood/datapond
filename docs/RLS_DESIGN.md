@@ -143,14 +143,25 @@ Trino는 `rowFilters`/`columnMasks`를 **엔진 내부에서** 적용하므로 S
 
 | 단계 | 산출물 | 상태 |
 |---|---|---|
-| **P0** | `auth.sql` 전체 스키마 실제 적용 확인/마이그레이션, `users.attributes` 관리 UI/API | ⬜ |
+| **P0** | RLS 스키마 멱등 마이그레이션 + `users.attributes` 관리 UI/API | ✅ `schema/rls_migration.sql` |
 | **P1 (MVP)** | `queries.py` 인증 배선 + Trino 실유저 접속 + RLS 엔진 + 감사 로깅 | ✅ `app/rls/engine.py` (유닛 17) |
 | **P2** | `governance.py` 정책 CRUD + 프론트 Access Control 탭 + 마스킹 | ✅ |
 | **P3** | Layer 2 Trino `rules.json` 생성기 + Helm 배선(직접 Trino 강제) | ✅ `app/rls/trino_acl.py` (유닛 8) |
 | **P4** | DuckDB 갭 완화(민감테이블 직접읽기 차단) | ✅ `app/rls/duckdb_guard.py` (유닛 7) |
 
-> 남은 공통 작업: PG+Trino+Polaris 통합테스트(로컬 클러스터 재생성 필요), P0 스키마 적용,
+> 남은 공통 작업: PG+Trino+Polaris 통합테스트(로컬 클러스터 재생성 필요),
 > P4 하드 경계(SeaweedFS prefix-deny 실제 apply) 클러스터 검증.
+
+### P0 구현 — 스키마 마이그레이션 + 속성 관리
+- `schema/rls_migration.sql` — **멱등**(IF NOT EXISTS/ON CONFLICT). 최소 users 테이블과 호환:
+  `users.attributes` 컬럼 추가, roles/user_roles/rls_policies/rls_policy_roles/
+  column_masking_policies/masking_policy_roles/auth_audit_log 생성(event_type/masking_type는
+  enum 비의존 VARCHAR — 전체 auth.sql이 이미 적용돼 있으면 no-op), 시스템 역할 시드,
+  `users.role`→`user_roles` 백필(컬럼 존재 시에만, DO 블록 가드).
+- `app/rls/migrate.ensure_rls_schema(pool)` — **startup에서 best-effort 실행**(main.py).
+- `auth.py` — GET /auth/users에 `attributes` 포함, PATCH /auth/users/{id}에 `attributes`
+  병합 + role 변경 시 `user_roles` 동기화.
+- 프론트 Settings → Users — 행별 RLS 속성 편집 다이얼로그(부서/지역/등급).
 
 ### P4 구현 — 2층 차단
 - **SOFT(UX/sanctioned)**: `app/rls/duckdb_guard.check_direct_read` (sqlglot로 참조 테이블 →
