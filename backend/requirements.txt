@@ -9,6 +9,7 @@ sqlalchemy==2.0.25
 redis==5.0.1
 kubernetes==29.0.0
 trino==0.328.0
+sqlglot==26.33.0  # RLS Layer1: SQL 파싱·행필터/마스킹 재작성 (docs/RLS_DESIGN.md)
 # mlflow → mlflow-skinny: 백엔드는 MlflowClient/entities/exceptions만 사용(REST 트래킹 클라이언트).
 # full mlflow는 pyarrow<16을 강제해 pyiceberg(pyarrow>=16)와 충돌하나, skinny는 pyarrow 비의존이라 충돌 0.
 mlflow-skinny==2.10.2

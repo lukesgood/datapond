@@ -9,6 +9,7 @@ Endpoints:
 """
 
 import os
+import json
 import uuid
 import logging
 from datetime import datetime, timedelta
@@ -271,10 +272,20 @@ async def list_users(admin: dict = Depends(require_admin)):
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT id, username, email, display_name, role, is_active,
-                   require_password_change, created_at
+                   require_password_change, created_at,
+                   COALESCE(attributes, '{}'::jsonb) AS attributes
             FROM users
             ORDER BY created_at ASC
         """)
+
+    def _attrs(v):
+        if isinstance(v, dict):
+            return v
+        try:
+            return json.loads(v) if v else {}
+        except Exception:
+            return {}
+
     return [
         {
             "id": str(r["id"]),
@@ -284,6 +295,7 @@ async def list_users(admin: dict = Depends(require_admin)):
             "role": r["role"],
             "is_active": r["is_active"],
             "require_password_change": bool(r["require_password_change"]),
+            "attributes": _attrs(r["attributes"]),
             "created_at": r["created_at"].isoformat() + "Z" if r["created_at"] else None,
         }
         for r in rows
@@ -306,6 +318,9 @@ async def update_user(user_id: str, body: dict, admin: dict = Depends(require_ad
         updates.append(f"display_name = ${idx}"); values.append(str(body["display_name"])); idx += 1
     if "email" in body:
         updates.append(f"email = ${idx}"); values.append(str(body["email"])); idx += 1
+    if "attributes" in body and isinstance(body["attributes"], dict):
+        # RLS attributes (department / region / clearance / ...). Whole-object replace.
+        updates.append(f"attributes = ${idx}::jsonb"); values.append(json.dumps(body["attributes"])); idx += 1
 
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
@@ -316,6 +331,16 @@ async def update_user(user_id: str, body: dict, admin: dict = Depends(require_ad
             f"UPDATE users SET {', '.join(updates)} WHERE id = ${idx}",
             *values
         )
+        # Keep user_roles in sync with the minimal users.role so RLS resolution matches.
+        if "role" in body and body["role"] in ("admin", "viewer"):
+            try:
+                await conn.execute("DELETE FROM user_roles WHERE user_id = $1", uuid.UUID(user_id))
+                await conn.execute(
+                    """INSERT INTO user_roles (user_id, role_id)
+                       SELECT $1, id FROM roles WHERE name = $2 ON CONFLICT DO NOTHING""",
+                    uuid.UUID(user_id), body["role"])
+            except Exception:
+                pass  # user_roles table may not exist yet (pre-migration)
     return {"message": "User updated"}
 
 

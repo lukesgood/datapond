@@ -15,7 +15,7 @@ import {
   Settings, Server, Package, Database, Activity, Cpu, HardDrive,
   CheckCircle2, ExternalLink, RefreshCw, Copy, Info, ShieldCheck,
   GitBranch, Box, Clock, Layers, AlertCircle, Users, Plus, Trash2,
-  Eye, EyeOff, UserPlus, KeyRound, Shield, UserX, UserCheck, X,
+  Eye, EyeOff, UserPlus, KeyRound, Shield, UserX, UserCheck, X, SlidersHorizontal,
   Link, Terminal, Sparkles, Loader2, CheckCheck,
 } from "lucide-react"
 import { getUser } from "@/lib/auth"
@@ -709,6 +709,7 @@ interface UserRecord {
   id: string; username: string; email: string; display_name: string
   role: "admin" | "viewer"; is_active: boolean
   require_password_change: boolean; created_at: string | null
+  attributes?: Record<string, string>
 }
 
 function UserManagement() {
@@ -730,6 +731,11 @@ function UserManagement() {
 
   const [resetTarget, setResetTarget] = useState<UserRecord | null>(null)
   const [resetPw, setResetPw]         = useState("")
+  // RLS attributes editor (department / region / clearance) — see docs/RLS_DESIGN.md
+  const [attrTarget, setAttrTarget]   = useState<UserRecord | null>(null)
+  const [attrDept, setAttrDept]       = useState("")
+  const [attrRegion, setAttrRegion]   = useState("")
+  const [attrClear, setAttrClear]     = useState("")
   const [showResetPw, setShowResetPw] = useState(false)
   const [resetting, setResetting]     = useState(false)
   const [resetError, setResetError]   = useState<string | null>(null)
@@ -817,6 +823,24 @@ function UserManagement() {
     const r = await fetch(`/api/auth/users/${u.id}`, { method: "DELETE" })
     if (r.ok) { notify(`User '${u.username}' deleted`); fetchUsers() }
     else notify("Failed to delete user", false)
+  }
+
+  const openAttrs = (u: UserRecord) => {
+    const a = u.attributes || {}
+    setAttrDept(a.department || ""); setAttrRegion(a.region || ""); setAttrClear(a.clearance || "")
+    setAttrTarget(u)
+  }
+  const saveAttributes = async () => {
+    if (!attrTarget) return
+    const attributes: Record<string, string> = { ...(attrTarget.attributes || {}) }
+    const setOrDel = (k: string, v: string) => { if (v.trim()) attributes[k] = v.trim(); else delete attributes[k] }
+    setOrDel("department", attrDept); setOrDel("region", attrRegion); setOrDel("clearance", attrClear)
+    const r = await fetch(`/api/auth/users/${attrTarget.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attributes }),
+    })
+    if (r.ok) { notify(`${attrTarget.username} attributes updated`); setAttrTarget(null); fetchUsers() }
+    else notify("Failed to update attributes", false)
   }
 
   const handleSaveProfile = async () => {
@@ -939,6 +963,11 @@ function UserManagement() {
                             <Shield className="h-3.5 w-3.5" />
                           </Button>
                           <Button variant="ghost" size="icon" className="h-7 w-7"
+                            title="RLS 속성 (부서/지역/등급)"
+                            onClick={() => openAttrs(u)}>
+                            <SlidersHorizontal className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7"
                             title={u.is_active ? "Deactivate" : "Activate"}
                             onClick={() => handleToggleActive(u)}>
                             {u.is_active ? <UserX className="h-3.5 w-3.5" /> : <UserCheck className="h-3.5 w-3.5" />}
@@ -1030,6 +1059,34 @@ function UserManagement() {
             <Button onClick={handleResetPassword} disabled={!resetPw || resetting}>
               {resetting ? "Resetting…" : "Reset Password"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── RLS Attributes (department / region / clearance) ── */}
+      <Dialog open={!!attrTarget} onOpenChange={o => !o && setAttrTarget(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>RLS 속성 — @{attrTarget?.username}</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-[11px] text-muted-foreground">
+              행수준 보안(RLS) 정책의 <code>current_user_attribute(...)</code>에서 참조됩니다. 비우면 해당 속성 제거.
+            </p>
+            <div className="space-y-1.5">
+              <Label className="text-xs">부서 (department)</Label>
+              <Input value={attrDept} onChange={e => setAttrDept(e.target.value)} placeholder="예: sales" autoFocus />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">지역 (region)</Label>
+              <Input value={attrRegion} onChange={e => setAttrRegion(e.target.value)} placeholder="예: us-east" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">보안등급 (clearance)</Label>
+              <Input value={attrClear} onChange={e => setAttrClear(e.target.value)} placeholder="예: confidential" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAttrTarget(null)}>Cancel</Button>
+            <Button onClick={saveAttributes}>저장</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

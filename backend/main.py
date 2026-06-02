@@ -123,6 +123,14 @@ async def startup():
             else:
                 logger.warning(f"[startup] Settings load skipped after retries: {e}")
 
+    # RLS 스키마 마이그레이션 (멱등 — rls_policies/masking/user_roles/attributes). best-effort.
+    try:
+        from app.api.connectors import get_db_pool
+        from app.rls.migrate import ensure_rls_schema
+        await ensure_rls_schema(await get_db_pool())
+    except Exception as e:
+        logger.warning(f"[startup] RLS schema migration skipped: {e}")
+
     # Iceberg 유지보수 DAG 배포 (best-effort — Airflow/PVC 미준비 시 건너뜀)
     try:
         await deploy_maintenance_dag()

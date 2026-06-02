@@ -202,6 +202,11 @@ jupyter:
     defaultUser: "DataPond User"
     defaultEmail: "user@datapond.local"
 
+  # RLS Layer 3 — sanctioned DuckDB helper (datapond_lake) blocking direct reads of
+  # sensitive tables. Off by default; enable with backend RLS_ENABLED. See docs/RLS_DESIGN.md §6.
+  rlsGuard:
+    enabled: false
+
 # MLflow
 mlflow:
   enabled: true
@@ -436,6 +441,14 @@ trino:
     enabled: true
     size: 50Gi
     storageClass: ""
+
+  # RLS Layer 2 — Trino file-based access control (row filters + column masks).
+  # Off by default; enable together with backend RLS_ENABLED once policies exist.
+  # See docs/RLS_DESIGN.md.
+  rls:
+    enabled: false
+    configMapName: trino-access-control
+    refreshPeriod: 30s
 
 # Monitoring
 monitoring:
