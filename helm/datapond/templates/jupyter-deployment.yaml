@@ -68,6 +68,10 @@ spec:
           git config --global user.email "{{ .Values.jupyter.gitConfig.defaultEmail }}"
           git config --global init.defaultBranch main
           {{- end }}
+          {{- if .Values.jupyter.rlsGuard.enabled }}
+          echo "Enabling datapond_lake RLS guard on PYTHONPATH..."
+          export PYTHONPATH=/opt/datapond:$PYTHONPATH
+          {{- end }}
           echo "Starting JupyterLab..."
           exec start-notebook.sh --NotebookApp.token=jupyter --NotebookApp.base_url=/jupyter --NotebookApp.allow_origin='*'
         env:
@@ -110,6 +114,11 @@ spec:
         - name: iceberg-warehouse
           mountPath: /opt/iceberg/warehouse
         {{- end }}
+        {{- if .Values.jupyter.rlsGuard.enabled }}
+        # RLS Layer 3: sanctioned DuckDB helper (blocks direct read of sensitive tables)
+        - name: datapond-lake
+          mountPath: /opt/datapond
+        {{- end }}
         {{- end }}
       {{- if .Values.jupyter.persistence.enabled }}
       volumes:
@@ -123,6 +132,11 @@ spec:
       {{- end }}
       - name: extensions
         emptyDir: {}
+      {{- if .Values.jupyter.rlsGuard.enabled }}
+      - name: datapond-lake
+        configMap:
+          name: datapond-lake-helper
+      {{- end }}
       {{- end }}
 ---
 apiVersion: v1
@@ -152,4 +166,21 @@ spec:
     requests:
       storage: {{ .Values.jupyter.persistence.size }}
 {{- end }}
+{{- end }}
+{{- if .Values.jupyter.rlsGuard.enabled }}
+---
+# RLS Layer 3: sanctioned DuckDB helper. Mounted at /opt/datapond (on PYTHONPATH) so
+# notebooks `import datapond_lake as dp; dp.sql(...)` get sensitive tables blocked from
+# direct S3 reads. Soft/UX layer — pair with SeaweedFS prefix-deny for the hard boundary.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: datapond-lake-helper
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.jupyter.name }}
+    app.kubernetes.io/component: jupyter-rls
+data:
+  datapond_lake.py: |
+{{ .Files.Get "files/datapond_lake.py" | indent 4 }}
 {{- end }}

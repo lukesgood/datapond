@@ -580,6 +580,39 @@ async def preview_rls(body: RlsPreviewIn, user: Optional[dict] = Depends(_get_cu
         return {"allowed": False, "reason": d.message, "table": d.table}
 
 
+class DirectReadIn(BaseModel):
+    sql: str
+
+
+@router.get("/governance/rls/sensitive-tables")
+async def get_sensitive_tables(user: Optional[dict] = Depends(_get_current_user)):
+    """
+    List policy-bearing (sensitive) tables + the SeaweedFS prefixes that the Jupyter
+    S3 identity should be denied (RLS Layer 3 / DuckDB guard). See docs/RLS_DESIGN.md §6.
+    Auth optional: the Jupyter guard calls this; if unauth and RLS off, returns empty.
+    """
+    if not _RLS_ADMIN_OK:
+        return {"tables": [], "deny_prefixes": []}
+    from app.rls.duckdb_guard import sensitive_tables, seaweedfs_deny_prefixes
+    policies = await _rls_loader.load_policies()
+    tables = sensitive_tables(policies)
+    warehouse = os.getenv("ICEBERG_WAREHOUSE", "iceberg")
+    return {"tables": tables, "deny_prefixes": seaweedfs_deny_prefixes(tables, warehouse=warehouse)}
+
+
+@router.post("/governance/rls/check-direct-read")
+async def check_direct_read_endpoint(body: DirectReadIn):
+    """
+    Used by the JupyterLab DuckDB helper: returns whether a query touches a sensitive
+    table (must be routed via Trino/views) before a direct S3 read. Unauth-friendly.
+    """
+    if not _RLS_ADMIN_OK:
+        return {"blocked": False, "table": None, "reason": None}
+    from app.rls.duckdb_guard import check_direct_read
+    policies = await _rls_loader.load_policies()
+    return check_direct_read(body.sql, policies)
+
+
 @router.get("/governance/rls/trino-rules")
 async def get_trino_rules(user: Optional[dict] = Depends(_get_current_user)):
     """

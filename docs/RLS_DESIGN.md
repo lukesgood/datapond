@@ -147,9 +147,21 @@ Trino는 `rowFilters`/`columnMasks`를 **엔진 내부에서** 적용하므로 S
 | **P1 (MVP)** | `queries.py` 인증 배선 + Trino 실유저 접속 + RLS 엔진 + 감사 로깅 | ✅ `app/rls/engine.py` (유닛 17) |
 | **P2** | `governance.py` 정책 CRUD + 프론트 Access Control 탭 + 마스킹 | ✅ |
 | **P3** | Layer 2 Trino `rules.json` 생성기 + Helm 배선(직접 Trino 강제) | ✅ `app/rls/trino_acl.py` (유닛 8) |
-| **P4** | DuckDB 갭 완화(민감테이블 직접읽기 차단) | ⬜ |
+| **P4** | DuckDB 갭 완화(민감테이블 직접읽기 차단) | ✅ `app/rls/duckdb_guard.py` (유닛 7) |
 
-> 남은 공통 작업: PG+Trino+Polaris 통합테스트(로컬 클러스터 재생성 필요), P0 스키마 적용, P4.
+> 남은 공통 작업: PG+Trino+Polaris 통합테스트(로컬 클러스터 재생성 필요), P0 스키마 적용,
+> P4 하드 경계(SeaweedFS prefix-deny 실제 apply) 클러스터 검증.
+
+### P4 구현 — 2층 차단
+- **SOFT(UX/sanctioned)**: `app/rls/duckdb_guard.check_direct_read` (sqlglot로 참조 테이블 →
+  민감 집합 교집합, 파싱불가 fail-closed). 백엔드 `POST /governance/rls/check-direct-read` +
+  `GET /governance/rls/sensitive-tables`. Jupyter 헬퍼 `datapond_lake.py`(`dp.sql()`가 검사 후
+  DuckDB 실행, 민감테이블이면 `SensitiveTableError`). Helm `jupyter.rlsGuard.enabled`로 헬퍼를
+  ConfigMap 마운트(+PYTHONPATH). **우회 가능(soft)** — 정식 안전경로·UX 제공.
+- **HARD(실경계)**: `seaweedfs_deny_prefixes(tables, location_map)` — 민감테이블 S3 prefix 산출
+  (Polaris location 있으면 사용, 없으면 warehouse 관례). Jupyter는 단일 SeaweedFS 식별자를
+  쓰므로 그 식별자에 해당 prefix Read 거부 → 모든 노트북에서 직접읽기 불가. **실제 SeaweedFS
+  식별자 reconfig + Polaris location 조회는 클러스터 필요(P4 후속)**.
 
 ## 9. Layer 2(Trino 네이티브) 활성화 런북
 
