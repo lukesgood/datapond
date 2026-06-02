@@ -437,6 +437,14 @@ trino:
     size: 50Gi
     storageClass: ""
 
+  # RLS Layer 2 — Trino file-based access control (row filters + column masks).
+  # Off by default; enable together with backend RLS_ENABLED once policies exist.
+  # See docs/RLS_DESIGN.md.
+  rls:
+    enabled: false
+    configMapName: trino-access-control
+    refreshPeriod: 30s
+
 # Monitoring
 monitoring:
   enabled: true

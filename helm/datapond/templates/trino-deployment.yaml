@@ -50,6 +50,11 @@ spec:
           mountPath: /etc/trino/catalog
         - name: iceberg-warehouse
           mountPath: /opt/iceberg/warehouse
+        {{- if .Values.trino.rls.enabled }}
+        # RLS Layer 2: file-based access control rules (backend regenerates this CM)
+        - name: trino-acl
+          mountPath: /etc/trino/acl
+        {{- end }}
         resources:
           requests:
             cpu: {{ .Values.trino.resources.requests.cpu }}
@@ -83,6 +88,11 @@ spec:
       - name: iceberg-warehouse
         persistentVolumeClaim:
           claimName: iceberg-warehouse-pvc
+      {{- if .Values.trino.rls.enabled }}
+      - name: trino-acl
+        configMap:
+          name: {{ .Values.trino.rls.configMapName | default "trino-access-control" }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -114,6 +124,15 @@ data:
     discovery.uri=http://localhost:8080
     query.max-memory=2GB
     query.max-memory-per-node=1GB
+{{- if .Values.trino.rls.enabled }}
+
+  # RLS Layer 2: file-based system access control (row filters + column masks).
+  # rules.json lives in the trino-acl ConfigMap; backend regenerates it on policy change.
+  access-control.properties: |
+    access-control.name=file
+    security.config-file=/etc/trino/acl/rules.json
+    security.refresh-period={{ .Values.trino.rls.refreshPeriod | default "30s" }}
+{{- end }}
 
   node.properties: |
     node.environment=production
@@ -165,4 +184,21 @@ data:
     connection-url=jdbc:postgresql://postgres:5432/datapond
     connection-user={{ .Values.postgres.auth.username }}
     connection-password={{ .Values.postgres.auth.password }}
+{{- end }}
+{{- if .Values.trino.rls.enabled }}
+---
+# RLS Layer 2: file-based access control rules. Seeded with an allow-all/no-tables
+# rule; the backend (POST /api/governance/rls/trino-rules/apply) patches data.rules.json
+# from rls_policies/column_masking_policies. Trino auto-reloads per security.refresh-period.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.trino.rls.configMapName | default "trino-access-control" }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.trino.name }}
+    app.kubernetes.io/component: trino-rls
+data:
+  rules.json: |
+    {"catalogs":[{"allow":"all"}],"schemas":[{"user":".*","schema":".*","owner":false}],"tables":[]}
 {{- end }}

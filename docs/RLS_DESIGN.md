@@ -141,13 +141,35 @@ Trino는 `rowFilters`/`columnMasks`를 **엔진 내부에서** 적용하므로 S
 
 ## 7. 단계별 구현 계획
 
-| 단계 | 산출물 | 규모 |
+| 단계 | 산출물 | 상태 |
 |---|---|---|
-| **P0** | `auth.sql` 전체 스키마 실제 적용 확인/마이그레이션, `users.attributes` 관리 UI/API | S |
-| **P1 (MVP)** | `queries.py` 인증 배선 + Trino 실유저 접속 + RLS 엔진(보안 뷰 또는 네이티브) + 감사 로깅 | M |
-| **P2** | `governance.py` 정책 CRUD + 프론트 정책 관리 UI + 컬럼 마스킹 | M |
-| **P3** | Layer 2 Trino `rules.json` 생성기 + Helm 배선(직접 Trino 강제) | M |
-| **P4** | DuckDB 갭 완화(탐색 Trino 강제 또는 prefix 격리) + 민감테이블 정책 | L |
+| **P0** | `auth.sql` 전체 스키마 실제 적용 확인/마이그레이션, `users.attributes` 관리 UI/API | ⬜ |
+| **P1 (MVP)** | `queries.py` 인증 배선 + Trino 실유저 접속 + RLS 엔진 + 감사 로깅 | ✅ `app/rls/engine.py` (유닛 17) |
+| **P2** | `governance.py` 정책 CRUD + 프론트 Access Control 탭 + 마스킹 | ✅ |
+| **P3** | Layer 2 Trino `rules.json` 생성기 + Helm 배선(직접 Trino 강제) | ✅ `app/rls/trino_acl.py` (유닛 8) |
+| **P4** | DuckDB 갭 완화(민감테이블 직접읽기 차단) | ⬜ |
+
+> 남은 공통 작업: PG+Trino+Polaris 통합테스트(로컬 클러스터 재생성 필요), P0 스키마 적용, P4.
+
+## 9. Layer 2(Trino 네이티브) 활성화 런북
+
+생성기는 **생성 시점에 각 사용자의 역할·속성을 알고 있으므로**, 엔진 로직을 재사용해
+사용자별로 속성을 리터럴 바인딩한 `rules.json`을 만든다(매핑 테이블/런타임 콜백 불필요).
+
+1. **정책 등록** — Access Control 탭 또는 `POST /governance/rls/policies`.
+2. **규칙 미리보기** — `GET /governance/rls/trino-rules` → 생성된 rules.json + 요약.
+3. **Helm 활성화** — `--set trino.rls.enabled=true` (기본 off). access-control.properties +
+   `trino-access-control` ConfigMap(초기 allow-all/no-tables) + `/etc/trino/acl` 마운트 생성.
+   백엔드 RBAC에 configmaps update/patch 추가됨.
+4. **규칙 적용** — `POST /governance/rls/trino-rules/apply` → 백엔드가 ConfigMap의
+   `rules.json`을 패치. Trino가 `security.refresh-period`(기본 30s) 주기로 자동 재로드(재시작 불필요).
+5. **백엔드 RLS_ENABLED=true** — SQL Lab(Layer 1)도 강제. Layer 1+2 동시 동작(방어심화).
+
+**규칙 모델**: `tables` 규칙 = (admin allow-all if `RLS_ADMIN_BYPASS`) → per-(user,table) SELECT+filter+masks
+→ default_deny catch-all(`privileges: []`). 사용자/속성/정책 변경 시 4번 재적용 필요(정책 CRUD가 트리거).
+
+> ⚠ 통합 검증 미완: Trino 버전별 file access control 기본 거부 의미·`SELECT * EXCEPT` 호환은
+> 클러스터에서 확인 필요. 현재까지는 생성기 유닛테스트(규칙 구조) + Helm 렌더/lint 통과.
 
 ---
 

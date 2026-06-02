@@ -79,6 +79,47 @@ async def load_user_context(jwt_user: Dict[str, Any]) -> UserContext:
     return UserContext(user_id=str(uid), username=username, roles=roles, attributes=attributes)
 
 
+async def load_all_users() -> List[UserContext]:
+    """
+    Load every active user with roles + attributes, for Trino rules.json generation.
+    Falls back to the minimal users table (role column) when user_roles is absent.
+    """
+    out: List[UserContext] = []
+    try:
+        pool = await _get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("SELECT * FROM users")  # schema-agnostic
+            role_rows = []
+            try:
+                role_rows = await conn.fetch(
+                    """SELECT ur.user_id, r.name FROM user_roles ur JOIN roles r ON ur.role_id = r.id
+                       WHERE ur.expires_at IS NULL OR ur.expires_at > NOW()""")
+            except Exception:
+                role_rows = []
+    except Exception as e:
+        logger.warning(f"[rls] load_all_users failed: {e}")
+        return []
+
+    roles_by_user: Dict[str, List[str]] = {}
+    for rr in role_rows:
+        roles_by_user.setdefault(str(rr["user_id"]), []).append(rr["name"])
+
+    for r in rows:
+        d = dict(r)
+        # active filter works for both schemas (is_active bool / status enum)
+        if d.get("is_active") is False:
+            continue
+        if d.get("status") not in (None, "active"):
+            continue
+        uid = str(d.get("id"))
+        raw_attr = d.get("attributes")
+        attrs = raw_attr if isinstance(raw_attr, dict) else (json.loads(raw_attr) if raw_attr else {})
+        roles = roles_by_user.get(uid) or ([d["role"]] if d.get("role") else [])
+        out.append(UserContext(user_id=uid, username=d.get("username") or uid,
+                               roles=roles, attributes=attrs))
+    return out
+
+
 async def load_policies() -> List[RlsPolicy]:
     """Load all enabled RLS policies with their role mappings. [] if table absent."""
     out: List[RlsPolicy] = []

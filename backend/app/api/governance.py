@@ -580,6 +580,66 @@ async def preview_rls(body: RlsPreviewIn, user: Optional[dict] = Depends(_get_cu
         return {"allowed": False, "reason": d.message, "table": d.table}
 
 
+@router.get("/governance/rls/trino-rules")
+async def get_trino_rules(user: Optional[dict] = Depends(_get_current_user)):
+    """
+    Generate the Trino file-based access control rules.json (Layer 2) from current
+    users + policies + masks. Read-only preview — does not apply. See docs/RLS_DESIGN.md.
+    """
+    await _require_admin(user)
+    from app.rls.trino_acl import generate_rules, rules_summary
+    users = await _rls_loader.load_all_users()
+    policies = await _rls_loader.load_policies()
+    masks = await _rls_loader.load_masks()
+    default_deny = os.getenv("RLS_DEFAULT_DENY", "true").lower() in ("1", "true", "yes")
+    admin_bypass = os.getenv("RLS_ADMIN_BYPASS", "false").lower() in ("1", "true", "yes")
+    rules = generate_rules(users, policies, masks,
+                           default_deny=default_deny, admin_bypass=admin_bypass)
+    return {"rules": rules, "summary": rules_summary(rules),
+            "users": len(users), "policies": len(policies), "masks": len(masks)}
+
+
+@router.post("/governance/rls/trino-rules/apply")
+async def apply_trino_rules(user: Optional[dict] = Depends(_get_current_user)):
+    """
+    Write the generated rules.json into the Trino access-control ConfigMap so Trino's
+    file-based access control picks it up (security.refresh-period auto-reload).
+    Best-effort; requires in-cluster k8s RBAC on configmaps. See helm/.../trino-rls.
+    """
+    admin = await _require_admin(user)
+    import json as _json
+    from app.rls.trino_acl import generate_rules, rules_summary
+    users = await _rls_loader.load_all_users()
+    policies = await _rls_loader.load_policies()
+    masks = await _rls_loader.load_masks()
+    default_deny = os.getenv("RLS_DEFAULT_DENY", "true").lower() in ("1", "true", "yes")
+    admin_bypass = os.getenv("RLS_ADMIN_BYPASS", "false").lower() in ("1", "true", "yes")
+    rules = generate_rules(users, policies, masks,
+                           default_deny=default_deny, admin_bypass=admin_bypass)
+    cm_name = os.getenv("TRINO_ACL_CONFIGMAP", "trino-access-control")
+    namespace = os.getenv("POD_NAMESPACE", "datapond")
+    try:
+        from kubernetes import client, config
+        try:
+            config.load_incluster_config()
+        except Exception:
+            config.load_kube_config()
+        v1 = client.CoreV1Api()
+        v1.patch_namespaced_config_map(
+            name=cm_name, namespace=namespace,
+            body={"data": {"rules.json": _json.dumps(rules, indent=2)}},
+        )
+    except Exception as e:
+        logger.warning("apply trino rules failed: %s", e)
+        raise HTTPException(status_code=503,
+                            detail=f"ConfigMap '{cm_name}' 갱신 실패(RBAC/배선 확인): {e}")
+    pool = await _rls_loader._get_pool()
+    async with pool.acquire() as conn:
+        await _audit_policy_event(conn, admin, "rls_policy_updated", cm_name, "trino-rules-apply")
+    return {"applied": True, "configmap": cm_name, "summary": rules_summary(rules),
+            "note": "Trino security.refresh-period 주기 후 반영됩니다"}
+
+
 async def _audit_policy_event(conn, admin: dict, event_type: str, target: str, name: Optional[str]) -> None:
     """Write a policy-change event to auth_audit_log. Best-effort within the txn."""
     import json as _json, uuid as _uuid
