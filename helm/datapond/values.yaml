@@ -510,6 +510,14 @@ polaris:
     clientSecret: changeme-polaris-secret
     adminPassword: changeme-admin-password
 
+  # Catalog name (Trino warehouse identifier) — created by polaris-catalog-init Job
+  catalogName: iceberg
+  # Medallion namespaces auto-created in the catalog after bootstrap
+  initNamespaces:
+    - raw
+    - refined
+    - serving
+
   # Storage configuration (uses SeaweedFS)
   storage:
     type: s3
