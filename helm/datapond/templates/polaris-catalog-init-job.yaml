@@ -50,18 +50,19 @@ spec:
         - -c
         - |
           set -e
-          echo "Waiting for Polaris to be ready..."
-          i=0
-          until curl -sf "$PURL/q/health/ready" >/dev/null 2>&1; do
-            i=$((i+1)); [ "$i" -gt 60 ] && { echo "ERROR: Polaris not ready after 180s"; exit 1; }
+          # Readiness gate = the actual OAuth token endpoint succeeding (port 8181 is the
+          # Iceberg/management API; Polaris health lives on a separate mgmt port not in the
+          # Service, so we poll the real API instead of /q/health).
+          echo "Waiting for Polaris API + obtaining OAuth token..."
+          i=0; TOKEN=""
+          while [ -z "$TOKEN" ]; do
+            TOKEN=$(curl -s -X POST "$PURL/api/catalog/v1/oauth/tokens" \
+              -d "grant_type=client_credentials&client_id=$CID&client_secret=$CSECRET&scope=PRINCIPAL_ROLE:ALL" \
+              | sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            [ -n "$TOKEN" ] && break
+            i=$((i+1)); [ "$i" -gt 60 ] && { echo "ERROR: Polaris token not obtainable after 180s"; exit 1; }
             sleep 3
           done
-
-          echo "Obtaining OAuth token..."
-          TOKEN=$(curl -s -X POST "$PURL/api/catalog/v1/oauth/tokens" \
-            -d "grant_type=client_credentials&client_id=$CID&client_secret=$CSECRET&scope=PRINCIPAL_ROLE:ALL" \
-            | sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-          if [ -z "$TOKEN" ]; then echo "ERROR: token request failed"; exit 1; fi
           AUTH="Authorization: Bearer $TOKEN"
 
           echo "Creating catalog '$CATALOG' (idempotent)..."
