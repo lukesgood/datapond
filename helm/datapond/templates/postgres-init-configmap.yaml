@@ -42,6 +42,11 @@ data:
     # Iceberg JDBC catalog (fallback)
     create_db "iceberg_catalog"
 
+    {{- if .Values.litellm.enabled }}
+    # LiteLLM gateway — model_list / virtual keys / spend (store_model_in_db)
+    create_db "{{ .Values.litellm.database | default "litellm" }}"
+    {{- end }}
+
     {{- if .Values.risingwave.enabled }}
     # RisingWave streaming metadata
     create_db "{{ .Values.risingwave.database | default "risingwave" }}"

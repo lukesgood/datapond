@@ -27,7 +27,16 @@ router = APIRouter(tags=["auth"])
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "datapond-dev-secret-change-in-production")
+# Accept either env name — the Helm chart injects JWT_SECRET (from datapond-secrets);
+# JWT_SECRET_KEY kept for backwards compatibility. Without this alignment the backend
+# silently fell back to the hardcoded default below, so every install shared one
+# publicly-known signing key (security hole) and any per-replica/per-upgrade wiring
+# difference invalidated active sessions.
+SECRET_KEY = (
+    os.getenv("JWT_SECRET_KEY")
+    or os.getenv("JWT_SECRET")
+    or "datapond-dev-secret-change-in-production"
+)
 ALGORITHM  = "HS256"
 TOKEN_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "24"))
 

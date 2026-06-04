@@ -7,10 +7,10 @@ const nextConfig: NextConfig = {
       {
         source: "/api/:path*",
         destination: process.env.NEXT_PUBLIC_BACKEND_URL
-          ? `${process.env.NEXT_PUBLIC_BACKEND_URL}/:path*`
+          ? `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/:path*`
           : process.env.NODE_ENV === "production"
-          ? "http://backend.datapond.svc.cluster.local:8000/:path*"
-          : "http://localhost:8000/:path*",
+          ? "http://backend.datapond.svc.cluster.local:8000/api/:path*"
+          : "http://localhost:8000/api/:path*",
       },
     ];
   },

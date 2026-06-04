@@ -1,6 +1,10 @@
 {{- if .Values.litellm.enabled }}
+{{- $dbMode := or .Values.postgres.enabled .Values.litellm.databaseUrl }}
 ---
-# LiteLLM ConfigMap — model routing config mounted as /app/config.yaml
+# LiteLLM ConfigMap — bootstrap config mounted as /app/config.yaml.
+# In DB mode (store_model_in_db) the real model_list lives in PostgreSQL and is
+# managed at runtime via the admin API; this file only seeds optional models +
+# general/litellm settings.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -10,7 +14,7 @@ metadata:
     app: {{ .Values.litellm.name }}
 data:
   config.yaml: |
-    model_list:
+    model_list:{{- if not .Values.litellm.config.model_list }} []{{- end }}
     {{- range .Values.litellm.config.model_list }}
       - model_name: {{ .model_name | quote }}
         litellm_params:
@@ -22,6 +26,15 @@ data:
           aws_region_name: {{ .litellm_params.aws_region_name | quote }}
           {{- end }}
     {{- end }}
+    {{- if $dbMode }}
+    general_settings:
+      master_key: os.environ/LITELLM_MASTER_KEY
+      database_url: os.environ/DATABASE_URL
+      store_model_in_db: true
+    {{- end }}
+    litellm_settings:
+      drop_params: true
+      telemetry: false
 ---
 # LiteLLM Deployment
 apiVersion: apps/v1
@@ -33,7 +46,7 @@ metadata:
     app: {{ .Values.litellm.name }}
     app.kubernetes.io/name: {{ .Values.litellm.name }}
     app.kubernetes.io/instance: {{ .Release.Name }}
-    app.kubernetes.io/component: ai-proxy
+    app.kubernetes.io/component: ai-gateway
 spec:
   replicas: {{ .Values.litellm.replicas }}
   strategy:
@@ -46,9 +59,23 @@ spec:
       labels:
         app: {{ .Values.litellm.name }}
       annotations:
-        # Force pod restart when config changes
+        # Force pod restart when bootstrap config changes
         checksum/config: {{ .Values.litellm.config | toYaml | sha256sum }}
     spec:
+      {{- if .Values.postgres.enabled }}
+      initContainers:
+      - name: wait-for-postgres
+        image: postgres:16-alpine
+        command:
+          - sh
+          - -c
+          - |
+            until pg_isready -h {{ .Values.postgres.name | default "postgres" }} -p {{ .Values.postgres.service.port | default 5432 }} -U {{ .Values.postgres.auth.username | default "datapond" }}; do
+              echo "Waiting for PostgreSQL..."
+              sleep 2
+            done
+            echo "PostgreSQL ready."
+      {{- end }}
       containers:
       - name: litellm
         image: "{{ .Values.litellm.image.repository }}:{{ .Values.litellm.image.tag }}"
@@ -65,6 +92,40 @@ spec:
         - containerPort: {{ .Values.litellm.service.port }}
           name: http
           protocol: TCP
+        env:
+        # Gateway auth (admin API + virtual keys) and credential encryption salt.
+        - name: LITELLM_MASTER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: LITELLM_MASTER_KEY
+        - name: LITELLM_SALT_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: LITELLM_SALT_KEY
+        {{- if $dbMode }}
+        # DB mode — persist model_list / keys / spend in PostgreSQL for runtime config.
+        - name: STORE_MODEL_IN_DB
+          value: "True"
+        {{- if .Values.litellm.databaseUrl }}
+        - name: DATABASE_URL
+          value: {{ .Values.litellm.databaseUrl | quote }}
+        {{- else }}
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_PASSWORD
+        - name: DATABASE_URL
+          value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ .Values.postgres.name | default "postgres" }}:{{ .Values.postgres.service.port | default 5432 }}/{{ .Values.litellm.database | default "litellm" }}"
+        {{- end }}
+        {{- end }}
         volumeMounts:
         - name: litellm-config
           mountPath: /app/config.yaml
@@ -79,7 +140,7 @@ spec:
             memory: {{ .Values.litellm.resources.limits.memory }}
         livenessProbe:
           httpGet:
-            path: /health
+            path: /health/liveliness
             port: {{ .Values.litellm.service.port }}
           initialDelaySeconds: 30
           periodSeconds: 15
@@ -87,7 +148,7 @@ spec:
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /health
+            path: /health/readiness
             port: {{ .Values.litellm.service.port }}
           initialDelaySeconds: 15
           periodSeconds: 10

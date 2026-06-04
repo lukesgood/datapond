@@ -300,16 +300,13 @@ ai:
   llmEndpoint: ""        # 예: http://my-llm.internal:8000  (비우면 AI 비활성)
   llmModel: "default"
 
-# ── LiteLLM — co-located 게이트웨이 (옵션, 기본 OFF) ──────────────────────────
-# 인클러스터 멀티모델 라우팅/폴백이 필요할 때만 활성. BYO면 불필요.
+# ── LiteLLM — AI 게이트웨이 (단일 진입점, 기본 ON) ────────────────────────────
+# 경량 프록시(모델 가중치 없음). 모든 LLM 백엔드(Bedrock/Anthropic/사내 vLLM·Ollama 등)를
+# Settings → AI에서 런타임 등록/전환(DB 모드). seed 모델 없음 — UI에서 구성.
 litellm:
-  enabled: false
+  enabled: true
   config:
-    model_list:
-      - model_name: "default"
-        litellm_params:
-          model: "ollama/qwen2.5-coder:7b"
-          api_base: "http://ollama.datapond.svc.cluster.local:11434"
+    model_list: []
 
 # ── Ollama — co-located LLM runtime (옵션, 기본 OFF) ──────────────────────────
 # 7B 모델은 4~8GB RAM + CPU 추론이 무거워 단일 노드에 부적합(15GB 노드엔 스케줄 불가).

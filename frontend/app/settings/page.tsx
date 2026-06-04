@@ -16,9 +16,10 @@ import {
   CheckCircle2, ExternalLink, RefreshCw, Copy, Info, ShieldCheck,
   GitBranch, Box, Clock, Layers, AlertCircle, Users, Plus, Trash2,
   Eye, EyeOff, UserPlus, KeyRound, Shield, UserX, UserCheck, X, SlidersHorizontal,
-  Link, Terminal, Sparkles, Loader2, CheckCheck,
+  Link, Terminal,
 } from "lucide-react"
 import { getUser } from "@/lib/auth"
+import { AiBackends } from "@/components/settings/ai-backends"
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -86,79 +87,17 @@ export default function SettingsPage() {
   const [loading, setLoading]   = useState(true)
   const currentUser             = getUser()
 
-  // AI Settings
-  const [aiSettings, setAiSettings]     = useState<Record<string, string>>({})
-  const [aiSaving, setAiSaving]         = useState(false)
-  const [aiSaved, setAiSaved]           = useState(false)
-  const [aiForm, setAiForm]             = useState({
-    provider: "litellm",
-    litellm_url: "http://litellm.datapond.svc.cluster.local:4000",
-    litellm_model: "default",
-    aws_bedrock_region: "",
-    bedrock_model_id: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-    aws_access_key_id: "",
-    aws_secret_access_key: "",
-    anthropic_api_key: "",
-  })
-  const [showSecrets, setShowSecrets]   = useState(false)
-
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [svcRes, statRes, aiRes] = await Promise.all([
+      const [svcRes, statRes] = await Promise.all([
         fetch("/api/services"),
         fetch("/api/dashboard/stats"),
-        fetch("/api/settings/system/ai"),
       ])
       if (svcRes.ok)  setServices(await svcRes.json())
       if (statRes.ok) setStats(await statRes.json())
-      if (aiRes.ok) {
-        const aiData = await aiRes.json()
-        const s = aiData.settings || {}
-        setAiSettings(s)
-        setAiForm({
-          provider:            s["ai.provider"]            || "litellm",
-          litellm_url:         s["ai.litellm_url"]         || "http://litellm.datapond.svc.cluster.local:4000",
-          litellm_model:       s["ai.litellm_model"]       || "default",
-          aws_bedrock_region:  s["ai.aws_bedrock_region"]  || "",
-          bedrock_model_id:    s["ai.bedrock_model_id"]    || "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-          aws_access_key_id:   s["ai.aws_access_key_id"]   || "",
-          aws_secret_access_key: s["ai.aws_secret_access_key"] || "",
-          anthropic_api_key:   s["ai.anthropic_api_key"]   || "",
-        })
-      }
     } finally { setLoading(false) }
   }, [])
-
-  const saveAiSettings = async () => {
-    setAiSaving(true)
-    setAiSaved(false)
-    try {
-      const payload: Record<string, string> = {
-        "ai.provider":            aiForm.provider,
-        "ai.litellm_url":         aiForm.litellm_url,
-        "ai.litellm_model":       aiForm.litellm_model,
-        "ai.aws_bedrock_region":  aiForm.aws_bedrock_region,
-        "ai.bedrock_model_id":    aiForm.bedrock_model_id,
-      }
-      if (aiForm.aws_access_key_id && !aiForm.aws_access_key_id.startsWith("•"))
-        payload["ai.aws_access_key_id"] = aiForm.aws_access_key_id
-      if (aiForm.aws_secret_access_key && !aiForm.aws_secret_access_key.startsWith("•"))
-        payload["ai.aws_secret_access_key"] = aiForm.aws_secret_access_key
-      if (aiForm.anthropic_api_key && !aiForm.anthropic_api_key.startsWith("•"))
-        payload["ai.anthropic_api_key"] = aiForm.anthropic_api_key
-
-      const res = await fetch("/api/settings/system", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings: payload }),
-      })
-      if (!res.ok) throw new Error("Save failed")
-      setAiSaved(true)
-      setTimeout(() => setAiSaved(false), 3000)
-    } catch { /* show error */ }
-    finally { setAiSaving(false) }
-  }
 
   useEffect(() => { load() }, [load])
 
@@ -210,6 +149,7 @@ export default function SettingsPage() {
           <TabsList className="h-9">
             <TabsTrigger value="overview"  className="text-xs">Overview</TabsTrigger>
             <TabsTrigger value="users"     className="text-xs">Users</TabsTrigger>
+            <TabsTrigger value="ai"        className="text-xs">AI</TabsTrigger>
             <TabsTrigger value="security"  className="text-xs">Security</TabsTrigger>
             <TabsTrigger value="system"    className="text-xs">System</TabsTrigger>
           </TabsList>
@@ -303,6 +243,11 @@ export default function SettingsPage() {
           {/* ── Users ── */}
           <TabsContent value="users" className="mt-5">
             <UserManagement />
+          </TabsContent>
+
+          {/* ── AI ── */}
+          <TabsContent value="ai" className="mt-5">
+            <AiBackends />
           </TabsContent>
 
           {/* ── Security ── */}
@@ -518,179 +463,6 @@ export default function SettingsPage() {
                       </div>
                     ))}
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-            {/* ── AI SQL Assistant ── */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-primary" />AI SQL Assistant
-                </CardTitle>
-                <CardDescription>
-                  Configure the AI provider for natural language → SQL in Query Lab
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Provider selector */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Provider</Label>
-                  <Select
-                    value={aiForm.provider}
-                    onValueChange={v => v && setAiForm(f => ({ ...f, provider: v }))}
-                  >
-                    <SelectTrigger className="h-8 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="litellm">LiteLLM (on-prem / Ollama)</SelectItem>
-                      <SelectItem value="bedrock">AWS Bedrock</SelectItem>
-                      <SelectItem value="anthropic">Anthropic API</SelectItem>
-                      <SelectItem value="none">None (disabled)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* LiteLLM fields */}
-                {aiForm.provider === "litellm" && (
-                  <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-medium text-muted-foreground">LiteLLM Proxy Configuration</p>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-600 font-medium">
-                        ✓ On-prem / Air-gap ready
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs">LiteLLM URL</Label>
-                        <Input
-                          placeholder="http://litellm.datapond.svc.cluster.local:4000"
-                          value={aiForm.litellm_url}
-                          onChange={e => setAiForm(f => ({ ...f, litellm_url: e.target.value }))}
-                          className="h-8 text-sm font-mono"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs">Model Name</Label>
-                        <Input
-                          placeholder="default"
-                          value={aiForm.litellm_model}
-                          onChange={e => setAiForm(f => ({ ...f, litellm_model: e.target.value }))}
-                          className="h-8 text-sm font-mono"
-                        />
-                      </div>
-                    </div>
-                    <div className="rounded bg-muted/50 px-3 py-2 text-[10px] text-muted-foreground space-y-1">
-                      <p className="font-medium">Ollama models available on this cluster:</p>
-                      <p className="font-mono">qwen2.5-coder:7b — default, Text-to-SQL optimized</p>
-                      <p className="font-mono">llama3.1:8b — general chat (add to Helm values)</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* AWS Bedrock fields */}
-                {aiForm.provider === "bedrock" && (
-                  <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-                    <p className="text-xs font-medium text-muted-foreground">AWS Bedrock Configuration</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs">Region <span className="text-destructive">*</span></Label>
-                        <Input
-                          placeholder="us-east-1"
-                          value={aiForm.aws_bedrock_region}
-                          onChange={e => setAiForm(f => ({ ...f, aws_bedrock_region: e.target.value }))}
-                          className="h-8 text-sm font-mono"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs">Model ID</Label>
-                        <Input
-                          placeholder="us.anthropic.claude-haiku-4-5-20251001-v1:0"
-                          value={aiForm.bedrock_model_id}
-                          onChange={e => setAiForm(f => ({ ...f, bedrock_model_id: e.target.value }))}
-                          className="h-8 text-sm font-mono"
-                        />
-                      </div>
-                    </div>
-                    <p className="text-[10px] text-muted-foreground">
-                      Leave Access Key / Secret blank to use IAM role (EC2/EKS IRSA — recommended for on-prem)
-                    </p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs">Access Key ID</Label>
-                        <div className="relative">
-                          <Input
-                            type={showSecrets ? "text" : "password"}
-                            placeholder="AKIA… (optional)"
-                            value={aiForm.aws_access_key_id}
-                            onChange={e => setAiForm(f => ({ ...f, aws_access_key_id: e.target.value }))}
-                            className="h-8 text-sm font-mono pr-8"
-                          />
-                          <button className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
-                            onClick={() => setShowSecrets(v => !v)}>
-                            {showSecrets ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                          </button>
-                        </div>
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs">Secret Access Key</Label>
-                        <Input
-                          type={showSecrets ? "text" : "password"}
-                          placeholder="optional"
-                          value={aiForm.aws_secret_access_key}
-                          onChange={e => setAiForm(f => ({ ...f, aws_secret_access_key: e.target.value }))}
-                          className="h-8 text-sm font-mono"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Anthropic API fields */}
-                {aiForm.provider === "anthropic" && (
-                  <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-                    <p className="text-xs font-medium text-muted-foreground">Anthropic API Configuration</p>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">API Key <span className="text-destructive">*</span></Label>
-                      <div className="relative">
-                        <Input
-                          type={showSecrets ? "text" : "password"}
-                          placeholder="sk-ant-…"
-                          value={aiForm.anthropic_api_key}
-                          onChange={e => setAiForm(f => ({ ...f, anthropic_api_key: e.target.value }))}
-                          className="h-8 text-sm font-mono pr-8"
-                        />
-                        <button className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
-                          onClick={() => setShowSecrets(v => !v)}>
-                          {showSecrets ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex items-center gap-3 pt-1">
-                  <Button
-                    size="sm" className="h-8 text-xs gap-1.5"
-                    onClick={saveAiSettings}
-                    disabled={aiSaving}
-                  >
-                    {aiSaving
-                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      : aiSaved
-                        ? <CheckCheck className="h-3.5 w-3.5 text-green-400" />
-                        : <Sparkles className="h-3.5 w-3.5" />}
-                    {aiSaved ? "Saved!" : "Save & Apply"}
-                  </Button>
-                  <p className="text-[10px] text-muted-foreground">
-                    {aiForm.provider === "litellm"
-                      ? "Uses internal LiteLLM proxy — no external API calls"
-                      : aiForm.provider === "bedrock"
-                        ? "AWS Bedrock — requires IAM credentials or instance profile"
-                        : aiForm.provider === "anthropic"
-                          ? "Anthropic API — requires internet access"
-                          : "AI SQL generation disabled"}
-                  </p>
                 </div>
               </CardContent>
             </Card>
