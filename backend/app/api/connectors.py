@@ -1857,6 +1857,8 @@ async def _get_connector_instance(connection_id: str):
 async def get_quality_checks(connection_id: str, limit: int = 20):
     """Get latest data quality check results for a connection."""
     pool = await get_db_pool()
+    from .quality import ensure_quality_table
+    await ensure_quality_table(pool)
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """SELECT source_table, checked_at, rows_current, rows_previous,
