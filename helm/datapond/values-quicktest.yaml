@@ -351,21 +351,13 @@ seaweedfs:
     # not in use: `kubectl get svc -A | grep 10.43.107.150`
     clusterIP: 10.43.107.150
 
-# LiteLLM proxy — disabled when Ollama is off (single-node RAM constraint).
-# On 32GB+ nodes: set both litellm.enabled and ollama.enabled to true.
-# Fallback: ai_sql.py will use Bedrock/Anthropic directly if LiteLLM is unavailable.
+# LiteLLM gateway — always-on, lightweight (proxy only, no model weights ~256Mi).
+# Single entry point for all LLM providers; backends are added/switched at runtime
+# from Settings → AI (DB mode). No seed models — configure via the UI.
 litellm:
-  enabled: false
+  enabled: true
   config:
-    model_list:
-      - model_name: "default"
-        litellm_params:
-          model: "ollama/qwen2.5-coder:7b"
-          api_base: "http://ollama.datapond.svc.cluster.local:11434"
-      - model_name: "chat"
-        litellm_params:
-          model: "ollama/qwen2.5-coder:7b"
-          api_base: "http://ollama.datapond.svc.cluster.local:11434"
+    model_list: []
 
 # Ollama — reduced resources for single-node dev (16 CPU / 15GB RAM host)
 # qwen2.5-coder:7b ~4GB on disk, ~5GB RAM during inference

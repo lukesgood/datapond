@@ -655,6 +655,14 @@ openmetadata:
     enabled: true
     className: "org.openmetadata.service.clients.pipeline.airflow.AirflowRESTClient"
 
+# ── Auth / sessions ───────────────────────────────────────────────────────────
+# jwtSecret: leave empty to auto-generate ONCE and preserve across upgrades
+# (see secrets.yaml). Set explicitly for declarative/air-gap deploys or to rotate.
+# ⚠️ Changing it logs out every active user. tokenExpireHours controls session length.
+auth:
+  jwtSecret: ""
+  tokenExpireHours: 24
+
 # ── AI / LLM (BYO-LLM 기본) ───────────────────────────────────────────────────
 # DataPond는 LiteLLM 게이트웨이 추상화만 기본 제공하고, LLM 추론은 외부 엔드포인트에 위임한다.
 # 단일 노드에 무거운 모델(Ollama 7B 등)을 co-locate하지 않는다(자원·성능 부담).
@@ -664,10 +672,12 @@ ai:
   llmEndpoint: ""        # OpenAI 호환 base URL. 예: http://my-llm.internal:8000  (co-located litellm 사용 시 자동 설정)
   llmModel: "default"
 
-# LiteLLM — AI model proxy (OpenAI-compatible API)
-# 기본 OFF(BYO). co-located 게이트웨이가 필요할 때만 활성(멀티모델 라우팅/인클러스터 폴백).
+# LiteLLM — AI model gateway (OpenAI-compatible API), single entry point for all LLM
+# providers (Bedrock, Anthropic, OpenAI, Ollama/vLLM …). The backend speaks only
+# OpenAI-compatible HTTP to this gateway; provider backends are managed at RUNTIME
+# from Settings → AI (DB mode), no helm upgrade needed to add/switch a backend.
 litellm:
-  enabled: false
+  enabled: true
   name: litellm
   replicas: 1
   image:
@@ -679,26 +689,31 @@ litellm:
     type: ClusterIP
     port: 4000
 
+  # ── DB mode (store_model_in_db) ──────────────────────────────────────────────
+  # Persists model_list / virtual keys / spend in PostgreSQL so the Settings UI can
+  # add/remove/switch backends via the LiteLLM admin API at runtime.
+  database: litellm            # PostgreSQL database name (auto-created on first boot)
+  # masterKey: admin-API + virtual-key auth. saltKey: encrypts stored model creds.
+  # ⚠️ Both MUST stay stable across upgrades (saltKey change → stored creds undecryptable).
+  # Override with strong secrets in production / per-environment values.
+  masterKey: "sk-datapond-master-change-me"
+  saltKey: "datapond-litellm-salt-change-me"
+
+  # DB-mode startup runs Prisma migrations which spike memory — 512Mi OOMKills on
+  # first boot. 2Gi limit verified sufficient (steady-state proxy is far lighter).
   resources:
     requests:
       cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 500m
       memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
 
-  # model_list is rendered into a ConfigMap and mounted as /app/config.yaml
-  # Override per environment profile (values-onprem.yaml, values-aws.yaml, etc.)
+  # Seed model_list rendered into the bootstrap ConfigMap (/app/config.yaml).
+  # In DB mode these are merged with DB-managed models; leave empty to manage every
+  # backend from the UI. Override per environment profile (e.g. values-aws.yaml).
   config:
-    model_list:
-      - model_name: "default"
-        litellm_params:
-          model: "ollama/qwen2.5-coder:7b"
-          api_base: "http://ollama.datapond.svc.cluster.local:11434"
-      - model_name: "chat"
-        litellm_params:
-          model: "ollama/qwen2.5-coder:7b"
-          api_base: "http://ollama.datapond.svc.cluster.local:11434"
+    model_list: []
 
 # Ollama — co-located LLM runtime (옵션).
 # 기본 OFF: 7B 모델은 4~8GB RAM + CPU 추론이 무거워 단일/소형 노드에 부적합.

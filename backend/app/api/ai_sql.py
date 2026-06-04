@@ -1,14 +1,17 @@
 """
 AI SQL Assistant — natural language → SQL.
 
-Provider priority (automatic fallback chain):
-  1. LiteLLM internal proxy  (LITELLM_URL — Ollama / any configured model)
-  2. AWS Bedrock direct       (AWS_BEDROCK_REGION set, LiteLLM unavailable)
-  3. Anthropic API direct     (ANTHROPIC_API_KEY set, both above unavailable)
-  4. Graceful fallback        — schema-aware SQL template (no AI)
+Single-gateway architecture: all LLM access goes through the LiteLLM gateway over
+an OpenAI-compatible /v1/chat/completions endpoint. The actual provider behind a
+model_name (Bedrock, Anthropic, OpenAI, Ollama/vLLM …) is configured at runtime in
+Settings → AI; this module is provider-agnostic and only ever speaks to LiteLLM.
 
-LiteLLM exposes an OpenAI-compatible /v1/chat/completions endpoint, so
-providers 1-3 all use the same message format; only the HTTP target differs.
+  1. LiteLLM gateway   (LITELLM_URL set → call the active model_name)
+  2. Graceful fallback — schema-aware SQL template (no LLM configured)
+
+LITELLM_URL points at the co-located gateway by default, or a customer-supplied
+OpenAI-compatible endpoint (BYO). LITELLM_MODEL is the active default model_name,
+switched from the Settings → AI page (app.api.ai_backends).
 """
 import os
 import json
@@ -25,19 +28,16 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# ── Provider configuration (read dynamically — settings API updates os.environ) ─
+# ── Gateway configuration (read dynamically — settings API updates os.environ) ─
 def _cfg():
-    """Read provider config fresh from env each call so Settings UI changes apply immediately."""
+    """Read gateway config fresh from env each call so Settings changes apply immediately."""
     return {
-        # BYO-LLM: OpenAI 호환 LLM 엔드포인트. 비어 있으면 시도하지 않음(템플릿 폴백).
-        # 고객 사내 vLLM/Ollama/LiteLLM 또는 co-located LiteLLM(옵션)을 가리킨다.
-        "litellm_url":            os.getenv("LITELLM_URL", "").strip(),
-        "litellm_model":          os.getenv("LITELLM_MODEL", "default"),
-        "aws_bedrock_region":     os.getenv("AWS_BEDROCK_REGION", ""),
-        "aws_access_key_id":      os.getenv("AWS_ACCESS_KEY_ID", ""),
-        "aws_secret_access_key":  os.getenv("AWS_SECRET_ACCESS_KEY", ""),
-        "bedrock_model_id":       os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0"),
-        "anthropic_api_key":      os.getenv("ANTHROPIC_API_KEY", ""),
+        # OpenAI 호환 게이트웨이 URL. 비어 있으면 시도하지 않음(템플릿 폴백).
+        # 기본은 co-located LiteLLM, 또는 고객 사내 OpenAI 호환 엔드포인트(BYO).
+        "litellm_url":   os.getenv("LITELLM_URL", "").strip(),
+        "litellm_model": os.getenv("LITELLM_MODEL", "default"),
+        # Master key — authenticates to the gateway (admin + chat) when set.
+        "master_key":    os.getenv("LITELLM_MASTER_KEY", "").strip(),
     }
 
 TRINO_HOST    = os.getenv("TRINO_SERVICE_HOST", "trino.datapond.svc.cluster.local")
@@ -110,59 +110,19 @@ Rules:
 # ── Provider implementations ──────────────────────────────────────────────────
 
 def _call_litellm(system: str, messages: list) -> str:
-    """Call LiteLLM proxy (OpenAI-compatible).  Connect timeout: 3 s."""
+    """Call the LiteLLM gateway (OpenAI-compatible).  Connect timeout: 3 s."""
     cfg = _cfg()
     payload = {
         "model": cfg["litellm_model"],
         "messages": [{"role": "system", "content": system}] + messages,
         "max_tokens": 1024,
     }
+    headers = {"Authorization": f"Bearer {cfg['master_key']}"} if cfg["master_key"] else {}
     with httpx.Client(timeout=httpx.Timeout(connect=3.0, read=60.0, write=10.0, pool=5.0)) as client:
-        resp = client.post(f"{cfg['litellm_url']}/v1/chat/completions", json=payload)
+        resp = client.post(f"{cfg['litellm_url']}/v1/chat/completions", json=payload, headers=headers)
         resp.raise_for_status()
     data = resp.json()
     return data["choices"][0]["message"]["content"].strip()
-
-
-def _call_bedrock(system: str, messages: list) -> str:
-    """Call AWS Bedrock directly (Anthropic Messages API via boto3)."""
-    import boto3
-    cfg = _cfg()
-
-    kwargs: dict = {"region_name": cfg["aws_bedrock_region"]}
-    if cfg["aws_access_key_id"] and cfg["aws_secret_access_key"]:
-        kwargs["aws_access_key_id"] = cfg["aws_access_key_id"]
-        kwargs["aws_secret_access_key"] = cfg["aws_secret_access_key"]
-
-    client = boto3.client("bedrock-runtime", **kwargs)
-    body = json.dumps({
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 1024,
-        "system": system,
-        "messages": messages,
-    })
-    resp = client.invoke_model(
-        modelId=cfg["bedrock_model_id"],
-        contentType="application/json",
-        accept="application/json",
-        body=body,
-    )
-    result = json.loads(resp["body"].read())
-    return result["content"][0]["text"].strip()
-
-
-def _call_anthropic(system: str, messages: list) -> str:
-    """Call Anthropic API directly."""
-    import anthropic
-    cfg = _cfg()
-    client = anthropic.Anthropic(api_key=cfg["anthropic_api_key"])
-    msg = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=1024,
-        system=system,
-        messages=messages,
-    )
-    return msg.content[0].text.strip()
 
 
 def _parse_response(raw: str) -> dict:
@@ -195,8 +155,8 @@ async def generate_sql(req: AskRequest):
 
     cfg = _cfg()
 
-    # ── 1. LLM 엔드포인트 (OpenAI 호환 — BYO 또는 co-located LiteLLM) ──────────
-    # 미설정(빈 URL) 시 시도하지 않음 → 죽은 svc로의 불필요한 타임아웃 방지(BYO 기본).
+    # ── 1. LiteLLM gateway (OpenAI 호환 — 모든 provider의 단일 진입점) ─────────
+    # 미설정(빈 URL) 시 시도하지 않음 → 죽은 svc로의 불필요한 타임아웃 방지.
     if cfg["litellm_url"]:
         try:
             raw = await asyncio.to_thread(_call_litellm, system, messages)
@@ -208,37 +168,9 @@ async def generate_sql(req: AskRequest):
                 provider=f"litellm:{cfg['litellm_model']}",
             )
         except Exception as e:
-            logger.warning(f"[ai_sql] LLM endpoint unavailable: {e}")
+            logger.warning(f"[ai_sql] gateway unavailable or no active backend: {e}")
 
-    # ── 2. AWS Bedrock direct ─────────────────────────────────────────────────
-    if cfg["aws_bedrock_region"]:
-        try:
-            raw = await asyncio.to_thread(_call_bedrock, system, messages)
-            data = _parse_response(raw)
-            return AskResponse(
-                sql=data["sql"].strip(),
-                explanation=data.get("explanation", ""),
-                has_ai=True,
-                provider=f"bedrock:{cfg['bedrock_model_id']}",
-            )
-        except Exception as e:
-            logger.error(f"[ai_sql] Bedrock failed: {e}")
-
-    # ── 3. Anthropic API direct ───────────────────────────────────────────────
-    if cfg["anthropic_api_key"]:
-        try:
-            raw = await asyncio.to_thread(_call_anthropic, system, messages)
-            data = _parse_response(raw)
-            return AskResponse(
-                sql=data["sql"].strip(),
-                explanation=data.get("explanation", ""),
-                has_ai=True,
-                provider="anthropic",
-            )
-        except Exception as e:
-            logger.error(f"[ai_sql] Anthropic failed: {e}")
-
-    # ── 4. Graceful fallback — schema-aware SQL template ──────────────────────
+    # ── 2. Graceful fallback — schema-aware SQL template ──────────────────────
     table_lines = "\n".join(
         f"-- SELECT * FROM {line.split(':')[0].strip()} LIMIT 10;"
         for line in schema_ctx.split("\n")
@@ -248,15 +180,14 @@ async def generate_sql(req: AskRequest):
     return AskResponse(
         sql=(
             "-- AI SQL Assistant\n"
-            "-- No LLM configured (BYO-LLM). Set an OpenAI-compatible endpoint:\n"
-            "--   LITELLM_URL          (사내 vLLM/Ollama/LiteLLM 등 — 권장)\n"
-            "--   AWS_BEDROCK_REGION   (+ IAM credentials)\n"
-            "--   ANTHROPIC_API_KEY    (direct Anthropic API)\n"
+            "-- No AI backend configured. Open Settings → AI and add a provider\n"
+            "-- backend (AWS Bedrock, Anthropic, OpenAI, or self-hosted Ollama/vLLM),\n"
+            "-- then set it active. All providers route through the LiteLLM gateway.\n"
             "--\n"
             "-- Available tables:\n"
             f"{table_lines}"
         ),
-        explanation="No LLM configured. Set LITELLM_URL (OpenAI-compatible endpoint), AWS_BEDROCK_REGION, or ANTHROPIC_API_KEY.",
+        explanation="No AI backend configured. Add and activate one in Settings → AI.",
         has_ai=False,
         provider="none",
     )
