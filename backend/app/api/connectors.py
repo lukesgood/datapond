@@ -37,6 +37,12 @@ OPENMETADATA_EMAIL = os.getenv("OPENMETADATA_EMAIL", "admin@open-metadata.org")
 OPENMETADATA_PASSWORD = os.getenv("OPENMETADATA_PASSWORD", "admin")
 OPENMETADATA_TOKEN: str | None = None
 
+# OM database FQN for the Trino/Iceberg service (created by the OM Trino ingestion).
+# Synced tables are registered as entities under this database so they show up in
+# the OM catalog without a manual ingestion run. Override per deployment if the
+# OM databaseService is named differently.
+OM_DATABASE_FQN = os.getenv("OPENMETADATA_ICEBERG_DB_FQN", "datapond-trino.iceberg")
+
 
 async def _om_token() -> str | None:
     """Obtain OpenMetadata JWT token (cached in module-level var).
@@ -81,7 +87,11 @@ async def register_lineage(
             return
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         source_fqn = f"datapond.{source_schema}.{source_name}"
-        target_fqn = f"iceberg.{target_schema}.{target_table}"
+        # Target FQN must match the OM entity created by register_om_table /
+        # the Trino ingestion: <service>.<db>.<schema>.<table>. The old value
+        # ("iceberg.<schema>.<table>") never matched a real OM entity, so the
+        # lineage edge silently failed.
+        target_fqn = f"{OM_DATABASE_FQN}.{target_schema}.{target_table}"
 
         payload = {
             "edge": {
@@ -97,6 +107,90 @@ async def register_lineage(
             await c.put(f"{OPENMETADATA_URL}/api/v1/lineage", headers=headers, json=payload)
     except Exception as e:
         logger.debug(f"[lineage] best-effort registration failed: {e}")
+
+
+def _om_coltype(trino_type: str):
+    """Map a Trino column type to an OpenMetadata (dataType, dataLength)."""
+    t = (trino_type or "").lower()
+    if t.startswith("bigint"):
+        return "BIGINT", None
+    if t.startswith("smallint"):
+        return "SMALLINT", None
+    if t.startswith("tinyint"):
+        return "TINYINT", None
+    if t.startswith("int"):
+        return "INT", None
+    if t.startswith("double"):
+        return "DOUBLE", None
+    if t.startswith("real") or t.startswith("float"):
+        return "FLOAT", None
+    if t.startswith("boolean"):
+        return "BOOLEAN", None
+    if t.startswith("date"):
+        return "DATE", None
+    if "timestamp" in t and "with time zone" in t:
+        return "TIMESTAMPZ", None
+    if "timestamp" in t:
+        return "TIMESTAMP", None
+    if t.startswith("decimal") or t.startswith("numeric"):
+        return "DECIMAL", None
+    if t.startswith(("varchar", "char", "varbinary", "json")):
+        return "VARCHAR", 65535
+    return "VARCHAR", 65535
+
+
+def _trino_table_columns(target_schema: str, target_table: str):
+    """[(name, trino_type)] for iceberg.<schema>.<table> via Trino information_schema.
+    Synchronous (Trino client) — call via asyncio.to_thread."""
+    import trino
+    conn = trino.dbapi.connect(
+        host=os.getenv("TRINO_SERVICE_HOST", "trino.datapond.svc.cluster.local"),
+        port=int(os.getenv("TRINO_SERVICE_PORT", "8080")),
+        user="datapond", catalog="iceberg", http_scheme="http", request_timeout=30,
+    )
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT column_name, data_type FROM iceberg.information_schema.columns "
+        "WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position",
+        (target_schema, target_table),
+    )
+    return [(r[0], r[1]) for r in cur.fetchall()]
+
+
+async def register_om_table(target_schema: str, target_table: str) -> bool:
+    """Best-effort, idempotent OpenMetadata ingestion for one synced Iceberg table.
+
+    createOrUpdate the databaseSchema + table entity (with columns read from Trino)
+    under OM_DATABASE_FQN, so every sync reflects tables in the OM catalog without a
+    manual ingestion run. Returns True on success. Errors are swallowed (best-effort).
+    """
+    try:
+        token = await _om_token()
+        if not token:
+            return False
+        cols_raw = await asyncio.to_thread(_trino_table_columns, target_schema, target_table)
+        if not cols_raw:
+            return False
+        columns = []
+        for cname, ctype in cols_raw:
+            dt, dl = _om_coltype(ctype)
+            col = {"name": cname, "dataType": dt, "dataTypeDisplay": ctype}
+            if dl:
+                col["dataLength"] = dl
+            columns.append(col)
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        async with httpx.AsyncClient(timeout=10) as c:
+            # Ensure the schema exists (idempotent), then the table.
+            await c.put(f"{OPENMETADATA_URL}/api/v1/databaseSchemas", headers=headers,
+                        json={"name": target_schema, "database": OM_DATABASE_FQN})
+            r = await c.put(f"{OPENMETADATA_URL}/api/v1/tables", headers=headers,
+                            json={"name": target_table,
+                                  "databaseSchema": f"{OM_DATABASE_FQN}.{target_schema}",
+                                  "columns": columns})
+            return r.status_code < 300
+    except Exception as e:
+        logger.debug(f"[om] table register failed for {target_schema}.{target_table}: {e}")
+        return False
 
 
 from ..connectors.base import (
@@ -1574,7 +1668,9 @@ async def _persist_sync_session(pool, connection_id: str, job_id: str,
     except Exception:
         pass
 
-    # Best-effort: register lineage in OpenMetadata for successful tables
+    # Best-effort: reflect each synced table in OpenMetadata (register the table
+    # entity, then the lineage edge). Done per table in one task so the lineage
+    # target exists before the edge is created.
     try:
         async with pool.acquire() as conn:
             conn_info = await conn.fetchrow(
@@ -1582,15 +1678,18 @@ async def _persist_sync_session(pool, connection_id: str, job_id: str,
                 uuid.UUID(connection_id)
             )
         if conn_info:
+            async def _reflect_in_om(tbl):
+                await register_om_table("default", tbl)
+                await register_lineage(
+                    source_name=tbl,
+                    source_schema=conn_info["connector_type"],
+                    target_table=tbl,
+                    target_schema="default",
+                    connector_name=conn_info["name"],
+                )
             for tbl, tgt, ok, rows, _ in results:
                 if ok:
-                    asyncio.create_task(register_lineage(
-                        source_name=tbl,
-                        source_schema=conn_info["connector_type"],
-                        target_table=tbl,
-                        target_schema="default",
-                        connector_name=conn_info["name"],
-                    ))
+                    asyncio.create_task(_reflect_in_om(tbl))
     except Exception:
         pass
 
