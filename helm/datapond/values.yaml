@@ -590,6 +590,10 @@ risingwave:
 openmetadata:
   enabled: true
   name: openmetadata
+  # ingestion-bot JWT for backend service auth (lineage/quality). Empty = backend
+  # falls back to basic-auth login. Get from OM DB: user_entity(name='ingestion-bot')
+  # → json.authenticationMechanism.config.JWTToken. (env: OPENMETADATA_JWT_TOKEN)
+  jwtToken: ""
 
   # PostgreSQL database for OpenMetadata metadata
   database: openmetadata_catalog
