@@ -1,6 +1,8 @@
-{{- if .Values.polaris.enabled }}
+{{- if and .Values.polaris.enabled .Values.seaweedfs.enabled }}
 ---
-# Polaris catalog initialization (post-bootstrap).
+# Polaris catalog initialization (post-bootstrap). Gated on seaweedfs.enabled too:
+# the storage config below (SeaweedFS base-location + placeholder roleArn) only makes
+# sense for the SeaweedFS-backed profile. Real-S3 profiles need their own storage cfg.
 # The polaris-bootstrap Job only creates the metastore schema + root principal.
 # This Job creates the actual CATALOG, grants data privileges, and creates the
 # medallion namespaces — the steps required before Trino/clients can use Iceberg.
@@ -19,6 +21,7 @@ metadata:
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
   backoffLimit: 5
+  activeDeadlineSeconds: 600        # don't let the hook hang forever if Polaris never readies
   ttlSecondsAfterFinished: 600
   template:
     metadata:
@@ -48,12 +51,16 @@ spec:
         - |
           set -e
           echo "Waiting for Polaris to be ready..."
-          until curl -sf "$PURL/q/health/ready" >/dev/null 2>&1; do sleep 3; done
+          i=0
+          until curl -sf "$PURL/q/health/ready" >/dev/null 2>&1; do
+            i=$((i+1)); [ "$i" -gt 60 ] && { echo "ERROR: Polaris not ready after 180s"; exit 1; }
+            sleep 3
+          done
 
           echo "Obtaining OAuth token..."
           TOKEN=$(curl -s -X POST "$PURL/api/catalog/v1/oauth/tokens" \
             -d "grant_type=client_credentials&client_id=$CID&client_secret=$CSECRET&scope=PRINCIPAL_ROLE:ALL" \
-            | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+            | sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
           if [ -z "$TOKEN" ]; then echo "ERROR: token request failed"; exit 1; fi
           AUTH="Authorization: Bearer $TOKEN"
 
@@ -66,24 +73,32 @@ spec:
               \"roleArn\":\"arn:aws:iam::000000000000:role/polaris\"}}}")
           echo "  catalog -> $code"; [ "$code" = "201" ] || [ "$code" = "409" ] || { cat /tmp/o; exit 1; }
 
+          # Grant + role-assign are best-effort (Polaris returns 500 on duplicate grants),
+          # so we don't fail on them here — instead we VERIFY the end state below.
           echo "Granting CATALOG_MANAGE_CONTENT to catalog_admin..."
           curl -s -o /dev/null -w "  grant -> %{http_code}\n" -X PUT \
             "$PURL/api/management/v1/catalogs/$CATALOG/catalog-roles/catalog_admin/grants" \
             -H "$AUTH" -H "Content-Type: application/json" \
             -d '{"grant":{"type":"catalog","privilege":"CATALOG_MANAGE_CONTENT"}}' || true
-
-          echo "Ensuring catalog_admin assigned to service_admin principal-role..."
           curl -s -o /dev/null -w "  assign -> %{http_code}\n" -X PUT \
             "$PURL/api/management/v1/principal-roles/service_admin/catalog-roles/$CATALOG" \
             -H "$AUTH" -H "Content-Type: application/json" \
             -d '{"catalogRole":{"name":"catalog_admin"}}' || true
 
           for NS in $NAMESPACES; do
-            curl -s -o /dev/null -w "  namespace $NS -> %{http_code}\n" -X POST \
+            nc=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
               "$PURL/api/catalog/v1/$CATALOG/namespaces" \
-              -H "$AUTH" -H "Content-Type: application/json" \
-              -d "{\"namespace\":[\"$NS\"]}" || true
+              -H "$AUTH" -H "Content-Type: application/json" -d "{\"namespace\":[\"$NS\"]}")
+            echo "  namespace $NS -> $nc"
+            [ "$nc" = "200" ] || [ "$nc" = "409" ] || { echo "ERROR: namespace $NS failed ($nc)"; exit 1; }
           done
+
+          # Verify end state — fail the hook if the catalog or grant didn't actually land,
+          # instead of silently reporting success on a broken catalog.
+          echo "Verifying catalog grants..."
+          curl -sf "$PURL/api/management/v1/catalogs/$CATALOG/catalog-roles/catalog_admin/grants" \
+            -H "$AUTH" | grep -q "CATALOG_MANAGE_CONTENT" \
+            || { echo "ERROR: CATALOG_MANAGE_CONTENT grant missing on catalog_admin"; exit 1; }
           echo "Polaris catalog init complete."
         resources:
           requests:

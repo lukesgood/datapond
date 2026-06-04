@@ -35,7 +35,7 @@ data:
     litellm_settings:
       drop_params: true
       telemetry: false
-      {{- if .Values.litellm.cache }}
+      {{- if and .Values.litellm.cache .Values.valkey.enabled }}
       # Response caching → Valkey (Redis-compatible) for cost/latency reduction
       cache: true
       cache_params:
@@ -83,6 +83,12 @@ spec:
       initContainers:
       - name: wait-for-postgres
         image: postgres:16-alpine
+        env:
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_PASSWORD
         command:
           - sh
           - -c
@@ -91,7 +97,13 @@ spec:
               echo "Waiting for PostgreSQL..."
               sleep 2
             done
-            echo "PostgreSQL ready."
+            # Ensure the litellm DB exists. postgres-init only runs on first PG boot,
+            # so on pre-existing clusters this is the only thing that creates it.
+            psql -h {{ .Values.postgres.name | default "postgres" }} -p {{ .Values.postgres.service.port | default 5432 }} -U {{ .Values.postgres.auth.username | default "datapond" }} -d postgres -tAc \
+              "SELECT 1 FROM pg_database WHERE datname='{{ .Values.litellm.database | default "litellm" }}'" | grep -q 1 || \
+              psql -h {{ .Values.postgres.name | default "postgres" }} -p {{ .Values.postgres.service.port | default 5432 }} -U {{ .Values.postgres.auth.username | default "datapond" }} -d postgres \
+              -c "CREATE DATABASE {{ .Values.litellm.database | default "litellm" }}"
+            echo "PostgreSQL ready; litellm DB ensured."
       {{- end }}
       containers:
       - name: litellm

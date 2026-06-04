@@ -131,6 +131,15 @@ spec:
               name: datapond-secrets
               key: OPENMETADATA_JWT_TOKEN
               optional: true
+        # OM basic-auth fallback creds (used only when JWT token unset) — overridable
+        - name: OPENMETADATA_EMAIL
+          value: "{{ .Values.openmetadata.email | default "admin@open-metadata.org" }}"
+        - name: OPENMETADATA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: OPENMETADATA_PASSWORD
+              optional: true
         {{- if .Values.backend.env }}
         {{- toYaml .Values.backend.env | nindent 8 }}
         {{- end }}

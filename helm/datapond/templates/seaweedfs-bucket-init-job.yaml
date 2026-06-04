@@ -17,6 +17,7 @@ metadata:
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
   backoffLimit: 5
+  activeDeadlineSeconds: 600
   ttlSecondsAfterFinished: 600
   template:
     metadata:
@@ -49,7 +50,11 @@ spec:
         - -c
         - |
           echo "Waiting for SeaweedFS S3..."
-          until aws --endpoint-url "$S3_ENDPOINT" s3 ls >/dev/null 2>&1; do sleep 3; done
+          i=0
+          until aws --endpoint-url "$S3_ENDPOINT" s3 ls >/dev/null 2>&1; do
+            i=$((i+1)); [ "$i" -gt 60 ] && { echo "ERROR: SeaweedFS S3 not reachable after 180s"; exit 1; }
+            sleep 3
+          done
           if aws --endpoint-url "$S3_ENDPOINT" s3 ls "s3://$BUCKET" >/dev/null 2>&1; then
             echo "Bucket '$BUCKET' already exists."
           else
