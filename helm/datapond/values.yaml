@@ -603,6 +603,10 @@ openmetadata:
   # falls back to basic-auth login. Get from OM DB: user_entity(name='ingestion-bot')
   # → json.authenticationMechanism.config.JWTToken. (env: OPENMETADATA_JWT_TOKEN)
   jwtToken: ""
+  # basic-auth fallback creds (used only when jwtToken empty). Set password to the
+  # OM instance's actual admin password; otherwise the fallback login will 401.
+  email: "admin@open-metadata.org"
+  password: ""
 
   # PostgreSQL database for OpenMetadata metadata
   database: openmetadata_catalog

@@ -41,11 +41,25 @@ class SettingsPatch(BaseModel):
     settings: dict[str, Any]
 
 
+_DDL = """CREATE TABLE IF NOT EXISTS system_settings (
+             key        TEXT PRIMARY KEY,
+             value      TEXT,
+             updated_at TIMESTAMPTZ DEFAULT NOW()
+         )"""
+
+
+async def _ensure_table(conn) -> None:
+    """Create system_settings if absent — no schema/migration file defines it, so a
+    fresh deploy would otherwise 500 on the first settings query."""
+    await conn.execute(_DDL)
+
+
 @router.get("/settings/system")
 async def get_system_settings():
     """Return all stored system settings (sensitive values masked)."""
     pool = await get_db_pool()
     async with pool.acquire() as conn:
+        await _ensure_table(conn)
         rows = await conn.fetch("SELECT key, value FROM system_settings")
 
     result: dict[str, Any] = {}
@@ -70,6 +84,7 @@ async def update_system_settings(body: SettingsPatch):
     """Save settings and apply to runtime env vars immediately."""
     pool = await get_db_pool()
     async with pool.acquire() as conn:
+        await _ensure_table(conn)
         for k, v in body.settings.items():
             if k not in AI_ENV_MAP and not k.startswith("ai."):
                 raise HTTPException(400, f"Unknown setting key: {k}")
@@ -100,6 +115,7 @@ async def get_ai_settings():
     """Return AI provider config with real values for testing (keys partially masked)."""
     pool = await get_db_pool()
     async with pool.acquire() as conn:
+        await _ensure_table(conn)
         rows = await conn.fetch(
             "SELECT key, value FROM system_settings WHERE key LIKE 'ai.%'"
         )
@@ -146,6 +162,7 @@ async def _apply_ai_settings_to_env(pool) -> None:
     """Load AI settings from DB and apply to os.environ for current process."""
     try:
         async with pool.acquire() as conn:
+            await _ensure_table(conn)
             rows = await conn.fetch(
                 "SELECT key, value FROM system_settings WHERE key LIKE 'ai.%'"
             )

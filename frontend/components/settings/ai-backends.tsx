@@ -74,6 +74,7 @@ export function AiBackends() {
 
   const [tests, setTests]       = useState<Record<string, TestResult>>({})
   const [busy, setBusy]         = useState<string | null>(null)   // model_name currently mutating
+  const [actionErr, setActionErr] = useState<string | null>(null) // surfaced delete/activate errors
 
   const [showAdd, setShowAdd]   = useState(false)
   const [form, setForm]         = useState({ ...emptyForm })
@@ -139,23 +140,27 @@ export function AiBackends() {
   const deleteBackend = async (b: Backend) => {
     if (!b.id) return
     if (!confirm(`Remove backend '${b.model_name}'? This cannot be undone.`)) return
-    setBusy(b.model_name)
+    setBusy(b.model_name); setActionErr(null)
     try {
-      await fetch(`/api/settings/ai/backends/${encodeURIComponent(b.id)}`, { method: "DELETE" })
+      const res = await fetch(`/api/settings/ai/backends/${encodeURIComponent(b.id)}`, { method: "DELETE" })
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `Delete failed (${res.status})`) }
       await load()
-    } finally { setBusy(null) }
+    } catch (e) { setActionErr(e instanceof Error ? e.message : "Delete failed") }
+    finally { setBusy(null) }
   }
 
   const setActive = async (b: Backend) => {
-    setBusy(b.model_name)
+    setBusy(b.model_name); setActionErr(null)
     try {
-      await fetch("/api/settings/ai/active", {
+      const res = await fetch("/api/settings/ai/active", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model_name: b.model_name }),
       })
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `Activate failed (${res.status})`) }
       await load()
-    } finally { setBusy(null) }
+    } catch (e) { setActionErr(e instanceof Error ? e.message : "Activate failed") }
+    finally { setBusy(null) }
   }
 
   const testBackend = async (b: Backend) => {
@@ -172,7 +177,9 @@ export function AiBackends() {
   const prov = PROVIDERS[form.provider]
   const formValid = form.model_name.trim() && form.model.trim() &&
     (!prov?.fields.includes("api_base") || form.api_base.trim()) &&
-    (form.provider !== "bedrock" || form.aws_region_name.trim())
+    (form.provider !== "bedrock" || form.aws_region_name.trim()) &&
+    // api_key is required for anthropic/openai/gemini (vllm allows blank)
+    (!prov?.fields.includes("api_key") || form.provider === "vllm" || form.api_key.trim())
 
   return (
     <div className="space-y-5">
@@ -199,6 +206,12 @@ export function AiBackends() {
       {loadErr && (
         <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-2.5 text-xs text-amber-700">
           <AlertCircle className="h-4 w-4 shrink-0" />{loadErr}
+        </div>
+      )}
+      {actionErr && (
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-2.5 text-xs text-destructive">
+          <span className="flex items-center gap-2"><XCircle className="h-4 w-4 shrink-0" />{actionErr}</span>
+          <button onClick={() => setActionErr(null)}>✕</button>
         </div>
       )}
 
@@ -529,11 +542,13 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
 
   const remove = async (k: VKey) => {
     if (!confirm(`Revoke key '${k.key_alias || k.token}'?`)) return
-    setBusy(k.token)
+    setBusy(k.token); setGenErr(null)
     try {
-      await fetch(`/api/settings/ai/keys/${encodeURIComponent(k.token)}`, { method: "DELETE" })
+      const res = await fetch(`/api/settings/ai/keys/${encodeURIComponent(k.token)}`, { method: "DELETE" })
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `Revoke failed (${res.status})`) }
       await load()
-    } finally { setBusy(null) }
+    } catch (e) { setGenErr(e instanceof Error ? e.message : "Revoke failed") }
+    finally { setBusy(null) }
   }
 
   const toggleModel = (m: string) =>
@@ -568,6 +583,8 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
             <div className="text-lg font-bold mt-1">{loading ? "—" : keys.length}</div>
           </div>
         </div>
+
+        {!showGen && genErr && <p className="text-xs text-destructive">{genErr}</p>}
 
         {/* Keys list */}
         {loading ? (

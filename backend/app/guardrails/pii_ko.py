@@ -54,11 +54,15 @@ def _valid_luhn(value: str) -> bool:
 # (label, compiled regex, optional validator(match_str) -> bool)
 _PATTERNS = [
     ("주민등록번호", re.compile(r"\d{6}[-\s]?[1-8]\d{6}"), _valid_rrn),
-    ("신용카드",     re.compile(r"\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{1,4}"), _valid_luhn),
+    # Any 13–19 digit run with optional single space/dash separators (covers Visa 13/16/19,
+    # Amex 15 in any grouping, etc.); the Luhn check keeps false positives low.
+    ("신용카드",     re.compile(r"\b(?:\d[ -]?){12,18}\d\b"), _valid_luhn),
     ("휴대전화",     re.compile(r"01[016789][-\s.]?\d{3,4}[-\s.]?\d{4}"), None),
     ("사업자등록번호", re.compile(r"\d{3}-\d{2}-\d{5}"), None),
-    ("여권번호",     re.compile(r"\b[MSRODGmsrodg]\d{8}\b"), None),
     ("이메일",       re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"), None),
+    # NOTE: passport (e.g. M+8 digits) deliberately omitted — the regex over-matches
+    # ordinary alphanumeric IDs (e.g. order id "G12345678"), masking/blocking valid
+    # SQL literals. Detecting it reliably needs NER/context, out of scope for regex.
 ]
 
 
