@@ -36,6 +36,12 @@ spec:
             --default-artifact-root s3://mlflow-artifacts \
             --static-prefix /mlflow
         env:
+        # MLflow serves via gunicorn, which by default only trusts X-Forwarded-*
+        # from localhost. Behind the ingress/ALB the proxy IP isn't local, so
+        # without this gunicorn ignores X-Forwarded-Proto and emits http redirects
+        # (Mixed Content under TLS). "*" trusts the in-cluster ingress hop.
+        - name: FORWARDED_ALLOW_IPS
+          value: "*"
         - name: POSTGRES_USER
           valueFrom:
             secretKeyRef:

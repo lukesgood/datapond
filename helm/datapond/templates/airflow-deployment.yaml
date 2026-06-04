@@ -57,7 +57,12 @@ spec:
         - name: AIRFLOW__CORE__EXECUTOR
           value: {{ .Values.airflow.executor }}
         - name: AIRFLOW__WEBSERVER__BASE_URL
-          value: "http://{{ .Values.global.domain }}/airflow"
+          value: "{{ .Values.global.externalScheme | default "http" }}://{{ .Values.ingress.domain | default .Values.global.domain }}/airflow"
+        # Honor X-Forwarded-Proto/Host from the ingress/ALB so generated URLs and
+        # redirects use the external https scheme — otherwise the browser blocks
+        # them as Mixed Content when TLS is terminated upstream.
+        - name: AIRFLOW__WEBSERVER__ENABLE_PROXY_FIX
+          value: "True"
         - name: AIRFLOW__WEBSERVER__WEB_SERVER_PORT
           value: "{{ .Values.airflow.webserver.service.port }}"
         - name: AIRFLOW__API__AUTH_BACKENDS
