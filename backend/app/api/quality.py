@@ -32,6 +32,37 @@ def _trino_conn():
     )
 
 
+_QUALITY_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS connector_quality_checks (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    connection_id     UUID NOT NULL,
+    source_table      TEXT NOT NULL,
+    checked_at        TIMESTAMP NOT NULL DEFAULT NOW(),
+    rows_current      BIGINT,
+    rows_previous     BIGINT,
+    row_change_pct    DOUBLE PRECISION,
+    row_change_status TEXT,
+    null_checks       JSONB,
+    overall_status    TEXT,
+    warnings          JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_quality_conn_table_time
+    ON connector_quality_checks (connection_id, source_table, checked_at DESC);
+"""
+
+
+async def ensure_quality_table(pool) -> None:
+    """Idempotently create connector_quality_checks. The table was never added to
+    schema/connectors.sql, so on DBs initialized from that schema it is missing —
+    the writer's INSERT and the /quality endpoint's SELECT both fail without this.
+    Best-effort; callers should not break if it can't run."""
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(_QUALITY_TABLE_DDL)
+    except Exception as e:
+        logger.warning(f"[quality] ensure table failed: {e}")
+
+
 def _run_quality_check_sync(
     table_name: str,
     schema: str,
@@ -139,6 +170,8 @@ async def run_and_store_quality_checks(
     """
     import asyncio
     import json as _json
+
+    await ensure_quality_table(pool)
 
     for table, target, ok, rows_current, _ in table_results:
         if not ok or rows_current == 0:

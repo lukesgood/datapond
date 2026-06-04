@@ -64,19 +64,23 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Exempt public endpoints
         if path in AUTH_EXEMPT:
             return await call_next(request)
-        # Check for Bearer token
+        # Check for Bearer token. Only the auth check is guarded by try/except —
+        # call_next() MUST stay outside it, otherwise a route handler's exception
+        # gets swallowed here and returned as a misleading 401 "Not authenticated"
+        # instead of a real 500 (this masked a missing-table error as an auth failure).
         auth = request.headers.get("Authorization", "")
+        user = None
         if auth.startswith("Bearer "):
             from app.api.auth import get_current_user
             from fastapi.security import HTTPAuthorizationCredentials
             try:
                 creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=auth[7:])
                 user = await get_current_user(creds)
-                if user:
-                    request.state.user = user
-                    return await call_next(request)
             except Exception:
-                pass
+                user = None
+        if user:
+            request.state.user = user
+            return await call_next(request)
         return JSONResponse(
             status_code=401,
             content={"detail": "Not authenticated"},
