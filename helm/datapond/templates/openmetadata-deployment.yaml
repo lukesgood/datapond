@@ -215,9 +215,9 @@ spec:
         {{- end }}
         # Server configuration
         - name: SERVER_HOST_API_URL
-          value: "http://{{ .Values.global.domain }}/openmetadata/api"
+          value: "http://{{ .Values.ingress.domain | default .Values.global.domain }}/openmetadata/api"
         - name: SERVER_HOST
-          value: "{{ .Values.global.domain }}"
+          value: "{{ .Values.ingress.domain | default .Values.global.domain }}"
         - name: AUTHENTICATION_PROVIDER
           value: "{{ .Values.openmetadata.auth.provider }}"
         - name: AUTHORIZER_CLASS_NAME
