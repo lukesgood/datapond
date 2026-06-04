@@ -25,7 +25,7 @@ import { AiBackends } from "@/components/settings/ai-backends"
 
 const SERVICE_META: Record<string, { label: string; desc: string; color: string; url?: string }> = {
   postgres:     { label: "PostgreSQL 16",     desc: "Shared metadata database",      color: "text-blue-600" },
-  mlflow:       { label: "MLflow",            desc: "ML experiment tracking",         color: "text-orange-500", url: "/mlflow" },
+  mlflow:       { label: "MLflow",            desc: "ML experiment tracking",         color: "text-orange-500", url: "/mlflow/" },
   jupyterlab:   { label: "JupyterLab",        desc: "Interactive notebooks",          color: "text-amber-500",  url: "/jupyter" },
   trino:        { label: "Trino 435",         desc: "Distributed SQL query engine",   color: "text-indigo-600" },
   risingwave:   { label: "RisingWave v1.6",   desc: "Streaming SQL database",         color: "text-cyan-600" },
@@ -33,18 +33,22 @@ const SERVICE_META: Record<string, { label: string; desc: string; color: string;
   seaweedfs:    { label: "SeaweedFS",         desc: "S3-compatible object storage",   color: "text-green-600",  url: "/seaweedfs-console" },
   polaris:      { label: "Apache Polaris",    desc: "Iceberg REST catalog",           color: "text-red-500" },
   valkey:       { label: "Valkey",            desc: "Redis-compatible cache",         color: "text-rose-500" },
-  airflow:      { label: "Airflow",           desc: "Pipeline orchestration",         color: "text-sky-600",    url: "/airflow" },
+  airflow:      { label: "Airflow",           desc: "Pipeline orchestration",         color: "text-sky-600",    url: "/airflow/" },
 }
 
 // Access URLs (path-hosted services). OpenMetadata / SeaweedFS / Trino are NOT
 // listed: their web UIs don't support sub-path hosting, so they 404 under /<svc>
 // on every profile — use a subdomain or port-forward for those admin UIs.
+// MLflow/Airflow paths keep a trailing slash: their gunicorn frontend emits a
+// 308 add-slash redirect with an absolute http:// URL (the proxy hop drops
+// X-Forwarded-Proto), which downgrades the click to http. Linking the slashed
+// form skips that redirect — /mlflow/ → 200, /airflow/ → relative 302.
 const ACCESS_URL_DEFS = [
   { service: "Management UI",  path: "",                  cred: undefined },
   { service: "Backend API",    path: "/api/health",       cred: undefined },
   { service: "JupyterLab",     path: "/jupyter",          cred: "token: jupyter" },
-  { service: "Airflow",        path: "/airflow",          cred: "airflow / airflow" },
-  { service: "MLflow",         path: "/mlflow",           cred: undefined },
+  { service: "Airflow",        path: "/airflow/",         cred: "airflow / airflow" },
+  { service: "MLflow",         path: "/mlflow/",          cred: undefined },
 ]
 
 const HELM_CMDS = [
