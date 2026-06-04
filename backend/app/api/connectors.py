@@ -73,40 +73,38 @@ async def _om_token() -> str | None:
     return None
 
 
-async def register_lineage(
-    source_name: str,
-    source_schema: str,
-    target_table: str,
-    target_schema: str,
-    connector_name: str,
-) -> None:
-    """Best-effort: register source→target lineage edge in OpenMetadata."""
+async def register_lineage(source_fqn: str, target_fqn: str, connector_name: str) -> bool:
+    """Best-effort: register a source→target table lineage edge in OpenMetadata.
+
+    Resolves both tables to their entity IDs by FQN first — OM's lineage PUT needs
+    real EntityReferences, and both endpoints must already exist as entities (see
+    register_om_table / register_om_source_table). Returns True if the edge was
+    accepted. Errors are swallowed (best-effort)."""
     try:
         token = await _om_token()
         if not token:
-            return
+            return False
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        source_fqn = f"datapond.{source_schema}.{source_name}"
-        # Target FQN must match the OM entity created by register_om_table /
-        # the Trino ingestion: <service>.<db>.<schema>.<table>. The old value
-        # ("iceberg.<schema>.<table>") never matched a real OM entity, so the
-        # lineage edge silently failed.
-        target_fqn = f"{OM_DATABASE_FQN}.{target_schema}.{target_table}"
-
-        payload = {
-            "edge": {
-                "fromEntity": {"type": "table", "fqn": source_fqn},
-                "toEntity":   {"type": "table", "fqn": target_fqn},
-                "lineageDetails": {
-                    "pipeline": {"type": "pipeline", "fqn": f"datapond.{connector_name}"},
-                    "description": f"Ingested by DataPond connector: {connector_name}",
-                },
+        async with httpx.AsyncClient(timeout=8) as c:
+            sr = await c.get(f"{OPENMETADATA_URL}/api/v1/tables/name/{source_fqn}", headers=headers)
+            tr = await c.get(f"{OPENMETADATA_URL}/api/v1/tables/name/{target_fqn}", headers=headers)
+            if sr.status_code >= 300 or tr.status_code >= 300:
+                logger.debug(f"[lineage] endpoint missing: src={sr.status_code} tgt={tr.status_code}")
+                return False
+            payload = {
+                "edge": {
+                    "fromEntity": {"type": "table", "id": sr.json()["id"]},
+                    "toEntity":   {"type": "table", "id": tr.json()["id"]},
+                    "lineageDetails": {
+                        "description": f"Ingested by DataPond connector: {connector_name}",
+                    },
+                }
             }
-        }
-        async with httpx.AsyncClient(timeout=5) as c:
-            await c.put(f"{OPENMETADATA_URL}/api/v1/lineage", headers=headers, json=payload)
+            r = await c.put(f"{OPENMETADATA_URL}/api/v1/lineage", headers=headers, json=payload)
+            return r.status_code < 300
     except Exception as e:
         logger.debug(f"[lineage] best-effort registration failed: {e}")
+        return False
 
 
 def _om_coltype(trino_type: str):
@@ -165,20 +163,25 @@ def _trino_table_columns(target_schema: str, target_table: str):
     return [(r[0], r[1]) for r in cur.fetchall()]
 
 
-async def register_om_table(target_schema: str, target_table: str) -> bool:
+def _om_slug(s: str) -> str:
+    """OM-safe identifier: collapse non-[A-Za-z0-9_] runs to '_'."""
+    import re
+    return re.sub(r"[^A-Za-z0-9_]+", "_", (s or "")).strip("_") or "src"
+
+
+async def register_om_table(target_schema: str, target_table: str):
     """Best-effort, idempotent OpenMetadata ingestion for one synced Iceberg table.
 
-    createOrUpdate the databaseSchema + table entity (with columns read from Trino)
-    under OM_DATABASE_FQN, so every sync reflects tables in the OM catalog without a
-    manual ingestion run. Returns True on success. Errors are swallowed (best-effort).
-    """
+    createOrUpdate the databaseSchema + table entity (columns read from Trino) under
+    OM_DATABASE_FQN, so every sync reflects tables in the OM catalog without a manual
+    ingestion run. Returns the OM column list on success, else None (best-effort)."""
     try:
         token = await _om_token()
         if not token:
-            return False
+            return None
         cols_raw = await asyncio.to_thread(_trino_table_columns, target_schema, target_table)
         if not cols_raw:
-            return False
+            return None
         columns = []
         for cname, ctype in cols_raw:
             dt, dl = _om_coltype(ctype)
@@ -195,10 +198,47 @@ async def register_om_table(target_schema: str, target_table: str) -> bool:
                             json={"name": target_table,
                                   "databaseSchema": f"{OM_DATABASE_FQN}.{target_schema}",
                                   "columns": columns})
-            return r.status_code < 300
+            return columns if r.status_code < 300 else None
     except Exception as e:
         logger.debug(f"[om] table register failed for {target_schema}.{target_table}: {e}")
-        return False
+        return None
+
+
+async def register_om_source_table(connector_type: str, connector_name: str,
+                                   source_schema: str, source_table: str, columns) -> str | None:
+    """Best-effort: register the connector's SOURCE table as an OM entity so the
+    lineage edge has a valid 'from' endpoint. Uses a CustomDatabase service (no live
+    connection / no connection-config validation). The synced Iceberg table is a full
+    copy, so we reuse its columns. Returns the source table FQN, or None.
+
+    FQN: datapond-<type>.<connector-slug>.<schema>.<table>
+    """
+    if not columns:
+        return None
+    try:
+        token = await _om_token()
+        if not token:
+            return None
+        svc = f"datapond-{_om_slug(connector_type)}"
+        db = _om_slug(connector_name)
+        sch = _om_slug(source_schema or "public")
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        async with httpx.AsyncClient(timeout=10) as c:
+            await c.put(f"{OPENMETADATA_URL}/api/v1/services/databaseServices", headers=headers,
+                        json={"name": svc, "serviceType": "CustomDatabase",
+                              "connection": {"config": {"type": "CustomDatabase"}}})
+            await c.put(f"{OPENMETADATA_URL}/api/v1/databases", headers=headers,
+                        json={"name": db, "service": svc})
+            await c.put(f"{OPENMETADATA_URL}/api/v1/databaseSchemas", headers=headers,
+                        json={"name": sch, "database": f"{svc}.{db}"})
+            r = await c.put(f"{OPENMETADATA_URL}/api/v1/tables", headers=headers,
+                            json={"name": source_table,
+                                  "databaseSchema": f"{svc}.{db}.{sch}",
+                                  "columns": columns})
+            return f"{svc}.{db}.{sch}.{source_table}" if r.status_code < 300 else None
+    except Exception as e:
+        logger.debug(f"[om] source register failed for {connector_name}.{source_table}: {e}")
+        return None
 
 
 from ..connectors.base import (
@@ -1687,14 +1727,18 @@ async def _persist_sync_session(pool, connection_id: str, job_id: str,
             )
         if conn_info:
             async def _reflect_in_om(tbl):
-                await register_om_table("default", tbl)
-                await register_lineage(
-                    source_name=tbl,
-                    source_schema=conn_info["connector_type"],
-                    target_table=tbl,
-                    target_schema="default",
-                    connector_name=conn_info["name"],
-                )
+                # 1) target iceberg table entity (reproducible OM ingestion)
+                columns = await register_om_table("default", tbl)
+                # 2) source table entity (so lineage has a valid 'from' endpoint)
+                source_fqn = await register_om_source_table(
+                    conn_info["connector_type"], conn_info["name"], "public", tbl, columns)
+                # 3) lineage edge (needs both entities to exist)
+                if columns and source_fqn:
+                    await register_lineage(
+                        source_fqn=source_fqn,
+                        target_fqn=f"{OM_DATABASE_FQN}.default.{tbl}",
+                        connector_name=conn_info["name"],
+                    )
             for tbl, tgt, ok, rows, _ in results:
                 if ok:
                     asyncio.create_task(_reflect_in_om(tbl))
