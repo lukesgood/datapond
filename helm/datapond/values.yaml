@@ -519,6 +519,7 @@ polaris:
     - serving
 
   # Storage configuration (uses SeaweedFS)
+  warehouseBucket: iceberg   # S3 bucket auto-created in SeaweedFS (seaweedfs-bucket-init Job)
   storage:
     type: s3
     defaultBaseLocation: s3://iceberg/warehouse
