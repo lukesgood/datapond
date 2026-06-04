@@ -1,0 +1,95 @@
+{{- if .Values.polaris.enabled }}
+---
+# Polaris catalog initialization (post-bootstrap).
+# The polaris-bootstrap Job only creates the metastore schema + root principal.
+# This Job creates the actual CATALOG, grants data privileges, and creates the
+# medallion namespaces — the steps required before Trino/clients can use Iceberg.
+# Idempotent: tolerates "already exists" responses so Helm upgrades re-run cleanly.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.polaris.name }}-catalog-init
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.polaris.name }}
+    component: catalog-init
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.polaris.name }}-catalog-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: catalog-init
+        image: curlimages/curl:8.10.1
+        env:
+        - name: PURL
+          value: "http://{{ .Values.polaris.name }}:{{ .Values.polaris.service.port }}"
+        - name: CID
+          value: "{{ .Values.polaris.auth.clientId }}"
+        - name: CSECRET
+          value: "{{ .Values.polaris.auth.clientSecret }}"
+        - name: CATALOG
+          value: "{{ .Values.polaris.catalogName | default "iceberg" }}"
+        - name: BASELOC
+          value: "{{ .Values.polaris.storage.defaultBaseLocation }}"
+        - name: NAMESPACES
+          value: "{{ .Values.polaris.initNamespaces | default (list "raw" "refined" "serving") | join " " }}"
+        command:
+        - sh
+        - -c
+        - |
+          set -e
+          echo "Waiting for Polaris to be ready..."
+          until curl -sf "$PURL/q/health/ready" >/dev/null 2>&1; do sleep 3; done
+
+          echo "Obtaining OAuth token..."
+          TOKEN=$(curl -s -X POST "$PURL/api/catalog/v1/oauth/tokens" \
+            -d "grant_type=client_credentials&client_id=$CID&client_secret=$CSECRET&scope=PRINCIPAL_ROLE:ALL" \
+            | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+          if [ -z "$TOKEN" ]; then echo "ERROR: token request failed"; exit 1; fi
+          AUTH="Authorization: Bearer $TOKEN"
+
+          echo "Creating catalog '$CATALOG' (idempotent)..."
+          code=$(curl -s -o /tmp/o -w "%{http_code}" -X POST "$PURL/api/management/v1/catalogs" \
+            -H "$AUTH" -H "Content-Type: application/json" -d "{
+              \"catalog\":{\"name\":\"$CATALOG\",\"type\":\"INTERNAL\",
+              \"properties\":{\"default-base-location\":\"$BASELOC\"},
+              \"storageConfigInfo\":{\"storageType\":\"S3\",\"allowedLocations\":[\"$BASELOC\"],
+              \"roleArn\":\"arn:aws:iam::000000000000:role/polaris\"}}}")
+          echo "  catalog -> $code"; [ "$code" = "201" ] || [ "$code" = "409" ] || { cat /tmp/o; exit 1; }
+
+          echo "Granting CATALOG_MANAGE_CONTENT to catalog_admin..."
+          curl -s -o /dev/null -w "  grant -> %{http_code}\n" -X PUT \
+            "$PURL/api/management/v1/catalogs/$CATALOG/catalog-roles/catalog_admin/grants" \
+            -H "$AUTH" -H "Content-Type: application/json" \
+            -d '{"grant":{"type":"catalog","privilege":"CATALOG_MANAGE_CONTENT"}}' || true
+
+          echo "Ensuring catalog_admin assigned to service_admin principal-role..."
+          curl -s -o /dev/null -w "  assign -> %{http_code}\n" -X PUT \
+            "$PURL/api/management/v1/principal-roles/service_admin/catalog-roles/$CATALOG" \
+            -H "$AUTH" -H "Content-Type: application/json" \
+            -d '{"catalogRole":{"name":"catalog_admin"}}' || true
+
+          for NS in $NAMESPACES; do
+            curl -s -o /dev/null -w "  namespace $NS -> %{http_code}\n" -X POST \
+              "$PURL/api/catalog/v1/$CATALOG/namespaces" \
+              -H "$AUTH" -H "Content-Type: application/json" \
+              -d "{\"namespace\":[\"$NS\"]}" || true
+          done
+          echo "Polaris catalog init complete."
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+{{- end }}
