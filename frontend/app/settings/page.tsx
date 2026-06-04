@@ -39,12 +39,12 @@ const SERVICE_META: Record<string, { label: string; desc: string; color: string;
 // Access URLs are resolved dynamically at render time via useAccessUrls()
 const ACCESS_URL_DEFS = [
   { service: "Management UI",  path: "",                  cred: undefined },
-  { service: "Backend API",    path: "/api",              cred: undefined },
+  { service: "Backend API",    path: "/api/health",       cred: undefined },
   { service: "JupyterLab",     path: "/jupyter",          cred: "token: jupyter" },
   { service: "Airflow",        path: "/airflow",          cred: "airflow / airflow" },
   { service: "MLflow",         path: "/mlflow",           cred: undefined },
   { service: "OpenMetadata",   path: "/openmetadata",     cred: undefined },
-  { service: "SeaweedFS",      path: "/seaweedfs-console",cred: undefined },
+  { service: "SeaweedFS",      path: "/seaweedfs",        cred: undefined },
 ]
 
 const HELM_CMDS = [
@@ -117,7 +117,15 @@ export default function SettingsPage() {
       const ctrl = new AbortController()
       const timer = setTimeout(() => ctrl.abort(), 4000)
       fetch(u, { method: "GET", redirect: "manual", signal: ctrl.signal })
-        .then(res => { if (!cancelled) setReach(r => ({ ...r, [service]: res.type === "opaqueredirect" ? "redir" : "ok" })) })
+        .then(res => {
+          if (cancelled) return
+          // opaqueredirect = bounced elsewhere (e.g. → /login). 401/403 = reachable but
+          // auth-gated (still OK). 404/5xx = broken. <400 = OK.
+          const st = res.type === "opaqueredirect" ? "redir"
+            : (res.status < 400 || res.status === 401 || res.status === 403) ? "ok"
+            : "down"
+          setReach(r => ({ ...r, [service]: st }))
+        })
         .catch(() => { if (!cancelled) setReach(r => ({ ...r, [service]: "down" })) })
         .finally(() => clearTimeout(timer))
     })
@@ -263,7 +271,7 @@ export default function SettingsPage() {
                           <CopyButton text={url} />
                         </div>
                         {st === "redir"    && <Badge variant="secondary" className="text-[10px] h-4 px-1.5 bg-amber-500/10 text-amber-700 border-amber-200">직접 접근 불가</Badge>}
-                        {st === "down"     && <Badge variant="secondary" className="text-[10px] h-4 px-1.5">오프라인</Badge>}
+                        {st === "down"     && <Badge variant="secondary" className="text-[10px] h-4 px-1.5">사용 불가</Badge>}
                         {st === "checking" && <span className="text-[10px] text-muted-foreground shrink-0">확인 중…</span>}
                         {reachable && cred && (
                           <code className="text-[11px] text-muted-foreground shrink-0 bg-muted px-1.5 py-0.5 rounded">{cred}</code>
