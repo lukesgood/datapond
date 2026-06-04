@@ -1517,6 +1517,86 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+async def _persist_sync_session(pool, connection_id: str, job_id: str,
+                                started_at: datetime, results: list, sync_mode) -> str:
+    """Record a connector_sync_history session row and fire best-effort data
+    quality checks + OpenMetadata lineage registration.
+
+    Shared by /sync and /sync/stream so a sync triggered from the connectors
+    list (lean /sync) records history/quality/lineage identically to the detail
+    view (/sync/stream). `results` is a list of (table, target, ok, rows, status).
+    """
+    import json as _json
+    completed_at = datetime.utcnow()
+    duration_ms = int((completed_at - started_at).total_seconds() * 1000)
+    success_count = sum(1 for _, _, ok, _, _ in results if ok)
+    failed_count = len(results) - success_count
+    total_rows = sum(rows for _, _, _, rows, _ in results)
+    mode_val = sync_mode.value if hasattr(sync_mode, "value") else str(sync_mode)
+    table_details = [
+        {"table": tbl, "target": tgt,
+         "status": "success" if ok else "failed",
+         "rows": rows,
+         "error": st.error_message if not ok else None}
+        for tbl, tgt, ok, rows, st in results
+    ]
+    first_error = next((t["error"] for t in table_details if t.get("error")), None)
+    history_id = str(uuid.uuid4())
+    # job_id FK must reference a real connector_sync_jobs row
+    async with pool.acquire() as conn:
+        real_job = await conn.fetchval(
+            "SELECT id FROM connector_sync_jobs WHERE connection_id=$1 ORDER BY created_at DESC LIMIT 1",
+            uuid.UUID(connection_id)
+        )
+    real_job_id = real_job if real_job else uuid.UUID(job_id)
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO connector_sync_history
+            (id, job_id, started_at, completed_at, status,
+             rows_processed, rows_failed, error_message, metadata)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ''',
+            uuid.UUID(history_id), real_job_id, started_at, completed_at,
+            "success" if failed_count == 0 else "failed",
+            total_rows, failed_count, first_error,
+            _json.dumps({
+                "connection_id": str(connection_id),
+                "sync_mode": mode_val,
+                "duration_ms": duration_ms,
+                "tables": table_details,
+            }, default=str)
+        )
+
+    # Best-effort: data quality checks for successful tables
+    try:
+        from .quality import run_and_store_quality_checks
+        asyncio.create_task(run_and_store_quality_checks(pool, connection_id, results))
+    except Exception:
+        pass
+
+    # Best-effort: register lineage in OpenMetadata for successful tables
+    try:
+        async with pool.acquire() as conn:
+            conn_info = await conn.fetchrow(
+                "SELECT name, connector_type FROM connector_connections WHERE id=$1",
+                uuid.UUID(connection_id)
+            )
+        if conn_info:
+            for tbl, tgt, ok, rows, _ in results:
+                if ok:
+                    asyncio.create_task(register_lineage(
+                        source_name=tbl,
+                        source_schema=conn_info["connector_type"],
+                        target_table=tbl,
+                        target_schema="default",
+                        connector_name=conn_info["name"],
+                    ))
+    except Exception:
+        pass
+
+    return history_id
+
+
 @router.post("/connectors/{connection_id}/sync")
 async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None):
     """Trigger a data sync job"""
@@ -1532,6 +1612,9 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
                 return {"job_id": None, "status": "success", "rows_processed": 0, "message": "No tables to sync"}
             total_rows = 0
             last_status = None
+            results = []
+            started_at = datetime.utcnow()
+            job_id = None
             pool = await get_db_pool()
             for table in tables:
                 target = f"datapond.default.{table}"
@@ -1544,6 +1627,8 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
                 )
                 total_rows += status.rows_processed
                 last_status = status
+                results.append((table, target, status.status == SyncStatus.SUCCESS,
+                                status.rows_processed, status))
                 job_id = str(uuid.uuid4())
                 async with pool.acquire() as conn:
                     await conn.execute('''
@@ -1566,6 +1651,12 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
                     "UPDATE connector_connections SET last_sync_at = $1 WHERE id = $2",
                     datetime.utcnow(), uuid.UUID(connection_id)
                 )
+            # Record session history + best-effort quality/lineage (same as /sync/stream)
+            try:
+                await _persist_sync_session(pool, connection_id, job_id, started_at,
+                                            results, request.sync_mode)
+            except Exception:
+                pass  # never let bookkeeping fail the sync
             return {
                 "job_id": job_id,
                 "status": last_status.status.value,
@@ -1576,6 +1667,7 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
         # Sync a specific table
         source_table = request.source_table
         target_table = request.target_table or f"datapond.default.{source_table}"
+        started_at = datetime.utcnow()
         pool = await get_db_pool()
         status = await connector.sync_to_iceberg(
             source_table=source_table,
@@ -1606,6 +1698,15 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
                 "UPDATE connector_connections SET last_sync_at = $1 WHERE id = $2",
                 datetime.utcnow(), uuid.UUID(connection_id)
             )
+        # Record session history + best-effort quality/lineage (same as /sync/stream)
+        try:
+            await _persist_sync_session(
+                pool, connection_id, job_id, started_at,
+                [(source_table, target_table, status.status == SyncStatus.SUCCESS,
+                  status.rows_processed, status)],
+                request.sync_mode)
+        except Exception:
+            pass
         return {
             "job_id": job_id,
             "status": status.status.value,
