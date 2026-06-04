@@ -9,6 +9,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 import tempfile
 import os
+import base64
 import httpx
 from pathlib import Path
 
@@ -482,10 +483,13 @@ async def _get_om_token() -> str | None:
     global _om_token_cache
     if _om_token_cache:
         return _om_token_cache
+    # OM (>=1.x) requires the basic-auth password Base-64 encoded on /users/login.
+    email = os.getenv("OPENMETADATA_EMAIL", "admin@open-metadata.org")
+    pw_b64 = base64.b64encode(os.getenv("OPENMETADATA_PASSWORD", "admin").encode()).decode()
     try:
         async with httpx.AsyncClient(timeout=5) as c:
             r = await c.post(f"{OPENMETADATA_URL}/api/v1/users/login",
-                             json={"email": "admin@open-metadata.org", "password": "Admin1234!"})
+                             json={"email": email, "password": pw_b64})
             if r.status_code == 200:
                 _om_token_cache = r.json().get("accessToken")
                 return _om_token_cache
