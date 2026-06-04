@@ -41,9 +41,14 @@ OPENMETADATA_TOKEN: str | None = None
 async def _om_token() -> str | None:
     """Obtain OpenMetadata JWT token (cached in module-level var).
 
-    OM (>=1.x) requires the basic-auth password Base-64 encoded on /users/login.
+    Preferred: long-lived bot JWT via OPENMETADATA_JWT_TOKEN (OM ingestion-bot) —
+    the standard service-auth path. Fallback: basic-auth /users/login (OM >=1.x
+    requires the password Base-64 encoded).
     """
     global OPENMETADATA_TOKEN
+    static = os.getenv("OPENMETADATA_JWT_TOKEN", "").strip()
+    if static:
+        return static
     if OPENMETADATA_TOKEN:
         return OPENMETADATA_TOKEN
     try:

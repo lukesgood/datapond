@@ -481,9 +481,13 @@ _om_token_cache: str | None = None
 
 async def _get_om_token() -> str | None:
     global _om_token_cache
+    # Preferred: long-lived bot JWT (OM ingestion-bot) via env.
+    static = os.getenv("OPENMETADATA_JWT_TOKEN", "").strip()
+    if static:
+        return static
     if _om_token_cache:
         return _om_token_cache
-    # OM (>=1.x) requires the basic-auth password Base-64 encoded on /users/login.
+    # Fallback: basic-auth login (OM >=1.x requires Base-64 encoded password).
     email = os.getenv("OPENMETADATA_EMAIL", "admin@open-metadata.org")
     pw_b64 = base64.b64encode(os.getenv("OPENMETADATA_PASSWORD", "admin").encode()).decode()
     try:

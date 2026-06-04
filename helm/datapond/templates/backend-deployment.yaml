@@ -124,6 +124,13 @@ spec:
         {{- end }}
         - name: OPENMETADATA_URL
           value: "http://openmetadata-server.{{ .Values.namespace }}.svc.cluster.local:8585"
+        # OM ingestion-bot JWT for service auth (optional — set via openmetadata.jwtToken)
+        - name: OPENMETADATA_JWT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: OPENMETADATA_JWT_TOKEN
+              optional: true
         {{- if .Values.backend.env }}
         {{- toYaml .Values.backend.env | nindent 8 }}
         {{- end }}
