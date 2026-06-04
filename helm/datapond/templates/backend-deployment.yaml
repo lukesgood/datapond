@@ -113,6 +113,10 @@ spec:
         # Korean PII guardrail mode (mask | block | off)
         - name: PII_GUARDRAIL_MODE
           value: "{{ .Values.ai.piiGuardrail | default "mask" }}"
+        # AI egress policy (local-only | cloud-allowed) — sovereign deployments
+        # set local-only to block external LLM providers (no data egress).
+        - name: AI_EGRESS_POLICY
+          value: "{{ .Values.ai.egressPolicy | default "cloud-allowed" }}"
         {{- if .Values.litellm.enabled }}
         # Master key — authenticates the backend to the LiteLLM admin API
         # (manage/switch model backends at runtime) and to /v1/chat/completions.

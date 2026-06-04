@@ -35,6 +35,10 @@ storage:
   region: us-east-1
   bucket: datapond-iceberg
 
+# AI egress policy — AWS profile uses managed Bedrock (external by design).
+ai:
+  egressPolicy: "cloud-allowed"
+
 # LiteLLM: route to AWS Bedrock
 litellm:
   enabled: true
