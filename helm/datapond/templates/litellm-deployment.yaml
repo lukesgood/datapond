@@ -35,6 +35,23 @@ data:
     litellm_settings:
       drop_params: true
       telemetry: false
+      {{- if .Values.litellm.cache }}
+      # Response caching → Valkey (Redis-compatible) for cost/latency reduction
+      cache: true
+      cache_params:
+        type: redis
+        host: {{ .Values.valkey.name | default "valkey" }}.{{ .Values.namespace }}.svc.cluster.local
+        port: {{ .Values.valkey.service.port | default 6379 }}
+        ttl: 3600
+      {{- end }}
+      {{- if .Values.litellm.metrics }}
+      # Prometheus metrics at /metrics (request count, latency, tokens, spend)
+      callbacks: ["prometheus"]
+      {{- end }}
+    # Global reliability defaults (apply to DB-managed models too)
+    router_settings:
+      num_retries: 2
+      timeout: 60
 ---
 # LiteLLM Deployment
 apiVersion: apps/v1

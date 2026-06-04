@@ -699,6 +699,11 @@ litellm:
   masterKey: "sk-datapond-master-change-me"
   saltKey: "datapond-litellm-salt-change-me"
 
+  # Response caching to Valkey (Redis-compatible) — cuts cost/latency on repeat queries.
+  cache: true
+  # Prometheus metrics at /metrics (enable monitoring stack to scrape).
+  metrics: true
+
   # DB-mode startup runs Prisma migrations which spike memory — 512Mi OOMKills on
   # first boot. 2Gi limit verified sufficient (steady-state proxy is far lighter).
   resources:

@@ -74,11 +74,25 @@ class BackendCreate(BaseModel):
     aws_region_name: Optional[str] = None        # bedrock
     aws_access_key_id: Optional[str] = None      # bedrock (blank → instance IAM role)
     aws_secret_access_key: Optional[str] = None  # bedrock
+    # Advanced per-model params (optional)
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    rpm: Optional[int] = None                     # requests/min cap
+    tpm: Optional[int] = None                     # tokens/min cap
     set_active: bool = False                      # make this the active default after creating
 
 
 class ActivePatch(BaseModel):
     model_name: str
+
+
+class KeyCreate(BaseModel):
+    key_alias: str
+    models: list[str] = []                        # restrict to these model_names ([] = all)
+    max_budget: Optional[float] = None            # USD spend cap
+    rpm_limit: Optional[int] = None
+    tpm_limit: Optional[int] = None
+    duration: Optional[str] = None                # e.g. "30d", "24h"
 
 
 def _build_params(b: BackendCreate) -> dict:
@@ -92,6 +106,10 @@ def _build_params(b: BackendCreate) -> dict:
     if b.aws_region_name:        params["aws_region_name"] = b.aws_region_name
     if b.aws_access_key_id:       params["aws_access_key_id"] = b.aws_access_key_id
     if b.aws_secret_access_key:   params["aws_secret_access_key"] = b.aws_secret_access_key
+    if b.temperature is not None: params["temperature"] = b.temperature
+    if b.max_tokens is not None:  params["max_tokens"] = b.max_tokens
+    if b.rpm is not None:         params["rpm"] = b.rpm
+    if b.tpm is not None:         params["tpm"] = b.tpm
     return params
 
 
@@ -268,3 +286,97 @@ async def test_backend(model_name: str):
         return {"ok": True, "latency_ms": latency, "message": _short(content, 120)}
     except Exception as e:
         return {"ok": False, "latency_ms": int((time.monotonic() - t0) * 1000), "message": _short(str(e), 200)}
+
+
+# ── Virtual keys / budgets / spend (LiteLLM admin API) ──────────────────────────
+
+@router.get("/settings/ai/keys")
+async def list_keys():
+    """List virtual API keys with their budget/spend/limits."""
+    url, key = _gateway()
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(f"{url}/key/list", headers=_headers(key),
+                            params={"return_full_object": "true", "size": "200"})
+            r.raise_for_status()
+            data = r.json()
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Cannot reach LiteLLM gateway: {_short(str(e), 200)}")
+
+    raw = data.get("keys", []) if isinstance(data, dict) else (data or [])
+    out = []
+    for k in raw:
+        if isinstance(k, str):
+            out.append({"token": k, "key_alias": None, "spend": 0, "max_budget": None,
+                        "models": [], "rpm_limit": None, "tpm_limit": None})
+            continue
+        out.append({
+            "token":      k.get("token") or k.get("key_name"),
+            "key_alias":  k.get("key_alias"),
+            "spend":      k.get("spend") or 0,
+            "max_budget": k.get("max_budget"),
+            "models":     k.get("models") or [],
+            "rpm_limit":  k.get("rpm_limit"),
+            "tpm_limit":  k.get("tpm_limit"),
+            "created_at": k.get("created_at"),
+        })
+    return {"keys": out}
+
+
+@router.post("/settings/ai/keys")
+async def create_key(body: KeyCreate):
+    """Generate a virtual API key (optionally scoped to models, with budget/limits)."""
+    if not body.key_alias.strip():
+        raise HTTPException(400, "key_alias is required.")
+    url, key = _gateway()
+    payload: dict = {"key_alias": body.key_alias.strip()}
+    if body.models:                payload["models"] = body.models
+    if body.max_budget is not None: payload["max_budget"] = body.max_budget
+    if body.rpm_limit is not None:  payload["rpm_limit"] = body.rpm_limit
+    if body.tpm_limit is not None:  payload["tpm_limit"] = body.tpm_limit
+    if body.duration:               payload["duration"] = body.duration
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(f"{url}/key/generate", headers=_headers(key), json=payload)
+        if r.status_code >= 400:
+            raise HTTPException(r.status_code, f"Key generation failed: {_short(r.text)}")
+        d = r.json()
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Cannot reach LiteLLM gateway: {_short(str(e), 200)}")
+    # The plaintext key is shown ONCE — surface it to the caller.
+    return {"key": d.get("key"), "key_alias": d.get("key_alias", body.key_alias.strip())}
+
+
+@router.delete("/settings/ai/keys/{token}")
+async def delete_key(token: str):
+    """Revoke a virtual API key by its token."""
+    url, key = _gateway()
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(f"{url}/key/delete", headers=_headers(key), json={"keys": [token]})
+        if r.status_code >= 400:
+            raise HTTPException(r.status_code, f"Key delete failed: {_short(r.text)}")
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Cannot reach LiteLLM gateway: {_short(str(e), 200)}")
+    return {"success": True}
+
+
+@router.get("/settings/ai/spend")
+async def spend_summary():
+    """Aggregate spend across all virtual keys (USD)."""
+    url, key = _gateway()
+    total = 0.0
+    n = 0
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(f"{url}/key/list", headers=_headers(key),
+                            params={"return_full_object": "true", "size": "500"})
+            if r.status_code < 400:
+                data = r.json()
+                raw = data.get("keys", []) if isinstance(data, dict) else (data or [])
+                for k in raw:
+                    if isinstance(k, dict) and k.get("spend"):
+                        total += float(k["spend"]); n += 1
+    except Exception as e:
+        logger.warning(f"[ai_backends] spend summary failed: {e}")
+    return {"total_spend": round(total, 4), "keys_with_spend": n}
