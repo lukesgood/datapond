@@ -22,6 +22,10 @@ Thumbs.db
 
 # Secrets (안전을 위해)
 *secret*.yaml
+# ...except the chart Secret TEMPLATE — it holds no real secrets (only .Values
+# references, lookup-preserve logic, and placeholder defaults). It MUST be tracked
+# or a clean deploy can't render JWT/LiteLLM/OM secrets (the reproducibility gap).
+!helm/datapond/templates/secrets.yaml
 *password*.txt
 .env
 .env.*
