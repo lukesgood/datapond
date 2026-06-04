@@ -116,13 +116,18 @@ export default function SettingsPage() {
       const u = `${window.location.protocol}//${window.location.host}${path}`
       const ctrl = new AbortController()
       const timer = setTimeout(() => ctrl.abort(), 4000)
-      fetch(u, { method: "GET", redirect: "manual", signal: ctrl.signal })
+      fetch(u, { method: "GET", redirect: "follow", signal: ctrl.signal })
         .then(res => {
           if (cancelled) return
-          // opaqueredirect = bounced elsewhere (e.g. → /login). 401/403 = reachable but
-          // auth-gated (still OK). 404/5xx = broken. <400 = OK.
-          const st = res.type === "opaqueredirect" ? "redir"
-            : (res.status < 400 || res.status === 401 || res.status === 403) ? "ok"
+          // Follow redirects, then classify by the FINAL URL/status:
+          //  - bounced to the app's own root /login → not directly usable ("redir")
+          //    (a service's own login like /jupyter/login is fine — it's reachable)
+          //  - 2xx / 401 / 403 → reachable ("ok")
+          //  - 404 / 5xx → broken ("down")
+          let bounced = false
+          try { bounced = new URL(res.url).pathname === "/login" } catch { /* ignore */ }
+          const st = bounced ? "redir"
+            : (res.ok || res.status === 401 || res.status === 403) ? "ok"
             : "down"
           setReach(r => ({ ...r, [service]: st }))
         })
