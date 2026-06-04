@@ -24,6 +24,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
 
+from app.guardrails import pii_ko
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -143,6 +145,7 @@ class AskResponse(BaseModel):
     explanation: str
     has_ai: bool
     provider: str = "none"
+    pii_masked: int = 0          # number of Korean PII items masked before LLM call
 
 
 # ── Route ─────────────────────────────────────────────────────────────────────
@@ -150,8 +153,23 @@ class AskResponse(BaseModel):
 @router.post("/ai/sql", response_model=AskResponse)
 async def generate_sql(req: AskRequest):
     """Convert a natural language question to a Trino SQL query."""
+    # ── PII guardrail (local, before the prompt reaches the LLM gateway) ──────
+    q_text, q_find, q_block = pii_ko.apply(req.question)
+    c_text, c_find, c_block = pii_ko.apply(req.context or "")
+    pii_count = len(q_find) + len(c_find)
+    if q_block or c_block:
+        types = sorted({f["type"] for f in (q_find + c_find)})
+        return AskResponse(
+            sql="-- 요청에 개인정보(PII)가 감지되어 차단되었습니다.\n"
+                f"-- 감지 유형: {', '.join(types)}",
+            explanation="개인정보 가드레일에 의해 차단됨 (PII_GUARDRAIL_MODE=block).",
+            has_ai=False,
+            provider="guardrail:blocked",
+            pii_masked=pii_count,
+        )
+
     schema_ctx = await asyncio.to_thread(_get_schema_context)
-    system, messages = _build_messages(schema_ctx, req.question, req.context)
+    system, messages = _build_messages(schema_ctx, q_text, c_text or None)
 
     cfg = _cfg()
 
@@ -166,6 +184,7 @@ async def generate_sql(req: AskRequest):
                 explanation=data.get("explanation", ""),
                 has_ai=True,
                 provider=f"litellm:{cfg['litellm_model']}",
+                pii_masked=pii_count,
             )
         except Exception as e:
             logger.warning(f"[ai_sql] gateway unavailable or no active backend: {e}")
@@ -190,4 +209,5 @@ async def generate_sql(req: AskRequest):
         explanation="No AI backend configured. Add and activate one in Settings → AI.",
         has_ai=False,
         provider="none",
+        pii_masked=pii_count,
     )

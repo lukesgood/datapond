@@ -110,6 +110,9 @@ spec:
           value: "{{ if .Values.litellm.enabled }}http://{{ .Values.litellm.name }}.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.litellm.service.port }}{{ else }}{{ .Values.ai.llmEndpoint }}{{ end }}"
         - name: LITELLM_MODEL
           value: "{{ .Values.ai.llmModel | default "default" }}"
+        # Korean PII guardrail mode (mask | block | off)
+        - name: PII_GUARDRAIL_MODE
+          value: "{{ .Values.ai.piiGuardrail | default "mask" }}"
         {{- if .Values.litellm.enabled }}
         # Master key — authenticates the backend to the LiteLLM admin API
         # (manage/switch model backends at runtime) and to /v1/chat/completions.

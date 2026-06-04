@@ -671,6 +671,9 @@ auth:
 ai:
   llmEndpoint: ""        # OpenAI 호환 base URL. 예: http://my-llm.internal:8000  (co-located litellm 사용 시 자동 설정)
   llmModel: "default"
+  # Korean PII guardrail (local regex, runs before prompts reach the LLM gateway).
+  # mask (default) | block | off — masks 주민번호/카드/휴대폰/사업자번호/여권/이메일.
+  piiGuardrail: "mask"
 
 # LiteLLM — AI model gateway (OpenAI-compatible API), single entry point for all LLM
 # providers (Bedrock, Anthropic, OpenAI, Ollama/vLLM …). The backend speaks only
