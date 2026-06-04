@@ -85,7 +85,9 @@ export default function SettingsPage() {
   const [services, setServices] = useState<any[]>([])
   const [stats, setStats]       = useState<any>(null)
   const [loading, setLoading]   = useState(true)
-  const currentUser             = getUser()
+  // mounted guard — render browser-only values (window.location) after mount to
+  // avoid SSR/client hydration mismatch (React #418).
+  const [mounted, setMounted]   = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -100,6 +102,7 @@ export default function SettingsPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { setMounted(true) }, [])
 
   const healthy = services.filter(s => s.status === "healthy").length
 
@@ -218,7 +221,7 @@ export default function SettingsPage() {
               <CardContent>
                 <div className="divide-y">
                   {ACCESS_URL_DEFS.map(({ service, path, cred }) => {
-                    const url = typeof window !== "undefined"
+                    const url = mounted
                       ? `${window.location.protocol}//${window.location.host}${path}`
                       : path
                     return (
