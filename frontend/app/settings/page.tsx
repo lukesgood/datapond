@@ -88,6 +88,8 @@ export default function SettingsPage() {
   // mounted guard — render browser-only values (window.location) after mount to
   // avoid SSR/client hydration mismatch (React #418).
   const [mounted, setMounted]   = useState(false)
+  // Live reachability of each Access URL: ok | redir (bounced, e.g. → /login) | down | checking
+  const [reach, setReach]       = useState<Record<string, string>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -103,6 +105,24 @@ export default function SettingsPage() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => { setMounted(true) }, [])
+
+  // Probe each Access URL so we don't advertise dead links. A same-origin GET with
+  // redirect:"manual" returns type "opaqueredirect" when the path bounces elsewhere
+  // (e.g. a service path that falls through to the frontend → /login).
+  useEffect(() => {
+    if (!mounted) return
+    let cancelled = false
+    ACCESS_URL_DEFS.forEach(({ service, path }) => {
+      const u = `${window.location.protocol}//${window.location.host}${path}`
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 4000)
+      fetch(u, { method: "GET", redirect: "manual", signal: ctrl.signal })
+        .then(res => { if (!cancelled) setReach(r => ({ ...r, [service]: res.type === "opaqueredirect" ? "redir" : "ok" })) })
+        .catch(() => { if (!cancelled) setReach(r => ({ ...r, [service]: "down" })) })
+        .finally(() => clearTimeout(timer))
+    })
+    return () => { cancelled = true }
+  }, [mounted])
 
   const healthy = services.filter(s => s.status === "healthy").length
 
@@ -216,7 +236,7 @@ export default function SettingsPage() {
                 <CardTitle className="text-base flex items-center gap-2">
                   <Link className="h-4 w-4 text-muted-foreground" />Access URLs
                 </CardTitle>
-                <CardDescription>Service endpoints and credentials</CardDescription>
+                <CardDescription>Reachable service endpoints (unreachable links are flagged)</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="divide-y">
@@ -224,15 +244,28 @@ export default function SettingsPage() {
                     const url = mounted
                       ? `${window.location.protocol}//${window.location.host}${path}`
                       : path
+                    const st = reach[service] || "checking"
+                    const reachable = st === "ok"
                     return (
                       <div key={service} className="flex items-center gap-3 py-2.5 text-sm">
-                        <span className="text-muted-foreground w-28 shrink-0 text-xs">{service}</span>
+                        <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                          st === "ok"    ? "bg-green-500" :
+                          st === "redir" ? "bg-amber-400" :
+                          st === "down"  ? "bg-red-500"   : "bg-muted-foreground/30"}`} />
+                        <span className="text-muted-foreground w-24 shrink-0 text-xs">{service}</span>
                         <div className="flex items-center gap-1 flex-1 min-w-0">
-                          <a href={url} target="_blank" rel="noreferrer"
-                            className="text-xs font-mono text-primary hover:underline truncate">{url}</a>
+                          {reachable ? (
+                            <a href={url} target="_blank" rel="noreferrer"
+                              className="text-xs font-mono text-primary hover:underline truncate">{url}</a>
+                          ) : (
+                            <span className={`text-xs font-mono truncate text-muted-foreground/60 ${st !== "checking" ? "line-through" : ""}`}>{url}</span>
+                          )}
                           <CopyButton text={url} />
                         </div>
-                        {cred && (
+                        {st === "redir"    && <Badge variant="secondary" className="text-[10px] h-4 px-1.5 bg-amber-500/10 text-amber-700 border-amber-200">직접 접근 불가</Badge>}
+                        {st === "down"     && <Badge variant="secondary" className="text-[10px] h-4 px-1.5">오프라인</Badge>}
+                        {st === "checking" && <span className="text-[10px] text-muted-foreground shrink-0">확인 중…</span>}
+                        {reachable && cred && (
                           <code className="text-[11px] text-muted-foreground shrink-0 bg-muted px-1.5 py-0.5 rounded">{cred}</code>
                         )}
                       </div>
