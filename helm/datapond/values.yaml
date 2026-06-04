@@ -6,6 +6,10 @@ global:
   domain: datapond.local
   storageClass: local-path
   imagePullPolicy: IfNotPresent
+  # External URL scheme as seen by browsers. Set to "https" when a TLS-terminating
+  # proxy/LB (e.g. AWS ALB) sits in front — apps that build absolute URLs (Airflow
+  # BASE_URL, redirects) must emit https or the browser blocks them as Mixed Content.
+  externalScheme: http
 
 # Namespace
 namespace: datapond

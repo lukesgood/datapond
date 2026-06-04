@@ -15,6 +15,7 @@ global:
   domain: datapond.example.com   # Replace with actual domain
   storageClass: gp3
   imagePullPolicy: IfNotPresent
+  externalScheme: https          # ALB terminates TLS — browsers see https
 
 ingress:
   className: alb
