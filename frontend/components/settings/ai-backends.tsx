@@ -20,14 +20,15 @@ const PROVIDERS: Record<string, {
   label: string
   modelPlaceholder: string
   fields: ("api_base" | "api_key" | "aws")[]
+  external: boolean   // sends data outside the cluster (blocked under local-only egress policy)
   hint?: string
 }> = {
-  bedrock:   { label: "AWS Bedrock",              modelPlaceholder: "us.anthropic.claude-haiku-4-5-20251001-v1:0", fields: ["aws"],              hint: "Leave keys blank to use the instance IAM role (EC2/EKS IRSA)." },
-  anthropic: { label: "Anthropic API",            modelPlaceholder: "claude-haiku-4-5-20251001",                   fields: ["api_key"],          hint: "Requires outbound internet to api.anthropic.com." },
-  openai:    { label: "OpenAI",                   modelPlaceholder: "gpt-4o",                                       fields: ["api_key"] },
-  gemini:    { label: "Google Gemini",            modelPlaceholder: "gemini-1.5-pro",                               fields: ["api_key"] },
-  ollama:    { label: "Ollama (self-hosted)",     modelPlaceholder: "qwen2.5-coder:7b",                             fields: ["api_base"],         hint: "On-prem / air-gap friendly. Point at your Ollama server." },
-  vllm:      { label: "vLLM / OpenAI-compatible", modelPlaceholder: "your-model",                                  fields: ["api_base", "api_key"], hint: "Any in-house OpenAI-compatible endpoint (vLLM, TGI, etc.)." },
+  bedrock:   { label: "AWS Bedrock",              modelPlaceholder: "us.anthropic.claude-haiku-4-5-20251001-v1:0", fields: ["aws"],              external: true,  hint: "Leave keys blank to use the instance IAM role (EC2/EKS IRSA)." },
+  anthropic: { label: "Anthropic API",            modelPlaceholder: "claude-haiku-4-5-20251001",                   fields: ["api_key"],          external: true,  hint: "Requires outbound internet to api.anthropic.com." },
+  openai:    { label: "OpenAI",                   modelPlaceholder: "gpt-4o",                                       fields: ["api_key"],          external: true },
+  gemini:    { label: "Google Gemini",            modelPlaceholder: "gemini-1.5-pro",                               fields: ["api_key"],          external: true },
+  ollama:    { label: "Ollama (self-hosted)",     modelPlaceholder: "qwen2.5-coder:7b",                             fields: ["api_base"],         external: false, hint: "On-prem / air-gap friendly. Point at your Ollama server." },
+  vllm:      { label: "vLLM / OpenAI-compatible", modelPlaceholder: "your-model",                                  fields: ["api_base", "api_key"], external: false, hint: "Any in-house OpenAI-compatible endpoint (vLLM, TGI, etc.)." },
 }
 
 interface Backend {
@@ -43,6 +44,7 @@ interface GatewayStatus {
   gateway: "healthy" | "unhealthy" | "unreachable" | "unconfigured"
   active: string | null
   backend_count: number
+  egress_policy?: "local-only" | "cloud-allowed"
   detail?: string
 }
 
@@ -175,7 +177,10 @@ export function AiBackends() {
   }
 
   const prov = PROVIDERS[form.provider]
-  const formValid = form.model_name.trim() && form.model.trim() &&
+  const localOnly = status?.egress_policy === "local-only"
+  // Under a local-only (sovereign) egress policy, external providers are blocked.
+  const providerBlocked = localOnly && !!prov?.external
+  const formValid = !providerBlocked && form.model_name.trim() && form.model.trim() &&
     (!prov?.fields.includes("api_base") || form.api_base.trim()) &&
     (form.provider !== "bedrock" || form.aws_region_name.trim()) &&
     // api_key is required for anthropic/openai/gemini (vllm allows blank)
@@ -195,10 +200,22 @@ export function AiBackends() {
           <p className="text-xs text-muted-foreground mt-0.5">
             Every provider routes through the LiteLLM gateway. Add a backend, test it, set one active.
           </p>
+          {status?.egress_policy && (
+            <p className="mt-1">
+              <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium ${
+                localOnly
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border-slate-200 bg-slate-50 text-slate-600"}`}>
+                AI egress: {localOnly
+                  ? "local-only — sovereign, external LLMs blocked (no data egress)"
+                  : "cloud-allowed — external providers permitted"}
+              </span>
+            </p>
+          )}
         </div>
         <Button size="sm" className="gap-1.5"
           disabled={status?.gateway === "unconfigured"}
-          onClick={() => { setForm({ ...emptyForm }); setAddErr(null); setShowAdd(true) }}>
+          onClick={() => { setForm({ ...emptyForm, provider: localOnly ? "ollama" : "bedrock" }); setAddErr(null); setShowAdd(true) }}>
           <Plus className="h-3.5 w-3.5" />Add Backend
         </Button>
       </div>
@@ -300,9 +317,14 @@ export function AiBackends() {
                 <Select value={form.provider} onValueChange={v => v && setForm(f => ({ ...f, provider: v }))}>
                   <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {Object.entries(PROVIDERS).map(([k, v]) => (
-                      <SelectItem key={k} value={k}>{v.label}</SelectItem>
-                    ))}
+                    {Object.entries(PROVIDERS).map(([k, v]) => {
+                      const blocked = localOnly && v.external
+                      return (
+                        <SelectItem key={k} value={k} disabled={blocked}>
+                          {v.label}{blocked ? " — blocked (sovereign)" : ""}
+                        </SelectItem>
+                      )
+                    })}
                   </SelectContent>
                 </Select>
               </div>
@@ -312,6 +334,15 @@ export function AiBackends() {
                   value={form.model_name} onChange={e => setForm(f => ({ ...f, model_name: e.target.value }))} />
               </div>
             </div>
+
+            {providerBlocked && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-[11px] text-amber-700">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>This environment runs a <b>local-only (sovereign)</b> AI egress policy — external
+                providers are blocked to keep data on-prem. Choose Ollama or vLLM, or change
+                <code className="mx-1">ai.egressPolicy</code> for this deployment.</span>
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <Label className="text-xs">Model <span className="text-destructive">*</span></Label>

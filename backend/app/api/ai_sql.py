@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from app.guardrails import pii_ko
+from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,30 @@ def _parse_response(raw: str) -> dict:
     return json.loads(raw)
 
 
+def _active_provider_is_external() -> Optional[bool]:
+    """Best-effort: is the active model an external (egress) provider? None if unknown.
+
+    Defense-in-depth for the local-only egress policy: registration already blocks
+    external backends, but a model could be seeded directly into LiteLLM (e.g. via
+    helm config), so we re-check the active model's provider at call time."""
+    cfg = _cfg()
+    if not cfg["litellm_url"]:
+        return None
+    try:
+        headers = {"Authorization": f"Bearer {cfg['master_key']}"} if cfg["master_key"] else {}
+        with httpx.Client(timeout=5) as client:
+            r = client.get(f"{cfg['litellm_url']}/model/info", headers=headers)
+            if r.status_code >= 400:
+                return None
+            for m in r.json().get("data", []):
+                if m.get("model_name") == cfg["litellm_model"]:
+                    model_str = (m.get("litellm_params") or {}).get("model", "")
+                    return is_external_provider(provider_of_model(model_str))
+    except Exception:
+        return None
+    return None
+
+
 # ── Request / response models ─────────────────────────────────────────────────
 
 class AskRequest(BaseModel):
@@ -172,6 +197,21 @@ async def generate_sql(req: AskRequest):
     system, messages = _build_messages(schema_ctx, q_text, c_text or None)
 
     cfg = _cfg()
+
+    # ── Egress guard (sovereign / air-gapped) ────────────────────────────────
+    # local-only 정책에서 활성 모델이 외부(클라우드) provider면 호출 차단(fail-closed) —
+    # 데이터가 클러스터를 벗어나지 않도록 보장. 판별 불가 시엔 통과(로컬 사용 견고성 우선).
+    if cfg["litellm_url"] and egress_policy() == "local-only":
+        if await asyncio.to_thread(_active_provider_is_external) is True:
+            logger.warning("[ai_sql] blocked external LLM under local-only egress policy")
+            return AskResponse(
+                sql="-- 주권 모드(AI_EGRESS_POLICY=local-only): 외부 LLM 사용이 차단되었습니다.\n"
+                    "-- 로컬 백엔드(Ollama/vLLM)를 Settings → AI에서 활성화하세요.",
+                explanation="AI egress policy 'local-only' — external LLM blocked (no data egress).",
+                has_ai=False,
+                provider="egress:blocked",
+                pii_masked=pii_count,
+            )
 
     # ── 1. LiteLLM gateway (OpenAI 호환 — 모든 provider의 단일 진입점) ─────────
     # 미설정(빈 URL) 시 시도하지 않음 → 죽은 svc로의 불필요한 타임아웃 방지.

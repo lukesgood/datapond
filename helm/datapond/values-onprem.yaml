@@ -299,6 +299,9 @@ openmetadata:
 ai:
   llmEndpoint: ""        # 예: http://my-llm.internal:8000  (비우면 AI 비활성)
   llmModel: "default"
+  # 주권/온프렘 기본: 로컬 LLM(Ollama/vLLM)만 허용, 외부 클라우드 LLM 차단(무유출).
+  # 외부 제공자를 써야 하면 cloud-allowed로 변경.
+  egressPolicy: "local-only"
 
 # ── LiteLLM — AI 게이트웨이 (단일 진입점, 기본 ON) ────────────────────────────
 # 경량 프록시(모델 가중치 없음). 모든 LLM 백엔드(Bedrock/Anthropic/사내 vLLM·Ollama 등)를

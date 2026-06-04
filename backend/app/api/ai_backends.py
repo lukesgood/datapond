@@ -34,14 +34,42 @@ ACTIVE_MODEL_KEY = "ai.litellm_model"
 
 # Supported provider types → LiteLLM model-string prefix.
 # (See https://docs.litellm.ai/docs/providers — model resolves to "<prefix><model>".)
+# `external` = inference leaves the cluster (data egress). Local providers keep
+# inference on customer infrastructure (sovereign / air-gapped).
 PROVIDERS: dict[str, dict] = {
-    "bedrock":   {"label": "AWS Bedrock",              "prefix": "bedrock/"},
-    "anthropic": {"label": "Anthropic API",            "prefix": "anthropic/"},
-    "openai":    {"label": "OpenAI",                   "prefix": "openai/"},
-    "gemini":    {"label": "Google Gemini",            "prefix": "gemini/"},
-    "ollama":    {"label": "Ollama (self-hosted)",     "prefix": "ollama/"},
-    "vllm":      {"label": "vLLM / OpenAI-compatible", "prefix": "openai/"},
+    "bedrock":   {"label": "AWS Bedrock",              "prefix": "bedrock/",   "external": True},
+    "anthropic": {"label": "Anthropic API",            "prefix": "anthropic/", "external": True},
+    "openai":    {"label": "OpenAI",                   "prefix": "openai/",    "external": True},
+    "gemini":    {"label": "Google Gemini",            "prefix": "gemini/",    "external": True},
+    "ollama":    {"label": "Ollama (self-hosted)",     "prefix": "ollama/",    "external": False},
+    "vllm":      {"label": "vLLM / OpenAI-compatible", "prefix": "openai/",    "external": False},
 }
+
+# ── AI egress policy (environment-configurable) ─────────────────────────────────
+# Decides whether external (cloud) LLM providers are allowed for this deployment.
+#   "local-only"   → sovereign / air-gapped: only on-prem LLMs (Ollama/vLLM); external
+#                    providers are rejected at registration AND blocked at call time.
+#   "cloud-allowed"→ external providers (Bedrock/Anthropic/OpenAI/Gemini) permitted.
+# Set via AI_EGRESS_POLICY env (Helm: ai.egressPolicy). Default keeps backward compat.
+
+def egress_policy() -> str:
+    p = os.getenv("AI_EGRESS_POLICY", "cloud-allowed").strip().lower().replace("_", "-")
+    return "local-only" if p in ("local-only", "sovereign", "no-egress", "airgap") else "cloud-allowed"
+
+
+def is_external_provider(provider: str) -> bool:
+    info = PROVIDERS.get((provider or "").lower())
+    return bool(info and info.get("external"))
+
+
+def provider_allowed(provider: str) -> bool:
+    """False when egress policy is local-only and the provider sends data out."""
+    return egress_policy() != "local-only" or not is_external_provider(provider)
+
+
+def provider_of_model(model_str: str) -> str:
+    """LiteLLM model string ("bedrock/claude…") → provider id ("bedrock")."""
+    return model_str.split("/", 1)[0].lower() if "/" in (model_str or "") else "unknown"
 
 
 # ── Gateway access ──────────────────────────────────────────────────────────────
@@ -159,17 +187,27 @@ async def _set_active_model(model_name: str) -> None:
 
 @router.get("/settings/ai/providers")
 async def list_providers():
-    """Static catalog of supported provider types (for the Add-backend form)."""
-    return {"providers": [{"id": k, "label": v["label"]} for k, v in PROVIDERS.items()]}
+    """Supported provider types + the active egress policy (for the Add-backend form).
+    `allowed` is False for external providers when the policy is local-only."""
+    policy = egress_policy()
+    return {
+        "egress_policy": policy,
+        "providers": [
+            {"id": k, "label": v["label"], "external": v["external"],
+             "allowed": policy != "local-only" or not v["external"]}
+            for k, v in PROVIDERS.items()
+        ],
+    }
 
 
 @router.get("/settings/ai/status")
 async def gateway_status():
     """Gateway health + registered backend count + active default model."""
+    policy = egress_policy()
     try:
         url, key = _gateway()
     except HTTPException:
-        return {"gateway": "unconfigured", "active": None, "backend_count": 0}
+        return {"gateway": "unconfigured", "active": None, "backend_count": 0, "egress_policy": policy}
 
     active = await _get_active_model()
     try:
@@ -187,9 +225,11 @@ async def gateway_status():
             "gateway": "healthy" if healthy else "unhealthy",
             "active": active,
             "backend_count": count,
+            "egress_policy": policy,
         }
     except Exception as e:
-        return {"gateway": "unreachable", "active": active, "backend_count": 0, "detail": _short(str(e), 150)}
+        return {"gateway": "unreachable", "active": active, "backend_count": 0,
+                "egress_policy": policy, "detail": _short(str(e), 150)}
 
 
 @router.get("/settings/ai/backends")
@@ -228,6 +268,14 @@ async def create_backend(body: BackendCreate):
     """Register a new provider backend in the gateway (optionally set it active)."""
     if not body.model_name.strip() or not body.model.strip():
         raise HTTPException(400, "model_name and model are required.")
+    if not provider_allowed(body.provider):
+        raise HTTPException(
+            403,
+            f"AI egress policy is 'local-only' (sovereign / air-gapped): the external "
+            f"provider '{body.provider}' would send data outside the cluster and is "
+            f"blocked. Use a local backend (Ollama / vLLM), or change ai.egressPolicy "
+            f"for this environment.",
+        )
     url, key = _gateway()
     payload = {"model_name": body.model_name.strip(), "litellm_params": _build_params(body)}
     try:
