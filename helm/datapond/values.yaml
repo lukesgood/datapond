@@ -719,9 +719,10 @@ litellm:
   database: litellm            # PostgreSQL database name (auto-created on first boot)
   # masterKey: admin-API + virtual-key auth. saltKey: encrypts stored model creds.
   # ⚠️ Both MUST stay stable across upgrades (saltKey change → stored creds undecryptable).
-  # Override with strong secrets in production / per-environment values.
-  masterKey: "sk-datapond-master-change-me"
-  saltKey: "datapond-litellm-salt-change-me"
+  # Leave EMPTY to auto-generate a strong key ONCE on first install and preserve it
+  # across upgrades (lookup, see templates/secrets.yaml). Set explicitly to pin a value.
+  masterKey: ""
+  saltKey: ""
 
   # Response caching to Valkey (Redis-compatible) — cuts cost/latency on repeat queries.
   cache: true
