@@ -13,14 +13,15 @@ metadata:
     {{- end }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
+  {{- $ingressHost := .Values.ingress.domain | default .Values.global.domain }}
   {{- if .Values.ingress.tls.enabled }}
   tls:
   - hosts:
-    - {{ .Values.global.domain }}
+    - {{ $ingressHost }}
     secretName: {{ .Values.ingress.tls.secretName }}
   {{- end }}
   rules:
-  - host: {{ .Values.global.domain }}
+  - host: {{ $ingressHost }}
     http:
       paths:
       # Frontend
