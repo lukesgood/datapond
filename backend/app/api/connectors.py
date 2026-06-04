@@ -141,8 +141,16 @@ def _om_coltype(trino_type: str):
 
 def _trino_table_columns(target_schema: str, target_table: str):
     """[(name, trino_type)] for iceberg.<schema>.<table> via Trino information_schema.
-    Synchronous (Trino client) — call via asyncio.to_thread."""
+    Synchronous (Trino client) — call via asyncio.to_thread.
+
+    Uses a literal predicate, not a `?` bind: the Trino client's parameterized form
+    returned an empty result set here. schema/table are internal sync targets; we
+    still reject anything that isn't a bare identifier as an injection guard."""
+    import re
     import trino
+    if not (re.fullmatch(r"[A-Za-z0-9_]+", target_schema or "")
+            and re.fullmatch(r"[A-Za-z0-9_]+", target_table or "")):
+        return []
     conn = trino.dbapi.connect(
         host=os.getenv("TRINO_SERVICE_HOST", "trino.datapond.svc.cluster.local"),
         port=int(os.getenv("TRINO_SERVICE_PORT", "8080")),
@@ -151,8 +159,8 @@ def _trino_table_columns(target_schema: str, target_table: str):
     cur = conn.cursor()
     cur.execute(
         "SELECT column_name, data_type FROM iceberg.information_schema.columns "
-        "WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position",
-        (target_schema, target_table),
+        f"WHERE table_schema = '{target_schema}' AND table_name = '{target_table}' "
+        "ORDER BY ordinal_position"
     )
     return [(r[0], r[1]) for r in cur.fetchall()]
 
