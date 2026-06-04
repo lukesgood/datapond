@@ -1,0 +1,65 @@
+{{- if and .Values.seaweedfs.enabled .Values.polaris.enabled }}
+---
+# Create the Iceberg warehouse S3 bucket in SeaweedFS.
+# Without this, Trino/Iceberg writes fail with NoSuchBucket (404) — SeaweedFS does
+# not auto-create buckets. Runs before polaris-catalog-init (lower hook-weight).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.seaweedfs.name }}-bucket-init
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.seaweedfs.name }}
+    component: bucket-init
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.seaweedfs.name }}-bucket-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: bucket-init
+        image: amazon/aws-cli:2.15.40
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_USER
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SEAWEEDFS_S3_PASSWORD
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: S3_ENDPOINT
+          value: "http://{{ .Values.seaweedfs.name }}-s3:8333"
+        - name: BUCKET
+          value: "{{ .Values.polaris.warehouseBucket | default "iceberg" }}"
+        command:
+        - sh
+        - -c
+        - |
+          echo "Waiting for SeaweedFS S3..."
+          until aws --endpoint-url "$S3_ENDPOINT" s3 ls >/dev/null 2>&1; do sleep 3; done
+          if aws --endpoint-url "$S3_ENDPOINT" s3 ls "s3://$BUCKET" >/dev/null 2>&1; then
+            echo "Bucket '$BUCKET' already exists."
+          else
+            aws --endpoint-url "$S3_ENDPOINT" s3 mb "s3://$BUCKET" && echo "Created bucket '$BUCKET'."
+          fi
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+{{- end }}
