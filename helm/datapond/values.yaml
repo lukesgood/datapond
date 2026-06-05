@@ -683,6 +683,21 @@ openmetadata:
 auth:
   jwtSecret: ""
   tokenExpireHours: 24
+  # LDAP / Active Directory authentication (enterprise directories). Off by default.
+  # When enabled, login falls back to an LDAP bind for non-local users and
+  # auto-provisions them (auth_method=ldap). The local admin keeps working.
+  ldap:
+    enabled: false
+    url: ""                          # ldap://host:389 or ldaps://host:636
+    bindDN: ""                       # service account DN for search (blank = anonymous)
+    bindPassword: ""                 # → datapond-secrets/LDAP_BIND_PASSWORD
+    userBase: ""                     # e.g. ou=people,dc=corp,dc=com
+    userFilter: "(uid={username})"   # AD: (sAMAccountName={username})
+    dnTemplate: ""                   # optional direct-bind DN (skips service-account search)
+    attrEmail: "mail"
+    attrName: "cn"
+    defaultRole: "viewer"            # role granted to LDAP users
+    adminGroup: ""                   # optional group DN/CN whose members get admin
 
 # ── AI / LLM (BYO-LLM 기본) ───────────────────────────────────────────────────
 # DataPond는 LiteLLM 게이트웨이 추상화만 기본 제공하고, LLM 추론은 외부 엔드포인트에 위임한다.
