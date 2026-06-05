@@ -54,7 +54,9 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: sudo bash $0 [options]"
       echo "  --values FILE        Helm values file (default: values-quicktest.yaml)"
       echo "  --domain DOMAIN      Ingress domain (default: datapond.local)"
-      echo "  --airgap BUNDLE.tar.gz  Air-gapped installation from bundle"
+      echo "  --airgap PATH        Air-gapped install — fully offline (no internet)."
+      echo "                       PATH is the bundle .tar.gz OR an extracted bundle dir."
+      echo "                       Installs K3s + Helm + images from the bundle, not the net."
       echo "  --skip-preflight     Skip system requirements check"
       echo "  --skip-build         Skip Docker image build"
       echo "  --yes                Non-interactive (auto-confirm)"
@@ -142,11 +144,70 @@ if ! $SKIP_PREFLIGHT; then
   ok "Pre-flight checks passed"
 fi
 
+# ─── Resolve air-gap bundle (fully offline when --airgap given) ───────────────
+# AIRGAP_DIR holds the extracted bundle: k3s-binary, k3s-install.sh, helm.tar.gz,
+# k3s-airgap-images-*.tar*, images/*.tar. PATH may be a .tar.gz or a directory
+# (the bundle's own installer passes its extracted dir).
+AIRGAP=false
+AIRGAP_DIR=""
+if [[ -n "$AIRGAP_BUNDLE" ]]; then
+  AIRGAP=true
+  SKIP_BUILD=true   # never build images in air-gap; they come from the bundle
+  if [[ -d "$AIRGAP_BUNDLE" ]]; then
+    AIRGAP_DIR="$AIRGAP_BUNDLE"
+  elif [[ -f "$AIRGAP_BUNDLE" ]]; then
+    AIRGAP_DIR="$(mktemp -d)"
+    log "Extracting air-gap bundle: $AIRGAP_BUNDLE"
+    tar -xzf "$AIRGAP_BUNDLE" -C "$AIRGAP_DIR" 2>&1 | tee -a "$LOG_FILE"
+    # Bundle archives wrap everything in a single top dir — descend into it.
+    if [[ ! -d "$AIRGAP_DIR/images" ]]; then
+      inner=$(find "$AIRGAP_DIR" -maxdepth 1 -mindepth 1 -type d | head -1)
+      [[ -d "$inner/images" ]] && AIRGAP_DIR="$inner"
+    fi
+  else
+    die "Air-gap bundle not found: $AIRGAP_BUNDLE"
+  fi
+  [[ -d "$AIRGAP_DIR/images" ]] || die "Invalid air-gap bundle (no images/ in $AIRGAP_DIR)"
+  ok "Air-gap mode — bundle at $AIRGAP_DIR (offline install, no internet)"
+fi
+
+install_helm_offline() {
+  local tgz="$AIRGAP_DIR/helm.tar.gz"
+  [[ -f "$tgz" ]] || die "Air-gap: helm.tar.gz missing from bundle — re-run bundle-airgap.sh"
+  local td; td=$(mktemp -d)
+  tar -xzf "$tgz" -C "$td"
+  install -m 755 "$(find "$td" -name helm -type f | head -1)" /usr/local/bin/helm
+  rm -rf "$td"
+}
+
 # ─── Step 2: Install K3s + Helm ───────────────────────────────────────────────
 section "Step 2/6: Kubernetes (K3s) + Helm"
 
 if command -v k3s &>/dev/null && kubectl get nodes &>/dev/null 2>&1; then
   ok "K3s already running: $(k3s --version | head -1)"
+elif $AIRGAP; then
+  log "Installing K3s from bundle (offline)..."
+  [[ -f "$AIRGAP_DIR/k3s-binary" && -f "$AIRGAP_DIR/k3s-install.sh" ]] \
+    || die "Air-gap: k3s-binary / k3s-install.sh missing from bundle — re-run bundle-airgap.sh"
+  # Pre-stage K3s system images (pause/coredns/traefik/local-path/metrics-server) so
+  # K3s boots with no registry access; without this an air-gapped K3s never goes Ready.
+  mkdir -p /var/lib/rancher/k3s/agent/images/
+  if ls "$AIRGAP_DIR"/k3s-airgap-images-*.tar* &>/dev/null; then
+    cp "$AIRGAP_DIR"/k3s-airgap-images-*.tar* /var/lib/rancher/k3s/agent/images/
+    ok "K3s system images pre-staged"
+  else
+    warn "K3s system airgap images not in bundle — K3s may fail to start offline"
+  fi
+  install -m 755 "$AIRGAP_DIR/k3s-binary" /usr/local/bin/k3s
+  INSTALL_K3S_SKIP_DOWNLOAD=true bash "$AIRGAP_DIR/k3s-install.sh" --write-kubeconfig-mode 644 \
+    2>&1 | tee -a "$LOG_FILE"
+  sleep 15
+  for i in {1..30}; do
+    kubectl get nodes 2>/dev/null | grep -q Ready && break
+    log "Waiting for K3s node ($i/30)..."
+    sleep 5
+  done
+  ok "K3s installed (offline)"
 else
   log "Installing K3s..."
   curl -sfL https://get.k3s.io | sh -s - --write-kubeconfig-mode 644 2>&1 | tee -a "$LOG_FILE"
@@ -169,9 +230,15 @@ chmod 600 "$USER_HOME/.kube/config"
 ok "kubectl configured for user: $ACTUAL_USER"
 
 if ! command -v helm &>/dev/null; then
-  log "Installing Helm..."
-  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash 2>&1 | tee -a "$LOG_FILE"
-  ok "Helm installed"
+  if $AIRGAP; then
+    log "Installing Helm from bundle (offline)..."
+    install_helm_offline
+    ok "Helm installed (offline)"
+  else
+    log "Installing Helm..."
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash 2>&1 | tee -a "$LOG_FILE"
+    ok "Helm installed"
+  fi
 else
   ok "Helm already installed: $(helm version --short)"
 fi
@@ -179,18 +246,18 @@ fi
 # ─── Step 3: Build or load images ─────────────────────────────────────────────
 section "Step 3/6: Container Images"
 
-if [[ -n "$AIRGAP_BUNDLE" ]]; then
-  # Air-gapped: load from bundle
-  [[ -f "$AIRGAP_BUNDLE" ]] || die "Air-gap bundle not found: $AIRGAP_BUNDLE"
-  log "Loading images from air-gap bundle: $AIRGAP_BUNDLE"
-  TMPDIR=$(mktemp -d)
-  tar -xzf "$AIRGAP_BUNDLE" -C "$TMPDIR" 2>&1 | tee -a "$LOG_FILE"
-  for tar_file in "$TMPDIR"/*.tar; do
+if $AIRGAP; then
+  # Air-gapped: import the application images already extracted to AIRGAP_DIR/images.
+  log "Loading images from air-gap bundle: $AIRGAP_DIR/images"
+  shopt -s nullglob
+  imgs=("$AIRGAP_DIR"/images/*.tar)
+  [[ ${#imgs[@]} -gt 0 ]] || die "Air-gap: no image tars in $AIRGAP_DIR/images"
+  for tar_file in "${imgs[@]}"; do
     log "Importing: $(basename "$tar_file")"
     k3s ctr images import "$tar_file" 2>&1 | tee -a "$LOG_FILE"
   done
-  rm -rf "$TMPDIR"
-  ok "Images loaded from air-gap bundle"
+  shopt -u nullglob
+  ok "Images loaded from air-gap bundle (${#imgs[@]} images)"
 
 elif ! $SKIP_BUILD; then
   # Build locally

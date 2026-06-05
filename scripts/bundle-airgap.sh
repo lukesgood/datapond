@@ -98,19 +98,30 @@ if [[ ${#MISSING[@]} -gt 0 ]]; then
 fi
 ok "All ${#THIRD_PARTY_IMAGES[@]} third-party images saved (digests → images-digests.txt)"
 
-# ─── Pull K3s installer ───────────────────────────────────────────────────────
-log "Downloading K3s installer..."
+# ─── Pull K3s binary + installer + SYSTEM airgap images ───────────────────────
+# These are REQUIRED for an offline install — a silent skip would produce a bundle
+# that fails to bootstrap on the target. Fail loudly instead.
+log "Downloading K3s (binary + installer + system images)..."
 K3S_VERSION="v1.29.3+k3s1"
-curl -sfL "https://github.com/k3s-io/k3s/releases/download/${K3S_VERSION}/k3s" \
-  -o "$WORKDIR/k3s-binary" 2>/dev/null || warn "K3s binary download failed (optional)"
-curl -sfL "https://get.k3s.io" -o "$WORKDIR/k3s-install.sh" 2>/dev/null || warn "K3s install script download failed"
-chmod +x "$WORKDIR/k3s-binary" "$WORKDIR/k3s-install.sh" 2>/dev/null || true
+K3S_TAG="${K3S_VERSION/+/%2B}"   # URL-encode '+' for the release path
+curl -sfL "https://github.com/k3s-io/k3s/releases/download/${K3S_TAG}/k3s" \
+  -o "$WORKDIR/k3s-binary" || die "K3s binary download failed — bundle would be unusable offline"
+curl -sfL "https://get.k3s.io" -o "$WORKDIR/k3s-install.sh" \
+  || die "K3s install script download failed"
+# K3s system images (pause/coredns/traefik/local-path/metrics-server). Without these
+# K3s never reaches Ready in an air-gapped environment.
+curl -sfL "https://github.com/k3s-io/k3s/releases/download/${K3S_TAG}/k3s-airgap-images-amd64.tar.zst" \
+  -o "$WORKDIR/k3s-airgap-images-amd64.tar.zst" \
+  || die "K3s system airgap images download failed — air-gap K3s would not start"
+chmod +x "$WORKDIR/k3s-binary" "$WORKDIR/k3s-install.sh"
+ok "K3s binary + installer + system images bundled (${K3S_VERSION})"
 
-# ─── Pull Helm installer ──────────────────────────────────────────────────────
+# ─── Pull Helm binary ─────────────────────────────────────────────────────────
 log "Downloading Helm..."
 HELM_VERSION="v3.14.0"
 curl -sfL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" \
-  -o "$WORKDIR/helm.tar.gz" 2>/dev/null || warn "Helm download failed (optional)"
+  -o "$WORKDIR/helm.tar.gz" || die "Helm download failed — air-gap install needs the Helm binary"
+ok "Helm binary bundled (${HELM_VERSION})"
 
 # ─── Copy Helm chart and scripts ─────────────────────────────────────────────
 log "Copying Helm chart and install scripts..."
@@ -129,30 +140,14 @@ sed -i "s|datapond/frontend:latest|datapond/frontend:${DATAPOND_VERSION}|g" \
 # ─── Create install entrypoint ───────────────────────────────────────────────
 cat > "$WORKDIR/install.sh" <<'INSTALLER'
 #!/bin/bash
-# DataPond Air-Gap Installer
+# DataPond Air-Gap Installer (thin entrypoint).
+# All offline logic — K3s (binary + system images), Helm, app images — lives in
+# scripts/install.sh's --airgap path, so there is a single source of truth.
 set -euo pipefail
 BUNDLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ $EUID -eq 0 ]] || { echo "Run with sudo"; exit 1; }
-
-echo "DataPond Air-Gap Installation"
-echo "Bundle directory: $BUNDLE_DIR"
-
-# Install K3s offline if binary present
-if [[ -f "$BUNDLE_DIR/k3s-binary" ]] && ! command -v k3s &>/dev/null; then
-  echo "Installing K3s from bundle..."
-  install -m 755 "$BUNDLE_DIR/k3s-binary" /usr/local/bin/k3s
-  INSTALL_K3S_SKIP_DOWNLOAD=true bash "$BUNDLE_DIR/k3s-install.sh"
-fi
-
-# Import all images
-echo "Importing container images..."
-for img in "$BUNDLE_DIR"/images/*.tar; do
-  echo "  Importing: $(basename "$img")"
-  k3s ctr images import "$img"
-done
-
-# Run main install script
-bash "$BUNDLE_DIR/scripts/install.sh" --skip-build "$@"
+echo "DataPond Air-Gap Installation — bundle: $BUNDLE_DIR"
+exec bash "$BUNDLE_DIR/scripts/install.sh" --airgap "$BUNDLE_DIR" "$@"
 INSTALLER
 chmod +x "$WORKDIR/install.sh"
 
@@ -164,14 +159,15 @@ Created: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 Host: $(hostname)
 
 Contents:
-  images/             Container images (*.tar)
-  images-digests.txt  빌드시점 이미지 digest(재현성 기록)
-  helm/               Helm chart
-  scripts/        Installation scripts
-  install.sh      Main installer entrypoint
-  k3s-binary      K3s binary (offline install)
-  k3s-install.sh  K3s installer script
-  helm.tar.gz     Helm binary
+  images/                          Container images (*.tar)
+  images-digests.txt               빌드시점 이미지 digest(재현성 기록)
+  helm/                            Helm chart
+  scripts/                         Installation scripts
+  install.sh                       Air-gap installer entrypoint (→ scripts/install.sh --airgap)
+  k3s-binary                       K3s binary (offline install)
+  k3s-install.sh                   K3s installer script
+  k3s-airgap-images-amd64.tar.zst  K3s system images (pause/coredns/traefik/…)
+  helm.tar.gz                      Helm binary
 
 Usage:
   tar -xzf $(basename "$BUNDLE_PATH")
