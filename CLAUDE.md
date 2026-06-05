@@ -155,7 +155,7 @@ kubectl top nodes
 | OpenMetadata | http://datapond.local/openmetadata | — |
 | SeaweedFS Console | http://datapond.local/seaweedfs-console | — |
 
-> **Note:** Spark is currently disabled (`spark.enabled: false` in values-quicktest.yaml) due to image issues.
+> **Note:** Spark runs as a standalone master+worker via explicit `spark-class` commands on the `apache/spark` image (the old bitnami-style `SPARK_MODE` env never worked on that image). Enabled in `values-onprem.yaml` (32GB+); disabled in `values-quicktest.yaml` for memory. Iceberg/Polaris/S3 job config is in the `spark-defaults` ConfigMap. Air-gap still needs the Iceberg/S3 jars baked into a custom image (`spark.jars.packages` resolves from Maven at submit time).
 > **Note:** Airflow Webserver uses `BASE_URL=/airflow` and `AUTH_BACKENDS=basic_auth,session` — the REST API is at `/airflow/api/v1` internally.
 
 ## Helm Chart Structure
