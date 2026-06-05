@@ -36,9 +36,15 @@ spec:
             SERVER_PID=$!
             echo "Waiting for Ollama to start..."
             sleep 5
-            echo "Pulling model {{ .Values.ollama.defaultModel }}..."
-            ollama pull {{ .Values.ollama.defaultModel }}
-            echo "Model pull complete."
+            # Skip the pull if the model is already in the PVC — lets a pre-seeded
+            # volume serve air-gapped installs with no registry access.
+            if ollama list | grep -q "{{ .Values.ollama.defaultModel }}"; then
+              echo "Model {{ .Values.ollama.defaultModel }} already present — skipping pull."
+            else
+              echo "Pulling model {{ .Values.ollama.defaultModel }}..."
+              ollama pull {{ .Values.ollama.defaultModel }}
+              echo "Model pull complete."
+            fi
             kill $SERVER_PID
         env:
         - name: OLLAMA_HOST

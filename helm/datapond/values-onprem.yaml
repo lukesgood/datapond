@@ -316,7 +316,10 @@ litellm:
 # GPU/여유 자원 보유 대규모 배포에서만 활성화하고 가능하면 전용 노드에 스케줄.
 # ⚠️ 에어갭: defaultModel은 startup에 Docker Hub에서 pull됨 → 사전 적재 필요(별도 작업).
 ollama:
-  enabled: false
+  # 주권/무유출 AI: 온프렘은 로컬 LLM을 기본 활성화. ai.egressPolicy=local-only와 짝.
+  # 7B 모델은 ~4GB + CPU 추론이 무거움 → 32GB+ 노드 권장. 가벼운 노드면 defaultModel을
+  # qwen2.5-coder:3b 등으로 낮추거나 enabled:false 후 외부 vLLM/Ollama를 BYO.
+  enabled: true
   defaultModel: "qwen2.5-coder:7b"
   resources:
     requests:

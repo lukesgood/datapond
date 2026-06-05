@@ -770,6 +770,10 @@ ollama:
   # Default model to auto-pull on startup
   # qwen2.5-coder:7b — strong SQL/code model, ~4GB download
   defaultModel: "qwen2.5-coder:7b"
+  # LiteLLM model_name this Ollama model is auto-registered under (post-install hook).
+  # "default" makes it the model AI SQL calls out of the box — so when ollama+litellm
+  # are both enabled (e.g. sovereign on-prem), AI works with a local LLM, no manual setup.
+  litellmModelName: "default"
 
   resources:
     requests:
