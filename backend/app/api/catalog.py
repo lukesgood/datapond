@@ -9,25 +9,18 @@ import math
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-import trino
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.api.polaris_client import list_catalogs, list_namespaces, list_tables, get_catalog_type
+from app.api.trino_util import trino_conn
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-TRINO_HOST    = os.getenv("TRINO_SERVICE_HOST", "trino.datapond.svc.cluster.local")
-TRINO_PORT    = int(os.getenv("TRINO_SERVICE_PORT", "8080"))
-
 
 def _trino(catalog: str = "iceberg"):
-    return trino.dbapi.connect(
-        host=TRINO_HOST, port=TRINO_PORT,
-        user="datapond", catalog=catalog,
-        http_scheme="http", request_timeout=15,
-    )
+    return trino_conn(catalog=catalog, timeout=15)
 
 
 # ── Models ─────────────────────────────────────────────────────────────────────
