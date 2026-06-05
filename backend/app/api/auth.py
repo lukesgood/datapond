@@ -183,7 +183,7 @@ async def login(request: LoginRequest):
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """SELECT id, username, password_hash, role, display_name, email,
-                      is_active, require_password_change
+                      auth_method, is_active, require_password_change
                FROM users WHERE username=$1""",
             request.username
         )
@@ -193,9 +193,14 @@ async def login(request: LoginRequest):
                     and _verify_password(request.password, row["password_hash"]))
 
     if not local_ok:
+        from .ldap_auth import ldap_enabled, ldap_authenticate
+        # Never let an LDAP bind shadow an existing LOCAL account with the same
+        # username — a wrong local password must NOT fall through to LDAP and hijack
+        # (or re-provision) that account.
+        if row and row["auth_method"] == "local" and row["password_hash"]:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
         # Fall back to LDAP/AD when enabled. On success, auto-provision the directory
         # user so RBAC/RLS/audit treat them like any other account.
-        from .ldap_auth import ldap_enabled, ldap_authenticate
         if ldap_enabled():
             ldap_user = await asyncio.to_thread(ldap_authenticate, request.username, request.password)
             if ldap_user:
@@ -224,7 +229,12 @@ async def login(request: LoginRequest):
 
 async def _upsert_ldap_user(u: dict):
     """Create/update an LDAP-authenticated user (no local password) and return the row.
-    Role is taken from LDAP on every login so directory group changes propagate."""
+    Role is refreshed from LDAP each login so directory group changes propagate.
+
+    The conflict update is scoped to existing LDAP users (WHERE auth_method='ldap') and
+    deliberately does NOT touch is_active — so an admin who deactivated a directory user
+    isn't silently re-activated on their next login. (login() already refuses to shadow
+    a local account, so this conflict only fires for LDAP rows.)"""
     pool = await _get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
@@ -236,9 +246,8 @@ async def _upsert_ldap_user(u: dict):
               SET display_name = EXCLUDED.display_name,
                   email        = EXCLUDED.email,
                   role         = EXCLUDED.role,
-                  auth_method  = 'ldap',
-                  external_id  = EXCLUDED.external_id,
-                  is_active    = true
+                  external_id  = EXCLUDED.external_id
+              WHERE users.auth_method = 'ldap'
             """,
             u["email"], u["username"], u["display_name"], u["role"], u.get("external_id"),
         )

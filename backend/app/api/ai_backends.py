@@ -314,10 +314,36 @@ async def set_active(body: ActivePatch):
     return {"success": True, "active": body.model_name.strip()}
 
 
+async def _provider_of_registered_model(url: str, key: str, model_name: str) -> Optional[str]:
+    """Resolve a registered model_name to its provider id via the gateway, or None."""
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get(f"{url}/model/info", headers=_headers(key))
+            if r.status_code >= 400:
+                return None
+            for m in r.json().get("data", []):
+                if m.get("model_name") == model_name:
+                    return provider_of_model((m.get("litellm_params") or {}).get("model", ""))
+    except Exception:
+        return None
+    return None
+
+
 @router.post("/settings/ai/backends/{model_name}/test")
 async def test_backend(model_name: str):
     """Send a tiny completion through the gateway to verify a backend works."""
     url, key = _gateway()
+    # Enforce the egress policy here too — otherwise a model seeded outside the
+    # registration API (e.g. via helm config) could be exercised against an external
+    # provider on a local-only (sovereign) deployment, leaking the prompt.
+    if egress_policy() == "local-only":
+        prov = await _provider_of_registered_model(url, key, model_name)
+        if prov and is_external_provider(prov):
+            raise HTTPException(
+                403,
+                f"AI egress policy is 'local-only': testing the external provider "
+                f"'{prov}' is blocked (it would send data outside the cluster).",
+            )
     payload = {
         "model": model_name,
         "messages": [{"role": "user", "content": "Reply with the single word: OK"}],

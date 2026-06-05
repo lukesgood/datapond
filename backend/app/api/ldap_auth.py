@@ -125,6 +125,7 @@ def ldap_authenticate(username: str, password: str) -> Optional[dict]:
         user_conn = Connection(server, user=user_dn, password=password, receive_timeout=10)
         if not user_conn.bind():
             logger.info(f"[ldap] bind failed for {username}")
+            user_conn.unbind()   # release the socket even on auth failure (brute-force safe)
             return None
 
         # Direct-bind path: fetch attributes now that we're bound.

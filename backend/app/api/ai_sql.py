@@ -17,6 +17,7 @@ import os
 import json
 import logging
 import asyncio
+import time
 import trino
 import httpx
 
@@ -134,28 +135,43 @@ def _parse_response(raw: str) -> dict:
     return json.loads(raw)
 
 
+# Small TTL cache so the local-only egress guard doesn't add a LiteLLM round-trip to
+# every /ai/sql request — the active model rarely changes. Keyed by (url, model).
+_PROVIDER_CACHE: dict = {}
+_PROVIDER_TTL = 60.0
+
+
 def _active_provider_is_external() -> Optional[bool]:
     """Best-effort: is the active model an external (egress) provider? None if unknown.
 
     Defense-in-depth for the local-only egress policy: registration already blocks
     external backends, but a model could be seeded directly into LiteLLM (e.g. via
-    helm config), so we re-check the active model's provider at call time."""
+    helm config), so we re-check the active model's provider at call time. Cached for
+    a short TTL to keep this off the per-request hot path."""
     cfg = _cfg()
     if not cfg["litellm_url"]:
         return None
+    ck = (cfg["litellm_url"], cfg["litellm_model"])
+    hit = _PROVIDER_CACHE.get(ck)
+    now = time.monotonic()
+    if hit and now - hit[0] < _PROVIDER_TTL:
+        return hit[1]
     try:
         headers = {"Authorization": f"Bearer {cfg['master_key']}"} if cfg["master_key"] else {}
         with httpx.Client(timeout=5) as client:
             r = client.get(f"{cfg['litellm_url']}/model/info", headers=headers)
             if r.status_code >= 400:
-                return None
+                return None  # transient — don't cache, retry next request
+            val = None
             for m in r.json().get("data", []):
                 if m.get("model_name") == cfg["litellm_model"]:
                     model_str = (m.get("litellm_params") or {}).get("model", "")
-                    return is_external_provider(provider_of_model(model_str))
+                    val = is_external_provider(provider_of_model(model_str))
+                    break
+            _PROVIDER_CACHE[ck] = (now, val)  # cache definitive result (incl. not-found=None)
+            return val
     except Exception:
         return None
-    return None
 
 
 # ── Request / response models ─────────────────────────────────────────────────
