@@ -196,7 +196,9 @@ elif $AIRGAP; then
     cp "$AIRGAP_DIR"/k3s-airgap-images-*.tar* /var/lib/rancher/k3s/agent/images/
     ok "K3s system images pre-staged"
   else
-    warn "K3s system airgap images not in bundle — K3s may fail to start offline"
+    # No registry access here, so K3s could never pull pause/coredns/traefik itself —
+    # failing now with a clear message beats a K3s that hangs NotReady forever.
+    die "Air-gap: k3s-airgap-images-*.tar* missing from bundle — K3s cannot start offline. Rebuild the bundle with the current bundle-airgap.sh."
   fi
   install -m 755 "$AIRGAP_DIR/k3s-binary" /usr/local/bin/k3s
   INSTALL_K3S_SKIP_DOWNLOAD=true bash "$AIRGAP_DIR/k3s-install.sh" --write-kubeconfig-mode 644 \
