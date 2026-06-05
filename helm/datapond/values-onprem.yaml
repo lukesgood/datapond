@@ -179,7 +179,11 @@ airflow:
 # ── Spark — disabled by default (heavy resource consumer) ─────────────────────
 # Enable when batch ETL workloads require distributed compute
 spark:
-  enabled: false
+  # 분산 배치(Airflow→Spark→Iceberg) 경로. 32GB+ 노드 권장. 단일노드 부담을 줄이려
+  # worker 1개로 시작(필요 시 늘림). 비활성하려면 enabled:false 후 DuckDB/Trino로 대체.
+  enabled: true
+  worker:
+    replicas: 1
 
 # ── SeaweedFS (S3-compatible object storage) ──────────────────────────────────
 # Primary storage layer — all Iceberg data, MLflow artifacts, etc.

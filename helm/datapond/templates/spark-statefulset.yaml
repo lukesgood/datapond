@@ -1,6 +1,11 @@
 {{- if .Values.spark.enabled }}
 ---
-# Spark Master
+# Spark Master.
+# The apache/spark image does NOT honor bitnami-style SPARK_MODE env — it has no
+# start logic of its own. We must give it an explicit foreground command that runs
+# the Master class via spark-class (validated: elects leader, ALIVE). Iceberg/Polaris/
+# S3 job config lives in spark-defaults.conf (mounted), not in env (apache/spark would
+# ignore SPARK_SQL_*/SPARK_HADOOP_* env). AWS_* are standard creds the S3 SDK reads.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -25,45 +30,22 @@ spec:
       containers:
       - name: spark-master
         image: "{{ .Values.spark.image.repository }}:{{ .Values.spark.image.tag }}"
+        command:
+        - /opt/spark/bin/spark-class
+        - org.apache.spark.deploy.master.Master
+        - --host
+        - "0.0.0.0"
+        - --port
+        - "{{ .Values.spark.master.service.sparkPort }}"
+        - --webui-port
+        - "{{ .Values.spark.master.service.webPort }}"
         ports:
         - containerPort: {{ .Values.spark.master.service.sparkPort }}
           name: spark
         - containerPort: {{ .Values.spark.master.service.webPort }}
           name: http
         env:
-        - name: SPARK_MODE
-          value: "master"
-        - name: SPARK_RPC_AUTHENTICATION_ENABLED
-          value: "no"
-        - name: SPARK_RPC_ENCRYPTION_ENABLED
-          value: "no"
-        # Iceberg configurations
-        - name: SPARK_JARS_PACKAGES
-          value: "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.3,org.apache.hadoop:hadoop-aws:3.3.4,software.amazon.awssdk:bundle:2.20.18,software.amazon.awssdk:url-connection-client:2.20.18"
-        - name: SPARK_SQL_EXTENSIONS
-          value: "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
-        - name: SPARK_SQL_CATALOG_ICEBERG
-          value: "org.apache.iceberg.spark.SparkCatalog"
-        {{- if .Values.polaris.enabled }}
-        # Polaris REST Catalog
-        - name: SPARK_SQL_CATALOG_ICEBERG_CATALOG_IMPL
-          value: "org.apache.iceberg.rest.RESTCatalog"
-        - name: SPARK_SQL_CATALOG_ICEBERG_URI
-          value: "http://{{ .Values.polaris.name }}:{{ .Values.polaris.service.port }}/api/catalog/v1"
-        - name: SPARK_SQL_CATALOG_ICEBERG_WAREHOUSE
-          value: "{{ .Values.polaris.storage.defaultBaseLocation }}"
-        - name: SPARK_SQL_CATALOG_ICEBERG_CREDENTIAL
-          value: "{{ .Values.polaris.auth.clientId }}:{{ .Values.polaris.auth.clientSecret }}"
-        {{- else }}
-        # Fallback: Hadoop Catalog
-        - name: SPARK_SQL_CATALOG_ICEBERG_TYPE
-          value: "hadoop"
-        - name: SPARK_SQL_CATALOG_ICEBERG_WAREHOUSE
-          value: "s3a://iceberg/warehouse"
-        {{- end }}
-        - name: SPARK_SQL_CATALOG_ICEBERG_IO_IMPL
-          value: "org.apache.iceberg.aws.s3.S3FileIO"
-        # S3 configurations
+        # Standard AWS creds (read by hadoop-aws / S3FileIO for SeaweedFS).
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
@@ -76,12 +58,20 @@ spec:
               key: SEAWEEDFS_S3_PASSWORD
         - name: AWS_REGION
           value: "us-east-1"
-        - name: SPARK_HADOOP_FS_S3A_ENDPOINT
-          value: "http://seaweedfs-s3:8333"
-        - name: SPARK_HADOOP_FS_S3A_PATH_STYLE_ACCESS
-          value: "true"
-        - name: SPARK_HADOOP_FS_S3A_IMPL
-          value: "org.apache.hadoop.fs.s3a.S3AFileSystem"
+        volumeMounts:
+        - name: spark-conf
+          mountPath: /opt/spark/conf/spark-defaults.conf
+          subPath: spark-defaults.conf
+        readinessProbe:
+          tcpSocket:
+            port: {{ .Values.spark.master.service.sparkPort }}
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: {{ .Values.spark.master.service.sparkPort }}
+          initialDelaySeconds: 40
+          periodSeconds: 20
         resources:
           requests:
             cpu: {{ .Values.spark.master.resources.requests.cpu }}
@@ -89,6 +79,10 @@ spec:
           limits:
             cpu: {{ .Values.spark.master.resources.limits.cpu }}
             memory: {{ .Values.spark.master.resources.limits.memory }}
+      volumes:
+      - name: spark-conf
+        configMap:
+          name: {{ .Values.spark.name }}-defaults
 ---
 # Spark Master Service
 apiVersion: v1
@@ -134,21 +128,16 @@ spec:
       containers:
       - name: spark-worker
         image: "{{ .Values.spark.image.repository }}:{{ .Values.spark.image.tag }}"
+        command:
+        - /opt/spark/bin/spark-class
+        - org.apache.spark.deploy.worker.Worker
+        - "spark://{{ .Values.spark.name }}-master:{{ .Values.spark.master.service.sparkPort }}"
+        - --webui-port
+        - "8081"
         ports:
         - containerPort: 8081
           name: http
         env:
-        - name: SPARK_MODE
-          value: "worker"
-        - name: SPARK_MASTER_URL
-          value: "spark://{{ .Values.spark.name }}-master:{{ .Values.spark.master.service.sparkPort }}"
-        - name: SPARK_RPC_AUTHENTICATION_ENABLED
-          value: "no"
-        - name: SPARK_RPC_ENCRYPTION_ENABLED
-          value: "no"
-        # Iceberg configurations (same as master)
-        - name: SPARK_JARS_PACKAGES
-          value: "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.3,org.apache.hadoop:hadoop-aws:3.3.4,software.amazon.awssdk:bundle:2.20.18,software.amazon.awssdk:url-connection-client:2.20.18"
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
@@ -161,14 +150,20 @@ spec:
               key: SEAWEEDFS_S3_PASSWORD
         - name: AWS_REGION
           value: "us-east-1"
-        - name: SPARK_HADOOP_FS_S3A_ENDPOINT
-          value: "http://seaweedfs-s3:8333"
-        - name: SPARK_HADOOP_FS_S3A_PATH_STYLE_ACCESS
-          value: "true"
+        # SPARK_WORKER_CORES / SPARK_WORKER_MEMORY (standard Spark env — cap the worker).
         {{- range .Values.spark.worker.env }}
         - name: {{ .name }}
           value: {{ .value | quote }}
         {{- end }}
+        volumeMounts:
+        - name: spark-conf
+          mountPath: /opt/spark/conf/spark-defaults.conf
+          subPath: spark-defaults.conf
+        readinessProbe:
+          tcpSocket:
+            port: 8081
+          initialDelaySeconds: 25
+          periodSeconds: 10
         resources:
           requests:
             cpu: {{ .Values.spark.worker.resources.requests.cpu }}
@@ -176,6 +171,10 @@ spec:
           limits:
             cpu: {{ .Values.spark.worker.resources.limits.cpu }}
             memory: {{ .Values.spark.worker.resources.limits.memory }}
+      volumes:
+      - name: spark-conf
+        configMap:
+          name: {{ .Values.spark.name }}-defaults
 ---
 # Spark Worker Service (Headless)
 apiVersion: v1
