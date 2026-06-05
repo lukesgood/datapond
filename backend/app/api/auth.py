@@ -11,6 +11,7 @@ Endpoints:
 import os
 import json
 import uuid
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Optional
@@ -187,10 +188,24 @@ async def login(request: LoginRequest):
             request.username
         )
 
-    if not row or not row["is_active"]:
-        raise HTTPException(status_code=401, detail="Invalid username or password")
+    # Local password check (works even when LDAP is on — keeps the local admin usable).
+    local_ok = bool(row and row["is_active"] and row["password_hash"]
+                    and _verify_password(request.password, row["password_hash"]))
 
-    if not row["password_hash"] or not _verify_password(request.password, row["password_hash"]):
+    if not local_ok:
+        # Fall back to LDAP/AD when enabled. On success, auto-provision the directory
+        # user so RBAC/RLS/audit treat them like any other account.
+        from .ldap_auth import ldap_enabled, ldap_authenticate
+        if ldap_enabled():
+            ldap_user = await asyncio.to_thread(ldap_authenticate, request.username, request.password)
+            if ldap_user:
+                row = await _upsert_ldap_user(ldap_user)
+            else:
+                raise HTTPException(status_code=401, detail="Invalid username or password")
+        else:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    if not row or not row["is_active"]:
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
     token = _create_token(str(row["id"]), row["username"], row["role"])
@@ -205,6 +220,34 @@ async def login(request: LoginRequest):
             "require_password_change": bool(row["require_password_change"]),
         }
     )
+
+
+async def _upsert_ldap_user(u: dict):
+    """Create/update an LDAP-authenticated user (no local password) and return the row.
+    Role is taken from LDAP on every login so directory group changes propagate."""
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO users (id, email, username, display_name, role, auth_method,
+                               external_id, is_active, require_password_change)
+            VALUES (gen_random_uuid(), $1, $2, $3, $4, 'ldap', $5, true, false)
+            ON CONFLICT (username) DO UPDATE
+              SET display_name = EXCLUDED.display_name,
+                  email        = EXCLUDED.email,
+                  role         = EXCLUDED.role,
+                  auth_method  = 'ldap',
+                  external_id  = EXCLUDED.external_id,
+                  is_active    = true
+            """,
+            u["email"], u["username"], u["display_name"], u["role"], u.get("external_id"),
+        )
+        return await conn.fetchrow(
+            """SELECT id, username, password_hash, role, display_name, email,
+                      is_active, require_password_change
+               FROM users WHERE username=$1""",
+            u["username"],
+        )
 
 
 @router.get("/auth/me")
