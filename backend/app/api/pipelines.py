@@ -9,7 +9,6 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 import tempfile
 import os
-import base64
 import httpx
 from pathlib import Path
 
@@ -475,31 +474,8 @@ async def delete_pipeline(pipeline_name: str):
     return {"success": True, "dag_id": dag_id, "file_removed": file_removed, "airflow_deleted": airflow_deleted}
 
 
-OPENMETADATA_URL = os.getenv("OPENMETADATA_URL", "http://openmetadata-server.datapond.svc.cluster.local:8585")
-_om_token_cache: str | None = None
-
-
-async def _get_om_token() -> str | None:
-    global _om_token_cache
-    # Preferred: long-lived bot JWT (OM ingestion-bot) via env.
-    static = os.getenv("OPENMETADATA_JWT_TOKEN", "").strip()
-    if static:
-        return static
-    if _om_token_cache:
-        return _om_token_cache
-    # Fallback: basic-auth login (OM >=1.x requires Base-64 encoded password).
-    email = os.getenv("OPENMETADATA_EMAIL", "admin@open-metadata.org")
-    pw_b64 = base64.b64encode(os.getenv("OPENMETADATA_PASSWORD", "admin").encode()).decode()
-    try:
-        async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.post(f"{OPENMETADATA_URL}/api/v1/users/login",
-                             json={"email": email, "password": pw_b64})
-            if r.status_code == 200:
-                _om_token_cache = r.json().get("accessToken")
-                return _om_token_cache
-    except Exception:
-        pass
-    return None
+# OM URL + token come from the shared util (single source of truth).
+from app.api.om_util import OPENMETADATA_URL, om_token as _get_om_token
 
 
 @router.get("/pipelines/{pipeline_name}/lineage")
