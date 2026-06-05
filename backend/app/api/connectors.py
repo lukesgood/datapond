@@ -24,53 +24,18 @@ import asyncpg
 import asyncio
 import json
 import os
-import base64
 import logging
 import httpx
 
-logger = logging.getLogger(__name__)
+from app.api.om_util import OPENMETADATA_URL, om_token as _om_token
 
-OPENMETADATA_URL = os.getenv("OPENMETADATA_URL", "http://openmetadata-server.datapond.svc.cluster.local:8585")
-# OM admin credentials (env-overridable per deployment; password must match the
-# OM instance's actual admin password to succeed).
-OPENMETADATA_EMAIL = os.getenv("OPENMETADATA_EMAIL", "admin@open-metadata.org")
-OPENMETADATA_PASSWORD = os.getenv("OPENMETADATA_PASSWORD", "admin")
-OPENMETADATA_TOKEN: str | None = None
+logger = logging.getLogger(__name__)
 
 # OM database FQN for the Trino/Iceberg service (created by the OM Trino ingestion).
 # Synced tables are registered as entities under this database so they show up in
 # the OM catalog without a manual ingestion run. Override per deployment if the
 # OM databaseService is named differently.
 OM_DATABASE_FQN = os.getenv("OPENMETADATA_ICEBERG_DB_FQN", "datapond-trino.iceberg")
-
-
-async def _om_token() -> str | None:
-    """Obtain OpenMetadata JWT token (cached in module-level var).
-
-    Preferred: long-lived bot JWT via OPENMETADATA_JWT_TOKEN (OM ingestion-bot) —
-    the standard service-auth path. Fallback: basic-auth /users/login (OM >=1.x
-    requires the password Base-64 encoded).
-    """
-    global OPENMETADATA_TOKEN
-    static = os.getenv("OPENMETADATA_JWT_TOKEN", "").strip()
-    if static:
-        return static
-    if OPENMETADATA_TOKEN:
-        return OPENMETADATA_TOKEN
-    try:
-        pw_b64 = base64.b64encode(OPENMETADATA_PASSWORD.encode()).decode()
-        async with httpx.AsyncClient(timeout=5) as c:
-            resp = await c.post(
-                f"{OPENMETADATA_URL}/api/v1/users/login",
-                json={"email": OPENMETADATA_EMAIL, "password": pw_b64},
-            )
-            if resp.status_code == 200:
-                OPENMETADATA_TOKEN = resp.json().get("accessToken")
-                return OPENMETADATA_TOKEN
-            logger.warning(f"[om] login failed {resp.status_code}: {resp.text[:120]}")
-    except Exception as e:
-        logger.warning(f"[om] login error: {e}")
-    return None
 
 
 async def register_lineage(source_fqn: str, target_fqn: str, connector_name: str) -> bool:
