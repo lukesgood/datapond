@@ -10,13 +10,10 @@ from datetime import datetime
 from typing import Optional
 
 import asyncpg
-import trino
 
 logger = logging.getLogger(__name__)
 
-TRINO_HOST = os.getenv("TRINO_SERVICE_HOST", "trino.datapond.svc.cluster.local")
-TRINO_PORT = int(os.getenv("TRINO_SERVICE_PORT", "8080"))
-TRINO_CATALOG = "iceberg"
+from app.api.trino_util import TRINO_CATALOG, trino_conn
 
 ROW_CHANGE_WARN_PCT = 20.0   # warn if row count changes ±20%
 ROW_CHANGE_ALERT_PCT = 50.0  # alert if ±50%
@@ -25,11 +22,7 @@ NULL_RATE_ALERT = 80.0       # alert if >80%
 
 
 def _trino_conn():
-    return trino.dbapi.connect(
-        host=TRINO_HOST, port=TRINO_PORT,
-        user="datapond", catalog=TRINO_CATALOG,
-        http_scheme="http", request_timeout=30,
-    )
+    return trino_conn(timeout=30)
 
 
 _QUALITY_TABLE_DDL = """

@@ -18,7 +18,6 @@ import json
 import logging
 import asyncio
 import time
-import trino
 import httpx
 
 from fastapi import APIRouter
@@ -44,9 +43,7 @@ def _cfg():
         "master_key":    os.getenv("LITELLM_MASTER_KEY", "").strip(),
     }
 
-TRINO_HOST    = os.getenv("TRINO_SERVICE_HOST", "trino.datapond.svc.cluster.local")
-TRINO_PORT    = int(os.getenv("TRINO_SERVICE_PORT", "8080"))
-TRINO_CATALOG = "iceberg"
+from app.api.trino_util import TRINO_CATALOG, trino_conn
 
 
 # ── Schema context ────────────────────────────────────────────────────────────
@@ -54,11 +51,7 @@ TRINO_CATALOG = "iceberg"
 def _get_schema_context() -> str:
     """Fetch Iceberg table/column info from Trino for the prompt."""
     try:
-        conn = trino.dbapi.connect(
-            host=TRINO_HOST, port=TRINO_PORT,
-            user="datapond", catalog=TRINO_CATALOG,
-            http_scheme="http", request_timeout=10,
-        )
+        conn = trino_conn(timeout=10)
         cur = conn.cursor()
         cur.execute(
             f"SELECT table_schema, table_name "
