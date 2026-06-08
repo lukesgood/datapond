@@ -470,8 +470,15 @@ function UsagePanel() {
 
   if (loading) return <Skeleton className="h-32 rounded-lg" />
   if (!u) return null
+  const alerts = u.keys.filter(k => k.pct != null && (k.pct as number) >= 80)
   return (
     <Card>
+      {alerts.length > 0 && (
+        <div className="mx-6 mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive flex items-start gap-2">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <span><b>Budget alert:</b> {alerts.map(a => `${a.key_alias || "key"} ${a.pct}%`).join(", ")} of budget used.</span>
+        </div>
+      )}
       <CardHeader className="pb-3 flex-row items-center justify-between">
         <div>
           <CardTitle className="text-base flex items-center gap-2"><DollarSign className="h-4 w-4 text-primary" />Token & Cost Usage</CardTitle>

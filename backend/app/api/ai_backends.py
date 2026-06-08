@@ -18,6 +18,7 @@ import os
 import json
 import time
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -518,4 +519,59 @@ async def usage_summary():
                     })
     except Exception as e:
         logger.warning(f"[ai_backends] usage summary failed: {e}")
+    return out
+
+
+@router.get("/settings/ai/spend/report")
+async def spend_report(start_date: Optional[str] = None, end_date: Optional[str] = None):
+    """Date-ranged spend breakdown (by model/key/team) from LiteLLM /global/spend/report.
+    Defaults to the last 30 days."""
+    url, key = _gateway()
+    if not end_date:
+        end_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if not start_date:
+        start_date = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.get(f"{url}/global/spend/report", headers=_headers(key),
+                            params={"start_date": start_date, "end_date": end_date})
+        if r.status_code >= 400:
+            return {"start_date": start_date, "end_date": end_date, "report": [],
+                    "detail": _short(r.text, 200)}
+        return {"start_date": start_date, "end_date": end_date, "report": r.json()}
+    except Exception as e:
+        raise HTTPException(502, f"Cannot reach LiteLLM gateway: {_short(str(e), 200)}")
+
+
+@router.get("/settings/ai/budget-alerts")
+async def budget_alerts(threshold: float = 80.0):
+    """Virtual keys (and the global budget) at/over `threshold`% of their budget —
+    for near-limit alerting on external-LLM spend."""
+    url, key = _gateway()
+    h = _headers(key)
+    out = {"threshold": threshold, "global": None, "alerts": []}
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            gs = await c.get(f"{url}/global/spend", headers=h)
+            if gs.status_code < 400:
+                d = gs.json(); mb = float(d.get("max_budget") or 0); sp = float(d.get("spend") or 0)
+                if mb:
+                    pct = round(sp / mb * 100, 1)
+                    out["global"] = {"spend": round(sp, 6), "max_budget": mb, "pct": pct,
+                                     "alert": pct >= threshold}
+            kl = await c.get(f"{url}/key/list", headers=h,
+                             params={"return_full_object": "true", "size": "200"})
+            if kl.status_code < 400:
+                data = kl.json()
+                raw = data.get("keys", []) if isinstance(data, dict) else (data or [])
+                for k in raw:
+                    if not isinstance(k, dict):
+                        continue
+                    mb = k.get("max_budget"); sp = float(k.get("spend") or 0)
+                    if mb and sp / mb * 100 >= threshold:
+                        out["alerts"].append({"key_alias": k.get("key_alias"),
+                                              "spend": round(sp, 6), "max_budget": mb,
+                                              "pct": round(sp / mb * 100, 1)})
+    except Exception as e:
+        logger.warning(f"[ai_backends] budget alerts failed: {e}")
     return out
