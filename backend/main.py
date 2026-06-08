@@ -129,6 +129,15 @@ async def startup():
             else:
                 logger.warning(f"[startup] Settings load skipped after retries: {e}")
 
+    # 기반 스키마 부트스트랩 (auth.sql/queries.sql — users/roles/sessions/dashboards 등).
+    # 빈 DB 1회 적용(센티넬 가드), 기존 DB는 skip. rls_migration이 users에 의존하므로 먼저 실행.
+    try:
+        from app.api.connectors import get_db_pool
+        from app.schema_bootstrap import ensure_base_schema
+        await ensure_base_schema(await get_db_pool())
+    except Exception as e:
+        logger.warning(f"[startup] Base schema bootstrap skipped: {e}")
+
     # RLS 스키마 마이그레이션 (멱등 — rls_policies/masking/user_roles/attributes). best-effort.
     try:
         from app.api.connectors import get_db_pool
