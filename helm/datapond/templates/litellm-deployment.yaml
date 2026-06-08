@@ -44,9 +44,12 @@ data:
         port: {{ .Values.valkey.service.port | default 6379 }}
         ttl: 3600
       {{- end }}
-      {{- if .Values.litellm.metrics }}
-      # Prometheus metrics at /metrics (request count, latency, tokens, spend)
-      callbacks: ["prometheus"]
+      {{- $cbs := list }}
+      {{- if .Values.litellm.metrics }}{{- $cbs = append $cbs "prometheus" }}{{- end }}
+      {{- if (.Values.litellm.tracing | default dict).enabled }}{{- $cbs = append $cbs .Values.litellm.tracing.provider }}{{- end }}
+      {{- if $cbs }}
+      # Logging/metrics callbacks: prometheus (/metrics) + optional tracing (langfuse/otel)
+      callbacks: {{ $cbs | toJson }}
       {{- end }}
     # Global reliability defaults (apply to DB-managed models too)
     router_settings:
@@ -144,6 +147,16 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: LITELLM_SALT_KEY
+        {{- if and (.Values.litellm.tracing | default dict).enabled (eq .Values.litellm.tracing.provider "langfuse") }}
+        # Tracing backend (opt-in). Point at a self-hosted Langfuse; keys can be moved
+        # to a Secret for production.
+        - name: LANGFUSE_HOST
+          value: {{ .Values.litellm.tracing.host | quote }}
+        - name: LANGFUSE_PUBLIC_KEY
+          value: {{ .Values.litellm.tracing.publicKey | quote }}
+        - name: LANGFUSE_SECRET_KEY
+          value: {{ .Values.litellm.tracing.secretKey | quote }}
+        {{- end }}
         {{- if $dbMode }}
         # DB mode — persist model_list / keys / spend in PostgreSQL for runtime config.
         - name: STORE_MODEL_IN_DB
@@ -207,6 +220,13 @@ metadata:
   namespace: {{ .Values.namespace }}
   labels:
     app: {{ .Values.litellm.name }}
+  {{- if .Values.litellm.metrics }}
+  annotations:
+    # Make /metrics auto-discoverable by a Prometheus that honors scrape annotations.
+    prometheus.io/scrape: "true"
+    prometheus.io/port: {{ .Values.litellm.service.port | quote }}
+    prometheus.io/path: "/metrics"
+  {{- end }}
 spec:
   type: {{ .Values.litellm.service.type }}
   ports:
