@@ -29,6 +29,7 @@ from app.api.auth import router as auth_router
 from app.api.transforms import router as transforms_router
 from app.api.ai_sql import router as ai_sql_router
 from app.api.ai_backends import router as ai_backends_router
+from app.api.ai_vectors import router as ai_vectors_router
 from app.api.system_settings import router as system_settings_router, load_settings_on_startup
 from app.api.governance import router as governance_router
 from app.api.maintenance import router as maintenance_router, deploy_maintenance_dag
@@ -143,6 +144,15 @@ async def startup():
     except Exception as e:
         logger.warning(f"[startup] Maintenance DAG deploy skipped: {e}")
 
+    # pgvector schema (ai_collections / ai_chunks) — best-effort (needs pgvector image)
+    try:
+        from app.api.connectors import get_db_pool
+        from app.api.ai_vectors import ensure_vector_schema
+        await ensure_vector_schema(await get_db_pool())
+        logger.info("[startup] pgvector schema ready")
+    except Exception as e:
+        logger.warning(f"[startup] pgvector schema skipped: {e}")
+
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
@@ -167,6 +177,7 @@ app.include_router(streaming_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(transforms_router, prefix="/api")
 app.include_router(ai_sql_router, prefix="/api")
+app.include_router(ai_vectors_router, prefix="/api")
 app.include_router(ai_backends_router, prefix="/api")
 app.include_router(system_settings_router, prefix="/api")
 app.include_router(governance_router, prefix="/api")

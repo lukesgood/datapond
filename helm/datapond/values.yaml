@@ -104,8 +104,10 @@ postgres:
   enabled: true
   name: postgres
   image:
-    repository: postgres
-    tag: "16-alpine"
+    # pgvector image = drop-in superset of postgres:16 (adds the `vector` extension for
+    # the AI vector store / RAG). Data dir is plain PG16, so this is a drop-in swap.
+    repository: pgvector/pgvector
+    tag: "pg16"
 
   service:
     type: ClusterIP
@@ -716,6 +718,12 @@ ai:
   #                   at registration AND at call time (no data leaves the cluster).
   #   cloud-allowed → external providers permitted (default, backward compatible).
   egressPolicy: "cloud-allowed"
+  # Vector store / RAG (pgvector). embedModel = the LiteLLM model_name registered for
+  # embeddings (local bge-m3/nomic for sovereign, or Bedrock Titan / OpenAI for cloud).
+  # embedDim must match that model's output dim (Titan v2=1024, bge-m3=1024, nomic=768,
+  # OpenAI text-embedding-3-small=1536). Changing dim later requires recreating ai_chunks.
+  embedModel: "embed"
+  embedDim: 1024
 
 # LiteLLM — AI model gateway (OpenAI-compatible API), single entry point for all LLM
 # providers (Bedrock, Anthropic, OpenAI, Ollama/vLLM …). The backend speaks only

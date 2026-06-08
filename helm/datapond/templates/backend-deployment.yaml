@@ -117,6 +117,11 @@ spec:
         # set local-only to block external LLM providers (no data egress).
         - name: AI_EGRESS_POLICY
           value: "{{ .Values.ai.egressPolicy | default "cloud-allowed" }}"
+        # Vector store / RAG (pgvector) — embedding model_name + output dimension.
+        - name: AI_EMBED_MODEL
+          value: "{{ .Values.ai.embedModel | default "embed" }}"
+        - name: AI_EMBED_DIM
+          value: "{{ .Values.ai.embedDim | default 1024 }}"
         {{- if (((.Values.auth).ldap).enabled) }}
         # LDAP / Active Directory authentication
         - name: LDAP_ENABLED
