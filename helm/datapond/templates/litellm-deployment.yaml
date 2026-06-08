@@ -52,6 +52,10 @@ data:
     router_settings:
       num_retries: 2
       timeout: 60
+      {{- with .Values.litellm.fallbacks }}
+      # Model-level failover: primary model_name → ordered backup model_names.
+      fallbacks: {{ toYaml . | nindent 8 }}
+      {{- end }}
     {{- with .Values.litellm.guardrails }}
     # Gateway guardrails applied to ALL LLM traffic (RAG/chat/sql), environment-
     # configurable. Set litellm.guardrails in values to enable — e.g. Presidio PII

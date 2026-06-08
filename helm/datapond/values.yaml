@@ -765,6 +765,13 @@ litellm:
   # (DataPond also masks Korean PII in-backend before egress; these layer.)
   guardrails: []
 
+  # Model fallbacks (reliability) — if a model errors/throttles, the router retries
+  # the next model_name in its list. Removes single-model SPOF. Each entry maps a
+  # primary model_name to an ordered list of backups. Backups must be registered
+  # model_names (chart-seeded or DB-managed). Empty = no fallback (retries same model).
+  # e.g.:  - { "default": ["default-fallback"] }
+  fallbacks: []
+
   # DB-mode startup runs Prisma migrations which spike memory — 512Mi OOMKills on
   # first boot. 2Gi limit verified sufficient (steady-state proxy is far lighter).
   resources:
