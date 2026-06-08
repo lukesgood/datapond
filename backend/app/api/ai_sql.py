@@ -20,12 +20,14 @@ import asyncio
 import time
 import httpx
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional
 
 from app.guardrails import pii_ko
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
+from app.api.auth import require_user
+from app.ai_context import set_actor, actor_payload
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +115,7 @@ def _call_litellm(system: str, messages: list) -> str:
         "model": cfg["litellm_model"],
         "messages": [{"role": "system", "content": system}] + messages,
         "max_tokens": 1024,
+        **actor_payload("ai_sql"),  # per-user spend attribution (ContextVar copies into to_thread)
     }
     headers = {"Authorization": f"Bearer {cfg['master_key']}"} if cfg["master_key"] else {}
     with httpx.Client(timeout=httpx.Timeout(connect=3.0, read=60.0, write=10.0, pool=5.0)) as client:
@@ -185,8 +188,9 @@ class AskResponse(BaseModel):
 # ── Route ─────────────────────────────────────────────────────────────────────
 
 @router.post("/ai/sql", response_model=AskResponse)
-async def generate_sql(req: AskRequest):
+async def generate_sql(req: AskRequest, user: dict = Depends(require_user)):
     """Convert a natural language question to a Trino SQL query."""
+    set_actor(user)  # attribute LLM spend to this user
     # ── PII guardrail (local, before the prompt reaches the LLM gateway) ──────
     q_text, q_find, q_block = pii_ko.apply(req.question)
     c_text, c_find, c_block = pii_ko.apply(req.context or "")

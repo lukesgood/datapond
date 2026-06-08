@@ -464,7 +464,7 @@ async def usage_summary():
     (/global/spend, /global/spend/models, /spend/logs, /key/list)."""
     url, key = _gateway()
     h = _headers(key)
-    out = {"total_spend": 0.0, "max_budget": None, "models": [], "keys": [],
+    out = {"total_spend": 0.0, "max_budget": None, "models": [], "keys": [], "users": [],
            "total_tokens": 0, "egress_policy": egress_policy()}
     try:
         async with httpx.AsyncClient(timeout=15) as c:
@@ -481,6 +481,7 @@ async def usage_summary():
                     spend_by_model[x.get("model")] = float(x.get("total_spend") or 0)
             # token aggregation from spend logs (recent), keyed by model
             tok = {}
+            users = {}  # per end-user (DataPond user) spend attribution
             lg = await c.get(f"{url}/spend/logs", headers=h)
             if lg.status_code < 400 and isinstance(lg.json(), list):
                 for e in lg.json():
@@ -491,6 +492,15 @@ async def usage_summary():
                     t["total_tokens"] += int(e.get("total_tokens") or 0)
                     t["prompt_tokens"] += int(e.get("prompt_tokens") or 0)
                     t["completion_tokens"] += int(e.get("completion_tokens") or 0)
+                    # attribute to the calling DataPond user (set via the `user` payload field)
+                    meta = e.get("metadata") or {}
+                    eu = e.get("end_user") or meta.get("user_id") or "unattributed"
+                    u = users.setdefault(eu, {"user": eu, "spend": 0.0, "requests": 0, "total_tokens": 0})
+                    u["spend"] += float(e.get("spend") or 0)
+                    u["requests"] += 1
+                    u["total_tokens"] += int(e.get("total_tokens") or 0)
+            out["users"] = sorted(({**u, "spend": round(u["spend"], 6)} for u in users.values()),
+                                  key=lambda x: x["spend"], reverse=True)
             models = set(spend_by_model) | set(tok)
             for m in sorted(models):
                 t = tok.get(m, {})
