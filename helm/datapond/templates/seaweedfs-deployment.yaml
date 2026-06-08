@@ -30,6 +30,9 @@ spec:
         - master
         - -ip=$(POD_IP)
         - -port=9333
+        # Persist master metadata on the PVC (/data). Without -mdir it defaults to
+        # /tmp (ephemeral) → volume topology lost on every pod restart.
+        - -mdir=/data
         env:
         - name: POD_IP
           valueFrom:
@@ -140,6 +143,9 @@ spec:
         - -ip=$(POD_IP)
         - -max=100
         - -dataCenter=dc1
+        # Persist volume data on the PVC (/data). Without -dir it defaults to /tmp
+        # (ephemeral) → ALL stored objects (Iceberg data/metadata) lost on restart.
+        - -dir=/data
         env:
         - name: POD_IP
           valueFrom:
@@ -239,6 +245,10 @@ spec:
         - filer
         - -master={{ .Values.seaweedfs.name }}-master:9333
         - -ip=$(POD_IP)
+        # Persist the filer store (path→fileid mapping) on the PVC (/data). Without
+        # this the default leveldb store sits under /tmp → S3 object mappings lost on
+        # restart (objects become unfindable even if volume data survived).
+        - -defaultStoreDir=/data
         env:
         - name: POD_IP
           valueFrom:
