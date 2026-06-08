@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from app.api.connectors import get_db_pool
 from app.api.auth import require_user, require_user_or_internal
+from app.ai_context import set_actor, actor_payload
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
 
 logger = logging.getLogger(__name__)
@@ -149,7 +150,7 @@ async def _embed(texts: List[str]) -> List[List[float]]:
     url, key = _gateway()
     async with httpx.AsyncClient(timeout=120) as c:
         r = await c.post(f"{url}/v1/embeddings", headers=_headers(key),
-                         json={"model": _embed_model(), "input": texts})
+                         json={"model": _embed_model(), "input": texts, **actor_payload("ai_embed")})
     if r.status_code >= 400:
         raise HTTPException(502, f"Embedding failed: {(r.text or '')[:200]}")
     data = r.json().get("data", [])
@@ -195,7 +196,8 @@ class RagRequest(BaseModel):
 # ── Routes ───────────────────────────────────────────────────────────────────────
 
 @router.post("/ai/embed")
-async def embed(req: EmbedRequest):
+async def embed(req: EmbedRequest, user: dict = Depends(require_user)):
+    set_actor(user)
     vecs = await _embed(req.input)
     return {"model": _embed_model(), "dim": len(vecs[0]) if vecs else EMBED_DIM(), "embeddings": vecs}
 
@@ -307,6 +309,7 @@ async def _ingest_documents(coll_id, docs: List[tuple], chunk_size: int, overlap
 @router.post("/ai/collections/{name}/ingest")
 async def ingest(name: str, req: IngestRequest, user: dict = Depends(require_user)):
     """Ingest inline documents. Chunk → PII-mask → embed → upsert."""
+    set_actor(user)
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
     async with pool.acquire() as c:
@@ -383,6 +386,7 @@ async def ingest_source(name: str, req: SourceIngest, user: dict = Depends(requi
 
     Accepts either a user JWT or the in-cluster X-Internal-Key so scheduled Airflow
     DAGs (which run unattended) can call back to re-ingest on a schedule."""
+    set_actor(user)
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
     async with pool.acquire() as c:
@@ -494,6 +498,7 @@ def _guard(text: str):
 
 @router.post("/ai/search")
 async def search(req: SearchRequest, user: dict = Depends(require_user)):
+    set_actor(user)
     q_text, q_find, q_block = _guard(req.query)
     if q_block:
         raise HTTPException(400, "Query blocked by PII guardrail (PII_GUARDRAIL_MODE=block).")
@@ -506,6 +511,7 @@ async def search(req: SearchRequest, user: dict = Depends(require_user)):
 async def rag(req: RagRequest, user: dict = Depends(require_user)):
     """Retrieve top-k chunks, then ask the active LiteLLM chat model with that context.
     Returns the answer + the citations it was grounded on."""
+    set_actor(user)
     # PII guardrail on the question before it reaches retrieval/the LLM.
     q_text, q_find, q_block = _guard(req.question)
     if q_block:
@@ -544,7 +550,8 @@ async def rag(req: RagRequest, user: dict = Depends(require_user)):
             r = await c.post(f"{url}/v1/chat/completions", headers=_headers(key),
                              json={"model": model, "max_tokens": 1024,
                                    "messages": [{"role": "system", "content": system},
-                                                {"role": "user", "content": user_msg}]})
+                                                {"role": "user", "content": user_msg}],
+                                   **actor_payload("ai_rag")})
         if r.status_code >= 400:
             return {"answer": f"(LLM 호출 실패: {r.status_code}) 검색 결과만 반환합니다.",
                     "citations": hits, "has_ai": False, "pii_masked": len(q_find)}

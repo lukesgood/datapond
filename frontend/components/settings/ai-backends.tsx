@@ -454,7 +454,8 @@ export function AiBackends() {
 
 interface ModelUsage { model: string; spend: number; requests: number; total_tokens: number; prompt_tokens: number; completion_tokens: number }
 interface KeyUsage { key_alias: string | null; spend: number; max_budget: number | null; pct: number | null }
-interface Usage { total_spend: number; max_budget: number | null; total_tokens: number; models: ModelUsage[]; keys: KeyUsage[]; egress_policy?: string }
+interface UserUsage { user: string; spend: number; requests: number; total_tokens: number }
+interface Usage { total_spend: number; max_budget: number | null; total_tokens: number; models: ModelUsage[]; keys: KeyUsage[]; users?: UserUsage[]; egress_policy?: string }
 
 const fmt$ = (n: number) => "$" + (n < 0.01 ? n.toFixed(6) : n.toFixed(4))
 const fmtN = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n)
@@ -515,6 +516,24 @@ function UsagePanel() {
                   <span className="text-right">{fmt$(m.spend)}</span>
                   <span className="text-right text-muted-foreground">{m.requests}</span>
                   <span className="text-right text-muted-foreground">{fmtN(m.total_tokens)} <span className="opacity-60">({fmtN(m.prompt_tokens)}/{fmtN(m.completion_tokens)})</span></span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {u.users && u.users.length > 0 && (
+          <div>
+            <div className="text-xs font-medium mb-1.5">By user</div>
+            <div className="rounded-lg border divide-y">
+              <div className="grid grid-cols-[1fr_auto_auto] gap-3 px-3 py-1.5 text-[11px] text-muted-foreground">
+                <span>User</span><span className="text-right">Spend</span><span className="text-right">Req / Tokens</span>
+              </div>
+              {u.users.map((x, i) => (
+                <div key={i} className="grid grid-cols-[1fr_auto_auto] gap-3 px-3 py-1.5 text-xs items-center">
+                  <span className="font-mono truncate">{x.user}</span>
+                  <span className="text-right">{fmt$(x.spend)}</span>
+                  <span className="text-right text-muted-foreground">{x.requests} / {fmtN(x.total_tokens)}</span>
                 </div>
               ))}
             </div>
