@@ -25,10 +25,11 @@ import pathlib
 from typing import Optional, List
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 
 from app.api.connectors import get_db_pool
+from app.api.auth import require_user
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,8 @@ async def ensure_vector_schema(pool) -> None:
                     embedding     vector({dim}),
                     created_at    TIMESTAMPTZ DEFAULT NOW()
                 )""")
+            # Per-collection access control (RLS): the creating user owns it.
+            await c.execute("ALTER TABLE ai_collections ADD COLUMN IF NOT EXISTS owner_id UUID")
             await c.execute("CREATE INDEX IF NOT EXISTS ai_chunks_coll_idx ON ai_chunks(collection_id)")
             await c.execute(
                 "CREATE INDEX IF NOT EXISTS ai_chunks_embed_idx "
@@ -197,18 +200,28 @@ async def embed(req: EmbedRequest):
     return {"model": _embed_model(), "dim": len(vecs[0]) if vecs else EMBED_DIM(), "embeddings": vecs}
 
 
+def _uid(user: dict):
+    try:
+        return uuid.UUID(user["id"])
+    except Exception:
+        return None
+
+
 @router.get("/ai/collections")
-async def list_collections():
+async def list_collections(user: dict = Depends(require_user)):
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
+    is_admin = user.get("role") == "admin"
     async with pool.acquire() as c:
-        rows = await c.fetch("""
+        # Admins see all collections; everyone else sees only the ones they own.
+        rows = await c.fetch(f"""
             SELECT col.name, col.embed_model, col.dim, col.description, col.created_at,
                    COUNT(ch.id) AS chunks
             FROM ai_collections col
             LEFT JOIN ai_chunks ch ON ch.collection_id = col.id
+            {"" if is_admin else "WHERE col.owner_id = $1"}
             GROUP BY col.id ORDER BY col.created_at DESC
-        """)
+        """, *([] if is_admin else [_uid(user)]))
     return {"collections": [
         {"name": r["name"], "embed_model": r["embed_model"], "dim": r["dim"],
          "description": r["description"], "chunks": r["chunks"],
@@ -218,34 +231,38 @@ async def list_collections():
 
 
 @router.post("/ai/collections")
-async def create_collection(body: CollectionCreate):
+async def create_collection(body: CollectionCreate, user: dict = Depends(require_user)):
     if not body.name.strip():
         raise HTTPException(400, "name is required.")
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
     async with pool.acquire() as c:
         await c.execute(
-            """INSERT INTO ai_collections (name, embed_model, dim, description)
-               VALUES ($1, $2, $3, $4)
+            """INSERT INTO ai_collections (name, embed_model, dim, description, owner_id)
+               VALUES ($1, $2, $3, $4, $5)
                ON CONFLICT (name) DO UPDATE SET description = EXCLUDED.description""",
-            body.name.strip(), _embed_model(), EMBED_DIM(), body.description,
+            body.name.strip(), _embed_model(), EMBED_DIM(), body.description, _uid(user),
         )
     return {"success": True, "name": body.name.strip(),
             "embed_model": _embed_model(), "dim": EMBED_DIM()}
 
 
 @router.delete("/ai/collections/{name}")
-async def delete_collection(name: str):
+async def delete_collection(name: str, user: dict = Depends(require_user)):
     pool = await get_db_pool()
     async with pool.acquire() as c:
+        await _collection_id(c, name, user)   # 404/403 gate
         res = await c.execute("DELETE FROM ai_collections WHERE name = $1", name)
     return {"success": True, "deleted": res}
 
 
-async def _collection_id(c, name: str):
-    row = await c.fetchrow("SELECT id FROM ai_collections WHERE name = $1", name)
+async def _collection_id(c, name: str, user: dict):
+    """Resolve a collection id, enforcing access: owner or admin only."""
+    row = await c.fetchrow("SELECT id, owner_id FROM ai_collections WHERE name = $1", name)
     if not row:
         raise HTTPException(404, f"Collection '{name}' not found.")
+    if user.get("role") != "admin" and row["owner_id"] is not None and row["owner_id"] != _uid(user):
+        raise HTTPException(403, f"Not authorized for collection '{name}'.")
     return row["id"]
 
 
@@ -277,12 +294,12 @@ async def _ingest_documents(coll_id, docs: List[tuple], chunk_size: int, overlap
 
 
 @router.post("/ai/collections/{name}/ingest")
-async def ingest(name: str, req: IngestRequest):
+async def ingest(name: str, req: IngestRequest, user: dict = Depends(require_user)):
     """Ingest inline documents. Chunk → PII-mask → embed → upsert."""
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
     async with pool.acquire() as c:
-        coll_id = await _collection_id(c, name)
+        coll_id = await _collection_id(c, name, user)
     res = await _ingest_documents(
         coll_id, [(d.source, d.text, d.metadata) for d in req.documents],
         req.chunk_size, req.chunk_overlap)
@@ -349,13 +366,13 @@ def _ident_ok(*vals) -> bool:
 
 
 @router.post("/ai/collections/{name}/ingest-source")
-async def ingest_source(name: str, req: SourceIngest):
+async def ingest_source(name: str, req: SourceIngest, user: dict = Depends(require_user)):
     """Feed the vector store from a lakehouse/object-store source — the AI data
     pipeline over DataPond's own data (Iceberg table column, or S3 text files)."""
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
     async with pool.acquire() as c:
-        coll_id = await _collection_id(c, name)
+        coll_id = await _collection_id(c, name, user)
 
     if req.type == "iceberg":
         if not (req.db_schema and req.table and req.text_column):
@@ -411,11 +428,11 @@ with DAG(dag_id={dag_id!r}, start_date=datetime(2024,1,1), schedule={schedule!r}
 
 
 @router.post("/ai/collections/{name}/schedule")
-async def schedule_ingest(name: str, body: ScheduleRequest):
+async def schedule_ingest(name: str, body: ScheduleRequest, user: dict = Depends(require_user)):
     """Deploy an Airflow DAG that re-ingests `source` into this collection on a schedule."""
     pool = await get_db_pool()
     async with pool.acquire() as c:
-        await _collection_id(c, name)  # 404 if missing
+        await _collection_id(c, name, user)  # 404/403 gate
     dag_id = "datapond_rag_ingest_" + re.sub(r"[^A-Za-z0-9_]+", "_", name).strip("_")
     source_json = json.dumps(body.source.model_dump(by_alias=True, exclude_none=True))
     code = _generate_ingest_dag(dag_id, name, body.schedule, source_json)
@@ -427,11 +444,11 @@ async def schedule_ingest(name: str, body: ScheduleRequest):
     return {"success": True, "dag_id": dag_id, "schedule": body.schedule}
 
 
-async def _retrieve(name: str, query: str, k: int):
+async def _retrieve(name: str, query: str, k: int, user: dict):
     pool = await get_db_pool()
     qvec = (await _embed([query]))[0]
     async with pool.acquire() as c:
-        coll_id = await _collection_id(c, name)
+        coll_id = await _collection_id(c, name, user)
         rows = await c.fetch(
             """SELECT source, chunk_index, content, metadata,
                       1 - (embedding <=> $1::vector) AS score
@@ -450,16 +467,16 @@ async def _retrieve(name: str, query: str, k: int):
 
 
 @router.post("/ai/search")
-async def search(req: SearchRequest):
+async def search(req: SearchRequest, user: dict = Depends(require_user)):
     return {"collection": req.collection, "query": req.query,
-            "results": await _retrieve(req.collection, req.query, req.k)}
+            "results": await _retrieve(req.collection, req.query, req.k, user)}
 
 
 @router.post("/ai/rag")
-async def rag(req: RagRequest):
+async def rag(req: RagRequest, user: dict = Depends(require_user)):
     """Retrieve top-k chunks, then ask the active LiteLLM chat model with that context.
     Returns the answer + the citations it was grounded on."""
-    hits = await _retrieve(req.collection, req.question, req.k)
+    hits = await _retrieve(req.collection, req.question, req.k, user)
     if not hits:
         return {"answer": "참고할 문서를 찾지 못했습니다. (컬렉션이 비었거나 관련 내용 없음)",
                 "citations": [], "has_ai": False}
