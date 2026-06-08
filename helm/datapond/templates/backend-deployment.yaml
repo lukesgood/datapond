@@ -128,6 +128,12 @@ spec:
           value: "{{ .Values.ai.embedModel | default "embed" }}"
         - name: AI_EMBED_DIM
           value: "{{ .Values.ai.embedDim | default 1024 }}"
+        {{- with .Values.ai.rerankModel }}
+        # Optional RAG reranker (LiteLLM model_name, e.g. bedrock/amazon.rerank-v1:0).
+        # Empty = vector-similarity order only.
+        - name: AI_RERANK_MODEL
+          value: {{ . | quote }}
+        {{- end }}
         {{- if (((.Values.auth).ldap).enabled) }}
         # LDAP / Active Directory authentication
         - name: LDAP_ENABLED

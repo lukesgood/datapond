@@ -724,6 +724,10 @@ ai:
   # OpenAI text-embedding-3-small=1536). Changing dim later requires recreating ai_chunks.
   embedModel: "embed"
   embedDim: 1024
+  # Optional RAG reranker — a LiteLLM model_name registered for /v1/rerank
+  # (e.g. bedrock/amazon.rerank-v1:0, cohere rerank). Empty = vector order only.
+  # When set, retrieval over-fetches candidates then reranks down to k for relevance.
+  rerankModel: ""
 
 # LiteLLM — AI model gateway (OpenAI-compatible API), single entry point for all LLM
 # providers (Bedrock, Anthropic, OpenAI, Ollama/vLLM …). The backend speaks only
