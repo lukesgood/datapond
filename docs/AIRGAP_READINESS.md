@@ -141,3 +141,20 @@
 
 ## 다음 단계 제안
 가장 ROI 큰 **P0-1(번들 자동 생성) + P0-2(태그 고정)**부터 착수하면, 일단 "에어갭에서 뜨긴 한다"를 확보할 수 있다. 그 위에 P1(주권 가드·egress)로 "데이터가 안 나간다"를 보장한다.
+
+---
+
+## 진행 상태 (2026-06 업데이트)
+
+대부분의 P0/P1 항목이 해소됨:
+- ✅ **번들 자동 생성**: `bundle-airgap.sh`가 `helm template`로 차트에서 이미지 목록을 동적 추출(redis≠valkey류 불일치 제거) + digest freeze + 누락 시 fatal.
+- ✅ **오프라인 설치**: `install.sh --airgap`이 K3s(번들 바이너리+시스템 이미지 `k3s-airgap-images-*.tar.zst`)·Helm·앱 이미지를 모두 번들에서 적재.
+- ✅ **jupyter 이미지 누락 수정(#59)**: `datapond/jupyter`는 `docker/jupyter/Dockerfile` 커스텀 이미지(공개 레지스트리에 없음)인데 번들·설치가 빌드하지 않아 air-gap/온프렘 jupyter가 기동 실패하던 갭 → 두 스크립트에 빌드 단계 추가.
+- ✅ **이미지 태그 정합(#59)**: datapond 이미지를 차트 기본값과 동일한 `:latest`로 빌드(이전엔 `:VERSION` 빌드 + 일부 values만 패치해 onprem 프로파일 air-gap이 깨짐) → 전 프로파일이 번들 이미지를 직접 resolve.
+- ✅ **AI fail-open 제거**: `AI_EGRESS_POLICY=local-only`로 외부 LLM 차단(fail-closed).
+- ✅ **기반 스키마 부트스트랩(#60)**: `auth.sql`/`queries.sql` git 추적 + startup 멱등 적용 → 신규/에어갭 설치 시 핵심 테이블 자동 생성.
+
+### 여전히 미해결
+- ❌ **단절 호스트 클린룸 E2E**: 격리 VM에서 번들만으로 부팅→로그인→쿼리→RAG 전 과정 미수행(구성요소 단위 검증만: 차트 이미지 추출 21종, third-party manifest 실재 18종, jupyter 빌드 성공, bash -n).
+- ❌ **Ollama 모델 blob 번들 자동 포함**: initContainer는 PVC에 모델이 있을 때만 skip하지, 번들에서 자동 seed하지 않음 → 첫 에어갭 설치는 모델을 PVC에 수동 적재 필요.
+- ❌ imagePullSecrets(사설 Harbor), TLS 정적 cert, SSO.

@@ -253,3 +253,44 @@ kubectl logs -f ollama-0 -n datapond -c init-pull-model
 kubectl exec -it deployment/backend -n datapond -- \
   aws bedrock list-foundation-models --region us-east-1
 ```
+
+---
+
+## 외부 LLM 거버넌스 & RAG (2026-06 업데이트)
+
+LiteLLM을 단일 게이트웨이로 두고 신뢰성·관측성·비용·가드레일을 통합 관리한다. 모든 AI(자연어→SQL, RAG, 임베딩)는 게이트웨이의 OpenAI 호환 엔드포인트를 경유한다.
+
+### 모델 폴백 (신뢰성)
+`values.yaml` `litellm.fallbacks`가 `config.yaml`의 `router_settings.fallbacks`로 렌더된다. `num_retries`는 같은 모델 재시도뿐이라 모델 장애/스로틀 시 페일오버가 없었다. 폴백은 1차 model_name → 백업 model_name 목록.
+```yaml
+litellm:
+  fallbacks:
+    - default: ["default-fallback"]   # primary 실패 시 백업 모델로
+```
+검증: `mock_testing_fallbacks: true` 요청 파라미터로 1차 강제 실패 → 백업 응답 확인.
+
+### 사용자별 비용 귀속 (멀티테넌시)
+백엔드가 chat/embed 호출 payload에 OpenAI `user` 필드 + `metadata`(app/user_id/username)를 실어 LiteLLM이 `end_user`별 spend_logs를 집계한다. 요청 단위 `ContextVar`(`app/ai_context.py`)로 설정되어 모든 호출부에 전파(`asyncio.to_thread` 포함). `GET /api/settings/ai/usage`의 `users[]`로 노출, Settings→AI "By user" 표.
+
+### 비용 대시보드
+`GET /api/settings/ai/usage`(총/모델별/키별/사용자별 spend·토큰), `GET /api/settings/ai/spend/report?start_date&end_date`(날짜범위), `GET /api/settings/ai/budget-alerts`(키 예산 임박). 롤업 미집계 시 `/global/spend/models`(usage)가 더 신뢰.
+
+### 관측성
+`litellm.metrics: true` → `/metrics`(Prometheus) + Service에 `prometheus.io/{scrape,port,path}` 어노테이션(스크레이프 자동발견). `litellm.tracing`(opt-in, 기본 off) → `config.yaml callbacks`에 provider(langfuse) 추가 + `LANGFUSE_*` env. 백엔드(Prometheus/Langfuse) 실배포는 환경별 판단.
+
+### 가드레일
+한국 PII(`app/guardrails/pii_ko.py`)를 `/ai/sql`·`/ai/rag`·`/ai/search`·ingest 전 경로에서 LLM 호출 전 마스킹/차단(`PII_GUARDRAIL_MODE`). 게이트웨이 Presidio 등은 `litellm.guardrails` passthrough로 환경별 opt-in(서비스 별도 배포 필요).
+
+### egress 정책 (주권/에어갭)
+`AI_EGRESS_POLICY`(`ai.egressPolicy`): `local-only`(외부 Bedrock/Anthropic/OpenAI/Gemini 차단, 로컬 Ollama/vLLM만, fail-closed) vs `cloud-allowed`. onprem=local-only 기본, aws/quicktest=cloud-allowed.
+
+## Vector 스토어 & RAG (AI 데이터 플랫폼)
+
+pgvector 기반. `ai_collections`/`ai_chunks(embedding vector(N), HNSW cosine)`. 임베딩·chat 모두 게이트웨이 경유(egress 정책 적용 = 주권 모드면 무유출).
+
+- **API**: `POST /ai/embed`, `GET/POST/DELETE /ai/collections`, `POST /ai/collections/{name}/ingest`(텍스트), `/ingest-source`(iceberg 테이블 컬럼 / S3 객체), `/schedule`(Airflow 주기 재임베딩 DAG), `POST /ai/search`, `POST /ai/rag`.
+- **임베딩 모델**: `ai.embedModel`/`ai.embedDim`(=`AI_EMBED_MODEL`/`AI_EMBED_DIM`, 기본 embed/1024). LiteLLM에 등록 필요 — 주권=로컬 bge-m3/mxbai(1024), 클라우드=Bedrock Titan v2(1024). dim 변경 시 ai_chunks 재생성.
+- **rerank(opt-in)**: `AI_RERANK_MODEL`(`ai.rerankModel`) 설정 시 후보 과적재→`/v1/rerank` 재정렬→top-k. 미설정 시 벡터 순서.
+- **컬렉션 RLS**: `ai_collections.owner_id` — 소유자/admin + 공용(owner NULL) 접근, 삭제는 owner/admin.
+- **예약 DAG 인증**: 무인증 콜백 방지 — DAG가 `DATAPOND_INTERNAL_KEY`(=secret `INTERNAL_API_KEY`)를 `X-Internal-Key`로 전송, `require_user_or_internal`이 수락.
+- **Ingestion→RAG 브릿지**: Knowledge Ingest 카탈로그 드롭다운 + Catalog 'Send to Knowledge'(✨). 커넥터 sync로 Iceberg에 적재된 테이블의 텍스트 컬럼을 임베딩.
