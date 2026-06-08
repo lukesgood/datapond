@@ -33,15 +33,26 @@ log "Working directory: $WORKDIR"
 mkdir -p "$WORKDIR/images"
 
 # ─── Build DataPond images ────────────────────────────────────────────────────
+# Tag with :latest to match the chart's image defaults (repository: datapond/<x>,
+# tag: latest). This lets ANY values profile (quicktest/onprem) consume the bundle
+# without rewriting image tags — the freeze record lives in images-digests.txt.
 log "Building backend image..."
-docker build -t "datapond/backend:${DATAPOND_VERSION}" "$PROJECT_ROOT/backend/"
-docker save "datapond/backend:${DATAPOND_VERSION}" -o "$WORKDIR/images/backend.tar"
+docker build -t "datapond/backend:latest" "$PROJECT_ROOT/backend/"
+docker save "datapond/backend:latest" -o "$WORKDIR/images/backend.tar"
 ok "Backend image saved"
 
 log "Building frontend image..."
-docker build -t "datapond/frontend:${DATAPOND_VERSION}" "$PROJECT_ROOT/frontend/"
-docker save "datapond/frontend:${DATAPOND_VERSION}" -o "$WORKDIR/images/frontend.tar"
+docker build -t "datapond/frontend:latest" "$PROJECT_ROOT/frontend/"
+docker save "datapond/frontend:latest" -o "$WORKDIR/images/frontend.tar"
 ok "Frontend image saved"
+
+# JupyterLab is a CUSTOM image (docker/jupyter/Dockerfile: scipy-notebook + DuckDB/
+# PyIceberg + helper). It is NOT on a public registry, so it must be built here or the
+# air-gapped install has no jupyter image to import.
+log "Building jupyter image..."
+docker build -t "datapond/jupyter:latest" "$PROJECT_ROOT/docker/jupyter/"
+docker save "datapond/jupyter:latest" -o "$WORKDIR/images/jupyter.tar"
+ok "Jupyter image saved"
 
 # ─── Derive image list from the actual chart (single source of truth) ─────────
 # 하드코딩 배열 대신 helm template으로 실제 차트가 쓰는 이미지를 추출 → 항상 정합.
@@ -129,13 +140,11 @@ cp -r "$PROJECT_ROOT/helm" "$WORKDIR/"
 cp -r "$PROJECT_ROOT/scripts" "$WORKDIR/"
 cp "$PROJECT_ROOT/README.md" "$WORKDIR/" 2>/dev/null || true
 
-# Patch image tags in values files to use versioned tags
-sed -i "s|datapond/backend:latest|datapond/backend:${DATAPOND_VERSION}|g" \
-  "$WORKDIR/helm/datapond/values.yaml" \
-  "$WORKDIR/helm/datapond/values-quicktest.yaml" 2>/dev/null || true
-sed -i "s|datapond/frontend:latest|datapond/frontend:${DATAPOND_VERSION}|g" \
-  "$WORKDIR/helm/datapond/values.yaml" \
-  "$WORKDIR/helm/datapond/values-quicktest.yaml" 2>/dev/null || true
+# No image-tag patching needed: datapond images are built as :latest above, which
+# matches the chart's image defaults, so every values profile resolves them directly
+# from the imported tars. (The earlier per-file sed only touched values.yaml +
+# values-quicktest.yaml and missed values-onprem.yaml — the very profile this bundle
+# is derived from — which silently broke on-prem air-gap installs.)
 
 # ─── Create install entrypoint ───────────────────────────────────────────────
 cat > "$WORKDIR/install.sh" <<'INSTALLER'
