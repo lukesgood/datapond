@@ -155,8 +155,19 @@ def _parse_response(raw: str) -> dict:
         except Exception:
             continue
         if isinstance(d, dict) and str(d.get("sql") or "").strip():
-            return {"sql": str(d["sql"]).strip(),
-                    "explanation": str(d.get("explanation") or "").strip()}
+            sql_val = str(d["sql"]).strip()
+            expl = str(d.get("explanation") or "").strip()
+            # Some models double-wrap: the "sql" value is itself a JSON object
+            # {"sql": "...", "explanation": "..."}. Unwrap one level if so.
+            if sql_val.startswith("{") and '"sql"' in sql_val:
+                try:
+                    inner = json.loads(sql_val, strict=False)
+                    if isinstance(inner, dict) and str(inner.get("sql") or "").strip():
+                        sql_val = str(inner["sql"]).strip()
+                        expl = expl or str(inner.get("explanation") or "").strip()
+                except Exception:
+                    pass
+            return {"sql": sql_val, "explanation": expl}
 
     # No usable JSON — salvage a fenced or bare SQL statement.
     body = s
