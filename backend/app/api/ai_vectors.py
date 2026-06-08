@@ -213,13 +213,13 @@ async def list_collections(user: dict = Depends(require_user)):
     await ensure_vector_schema(pool)
     is_admin = user.get("role") == "admin"
     async with pool.acquire() as c:
-        # Admins see all collections; everyone else sees only the ones they own.
+        # Admins see all collections; everyone else sees their own + shared (no owner).
         rows = await c.fetch(f"""
             SELECT col.name, col.embed_model, col.dim, col.description, col.created_at,
                    col.owner_id, COUNT(ch.id) AS chunks
             FROM ai_collections col
             LEFT JOIN ai_chunks ch ON ch.collection_id = col.id
-            {"" if is_admin else "WHERE col.owner_id = $1"}
+            {"" if is_admin else "WHERE col.owner_id = $1 OR col.owner_id IS NULL"}
             GROUP BY col.id ORDER BY col.created_at DESC
         """, *([] if is_admin else [_uid(user)]))
     return {"collections": [
@@ -252,18 +252,28 @@ async def create_collection(body: CollectionCreate, user: dict = Depends(require
 async def delete_collection(name: str, user: dict = Depends(require_user)):
     pool = await get_db_pool()
     async with pool.acquire() as c:
-        await _collection_id(c, name, user)   # 404/403 gate
+        await _collection_id(c, name, user, destroy=True)   # 404/403 gate (owner/admin only)
         res = await c.execute("DELETE FROM ai_collections WHERE name = $1", name)
     return {"success": True, "deleted": res}
 
 
-async def _collection_id(c, name: str, user: dict):
-    """Resolve a collection id, enforcing access: owner or admin only."""
+async def _collection_id(c, name: str, user: dict, *, destroy: bool = False):
+    """Resolve a collection id, enforcing access.
+
+    Read/ingest: owner, admin, or anyone for shared (owner_id IS NULL) collections.
+    Destroy: only the owner or an admin — shared collections are admin-only to delete.
+    """
     row = await c.fetchrow("SELECT id, owner_id FROM ai_collections WHERE name = $1", name)
     if not row:
         raise HTTPException(404, f"Collection '{name}' not found.")
-    if user.get("role") != "admin" and row["owner_id"] is not None and row["owner_id"] != _uid(user):
-        raise HTTPException(403, f"Not authorized for collection '{name}'.")
+    if user.get("role") != "admin":
+        owner = row["owner_id"]
+        if destroy:
+            allowed = owner is not None and owner == _uid(user)
+        else:
+            allowed = owner is None or owner == _uid(user)
+        if not allowed:
+            raise HTTPException(403, f"Not authorized for collection '{name}'.")
     return row["id"]
 
 
