@@ -4,6 +4,7 @@ import {
   Home, Database, FlaskConical, Code2, Settings, Activity,
   Workflow, BarChart3, BookOpen, HelpCircle, FileCode,
   HardDrive, Radio, ArrowDownToLine, ShieldCheck, LogOut, User, GitBranch, Server,
+  Sparkles,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
@@ -43,6 +44,7 @@ const mainSections = [
     hint: "데이터 분석",
     items: [
       { title: "Query Lab",    url: "/query",       icon: Code2 },
+      { title: "Knowledge",    url: "/knowledge",   icon: Sparkles },
       { title: "Notebooks",    url: "/notebooks",   icon: FileCode },
       { title: "Experiments",  url: "/experiments", icon: FlaskConical },
       { title: "Dashboards",   url: "/dashboards",  icon: BarChart3 },
