@@ -341,12 +341,17 @@ async def get_query_history(
 
 
 @router.get("/catalog/schemas", response_model=CatalogTree)
-async def get_catalog_schemas():
+async def get_catalog_schemas(columns: bool = False):
     """
     Get catalog tree structure — only catalogs registered in Polaris (governance gate).
-    Uses Polaris for catalog/namespace/table listing, Trino for column metadata.
-    Cached in Valkey (TTL 60s).
+    Catalog/namespace/table listing comes from Polaris (fast). Column metadata is
+    NOT fetched by default — eager column enumeration triggers a Trino
+    information_schema scan that reads every table's Iceberg metadata from object
+    storage (tens of seconds → ingress 504). Columns load lazily per table via
+    /catalog/columns. Pass ?columns=true to force the (slow) eager scan.
+    Cached in Valkey (TTL 60s, keyed by the columns flag).
     """
+    cache_key = f"catalog:schemas:v3:{'full' if columns else 'tree'}"
     # Try Valkey cache first
     try:
         import redis, json as _json
@@ -355,7 +360,7 @@ async def get_catalog_schemas():
             port=int(os.getenv("VALKEY_PORT", "6379")),
             decode_responses=True, socket_timeout=1,
         )
-        cached = _redis.get("catalog:schemas:v2")
+        cached = _redis.get(cache_key)
         if cached:
             return CatalogTree(**_json.loads(cached))
     except Exception:
@@ -367,14 +372,17 @@ async def get_catalog_schemas():
         polaris_catalogs = list_catalogs()
         catalogs = []
 
-        # Get Trino connection for column info
-        try:
-            conn = get_trino_connection()
-            cursor = conn.cursor()
-            has_trino = True
-        except Exception:
-            has_trino = False
-            cursor = None
+        # Trino connection only needed for the (opt-in) eager column scan.
+        has_trino = False
+        cursor = conn = None
+        if columns:
+            try:
+                conn = get_trino_connection()
+                cursor = conn.cursor()
+                has_trino = True
+            except Exception:
+                has_trino = False
+                cursor = None
 
         for pcat in polaris_catalogs:
             cat_name = pcat["name"]
@@ -393,9 +401,9 @@ async def get_catalog_schemas():
                 except Exception:
                     table_names = []
 
-                # Batch column fetch from Trino if available
+                # Batch column fetch from Trino — only when explicitly requested.
                 col_map: dict = {}
-                if has_trino and table_names:
+                if columns and has_trino and table_names:
                     try:
                         cursor.execute(
                             f"SELECT table_name, column_name, data_type "
@@ -431,7 +439,7 @@ async def get_catalog_schemas():
         try:
             if _redis:
                 import json as _json
-                _redis.setex("catalog:schemas:v2", 60, result.model_dump_json())
+                _redis.setex(cache_key, 60, result.model_dump_json())
         except Exception:
             pass
 
@@ -463,3 +471,49 @@ async def get_catalog_schemas():
                 )
             ])
         raise HTTPException(status_code=500, detail=f"Failed to fetch catalog: {str(e)}")
+
+
+_COL_IDENT = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+@router.get("/catalog/columns", response_model=List[CatalogColumn])
+async def get_table_columns(catalog: str, schema: str, table: str):
+    """Lazily fetch ONE table's columns (loaded on table expand in the schema tree).
+    A single-table information_schema query is one metadata read (fast) — unlike the
+    eager full-tree scan that made /catalog/schemas time out. Cached 5 min."""
+    for v in (catalog, schema, table):
+        if not _COL_IDENT.match(v or ""):
+            raise HTTPException(status_code=400, detail="catalog/schema/table must be bare identifiers.")
+    ck = f"catalog:cols:v1:{catalog}.{schema}.{table}"
+    try:
+        import redis, json as _json
+        _r = redis.Redis(
+            host=os.getenv("VALKEY_HOST", "valkey.datapond.svc.cluster.local"),
+            port=int(os.getenv("VALKEY_PORT", "6379")), decode_responses=True, socket_timeout=1,
+        )
+        c = _r.get(ck)
+        if c:
+            return [CatalogColumn(**x) for x in _json.loads(c)]
+    except Exception:
+        _r = None
+    try:
+        conn = get_trino_connection()
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT column_name, data_type FROM {catalog}.information_schema.columns "
+            f"WHERE table_schema = '{schema}' AND table_name = '{table}' ORDER BY ordinal_position"
+        )
+        cols = [CatalogColumn(name=n, type=t) for n, t in cur.fetchall()]
+        try:
+            cur.close(); conn.close()
+        except Exception:
+            pass
+        try:
+            if _r:
+                import json as _json
+                _r.setex(ck, 300, _json.dumps([c.model_dump() for c in cols]))
+        except Exception:
+            pass
+        return cols
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch columns: {str(e)[:200]}")
