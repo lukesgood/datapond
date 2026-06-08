@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import {
   Sparkles, Plus, Trash2, CheckCircle2, XCircle, Loader2, RefreshCw,
-  Eye, EyeOff, Zap, Server, AlertCircle, Star, KeyRound, Copy, DollarSign,
+  Eye, EyeOff, Zap, Server, AlertCircle, Star, KeyRound, Copy, DollarSign, CalendarRange,
 } from "lucide-react"
 
 // Provider catalog — mirrors PROVIDERS in backend/app/api/ai_backends.py.
@@ -540,8 +540,93 @@ function UsagePanel() {
             </div>
           </div>
         )}
+
+        <SpendReportSection />
       </CardContent>
     </Card>
+  )
+}
+
+// ── Date-ranged spend report ──────────────────────────────────────────────────────
+
+interface SpendReport { start_date: string; end_date: string; report: any[]; detail?: string }
+
+function reportRows(report: any[]): { label: string; spend: number }[] {
+  if (!Array.isArray(report)) return []
+  return report.map((e) => {
+    const label = e.group_by_day || e.api_key || e.model || e.team_id || e.date || "—"
+    let spend = e.total_spend ?? e.spend ?? 0
+    if (!spend && Array.isArray(e.teams)) spend = e.teams.reduce((s: number, t: any) => s + (t.total_spend || 0), 0)
+    return { label: String(label).slice(0, 10), spend: Number(spend) || 0 }
+  }).filter(r => r.spend > 0 || r.label !== "—")
+}
+
+function SpendReportSection() {
+  const [open, setOpen] = useState(false)
+  const [start, setStart] = useState("")
+  const [end, setEnd] = useState("")
+  const [data, setData] = useState<SpendReport | null>(null)
+  const [loading, setLoading] = useState(false)
+  const load = useCallback(() => {
+    setLoading(true)
+    const qs = new URLSearchParams()
+    if (start) qs.set("start_date", start)
+    if (end) qs.set("end_date", end)
+    fetch(`/api/settings/ai/spend/report${qs.toString() ? "?" + qs : ""}`)
+      .then(r => r.json()).then(setData).catch(() => {}).finally(() => setLoading(false))
+  }, [start, end])
+
+  return (
+    <div className="rounded-lg border">
+      <button onClick={() => { const n = !open; setOpen(n); if (n && !data) load() }}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium">
+        <span className="flex items-center gap-1.5"><CalendarRange className="h-3.5 w-3.5 text-muted-foreground" />Spend report (by date range)</span>
+        <span className="text-muted-foreground">{open ? "−" : "+"}</span>
+      </button>
+      {open && (
+        <div className="border-t px-3 py-3 space-y-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="space-y-1">
+              <Label className="text-[11px] text-muted-foreground">Start</Label>
+              <Input type="date" value={start} onChange={e => setStart(e.target.value)} className="h-8 text-xs w-[150px]" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[11px] text-muted-foreground">End</Label>
+              <Input type="date" value={end} onChange={e => setEnd(e.target.value)} className="h-8 text-xs w-[150px]" />
+            </div>
+            <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-1.5">
+              {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}Apply</Button>
+          </div>
+          {data && (() => {
+            const rows = reportRows(data.report)
+            const total = rows.reduce((s, r) => s + r.spend, 0)
+            return (
+              <>
+                <div className="text-[11px] text-muted-foreground">
+                  {data.start_date} → {data.end_date} · total {fmt$(total)}
+                </div>
+                {rows.length > 0 ? (
+                  <div className="rounded-md border divide-y max-h-56 overflow-auto">
+                    {rows.map((r, i) => (
+                      <div key={i} className="grid grid-cols-[1fr_auto] gap-3 px-3 py-1.5 text-xs">
+                        <span className="font-mono truncate">{r.label}</span>
+                        <span className="text-right">{fmt$(r.spend)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    No spend rolled up for this range. LiteLLM rolls report data periodically — the live
+                    “By model” usage above (from <span className="font-mono">/global/spend/models</span>) is the most current source.
+                  </p>
+                )}
+                {data.detail && <p className="text-[11px] text-amber-700">{data.detail}</p>}
+              </>
+            )
+          })()}
+        </div>
+      )}
+    </div>
   )
 }
 

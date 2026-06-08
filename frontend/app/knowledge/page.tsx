@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
-import { Sparkles, Plus, Trash2, Search, MessageSquare, Database, Upload, AlertCircle, Loader2, FileText } from "lucide-react"
+import Link from "next/link"
+import { Sparkles, Plus, Trash2, Search, MessageSquare, Database, Upload, AlertCircle, Loader2, FileText, ShieldCheck, Clock, Users } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,12 +12,35 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import { getUser } from "@/lib/auth"
 
 interface Collection {
   name: string; embed_model: string; dim: number
   description: string | null; chunks: number; created_at: string | null
+  owner_id: string | null
 }
 interface Hit { source: string | null; content: string; score: number }
+
+// An embedding/gateway error usually means no embedding model is configured — point
+// the user at where to fix it instead of just showing a raw error.
+function looksLikeNoModel(msg: string) {
+  const m = (msg || "").toLowerCase()
+  return m.includes("gateway") || m.includes("embedding") || m.includes("litellm") ||
+         m.includes("502") || m.includes("503") || m.includes("not configured")
+}
+function ErrBox({ msg }: { msg: string }) {
+  return (
+    <div className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-700 space-y-1">
+      <div className="flex items-start gap-2"><AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" /><span>{msg}</span></div>
+      {looksLikeNoModel(msg) && (
+        <div className="pl-6">
+          임베딩/LLM 모델이 설정되지 않았을 수 있습니다 →{" "}
+          <Link href="/settings" className="underline font-medium">Settings → AI</Link>에서 모델을 등록하세요.
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function KnowledgePage() {
   const [cols, setCols] = useState<Collection[]>([])
@@ -24,6 +48,7 @@ export default function KnowledgePage() {
   const [sel, setSel] = useState<string | null>(null)
   const [egress, setEgress] = useState<string>("")
   const [err, setErr] = useState<string | null>(null)
+  const me = getUser()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -86,6 +111,11 @@ export default function KnowledgePage() {
                   <div className="flex items-center justify-between">
                     <div className="font-medium text-sm flex items-center gap-1.5">
                       <Database className="h-3.5 w-3.5 text-muted-foreground" />{c.name}
+                      {c.owner_id === null
+                        ? <Badge variant="outline" className="text-[9px] gap-0.5"><Users className="h-2.5 w-2.5" />shared</Badge>
+                        : (me && c.owner_id !== me.id)
+                          ? <Badge variant="outline" className="text-[9px]">other</Badge>
+                          : null}
                     </div>
                     <button onClick={e => { e.stopPropagation(); deleteCol(c.name, load) }}
                       className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -177,20 +207,21 @@ function SearchPanel({ name }: { name: string }) {
   const [q, setQ] = useState(""); const [mode, setMode] = useState<"search" | "rag">("rag")
   const [busy, setBusy] = useState(false); const [ans, setAns] = useState<string | null>(null)
   const [hits, setHits] = useState<Hit[]>([]); const [e, setE] = useState<string | null>(null)
+  const [pii, setPii] = useState(0)
   const run = async () => {
     if (!q.trim()) return
-    setBusy(true); setE(null); setAns(null); setHits([])
+    setBusy(true); setE(null); setAns(null); setHits([]); setPii(0)
     try {
       if (mode === "rag") {
         const r = await fetch("/api/ai/rag", { method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ collection: name, question: q, k: 5 }) })
         if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-        const d = await r.json(); setAns(d.answer); setHits(d.citations || [])
+        const d = await r.json(); setAns(d.answer); setHits(d.citations || []); setPii(d.pii_masked || 0)
       } else {
         const r = await fetch("/api/ai/search", { method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ collection: name, query: q, k: 8 }) })
         if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-        setHits((await r.json()).results || [])
+        const d = await r.json(); setHits(d.results || []); setPii(d.pii_masked || 0)
       }
     } catch (err: any) { setE(err.message) }
     setBusy(false)
@@ -209,8 +240,8 @@ function SearchPanel({ name }: { name: string }) {
         </div>
         <Button onClick={run} disabled={!q.trim() || busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}</Button>
       </div>
-      {e && <div className="rounded-md border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs text-amber-700 flex items-start gap-2">
-        <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" /><span>{e}</span></div>}
+      {pii > 0 && <div className="text-[11px] text-emerald-700 flex items-center gap-1"><ShieldCheck className="h-3 w-3" />PII {pii}건 마스킹 후 처리됨 (가드레일)</div>}
+      {e && <ErrBox msg={e} />}
       {ans && <Card><CardContent className="py-3 text-sm whitespace-pre-wrap">{ans}</CardContent></Card>}
       {hits.length > 0 && (
         <div className="space-y-2">
@@ -237,6 +268,10 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
   const [schema, setSchema] = useState("default"); const [table, setTable] = useState(""); const [col, setCol] = useState("")
   const [bucket, setBucket] = useState(""); const [prefix, setPrefix] = useState("")
   const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<string | null>(null); const [e, setE] = useState<string | null>(null)
+  const [sched, setSched] = useState("@daily"); const [schedBusy, setSchedBusy] = useState(false)
+  const sourceBody = () => stype === "iceberg"
+    ? { type: "iceberg", schema, table, text_column: col }
+    : { type: "s3", bucket, prefix }
 
   const ingestText = async () => {
     setBusy(true); setE(null); setMsg(null)
@@ -251,16 +286,24 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
   }
   const ingestSource = async () => {
     setBusy(true); setE(null); setMsg(null)
-    const body: any = stype === "iceberg"
-      ? { type: "iceberg", schema, table, text_column: col }
-      : { type: "s3", bucket, prefix }
     try {
       const r = await fetch(`/api/ai/collections/${encodeURIComponent(name)}/ingest-source`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sourceBody()) })
       if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
       const d = await r.json(); setMsg(`${d.documents} docs → ${d.chunks} chunks (${d.pii_masked} PII masked)`); onChange()
     } catch (err: any) { setE(err.message) }
     setBusy(false)
+  }
+  const scheduleSource = async () => {
+    setSchedBusy(true); setE(null); setMsg(null)
+    try {
+      const r = await fetch(`/api/ai/collections/${encodeURIComponent(name)}/schedule`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schedule: sched, source: sourceBody() }) })
+      if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
+      const d = await r.json(); setMsg(`예약 등록됨: DAG ${d.dag_id} (${d.schedule}) — Airflow에서 실행`)
+    } catch (err: any) { setE(err.message) }
+    setSchedBusy(false)
   }
 
   return (
@@ -296,14 +339,27 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
               <Input value={prefix} onChange={e => setPrefix(e.target.value)} placeholder="prefix (optional)" className="text-sm" />
             </div>
           )}
-          <Button onClick={ingestSource}
-            disabled={busy || (stype === "iceberg" ? !(table && col) : !bucket)}>
-            {busy && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}Ingest from {stype}</Button>
+          {(() => { const ready = stype === "iceberg" ? !!(table && col) : !!bucket; return (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={ingestSource} disabled={busy || schedBusy || !ready}>
+                {busy && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}Ingest from {stype}</Button>
+              <span className="text-xs text-muted-foreground ml-1">또는 예약:</span>
+              <select value={sched} onChange={e => setSched(e.target.value)}
+                className="h-9 rounded-md border bg-background px-2 text-xs">
+                <option value="@hourly">매시간</option>
+                <option value="@daily">매일</option>
+                <option value="@weekly">매주</option>
+              </select>
+              <Button variant="outline" onClick={scheduleSource} disabled={busy || schedBusy || !ready}>
+                {schedBusy ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Clock className="h-4 w-4 mr-1.5" />}
+                예약 적재</Button>
+            </div>
+          )})()}
+          <p className="text-[11px] text-muted-foreground">예약 적재는 Airflow DAG를 생성해 소스를 주기적으로 재임베딩합니다 (AI 데이터 파이프라인).</p>
         </>
       )}
       {msg && <p className="text-xs text-emerald-700">{msg}</p>}
-      {e && <div className="rounded-md border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs text-amber-700 flex items-start gap-2">
-        <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" /><span>{e}</span></div>}
+      {e && <ErrBox msg={e} />}
     </div>
   )
 }
