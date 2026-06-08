@@ -166,7 +166,14 @@ def _parse_response(raw: str) -> dict:
                         sql_val = str(inner["sql"]).strip()
                         expl = expl or str(inner.get("explanation") or "").strip()
                 except Exception:
-                    pass
+                    # Malformed nested JSON — e.g. inner SQL uses unescaped double-quote
+                    # Trino identifiers ("id") that collide with JSON delimiters. Salvage
+                    # the statement: cut from the first SQL keyword, drop the trailing
+                    # ', "explanation": ...}' tail and stray closing quote/brace.
+                    km = _SQL_KEYWORDS.search(sql_val)
+                    if km:
+                        cut = re.split(r'"\s*,\s*"explanation"', sql_val[km.start():], maxsplit=1)[0]
+                        sql_val = cut.rstrip().rstrip("}").strip().rstrip('"').strip()
             return {"sql": sql_val, "explanation": expl}
 
     # No usable JSON — salvage a fenced or bare SQL statement.
