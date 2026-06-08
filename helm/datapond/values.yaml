@@ -757,6 +757,13 @@ litellm:
   cache: true
   # Prometheus metrics at /metrics (enable monitoring stack to scrape).
   metrics: true
+  # Gateway guardrails applied to ALL LLM traffic (RAG/chat/sql). Empty = off.
+  # Enable per environment, e.g. self-hosted Presidio PII (sovereign) — requires
+  # deploying presidio-analyzer/anonymizer and pointing presidio_* at them:
+  #   - guardrail_name: "presidio-pii"
+  #     litellm_params: { guardrail: presidio, mode: "pre_call" }
+  # (DataPond also masks Korean PII in-backend before egress; these layer.)
+  guardrails: []
 
   # DB-mode startup runs Prisma migrations which spike memory — 512Mi OOMKills on
   # first boot. 2Gi limit verified sufficient (steady-state proxy is far lighter).

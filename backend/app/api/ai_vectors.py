@@ -466,20 +466,37 @@ async def _retrieve(name: str, query: str, k: int, user: dict):
     ]
 
 
+def _guard(text: str):
+    """Korean PII guardrail (mask/block) — same engine as ai_sql, now on the query
+    path too so RAG/search are covered (not just /ai/sql + ingest)."""
+    from app.guardrails import pii_ko
+    return pii_ko.apply(text or "")
+
+
 @router.post("/ai/search")
 async def search(req: SearchRequest, user: dict = Depends(require_user)):
+    q_text, q_find, q_block = _guard(req.query)
+    if q_block:
+        raise HTTPException(400, "Query blocked by PII guardrail (PII_GUARDRAIL_MODE=block).")
     return {"collection": req.collection, "query": req.query,
-            "results": await _retrieve(req.collection, req.query, req.k, user)}
+            "pii_masked": len(q_find),
+            "results": await _retrieve(req.collection, q_text, req.k, user)}
 
 
 @router.post("/ai/rag")
 async def rag(req: RagRequest, user: dict = Depends(require_user)):
     """Retrieve top-k chunks, then ask the active LiteLLM chat model with that context.
     Returns the answer + the citations it was grounded on."""
-    hits = await _retrieve(req.collection, req.question, req.k, user)
+    # PII guardrail on the question before it reaches retrieval/the LLM.
+    q_text, q_find, q_block = _guard(req.question)
+    if q_block:
+        return {"answer": "질문에 개인정보(PII)가 감지되어 차단되었습니다 (PII_GUARDRAIL_MODE=block).",
+                "citations": [], "has_ai": False, "pii_masked": len(q_find)}
+
+    hits = await _retrieve(req.collection, q_text, req.k, user)
     if not hits:
         return {"answer": "참고할 문서를 찾지 못했습니다. (컬렉션이 비었거나 관련 내용 없음)",
-                "citations": [], "has_ai": False}
+                "citations": [], "has_ai": False, "pii_masked": len(q_find)}
 
     context = "\n\n".join(
         f"[{i+1}] (source: {h['source'] or 'n/a'})\n{h['content']}" for i, h in enumerate(hits)
@@ -488,7 +505,7 @@ async def rag(req: RagRequest, user: dict = Depends(require_user)):
         "You answer strictly from the provided context. Cite sources as [n]. "
         "If the answer isn't in the context, say you don't know. Answer in the user's language."
     )
-    user = f"Context:\n{context}\n\nQuestion: {req.question}"
+    user_msg = f"Context:\n{context}\n\nQuestion: {q_text}"
 
     url, key = _gateway()
     model = os.getenv("LITELLM_MODEL", "default")
@@ -508,13 +525,14 @@ async def rag(req: RagRequest, user: dict = Depends(require_user)):
             r = await c.post(f"{url}/v1/chat/completions", headers=_headers(key),
                              json={"model": model, "max_tokens": 1024,
                                    "messages": [{"role": "system", "content": system},
-                                                {"role": "user", "content": user}]})
+                                                {"role": "user", "content": user_msg}]})
         if r.status_code >= 400:
             return {"answer": f"(LLM 호출 실패: {r.status_code}) 검색 결과만 반환합니다.",
-                    "citations": hits, "has_ai": False}
+                    "citations": hits, "has_ai": False, "pii_masked": len(q_find)}
         answer = r.json()["choices"][0]["message"]["content"].strip()
     except Exception as e:
         logger.warning(f"[ai_vectors] rag chat failed: {e}")
-        return {"answer": "(LLM 미설정/오류) 검색 결과만 반환합니다.", "citations": hits, "has_ai": False}
+        return {"answer": "(LLM 미설정/오류) 검색 결과만 반환합니다.", "citations": hits,
+                "has_ai": False, "pii_masked": len(q_find)}
 
-    return {"answer": answer, "citations": hits, "has_ai": True}
+    return {"answer": answer, "citations": hits, "has_ai": True, "pii_masked": len(q_find)}
