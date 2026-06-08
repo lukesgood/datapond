@@ -1,0 +1,358 @@
+"""
+AI vector store + RAG on pgvector (in the shared Postgres).
+
+Sovereign by design: embeddings and chat both go through the LiteLLM gateway, so the
+local-only egress policy applies (documents are embedded by a LOCAL model and never
+leave the cluster). Chunk content is PII-masked at ingest. Vectors live in the
+existing Postgres (no new infra), so air-gap / on-prem just works.
+
+Endpoints (all under /api):
+  POST   /ai/embed                          text(s) → embedding(s)
+  GET    /ai/collections                    list collections (+ chunk counts)
+  POST   /ai/collections                    create a collection
+  DELETE /ai/collections/{name}             drop a collection (+ its chunks)
+  POST   /ai/collections/{name}/ingest      chunk → PII-mask → embed → upsert
+  POST   /ai/search                         semantic (vector) search
+  POST   /ai/rag                            retrieve → LiteLLM chat → cited answer
+"""
+import os
+import json
+import logging
+import uuid
+from typing import Optional, List
+
+import httpx
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from app.api.connectors import get_db_pool
+from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+
+def _embed_model() -> str:
+    return os.getenv("AI_EMBED_MODEL", "embed").strip() or "embed"
+
+
+def EMBED_DIM() -> int:
+    return int(os.getenv("AI_EMBED_DIM", "1024"))
+
+
+def _gateway() -> tuple[str, str]:
+    url = os.getenv("LITELLM_URL", "").strip().rstrip("/")
+    key = os.getenv("LITELLM_MASTER_KEY", "").strip()
+    if not url:
+        raise HTTPException(503, "LiteLLM gateway not configured (LITELLM_URL empty).")
+    return url, key
+
+
+def _headers(key: str) -> dict:
+    return {"Authorization": f"Bearer {key}"} if key else {}
+
+
+def _vec_literal(v: List[float]) -> str:
+    """pgvector text literal — asyncpg has no native vector codec, so we cast $n::vector."""
+    return "[" + ",".join(repr(float(x)) for x in v) + "]"
+
+
+def _chunk(text: str, size: int = 1000, overlap: int = 150) -> List[str]:
+    text = (text or "").strip()
+    if not text:
+        return []
+    if len(text) <= size:
+        return [text]
+    out, i, step = [], 0, max(1, size - overlap)
+    while i < len(text):
+        out.append(text[i:i + size])
+        i += step
+    return out
+
+
+# ── Schema ──────────────────────────────────────────────────────────────────────
+
+async def ensure_vector_schema(pool) -> None:
+    """Idempotent: pgvector extension + ai_collections / ai_chunks + indexes.
+    Best-effort (logs and continues if pgvector isn't available)."""
+    dim = EMBED_DIM()
+    try:
+        async with pool.acquire() as c:
+            await c.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            await c.execute("""
+                CREATE TABLE IF NOT EXISTS ai_collections (
+                    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    name        TEXT UNIQUE NOT NULL,
+                    embed_model TEXT NOT NULL,
+                    dim         INT NOT NULL,
+                    description TEXT,
+                    created_at  TIMESTAMPTZ DEFAULT NOW()
+                )""")
+            await c.execute(f"""
+                CREATE TABLE IF NOT EXISTS ai_chunks (
+                    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    collection_id UUID NOT NULL REFERENCES ai_collections(id) ON DELETE CASCADE,
+                    source        TEXT,
+                    chunk_index   INT,
+                    content       TEXT NOT NULL,
+                    metadata      JSONB DEFAULT '{{}}',
+                    embedding     vector({dim}),
+                    created_at    TIMESTAMPTZ DEFAULT NOW()
+                )""")
+            await c.execute("CREATE INDEX IF NOT EXISTS ai_chunks_coll_idx ON ai_chunks(collection_id)")
+            await c.execute(
+                "CREATE INDEX IF NOT EXISTS ai_chunks_embed_idx "
+                "ON ai_chunks USING hnsw (embedding vector_cosine_ops)"
+            )
+    except Exception as e:
+        logger.warning(f"[ai_vectors] schema ensure failed (pgvector available?): {e}")
+
+
+# ── Embeddings (via LiteLLM, egress-guarded) ─────────────────────────────────────
+
+async def _assert_embed_egress_ok() -> None:
+    """Under local-only, refuse an external embedding model (no data egress)."""
+    if egress_policy() != "local-only":
+        return
+    url, key = _gateway()
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get(f"{url}/model/info", headers=_headers(key))
+            if r.status_code < 400:
+                for m in r.json().get("data", []):
+                    if m.get("model_name") == _embed_model():
+                        prov = provider_of_model((m.get("litellm_params") or {}).get("model", ""))
+                        if is_external_provider(prov):
+                            raise HTTPException(
+                                403,
+                                f"AI egress policy is 'local-only': external embedding "
+                                f"provider '{prov}' is blocked. Use a local model "
+                                f"(Ollama bge-m3 / nomic-embed-text).",
+                            )
+                        return
+    except HTTPException:
+        raise
+    except Exception:
+        return  # best-effort; registration-time guard is the primary control
+
+
+async def _embed(texts: List[str]) -> List[List[float]]:
+    if not texts:
+        return []
+    await _assert_embed_egress_ok()
+    url, key = _gateway()
+    async with httpx.AsyncClient(timeout=120) as c:
+        r = await c.post(f"{url}/v1/embeddings", headers=_headers(key),
+                         json={"model": _embed_model(), "input": texts})
+    if r.status_code >= 400:
+        raise HTTPException(502, f"Embedding failed: {(r.text or '')[:200]}")
+    data = r.json().get("data", [])
+    data.sort(key=lambda x: x.get("index", 0))
+    return [d["embedding"] for d in data]
+
+
+# ── Request models ───────────────────────────────────────────────────────────────
+
+class EmbedRequest(BaseModel):
+    input: List[str]
+
+
+class CollectionCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+class Document(BaseModel):
+    source: Optional[str] = None
+    text: str
+    metadata: Optional[dict] = None
+
+
+class IngestRequest(BaseModel):
+    documents: List[Document]
+    chunk_size: int = 1000
+    chunk_overlap: int = 150
+
+
+class SearchRequest(BaseModel):
+    collection: str
+    query: str
+    k: int = 5
+
+
+class RagRequest(BaseModel):
+    collection: str
+    question: str
+    k: int = 5
+
+
+# ── Routes ───────────────────────────────────────────────────────────────────────
+
+@router.post("/ai/embed")
+async def embed(req: EmbedRequest):
+    vecs = await _embed(req.input)
+    return {"model": _embed_model(), "dim": len(vecs[0]) if vecs else EMBED_DIM(), "embeddings": vecs}
+
+
+@router.get("/ai/collections")
+async def list_collections():
+    pool = await get_db_pool()
+    await ensure_vector_schema(pool)
+    async with pool.acquire() as c:
+        rows = await c.fetch("""
+            SELECT col.name, col.embed_model, col.dim, col.description, col.created_at,
+                   COUNT(ch.id) AS chunks
+            FROM ai_collections col
+            LEFT JOIN ai_chunks ch ON ch.collection_id = col.id
+            GROUP BY col.id ORDER BY col.created_at DESC
+        """)
+    return {"collections": [
+        {"name": r["name"], "embed_model": r["embed_model"], "dim": r["dim"],
+         "description": r["description"], "chunks": r["chunks"],
+         "created_at": r["created_at"].isoformat() if r["created_at"] else None}
+        for r in rows
+    ]}
+
+
+@router.post("/ai/collections")
+async def create_collection(body: CollectionCreate):
+    if not body.name.strip():
+        raise HTTPException(400, "name is required.")
+    pool = await get_db_pool()
+    await ensure_vector_schema(pool)
+    async with pool.acquire() as c:
+        await c.execute(
+            """INSERT INTO ai_collections (name, embed_model, dim, description)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (name) DO UPDATE SET description = EXCLUDED.description""",
+            body.name.strip(), _embed_model(), EMBED_DIM(), body.description,
+        )
+    return {"success": True, "name": body.name.strip(),
+            "embed_model": _embed_model(), "dim": EMBED_DIM()}
+
+
+@router.delete("/ai/collections/{name}")
+async def delete_collection(name: str):
+    pool = await get_db_pool()
+    async with pool.acquire() as c:
+        res = await c.execute("DELETE FROM ai_collections WHERE name = $1", name)
+    return {"success": True, "deleted": res}
+
+
+async def _collection_id(c, name: str):
+    row = await c.fetchrow("SELECT id FROM ai_collections WHERE name = $1", name)
+    if not row:
+        raise HTTPException(404, f"Collection '{name}' not found.")
+    return row["id"]
+
+
+@router.post("/ai/collections/{name}/ingest")
+async def ingest(name: str, req: IngestRequest):
+    """Chunk → PII-mask → embed → upsert. Returns counts."""
+    from app.guardrails import pii_ko
+    pool = await get_db_pool()
+    await ensure_vector_schema(pool)
+    async with pool.acquire() as c:
+        coll_id = await _collection_id(c, name)
+
+    # Build chunks (PII-masked) with provenance.
+    items = []  # (source, idx, content, metadata)
+    pii_masked = 0
+    for doc in req.documents:
+        for idx, raw in enumerate(_chunk(doc.text, req.chunk_size, req.chunk_overlap)):
+            masked, found, _blk = pii_ko.apply(raw)
+            pii_masked += len(found)
+            items.append((doc.source, idx, masked, json.dumps(doc.metadata or {})))
+    if not items:
+        return {"success": True, "chunks": 0, "pii_masked": 0}
+
+    # Embed in batches to bound payload size.
+    embeddings: List[List[float]] = []
+    B = 64
+    for i in range(0, len(items), B):
+        embeddings.extend(await _embed([it[2] for it in items[i:i + B]]))
+
+    async with pool.acquire() as c:
+        await c.executemany(
+            """INSERT INTO ai_chunks (collection_id, source, chunk_index, content, metadata, embedding)
+               VALUES ($1, $2, $3, $4, $5::jsonb, $6::vector)""",
+            [(coll_id, it[0], it[1], it[2], it[3], _vec_literal(emb))
+             for it, emb in zip(items, embeddings)],
+        )
+    return {"success": True, "chunks": len(items), "pii_masked": pii_masked}
+
+
+async def _retrieve(name: str, query: str, k: int):
+    pool = await get_db_pool()
+    qvec = (await _embed([query]))[0]
+    async with pool.acquire() as c:
+        coll_id = await _collection_id(c, name)
+        rows = await c.fetch(
+            """SELECT source, chunk_index, content, metadata,
+                      1 - (embedding <=> $1::vector) AS score
+               FROM ai_chunks
+               WHERE collection_id = $2
+               ORDER BY embedding <=> $1::vector
+               LIMIT $3""",
+            _vec_literal(qvec), coll_id, max(1, min(k, 50)),
+        )
+    return [
+        {"source": r["source"], "chunk_index": r["chunk_index"], "content": r["content"],
+         "metadata": json.loads(r["metadata"]) if isinstance(r["metadata"], str) else (r["metadata"] or {}),
+         "score": round(float(r["score"]), 4)}
+        for r in rows
+    ]
+
+
+@router.post("/ai/search")
+async def search(req: SearchRequest):
+    return {"collection": req.collection, "query": req.query,
+            "results": await _retrieve(req.collection, req.query, req.k)}
+
+
+@router.post("/ai/rag")
+async def rag(req: RagRequest):
+    """Retrieve top-k chunks, then ask the active LiteLLM chat model with that context.
+    Returns the answer + the citations it was grounded on."""
+    hits = await _retrieve(req.collection, req.question, req.k)
+    if not hits:
+        return {"answer": "참고할 문서를 찾지 못했습니다. (컬렉션이 비었거나 관련 내용 없음)",
+                "citations": [], "has_ai": False}
+
+    context = "\n\n".join(
+        f"[{i+1}] (source: {h['source'] or 'n/a'})\n{h['content']}" for i, h in enumerate(hits)
+    )
+    system = (
+        "You answer strictly from the provided context. Cite sources as [n]. "
+        "If the answer isn't in the context, say you don't know. Answer in the user's language."
+    )
+    user = f"Context:\n{context}\n\nQuestion: {req.question}"
+
+    url, key = _gateway()
+    model = os.getenv("LITELLM_MODEL", "default")
+    # Reuse the chat egress guard from ai_sql (blocks external chat under local-only).
+    try:
+        from app.api.ai_sql import _active_provider_is_external
+        import asyncio as _a
+        if egress_policy() == "local-only" and await _a.to_thread(_active_provider_is_external) is True:
+            raise HTTPException(403, "AI egress policy 'local-only': external chat model blocked.")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    try:
+        async with httpx.AsyncClient(timeout=120) as c:
+            r = await c.post(f"{url}/v1/chat/completions", headers=_headers(key),
+                             json={"model": model, "max_tokens": 1024,
+                                   "messages": [{"role": "system", "content": system},
+                                                {"role": "user", "content": user}]})
+        if r.status_code >= 400:
+            return {"answer": f"(LLM 호출 실패: {r.status_code}) 검색 결과만 반환합니다.",
+                    "citations": hits, "has_ai": False}
+        answer = r.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        logger.warning(f"[ai_vectors] rag chat failed: {e}")
+        return {"answer": "(LLM 미설정/오류) 검색 결과만 반환합니다.", "citations": hits, "has_ai": False}
+
+    return {"answer": answer, "citations": hits, "has_ai": True}
