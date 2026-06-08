@@ -185,7 +185,7 @@ class PostgreSQLConnector(BaseConnector):
                 query += f" LIMIT {limit}"
 
             # Execute query
-            df = pd.read_sql(query, engine)
+            df = await asyncio.to_thread(pd.read_sql, query, engine)
 
             # Convert to list of dicts
             return df.to_dict('records')
@@ -219,11 +219,11 @@ class PostgreSQLConnector(BaseConnector):
                 # First incremental run — read all, then track max value
                 pass
 
-            df = pd.read_sql(query, engine)
+            df = await asyncio.to_thread(pd.read_sql, query, engine)
             logger.info(f"[pg_connector] Read {len(df)} rows from {src_schema}.{source_table}")
 
             write_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
-            rows_processed = write_dataframe_to_iceberg(df, source_table, mode=write_mode, on_step=on_step, partition_spec=partition_spec)
+            rows_processed = await asyncio.to_thread(write_dataframe_to_iceberg, df, source_table, mode=write_mode, on_step=on_step, partition_spec=partition_spec)
 
             # Compute new watermark max_value
             max_value = None
@@ -386,7 +386,7 @@ class MySQLConnector(BaseConnector):
             if limit:
                 query += f" LIMIT {limit}"
 
-            df = pd.read_sql(query, engine)
+            df = await asyncio.to_thread(pd.read_sql, query, engine)
             return df.to_dict('records')
 
         except Exception as e:
@@ -413,11 +413,11 @@ class MySQLConnector(BaseConnector):
             if sync_mode == SyncMode.INCREMENTAL and incremental_column and last_value:
                 query += f" WHERE `{incremental_column}` > '{last_value}'"
 
-            df = pd.read_sql(query, engine)
+            df = await asyncio.to_thread(pd.read_sql, query, engine)
             logger.info(f"[mysql_connector] Read {len(df)} rows from {source_table}")
 
             write_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
-            rows_processed = write_dataframe_to_iceberg(df, source_table, mode=write_mode, on_step=on_step, partition_spec=partition_spec)
+            rows_processed = await asyncio.to_thread(write_dataframe_to_iceberg, df, source_table, mode=write_mode, on_step=on_step, partition_spec=partition_spec)
 
             max_value = None
             if incremental_column and incremental_column in df.columns and not df.empty:
@@ -635,7 +635,7 @@ class DatabaseURLConnector(BaseConnector):
             if limit:
                 query += f" LIMIT {limit}"
 
-            df = pd.read_sql(query, engine)
+            df = await asyncio.to_thread(pd.read_sql, query, engine)
             return df.to_dict("records")
         except Exception as e:
             logger.error(f"DatabaseURL read_data failed: {e}")
@@ -668,11 +668,11 @@ class DatabaseURLConnector(BaseConnector):
             if sync_mode == SyncMode.INCREMENTAL and incremental_column and last_value:
                 query += f" WHERE {incremental_column} > '{last_value}'"
 
-            df = pd.read_sql(query, engine)
+            df = await asyncio.to_thread(pd.read_sql, query, engine)
             logger.info(f"[dburl_connector] Read {len(df)} rows from {source_table}")
 
             write_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
-            rows_processed = write_dataframe_to_iceberg(df, tbl_name, mode=write_mode, on_step=on_step, partition_spec=partition_spec)
+            rows_processed = await asyncio.to_thread(write_dataframe_to_iceberg, df, tbl_name, mode=write_mode, on_step=on_step, partition_spec=partition_spec)
 
             max_value = None
             if incremental_column and incremental_column in df.columns and not df.empty:
