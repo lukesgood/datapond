@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Database, Table } from "lucide-react"
+import { Database, Table, Sparkles } from "lucide-react"
 import Link from "next/link"
 
 interface TableCardProps {
@@ -12,6 +12,7 @@ interface TableCardProps {
   catalogType?: string
   tableType: string
   lastUpdated?: string
+  onSendToKnowledge?: () => void
 }
 
 const CATALOG_TYPE_STYLES: Record<string, { label: string; cls: string }> = {
@@ -27,6 +28,7 @@ export function TableCard({
   catalogType,
   tableType,
   lastUpdated,
+  onSendToKnowledge,
 }: TableCardProps) {
   const formatLastUpdated = (timestamp?: string) => {
     if (!timestamp) return "Unknown"
@@ -57,8 +59,19 @@ export function TableCard({
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm font-medium truncate">{name}</CardTitle>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
-              <Table className="h-4 w-4 text-muted-foreground" />
+            <div className="flex items-center gap-1">
+              {onSendToKnowledge && (
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSendToKnowledge() }}
+                  title="Send to Knowledge (RAG)"
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                </button>
+              )}
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
+                <Table className="h-4 w-4 text-muted-foreground" />
+              </div>
             </div>
           </div>
         </CardHeader>
