@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import asyncpg
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 import bcrypt as _bcrypt
@@ -164,6 +164,29 @@ async def require_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
+
+
+def internal_api_key() -> str:
+    """Shared secret for trusted in-cluster automation (e.g. scheduled Airflow DAGs)."""
+    return (os.getenv("INTERNAL_API_KEY") or "").strip()
+
+
+def _internal_request(request: Request) -> bool:
+    key = internal_api_key()
+    return bool(key) and request.headers.get("X-Internal-Key", "") == key
+
+
+async def require_user_or_internal(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> dict:
+    """Allow either a logged-in user (Bearer JWT) or trusted in-cluster automation
+    presenting the shared X-Internal-Key. The internal identity is an admin-scoped
+    service principal so it can ingest into any collection a schedule targets.
+    Used by endpoints that scheduled DAGs call back into (e.g. /ingest-source)."""
+    if _internal_request(request):
+        return {"id": None, "username": "system", "role": "admin", "internal": True}
+    return await require_user(credentials)
 
 
 async def require_admin(user: dict = Depends(require_user)) -> dict:
