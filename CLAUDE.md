@@ -362,7 +362,7 @@ See `.claude/agents/pm-agent.md` for detailed spawning examples and coordination
 | `docs/INSTALLATION.md` | Detailed install guide (quicktest/onprem/aws profiles) |
 | `docs/SPRINT_PLAN.md` | Sprint 진행 현황 및 완료 항목 |
 
-## Current Status (2026-05-11)
+## Current Status (2026-06-09)
 
 ### Sprint 1: Ingestion (완료)
 - ✅ Incremental Sync: watermark 기반, max_value DB 저장, 빈 결과 시 덮어쓰기 방지
@@ -401,21 +401,61 @@ See `.claude/agents/pm-agent.md` for detailed spawning examples and coordination
 - ✅ Settings UI → System → AI SQL Assistant: provider/URL/key 설정
 - ✅ System Settings API: DB 저장 + 암호화(CredentialVault) + startup 복원
 
+### 2026-06 업데이트 — AI 플랫폼·RAG·거버넌스·안정성 (완료)
+**Vector/RAG (AI 데이터 플랫폼)**
+- ✅ pgvector 벡터스토어 + RAG: `ai_collections`/`ai_chunks(vector(1024), HNSW)`, Knowledge UI(사이드바 Analyze→Knowledge), 텍스트/lakehouse/S3 적재
+- ✅ AI 데이터 파이프라인: `ingest-source`(iceberg 테이블 컬럼 / S3 객체) + Airflow `schedule`(주기 재임베딩 DAG)
+- ✅ 컬렉션별 RLS: `ai_collections.owner_id`, 소유자/admin 게이트, 공용(owner NULL) 전사 노출, 삭제는 owner/admin (#52/#57)
+- ✅ Ingestion→RAG 브릿지: Knowledge Ingest 카탈로그 드롭다운(schema/table/column) + Catalog 'Send to Knowledge'(✨) 다이얼로그 (#71)
+- ✅ Bedrock E2E 검증: Titan 임베딩 → pgvector → 검색 → Claude RAG 인용답변 (라이브)
+
+**외부 LLM 거버넌스 (LiteLLM 활용)**
+- ✅ 토큰/비용 대시보드 + 날짜범위 Spend report + 예산 알림 배너 (Settings→AI) (#53~56)
+- ✅ 모델 폴백(router fallbacks) — 단일모델 SPOF 제거, `litellm.fallbacks` (#62, 라이브 mock_testing_fallbacks 검증)
+- ✅ 사용자별 비용 귀속(per-user spend) — chat/embed payload에 `user`/metadata, usage `users[]` 집계 (#63)
+- ✅ 관측성 배선 — `/metrics` prometheus scrape 어노테이션 + Langfuse 트레이싱 opt-in (#64)
+- ✅ 가드레일 전 경로 — 한국 PII(`pii_ko`)를 RAG/search/sql/ingest에 적용 + 게이트웨이 Presidio passthrough opt-in (#54)
+- ✅ RAG rerank opt-in — `AI_RERANK_MODEL` 설정 시 `/v1/rerank` 재정렬 (#65)
+
+**데이터계층 안정성**
+- ✅ SeaweedFS durability: master/volume/filer를 `/data` PVC에 영속(`-mdir/-dir/-defaultStoreDir`) — /tmp 휘발 손상 근본수정 (#49)
+- ✅ Iceberg DROP 복구: Polaris `DROP_WITH_PURGE_ENABLED` 활성 — CREATE/INSERT/SELECT/DROP 전 라이프사이클 라이브 동작 (#58)
+- ✅ 무거운 sync를 `asyncio.to_thread` + 관대한 liveness probe로 이벤트루프 보호 (#49/#50)
+- ✅ Catalog 트리 성능: `/catalog/schemas` 지연 컬럼 로딩(37s 504 → 0.3s) + `/catalog/columns` on-demand (#70)
+
+**보안/인증/재현성**
+- ✅ Row-Level Security 엔진: 정책관리·Trino 네이티브·DuckDB 가드 (P0~P4, #13)
+- ✅ LDAP/AD 인증(환경설정, 기본 OFF, 로컬 admin 항상 동작) (#41)
+- ✅ 예약 DAG 인증: 내부 서비스 키 `X-Internal-Key`(`require_user_or_internal`) — 무인증 콜백 401 해소 (#61)
+- ✅ 기반 스키마 부트스트랩: `auth.sql`/`queries.sql` git 추적 + startup 멱등 적용(센티넬 가드) — 신규/에어갭 설치 재현성 (#60)
+- ✅ AI SQL 응답 파서 견고화: 제어문자/프로즈/이중래핑 JSON/plain-SQL salvage (#66~69)
+- ✅ 에어갭 번들 검증: jupyter 커스텀 이미지 빌드 추가 + datapond 이미지 `:latest` 통일(전 프로파일 동작) (#59)
+
 ### 새로 추가된 DB 테이블
 - `connector_quality_checks`: Data Quality 결과 저장
 - `saved_transforms`: ELT Transform 정의 저장
 - `system_settings`: 시스템 설정 (암호화 저장)
+- `ai_collections` / `ai_chunks`: pgvector 컬렉션·청크(embedding vector(1024), HNSW cosine). `ai_collections.owner_id`로 컬렉션 RLS
+- `rls_policies` / `column_masking_policies` / `user_roles` 등: RLS 엔진 스키마 (rls_migration.sql)
 
 ### 새로 추가된 API 엔드포인트
-- `POST /api/ai/sql`: 자연어 → Trino SQL (provider fallback chain)
+- `POST /api/ai/sql`: 자연어 → Trino SQL (LiteLLM 게이트웨이 단일 경로 + egress 가드)
 - `GET/PATCH /api/settings/system`: 시스템 설정 CRUD
 - `GET /api/settings/system/ai`: AI 설정 조회
 - `GET /api/connectors/{id}/quality`: Data Quality 결과
 - `POST /api/transforms`: ELT Transform CRUD
 - `GET /api/catalog/tables/{namespace}/{table}/preview`: 데이터 미리보기 + 컬럼 통계
+- `GET /api/catalog/schemas?columns=false`: 카탈로그 트리(지연 컬럼) · `GET /api/catalog/columns`: 테이블 컬럼 on-demand
+- **Vector/RAG**: `POST /api/ai/embed`, `GET/POST/DELETE /api/ai/collections`, `POST /api/ai/collections/{name}/{ingest,ingest-source,schedule}`, `POST /api/ai/search`, `POST /api/ai/rag`
+- **AI 거버넌스**: `GET /api/settings/ai/{usage,spend/report,budget-alerts}`, `/api/settings/ai/{providers,status,backends,active,keys}`, `/backends/{name}/test`
+- 내부 자동화 인증: 신뢰된 in-cluster 호출은 `X-Internal-Key`(=`INTERNAL_API_KEY`)로 `require_user_or_internal` 엔드포인트(`/ingest-source`) 접근
 
 ### 미완성 항목
-- [ ] 에어갭 설치 패키지 (bundle-airgap.sh 검증)
-- [ ] LDAP/SSO 연동
-- [ ] Iceberg VACUUM DAG
-- [ ] Row-level security
+- ✅ ~~Row-level security~~ — 완료 (엔진 #13 + 컬렉션 RLS #52/#57)
+- ✅ ~~LDAP 연동~~ — 완료 (#41). SSO(SAML/OIDC)는 미구현
+- ✅ ~~에어갭 설치 패키지 (bundle-airgap.sh 검증)~~ — 구성요소 검증 완료 (#59). **단절 호스트 클린룸 E2E + Ollama 모델 blob 번들은 미수행**
+- ✅ ~~Iceberg VACUUM DAG~~ — startup `deploy_maintenance_dag()`로 유지보수 DAG 배포
+- [ ] 주권 AI 실증: onprem `local-only` + Ollama로 외부 egress 없는 RAG 라이브 시연 (메커니즘 구현 완료, 라이브는 cloud-allowed+Bedrock 운영 중)
+- [ ] SSO(SAML/OIDC), 모니터링 스택(Prometheus/Grafana)·Langfuse 실배포(차트 opt-in만), 커넥터 RAG sink(자동 재임베딩)
+
+> **배포 주의 (AWS 라이브):** 라이브는 단일 EC2(K3s) + SSM tar-sync 파이프라인으로 운영되며 `/home/ubuntu/datapond`는 풀 체크아웃이 아님 — 새 런타임 파일(라우트/스키마/설정)을 추가하면 배포 시 전체 소스를 동기화해야 이미지에 포함됨. 정식 신규설치(helm/install.sh)는 무관.
