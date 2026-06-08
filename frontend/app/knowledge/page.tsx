@@ -117,8 +117,10 @@ export default function KnowledgePage() {
                           ? <Badge variant="outline" className="text-[9px]">other</Badge>
                           : null}
                     </div>
-                    <button onClick={e => { e.stopPropagation(); deleteCol(c.name, load) }}
-                      className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+                    {(me?.role === "admin" || (c.owner_id !== null && me?.id === c.owner_id)) && (
+                      <button onClick={e => { e.stopPropagation(); deleteCol(c.name, load) }}
+                        className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+                    )}
                   </div>
                   <div className="text-[11px] text-muted-foreground mt-1 flex gap-2">
                     <span>{c.chunks} chunks</span>·<span>{c.embed_model} ({c.dim}d)</span>
