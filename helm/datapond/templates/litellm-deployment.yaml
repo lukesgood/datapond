@@ -52,6 +52,13 @@ data:
     router_settings:
       num_retries: 2
       timeout: 60
+    {{- with .Values.litellm.guardrails }}
+    # Gateway guardrails applied to ALL LLM traffic (RAG/chat/sql), environment-
+    # configurable. Set litellm.guardrails in values to enable — e.g. Presidio PII
+    # (needs presidio-analyzer/anonymizer services) or a prompt-injection provider.
+    guardrails:
+{{ toYaml . | indent 6 }}
+    {{- end }}
 ---
 # LiteLLM Deployment
 apiVersion: apps/v1
