@@ -57,6 +57,9 @@ export function SchemaTree({ onTableSelect }: Props) {
   const [search, setSearch]         = useState("")
   const [showSystem, setShowSystem] = useState(false)
   const [openNodes, setOpenNodes]   = useState<Set<string>>(new Set())
+  // Columns load lazily per table (the tree itself comes back without columns now).
+  const [colCache, setColCache]     = useState<Record<string, Column[]>>({})
+  const [colLoading, setColLoading] = useState<Set<string>>(new Set())
 
   const load = async () => {
     setLoading(true)
@@ -95,6 +98,25 @@ export function SchemaTree({ onTableSelect }: Props) {
       n.has(key) ? n.delete(key) : n.add(key)
       return n
     })
+
+  // Toggle a table node; on first open, lazily fetch its columns.
+  const toggleTable = async (catalog: string, schema: string, table: string, tableKey: string) => {
+    const willOpen = !openNodes.has(tableKey)
+    toggle(tableKey)
+    if (willOpen && !colCache[tableKey] && !colLoading.has(tableKey)) {
+      setColLoading(prev => new Set(prev).add(tableKey))
+      try {
+        const qs = new URLSearchParams({ catalog, schema, table })
+        const res = await fetch(`/api/catalog/columns?${qs}`)
+        const cols: Column[] = res.ok ? await res.json() : []
+        setColCache(prev => ({ ...prev, [tableKey]: cols }))
+      } catch {
+        setColCache(prev => ({ ...prev, [tableKey]: [] }))
+      } finally {
+        setColLoading(prev => { const n = new Set(prev); n.delete(tableKey); return n })
+      }
+    }
+  }
 
   // Filter tree based on search
   const filtered = useMemo(() => {
@@ -257,7 +279,9 @@ export function SchemaTree({ onTableSelect }: Props) {
                       {schemaOpen && schema.tables.map(table => {
                         const tableKey = `${schemaKey}.${table.name}`
                         const tableOpen = openNodes.has(tableKey)
-                        const hasCols = table.columns && table.columns.length > 0
+                        // Columns come either from the (legacy) eager tree or the lazy cache.
+                        const cols = colCache[tableKey] ?? table.columns ?? null
+                        const colsLoading = colLoading.has(tableKey)
                         return (
                           <div key={tableKey}>
                             {/* Table row */}
@@ -270,10 +294,10 @@ export function SchemaTree({ onTableSelect }: Props) {
                               <button
                                 className="shrink-0 p-0.5 mr-0.5 text-muted-foreground/50
                                            hover:text-muted-foreground transition-colors"
-                                onClick={() => hasCols && toggle(tableKey)}
-                                title={hasCols ? "Show columns" : "No column info"}
+                                onClick={() => toggleTable(cat.name, schema.name, table.name, tableKey)}
+                                title="Show columns"
                               >
-                                <ChevronRight className={`h-3 w-3 transition-transform ${tableOpen ? "rotate-90" : ""} ${!hasCols ? "opacity-20" : ""}`} />
+                                <ChevronRight className={`h-3 w-3 transition-transform ${tableOpen ? "rotate-90" : ""}`} />
                               </button>
 
                               {/* Table name — click to insert SELECT */}
@@ -288,10 +312,16 @@ export function SchemaTree({ onTableSelect }: Props) {
                               </button>
                             </div>
 
-                            {/* Columns */}
-                            {tableOpen && hasCols && (
+                            {/* Columns (lazy-loaded on expand) */}
+                            {tableOpen && (
                               <div className="pl-14 pr-2 pb-1">
-                                {table.columns!.map(col => {
+                                {colsLoading && (!cols || cols.length === 0) && (
+                                  <p className="text-[11px] text-muted-foreground/60 italic py-0.5">Loading columns…</p>
+                                )}
+                                {!colsLoading && cols && cols.length === 0 && (
+                                  <p className="text-[11px] text-muted-foreground/60 italic py-0.5">No column info</p>
+                                )}
+                                {(cols || []).map(col => {
                                   const tag = typeTag(col.type)
                                   return (
                                     <div
