@@ -16,14 +16,17 @@ Endpoints (all under /api):
   POST   /ai/rag                            retrieve → LiteLLM chat → cited answer
 """
 import os
+import re
 import json
+import asyncio
 import logging
 import uuid
+import pathlib
 from typing import Optional, List
 
 import httpx
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.connectors import get_db_pool
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
@@ -246,32 +249,23 @@ async def _collection_id(c, name: str):
     return row["id"]
 
 
-@router.post("/ai/collections/{name}/ingest")
-async def ingest(name: str, req: IngestRequest):
-    """Chunk → PII-mask → embed → upsert. Returns counts."""
+async def _ingest_documents(coll_id, docs: List[tuple], chunk_size: int, overlap: int) -> dict:
+    """docs: list of (source, text, metadata). Chunk → PII-mask → embed → upsert."""
     from app.guardrails import pii_ko
-    pool = await get_db_pool()
-    await ensure_vector_schema(pool)
-    async with pool.acquire() as c:
-        coll_id = await _collection_id(c, name)
-
-    # Build chunks (PII-masked) with provenance.
-    items = []  # (source, idx, content, metadata)
+    items = []  # (source, idx, content, metadata_json)
     pii_masked = 0
-    for doc in req.documents:
-        for idx, raw in enumerate(_chunk(doc.text, req.chunk_size, req.chunk_overlap)):
+    for source, text, meta in docs:
+        for idx, raw in enumerate(_chunk(text, chunk_size, overlap)):
             masked, found, _blk = pii_ko.apply(raw)
             pii_masked += len(found)
-            items.append((doc.source, idx, masked, json.dumps(doc.metadata or {})))
+            items.append((source, idx, masked, json.dumps(meta or {})))
     if not items:
-        return {"success": True, "chunks": 0, "pii_masked": 0}
-
-    # Embed in batches to bound payload size.
+        return {"chunks": 0, "pii_masked": 0}
     embeddings: List[List[float]] = []
     B = 64
     for i in range(0, len(items), B):
         embeddings.extend(await _embed([it[2] for it in items[i:i + B]]))
-
+    pool = await get_db_pool()
     async with pool.acquire() as c:
         await c.executemany(
             """INSERT INTO ai_chunks (collection_id, source, chunk_index, content, metadata, embedding)
@@ -279,7 +273,158 @@ async def ingest(name: str, req: IngestRequest):
             [(coll_id, it[0], it[1], it[2], it[3], _vec_literal(emb))
              for it, emb in zip(items, embeddings)],
         )
-    return {"success": True, "chunks": len(items), "pii_masked": pii_masked}
+    return {"chunks": len(items), "pii_masked": pii_masked}
+
+
+@router.post("/ai/collections/{name}/ingest")
+async def ingest(name: str, req: IngestRequest):
+    """Ingest inline documents. Chunk → PII-mask → embed → upsert."""
+    pool = await get_db_pool()
+    await ensure_vector_schema(pool)
+    async with pool.acquire() as c:
+        coll_id = await _collection_id(c, name)
+    res = await _ingest_documents(
+        coll_id, [(d.source, d.text, d.metadata) for d in req.documents],
+        req.chunk_size, req.chunk_overlap)
+    return {"success": True, **res}
+
+
+# ── Source ingestion (the AI data pipeline: lakehouse / object store → vectors) ──
+
+def _read_iceberg_docs(schema: str, table: str, text_column: str, limit: int) -> List[tuple]:
+    """One document per row of iceberg.<schema>.<table>.<text_column> (via Trino)."""
+    from app.api.trino_util import trino_conn
+    src = f"iceberg.{schema}.{table}.{text_column}"
+    conn = trino_conn(timeout=60)
+    cur = conn.cursor()
+    cur.execute(
+        f'SELECT "{text_column}" FROM iceberg."{schema}"."{table}" '
+        f'WHERE "{text_column}" IS NOT NULL LIMIT {int(limit)}'
+    )
+    return [(src, str(r[0]), {"schema": schema, "table": table, "row": i})
+            for i, r in enumerate(cur.fetchall())]
+
+
+def _read_s3_docs(bucket: str, prefix: str, max_files: int) -> List[tuple]:
+    """One document per text/markdown object under s3://bucket/prefix."""
+    from app.api.storage import get_s3_client
+    s3 = get_s3_client()
+    docs, n = [], 0
+    for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix or ""):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            if not key.lower().endswith((".txt", ".md", ".markdown", ".csv", ".json", ".log")):
+                continue
+            if obj.get("Size", 0) > 5_000_000:
+                continue
+            body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+            docs.append((f"s3://{bucket}/{key}", body.decode("utf-8", errors="replace"),
+                         {"bucket": bucket, "key": key}))
+            n += 1
+            if n >= max_files:
+                return docs
+    return docs
+
+
+class SourceIngest(BaseModel):
+    type: str                                    # "iceberg" | "s3"
+    # iceberg
+    db_schema: Optional[str] = Field(None, alias="schema")
+    table: Optional[str] = None
+    text_column: Optional[str] = None
+    limit: int = 1000
+    # s3
+    bucket: Optional[str] = None
+    prefix: Optional[str] = None
+    max_files: int = 200
+    chunk_size: int = 1000
+    chunk_overlap: int = 150
+
+    class Config:
+        populate_by_name = True
+
+
+def _ident_ok(*vals) -> bool:
+    return all(re.fullmatch(r"[A-Za-z0-9_]+", v or "") for v in vals)
+
+
+@router.post("/ai/collections/{name}/ingest-source")
+async def ingest_source(name: str, req: SourceIngest):
+    """Feed the vector store from a lakehouse/object-store source — the AI data
+    pipeline over DataPond's own data (Iceberg table column, or S3 text files)."""
+    pool = await get_db_pool()
+    await ensure_vector_schema(pool)
+    async with pool.acquire() as c:
+        coll_id = await _collection_id(c, name)
+
+    if req.type == "iceberg":
+        if not (req.db_schema and req.table and req.text_column):
+            raise HTTPException(400, "iceberg source needs schema, table, text_column.")
+        if not _ident_ok(req.db_schema, req.table, req.text_column):
+            raise HTTPException(400, "schema/table/text_column must be bare identifiers.")
+        docs = await asyncio.to_thread(_read_iceberg_docs, req.db_schema, req.table,
+                                       req.text_column, req.limit)
+    elif req.type == "s3":
+        if not req.bucket:
+            raise HTTPException(400, "s3 source needs bucket (and optional prefix).")
+        docs = await asyncio.to_thread(_read_s3_docs, req.bucket, req.prefix, req.max_files)
+    else:
+        raise HTTPException(400, "type must be 'iceberg' or 's3'.")
+
+    res = await _ingest_documents(coll_id, docs, req.chunk_size, req.chunk_overlap)
+    return {"success": True, "documents": len(docs), **res}
+
+
+# ── Scheduled ingestion (recurring AI data pipeline via Airflow) ─────────────────
+
+DAGS_PATH = pathlib.Path(os.getenv("AIRFLOW_DAGS_PATH", "/opt/airflow/dags"))
+BACKEND_URL = os.getenv("BACKEND_URL", "http://backend.datapond.svc.cluster.local:8000")
+
+
+class ScheduleRequest(BaseModel):
+    schedule: str = "@daily"
+    source: SourceIngest
+
+
+def _generate_ingest_dag(dag_id: str, collection: str, schedule: str, source_json: str) -> str:
+    return f'''"""DataPond RAG ingestion — auto-generated. Re-embeds a source into a
+collection on a schedule (AI data pipeline: lakehouse/object-store → vector store)."""
+from datetime import datetime
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+import json, urllib.request
+
+COLLECTION = {collection!r}
+SOURCE = json.loads({source_json!r})
+URL = "{BACKEND_URL}/api/ai/collections/" + COLLECTION + "/ingest-source"
+
+def ingest(**_):
+    req = urllib.request.Request(URL, data=json.dumps(SOURCE).encode(),
+                                 headers={{"Content-Type": "application/json"}}, method="POST")
+    with urllib.request.urlopen(req, timeout=600) as r:
+        print(r.read().decode())
+
+with DAG(dag_id={dag_id!r}, start_date=datetime(2024,1,1), schedule={schedule!r},
+         catchup=False, tags=["datapond","rag","ai"]) as dag:
+    PythonOperator(task_id="ingest_source", python_callable=ingest)
+'''
+
+
+@router.post("/ai/collections/{name}/schedule")
+async def schedule_ingest(name: str, body: ScheduleRequest):
+    """Deploy an Airflow DAG that re-ingests `source` into this collection on a schedule."""
+    pool = await get_db_pool()
+    async with pool.acquire() as c:
+        await _collection_id(c, name)  # 404 if missing
+    dag_id = "datapond_rag_ingest_" + re.sub(r"[^A-Za-z0-9_]+", "_", name).strip("_")
+    source_json = json.dumps(body.source.model_dump(by_alias=True, exclude_none=True))
+    code = _generate_ingest_dag(dag_id, name, body.schedule, source_json)
+    try:
+        DAGS_PATH.mkdir(parents=True, exist_ok=True)
+        (DAGS_PATH / f"{dag_id}.py").write_text(code, encoding="utf-8")
+    except Exception as e:
+        raise HTTPException(500, f"Failed to write DAG (Airflow DAGs volume mounted?): {e}")
+    return {"success": True, "dag_id": dag_id, "schedule": body.schedule}
 
 
 async def _retrieve(name: str, query: str, k: int):
