@@ -191,6 +191,9 @@ export function AiBackends() {
       {/* Gateway status banner */}
       <GatewayBanner status={status} loading={loading} onRefresh={load} />
 
+      {/* Token & cost usage */}
+      <UsagePanel />
+
       {/* Toolbar */}
       <div className="flex items-center justify-between">
         <div>
@@ -448,6 +451,92 @@ export function AiBackends() {
 }
 
 // ── Gateway status banner ────────────────────────────────────────────────────────
+
+interface ModelUsage { model: string; spend: number; requests: number; total_tokens: number; prompt_tokens: number; completion_tokens: number }
+interface KeyUsage { key_alias: string | null; spend: number; max_budget: number | null; pct: number | null }
+interface Usage { total_spend: number; max_budget: number | null; total_tokens: number; models: ModelUsage[]; keys: KeyUsage[]; egress_policy?: string }
+
+const fmt$ = (n: number) => "$" + (n < 0.01 ? n.toFixed(6) : n.toFixed(4))
+const fmtN = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n)
+
+function UsagePanel() {
+  const [u, setU] = useState<Usage | null>(null)
+  const [loading, setLoading] = useState(true)
+  const load = useCallback(() => {
+    setLoading(true)
+    fetch("/api/settings/ai/usage").then(r => r.json()).then(setU).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  if (loading) return <Skeleton className="h-32 rounded-lg" />
+  if (!u) return null
+  return (
+    <Card>
+      <CardHeader className="pb-3 flex-row items-center justify-between">
+        <div>
+          <CardTitle className="text-base flex items-center gap-2"><DollarSign className="h-4 w-4 text-primary" />Token & Cost Usage</CardTitle>
+          <CardDescription>Spend and token usage across LLM backends (via the LiteLLM gateway).</CardDescription>
+        </div>
+        <Button size="sm" variant="outline" onClick={load} className="gap-1.5"><RefreshCw className="h-3.5 w-3.5" />Refresh</Button>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-lg border p-3">
+            <div className="text-[11px] text-muted-foreground">Total spend</div>
+            <div className="text-lg font-semibold">{fmt$(u.total_spend)}{u.max_budget ? <span className="text-xs text-muted-foreground"> / {fmt$(u.max_budget)}</span> : null}</div>
+          </div>
+          <div className="rounded-lg border p-3">
+            <div className="text-[11px] text-muted-foreground">Tokens (recent)</div>
+            <div className="text-lg font-semibold">{fmtN(u.total_tokens)}</div>
+          </div>
+          <div className="rounded-lg border p-3">
+            <div className="text-[11px] text-muted-foreground">Models</div>
+            <div className="text-lg font-semibold">{u.models.length}</div>
+          </div>
+        </div>
+
+        {u.models.length > 0 && (
+          <div>
+            <div className="text-xs font-medium mb-1.5">By model</div>
+            <div className="rounded-lg border divide-y">
+              <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-3 py-1.5 text-[11px] text-muted-foreground">
+                <span>Model</span><span className="text-right">Spend</span><span className="text-right">Req</span><span className="text-right">Tokens (in/out)</span>
+              </div>
+              {u.models.map(m => (
+                <div key={m.model} className="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-3 py-1.5 text-xs items-center">
+                  <span className="font-mono truncate">{m.model}</span>
+                  <span className="text-right">{fmt$(m.spend)}</span>
+                  <span className="text-right text-muted-foreground">{m.requests}</span>
+                  <span className="text-right text-muted-foreground">{fmtN(m.total_tokens)} <span className="opacity-60">({fmtN(m.prompt_tokens)}/{fmtN(m.completion_tokens)})</span></span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {u.keys.filter(k => k.max_budget).length > 0 && (
+          <div>
+            <div className="text-xs font-medium mb-1.5">Virtual key budgets</div>
+            <div className="space-y-2">
+              {u.keys.filter(k => k.max_budget).map((k, i) => (
+                <div key={i} className="text-xs">
+                  <div className="flex justify-between mb-0.5">
+                    <span className="font-mono">{k.key_alias || "key"}</span>
+                    <span className="text-muted-foreground">{fmt$(k.spend)} / {fmt$(k.max_budget!)} ({k.pct}%)</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div className={`h-full ${(k.pct || 0) >= 90 ? "bg-destructive" : (k.pct || 0) >= 70 ? "bg-amber-400" : "bg-primary"}`}
+                      style={{ width: `${Math.min(100, k.pct || 0)}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
 
 function GatewayBanner({ status, loading, onRefresh }: {
   status: GatewayStatus | null; loading: boolean; onRefresh: () => void

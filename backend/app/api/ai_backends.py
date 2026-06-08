@@ -454,3 +454,68 @@ async def spend_summary():
     except Exception as e:
         logger.warning(f"[ai_backends] spend summary failed: {e}")
     return {"total_spend": round(total, 4), "keys_with_spend": n}
+
+
+@router.get("/settings/ai/usage")
+async def usage_summary():
+    """Token + cost usage for the cost dashboard: total spend/budget, per-model spend
+    and tokens, and per-key budget consumption. Aggregated from LiteLLM
+    (/global/spend, /global/spend/models, /spend/logs, /key/list)."""
+    url, key = _gateway()
+    h = _headers(key)
+    out = {"total_spend": 0.0, "max_budget": None, "models": [], "keys": [],
+           "total_tokens": 0, "egress_policy": egress_policy()}
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            # lifetime spend + per-model spend (authoritative)
+            gs = await c.get(f"{url}/global/spend", headers=h)
+            if gs.status_code < 400:
+                d = gs.json(); out["total_spend"] = round(float(d.get("spend") or 0), 6)
+                if d.get("max_budget"):
+                    out["max_budget"] = float(d["max_budget"])
+            spend_by_model = {}
+            gm = await c.get(f"{url}/global/spend/models", headers=h)
+            if gm.status_code < 400:
+                for x in gm.json():
+                    spend_by_model[x.get("model")] = float(x.get("total_spend") or 0)
+            # token aggregation from spend logs (recent), keyed by model
+            tok = {}
+            lg = await c.get(f"{url}/spend/logs", headers=h)
+            if lg.status_code < 400 and isinstance(lg.json(), list):
+                for e in lg.json():
+                    m = e.get("model") or "unknown"
+                    t = tok.setdefault(m, {"requests": 0, "total_tokens": 0,
+                                           "prompt_tokens": 0, "completion_tokens": 0})
+                    t["requests"] += 1
+                    t["total_tokens"] += int(e.get("total_tokens") or 0)
+                    t["prompt_tokens"] += int(e.get("prompt_tokens") or 0)
+                    t["completion_tokens"] += int(e.get("completion_tokens") or 0)
+            models = set(spend_by_model) | set(tok)
+            for m in sorted(models):
+                t = tok.get(m, {})
+                out["models"].append({
+                    "model": m, "spend": round(spend_by_model.get(m, 0.0), 6),
+                    "requests": t.get("requests", 0),
+                    "total_tokens": t.get("total_tokens", 0),
+                    "prompt_tokens": t.get("prompt_tokens", 0),
+                    "completion_tokens": t.get("completion_tokens", 0),
+                })
+            out["total_tokens"] = sum(m["total_tokens"] for m in out["models"])
+            # per-key budget consumption
+            kl = await c.get(f"{url}/key/list", headers=h,
+                             params={"return_full_object": "true", "size": "200"})
+            if kl.status_code < 400:
+                data = kl.json()
+                raw = data.get("keys", []) if isinstance(data, dict) else (data or [])
+                for k in raw:
+                    if not isinstance(k, dict):
+                        continue
+                    mb = k.get("max_budget"); sp = float(k.get("spend") or 0)
+                    out["keys"].append({
+                        "key_alias": k.get("key_alias"), "spend": round(sp, 6),
+                        "max_budget": mb,
+                        "pct": round(sp / mb * 100, 1) if mb else None,
+                    })
+    except Exception as e:
+        logger.warning(f"[ai_backends] usage summary failed: {e}")
+    return out
