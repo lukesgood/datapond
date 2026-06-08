@@ -271,6 +271,25 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
   const [bucket, setBucket] = useState(""); const [prefix, setPrefix] = useState("")
   const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<string | null>(null); const [e, setE] = useState<string | null>(null)
   const [sched, setSched] = useState("@daily"); const [schedBusy, setSchedBusy] = useState(false)
+  // Lakehouse picker: iceberg catalog tree (schemas→tables) + columns of the chosen table.
+  const [tree, setTree] = useState<{ schema: string; tables: string[] }[]>([])
+  const [cols, setCols] = useState<{ name: string; type: string }[]>([])
+
+  useEffect(() => {
+    fetch("/api/catalog/schemas").then(r => r.json()).then(d => {
+      const ice = (d.catalogs || []).find((c: any) => c.name === "iceberg") || (d.catalogs || [])[0]
+      const sc = (ice?.schemas || []).map((s: any) => ({ schema: s.name, tables: (s.tables || []).map((t: any) => t.name) }))
+      setTree(sc)
+    }).catch(() => {})
+  }, [])
+  // When a table is picked, lazily fetch its columns to populate the text-column select.
+  useEffect(() => {
+    if (stype !== "iceberg" || !schema || !table) { setCols([]); return }
+    const qs = new URLSearchParams({ catalog: "iceberg", schema, table })
+    fetch(`/api/catalog/columns?${qs}`).then(r => r.json())
+      .then((c) => { const list = Array.isArray(c) ? c : []; setCols(list); if (list.length && !list.find((x: any) => x.name === col)) setCol(list[0].name) })
+      .catch(() => setCols([]))
+  }, [schema, table, stype])  // eslint-disable-line react-hooks/exhaustive-deps
   const sourceBody = () => stype === "iceberg"
     ? { type: "iceberg", schema, table, text_column: col }
     : { type: "s3", bucket, prefix }
@@ -330,11 +349,32 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
             ))}
           </div>
           {stype === "iceberg" ? (
-            <div className="grid grid-cols-3 gap-2">
-              <Input value={schema} onChange={e => setSchema(e.target.value)} placeholder="schema" className="text-sm" />
-              <Input value={table} onChange={e => setTable(e.target.value)} placeholder="table" className="text-sm" />
-              <Input value={col} onChange={e => setCol(e.target.value)} placeholder="text_column" className="text-sm" />
-            </div>
+            tree.length > 0 ? (
+              <div className="grid grid-cols-3 gap-2">
+                <select value={schema} onChange={e => { setSchema(e.target.value); setTable("") }}
+                  className="h-9 rounded-md border bg-background px-2 text-xs">
+                  <option value="">schema…</option>
+                  {tree.map(s => <option key={s.schema} value={s.schema}>{s.schema}</option>)}
+                </select>
+                <select value={table} onChange={e => setTable(e.target.value)}
+                  className="h-9 rounded-md border bg-background px-2 text-xs" disabled={!schema}>
+                  <option value="">table…</option>
+                  {(tree.find(s => s.schema === schema)?.tables || []).map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <select value={col} onChange={e => setCol(e.target.value)}
+                  className="h-9 rounded-md border bg-background px-2 text-xs" disabled={!table}>
+                  <option value="">text column…</option>
+                  {cols.map(c => <option key={c.name} value={c.name}>{c.name} ({c.type})</option>)}
+                </select>
+              </div>
+            ) : (
+              // Fallback to manual entry if the catalog tree is unavailable.
+              <div className="grid grid-cols-3 gap-2">
+                <Input value={schema} onChange={e => setSchema(e.target.value)} placeholder="schema" className="text-sm" />
+                <Input value={table} onChange={e => setTable(e.target.value)} placeholder="table" className="text-sm" />
+                <Input value={col} onChange={e => setCol(e.target.value)} placeholder="text_column" className="text-sm" />
+              </div>
+            )
           ) : (
             <div className="grid grid-cols-2 gap-2">
               <Input value={bucket} onChange={e => setBucket(e.target.value)} placeholder="bucket" className="text-sm" />

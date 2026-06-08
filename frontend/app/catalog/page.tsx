@@ -6,6 +6,9 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TableCard } from "@/components/catalog/table-card"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Loader2, Sparkles, Clock } from "lucide-react"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -40,6 +43,7 @@ export default function CatalogPage() {
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedNamespace, setSelectedNamespace] = useState<string>("all")
+  const [sendTable, setSendTable] = useState<Table | null>(null)
 
   const fetchData = async () => {
     try {
@@ -233,6 +237,7 @@ export default function CatalogPage() {
                 catalogType={table.catalog_type}
                 tableType={table.table_type}
                 lastUpdated={table.last_updated}
+                onSendToKnowledge={table.catalog === "iceberg" ? () => setSendTable(table) : undefined}
               />
             ))}
           </div>
@@ -244,6 +249,116 @@ export default function CatalogPage() {
           </Card>
         )}
       </div>
+
+      <SendToKnowledgeDialog table={sendTable} onClose={() => setSendTable(null)} />
     </div>
+  )
+}
+
+// ── Send a catalog table to a RAG collection (embed a text column) ────────────────
+
+function SendToKnowledgeDialog({ table, onClose }: { table: Table | null; onClose: () => void }) {
+  const [collections, setCollections] = useState<{ name: string }[]>([])
+  const [collection, setCollection] = useState("")
+  const [newName, setNewName] = useState("")
+  const [cols, setCols] = useState<{ name: string; type: string }[]>([])
+  const [col, setCol] = useState("")
+  const [sched, setSched] = useState("")  // "" = one-off, else cron preset
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!table) return
+    setMsg(null); setErr(null); setNewName(""); setCollection(""); setSched("")
+    fetch("/api/ai/collections").then(r => r.json())
+      .then(d => { const c = d.collections || []; setCollections(c); if (c[0]) setCollection(c[0].name) })
+      .catch(() => setCollections([]))
+    const qs = new URLSearchParams({ catalog: "iceberg", schema: table.namespace, table: table.name })
+    fetch(`/api/catalog/columns?${qs}`).then(r => r.json())
+      .then(c => { const l = Array.isArray(c) ? c : []; setCols(l); setCol(l.find((x: any) => /char|text|string/i.test(x.type))?.name || l[0]?.name || "") })
+      .catch(() => setCols([]))
+  }, [table])
+
+  const submit = async () => {
+    if (!table) return
+    const target = (collection === "__new__" ? newName : collection).trim()
+    if (!target || !col) { setErr("컬렉션과 텍스트 컬럼을 선택하세요."); return }
+    setBusy(true); setErr(null); setMsg(null)
+    try {
+      // ensure collection exists (idempotent)
+      await fetch("/api/ai/collections", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: target, description: `From ${table.namespace}.${table.name}` }) })
+      const source = { type: "iceberg", schema: table.namespace, table: table.name, text_column: col }
+      if (sched) {
+        const r = await fetch(`/api/ai/collections/${encodeURIComponent(target)}/schedule`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ schedule: sched, source }) })
+        if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
+        const d = await r.json(); setMsg(`예약 등록됨: DAG ${d.dag_id} (${d.schedule})`)
+      } else {
+        const r = await fetch(`/api/ai/collections/${encodeURIComponent(target)}/ingest-source`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(source) })
+        if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
+        const d = await r.json(); setMsg(`${d.documents} docs → ${d.chunks} chunks 적재됨 (${target})`)
+      }
+    } catch (e: any) { setErr(e.message) }
+    setBusy(false)
+  }
+
+  return (
+    <Dialog open={!!table} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-1.5 text-base">
+            <Sparkles className="h-4 w-4 text-primary" />Send to Knowledge
+          </DialogTitle>
+        </DialogHeader>
+        {table && (
+          <div className="space-y-3 text-sm">
+            <p className="text-xs text-muted-foreground">
+              <span className="font-mono">{table.namespace}.{table.name}</span> 의 텍스트 컬럼을 임베딩해 RAG 컬렉션에 적재합니다.
+            </p>
+            <div className="space-y-1">
+              <label className="text-[11px] text-muted-foreground">Collection</label>
+              <select value={collection} onChange={e => setCollection(e.target.value)}
+                className="h-9 w-full rounded-md border bg-background px-2 text-xs">
+                {collections.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                <option value="__new__">+ 새 컬렉션…</option>
+              </select>
+              {collection === "__new__" && (
+                <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="new collection name" className="text-sm mt-1" />
+              )}
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] text-muted-foreground">Text column</label>
+              <select value={col} onChange={e => setCol(e.target.value)}
+                className="h-9 w-full rounded-md border bg-background px-2 text-xs">
+                <option value="">column…</option>
+                {cols.map(c => <option key={c.name} value={c.name}>{c.name} ({c.type})</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] text-muted-foreground">Mode</label>
+              <select value={sched} onChange={e => setSched(e.target.value)}
+                className="h-9 w-full rounded-md border bg-background px-2 text-xs">
+                <option value="">한 번 적재 (now)</option>
+                <option value="@hourly">예약 — 매시간</option>
+                <option value="@daily">예약 — 매일</option>
+                <option value="@weekly">예약 — 매주</option>
+              </select>
+            </div>
+            {msg && <p className="text-xs text-emerald-700">{msg}</p>}
+            {err && <p className="text-xs text-amber-700">{err}</p>}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>닫기</Button>
+          <Button size="sm" onClick={submit} disabled={busy || !table}>
+            {busy ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : (sched ? <Clock className="h-4 w-4 mr-1.5" /> : <Sparkles className="h-4 w-4 mr-1.5" />)}
+            {sched ? "예약" : "적재"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
