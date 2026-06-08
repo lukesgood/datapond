@@ -467,9 +467,45 @@ async def schedule_ingest(name: str, body: ScheduleRequest, user: dict = Depends
     return {"success": True, "dag_id": dag_id, "schedule": body.schedule}
 
 
+def _rerank_model() -> str:
+    """Optional cross-encoder rerank model registered in LiteLLM (e.g.
+    bedrock/amazon.rerank-v1:0, cohere rerank). Empty = vector order only."""
+    return os.getenv("AI_RERANK_MODEL", "").strip()
+
+
+async def _rerank(query: str, hits: List[dict], k: int) -> List[dict]:
+    """Reorder vector hits with a LiteLLM rerank model (/v1/rerank). Graceful: returns
+    the original top-k on any error so retrieval never hard-fails on rerank."""
+    model = _rerank_model()
+    if not model or len(hits) <= 1:
+        return hits[:k]
+    url, key = _gateway()
+    try:
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.post(f"{url}/v1/rerank", headers=_headers(key),
+                             json={"model": model, "query": query,
+                                   "documents": [h["content"] for h in hits],
+                                   "top_n": k, **actor_payload("ai_rerank")})
+        if r.status_code >= 400:
+            logger.warning(f"[ai_vectors] rerank {r.status_code}: {(r.text or '')[:120]}")
+            return hits[:k]
+        out = []
+        for res in (r.json().get("results") or [])[:k]:
+            idx = res.get("index")
+            if isinstance(idx, int) and 0 <= idx < len(hits):
+                h = dict(hits[idx]); h["rerank_score"] = round(float(res.get("relevance_score") or 0), 4)
+                out.append(h)
+        return out or hits[:k]
+    except Exception as e:
+        logger.warning(f"[ai_vectors] rerank failed: {e}")
+        return hits[:k]
+
+
 async def _retrieve(name: str, query: str, k: int, user: dict):
     pool = await get_db_pool()
     qvec = (await _embed([query]))[0]
+    # Over-fetch candidates when a reranker is configured, then rerank down to k.
+    fetch_k = min(max(k * 4, k), 50) if _rerank_model() else max(1, min(k, 50))
     async with pool.acquire() as c:
         coll_id = await _collection_id(c, name, user)
         rows = await c.fetch(
@@ -479,14 +515,15 @@ async def _retrieve(name: str, query: str, k: int, user: dict):
                WHERE collection_id = $2
                ORDER BY embedding <=> $1::vector
                LIMIT $3""",
-            _vec_literal(qvec), coll_id, max(1, min(k, 50)),
+            _vec_literal(qvec), coll_id, fetch_k,
         )
-    return [
+    hits = [
         {"source": r["source"], "chunk_index": r["chunk_index"], "content": r["content"],
          "metadata": json.loads(r["metadata"]) if isinstance(r["metadata"], str) else (r["metadata"] or {}),
          "score": round(float(r["score"]), 4)}
         for r in rows
     ]
+    return await _rerank(query, hits, k)
 
 
 def _guard(text: str):
