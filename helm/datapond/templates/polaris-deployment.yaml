@@ -135,6 +135,7 @@ spec:
           value: >-
             -Dpolaris.readiness.ignore-severe-issues=true
             -Dpolaris.features."ENFORCE_PRINCIPAL_CREDENTIAL_ROTATION_REQUIRED_CHECKING"=false
+            -Dpolaris.features."DROP_WITH_PURGE_ENABLED"=true
             -Dpolaris.features."ALLOW_SPECIFYING_FILE_IO_IMPL"=true
             -Dpolaris.features."ALLOW_INSECURE_STORAGE_TYPES"=true
             -Dpolaris.features."SKIP_CREDENTIAL_SUBSCOPING_INDIRECTION"=true
