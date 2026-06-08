@@ -143,6 +143,14 @@ spec:
           value: "postgresql+psycopg2://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.password }}@postgres:5432/airflow"
         - name: AIRFLOW__CORE__EXECUTOR
           value: {{ .Values.airflow.executor }}
+        # Lets scheduled RAG-ingest DAGs authenticate to the backend (X-Internal-Key).
+        {{- if .Values.backend.enabled }}
+        - name: DATAPOND_INTERNAL_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: INTERNAL_API_KEY
+        {{- end }}
         resources:
           requests:
             cpu: {{ .Values.airflow.scheduler.resources.requests.cpu }}

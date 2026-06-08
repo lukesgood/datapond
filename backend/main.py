@@ -65,6 +65,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Exempt public endpoints
         if path in AUTH_EXEMPT:
             return await call_next(request)
+        # Trusted in-cluster automation (scheduled DAGs) authenticates with a shared
+        # X-Internal-Key instead of a user JWT. Let it through here; the route's
+        # require_user_or_internal dependency re-validates and assigns a service identity.
+        import os as _os
+        _ikey = (_os.getenv("INTERNAL_API_KEY") or "").strip()
+        if _ikey and request.headers.get("X-Internal-Key", "") == _ikey:
+            return await call_next(request)
         # Check for Bearer token. Only the auth check is guarded by try/except —
         # call_next() MUST stay outside it, otherwise a route handler's exception
         # gets swallowed here and returned as a misleading 401 "Not authenticated"

@@ -69,6 +69,12 @@ spec:
               key: JWT_SECRET
         - name: JWT_EXPIRE_HOURS
           value: {{ (.Values.auth | default dict).tokenExpireHours | default 24 | quote }}
+        # Shared key for trusted in-cluster automation (scheduled DAGs → /ingest-source)
+        - name: INTERNAL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: INTERNAL_API_KEY
         # Iceberg catalog connection
         - name: ICEBERG_CATALOG_URI
           value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/iceberg_catalog"

@@ -29,7 +29,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 
 from app.api.connectors import get_db_pool
-from app.api.auth import require_user
+from app.api.auth import require_user, require_user_or_internal
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
 
 logger = logging.getLogger(__name__)
@@ -377,9 +377,12 @@ def _ident_ok(*vals) -> bool:
 
 
 @router.post("/ai/collections/{name}/ingest-source")
-async def ingest_source(name: str, req: SourceIngest, user: dict = Depends(require_user)):
+async def ingest_source(name: str, req: SourceIngest, user: dict = Depends(require_user_or_internal)):
     """Feed the vector store from a lakehouse/object-store source — the AI data
-    pipeline over DataPond's own data (Iceberg table column, or S3 text files)."""
+    pipeline over DataPond's own data (Iceberg table column, or S3 text files).
+
+    Accepts either a user JWT or the in-cluster X-Internal-Key so scheduled Airflow
+    DAGs (which run unattended) can call back to re-ingest on a schedule."""
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
     async with pool.acquire() as c:
@@ -420,15 +423,20 @@ collection on a schedule (AI data pipeline: lakehouse/object-store → vector st
 from datetime import datetime
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-import json, urllib.request
+import json, os, urllib.request
 
 COLLECTION = {collection!r}
 SOURCE = json.loads({source_json!r})
 URL = "{BACKEND_URL}/api/ai/collections/" + COLLECTION + "/ingest-source"
 
 def ingest(**_):
+    headers = {{"Content-Type": "application/json"}}
+    # Unattended auth: present the in-cluster shared key (mounted from datapond-secrets).
+    key = (os.getenv("DATAPOND_INTERNAL_KEY") or "").strip()
+    if key:
+        headers["X-Internal-Key"] = key
     req = urllib.request.Request(URL, data=json.dumps(SOURCE).encode(),
-                                 headers={{"Content-Type": "application/json"}}, method="POST")
+                                 headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=600) as r:
         print(r.read().decode())
 
