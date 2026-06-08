@@ -188,22 +188,26 @@ spec:
           limits:
             cpu: {{ .Values.backend.resources.limits.cpu }}
             memory: {{ .Values.backend.resources.limits.memory }}
+        # Lenient liveness: a heavy in-thread sync (PyIceberg + pandas) holds the GIL
+        # and can stall the event loop for tens of seconds. ~90s grace prevents that
+        # from triggering pod restarts mid-sync (heavy syncs belong on Airflow DAGs;
+        # this protects the "Sync Now" path).
         livenessProbe:
           httpGet:
             path: /health
             port: {{ .Values.backend.service.targetPort }}
           initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 6
         readinessProbe:
           httpGet:
             path: /health
             port: {{ .Values.backend.service.targetPort }}
           initialDelaySeconds: 30
           periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
+          timeoutSeconds: 10
+          failureThreshold: 4
         volumeMounts:
         - name: airflow-dags
           mountPath: /opt/airflow/dags
