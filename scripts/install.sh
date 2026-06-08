@@ -277,6 +277,15 @@ elif ! $SKIP_BUILD; then
   docker build -t datapond/frontend:latest "$PROJECT_ROOT/frontend/" 2>&1 | tee -a "$LOG_FILE"
   docker save datapond/frontend:latest | k3s ctr images import -
   ok "Frontend image built and imported"
+
+  # JupyterLab is a custom image (docker/jupyter/Dockerfile). It's not on any public
+  # registry, so a non-built jupyter leaves the chart pointing at a missing image.
+  if [[ -f "$PROJECT_ROOT/docker/jupyter/Dockerfile" ]]; then
+    log "Building jupyter image..."
+    docker build -t datapond/jupyter:latest "$PROJECT_ROOT/docker/jupyter/" 2>&1 | tee -a "$LOG_FILE"
+    docker save datapond/jupyter:latest | k3s ctr images import -
+    ok "Jupyter image built and imported"
+  fi
 else
   warn "Skipping image build (--skip-build). Ensure images exist in containerd."
 fi
