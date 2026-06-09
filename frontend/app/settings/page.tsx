@@ -734,7 +734,7 @@ function UserManagement() {
                     <td className="px-4 py-3">
                       {u.id !== currentUser?.id && (
                         <div className="flex items-center justify-end gap-0.5">
-                          <Button variant="ghost" size="icon" className="h-7 w-7" title="Reset password"
+                          <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Reset password" title="Reset password"
                             onClick={() => { setResetTarget(u); setResetPw(""); setResetError(null) }}>
                             <KeyRound className="h-3.5 w-3.5" />
                           </Button>
@@ -744,7 +744,7 @@ function UserManagement() {
                             <Shield className="h-3.5 w-3.5" />
                           </Button>
                           <Button variant="ghost" size="icon" className="h-7 w-7"
-                            title="RLS 속성 (부서/지역/등급)"
+                            aria-label="RLS 속성 (부서/지역/등급)" title="RLS 속성 (부서/지역/등급)"
                             onClick={() => openAttrs(u)}>
                             <SlidersHorizontal className="h-3.5 w-3.5" />
                           </Button>
@@ -754,7 +754,7 @@ function UserManagement() {
                             {u.is_active ? <UserX className="h-3.5 w-3.5" /> : <UserCheck className="h-3.5 w-3.5" />}
                           </Button>
                           <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
-                            title="Delete user" onClick={() => handleDelete(u)}>
+                            aria-label="Delete user" title="Delete user" onClick={() => handleDelete(u)}>
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>

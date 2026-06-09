@@ -131,7 +131,7 @@ export default function KnowledgePage() {
                           : null}
                     </div>
                     {(me?.role === "admin" || (c.owner_id !== null && me?.id === c.owner_id)) && (
-                      <button onClick={e => { e.stopPropagation(); deleteCol(c.name, load, confirm) }}
+                      <button aria-label={`Delete collection ${c.name}`} onClick={e => { e.stopPropagation(); deleteCol(c.name, load, confirm) }}
                         className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
                     )}
                   </div>

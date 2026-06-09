@@ -638,7 +638,7 @@ export default function StreamingPage() {
                                             <button
                                               className="text-muted-foreground hover:text-foreground transition-colors"
                                               onClick={() => setShowDdl(obj.definition)}
-                                              title="View DDL"
+                                              aria-label="View DDL" title="View DDL"
                                             >
                                               <Code2 className="h-3 w-3" />
                                             </button>
@@ -667,14 +667,14 @@ export default function StreamingPage() {
                                               <button
                                                 className="text-muted-foreground hover:text-foreground transition-colors"
                                                 onClick={() => handlePreview(obj)}
-                                                title="Preview data"
+                                                aria-label="Preview data" title="Preview data"
                                               >
                                                 <Eye className="h-3 w-3" />
                                               </button>
                                               <button
                                                 className="text-muted-foreground hover:text-foreground transition-colors"
                                                 onClick={() => setShowDdl(obj.definition)}
-                                                title="View DDL"
+                                                aria-label="View DDL" title="View DDL"
                                               >
                                                 <Code2 className="h-3 w-3" />
                                               </button>
@@ -703,7 +703,7 @@ export default function StreamingPage() {
                                             <button
                                               className="text-muted-foreground hover:text-foreground transition-colors"
                                               onClick={() => setShowDdl(obj.definition)}
-                                              title="View DDL"
+                                              aria-label="View DDL" title="View DDL"
                                             >
                                               <Code2 className="h-3 w-3" />
                                             </button>

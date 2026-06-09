@@ -296,7 +296,7 @@ export function AiBackends() {
                         </Button>
                       )}
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
-                        disabled={busy === b.model_name || !b.id} title="Remove" onClick={() => deleteBackend(b)}>
+                        disabled={busy === b.model_name || !b.id} aria-label="Remove" title="Remove" onClick={() => deleteBackend(b)}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
@@ -849,7 +849,7 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
                       )}
                     </div>
                     <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive shrink-0"
-                      disabled={busy === k.token} title="Revoke" onClick={() => remove(k)}>
+                      disabled={busy === k.token} aria-label="Revoke" title="Revoke" onClick={() => remove(k)}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </div>

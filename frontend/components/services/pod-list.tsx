@@ -175,7 +175,7 @@ export function PodList({
                               variant="ghost"
                               size="icon-xs"
                               onClick={() => onViewLogs(pod.name)}
-                              title="View logs"
+                              aria-label="View logs" title="View logs"
                             >
                               <FileText className="h-3 w-3" />
                             </Button>
@@ -185,7 +185,7 @@ export function PodList({
                               variant="ghost"
                               size="icon-xs"
                               onClick={() => handleDeleteClick(pod)}
-                              title="Delete pod (restart)"
+                              aria-label="Delete pod (restart)" title="Delete pod (restart)"
                             >
                               <Trash2 className="h-3 w-3" />
                             </Button>

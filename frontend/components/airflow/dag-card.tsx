@@ -123,7 +123,7 @@ export function DagCard({
           className="h-7 w-7 p-0"
           onClick={() => onTrigger(dag_id)}
           disabled={is_paused}
-          title="Trigger run"
+          aria-label="Trigger run" title="Trigger run"
         >
           <Play className="h-3.5 w-3.5" />
         </Button>
@@ -143,7 +143,7 @@ export function DagCard({
             variant="outline" size="sm"
             className="h-7 w-7 p-0"
             onClick={() => onEdit(dag_id)}
-            title="Edit pipeline"
+            aria-label="Edit pipeline" title="Edit pipeline"
           >
             <Pencil className="h-3.5 w-3.5" />
           </Button>
@@ -153,7 +153,7 @@ export function DagCard({
             variant="outline" size="sm"
             className="h-7 w-7 p-0 hover:bg-red-50 hover:border-red-200 hover:text-red-600"
             onClick={() => onDelete(dag_id)}
-            title="Delete pipeline"
+            aria-label="Delete pipeline" title="Delete pipeline"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </Button>

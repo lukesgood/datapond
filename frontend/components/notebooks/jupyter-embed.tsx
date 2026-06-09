@@ -66,7 +66,7 @@ export function JupyterEmbed({ notebook, open, onClose }: JupyterEmbedProps) {
                 variant="ghost"
                 size="icon-sm"
                 onClick={openInNewTab}
-                title="Open in new tab"
+                aria-label="Open in new tab" title="Open in new tab"
               >
                 <ExternalLink className="h-4 w-4" />
               </Button>
@@ -74,7 +74,7 @@ export function JupyterEmbed({ notebook, open, onClose }: JupyterEmbedProps) {
                 variant="ghost"
                 size="icon-sm"
                 onClick={onClose}
-                title="Close"
+                aria-label="Close" title="Close"
               >
                 <X className="h-4 w-4" />
               </Button>

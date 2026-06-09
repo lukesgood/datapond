@@ -63,7 +63,7 @@ export function TableCard({
               {onSendToKnowledge && (
                 <button
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSendToKnowledge() }}
-                  title="Send to Knowledge (RAG)"
+                  aria-label="Send to Knowledge (RAG)" title="Send to Knowledge (RAG)"
                   className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
                 >
                   <Sparkles className="h-3.5 w-3.5" />
