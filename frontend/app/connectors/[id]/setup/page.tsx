@@ -243,7 +243,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="text-center">
           <h2 className="text-2xl font-bold">Connector not found</h2>
-          <Link href="/connectors"><Button className="mt-4">Back to Marketplace</Button></Link>
+          <Button className="mt-4" render={<Link href="/connectors" />}>Back to Marketplace</Button>
         </div>
       </div>
     )
@@ -255,11 +255,10 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
 
         {/* Header */}
         <div className="flex items-center gap-3">
-          <Link href="/connectors">
-            <Button variant="ghost" size="icon" className="shrink-0">
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-          </Link>
+          <Button variant="ghost" size="icon" className="shrink-0" aria-label="Back to connectors"
+            render={<Link href="/connectors" />}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
           <div className="min-w-0">
             <h2 className="text-xl font-bold truncate">Set up {connector.name}</h2>
             <p className="text-sm text-muted-foreground truncate">{connector.description}</p>

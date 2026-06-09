@@ -977,7 +977,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   if (error) {
     return (
       <div className="flex-1 space-y-4 p-8 pt-6">
-        <Link href="/connectors"><Button variant="ghost" size="icon"><ChevronLeft className="h-4 w-4" /></Button></Link>
+        <Button variant="ghost" size="icon" aria-label="Back to connectors" render={<Link href="/connectors" />}><ChevronLeft className="h-4 w-4" /></Button>
         <Card className="border-destructive">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-destructive">
@@ -998,7 +998,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
 
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Link href="/connectors"><Button variant="ghost" size="icon"><ChevronLeft className="h-4 w-4" /></Button></Link>
+        <Button variant="ghost" size="icon" aria-label="Back to connectors" render={<Link href="/connectors" />}><ChevronLeft className="h-4 w-4" /></Button>
         <div className="flex-1">
           <h2 className="text-3xl font-bold tracking-tight">{connector.name}</h2>
           <div className="flex items-center gap-2 mt-1">

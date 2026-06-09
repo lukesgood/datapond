@@ -141,7 +141,7 @@ function NotebookViewer() {
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error || "Notebook not found"}</AlertDescription>
         </Alert>
-        <Link href="/notebooks"><Button variant="outline" size="sm" className="gap-1.5"><ArrowLeft className="h-3.5 w-3.5" />Back</Button></Link>
+        <Button variant="outline" size="sm" className="gap-1.5" render={<Link href="/notebooks" />}><ArrowLeft className="h-3.5 w-3.5" />Back</Button>
       </div>
     )
   }
@@ -164,11 +164,10 @@ function NotebookViewer() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link href="/notebooks">
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label="Back to notebooks"
+            render={<Link href="/notebooks" />}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
           <div>
             <h2 className="text-xl font-bold">{notebookName}</h2>
             <div className="flex items-center gap-2 mt-0.5">
