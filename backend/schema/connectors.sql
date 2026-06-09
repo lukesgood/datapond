@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS connector_sync_jobs (
     incremental_column VARCHAR(100),
     last_value TEXT,
     partition_spec JSONB,          -- [{"column":"created_at","transform":"day"}] · NULL이면 자동 추론
-    primary_keys TEXT[],
+    key_columns JSONB,             -- ["id"] 증분 upsert(merge) PK · NULL/[]이면 append(upsert 비활성)
+    primary_keys TEXT[],           -- (legacy, 미사용 — key_columns 사용)
     last_run_at TIMESTAMP,
     last_run_status VARCHAR(20),
     rows_synced INTEGER DEFAULT 0,

@@ -297,9 +297,34 @@ async def get_db_pool():
                 await conn.execute(
                     "ALTER TABLE connector_sync_jobs ADD COLUMN IF NOT EXISTS partition_spec JSONB"
                 )
+                # key_columns: 증분 upsert(merge)용 PK. NULL/[] = upsert 비활성(append).
+                await conn.execute(
+                    "ALTER TABLE connector_sync_jobs ADD COLUMN IF NOT EXISTS key_columns JSONB"
+                )
         except Exception as e:
-            logger.warning(f"[connectors] partition_spec 컬럼 ensure 실패(무시): {e}")
+            logger.warning(f"[connectors] 컬럼 ensure 실패(무시): {e}")
     return _db_pool
+
+
+def _parse_key_columns(raw):
+    """JSONB key_columns 값을 list|None으로 정규화(빈 리스트는 None 취급=upsert 비활성)."""
+    if raw is None:
+        return None
+    try:
+        v = json.loads(raw) if isinstance(raw, str) else raw
+    except (ValueError, TypeError):
+        return None
+    return v if (isinstance(v, list) and len(v) > 0) else None
+
+
+async def _load_key_columns(pool, connection_id: str, table: str):
+    """connector_sync_jobs에서 테이블의 key_columns(upsert PK)를 읽어 list|None 반환."""
+    async with pool.acquire() as conn:
+        raw = await conn.fetchval(
+            "SELECT key_columns FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
+            uuid.UUID(connection_id), table
+        )
+    return _parse_key_columns(raw)
 
 
 def _parse_partition_spec(raw):
@@ -1121,7 +1146,7 @@ async def list_tables(connection_id: str):
         pool = await get_db_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT source_table, enabled, sync_mode, incremental_column, last_value, partition_spec FROM connector_sync_jobs WHERE connection_id=$1",
+                "SELECT source_table, enabled, sync_mode, incremental_column, last_value, partition_spec, key_columns FROM connector_sync_jobs WHERE connection_id=$1",
                 uuid.UUID(connection_id)
             )
         config_map = {r['source_table']: r for r in rows}
@@ -1149,6 +1174,7 @@ async def list_tables(connection_id: str):
                 "incremental_column": inc_col,
                 "last_value": last_val,
                 "partition_spec": part_spec,
+                "key_columns": _parse_key_columns(cfg['key_columns']) if cfg else None,
             }
 
         return {"tables": [_table_info(t) for t in tables]}
@@ -1161,10 +1187,11 @@ async def list_tables(connection_id: str):
 
 @router.patch("/connectors/{connection_id}/tables/{table_name}/enabled")
 async def set_table_enabled(connection_id: str, table_name: str, body: dict):
-    """Enable/disable a table and optionally set incremental_column."""
+    """Enable/disable a table and optionally set incremental_column / key_columns(upsert PK)."""
     try:
         enabled             = bool(body.get("enabled", True))
         incremental_column  = body.get("incremental_column")   # None = don't change
+        key_columns         = body.get("key_columns", "__keep__")  # list|[]|None; sentinel=don't change
         pool = await get_db_pool()
         async with pool.acquire() as conn:
             existing = await conn.fetchval(
@@ -1177,6 +1204,10 @@ async def set_table_enabled(connection_id: str, table_name: str, body: dict):
                 if incremental_column is not None:
                     sets.append(f"incremental_column=${len(vals)+1}")
                     vals.append(incremental_column or None)
+                if key_columns != "__keep__":
+                    kc = key_columns if (isinstance(key_columns, list) and key_columns) else None
+                    sets.append(f"key_columns=${len(vals)+1}::jsonb")
+                    vals.append(json.dumps(kc) if kc else None)
                 vals += [uuid.UUID(connection_id), table_name]
                 await conn.execute(
                     f"UPDATE connector_sync_jobs SET {', '.join(sets)} "
@@ -1346,7 +1377,7 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
             pool = await get_db_pool()
             async with pool.acquire() as conn:
                 enabled_rows = await conn.fetch(
-                    """SELECT source_table, enabled, sync_mode, incremental_column, last_value, partition_spec
+                    """SELECT source_table, enabled, sync_mode, incremental_column, last_value, partition_spec, key_columns
                        FROM connector_sync_jobs WHERE connection_id=$1""",
                     uuid.UUID(connection_id)
                 )
@@ -1422,6 +1453,7 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                     last_value=last_value,
                     on_step=on_iceberg_step,
                     partition_spec=partition_spec,
+                    key_columns=_parse_key_columns(job['key_columns']) if job else None,
                 )
 
                 # Emit all sub-steps collected during sync
@@ -1736,6 +1768,7 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
                     sync_mode=request.sync_mode,
                     incremental_column=request.incremental_column,
                     partition_spec=await _load_partition_spec(pool, connection_id, table),
+                    key_columns=await _load_key_columns(pool, connection_id, table),
                 )
                 total_rows += status.rows_processed
                 last_status = status
@@ -1787,6 +1820,7 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
             sync_mode=request.sync_mode,
             incremental_column=request.incremental_column,
             partition_spec=await _load_partition_spec(pool, connection_id, source_table),
+            key_columns=await _load_key_columns(pool, connection_id, source_table),
         )
         job_id = str(uuid.uuid4())
         async with pool.acquire() as conn:
