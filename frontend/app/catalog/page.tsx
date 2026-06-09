@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { ErrorBox } from "@/components/ui/error-box"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -348,7 +349,7 @@ function SendToKnowledgeDialog({ table, onClose }: { table: Table | null; onClos
               </select>
             </div>
             {msg && <p className="text-xs text-emerald-700">{msg}</p>}
-            {err && <p className="text-xs text-amber-700">{err}</p>}
+            {err && <ErrorBox msg={err} />}
           </div>
         )}
         <DialogFooter>
