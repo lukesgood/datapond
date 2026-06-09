@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -27,7 +26,6 @@ const FEATURES = [
 ]
 
 export default function LoginPage() {
-  const router = useRouter()
   const usernameRef = useRef<HTMLInputElement>(null)
 
   const [username, setUsername]   = useState("")
@@ -49,7 +47,7 @@ export default function LoginPage() {
   const [pendingToken, setPendingToken]     = useState<string | null>(null)
 
   useEffect(() => {
-    if (isAuthenticated()) router.replace("/dashboard")
+    if (isAuthenticated()) window.location.replace("/dashboard")
     usernameRef.current?.focus()
 
     // Detect network status
@@ -79,7 +77,7 @@ export default function LoginPage() {
         setLoading(false)
         return
       }
-      router.replace("/dashboard")
+      window.location.replace("/dashboard")
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed"
       setError(msg)
@@ -106,7 +104,7 @@ export default function LoginPage() {
         throw new Error(d.detail ?? "Failed to change password")
       }
       setShowChangePw(false)
-      router.replace("/dashboard")
+      window.location.replace("/dashboard")
     } catch (e) {
       setChangeError(e instanceof Error ? e.message : "Failed")
     } finally {
