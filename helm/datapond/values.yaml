@@ -828,6 +828,15 @@ ollama:
   # are both enabled (e.g. sovereign on-prem), AI works with a local LLM, no manual setup.
   litellmModelName: "default"
 
+  # Local embedding model for sovereign RAG (no egress). When set, it is pulled on
+  # startup and auto-registered in LiteLLM under embedLitellmName (= the backend's
+  # AI_EMBED_MODEL, default "embed") so /ai/{ingest,search,rag} use a local embedder.
+  # ⚠️ The model's output dimension MUST equal ai.embedDim (ai_chunks vector(N)):
+  #   mxbai-embed-large = 1024, bge-m3 = 1024 (match default), nomic-embed-text = 768.
+  # Empty = no local embedding registered (RAG then needs a cloud/registered embedder).
+  embedModel: ""
+  embedLitellmName: "embed"
+
   resources:
     requests:
       cpu: 500m
@@ -840,6 +849,48 @@ ollama:
     enabled: true
     size: 20Gi
     storageClass: ""  # inherit global.storageClass
+
+# ── vLLM — self-hosted OpenAI-compatible LLM server (high-throughput, GPU) ────
+# Sovereign alternative/complement to Ollama for heavier models. Serves an
+# OpenAI-compatible API; a post-install hook auto-registers it in LiteLLM so AI
+# SQL/RAG use it with no manual step. external:false (egress-allowed under local-only).
+# GPU strongly recommended — CPU inference is impractical for real workloads.
+vllm:
+  enabled: false
+  name: vllm
+  image:
+    repository: vllm/vllm-openai
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  # HuggingFace model id (or mounted local path for air-gap).
+  model: "Qwen/Qwen2.5-7B-Instruct"
+  # Name vLLM serves the model under (and the LiteLLM litellm_params model = openai/<this>).
+  servedModelName: "default-vllm"
+  # LiteLLM model_name to register under. "default" makes it the active AI SQL/RAG model.
+  litellmModelName: "default"
+  # API key vLLM requires from clients (LiteLLM presents it). Empty = no auth (dummy key used).
+  apiKey: ""
+  # Extra server args, e.g. ["--max-model-len","8192","--dtype","auto","--gpu-memory-utilization","0.9"]
+  extraArgs: []
+  # HuggingFace token for gated models (optional).
+  hfToken: ""
+  gpu:
+    enabled: true
+    count: 1
+  service:
+    type: ClusterIP
+    port: 8000
+  resources:
+    requests:
+      cpu: "2"
+      memory: 8Gi
+    limits:
+      cpu: "8"
+      memory: 24Gi
+  persistence:
+    enabled: true
+    size: 50Gi          # HuggingFace model cache
+    storageClass: ""    # inherit global.storageClass
 
 # ── Iceberg 테이블 유지보수 DAG (P0-3) ────────────────────────────────────────
 # 모든 프로파일이 상속하는 기본값. 프로파일에서 override 가능.

@@ -39,6 +39,10 @@ spec:
           value: "{{ .Values.ollama.litellmModelName | default "default" }}"
         - name: OLLAMA_MODEL
           value: "{{ .Values.ollama.defaultModel }}"
+        - name: EMBED_NAME
+          value: "{{ .Values.ollama.embedLitellmName | default "embed" }}"
+        - name: EMBED_MODEL
+          value: "{{ .Values.ollama.embedModel }}"
         - name: MASTER_KEY
           valueFrom:
             secretKeyRef:
@@ -57,23 +61,36 @@ spec:
           done
           AUTH="Authorization: Bearer $MASTER_KEY"
 
-          # Register the Ollama model entry (config only — does not need Ollama up yet;
-          # the model is served once Ollama finishes its first pull).
-          echo "Registering '$MODEL_NAME' -> ollama/$OLLAMA_MODEL @ $OLLAMA_URL"
-          code=$(curl -s -o /tmp/o -w "%{http_code}" -X POST "$LITELLM_URL/model/new" \
-            -H "$AUTH" -H "Content-Type: application/json" -d "{
-              \"model_name\":\"$MODEL_NAME\",
-              \"litellm_params\":{\"model\":\"ollama/$OLLAMA_MODEL\",\"api_base\":\"$OLLAMA_URL\"}}")
-          echo "  model/new -> $code"
-          # 200 = created; tolerate duplicates (already registered on a prior run).
-          if [ "$code" = "200" ] || [ "$code" = "201" ]; then
-            echo "Ollama backend registered as '$MODEL_NAME'."
-          else
-            if grep -qi "already exists\|duplicate" /tmp/o; then
-              echo "Already registered — ok."
+          # register <litellm_model_name> <ollama/model> [mode]
+          # Config only — does not need Ollama up yet; the model serves once pulled.
+          # Idempotent: tolerates "already exists" so Helm upgrades re-run cleanly.
+          register() {
+            NAME="$1"; OMODEL="$2"; MODE="$3"
+            EXTRA=""
+            [ "$MODE" = "embedding" ] && EXTRA=",\"mode\":\"embedding\""
+            echo "Registering '$NAME' -> $OMODEL @ $OLLAMA_URL ${MODE:+($MODE)}"
+            code=$(curl -s -o /tmp/o -w "%{http_code}" -X POST "$LITELLM_URL/model/new" \
+              -H "$AUTH" -H "Content-Type: application/json" -d "{
+                \"model_name\":\"$NAME\",
+                \"litellm_params\":{\"model\":\"$OMODEL\",\"api_base\":\"$OLLAMA_URL\"${EXTRA}}}")
+            echo "  model/new -> $code"
+            if [ "$code" = "200" ] || [ "$code" = "201" ]; then
+              echo "  registered '$NAME'."
+            elif grep -qi "already exists\|duplicate" /tmp/o; then
+              echo "  already registered — ok."
             else
               cat /tmp/o; echo "ERROR: model registration failed ($code)"; exit 1
             fi
+          }
+
+          # Chat/SQL model (the active "default" for AI SQL + RAG generation).
+          register "$MODEL_NAME" "ollama/$OLLAMA_MODEL"
+
+          # Embedding model for sovereign RAG (no egress) — only if configured.
+          if [ -n "$EMBED_MODEL" ]; then
+            register "$EMBED_NAME" "ollama/$EMBED_MODEL" "embedding"
+          else
+            echo "No ollama.embedModel set — skipping local embedding registration."
           fi
         resources:
           requests:

@@ -1,0 +1,124 @@
+{{- if .Values.vllm.enabled }}
+---
+# vLLM — self-hosted OpenAI-compatible LLM server. The vllm/vllm-openai image's
+# entrypoint IS the OpenAI API server, so we pass server flags as args.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.vllm.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.vllm.name }}
+    app.kubernetes.io/name: {{ .Values.vllm.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: llm-runtime
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: {{ .Values.vllm.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.vllm.name }}
+    spec:
+      containers:
+      - name: vllm
+        image: "{{ .Values.vllm.image.repository }}:{{ .Values.vllm.image.tag }}"
+        imagePullPolicy: {{ .Values.vllm.image.pullPolicy }}
+        args:
+        - --model
+        - {{ .Values.vllm.model | quote }}
+        - --served-model-name
+        - {{ .Values.vllm.servedModelName | quote }}
+        - --port
+        - {{ .Values.vllm.service.port | quote }}
+        {{- if .Values.vllm.apiKey }}
+        - --api-key
+        - {{ .Values.vllm.apiKey | quote }}
+        {{- end }}
+        {{- range .Values.vllm.extraArgs }}
+        - {{ . | quote }}
+        {{- end }}
+        env:
+        - name: HF_HOME
+          value: /data/hf
+        {{- if .Values.vllm.hfToken }}
+        - name: HUGGING_FACE_HUB_TOKEN
+          value: {{ .Values.vllm.hfToken | quote }}
+        {{- end }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.vllm.service.port }}
+          protocol: TCP
+        volumeMounts:
+        - name: vllm-cache
+          mountPath: /data/hf
+        resources:
+          requests:
+            cpu: {{ .Values.vllm.resources.requests.cpu | quote }}
+            memory: {{ .Values.vllm.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.vllm.resources.limits.cpu | quote }}
+            memory: {{ .Values.vllm.resources.limits.memory }}
+            {{- if .Values.vllm.gpu.enabled }}
+            nvidia.com/gpu: {{ .Values.vllm.gpu.count | default 1 }}
+            {{- end }}
+        # Model load can take minutes — generous startup grace before liveness.
+        startupProbe:
+          httpGet: { path: /health, port: http }
+          periodSeconds: 10
+          failureThreshold: 60   # up to 10 min to load weights
+        livenessProbe:
+          httpGet: { path: /health, port: http }
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet: { path: /health, port: http }
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: vllm-cache
+        {{- if .Values.vllm.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ .Values.vllm.name }}-cache
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+{{- if .Values.vllm.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.vllm.name }}-cache
+  namespace: {{ .Values.namespace }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- $sc := .Values.vllm.persistence.storageClass }}
+  storageClassName: {{ if $sc }}{{ $sc | quote }}{{ else }}{{ .Values.global.storageClass | quote }}{{ end }}
+  resources:
+    requests:
+      storage: {{ .Values.vllm.persistence.size }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.vllm.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.vllm.name }}
+spec:
+  type: {{ .Values.vllm.service.type }}
+  ports:
+  - port: {{ .Values.vllm.service.port }}
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    app: {{ .Values.vllm.name }}
+{{- end }}
