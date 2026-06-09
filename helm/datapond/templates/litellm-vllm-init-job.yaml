@@ -1,0 +1,82 @@
+{{- if and .Values.vllm.enabled .Values.litellm.enabled }}
+---
+# Auto-register the self-hosted vLLM model in the LiteLLM gateway (DB mode) so AI
+# SQL/RAG use it with no manual Settings → AI step. vLLM is OpenAI-compatible, so the
+# litellm model is openai/<served-model-name> with api_base = the vLLM service /v1.
+# Idempotent: tolerates "already exists" so Helm upgrades re-run cleanly.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.litellm.name }}-vllm-init
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.litellm.name }}
+    component: vllm-init
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 5
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.litellm.name }}-vllm-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: vllm-init
+        image: curlimages/curl:8.10.1
+        env:
+        - name: LITELLM_URL
+          value: "http://{{ .Values.litellm.name }}:{{ .Values.litellm.service.port }}"
+        - name: VLLM_BASE
+          value: "http://{{ .Values.vllm.name }}:{{ .Values.vllm.service.port }}/v1"
+        - name: MODEL_NAME
+          value: "{{ .Values.vllm.litellmModelName | default "default" }}"
+        - name: SERVED_MODEL
+          value: "{{ .Values.vllm.servedModelName }}"
+        - name: VLLM_API_KEY
+          value: "{{ .Values.vllm.apiKey | default "dummy" }}"
+        - name: MASTER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: LITELLM_MASTER_KEY
+        command:
+        - sh
+        - -c
+        - |
+          set -e
+          echo "Waiting for LiteLLM gateway..."
+          i=0
+          until curl -sf "$LITELLM_URL/health/readiness" >/dev/null 2>&1; do
+            i=$((i+1)); [ "$i" -gt 60 ] && { echo "ERROR: LiteLLM not ready after 300s"; exit 1; }
+            sleep 5
+          done
+          AUTH="Authorization: Bearer $MASTER_KEY"
+
+          # Config only — does not require vLLM up yet; it serves once weights load.
+          echo "Registering '$MODEL_NAME' -> openai/$SERVED_MODEL @ $VLLM_BASE"
+          code=$(curl -s -o /tmp/o -w "%{http_code}" -X POST "$LITELLM_URL/model/new" \
+            -H "$AUTH" -H "Content-Type: application/json" -d "{
+              \"model_name\":\"$MODEL_NAME\",
+              \"litellm_params\":{\"model\":\"openai/$SERVED_MODEL\",\"api_base\":\"$VLLM_BASE\",\"api_key\":\"$VLLM_API_KEY\"}}")
+          echo "  model/new -> $code"
+          if [ "$code" = "200" ] || [ "$code" = "201" ]; then
+            echo "vLLM backend registered as '$MODEL_NAME'."
+          elif grep -qi "already exists\|duplicate" /tmp/o; then
+            echo "Already registered — ok."
+          else
+            cat /tmp/o; echo "ERROR: model registration failed ($code)"; exit 1
+          fi
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+{{- end }}

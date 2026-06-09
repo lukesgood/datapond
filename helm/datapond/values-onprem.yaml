@@ -325,6 +325,9 @@ ollama:
   # qwen2.5-coder:3b 등으로 낮추거나 enabled:false 후 외부 vLLM/Ollama를 BYO.
   enabled: true
   defaultModel: "qwen2.5-coder:7b"
+  # 주권 RAG용 로컬 임베딩(무유출). bge-m3 = 1024-d(ai.embedDim 기본과 일치) + 다국어(한국어 강함).
+  # post-install 훅이 LiteLLM에 "embed"(=AI_EMBED_MODEL)로 자동 등록 → /ai/{ingest,search,rag} 로컬 사용.
+  embedModel: "bge-m3"
   resources:
     requests:
       cpu: 500m
