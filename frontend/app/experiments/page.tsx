@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { ErrorBox } from "@/components/ui/error-box"
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts"
@@ -524,12 +525,7 @@ function NewExperimentDialog({
               disabled={submitting}
             />
           </div>
-          {error && (
-            <p className="text-xs text-destructive flex items-center gap-1">
-              <AlertCircle className="h-3 w-3" />
-              {error}
-            </p>
-          )}
+          {error && <ErrorBox msg={error} />}
           <DialogFooter>
             <Button
               type="button"

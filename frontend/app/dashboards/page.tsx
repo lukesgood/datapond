@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
+import { ErrorBox } from "@/components/ui/error-box"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -158,12 +159,8 @@ export default function DashboardsPage() {
 
       {/* Error */}
       {error && (
-        <Card className="border-destructive">
-          <CardContent className="py-8 text-center space-y-3">
-            <p className="text-destructive text-sm">{error}</p>
-            <Button onClick={loadDashboards} variant="outline" size="sm">Try Again</Button>
-          </CardContent>
-        </Card>
+        <ErrorBox msg={error}
+          action={<Button onClick={loadDashboards} variant="outline" size="sm">Try Again</Button>} />
       )}
 
       {/* Empty */}

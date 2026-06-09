@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -437,7 +438,7 @@ export function AiBackends() {
               Set as active default after creating
             </label>
 
-            {addErr && <p className="text-xs text-destructive">{addErr}</p>}
+            {addErr && <ErrorBox msg={addErr} />}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
@@ -916,7 +917,7 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
                 <Label className="text-xs">유효기간 <span className="text-muted-foreground">(예: 30d, 24h — 비우면 무기한)</span></Label>
                 <Input className="h-9 text-sm" placeholder="30d" value={duration} onChange={e => setDuration(e.target.value)} />
               </div>
-              {genErr && <p className="text-xs text-destructive">{genErr}</p>}
+              {genErr && <ErrorBox msg={genErr} />}
             </div>
           )}
           <DialogFooter>

@@ -11,13 +11,18 @@ function looksLikeNoModel(msg: string) {
 }
 
 /** Consistent inline error surface (replaces ad-hoc amber/red error divs). */
-export function ErrorBox({ msg, className = "" }: { msg?: string | null; className?: string }) {
+export function ErrorBox({ msg, action, className = "" }: {
+  msg?: string | null
+  action?: ReactNode          // optional retry button etc., rendered under the message
+  className?: string
+}) {
   if (!msg) return null
   return (
     <div className={`rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-700 space-y-1 ${className}`}>
       <div className="flex items-start gap-2">
         <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" /><span>{msg}</span>
       </div>
+      {action && <div className="pl-6 pt-1">{action}</div>}
       {looksLikeNoModel(msg) && (
         <div className="pl-6">
           임베딩/LLM 모델이 설정되지 않았을 수 있습니다 →{" "}

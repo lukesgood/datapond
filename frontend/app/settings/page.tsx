@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
+import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -805,7 +806,7 @@ function UserManagement() {
                 </SelectContent>
               </Select>
             </div>
-            {createError && <p className="text-xs text-destructive">{createError}</p>}
+            {createError && <ErrorBox msg={createError} />}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
@@ -833,7 +834,7 @@ function UserManagement() {
               </div>
               <p className="text-[11px] text-muted-foreground">User will be prompted to change password on next login</p>
             </div>
-            {resetError && <p className="text-xs text-destructive">{resetError}</p>}
+            {resetError && <ErrorBox msg={resetError} />}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setResetTarget(null)}>Cancel</Button>
