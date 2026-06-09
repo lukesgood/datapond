@@ -24,13 +24,14 @@ import { FREQ_OPTIONS, HOUR_OPTIONS, parseCron, cronToFreqHour, nextRun } from "
 
 // ── Tables Card (full-width, searchable) ──────────────────────────────────────
 function TablesCard({
-  tables, latestTableRows, togglingTable, onToggle, connId,
+  tables, latestTableRows, togglingTable, onToggle, connId, onSaved,
 }: {
   tables: { name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null; last_value?: string | null; effective_mode?: string; partition_spec?: {column:string;transform:string}[] | null; key_columns?: string[] | null; pii_columns?: string[] | null }[]
   latestTableRows: Map<string, number>
   togglingTable: string | null
   onToggle: (name: string, enabled: boolean) => void
   connId: string
+  onSaved?: () => void | Promise<void>
 }) {
   const [search, setSearch]             = useState("")
   const [editingTable, setEditingTable] = useState<string | null>(null)
@@ -104,8 +105,8 @@ function TablesCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ partition_spec: partitionSpec }),
       })
-      // Reload page to reflect changes
-      window.location.reload()
+      // Refetch in place instead of a full page reload (no flash / state loss)
+      await onSaved?.()
     } finally {
       setSaving(false)
       setEditingTable(null)
@@ -1174,6 +1175,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         togglingTable={togglingTable}
         onToggle={handleTableToggle}
         connId={id}
+        onSaved={fetchConnector}
       />
 
       {/* ── Sync History: 실행 결과 (결과) ── */}

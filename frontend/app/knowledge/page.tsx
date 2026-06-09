@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Label } from "@/components/ui/label"
 import { getUser } from "@/lib/auth"
 import { useConfirm } from "@/lib/confirm"
+import { ErrorBox } from "@/components/ui/error-box"
 
 interface Collection {
   name: string; embed_model: string; dim: number
@@ -32,27 +33,6 @@ function timeAgo(iso: string | null | undefined): string {
   return `${Math.floor(s / 86400)}일 전`
 }
 interface Hit { source: string | null; content: string; score: number }
-
-// An embedding/gateway error usually means no embedding model is configured — point
-// the user at where to fix it instead of just showing a raw error.
-function looksLikeNoModel(msg: string) {
-  const m = (msg || "").toLowerCase()
-  return m.includes("gateway") || m.includes("embedding") || m.includes("litellm") ||
-         m.includes("502") || m.includes("503") || m.includes("not configured")
-}
-function ErrBox({ msg }: { msg: string }) {
-  return (
-    <div className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-700 space-y-1">
-      <div className="flex items-start gap-2"><AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" /><span>{msg}</span></div>
-      {looksLikeNoModel(msg) && (
-        <div className="pl-6">
-          임베딩/LLM 모델이 설정되지 않았을 수 있습니다 →{" "}
-          <Link href="/settings" className="underline font-medium">Settings → AI</Link>에서 모델을 등록하세요.
-        </div>
-      )}
-    </div>
-  )
-}
 
 export default function KnowledgePage() {
   const [cols, setCols] = useState<Collection[]>([])
@@ -261,7 +241,7 @@ function SearchPanel({ name }: { name: string }) {
         <Button onClick={run} disabled={!q.trim() || busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}</Button>
       </div>
       {pii > 0 && <div className="text-[11px] text-emerald-700 flex items-center gap-1"><ShieldCheck className="h-3 w-3" />PII {pii}건 마스킹 후 처리됨 (가드레일)</div>}
-      {e && <ErrBox msg={e} />}
+      {e && <ErrorBox msg={e} />}
       {ans && <Card><CardContent className="py-3 text-sm whitespace-pre-wrap">{ans}</CardContent></Card>}
       {hits.length > 0 && (
         <div className="space-y-2">
@@ -419,7 +399,7 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
         </>
       )}
       {msg && <p className="text-xs text-emerald-700">{msg}</p>}
-      {e && <ErrBox msg={e} />}
+      {e && <ErrorBox msg={e} />}
     </div>
   )
 }
