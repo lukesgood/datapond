@@ -218,7 +218,8 @@ async def list_collections(user: dict = Depends(require_user)):
         # Admins see all collections; everyone else sees their own + shared (no owner).
         rows = await c.fetch(f"""
             SELECT col.name, col.embed_model, col.dim, col.description, col.created_at,
-                   col.owner_id, COUNT(ch.id) AS chunks
+                   col.owner_id, COUNT(ch.id) AS chunks,
+                   COUNT(DISTINCT ch.source) AS sources, MAX(ch.created_at) AS last_ingested
             FROM ai_collections col
             LEFT JOIN ai_chunks ch ON ch.collection_id = col.id
             {"" if is_admin else "WHERE col.owner_id = $1 OR col.owner_id IS NULL"}
@@ -227,6 +228,8 @@ async def list_collections(user: dict = Depends(require_user)):
     return {"collections": [
         {"name": r["name"], "embed_model": r["embed_model"], "dim": r["dim"],
          "description": r["description"], "chunks": r["chunks"],
+         "sources": r["sources"], "index": "HNSW · cosine",
+         "last_ingested": r["last_ingested"].isoformat() if r["last_ingested"] else None,
          "owner_id": str(r["owner_id"]) if r["owner_id"] else None,
          "created_at": r["created_at"].isoformat() if r["created_at"] else None}
         for r in rows
