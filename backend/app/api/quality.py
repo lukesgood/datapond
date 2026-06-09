@@ -156,15 +156,17 @@ async def run_and_store_quality_checks(
     connection_id: str,
     table_results: list[tuple],  # (table, target, ok, rows, status)
     schema: str = "default",
-) -> None:
+) -> dict:
     """
     Run quality checks for all successfully synced tables and persist results.
-    Called as asyncio.create_task — best-effort, errors are swallowed.
+    Best-effort, errors are swallowed. Returns {table: overall_status} (ok/warning/alert)
+    so a caller can gate on it (await instead of create_task).
     """
     import asyncio
     import json as _json
 
     await ensure_quality_table(pool)
+    statuses: dict = {}
 
     for table, target, ok, rows_current, _ in table_results:
         if not ok or rows_current == 0:
@@ -199,7 +201,9 @@ async def run_and_store_quality_checks(
                     result["overall_status"],
                     _json.dumps(result["warnings"]),
                 )
+            statuses[table] = result["overall_status"]
             logger.info(f"[quality] {table}: {result['overall_status']} "
                         f"({len(result['warnings'])} warnings)")
         except Exception as e:
             logger.warning(f"[quality] check failed for {table}: {e}")
+    return statuses
