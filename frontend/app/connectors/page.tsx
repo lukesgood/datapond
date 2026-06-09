@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -454,13 +455,7 @@ export default function ConnectorsPage() {
           )}
 
           {/* Error */}
-          {error && (
-            <div className="flex items-center gap-2 rounded-lg border border-destructive/30
-                            bg-destructive/5 px-4 py-3 text-sm text-destructive">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              {error}
-            </div>
-          )}
+          {error && <ErrorBox msg={error} />}
 
           {/* Empty state — outside table to avoid border/cell conflicts */}
           {!loading && connections.length === 0 && (

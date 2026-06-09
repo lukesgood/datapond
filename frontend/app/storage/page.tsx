@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -12,7 +13,7 @@ import {
 } from "@/components/ui/table"
 import {
   HardDrive, Database, RefreshCw, Plus, Trash2, FolderOpen,
-  FileText, AlertCircle, ChevronRight, ChevronLeft, Package,
+  FileText, ChevronRight, ChevronLeft, Package,
 } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 
@@ -159,12 +160,7 @@ export default function StoragePage() {
       </div>
 
       {/* Error */}
-      {error && (
-        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          {error}
-        </div>
-      )}
+      {error && <ErrorBox msg={error} />}
 
       {/* Stats strip */}
       <div className="grid grid-cols-4 gap-3">
@@ -215,9 +211,7 @@ export default function StoragePage() {
                   {creating ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                 </Button>
               </div>
-              {actionError && (
-                <p className="text-xs text-destructive">{actionError}</p>
-              )}
+              {actionError && <ErrorBox msg={actionError} />}
               <p className="text-[11px] text-muted-foreground">
                 소문자·숫자·하이픈만 허용
               </p>

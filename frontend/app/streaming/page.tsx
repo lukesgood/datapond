@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useRef } from "react"
+import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -453,11 +454,7 @@ export default function StreamingPage() {
         </Button>
       </div>
 
-      {error && (
-        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          <AlertCircle className="h-4 w-4 shrink-0" />{error}
-        </div>
-      )}
+      {error && <ErrorBox msg={error} />}
 
       {/* DDL Progress banner */}
       {progress.length > 0 && (
