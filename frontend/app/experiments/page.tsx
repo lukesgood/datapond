@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -458,6 +459,7 @@ function NewExperimentDialog({
 }) {
   const [name, setName] = useState("")
   const [artifactLocation, setArtifactLocation] = useState("")
+  const { toast } = useToast()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -480,6 +482,7 @@ function NewExperimentDialog({
         throw new Error(msg || String(res.status))
       }
       const created = await res.json()
+      toast(`실험 "${name.trim()}" 생성됨`, "success")
       onCreate(created)
       setName("")
       setArtifactLocation("")

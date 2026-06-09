@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -113,6 +114,7 @@ export default function StoragePage() {
         const d = await res.json()
         throw new Error(d.detail || "Failed to create bucket")
       }
+      toast(`버킷 "${newBucketName.trim()}" 생성됨`, "success")
       setNewBucketName("")
       await loadOverview()
     } catch (e) {
@@ -122,6 +124,7 @@ export default function StoragePage() {
     }
   }
 
+  const { toast } = useToast()
   const confirm = useConfirm()
   const handleDeleteBucket = async (name: string) => {
     if (!(await confirm({ title: "버킷 삭제", message: `"${name}" 버킷을 삭제합니다. 되돌릴 수 없습니다.`, destructive: true, confirmText: "삭제" }))) return
@@ -133,6 +136,7 @@ export default function StoragePage() {
         throw new Error(d.detail || "Failed to delete")
       }
       if (selectedBucket === name) setSelectedBucket(null)
+      toast(`버킷 "${name}" 삭제됨`, "success")
       await loadOverview()
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed")

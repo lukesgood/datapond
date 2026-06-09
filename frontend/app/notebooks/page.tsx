@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useToast } from "@/lib/toast"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -53,6 +54,7 @@ interface NotebookItem {
 }
 
 export default function NotebooksPage() {
+  const { toast } = useToast()
   const [notebooks, setNotebooks] = useState<NotebookItem[]>([])
   const [filteredNotebooks, setFilteredNotebooks] = useState<NotebookItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -148,6 +150,7 @@ export default function NotebooksPage() {
       if (res.ok) {
         setNewNotebookName("")
         setShowCreateDialog(false)
+        toast(`노트북 "${name}" 생성됨`, "success")
         await fetchNotebooks()
         // Open the newly created notebook
         window.open(`${serviceUrls.jupyter()}/lab/tree/${name}`, "_blank")
@@ -180,6 +183,7 @@ export default function NotebooksPage() {
         `/jupyter/api/contents/${encodeURIComponent(notebookToDelete.path)}?token=jupyter`,
         { method: "DELETE" }
       )
+      toast(`노트북 "${notebookToDelete.name}" 삭제됨`, "success")
       await fetchNotebooks()
     } catch (error) {
       console.error("Failed to delete notebook via API:", error)

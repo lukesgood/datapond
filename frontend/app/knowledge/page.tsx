@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
+import { useToast } from "@/lib/toast"
 import Link from "next/link"
 import { Sparkles, Plus, Trash2, Search, MessageSquare, Database, Upload, AlertCircle, Loader2, FileText, ShieldCheck, Clock, Users } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -35,6 +36,7 @@ function timeAgo(iso: string | null | undefined): string {
 interface Hit { source: string | null; content: string; score: number }
 
 export default function KnowledgePage() {
+  const { toast } = useToast()
   const [cols, setCols] = useState<Collection[]>([])
   const [loading, setLoading] = useState(true)
   const [sel, setSel] = useState<string | null>(null)
@@ -111,7 +113,7 @@ export default function KnowledgePage() {
                           : null}
                     </div>
                     {(me?.role === "admin" || (c.owner_id !== null && me?.id === c.owner_id)) && (
-                      <button aria-label={`Delete collection ${c.name}`} onClick={e => { e.stopPropagation(); deleteCol(c.name, load, confirm) }}
+                      <button aria-label={`Delete collection ${c.name}`} onClick={e => { e.stopPropagation(); deleteCol(c.name, load, confirm, toast) }}
                         className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
                     )}
                   </div>
@@ -141,13 +143,15 @@ export default function KnowledgePage() {
   )
 }
 
-async function deleteCol(name: string, after: () => void, confirm: (o: any) => Promise<boolean>) {
+async function deleteCol(name: string, after: () => void, confirm: (o: any) => Promise<boolean>, notify?: (m: string, t?: any) => void) {
   if (!(await confirm({ title: "컬렉션 삭제", message: `"${name}" 와 모든 청크를 삭제합니다. 되돌릴 수 없습니다.`, destructive: true, confirmText: "삭제" }))) return
   await fetch(`/api/ai/collections/${encodeURIComponent(name)}`, { method: "DELETE" })
+  notify?.(`컬렉션 "${name}" 삭제됨`, "success")
   after()
 }
 
 function CreateCollection({ onCreated }: { onCreated: () => void }) {
+  const { toast } = useToast()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState(""); const [desc, setDesc] = useState("")
   const [busy, setBusy] = useState(false); const [e, setE] = useState<string | null>(null)
@@ -160,7 +164,7 @@ function CreateCollection({ onCreated }: { onCreated: () => void }) {
         body: JSON.stringify({ name: name.trim(), description: desc || undefined }),
       })
       if (!r.ok) throw new Error((await r.json()).detail || "Create failed")
-      setOpen(false); setName(""); setDesc(""); onCreated()
+      setOpen(false); toast(`컬렉션 "${name.trim()}" 생성됨`, "success"); setName(""); setDesc(""); onCreated()
     } catch (err: any) { setE(err.message) }
     setBusy(false)
   }

@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -136,11 +137,13 @@ export function AiBackends() {
       })
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || "Failed to add backend") }
       setShowAdd(false); setForm({ ...emptyForm })
+      toast(`백엔드 '${form.model_name.trim()}' 추가됨`, "success")
       await load()
     } catch (e) { setAddErr(e instanceof Error ? e.message : "Failed") }
     finally { setAdding(false) }
   }
 
+  const { toast } = useToast()
   const confirm = useConfirm()
   const deleteBackend = async (b: Backend) => {
     if (!b.id) return
@@ -149,6 +152,7 @@ export function AiBackends() {
     try {
       const res = await fetch(`/api/settings/ai/backends/${encodeURIComponent(b.id)}`, { method: "DELETE" })
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `Delete failed (${res.status})`) }
+      toast(`백엔드 '${b.model_name}' 제거됨`, "success")
       await load()
     } catch (e) { setActionErr(e instanceof Error ? e.message : "Delete failed") }
     finally { setBusy(null) }
@@ -163,6 +167,7 @@ export function AiBackends() {
         body: JSON.stringify({ model_name: b.model_name }),
       })
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `Activate failed (${res.status})`) }
+      toast(`'${b.model_name}' 활성 백엔드로 전환됨`, "success")
       await load()
     } catch (e) { setActionErr(e instanceof Error ? e.message : "Activate failed") }
     finally { setBusy(null) }
@@ -774,6 +779,7 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
     finally { setGenerating(false) }
   }
 
+  const { toast } = useToast()
   const confirm = useConfirm()
   const remove = async (k: VKey) => {
     if (!(await confirm({ title: "키 취소", message: `'${k.key_alias || k.token}' 키를 취소할까요?`, destructive: true, confirmText: "취소(Revoke)" }))) return
@@ -781,6 +787,7 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
     try {
       const res = await fetch(`/api/settings/ai/keys/${encodeURIComponent(k.token)}`, { method: "DELETE" })
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `Revoke failed (${res.status})`) }
+      toast("API 키 취소됨", "success")
       await load()
     } catch (e) { setGenErr(e instanceof Error ? e.message : "Revoke failed") }
     finally { setBusy(null) }
