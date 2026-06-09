@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback, useRef } from "react"
+import { useToast } from "@/lib/toast"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
@@ -86,6 +87,7 @@ function RunStateBadge({ state }: { state: string }) {
 
 // ── Main ───────────────────────────────────────────────────────────────────
 export default function DagDetailPage() {
+  const { toast } = useToast()
   const params  = useParams()
   const router  = useRouter()
   const dag_id  = params.dag_id as string
@@ -197,7 +199,7 @@ export default function DagDetailPage() {
       setTriggerOpen(false); setTriggerConf("{}")
       setTimeout(load, 1500)
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed")
+      toast(e instanceof Error ? e.message : "Failed", "error")
     } finally {
       setTriggering(false)
     }

@@ -3,6 +3,7 @@ import { Inter } from "next/font/google"
 import "./globals.css"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ToastProvider } from "@/lib/toast"
+import { ConfirmProvider } from "@/lib/confirm"
 import { AuthInterceptor } from "@/components/auth-interceptor"
 import { ConditionalLayout } from "@/components/conditional-layout"
 
@@ -18,12 +19,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex font-sans">
         <ToastProvider>
-          <AuthInterceptor />
-          <TooltipProvider>
-            <ConditionalLayout>
-              {children}
-            </ConditionalLayout>
-          </TooltipProvider>
+          <ConfirmProvider>
+            <AuthInterceptor />
+            <TooltipProvider>
+              <ConditionalLayout>
+                {children}
+              </ConditionalLayout>
+            </TooltipProvider>
+          </ConfirmProvider>
         </ToastProvider>
       </body>
     </html>

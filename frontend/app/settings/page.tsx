@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
+import { useConfirm } from "@/lib/confirm"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -597,8 +598,9 @@ function UserManagement() {
     fetchUsers()
   }
 
+  const confirmDialog = useConfirm()
   const handleDelete = async (u: UserRecord) => {
-    if (!confirm(`Delete user '${u.username}'? This cannot be undone.`)) return
+    if (!(await confirmDialog({ title: "사용자 삭제", message: `'${u.username}' 사용자를 삭제합니다. 되돌릴 수 없습니다.`, destructive: true, confirmText: "삭제" }))) return
     const r = await fetch(`/api/auth/users/${u.id}`, { method: "DELETE" })
     if (r.ok) { notify(`User '${u.username}' deleted`); fetchUsers() }
     else notify("Failed to delete user", false)

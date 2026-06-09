@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { useConfirm } from "@/lib/confirm"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -139,9 +140,10 @@ export function AiBackends() {
     finally { setAdding(false) }
   }
 
+  const confirm = useConfirm()
   const deleteBackend = async (b: Backend) => {
     if (!b.id) return
-    if (!confirm(`Remove backend '${b.model_name}'? This cannot be undone.`)) return
+    if (!(await confirm({ title: "백엔드 제거", message: `'${b.model_name}' 백엔드를 제거합니다. 되돌릴 수 없습니다.`, destructive: true, confirmText: "제거" }))) return
     setBusy(b.model_name); setActionErr(null)
     try {
       const res = await fetch(`/api/settings/ai/backends/${encodeURIComponent(b.id)}`, { method: "DELETE" })
@@ -771,8 +773,9 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
     finally { setGenerating(false) }
   }
 
+  const confirm = useConfirm()
   const remove = async (k: VKey) => {
-    if (!confirm(`Revoke key '${k.key_alias || k.token}'?`)) return
+    if (!(await confirm({ title: "키 취소", message: `'${k.key_alias || k.token}' 키를 취소할까요?`, destructive: true, confirmText: "취소(Revoke)" }))) return
     setBusy(k.token); setGenErr(null)
     try {
       const res = await fetch(`/api/settings/ai/keys/${encodeURIComponent(k.token)}`, { method: "DELETE" })

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, Suspense } from "react"
+import { useToast } from "@/lib/toast"
 import { useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -88,6 +89,7 @@ interface Transform {
 }
 
 function PipelinesPageInner() {
+  const { toast } = useToast()
   const searchParams = useSearchParams()
   const defaultTab = searchParams.get("tab") === "history" ? "history" : "pipelines"
   const [dags, setDags] = useState<DAG[]>([])
@@ -231,7 +233,7 @@ function PipelinesPageInner() {
       }
     } catch (err) {
       console.error("Failed to trigger DAG:", err)
-      alert("Failed to trigger DAG")
+      toast("DAG 트리거 실패", "error")
     }
   }
 
@@ -254,7 +256,7 @@ function PipelinesPageInner() {
       }
     } catch (err) {
       console.error("Failed to toggle pause:", err)
-      alert("Failed to update DAG")
+      toast("DAG 업데이트 실패", "error")
     }
   }
 
@@ -269,7 +271,7 @@ function PipelinesPageInner() {
       }
     } catch (err) {
       console.error("Failed to delete:", err)
-      alert("파이프라인 삭제에 실패했습니다.")
+      toast("파이프라인 삭제에 실패했습니다.", "error")
     } finally {
       setDeleteTarget(null)
     }
