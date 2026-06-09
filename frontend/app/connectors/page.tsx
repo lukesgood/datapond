@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
 import { useRouter } from "next/navigation"
@@ -269,18 +270,21 @@ export default function ConnectorsPage() {
     setActionLoading(id)
     try {
       await fetch(`/api/connectors/${id}/sync`, { method: "POST" })
+      toast("동기화 시작됨 — 진행 상황은 커넥터 상세에서 확인", "info")
       await fetchConnections()
     } finally {
       setActionLoading(null)
     }
   }
 
+  const { toast } = useToast()
   const confirm = useConfirm()
   const handleDelete = async (id: string) => {
     if (!(await confirm({ title: "커넥션 삭제", message: "이 커넥션을 삭제할까요?", destructive: true, confirmText: "삭제" }))) return
     setActionLoading(id)
     try {
       await fetch(`/api/connectors/${id}`, { method: "DELETE" })
+      toast("커넥션 삭제됨", "success")
       setConnections(prev => prev.filter(c => c.id !== id))
     } finally {
       setActionLoading(null)

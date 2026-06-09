@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useRef } from "react"
+import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
 import { useRouter } from "next/navigation"
@@ -401,10 +402,12 @@ export default function StreamingPage() {
     }
   }
 
+  const { toast } = useToast()
   const confirm = useConfirm()
   const handleDrop = async (type: string, name: string) => {
     if (!(await confirm({ title: `${type} 삭제`, message: `"${name}" 를 삭제할까요?`, destructive: true, confirmText: "삭제" }))) return
     await fetch(`/api/streaming/${type}/${name}`, { method: "DELETE" })
+    toast(`${name} 삭제됨`, "success")
     fetchAll()
   }
 
@@ -421,6 +424,7 @@ export default function StreamingPage() {
     for (const name of pipeline.sinks)   await fetch(`/api/streaming/sinks/${name}`,   { method: "DELETE" })
     for (const name of pipeline.views)   await fetch(`/api/streaming/views/${name}`,   { method: "DELETE" })
     for (const name of pipeline.sources) await fetch(`/api/streaming/sources/${name}`, { method: "DELETE" })
+    toast(`파이프라인 "${pipeline.name}" 삭제됨`, "success")
     fetchAll()
   }
 

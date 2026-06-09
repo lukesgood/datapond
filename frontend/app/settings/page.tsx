@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
+import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -17,7 +18,7 @@ import {
   Settings, Server, Package, Database, Activity, Cpu, HardDrive,
   CheckCircle2, ExternalLink, RefreshCw, Copy, Info, ShieldCheck,
   GitBranch, Box, Clock, Layers, AlertCircle, Users, Plus, Trash2,
-  Eye, EyeOff, UserPlus, KeyRound, Shield, UserX, UserCheck, X, SlidersHorizontal,
+  Eye, EyeOff, UserPlus, KeyRound, Shield, UserX, UserCheck, SlidersHorizontal,
   Link, Terminal,
 } from "lucide-react"
 import { getUser } from "@/lib/auth"
@@ -499,7 +500,6 @@ function UserManagement() {
 
   const [users, setUsers]         = useState<UserRecord[]>([])
   const [loading, setLoading]     = useState(true)
-  const [actionMsg, setActionMsg] = useState<{ text: string; ok: boolean } | null>(null)
 
   const [showCreate, setShowCreate]   = useState(false)
   const [newUsername, setNewUsername] = useState("")
@@ -539,7 +539,8 @@ function UserManagement() {
 
   useEffect(() => { fetchUsers() }, [fetchUsers])
 
-  const notify = (text: string, ok = true) => { setActionMsg({ text, ok }); setTimeout(() => setActionMsg(null), 4000) }
+  const { toast } = useToast()
+  const notify = (text: string, ok = true) => toast(text, ok ? "success" : "error")
 
   const handleCreate = async () => {
     if (!newUsername || !newPassword) return
@@ -649,16 +650,6 @@ function UserManagement() {
 
   return (
     <div className="space-y-4">
-      {/* Feedback banner */}
-      {actionMsg && (
-        <div className={`flex items-center justify-between rounded-lg border px-4 py-2.5 text-sm ${
-          actionMsg.ok
-            ? "border-green-200 bg-green-50/50 text-green-700"
-            : "border-destructive/20 bg-destructive/5 text-destructive"}`}>
-          <span>{actionMsg.text}</span>
-          <button onClick={() => setActionMsg(null)}><X className="h-4 w-4" /></button>
-        </div>
-      )}
 
       {/* Toolbar */}
       <div className="flex items-center gap-2">
