@@ -26,7 +26,7 @@ import { FREQ_OPTIONS, HOUR_OPTIONS, parseCron, cronToFreqHour, nextRun } from "
 function TablesCard({
   tables, latestTableRows, togglingTable, onToggle, connId,
 }: {
-  tables: { name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null; last_value?: string | null; effective_mode?: string; partition_spec?: {column:string;transform:string}[] | null; key_columns?: string[] | null }[]
+  tables: { name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null; last_value?: string | null; effective_mode?: string; partition_spec?: {column:string;transform:string}[] | null; key_columns?: string[] | null; pii_columns?: string[] | null }[]
   latestTableRows: Map<string, number>
   togglingTable: string | null
   onToggle: (name: string, enabled: boolean) => void
@@ -37,6 +37,7 @@ function TablesCard({
   const [editMode, setEditMode]         = useState("full")
   const [editIncCol, setEditIncCol]     = useState("")
   const [editKeyCols, setEditKeyCols]   = useState("")   // 쉼표구분 PK (증분 upsert)
+  const [editPiiCols, setEditPiiCols]   = useState("")   // 쉼표구분 마스킹 컬럼 (* = 전체)
   // 파티션: editPartCol "" = Auto(자동추론), "__none__" = 무파티션, 그 외 = 컬럼명
   const [editPartCol, setEditPartCol]   = useState("")
   const [editPartTransform, setEditPartTransform] = useState("day")
@@ -54,6 +55,7 @@ function TablesCard({
     setEditMode(t.sync_mode || "full")
     setEditIncCol(t.incremental_column || "")
     setEditKeyCols((t.key_columns || []).join(", "))
+    setEditPiiCols((t.pii_columns || []).join(", "))
     // 파티션 초기화: null/undefined = Auto, [] = None, [{...}] = 첫 필드
     const ps = t.partition_spec
     if (ps == null)            { setEditPartCol(""); setEditPartTransform("day") }
@@ -84,6 +86,7 @@ function TablesCard({
           enabled: tables.find(t => t.name === editingTable)?.enabled ?? true,
           incremental_column: editIncCol || null,
           key_columns: editKeyCols.split(",").map(s => s.trim()).filter(Boolean),
+          pii_columns: editPiiCols.split(",").map(s => s.trim()).filter(Boolean),
         }),
       })
       await fetch(`/api/connectors/${connId}/sync-mode`, {
@@ -327,6 +330,23 @@ function TablesCard({
                             <p className="text-[10px] text-emerald-600">merge by [{editKeyCols.split(",").map(s=>s.trim()).filter(Boolean).join(", ")}] — 변경행 갱신·중복 방지</p>
                           )}
                         </div>
+                        {/* PII 마스킹 — 적재 전 민감 컬럼 마스킹(주권/규제). 모든 sync 모드 적용 */}
+                        <div className="space-y-1 pt-1 border-t">
+                          <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                            PII Masking Columns
+                          </label>
+                          <Input
+                            value={editPiiCols}
+                            onChange={e => setEditPiiCols(e.target.value)}
+                            placeholder="e.g. email, phone  ·  * = 모든 문자열 컬럼  (비우면 비활성)"
+                            className="h-7 text-xs font-mono"
+                          />
+                          {editPiiCols.trim() && (
+                            <p className="text-[10px] text-emerald-600">
+                              적재 전 마스킹: {editPiiCols.trim() === "*" ? "모든 문자열 컬럼" : `[${editPiiCols.split(",").map(s=>s.trim()).filter(Boolean).join(", ")}]`} (주민/전화/카드/이메일 등)
+                            </p>
+                          )}
+                        </div>
                         {/* 파티셔닝 (Iceberg) */}
                         <div className="grid grid-cols-2 gap-3 pt-1 border-t">
                           <div className="space-y-1">
@@ -522,7 +542,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const router = useRouter()
 
   const [connector, setConnector]         = useState<Connector | null>(null)
-  const [tables, setTables]               = useState<{name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null; last_value?: string | null; effective_mode?: string}[]>([])
+  const [tables, setTables]               = useState<{name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null; last_value?: string | null; effective_mode?: string; partition_spec?: {column:string;transform:string}[] | null; key_columns?: string[] | null; pii_columns?: string[] | null}[]>([])
   const [togglingTable, setTogglingTable] = useState<string | null>(null)
   const [configPreview, setConfigPreview] = useState<Record<string, any>>({})
   const [loading, setLoading]             = useState(true)
@@ -620,6 +640,8 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                 last_value: tb.last_value ?? null,
                 effective_mode: tb.effective_mode ?? tb.sync_mode ?? "full",
                 partition_spec: tb.partition_spec ?? null,
+                key_columns: tb.key_columns ?? null,
+                pii_columns: tb.pii_columns ?? null,
               }
         ))
       }

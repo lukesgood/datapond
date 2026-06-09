@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS connector_sync_jobs (
     last_value TEXT,
     partition_spec JSONB,          -- [{"column":"created_at","transform":"day"}] · NULL이면 자동 추론
     key_columns JSONB,             -- ["id"] 증분 upsert(merge) PK · NULL/[]이면 append(upsert 비활성)
+    pii_columns JSONB,             -- ["email","ssn"] 적재 전 마스킹 대상 · ["*"]=모든 문자열 · NULL/[]=비활성
     primary_keys TEXT[],           -- (legacy, 미사용 — key_columns 사용)
     last_run_at TIMESTAMP,
     last_run_status VARCHAR(20),
