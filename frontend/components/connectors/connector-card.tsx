@@ -56,11 +56,9 @@ export function ConnectorCard({ connector }: ConnectorCardProps) {
         {/* Button — always at bottom */}
         <div className="mt-auto">
           {connector.supported ? (
-            <Link href={`/connectors/${connector.id}/setup`} className="block">
-              <Button className="w-full" size="sm">
-                Connect
-              </Button>
-            </Link>
+            <Button className="w-full" size="sm" render={<Link href={`/connectors/${connector.id}/setup`} />}>
+              Connect
+            </Button>
           ) : (
             <Button className="w-full" size="sm" variant="secondary" disabled>
               Coming Soon

@@ -197,9 +197,7 @@ export default function DocArticlePage() {
             {doc.related && doc.related.length > 0 && (
               <div className="pt-2 flex flex-wrap gap-2">
                 {doc.related.map((r, i) => (
-                  <Link key={i} href={r.href}>
-                    <Button size="sm" variant="outline" className="gap-1.5">{r.label}<ArrowRight className="h-3.5 w-3.5" /></Button>
-                  </Link>
+                  <Button key={i} size="sm" variant="outline" className="gap-1.5" render={<Link href={r.href} />}>{r.label}<ArrowRight className="h-3.5 w-3.5" /></Button>
                 ))}
               </div>
             )}
@@ -212,7 +210,7 @@ export default function DocArticlePage() {
         <Card>
           <CardContent className="py-8 text-center space-y-3">
             <p className="text-sm text-muted-foreground">이 문서(<span className="font-mono">{slug}</span>)는 아직 준비 중입니다.</p>
-            <Link href="/docs"><Button size="sm" variant="outline"><ArrowLeft className="h-3.5 w-3.5 mr-1.5" />문서 홈</Button></Link>
+            <Button size="sm" variant="outline" render={<Link href="/docs" />}><ArrowLeft className="h-3.5 w-3.5 mr-1.5" />문서 홈</Button>
           </CardContent>
         </Card>
       )}

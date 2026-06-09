@@ -112,12 +112,11 @@ export function DagCard({
 
       {/* Action buttons */}
       <div className="flex items-center gap-2 pt-1">
-        <Link href={`/pipelines/${dag_id}`} className="flex-1">
-          <Button variant="outline" size="sm" className="w-full h-7 text-xs gap-1.5">
-            <LinkIcon className="h-3 w-3" />
-            Details
-          </Button>
-        </Link>
+        <Button variant="outline" size="sm" className="flex-1 h-7 text-xs gap-1.5"
+          render={<Link href={`/pipelines/${dag_id}`} />}>
+          <LinkIcon className="h-3 w-3" />
+          Details
+        </Button>
         <Button
           variant="outline" size="sm"
           className="h-7 w-7 p-0"
