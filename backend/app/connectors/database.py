@@ -54,9 +54,34 @@ class DatabaseConfig(ConnectorConfig):
 INGEST_CHUNK_SIZE = int(os.getenv("INGEST_CHUNK_SIZE", "50000"))
 
 
+def _mask_pii_in_chunk(chunk, pii_columns) -> int:
+    """Mask configured columns' string cells (pii_ko) BEFORE they're written to Iceberg —
+    sensitive data never lands raw in the lakehouse. pii_columns == ['*'] scans all
+    string columns; otherwise only the named ones. Returns # of cells changed. In-place."""
+    if not pii_columns:
+        return 0
+    from app.guardrails import pii_ko
+    cols = (list(chunk.columns) if pii_columns == ["*"]
+            else [c for c in pii_columns if c in chunk.columns])
+    changed = 0
+    for col in cols:
+        if chunk[col].dtype != object:   # only string/object columns can carry PII text
+            continue
+        def _m(v):
+            nonlocal changed
+            if isinstance(v, str) and v:
+                mv = pii_ko.mask(v)
+                if mv != v:
+                    changed += 1
+                return mv
+            return v
+        chunk[col] = chunk[col].map(_m)
+    return changed
+
+
 def _read_write_chunked(engine, query, source_table, write_mode, incremental_column,
                         on_step=None, partition_spec=None, key_columns=None,
-                        chunk_size=INGEST_CHUNK_SIZE):
+                        pii_columns=None, chunk_size=INGEST_CHUNK_SIZE):
     """Stream a source query in chunks → write to Iceberg, bounding memory to one chunk.
 
     Uses a server-side cursor (execution_options(stream_results=True)) so the DB driver
@@ -70,12 +95,15 @@ def _read_write_chunked(engine, query, source_table, write_mode, incremental_col
     # Without keys, incremental falls back to append (historical behavior).
     upsert = bool(key_columns) and write_mode == "append"
     rows = 0
+    masked = 0
     typed_max = None
     first = True
     with engine.connect().execution_options(stream_results=True) as conn:
         for chunk in pd.read_sql(query, conn, chunksize=chunk_size):
             if chunk.empty:
                 continue
+            # PII 마스킹 — 원천 데이터가 raw로 레이크하우스에 적재되기 전 차단(주권/규제).
+            masked += _mask_pii_in_chunk(chunk, pii_columns)
             if upsert:
                 write_dataframe_to_iceberg(chunk, source_table, mode="upsert",
                                            join_cols=key_columns,
@@ -99,6 +127,10 @@ def _read_write_chunked(engine, query, source_table, write_mode, incremental_col
         empty = pd.read_sql(f"SELECT * FROM ({query}) AS _src LIMIT 0", engine)
         write_dataframe_to_iceberg(empty, source_table, mode="overwrite",
                                    on_step=on_step, partition_spec=partition_spec)
+    if masked and on_step:
+        on_step("pii_mask", f"PII 마스킹: {masked} cell(s)", {"masked": masked})
+    elif masked:
+        logger.info(f"[ingest] PII masked {masked} cell(s) in {source_table}")
     return rows, (str(typed_max) if typed_max is not None else None)
 
 
@@ -257,6 +289,7 @@ class PostgreSQLConnector(BaseConnector):
         on_step=None,
         partition_spec: Optional[list] = None,
         key_columns: Optional[list] = None,
+        pii_columns: Optional[list] = None,
     ) -> SyncJobStatus:
         """Synchronize PostgreSQL table to Iceberg via SeaweedFS S3 + Trino."""
         from .iceberg_writer import write_dataframe_to_iceberg
@@ -276,7 +309,7 @@ class PostgreSQLConnector(BaseConnector):
             write_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
             rows_processed, max_value = await asyncio.to_thread(
                 _read_write_chunked, engine, query, source_table, write_mode,
-                incremental_column, on_step, partition_spec, key_columns)
+                incremental_column, on_step, partition_spec, key_columns, pii_columns)
             logger.info(f"[pg_connector] Synced {rows_processed} rows from {src_schema}.{source_table} (chunked)")
 
             return SyncJobStatus(
@@ -451,6 +484,7 @@ class MySQLConnector(BaseConnector):
         on_step=None,
         partition_spec: Optional[list] = None,
         key_columns: Optional[list] = None,
+        pii_columns: Optional[list] = None,
     ) -> SyncJobStatus:
         """Synchronize MySQL table to Iceberg via SeaweedFS S3 + Trino."""
         from .iceberg_writer import write_dataframe_to_iceberg
@@ -465,7 +499,7 @@ class MySQLConnector(BaseConnector):
             write_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
             rows_processed, max_value = await asyncio.to_thread(
                 _read_write_chunked, engine, query, source_table, write_mode,
-                incremental_column, on_step, partition_spec, key_columns)
+                incremental_column, on_step, partition_spec, key_columns, pii_columns)
             logger.info(f"[mysql_connector] Synced {rows_processed} rows from {source_table} (chunked)")
 
             return SyncJobStatus(
@@ -695,6 +729,7 @@ class DatabaseURLConnector(BaseConnector):
         on_step=None,
         partition_spec: Optional[list] = None,
         key_columns: Optional[list] = None,
+        pii_columns: Optional[list] = None,
     ) -> SyncJobStatus:
         """Sync table data to Iceberg via SeaweedFS S3 + Trino."""
         from .iceberg_writer import write_dataframe_to_iceberg
