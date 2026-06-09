@@ -369,14 +369,19 @@ async def test_backend(model_name: str):
 async def list_keys():
     """List virtual API keys with their budget/spend/limits."""
     url, key = _gateway()
+    # Graceful: a gateway hiccup or an unexpected non-2xx (e.g. param validation)
+    # returns an empty list rather than a 502 that breaks the whole AI settings tab.
     try:
         async with httpx.AsyncClient(timeout=10) as c:
             r = await c.get(f"{url}/key/list", headers=_headers(key),
-                            params={"return_full_object": "true", "size": "200"})
-            r.raise_for_status()
-            data = r.json()
-    except httpx.HTTPError as e:
-        raise HTTPException(502, f"Cannot reach LiteLLM gateway: {_short(str(e), 200)}")
+                            params={"return_full_object": "true", "size": "100"})
+        if r.status_code >= 400:
+            logger.warning(f"[ai_backends] key/list {r.status_code}: {_short(r.text, 160)}")
+            return {"keys": [], "detail": _short(r.text, 160)}
+        data = r.json()
+    except Exception as e:
+        logger.warning(f"[ai_backends] key/list failed: {e}")
+        return {"keys": [], "detail": _short(str(e), 160)}
 
     raw = data.get("keys", []) if isinstance(data, dict) else (data or [])
     out = []
@@ -514,7 +519,7 @@ async def usage_summary():
             out["total_tokens"] = sum(m["total_tokens"] for m in out["models"])
             # per-key budget consumption
             kl = await c.get(f"{url}/key/list", headers=h,
-                             params={"return_full_object": "true", "size": "200"})
+                             params={"return_full_object": "true", "size": "100"})
             if kl.status_code < 400:
                 data = kl.json()
                 raw = data.get("keys", []) if isinstance(data, dict) else (data or [])
@@ -570,7 +575,7 @@ async def budget_alerts(threshold: float = 80.0):
                     out["global"] = {"spend": round(sp, 6), "max_budget": mb, "pct": pct,
                                      "alert": pct >= threshold}
             kl = await c.get(f"{url}/key/list", headers=h,
-                             params={"return_full_object": "true", "size": "200"})
+                             params={"return_full_object": "true", "size": "100"})
             if kl.status_code < 400:
                 data = kl.json()
                 raw = data.get("keys", []) if isinstance(data, dict) else (data or [])
