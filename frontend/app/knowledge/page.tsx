@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { getUser } from "@/lib/auth"
+import { useConfirm } from "@/lib/confirm"
 
 interface Collection {
   name: string; embed_model: string; dim: number
@@ -60,6 +61,7 @@ export default function KnowledgePage() {
   const [egress, setEgress] = useState<string>("")
   const [err, setErr] = useState<string | null>(null)
   const me = getUser()
+  const confirm = useConfirm()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -129,7 +131,7 @@ export default function KnowledgePage() {
                           : null}
                     </div>
                     {(me?.role === "admin" || (c.owner_id !== null && me?.id === c.owner_id)) && (
-                      <button onClick={e => { e.stopPropagation(); deleteCol(c.name, load) }}
+                      <button onClick={e => { e.stopPropagation(); deleteCol(c.name, load, confirm) }}
                         className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
                     )}
                   </div>
@@ -159,8 +161,8 @@ export default function KnowledgePage() {
   )
 }
 
-async function deleteCol(name: string, after: () => void) {
-  if (!confirm(`Delete collection "${name}" and all its chunks?`)) return
+async function deleteCol(name: string, after: () => void, confirm: (o: any) => Promise<boolean>) {
+  if (!(await confirm({ title: "컬렉션 삭제", message: `"${name}" 와 모든 청크를 삭제합니다. 되돌릴 수 없습니다.`, destructive: true, confirmText: "삭제" }))) return
   await fetch(`/api/ai/collections/${encodeURIComponent(name)}`, { method: "DELETE" })
   after()
 }

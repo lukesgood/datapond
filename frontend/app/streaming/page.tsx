@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useRef } from "react"
+import { useConfirm } from "@/lib/confirm"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -399,8 +400,9 @@ export default function StreamingPage() {
     }
   }
 
+  const confirm = useConfirm()
   const handleDrop = async (type: string, name: string) => {
-    if (!confirm(`Drop ${type} "${name}"?`)) return
+    if (!(await confirm({ title: `${type} 삭제`, message: `"${name}" 를 삭제할까요?`, destructive: true, confirmText: "삭제" }))) return
     await fetch(`/api/streaming/${type}/${name}`, { method: "DELETE" })
     fetchAll()
   }
@@ -414,7 +416,7 @@ export default function StreamingPage() {
   }
 
   const handleDropPipeline = async (pipeline: PipelineGroup) => {
-    if (!confirm(`Delete pipeline "${pipeline.name}" and all ${pipeline.tables.length * 3} associated objects?`)) return
+    if (!(await confirm({ title: "파이프라인 삭제", message: `"${pipeline.name}" 와 연관 객체 ${pipeline.tables.length * 3}개를 삭제합니다.`, destructive: true, confirmText: "삭제" }))) return
     for (const name of pipeline.sinks)   await fetch(`/api/streaming/sinks/${name}`,   { method: "DELETE" })
     for (const name of pipeline.views)   await fetch(`/api/streaming/views/${name}`,   { method: "DELETE" })
     for (const name of pipeline.sources) await fetch(`/api/streaming/sources/${name}`, { method: "DELETE" })

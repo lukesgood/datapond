@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useRef } from "react"
+import { useConfirm } from "@/lib/confirm"
 import { useParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -166,8 +167,9 @@ export default function ServiceDetailPage() {
     }
   }
 
+  const confirm = useConfirm()
   const handleRestart = async () => {
-    if (!confirm("Are you sure you want to restart this service?")) return
+    if (!(await confirm({ title: "서비스 재시작", message: "이 서비스를 재시작할까요?", confirmText: "재시작" }))) return
 
     setIsRestarting(true)
     try {

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useConfirm } from "@/lib/confirm"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -273,8 +274,9 @@ export default function ConnectorsPage() {
     }
   }
 
+  const confirm = useConfirm()
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this connection?")) return
+    if (!(await confirm({ title: "커넥션 삭제", message: "이 커넥션을 삭제할까요?", destructive: true, confirmText: "삭제" }))) return
     setActionLoading(id)
     try {
       await fetch(`/api/connectors/${id}`, { method: "DELETE" })

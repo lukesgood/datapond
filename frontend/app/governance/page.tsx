@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useConfirm } from "@/lib/confirm"
+import { useToast } from "@/lib/toast"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -218,8 +220,9 @@ function AccessControlTab() {
       body: JSON.stringify({ enabled: !p.enabled }),
     }); load()
   }
+  const confirm = useConfirm()
   const deletePolicy = async (id: string) => {
-    if (!confirm("정책을 삭제할까요?")) return
+    if (!(await confirm({ title: "정책 삭제", message: "이 RLS 정책을 삭제할까요?", destructive: true, confirmText: "삭제" }))) return
     await fetch(`/api/governance/rls/policies/${id}`, { method: "DELETE" }); load()
   }
   const runPreview = async () => {
@@ -329,6 +332,7 @@ function AccessControlTab() {
 // ─── main page ────────────────────────────────────────────────────────────────
 
 export default function GovernancePage() {
+  const { toast } = useToast()
   // stats
   const [stats, setStats] = useState<GovernanceStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(true)
@@ -819,7 +823,7 @@ export default function GovernancePage() {
 
               {/* Export button */}
               <Button
-                onClick={() => alert("리포트 생성 기능은 준비 중입니다.")}
+                onClick={() => toast("리포트 생성 기능은 준비 중입니다.", "info")}
                 className="gap-2"
               >
                 <FileText className="h-4 w-4" />

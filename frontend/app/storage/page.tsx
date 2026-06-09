@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useConfirm } from "@/lib/confirm"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -120,8 +121,9 @@ export default function StoragePage() {
     }
   }
 
+  const confirm = useConfirm()
   const handleDeleteBucket = async (name: string) => {
-    if (!confirm(`Delete bucket "${name}"? This cannot be undone.`)) return
+    if (!(await confirm({ title: "버킷 삭제", message: `"${name}" 버킷을 삭제합니다. 되돌릴 수 없습니다.`, destructive: true, confirmText: "삭제" }))) return
     setActionError(null)
     try {
       const res = await fetch(`/api/storage/buckets/${encodeURIComponent(name)}`, { method: "DELETE" })
