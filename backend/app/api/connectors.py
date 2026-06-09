@@ -346,6 +346,12 @@ async def _load_pii_columns(pool, connection_id: str, table: str):
 INGEST_MAX_RETRIES = int(os.getenv("INGEST_MAX_RETRIES", "2"))        # 첫 시도 외 추가 횟수
 INGEST_RETRY_BASE_SEC = float(os.getenv("INGEST_RETRY_BASE_SEC", "2"))
 
+# 데이터 품질 게이트: ON이면 sync 후 품질체크를 동기 실행하고 'alert' 테이블을 done에
+# 차단(quality_blocked)으로 표면화. OFF(기본)면 기존처럼 백그라운드 best-effort 실행.
+# (사후 검사라 쓰기를 막진 않고 강하게 플래그 — 다운스트림 격리용. 사전 게이트는 범위 외.)
+INGEST_QUALITY_GATE = (os.getenv("INGEST_QUALITY_GATE", "off").strip().lower()
+                       in ("on", "true", "1", "yes"))
+
 
 async def _sync_with_retry(connector, on_retry=None, **kwargs):
     """connector.sync_to_iceberg를 일시 장애 시 지수 백오프로 재시도(최대 INGEST_MAX_RETRIES).
@@ -1442,8 +1448,10 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                 yield sse("done", {"message": "All tables disabled — nothing to sync", "rows_processed": 0, "tables": 0})
                 return
             results = []
+            durations: dict = {}   # table → 처리 소요(ms) for 관측성
             for i, table in enumerate(tables):
                 target = f"datapond.default.{table}"
+                t_tbl = datetime.utcnow()
 
                 # Per-table mode: use stored sync_mode (overrides global mode)
                 job = job_map.get(table)
@@ -1524,6 +1532,11 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                 total_rows += rows
                 ok = status.status == SyncStatus.SUCCESS
 
+                # 관측성: 테이블 처리시간 + 처리율(rows/s)
+                dur_ms = int((datetime.utcnow() - t_tbl).total_seconds() * 1000)
+                durations[table] = dur_ms
+                rps = round(rows / (dur_ms / 1000), 1) if (ok and dur_ms > 0) else None
+
                 # Derive new watermark from metadata if incremental
                 new_last_value = None
                 if ok and table_mode == SyncMode.INCREMENTAL and status.metadata:
@@ -1533,7 +1546,9 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                     "table": table, "index": i, "total": len(tables),
                     "rows": rows, "status": "success" if ok else "failed",
                     "error": status.error_message if not ok else None,
+                    "duration_ms": dur_ms, "rows_per_sec": rps,
                     "message": f"{'✓' if ok else '✗'} {table} — {rows:,} rows"
+                          + (f" · {dur_ms/1000:.1f}s" + (f" · {rps:,.0f} rows/s" if rps else "") if ok else "")
                 })
                 await asyncio.sleep(0)
 
@@ -1598,6 +1613,7 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                     "status": "success" if ok else "failed",
                     "rows": rows,
                     "error": st.error_message if not ok else None,
+                    "duration_ms": durations.get(tbl),
                 }
                 for tbl, tgt, ok, rows, st in results
             ]
@@ -1634,23 +1650,35 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                     }, default=str)
                 )
 
+            # 품질 게이트: ON이면 done 전에 동기 평가 → 'alert' 테이블을 차단으로 표면화.
+            from .quality import run_and_store_quality_checks
+            quality_blocked: list[str] = []
+            if INGEST_QUALITY_GATE:
+                try:
+                    qstatuses = await run_and_store_quality_checks(pool, connection_id, results)
+                    quality_blocked = [t for t, s in (qstatuses or {}).items() if s == "alert"]
+                except Exception as _qe:
+                    logger.warning(f"[quality-gate] eval failed: {_qe}")
+            else:
+                asyncio.create_task(run_and_store_quality_checks(pool, connection_id, results))
+
+            base_msg = (f"Sync complete — {len(tables)} tables, {total_rows:,} rows"
+                        if failed_count == 0 else
+                        f"Sync 부분 완료 — 성공 {success_count}/{len(tables)}, 실패 {failed_count} ({total_rows:,} rows)")
+            if quality_blocked:
+                base_msg += f" · ⚠ 품질 게이트 차단: {', '.join(quality_blocked)}"
             yield sse("done", {
                 "job_id": job_id,
                 "history_id": history_id,
-                "message": (f"Sync complete — {len(tables)} tables, {total_rows:,} rows"
-                            if failed_count == 0 else
-                            f"Sync 부분 완료 — 성공 {success_count}/{len(tables)}, 실패 {failed_count} ({total_rows:,} rows)"),
+                "message": base_msg,
                 "partial": failed_count > 0 and success_count > 0,
                 "tables_synced": len(tables),
                 "tables_success": success_count,
                 "tables_failed": failed_count,
+                "quality_blocked": quality_blocked,
                 "rows_processed": total_rows,
                 "duration_ms": duration_ms,
             })
-
-            # Best-effort: run data quality checks for successful tables
-            from .quality import run_and_store_quality_checks
-            asyncio.create_task(run_and_store_quality_checks(pool, connection_id, results))
 
             # Best-effort: register lineage in OpenMetadata for successful tables
             async with pool.acquire() as conn:
