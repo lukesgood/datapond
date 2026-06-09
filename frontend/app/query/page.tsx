@@ -255,7 +255,7 @@ export default function QueryPage() {
             variant="ghost" size="sm" className="h-8 text-xs gap-1.5"
             onClick={() => setSaveDashboardOpen(true)}
             disabled={!hasResults || isRunning}
-            title="Save as dashboard"
+            aria-label="Save as dashboard" title="Save as dashboard"
           >
             <Save className="h-3.5 w-3.5" />
             <span className="hidden md:inline">Save</span>
@@ -265,7 +265,7 @@ export default function QueryPage() {
             <Button
               variant="ghost" size="sm" className="h-8 text-xs gap-1.5"
               onClick={() => setOpenInNotebookOpen(true)}
-              title="Open in Jupyter Notebook"
+              aria-label="Open in Jupyter Notebook" title="Open in Jupyter Notebook"
             >
               <FileCode className="h-3.5 w-3.5" />
               <span className="hidden md:inline">Notebook</span>
@@ -276,7 +276,7 @@ export default function QueryPage() {
             <Button
               variant="ghost" size="sm" className="h-8 text-xs gap-1.5"
               onClick={() => setLogToMlflowOpen(true)}
-              title="Log results to MLflow"
+              aria-label="Log results to MLflow" title="Log results to MLflow"
             >
               <FlaskConical className="h-3.5 w-3.5" />
               <span className="hidden md:inline">Log</span>
@@ -289,7 +289,7 @@ export default function QueryPage() {
             variant={rightPanel === "history" ? "secondary" : "ghost"}
             size="sm" className="h-8 text-xs gap-1.5"
             onClick={() => togglePanel("history")}
-            title="Query history"
+            aria-label="Query history" title="Query history"
           >
             <History className="h-3.5 w-3.5" />
             <span className="hidden md:inline">History</span>
@@ -300,7 +300,7 @@ export default function QueryPage() {
               variant={rightPanel === "chart-config" ? "secondary" : "ghost"}
               size="sm" className="h-8 text-xs gap-1.5"
               onClick={() => togglePanel("chart-config")}
-              title="Chart settings"
+              aria-label="Chart settings" title="Chart settings"
             >
               <Settings className="h-3.5 w-3.5" />
               <span className="hidden md:inline">Chart</span>
@@ -371,7 +371,7 @@ export default function QueryPage() {
                     <span className="text-xs font-medium text-muted-foreground">Schema</span>
                   </div>
                   <Button variant="ghost" size="sm" className="h-6 w-6 p-0"
-                    onClick={() => setSchemaOpen(false)} title="Collapse">
+                    onClick={() => setSchemaOpen(false)} aria-label="Collapse" title="Collapse">
                     <ChevronLeft className="h-3.5 w-3.5" />
                   </Button>
                 </div>
@@ -383,14 +383,14 @@ export default function QueryPage() {
                 onMouseDown={startSchemaResize}
                 className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize
                            hover:bg-primary/50 active:bg-primary/70 transition-colors z-10"
-                title="Drag to resize"
+                aria-label="Drag to resize" title="Drag to resize"
               />
             </>
           ) : (
             <Button
               variant="ghost" size="sm"
               className="h-9 w-9 p-0 m-0 rounded-none text-muted-foreground"
-              onClick={() => setSchemaOpen(true)} title="Expand schema">
+              onClick={() => setSchemaOpen(true)} aria-label="Expand schema" title="Expand schema">
               <ChevronRight className="h-3.5 w-3.5" />
             </Button>
           )}
@@ -424,7 +424,7 @@ export default function QueryPage() {
                   variant="ghost" size="sm" className="h-6 px-2 text-[11px] gap-1
                     text-muted-foreground hover:text-foreground"
                   onClick={formatQuery}
-                  title="Format SQL"
+                  aria-label="Format SQL" title="Format SQL"
                 >
                   <AlignLeft className="h-3 w-3" />
                   Format
@@ -433,7 +433,7 @@ export default function QueryPage() {
                   variant="ghost" size="sm" className="h-6 px-2 text-[11px] gap-1
                     text-muted-foreground hover:text-destructive"
                   onClick={() => { setQuery(DEFAULT_QUERY); setResults(null); setQueryStatus("idle"); setError(null) }}
-                  title="Clear editor"
+                  aria-label="Clear editor" title="Clear editor"
                 >
                   <Trash2 className="h-3 w-3" />
                   Clear
@@ -453,7 +453,7 @@ export default function QueryPage() {
             className="h-1.5 shrink-0 cursor-row-resize bg-border/50
                        hover:bg-primary/50 active:bg-primary/70 transition-colors
                        flex items-center justify-center"
-            title="Drag to resize"
+            aria-label="Drag to resize" title="Drag to resize"
           >
             <div className="w-8 h-px bg-muted-foreground/30 rounded" />
           </div>

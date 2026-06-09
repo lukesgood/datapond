@@ -161,7 +161,7 @@ export function AppSidebar() {
                 </div>
                 <button
                   onClick={handleLogout}
-                  title="Sign out"
+                  aria-label="Sign out" title="Sign out"
                   className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/10 hover:text-destructive"
                 >
                   <LogOut className="h-3.5 w-3.5" />

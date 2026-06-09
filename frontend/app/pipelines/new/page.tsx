@@ -2112,7 +2112,7 @@ export default function NewPipelinePage() {
             variant="ghost" size="sm"
             className="h-7 w-7 p-0 shrink-0"
             onClick={undo} disabled={!canUndo}
-            title="Undo (Ctrl+Z)"
+            aria-label="Undo (Ctrl+Z)" title="Undo (Ctrl+Z)"
           >
             <Undo2 className="h-3.5 w-3.5" />
           </Button>
@@ -2120,7 +2120,7 @@ export default function NewPipelinePage() {
             variant="ghost" size="sm"
             className="h-7 w-7 p-0 shrink-0"
             onClick={redo} disabled={!canRedo}
-            title="Redo (Ctrl+Y)"
+            aria-label="Redo (Ctrl+Y)" title="Redo (Ctrl+Y)"
           >
             <Redo2 className="h-3.5 w-3.5" />
           </Button>
@@ -2284,7 +2284,7 @@ export default function NewPipelinePage() {
           onMouseDown={startPanelResize}
           className="h-1.5 shrink-0 cursor-row-resize bg-border/40
                      hover:bg-primary/50 active:bg-primary/70 transition-colors"
-          title="드래그해서 캔버스 / 패널 비율 조절"
+          aria-label="드래그해서 캔버스 / 패널 비율 조절" title="드래그해서 캔버스 / 패널 비율 조절"
         />
 
         {/* ── Bottom: Tabbed Properties Panel ── */}
@@ -2343,7 +2343,7 @@ export default function NewPipelinePage() {
               <button
                 onClick={() => { setSearchOpen(true); setSearchQuery("") }}
                 className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground border rounded px-1.5 py-0.5 transition-colors"
-                title="Search nodes (Ctrl+K)"
+                aria-label="Search nodes (Ctrl+K)" title="Search nodes (Ctrl+K)"
               >
                 <Search className="h-2.5 w-2.5" />
                 <span>⌘K</span>
@@ -2432,7 +2432,7 @@ export default function NewPipelinePage() {
         <button
           onClick={() => { setSearchOpen(true); setSearchQuery("") }}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-background hover:bg-muted transition-colors text-xs text-muted-foreground"
-          title="Search nodes (Ctrl+K)"
+          aria-label="Search nodes (Ctrl+K)" title="Search nodes (Ctrl+K)"
         >
           <Search className="h-3.5 w-3.5" />
           Search
@@ -2442,7 +2442,7 @@ export default function NewPipelinePage() {
         <button
           onClick={() => setTemplateOpen(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-background hover:bg-muted transition-colors text-xs text-muted-foreground"
-          title="Pipeline templates"
+          aria-label="Pipeline templates" title="Pipeline templates"
         >
           <LayoutTemplate className="h-3.5 w-3.5" />
           Templates

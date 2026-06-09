@@ -221,7 +221,7 @@ export function SchemaTree({ onTableSelect }: Props) {
             <Button
               variant="ghost" size="icon"
               className="h-6 w-6"
-              title="Refresh"
+              aria-label="Refresh" title="Refresh"
               onClick={load}
             >
               <RefreshCw className="h-3 w-3 text-muted-foreground" />
@@ -295,7 +295,7 @@ export function SchemaTree({ onTableSelect }: Props) {
                                 className="shrink-0 p-0.5 mr-0.5 text-muted-foreground/50
                                            hover:text-muted-foreground transition-colors"
                                 onClick={() => toggleTable(cat.name, schema.name, table.name, tableKey)}
-                                title="Show columns"
+                                aria-label="Show columns" title="Show columns"
                               >
                                 <ChevronRight className={`h-3 w-3 transition-transform ${tableOpen ? "rotate-90" : ""}`} />
                               </button>

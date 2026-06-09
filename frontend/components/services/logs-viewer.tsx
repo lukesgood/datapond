@@ -184,7 +184,7 @@ export function LogsViewer({
               variant="outline"
               size="icon-sm"
               onClick={downloadLogs}
-              title="Download logs"
+              aria-label="Download logs" title="Download logs"
             >
               <Download className="h-4 w-4" />
             </Button>
@@ -195,7 +195,7 @@ export function LogsViewer({
               onClick={() => {
                 // Parent should handle clearing logs
               }}
-              title="Clear logs"
+              aria-label="Clear logs" title="Clear logs"
             >
               <Trash2 className="h-4 w-4" />
             </Button>
