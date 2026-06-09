@@ -107,8 +107,8 @@ export const availableConnectors: Connector[] = [
     name: "Apache Kafka",
     category: "streaming",
     icon: "/connectors/kafka.svg",
-    description: "Stream data from Kafka topics",
-    supported: true,
+    description: "Stream data from Kafka topics (batch connector 미구현 — 스트리밍은 Streaming 탭/RisingWave 사용)",
+    supported: false,
     features: ["Real-time Streaming", "Schema Registry", "Exactly-once Processing"],
     fields: [
       { name: "bootstrap_servers", label: "Bootstrap Servers", type: "text", required: true, placeholder: "localhost:9092" },
@@ -124,7 +124,7 @@ export const availableConnectors: Connector[] = [
     category: "database",
     icon: "/connectors/mongodb.svg",
     description: "Connect to MongoDB databases",
-    supported: true,
+    supported: false,
     features: ["Change Streams", "Schema Inference", "Incremental Sync"],
     fields: [
       { name: "connection_string", label: "Connection String", type: "text", required: true, placeholder: "mongodb://localhost:27017" },
