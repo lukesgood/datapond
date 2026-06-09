@@ -18,6 +18,17 @@ interface Collection {
   name: string; embed_model: string; dim: number
   description: string | null; chunks: number; created_at: string | null
   owner_id: string | null
+  sources?: number; index?: string | null; last_ingested?: string | null
+}
+
+// "방금 전" / "3시간 전" 같은 상대 시각
+function timeAgo(iso: string | null | undefined): string {
+  if (!iso) return "적재 없음"
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
+  if (s < 60) return "방금 전"
+  if (s < 3600) return `${Math.floor(s / 60)}분 전`
+  if (s < 86400) return `${Math.floor(s / 3600)}시간 전`
+  return `${Math.floor(s / 86400)}일 전`
 }
 interface Hit { source: string | null; content: string; score: number }
 
@@ -122,8 +133,13 @@ export default function KnowledgePage() {
                         className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
                     )}
                   </div>
-                  <div className="text-[11px] text-muted-foreground mt-1 flex gap-2">
-                    <span>{c.chunks} chunks</span>·<span>{c.embed_model} ({c.dim}d)</span>
+                  <div className="text-[11px] text-muted-foreground mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
+                    <span>{c.chunks} vectors</span>·<span>{c.embed_model} ({c.dim}d)</span>
+                    {c.sources != null && <><span>·</span><span>{c.sources} sources</span></>}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground/70 mt-0.5 flex flex-wrap gap-x-2 items-center">
+                    <Badge variant="outline" className="text-[9px] gap-0.5"><Database className="h-2.5 w-2.5" />{c.index || "HNSW · cosine"}</Badge>
+                    <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />최근 적재 {timeAgo(c.last_ingested)}</span>
                   </div>
                   {c.description && <div className="text-[11px] text-muted-foreground mt-0.5 truncate">{c.description}</div>}
                 </CardContent>
