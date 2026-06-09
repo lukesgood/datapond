@@ -26,7 +26,7 @@ import { FREQ_OPTIONS, HOUR_OPTIONS, parseCron, cronToFreqHour, nextRun } from "
 function TablesCard({
   tables, latestTableRows, togglingTable, onToggle, connId,
 }: {
-  tables: { name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null; last_value?: string | null; effective_mode?: string; partition_spec?: {column:string;transform:string}[] | null }[]
+  tables: { name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null; last_value?: string | null; effective_mode?: string; partition_spec?: {column:string;transform:string}[] | null; key_columns?: string[] | null }[]
   latestTableRows: Map<string, number>
   togglingTable: string | null
   onToggle: (name: string, enabled: boolean) => void
@@ -36,6 +36,7 @@ function TablesCard({
   const [editingTable, setEditingTable] = useState<string | null>(null)
   const [editMode, setEditMode]         = useState("full")
   const [editIncCol, setEditIncCol]     = useState("")
+  const [editKeyCols, setEditKeyCols]   = useState("")   // 쉼표구분 PK (증분 upsert)
   // 파티션: editPartCol "" = Auto(자동추론), "__none__" = 무파티션, 그 외 = 컬럼명
   const [editPartCol, setEditPartCol]   = useState("")
   const [editPartTransform, setEditPartTransform] = useState("day")
@@ -52,6 +53,7 @@ function TablesCard({
     setEditingTable(t.name)
     setEditMode(t.sync_mode || "full")
     setEditIncCol(t.incremental_column || "")
+    setEditKeyCols((t.key_columns || []).join(", "))
     // 파티션 초기화: null/undefined = Auto, [] = None, [{...}] = 첫 필드
     const ps = t.partition_spec
     if (ps == null)            { setEditPartCol(""); setEditPartTransform("day") }
@@ -81,6 +83,7 @@ function TablesCard({
         body: JSON.stringify({
           enabled: tables.find(t => t.name === editingTable)?.enabled ?? true,
           incremental_column: editIncCol || null,
+          key_columns: editKeyCols.split(",").map(s => s.trim()).filter(Boolean),
         }),
       })
       await fetch(`/api/connectors/${connId}/sync-mode`, {
@@ -307,6 +310,23 @@ function TablesCard({
                             ⚠ No watermark column set — incremental will load all rows on first run
                           </p>
                         )}
+                        {/* 증분 Upsert PK — 설정 시 append 대신 merge(변경행 갱신·중복 방지) */}
+                        <div className="space-y-1 pt-1">
+                          <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                            Key Columns (upsert PK)
+                            {editMode !== "incremental" && <span className="ml-1 font-normal normal-case">(incremental only)</span>}
+                          </label>
+                          <Input
+                            value={editKeyCols}
+                            onChange={e => setEditKeyCols(e.target.value)}
+                            placeholder={editMode !== "incremental" ? "—" : "e.g. id  (비우면 append)"}
+                            disabled={editMode !== "incremental"}
+                            className="h-7 text-xs font-mono"
+                          />
+                          {editMode === "incremental" && editKeyCols.trim() && (
+                            <p className="text-[10px] text-emerald-600">merge by [{editKeyCols.split(",").map(s=>s.trim()).filter(Boolean).join(", ")}] — 변경행 갱신·중복 방지</p>
+                          )}
+                        </div>
                         {/* 파티셔닝 (Iceberg) */}
                         <div className="grid grid-cols-2 gap-3 pt-1 border-t">
                           <div className="space-y-1">

@@ -64,6 +64,7 @@ def write_dataframe_to_iceberg(
     mode: str = "overwrite",
     on_step=None,             # callable(step_name, message, extra={}) — 실시간 진행 보고
     partition_spec=None,      # list[dict] | None — None이면 timestamp 컬럼 기준 자동 추론
+    join_cols=None,           # mode="upsert"일 때 머지 키(PK). 없으면 append로 폴백.
 ) -> int:
     """
     pandas DataFrame을 Iceberg 테이블에 쓴다 (PyIceberg).
@@ -111,8 +112,8 @@ def write_dataframe_to_iceberg(
     if not exists:
         table = _create_table_with_partition(cat, ident, arrow, partition_spec, step)
 
-    # ── 2. append 모드: 스키마 진화 (신규 컬럼 union-by-name) ───────────────────
-    if exists and mode == "append":
+    # ── 2. append/upsert 모드: 스키마 진화 (신규 컬럼 union-by-name) ─────────────
+    if exists and mode in ("append", "upsert"):
         added = _evolve_schema(table, arrow, step)
         if added:
             table = cat.load_table(ident)
@@ -121,7 +122,19 @@ def write_dataframe_to_iceberg(
 
     # ── 3. 단일 커밋 쓰기 ──────────────────────────────────────────────────────
     rows = len(df)
-    if mode == "overwrite" and exists:
+    if mode == "upsert":
+        # 증분 정확성: PK(join_cols) 기준 merge — 변경행 갱신 + 신규행 삽입(중복 방지).
+        # 키 미지정 시 dedup 불가 → append 폴백(기존 동작). 삭제 반영은 CDC 경로 담당.
+        aligned = _align_to_table(table, arrow)
+        if join_cols:
+            res = table.upsert(aligned, join_cols=list(join_cols))
+            up = getattr(res, "rows_updated", None); ins = getattr(res, "rows_inserted", None)
+            step("insert", f"Upsert by {join_cols}: +{ins if ins is not None else '?'} / ~{up if up is not None else '?'}",
+                 rows_done=rows, rows_total=rows, pct=100)
+            return rows
+        step("insert", "upsert 모드이나 join_cols 미지정 → append 폴백")
+        table.append(aligned)
+    elif mode == "overwrite" and exists:
         # 컬럼 정렬 후 overwrite. 타입 변경 등 스키마 비호환이면 drop 후 재생성(과거 동작 유지).
         try:
             table.overwrite(_align_to_table(table, arrow))
