@@ -341,6 +341,30 @@ async def _load_pii_columns(pool, connection_id: str, table: str):
     return _parse_key_columns(raw)  # 동일 정규화(list|None, ["*"] 보존)
 
 
+# 소스/쓰기 일시 장애(연결 reset·타임아웃·S3 stale 등) 대비 재시도. sync_to_iceberg는
+# 예외를 삼키고 FAILED 상태를 반환하므로 status로 판단해 지수 백오프 재시도한다.
+INGEST_MAX_RETRIES = int(os.getenv("INGEST_MAX_RETRIES", "2"))        # 첫 시도 외 추가 횟수
+INGEST_RETRY_BASE_SEC = float(os.getenv("INGEST_RETRY_BASE_SEC", "2"))
+
+
+async def _sync_with_retry(connector, on_retry=None, **kwargs):
+    """connector.sync_to_iceberg를 일시 장애 시 지수 백오프로 재시도(최대 INGEST_MAX_RETRIES).
+    overwrite/upsert는 멱등이라 재시도 안전. append(키 없는 증분)는 부분쓰기 후 재시도 시 중복
+    위험이 있어 재시도 횟수를 작게 유지(키 설정 권장). 최종 SyncJobStatus 반환."""
+    attempt = 0
+    while True:
+        status = await connector.sync_to_iceberg(**kwargs)
+        if status.status == SyncStatus.SUCCESS or attempt >= INGEST_MAX_RETRIES:
+            if attempt and status.status == SyncStatus.SUCCESS and status.metadata is not None:
+                status.metadata["retries"] = attempt
+            return status
+        attempt += 1
+        delay = INGEST_RETRY_BASE_SEC * (2 ** (attempt - 1))
+        if on_retry:
+            on_retry(attempt, delay, status.error_message)
+        await asyncio.sleep(delay)
+
+
 def _parse_partition_spec(raw):
     """JSONB partition_spec 값을 list|None으로 정규화. []('무파티션')도 그대로 보존한다.
 
@@ -1466,16 +1490,30 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                         "message": msg, **extra
                     })
 
-                status = await connector.sync_to_iceberg(
-                    source_table=table, target_table=target,
-                    sync_mode=table_mode,          # ← per-table mode
-                    incremental_column=incremental_column,
-                    last_value=last_value,
-                    on_step=on_iceberg_step,
-                    partition_spec=partition_spec,
-                    key_columns=_parse_key_columns(job['key_columns']) if job else None,
-                    pii_columns=_parse_key_columns(job['pii_columns']) if job else None,
-                )
+                def on_retry(attempt: int, delay: float, err):
+                    step_queue.append({
+                        "table": table, "step": "retry",
+                        "message": f"일시 장애 — 재시도 {attempt}/{INGEST_MAX_RETRIES} ({delay:.0f}s 후): {(err or '')[:80]}",
+                    })
+
+                try:
+                    status = await _sync_with_retry(
+                        connector, on_retry=on_retry,
+                        source_table=table, target_table=target,
+                        sync_mode=table_mode,          # ← per-table mode
+                        incremental_column=incremental_column,
+                        last_value=last_value,
+                        on_step=on_iceberg_step,
+                        partition_spec=partition_spec,
+                        key_columns=_parse_key_columns(job['key_columns']) if job else None,
+                        pii_columns=_parse_key_columns(job['pii_columns']) if job else None,
+                    )
+                except Exception as _te:
+                    # 한 테이블의 예기치 못한 오류가 나머지 테이블 sync를 중단시키지 않도록 격리.
+                    logger.warning(f"[sync] table {table} aborted: {_te}")
+                    status = SyncJobStatus(job_id=None, status=SyncStatus.FAILED,
+                                           started_at=datetime.utcnow(), completed_at=datetime.utcnow(),
+                                           rows_processed=0, rows_failed=0, error_message=str(_te)[:300])
 
                 # Emit all sub-steps collected during sync
                 for step_data in step_queue:
@@ -1501,39 +1539,43 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
 
                 results.append((table, target, ok, rows, status))
 
-                # Persist job record (UPSERT by connection+table)
-                run_at = datetime.utcnow()
-                async with pool.acquire() as conn:
-                    existing = await conn.fetchval(
-                        "SELECT id FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
-                        uuid.UUID(connection_id), table
-                    )
-                    if existing:
-                        # Only advance watermark when new_last_value is set; never overwrite with NULL
-                        if new_last_value is not None:
-                            await conn.execute('''
-                                UPDATE connector_sync_jobs
-                                SET last_run_at=$1, last_run_status=$2,
-                                    rows_synced=$3, last_value=$4
-                                WHERE id=$5
-                            ''', run_at, status.status.value, rows,
-                                new_last_value, existing)
+                # Persist job record (UPSERT by connection+table). 격리: 부기 실패가
+                # 나머지 테이블 sync를 막지 않도록 try로 감싼다.
+                try:
+                    run_at = datetime.utcnow()
+                    async with pool.acquire() as conn:
+                        existing = await conn.fetchval(
+                            "SELECT id FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
+                            uuid.UUID(connection_id), table
+                        )
+                        if existing:
+                            # Only advance watermark when new_last_value is set; never overwrite with NULL
+                            if new_last_value is not None:
+                                await conn.execute('''
+                                    UPDATE connector_sync_jobs
+                                    SET last_run_at=$1, last_run_status=$2,
+                                        rows_synced=$3, last_value=$4
+                                    WHERE id=$5
+                                ''', run_at, status.status.value, rows,
+                                    new_last_value, existing)
+                            else:
+                                await conn.execute('''
+                                    UPDATE connector_sync_jobs
+                                    SET last_run_at=$1, last_run_status=$2,
+                                        rows_synced=$3
+                                    WHERE id=$4
+                                ''', run_at, status.status.value, rows, existing)
                         else:
                             await conn.execute('''
-                                UPDATE connector_sync_jobs
-                                SET last_run_at=$1, last_run_status=$2,
-                                    rows_synced=$3
-                                WHERE id=$4
-                            ''', run_at, status.status.value, rows, existing)
-                    else:
-                        await conn.execute('''
-                            INSERT INTO connector_sync_jobs
-                            (id, connection_id, source_table, target_table,
-                             sync_mode, last_run_at, last_run_status, rows_synced, last_value)
-                            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-                        ''', uuid.UUID(str(uuid.uuid4())), uuid.UUID(connection_id),
-                            table, target, mode.value, run_at,
-                            status.status.value, rows, new_last_value)
+                                INSERT INTO connector_sync_jobs
+                                (id, connection_id, source_table, target_table,
+                                 sync_mode, last_run_at, last_run_status, rows_synced, last_value)
+                                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                            ''', uuid.UUID(str(uuid.uuid4())), uuid.UUID(connection_id),
+                                table, target, mode.value, run_at,
+                                status.status.value, rows, new_last_value)
+                except Exception as _pe:
+                    logger.warning(f"[sync] job bookkeeping failed for {table}: {_pe}")
 
             # Update last_sync_at
             async with pool.acquire() as conn:
@@ -1595,7 +1637,10 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
             yield sse("done", {
                 "job_id": job_id,
                 "history_id": history_id,
-                "message": f"Sync complete — {len(tables)} tables, {total_rows:,} rows",
+                "message": (f"Sync complete — {len(tables)} tables, {total_rows:,} rows"
+                            if failed_count == 0 else
+                            f"Sync 부분 완료 — 성공 {success_count}/{len(tables)}, 실패 {failed_count} ({total_rows:,} rows)"),
+                "partial": failed_count > 0 and success_count > 0,
                 "tables_synced": len(tables),
                 "tables_success": success_count,
                 "tables_failed": failed_count,
@@ -1783,7 +1828,8 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
             pool = await get_db_pool()
             for table in tables:
                 target = f"datapond.default.{table}"
-                status = await connector.sync_to_iceberg(
+                status = await _sync_with_retry(
+                    connector,
                     source_table=table,
                     target_table=target,
                     sync_mode=request.sync_mode,
@@ -1836,7 +1882,8 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
         target_table = request.target_table or f"datapond.default.{source_table}"
         started_at = datetime.utcnow()
         pool = await get_db_pool()
-        status = await connector.sync_to_iceberg(
+        status = await _sync_with_retry(
+            connector,
             source_table=source_table,
             target_table=target_table,
             sync_mode=request.sync_mode,
