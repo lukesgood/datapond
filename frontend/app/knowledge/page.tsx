@@ -175,7 +175,7 @@ function CreateCollection({ onCreated }: { onCreated: () => void }) {
             <Input value={name} onChange={e => setName(e.target.value)} placeholder="kb_docs" className="font-mono" /></div>
           <div className="space-y-1.5"><Label className="text-xs">Description</Label>
             <Input value={desc} onChange={e => setDesc(e.target.value)} placeholder="optional" /></div>
-          {e && <p className="text-xs text-destructive">{e}</p>}
+          {e && <ErrorBox msg={e} />}
           <Button onClick={submit} disabled={!name.trim() || busy} className="w-full">
             {busy && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}Create</Button>
         </div>
