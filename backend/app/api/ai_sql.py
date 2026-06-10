@@ -51,39 +51,59 @@ from app.api.trino_util import TRINO_CATALOG, trino_conn
 
 # ── Schema context ────────────────────────────────────────────────────────────
 
-def _get_schema_context() -> str:
-    """Fetch Iceberg table/column info from Trino for the prompt."""
+# Schema context is expensive (Trino information_schema → Polaris round-trips) and
+# changes rarely — cache it so AI SQL latency is dominated by the LLM call, not
+# catalog introspection. Invalidated by TTL only; a brand-new table simply takes
+# up to AI_SQL_SCHEMA_TTL_SEC to appear in prompts.
+_SCHEMA_TTL_SEC = int(os.getenv("AI_SQL_SCHEMA_TTL_SEC", "300"))
+_schema_cache: dict = {"text": None, "ts": 0.0}
+
+
+def _fetch_schema_context() -> str:
+    """Fetch Iceberg table/column info from Trino in a single query (no N+1)."""
     try:
         conn = trino_conn(timeout=10)
         cur = conn.cursor()
         cur.execute(
-            f"SELECT table_schema, table_name "
-            f"FROM {TRINO_CATALOG}.information_schema.tables "
+            f"SELECT table_schema, table_name, column_name, data_type "
+            f"FROM {TRINO_CATALOG}.information_schema.columns "
             f"WHERE table_schema NOT IN ('information_schema','system') "
-            f"ORDER BY table_schema, table_name LIMIT 50"
+            f"ORDER BY table_schema, table_name, ordinal_position"
         )
-        tables = cur.fetchall()
-        if not tables:
+        rows = cur.fetchall()
+        if not rows:
             return "No tables found in the Iceberg catalog."
 
         lines = ["Available Iceberg tables (catalog: iceberg):"]
-        for schema, table in tables:
-            try:
-                cur2 = conn.cursor()
-                cur2.execute(
-                    f"SELECT column_name, data_type "
-                    f"FROM {TRINO_CATALOG}.information_schema.columns "
-                    f"WHERE table_schema='{schema}' AND table_name='{table}' "
-                    f"ORDER BY ordinal_position LIMIT 20"
-                )
-                col_str = ", ".join(f"{r[0]} ({r[1]})" for r in cur2.fetchall())
-                lines.append(f"  iceberg.{schema}.{table}: {col_str}")
-            except Exception:
-                lines.append(f"  iceberg.{schema}.{table}")
+        cur_key, cols = None, []
+        def flush():
+            if cur_key:
+                col_str = ", ".join(f"{c} ({t})" for c, t in cols[:20])
+                lines.append(f"  iceberg.{cur_key[0]}.{cur_key[1]}: {col_str}")
+        for schema, table, col, dtype in rows:
+            if (schema, table) != cur_key:
+                flush()
+                if len(lines) > 50:  # cap prompt size: 50 tables
+                    break
+                cur_key, cols = (schema, table), []
+            cols.append((col, dtype))
+        else:
+            flush()
         return "\n".join(lines)
     except Exception as e:
         logger.warning(f"[ai_sql] schema fetch failed: {e}")
         return "Schema unavailable — use iceberg.<schema>.<table> notation."
+
+
+def _get_schema_context() -> str:
+    """TTL-cached wrapper around _fetch_schema_context (failures are not cached)."""
+    now = time.monotonic()
+    if _schema_cache["text"] is not None and now - _schema_cache["ts"] < _SCHEMA_TTL_SEC:
+        return _schema_cache["text"]
+    text = _fetch_schema_context()
+    if not text.startswith("Schema unavailable"):
+        _schema_cache["text"], _schema_cache["ts"] = text, now
+    return text
 
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
