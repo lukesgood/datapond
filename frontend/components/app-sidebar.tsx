@@ -20,6 +20,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar"
 
 const mainSections = [
@@ -72,8 +73,13 @@ export function AppSidebar() {
   const pathname  = usePathname()
   const router    = useRouter()
   const [user, setUser] = useState<AuthUser | null>(null)
+  const { setOpenMobile } = useSidebar()
 
   useEffect(() => { setUser(getUser()) }, [])
+
+  // Mobile: close the offcanvas sheet after navigating — otherwise the open
+  // sheet hides the page the user just tapped to.
+  useEffect(() => { setOpenMobile(false) }, [pathname, setOpenMobile])
 
   const isActive = (url: string) => pathname === url
 
