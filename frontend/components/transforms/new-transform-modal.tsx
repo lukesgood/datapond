@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useToast } from "@/lib/toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -51,6 +52,7 @@ export function NewTransformModal({ open, onClose, onCreated }: Props) {
 
   const valid = name.trim() && targetTable.trim() && sql.trim() && sourceNs !== targetNs
 
+  const { toast } = useToast()
   const handleSubmit = async () => {
     if (!valid) return
     setSubmitting(true)
@@ -72,6 +74,7 @@ export function NewTransformModal({ open, onClose, onCreated }: Props) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || "Failed to create transform")
+      toast(`Transform '${name.trim()}' 배포됨 — Airflow DAG가 생성되었습니다`, "success")
       onCreated()
       handleClose()
     } catch (e: any) {

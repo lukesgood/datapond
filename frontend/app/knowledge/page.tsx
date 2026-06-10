@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Label } from "@/components/ui/label"
 import { getUser } from "@/lib/auth"
 import { useConfirm } from "@/lib/confirm"
-import { ErrorBox } from "@/components/ui/error-box"
+import { ErrorBox, EmptyState } from "@/components/ui/error-box"
 
 interface Collection {
   name: string; embed_model: string; dim: number
@@ -95,8 +95,13 @@ export default function KnowledgePage() {
         <div className="space-y-2">
           {loading ? [0, 1, 2].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)
             : cols.length === 0 ? (
-              <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">
-                No collections yet. Create one to start.
+              <Card><CardContent>
+                <EmptyState
+                  icon={Sparkles}
+                  title="컬렉션이 없습니다"
+                  hint="위의 New collection으로 만들거나, Catalog에서 테이블의 ✨(Send to Knowledge)로 데이터를 바로 보낼 수 있습니다."
+                  action={<Button size="sm" variant="outline" render={<Link href="/catalog" />}>Catalog에서 보내기</Button>}
+                />
               </CardContent></Card>
             ) : cols.map(c => (
               <Card key={c.name}

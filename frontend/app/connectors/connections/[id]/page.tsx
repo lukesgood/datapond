@@ -1,6 +1,7 @@
 "use client"
 
 import { use, useEffect, useState, useRef } from "react"
+import { useToast } from "@/lib/toast"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -554,6 +555,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
 
   // History sessions (past + live)
   const [sessions, setSessions]           = useState<SyncSession[]>([])
+  const { toast } = useToast()
   const [liveSession, setLiveSession]     = useState<SyncSession | null>(null)
   const [jobsRows, setJobsRows]           = useState<number | null>(null)  // fallback for lastRunRows
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -784,6 +786,8 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           } else if (eventType === "done") {
             if (elapsedRef.current) clearInterval(elapsedRef.current)
             setSyncing(false)
+            if (d.tables_failed > 0) toast(`Sync 완료 — ${d.tables_failed}개 테이블 실패 (이력 참조)`, "error")
+            else toast("Sync 완료 — Catalog에서 적재 결과를 확인하세요", "success")
             setLiveSession(prev => prev ? {
               ...prev, isLive: false,
               status: d.tables_failed > 0 ? "failed" : "success",
@@ -1007,6 +1011,9 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           </div>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" render={<Link href="/catalog" />}>
+            <Database className="h-4 w-4 mr-2" />Catalog
+          </Button>
           <Button variant="outline" onClick={startEdit} disabled={editing}>
             <Pencil className="h-4 w-4 mr-2" />Edit
           </Button>

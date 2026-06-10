@@ -309,9 +309,13 @@ function PipelinesPageInner() {
       </div>
     )
     if (list.length === 0) return (
-      <div className="flex flex-col items-center justify-center py-16 text-center border rounded-lg bg-muted/20">
-        <Workflow className="h-10 w-10 text-muted-foreground/30 mb-3" />
-        <p className="text-sm text-muted-foreground">No pipelines found</p>
+      <div className="flex flex-col items-center justify-center py-16 text-center border rounded-lg bg-muted/20 gap-3">
+        <Workflow className="h-10 w-10 text-muted-foreground/30" />
+        <div>
+          <p className="text-sm text-muted-foreground">No pipelines found</p>
+          <p className="text-xs text-muted-foreground/70 mt-1">SQL Transform을 만들면 Airflow DAG로 배포됩니다</p>
+        </div>
+        <Button size="sm" onClick={() => setShowNewTransform(true)}>New Transform</Button>
       </div>
     )
     return (

@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { ErrorBox } from "@/components/ui/error-box"
+import NextLink from "next/link"
+import { ErrorBox, EmptyState } from "@/components/ui/error-box"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -244,8 +245,17 @@ export default function CatalogPage() {
           </div>
         ) : (
           <Card>
-            <CardContent className="py-8 text-center text-muted-foreground">
-              No tables found matching your search criteria
+            <CardContent>
+              {(data?.tables.length || 0) === 0 ? (
+                <EmptyState
+                  icon={Database}
+                  title="아직 테이블이 없습니다"
+                  hint="Ingestion에서 데이터 소스를 연결하고 Sync하면 여기에 Iceberg 테이블이 나타납니다."
+                  action={<Button size="sm" render={<NextLink href="/connectors" />}>Ingestion으로 이동</Button>}
+                />
+              ) : (
+                <p className="py-8 text-center text-muted-foreground">No tables found matching your search criteria</p>
+              )}
             </CardContent>
           </Card>
         )}
