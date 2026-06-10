@@ -160,6 +160,15 @@ async def startup():
     except Exception as e:
         logger.warning(f"[startup] Maintenance DAG deploy skipped: {e}")
 
+    # AI SQL 스키마 컨텍스트 프리웜 — 첫 요청 cold(~40s, Polaris information_schema) 제거.
+    # 데몬 스레드라 startup을 블로킹하지 않음. best-effort.
+    try:
+        from app.api.ai_sql import prewarm_schema_cache
+        prewarm_schema_cache()
+        logger.info("[startup] AI SQL schema context prewarm started")
+    except Exception as e:
+        logger.warning(f"[startup] AI SQL schema prewarm skipped: {e}")
+
     # pgvector schema (ai_collections / ai_chunks) — best-effort (needs pgvector image)
     try:
         from app.api.connectors import get_db_pool

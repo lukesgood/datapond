@@ -18,6 +18,7 @@ import json
 import re
 import logging
 import asyncio
+import threading
 import time
 import httpx
 
@@ -95,11 +96,40 @@ def _fetch_schema_context() -> str:
         return "Schema unavailable — use iceberg.<schema>.<table> notation."
 
 
+_refresh_lock = threading.Lock()
+
+
+def _refresh_schema_cache():
+    """Refresh the cache; caller must hold _refresh_lock (released here)."""
+    try:
+        text = _fetch_schema_context()
+        if not text.startswith("Schema unavailable"):
+            _schema_cache["text"], _schema_cache["ts"] = text, time.monotonic()
+    finally:
+        _refresh_lock.release()
+
+
+def prewarm_schema_cache():
+    """Kick off a background fetch so the first AI SQL request isn't cold (~40s on Polaris)."""
+    if _refresh_lock.acquire(blocking=False):
+        threading.Thread(target=_refresh_schema_cache, daemon=True).start()
+
+
 def _get_schema_context() -> str:
-    """TTL-cached wrapper around _fetch_schema_context (failures are not cached)."""
+    """TTL cache with stale-while-revalidate.
+
+    information_schema on Polaris can take ~40s — never block a user request on it
+    when any (even expired) cache exists: serve stale and refresh in background.
+    Only the very first request after boot fetches synchronously, and startup
+    prewarm (main.py) normally covers even that.
+    """
     now = time.monotonic()
-    if _schema_cache["text"] is not None and now - _schema_cache["ts"] < _SCHEMA_TTL_SEC:
-        return _schema_cache["text"]
+    cached = _schema_cache["text"]
+    if cached is not None:
+        if now - _schema_cache["ts"] >= _SCHEMA_TTL_SEC:
+            prewarm_schema_cache()  # stale → background revalidate (stampede-guarded)
+        return cached
+    # Cold (no cache at all): fetch synchronously.
     text = _fetch_schema_context()
     if not text.startswith("Schema unavailable"):
         _schema_cache["text"], _schema_cache["ts"] = text, now
