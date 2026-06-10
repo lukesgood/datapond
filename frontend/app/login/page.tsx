@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { login, isAuthenticated } from "@/lib/auth"
+import { login, isAuthenticated, clearAuth } from "@/lib/auth"
 import { Loader2, Eye, EyeOff, ShieldCheck, Layers, Zap, Lock, AlertTriangle, WifiOff } from "lucide-react"
 
 const FEATURES = [
@@ -47,7 +47,21 @@ export default function LoginPage() {
   const [pendingToken, setPendingToken]     = useState<string | null>(null)
 
   useEffect(() => {
-    if (isAuthenticated()) window.location.replace("/dashboard")
+    // Auth state lives in BOTH localStorage (no expiry) and the cookie (24h,
+    // checked by proxy.ts). If only the cookie has expired, blindly bouncing to
+    // /dashboard loops forever: proxy → /login → here → /dashboard → proxy …
+    // So validate the session server-side first; valid → repair the cookie and
+    // go, invalid → clear the stale localStorage state and stay on login.
+    if (isAuthenticated()) {
+      const token = localStorage.getItem("datapond_token")
+      fetch("/api/auth/me", { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+        .then(r => {
+          if (!r.ok) throw new Error("session invalid")
+          if (token) document.cookie = `datapond_token=${token}; path=/; max-age=${24 * 3600}; SameSite=Lax`
+          window.location.replace("/dashboard")
+        })
+        .catch(() => clearAuth())
+    }
     usernameRef.current?.focus()
 
     // Detect network status
