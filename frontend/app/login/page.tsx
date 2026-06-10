@@ -60,7 +60,10 @@ export default function LoginPage() {
           if (token) document.cookie = `datapond_token=${token}; path=/; max-age=${24 * 3600}; SameSite=Lax`
           window.location.replace("/dashboard")
         })
-        .catch(() => clearAuth())
+        .catch(() => {
+          clearAuth()
+          setError("세션이 만료되었습니다. 다시 로그인해 주세요.")
+        })
     }
     usernameRef.current?.focus()
 
