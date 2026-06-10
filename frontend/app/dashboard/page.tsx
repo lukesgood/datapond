@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { PageHeader } from "@/components/dashboard/page-header"
+import { JourneyStrip } from "@/components/dashboard/journey-strip"
 import { StatsCards } from "@/components/dashboard/stats-cards"
 import { ServiceCard } from "@/components/dashboard/service-card"
 import { ServiceHealthChart } from "@/components/dashboard/service-health-chart"
@@ -114,6 +115,9 @@ export default function DashboardPage() {
     <div className="flex-1 space-y-4 p-8 pt-6">
       {/* Page Header */}
       <PageHeader onRefresh={fetchData} />
+
+      {/* Data journey entry points */}
+      <JourneyStrip />
 
       {/* Development mode notice */}
       {unhealthyCount > 0 && (
