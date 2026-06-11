@@ -7,6 +7,7 @@ from typing import List, Optional, Any
 from sqlalchemy.orm import Session
 import os
 import time
+import asyncio
 import re
 import uuid
 import logging
@@ -199,19 +200,20 @@ async def execute_query(
     rows = []
     columns = []
 
-    try:
+    def _run_blocking():
+        """Trino 실행/페치(블로킹) — 워커 스레드에서 수행해 이벤트루프를 보호한다.
+        무거운 쿼리 1건이 전체 API를 동결시키던 문제의 근본 수정."""
         conn = get_trino_connection(trino_user)
         cursor = conn.cursor()
-
-        # Execute query
         cursor.execute(safe_query)
-
-        # Fetch results
-        rows = cursor.fetchall()
-        columns = [desc[0] for desc in cursor.description] if cursor.description else []
-
+        _rows = cursor.fetchall()
+        _columns = [desc[0] for desc in cursor.description] if cursor.description else []
         cursor.close()
         conn.close()
+        return _rows, _columns
+
+    try:
+        rows, columns = await asyncio.to_thread(_run_blocking)
 
     except HTTPException:
         raise

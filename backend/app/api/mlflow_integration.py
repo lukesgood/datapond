@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import os
+import asyncio
 from datetime import datetime
 
 # MLflow client (lazy import to handle missing dependency gracefully)
@@ -209,8 +210,9 @@ async def list_experiments():
     """
     try:
         client = get_mlflow_client()
-        experiments = client.search_experiments(
-            view_type=ViewType.ACTIVE_ONLY
+        # MLflow 클라이언트는 동기(HTTP) — 이벤트루프 블로킹 방지
+        experiments = await asyncio.to_thread(
+            client.search_experiments, view_type=ViewType.ACTIVE_ONLY
         )
 
         return [
@@ -332,10 +334,11 @@ async def list_experiment_runs(
     """
     try:
         client = get_mlflow_client()
-        runs = client.search_runs(
+        runs = await asyncio.to_thread(
+            client.search_runs,
             experiment_ids=[experiment_id],
             max_results=max_results,
-            order_by=["start_time DESC"]
+            order_by=["start_time DESC"],
         )
 
         return [run_to_dict(run) for run in runs]
