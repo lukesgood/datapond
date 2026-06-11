@@ -168,8 +168,8 @@ def _trino_exec(sql):
         payload = r.json()
 
 
-# location은 명시하지 않는다 — Polaris REST 카탈로그가 warehouse 하위로 할당한다.
-CREATE_SCHEMA_SQL = "CREATE SCHEMA IF NOT EXISTS iceberg.{target_ns}"
+# 타깃 스키마(raw/refined/serving)는 backend startup이 생성해 둔다 — DAG에서는
+# CREATE SCHEMA를 시도하지 않는다(Trino ACL상 일반 유저의 스키마 생성은 차단됨).
 # 원자적 교체 — DROP 단계 없음(실패 시 기존 테이블 보존). SQL은 base64(소스 손상 방지).
 REPLACE_TABLE_SQL = base64.b64decode("{sql_b64}").decode("utf-8")
 
@@ -190,18 +190,14 @@ with DAG(
     schedule_interval={schedule},
     start_date=datetime(2024, 1, 1),
     catchup=False,
+    is_paused_upon_creation=False,
     tags=["transform", "{target_ns}", "datapond"],
     default_args=default_args,
 ) as dag:
 
-    create_schema = PythonOperator(
-        task_id="create_schema", python_callable=run_sql, op_args=[CREATE_SCHEMA_SQL],
-    )
     replace_table = PythonOperator(
         task_id="replace_table", python_callable=run_sql, op_args=[REPLACE_TABLE_SQL],
     )
-
-    create_schema >> replace_table
 '''
 
 
@@ -365,6 +361,8 @@ async def trigger_transform(transform_id: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Transform not found or not deployed")
     try:
         async with httpx.AsyncClient(timeout=10) as client:
+            # DAG가 발견 전 배포된 unpause PATCH(404)를 못 받았을 수 있다 — 트리거 직전 보장
+            await client.patch(f"{AIRFLOW_API}/dags/{row.dag_id}", auth=AIRFLOW_AUTH, json={"is_paused": False})
             resp = await client.post(
                 f"{AIRFLOW_API}/dags/{row.dag_id}/dagRuns",
                 auth=AIRFLOW_AUTH,
