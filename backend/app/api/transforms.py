@@ -7,6 +7,8 @@ Flow: user writes SQL → backend generates Airflow DAG (TrinoCTASOperator patte
 import os
 import re
 import uuid
+import base64
+import asyncio
 import httpx
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.database.connection import get_db, engine, Base
 from app.models.transform import SavedTransform
+from app.api.trino_util import trino_conn
 
 router = APIRouter()
 
@@ -80,23 +83,61 @@ def _safe_id(name: str) -> str:
     return re.sub(r"[^a-z0-9_]", "_", name.lower())
 
 
+_SQL_COMMENT_RE = re.compile(r"--[^\n]*|/\*.*?\*/", re.S)
+
+
+def _validate_transform_sql(sql: str) -> None:
+    """T3: SELECT/WITH 단일 문만 허용 — DAG로 정기 실행되므로 DDL/DML 차단."""
+    stripped = _SQL_COMMENT_RE.sub(" ", sql).strip()
+    if not stripped:
+        raise HTTPException(400, "SQL is empty")
+    first = stripped.split(None, 1)[0].upper()
+    if first not in ("SELECT", "WITH"):
+        raise HTTPException(400, "Transform SQL must start with SELECT or WITH — it defines the target table contents (no DDL/DML)")
+    if ";" in stripped.rstrip().rstrip(";"):
+        raise HTTPException(400, "Multiple SQL statements are not allowed")
+
+
+async def _explain_check(sql: str) -> None:
+    """T2: 배포 전 Trino EXPLAIN으로 문법/테이블 존재 검증 — 실패를 즉시 400으로."""
+    def run():
+        cur = trino_conn(timeout=20).cursor()
+        cur.execute(f"EXPLAIN {sql.rstrip().rstrip(';')}")
+        cur.fetchall()
+    try:
+        await asyncio.to_thread(run)
+    except Exception as e:
+        raise HTTPException(400, f"SQL validation failed: {e}")
+
+
 def _generate_dag(transform: "SavedTransform") -> str:
     dag_id    = f"transform_{_safe_id(transform.name)}"
     target_ns = transform.target_namespace
     target_tbl = _safe_id(transform.target_table)
     fqtn       = f"iceberg.{target_ns}.{target_tbl}"
     schedule   = f'"{transform.schedule}"' if transform.schedule else "None"
-    sql_escaped = transform.sql.replace('"""', '\\"\\"\\"')
+    # T1: CREATE OR REPLACE TABLE … AS — 원자적 교체(Trino 481 Iceberg 검증).
+    #     실패 시 기존 테이블이 보존되고, drop~create 사이 조회 공백도 없다.
+    # T8: SQL은 base64로 삽입 — 따옴표/백슬래시가 생성된 DAG 소스를 깨지 못함.
+    # description/name이 따옴표·개행을 포함해도 생성된 Python 소스가 깨지지 않도록 정제
+    desc_safe = re.sub(r'["\\\n\r]+', " ", (transform.description or transform.name)).strip()
+    replace_sql = (
+        f"CREATE OR REPLACE TABLE {fqtn}\n"
+        f"WITH (format = 'PARQUET')\n"
+        f"AS\n{transform.sql.rstrip().rstrip(';')}"
+    )
+    sql_b64 = base64.b64encode(replace_sql.encode("utf-8")).decode("ascii")
 
     return f'''"""
 Auto-generated ELT transform DAG: {transform.name}
-{transform.description or ""}
+{desc_safe}
 Source: iceberg.{transform.source_namespace}  →  Target: {fqtn}
 Generated: {datetime.utcnow().isoformat()}
 
 stock Airflow 이미지에는 trino provider가 없으므로 Trino REST API(/v1/statement)를
 requests로 직접 호출한다(에어갭 환경에서 런타임 pip 설치 회피).
 """
+import base64
 import time
 from datetime import datetime, timedelta
 
@@ -127,14 +168,10 @@ def _trino_exec(sql):
         payload = r.json()
 
 
-# location은 명시하지 않는다 — Polaris REST 카탈로그가 warehouse 하위(s3://iceberg/warehouse/<ns>/<table>)로
-# 할당한다. 명시 시 's3a://' 스킴/경로가 Polaris 허용 위치를 벗어나 거부된다(구 transform 버그).
+# location은 명시하지 않는다 — Polaris REST 카탈로그가 warehouse 하위로 할당한다.
 CREATE_SCHEMA_SQL = "CREATE SCHEMA IF NOT EXISTS iceberg.{target_ns}"
-DROP_TABLE_SQL = "DROP TABLE IF EXISTS {fqtn}"
-CREATE_TABLE_SQL = """CREATE TABLE {fqtn}
-WITH (format = 'PARQUET')
-AS
-{sql_escaped}"""
+# 원자적 교체 — DROP 단계 없음(실패 시 기존 테이블 보존). SQL은 base64(소스 손상 방지).
+REPLACE_TABLE_SQL = base64.b64decode("{sql_b64}").decode("utf-8")
 
 
 def run_sql(sql):
@@ -149,7 +186,7 @@ default_args = {{
 
 with DAG(
     dag_id="{dag_id}",
-    description="{transform.description or transform.name}",
+    description="{desc_safe}",
     schedule_interval={schedule},
     start_date=datetime(2024, 1, 1),
     catchup=False,
@@ -160,14 +197,11 @@ with DAG(
     create_schema = PythonOperator(
         task_id="create_schema", python_callable=run_sql, op_args=[CREATE_SCHEMA_SQL],
     )
-    drop_table = PythonOperator(
-        task_id="drop_table", python_callable=run_sql, op_args=[DROP_TABLE_SQL],
-    )
-    create_table = PythonOperator(
-        task_id="create_table", python_callable=run_sql, op_args=[CREATE_TABLE_SQL],
+    replace_table = PythonOperator(
+        task_id="replace_table", python_callable=run_sql, op_args=[REPLACE_TABLE_SQL],
     )
 
-    create_schema >> drop_table >> create_table
+    create_schema >> replace_table
 '''
 
 
@@ -189,10 +223,24 @@ async def _deploy_dag(dag_id: str, dag_code: str) -> bool:
 
 @router.post("/transforms")
 async def create_transform(req: TransformCreateRequest, db: Session = Depends(get_db)):
-    if req.source_namespace not in NAMESPACES or req.target_namespace not in NAMESPACES:
-        raise HTTPException(400, f"namespace must be one of {NAMESPACES}")
+    # T6: 소스는 카탈로그의 임의 네임스페이스 허용(실데이터가 default 등에 존재).
+    #     타깃만 medallion 네임스페이스로 강제한다.
+    if req.target_namespace not in NAMESPACES:
+        raise HTTPException(400, f"target namespace must be one of {NAMESPACES}")
     if req.source_namespace == req.target_namespace:
         raise HTTPException(400, "source and target namespace must differ")
+
+    # T3+T2: 배포 전 검증 — SELECT/WITH 단일문 + Trino EXPLAIN
+    _validate_transform_sql(req.sql)
+    await _explain_check(req.sql)
+
+    # T7: 이름 정규화(dag_id) 충돌 — 다른 transform의 DAG 파일을 덮어쓰지 않도록
+    new_dag_id = f"transform_{_safe_id(req.name)}"
+    clash = db.query(SavedTransform).filter(
+        SavedTransform.dag_id == new_dag_id, SavedTransform.name != req.name
+    ).first()
+    if clash:
+        raise HTTPException(409, f"Name normalizes to DAG id '{new_dag_id}' which is already used by transform '{clash.name}' — choose a different name")
 
     existing = db.query(SavedTransform).filter(SavedTransform.name == req.name).first()
     if existing and not req.overwrite:
@@ -240,9 +288,32 @@ async def create_transform(req: TransformCreateRequest, db: Session = Depends(ge
     }
 
 
+async def _last_runs(dag_ids: list) -> dict:
+    """Airflow에서 각 DAG의 최근 run 1건 — best-effort(5s), 실패는 None."""
+    out: dict = {}
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            async def one(d):
+                try:
+                    r = await client.get(f"{AIRFLOW_API}/dags/{d}/dagRuns",
+                                         auth=AIRFLOW_AUTH,
+                                         params={"limit": 1, "order_by": "-execution_date"})
+                    runs = r.json().get("dag_runs", [])
+                    if runs:
+                        out[d] = {"state": runs[0].get("state"),
+                                  "at": runs[0].get("end_date") or runs[0].get("execution_date")}
+                except Exception:
+                    pass
+            await asyncio.gather(*(one(d) for d in dag_ids))
+    except Exception:
+        pass
+    return out
+
+
 @router.get("/transforms")
 async def list_transforms(db: Session = Depends(get_db)):
     rows = db.query(SavedTransform).order_by(SavedTransform.updated_at.desc()).all()
+    runs = await _last_runs([r.dag_id for r in rows if r.dag_id])
     return {
         "transforms": [
             {
@@ -257,6 +328,8 @@ async def list_transforms(db: Session = Depends(get_db)):
                 "dag_id": r.dag_id,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+                "last_run_state": (runs.get(r.dag_id) or {}).get("state"),
+                "last_run_at": (runs.get(r.dag_id) or {}).get("at"),
             }
             for r in rows
         ],

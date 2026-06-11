@@ -30,6 +30,7 @@ import {
   Play,
   Timer,
   Loader2,
+  Pencil,
 } from "lucide-react"
 import { formatDistance } from "date-fns"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -43,7 +44,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { NewTransformModal } from "@/components/transforms/new-transform-modal"
+import { NewTransformModal, type EditingTransform } from "@/components/transforms/new-transform-modal"
+import { useConfirm } from "@/lib/confirm"
 import { ArrowRight, Layers } from "lucide-react"
 
 interface DAG {
@@ -76,6 +78,8 @@ interface DagRun {
 }
 
 interface Transform {
+  last_run_state?: string | null
+  last_run_at?: string | null
   id: string
   name: string
   description?: string
@@ -100,6 +104,7 @@ function PipelinesPageInner() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [transforms, setTransforms] = useState<Transform[]>([])
   const [showNewTransform, setShowNewTransform] = useState(false)
+  const [editTransform, setEditTransform] = useState<EditingTransform | null>(null)
   const [triggeringTransform, setTriggeringTransform] = useState<string | null>(null)
   const [savedStatuses, setSavedStatuses] = useState<Map<string, string>>(new Map())
   const router = useRouter()
@@ -197,16 +202,30 @@ function PipelinesPageInner() {
     }
   }
 
+  const handleEditTransform = async (id: string) => {
+    try {
+      const r = await fetch(`/api/transforms/${id}`)
+      if (!r.ok) throw new Error()
+      setEditTransform(await r.json())
+      setShowNewTransform(true)
+    } catch { toast("Transform 정보를 불러오지 못했습니다", "error") }
+  }
+
   const handleTriggerTransform = async (id: string, dagId: string) => {
     setTriggeringTransform(id)
     try {
-      await fetch(`/api/transforms/${id}/trigger`, { method: "POST" })
+      const r = await fetch(`/api/transforms/${id}/trigger`, { method: "POST" })
+      if (r.ok) toast(`실행 시작됨 — Airflow DAG ${dagId}`, "info")
+      else toast("실행 트리거 실패", "error")
     } catch { /* best effort */ }
     finally { setTriggeringTransform(null) }
   }
 
-  const handleDeleteTransform = async (id: string) => {
+  const confirmDialog = useConfirm()
+  const handleDeleteTransform = async (id: string, name: string) => {
+    if (!(await confirmDialog({ title: "Transform 삭제", message: `'${name}' 와 Airflow DAG를 삭제합니다.`, destructive: true, confirmText: "삭제" }))) return
     await fetch(`/api/transforms/${id}`, { method: "DELETE" })
+    toast(`Transform '${name}' 삭제됨`, "success")
     setTransforms(prev => prev.filter(t => t.id !== id))
   }
 
@@ -463,16 +482,33 @@ function PipelinesPageInner() {
                         {t.schedule || <span className="text-muted-foreground/50">manual</span>}
                       </td>
                       <td className="px-4 py-2.5">
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                          t.status === "deployed" ? "bg-green-500/10 text-green-600" : "bg-muted text-muted-foreground"
-                        }`}>
-                          {t.status}
-                        </span>
+                        <div className="flex flex-col gap-0.5">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium w-fit ${
+                            t.status === "deployed" ? "bg-green-500/10 text-green-600" : "bg-muted text-muted-foreground"
+                          }`}>
+                            {t.status}
+                          </span>
+                          {t.last_run_state && (
+                            <span className={`text-[10px] w-fit ${
+                              t.last_run_state === "success" ? "text-green-600" :
+                              t.last_run_state === "failed" ? "text-destructive" : "text-muted-foreground"
+                            }`}>
+                              run: {t.last_run_state}{t.last_run_at ? ` · ${new Date(t.last_run_at).toLocaleString()}` : ""}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-1 justify-end">
                           <Button
-                            variant="ghost" size="sm"
+                            variant="ghost" size="sm" aria-label={`Edit ${t.name}`}
+                            className="h-6 text-[10px] px-2"
+                            onClick={() => handleEditTransform(t.id)}
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="ghost" size="sm" aria-label={`Run ${t.name}`}
                             className="h-6 text-[10px] px-2"
                             disabled={triggeringTransform === t.id}
                             onClick={() => handleTriggerTransform(t.id, t.dag_id || "")}
@@ -486,7 +522,7 @@ function PipelinesPageInner() {
                           <Button
                             variant="ghost" size="sm"
                             className="h-6 text-[10px] px-2 text-destructive hover:text-destructive"
-                            onClick={() => handleDeleteTransform(t.id)}
+                            onClick={() => handleDeleteTransform(t.id, t.name)}
                           >
                             <XCircle className="h-3 w-3" />
                           </Button>
@@ -600,9 +636,10 @@ function PipelinesPageInner() {
 
       {/* New Transform modal */}
       <NewTransformModal
+        editing={editTransform}
         open={showNewTransform}
-        onClose={() => setShowNewTransform(false)}
-        onCreated={() => { setShowNewTransform(false); fetchData() }}
+        onClose={() => { setShowNewTransform(false); setEditTransform(null) }}
+        onCreated={() => { setShowNewTransform(false); setEditTransform(null); fetchData() }}
       />
 
       {/* Delete confirmation dialog */}
