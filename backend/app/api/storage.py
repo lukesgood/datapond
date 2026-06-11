@@ -5,7 +5,10 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import os
+import time
+import asyncio
 import boto3
+from concurrent.futures import ThreadPoolExecutor
 from botocore.exceptions import ClientError, EndpointConnectionError
 from datetime import datetime, timezone
 
@@ -60,55 +63,64 @@ def human_size(size_bytes: int) -> str:
     return f"{size_bytes:.1f} PB"
 
 
+_OVERVIEW_TTL_SEC = int(os.getenv("STORAGE_OVERVIEW_TTL_SEC", "30"))
+_overview_cache: dict = {"data": None, "ts": 0.0}
+
+
+def _scan_bucket(s3, b) -> BucketStat:
+    """단일 버킷 객체 집계 — 병렬 워커에서 실행."""
+    name = b["Name"]
+    created = b.get("CreationDate")
+    obj_count = 0
+    size = 0
+    try:
+        paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=name):
+            for obj in page.get("Contents", []):
+                obj_count += 1
+                size += obj.get("Size", 0)
+    except Exception:
+        pass
+    return BucketStat(
+        name=name,
+        created_at=created.isoformat() if created else None,
+        object_count=obj_count,
+        total_size_bytes=size,
+        total_size_human=human_size(size),
+    )
+
+
+def _collect_overview() -> "StorageOverview":
+    """전체 수집(블로킹) — 버킷별 객체 나열을 스레드풀로 병렬화."""
+    s3 = get_s3_client()
+    buckets_raw = s3.list_buckets().get("Buckets", [])
+    # boto3 클라이언트는 스레드세이프 — 버킷 단위 병렬 스캔
+    with ThreadPoolExecutor(max_workers=min(8, max(1, len(buckets_raw)))) as ex:
+        bucket_stats = list(ex.map(lambda b: _scan_bucket(s3, b), buckets_raw))
+    total_objects = sum(b.object_count for b in bucket_stats)
+    total_bytes = sum(b.total_size_bytes for b in bucket_stats)
+    bucket_stats.sort(key=lambda x: x.total_size_bytes, reverse=True)
+    return StorageOverview(
+        endpoint=S3_ENDPOINT,
+        bucket_count=len(bucket_stats),
+        total_object_count=total_objects,
+        total_size_bytes=total_bytes,
+        total_size_human=human_size(total_bytes),
+        buckets=bucket_stats,
+    )
+
+
 @router.get("/storage/overview", response_model=StorageOverview)
 async def get_storage_overview():
-    """Get SeaweedFS S3 storage overview — bucket list with sizes"""
+    """SeaweedFS S3 개요 — 30s TTL 캐시 + to_thread(이벤트루프 비블로킹) + 버킷 병렬 스캔."""
+    now = time.monotonic()
+    if _overview_cache["data"] is not None and now - _overview_cache["ts"] < _OVERVIEW_TTL_SEC:
+        return _overview_cache["data"]
     try:
-        s3 = get_s3_client()
-        response = s3.list_buckets()
-        buckets_raw = response.get("Buckets", [])
+        data = await asyncio.to_thread(_collect_overview)
+        _overview_cache["data"], _overview_cache["ts"] = data, now
+        return data
 
-        bucket_stats: List[BucketStat] = []
-        total_objects = 0
-        total_bytes = 0
-
-        for b in buckets_raw:
-            name = b["Name"]
-            created = b.get("CreationDate")
-            obj_count = 0
-            size = 0
-
-            try:
-                paginator = s3.get_paginator("list_objects_v2")
-                for page in paginator.paginate(Bucket=name):
-                    for obj in page.get("Contents", []):
-                        obj_count += 1
-                        size += obj.get("Size", 0)
-            except Exception:
-                pass
-
-            total_objects += obj_count
-            total_bytes += size
-
-            bucket_stats.append(BucketStat(
-                name=name,
-                created_at=created.isoformat() if created else None,
-                object_count=obj_count,
-                total_size_bytes=size,
-                total_size_human=human_size(size),
-            ))
-
-        # Sort by size descending
-        bucket_stats.sort(key=lambda x: x.total_size_bytes, reverse=True)
-
-        return StorageOverview(
-            endpoint=S3_ENDPOINT,
-            bucket_count=len(bucket_stats),
-            total_object_count=total_objects,
-            total_size_bytes=total_bytes,
-            total_size_human=human_size(total_bytes),
-            buckets=bucket_stats,
-        )
 
     except EndpointConnectionError:
         raise HTTPException(status_code=503, detail="SeaweedFS S3 endpoint unreachable")
