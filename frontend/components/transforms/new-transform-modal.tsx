@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useToast } from "@/lib/toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -33,13 +33,25 @@ SELECT
 FROM iceberg.raw.orders
 WHERE status = 'completed'`
 
+export interface EditingTransform {
+  id: string
+  name: string
+  description: string | null
+  source_namespace: string
+  target_namespace: string
+  target_table: string
+  sql: string
+  schedule: string | null
+}
+
 interface Props {
   open: boolean
   onClose: () => void
   onCreated: () => void
+  editing?: EditingTransform | null   // 지정 시 수정 모드(이름 고정, overwrite 배포)
 }
 
-export function NewTransformModal({ open, onClose, onCreated }: Props) {
+export function NewTransformModal({ open, onClose, onCreated, editing }: Props) {
   const [name, setName]                       = useState("")
   const [description, setDescription]         = useState("")
   const [sourceNs, setSourceNs]               = useState("raw")
@@ -49,6 +61,29 @@ export function NewTransformModal({ open, onClose, onCreated }: Props) {
   const [schedule, setSchedule]               = useState("")
   const [submitting, setSubmitting]           = useState(false)
   const [error, setError]                     = useState<string | null>(null)
+  const [sourceNamespaces, setSourceNamespaces] = useState<string[]>(NAMESPACES)
+
+  // T6: 소스는 카탈로그의 실제 네임스페이스 목록(실데이터가 default 등에 존재)
+  useEffect(() => {
+    if (!open) return
+    fetch("/api/catalog/schemas?columns=false")
+      .then(r => r.json())
+      .then(d => {
+        const names = (d.catalogs ?? []).flatMap((c: any) => (c.schemas ?? []).map((x: any) => x.name))
+        const merged = Array.from(new Set([...names, ...NAMESPACES])).sort()
+        if (merged.length) setSourceNamespaces(merged)
+      })
+      .catch(() => {})
+  }, [open])
+
+  // T4: 수정 모드 — 기존값 프리필
+  useEffect(() => {
+    if (open && editing) {
+      setName(editing.name); setDescription(editing.description || "")
+      setSourceNs(editing.source_namespace); setTargetNs(editing.target_namespace)
+      setTargetTable(editing.target_table); setSql(editing.sql); setSchedule(editing.schedule || "")
+    }
+  }, [open, editing])
 
   const valid = name.trim() && targetTable.trim() && sql.trim() && sourceNs !== targetNs
 
@@ -69,12 +104,12 @@ export function NewTransformModal({ open, onClose, onCreated }: Props) {
           target_table: targetTable.trim(),
           sql: sql.trim(),
           schedule: schedule || null,
-          overwrite: false,
+          overwrite: !!editing,
         }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || "Failed to create transform")
-      toast(`Transform '${name.trim()}' 배포됨 — Airflow DAG가 생성되었습니다`, "success")
+      toast(`Transform '${name.trim()}' ${editing ? "수정 배포됨" : "배포됨"} — Airflow DAG ${editing ? "갱신" : "생성"} 완료`, "success")
       onCreated()
       handleClose()
     } catch (e: any) {
@@ -94,7 +129,7 @@ export function NewTransformModal({ open, onClose, onCreated }: Props) {
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>New Transform</DialogTitle>
+          <DialogTitle>{editing ? `Edit Transform — ${editing.name}` : "New Transform"}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-1">
@@ -106,6 +141,7 @@ export function NewTransformModal({ open, onClose, onCreated }: Props) {
                 placeholder="orders_refined"
                 value={name}
                 onChange={e => setName(e.target.value)}
+                disabled={!!editing}
                 className="h-8 text-sm font-mono"
               />
             </div>
@@ -129,7 +165,7 @@ export function NewTransformModal({ open, onClose, onCreated }: Props) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {NAMESPACES.map(ns => (
+                  {sourceNamespaces.map(ns => (
                     <SelectItem key={ns} value={ns} className="text-sm font-mono">{ns}</SelectItem>
                   ))}
                 </SelectContent>
@@ -221,7 +257,7 @@ export function NewTransformModal({ open, onClose, onCreated }: Props) {
           <Button variant="outline" size="sm" onClick={handleClose} disabled={submitting}>Cancel</Button>
           <Button size="sm" onClick={handleSubmit} disabled={!valid || submitting} className="gap-1.5">
             {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
-            {submitting ? "Deploying…" : "Deploy Transform"}
+            {submitting ? "Deploying…" : editing ? "Update & Redeploy" : "Deploy Transform"}
           </Button>
         </DialogFooter>
       </DialogContent>
