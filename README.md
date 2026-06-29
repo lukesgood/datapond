@@ -10,6 +10,7 @@
 DataPond는 **벤더 중립 OSS Databricks 대안**에서 **AWS 특화 AI 데이터 기반**으로
 컨셉을 피보팅하고 있습니다.
 
+- 🎯 **제품 컨셉**: [docs/PRODUCT_CONCEPT.md](docs/PRODUCT_CONCEPT.md) — 포지셔닝·타깃·경쟁·재활용 자산
 - 📐 **설계 스펙**: [docs/superpowers/specs/2026-06-30-aws-ai-data-platform-pivot-design.md](docs/superpowers/specs/2026-06-30-aws-ai-data-platform-pivot-design.md)
 - 📦 **이전 컨셉(OSS Lakehouse)**: [ARCHIVE.md](ARCHIVE.md) 참조 — `archive/oss-lakehouse` 브랜치 / `v3.0-oss-lakehouse` 태그에 보관
 
@@ -43,7 +44,7 @@ AI 데이터 레이어 ── Bedrock Knowledge Base ─ 벡터 스토어(pgvect
 ## 🗺️ 로드맵
 
 - **Phase 0** — 보관 (이전 컨셉 아카이브) ✅
-- **Phase 1** — 컨셉 재정의 (PRODUCT_CONCEPT, README)
+- **Phase 1** — 컨셉 재정의 (PRODUCT_CONCEPT, README) ✅
 - **Phase 2** — 레퍼런스 아키텍처 (IaC, 보안)
 - **Phase 3** — MVP (S3 → 임베딩 → 벡터 → Bedrock RAG end-to-end)
 - **Phase 4** — GTM 재정렬
