@@ -1,8 +1,8 @@
-{{- if and .Values.polaris.enabled .Values.seaweedfs.enabled }}
+{{- if and .Values.polaris.enabled .Values.minio.enabled }}
 ---
-# Polaris catalog initialization (post-bootstrap). Gated on seaweedfs.enabled too:
-# the storage config below (SeaweedFS base-location + placeholder roleArn) only makes
-# sense for the SeaweedFS-backed profile. Real-S3 profiles need their own storage cfg.
+# Polaris catalog initialization (post-bootstrap). Gated on minio.enabled too:
+# the storage config below (MinIO base-location + placeholder roleArn) only makes
+# sense for the MinIO-backed profile. Real-S3 profiles need their own storage cfg.
 # The polaris-bootstrap Job only creates the metastore schema + root principal.
 # This Job creates the actual CATALOG, grants data privileges, and creates the
 # medallion namespaces — the steps required before Trino/clients can use Iceberg.

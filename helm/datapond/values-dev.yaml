@@ -101,52 +101,6 @@ mlflow:
     enabled: true
     size: 5Gi
 
-# SeaweedFS - Moderate
-seaweedfs:
-  enabled: true
-  master:
-    resources:
-      requests:
-        cpu: 100m
-        memory: 128Mi
-      limits:
-        cpu: 200m
-        memory: 256Mi
-    persistence:
-      size: 2Gi
-  volume:
-    replicas: 1
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: 500m
-        memory: 1Gi
-    persistence:
-      size: 20Gi
-  filer:
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 200m
-        memory: 512Mi
-    persistence:
-      size: 5Gi
-  s3:
-    replicas: 1
-    resources:
-      requests:
-        cpu: 100m
-        memory: 128Mi
-      limits:
-        cpu: 200m
-        memory: 256Mi
-  persistence:
-    enabled: true
-
 # Airflow - Reduced
 airflow:
   enabled: true
@@ -231,15 +185,14 @@ airflow:
     username: admin
     password: admin
 
-seaweedfs:
+minio:
+  enabled: true
+  clusterIP: 10.43.107.150
   auth:
-    s3User: datapond
-    s3Password: datapond_dev
-  s3:
-    # Static ClusterIP required by the CoreDNS virtual-host rewrite
-    # (coredns-custom-configmap.yaml). Set to your cluster's actual
-    # seaweedfs-s3 Service ClusterIP within the service CIDR.
-    clusterIP: 10.43.107.150
+    rootUser: datapond
+    rootPassword: datapond_dev
+  persistence:
+    size: 20Gi
 
 jupyter:
   env:

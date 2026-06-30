@@ -93,7 +93,7 @@ spec:
         - name: POLARIS_REALM_CONTEXT_REQUIRE_HEADER
           value: "false"
 
-        # ── S3 storage (SeaweedFS) ────────────────────────────────
+        # ── S3 storage (MinIO) ───────────────────────────────────
         - name: AWS_REGION
           value: "us-east-1"
         - name: AWS_ACCESS_KEY_ID
@@ -106,10 +106,10 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: SEAWEEDFS_S3_PASSWORD
-        # AWS SDK v2 respects this to redirect S3 traffic to on-prem SeaweedFS
+        # AWS SDK v2 respects this to redirect S3 traffic to on-prem MinIO
         # instead of the default real AWS endpoint. Force path-style addressing
-        # (bucket in URL path, not hostname) since SeaweedFS does not provide
-        # DNS for `<bucket>.<endpoint-host>`.
+        # (bucket in URL path, not hostname) since MinIO does not provide
+        # DNS for `<bucket>.<endpoint-host>` (CoreDNS template fills that gap).
         - name: AWS_ENDPOINT_URL_S3
           value: "http://minio:9000"
         - name: AWS_ENDPOINT_URL

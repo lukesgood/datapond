@@ -1,6 +1,6 @@
 # On-Premises deployment profile — complete production-ready configuration
 # Based on values-quicktest.yaml, expanded for on-prem environments with:
-#   - All services enabled (SeaweedFS, Ollama, LiteLLM, Polaris, etc.)
+#   - All services enabled (MinIO, Ollama, LiteLLM, Polaris, etc.)
 #   - Reasonable resource allocations for a 32GB+ RAM node
 #   - Air-gap friendly (no external dependencies required)
 #
@@ -186,25 +186,22 @@ spark:
     replicas: 1
 
 # ── Storage (S3 routing) ──────────────────────────────────────────────────────
-# Points backend at SeaweedFS S3 endpoint (enables S3_ACCESS_KEY/S3_SECRET_KEY).
+# Points backend at MinIO S3 endpoint (enables S3_ACCESS_KEY/S3_SECRET_KEY).
 storage:
-  endpoint: "seaweedfs-s3:8333"
+  endpoint: "minio:9000"
   region: "us-east-1"
   bucket: iceberg
 
-# ── SeaweedFS (S3-compatible object storage) ──────────────────────────────────
+# ── MinIO (S3-compatible object storage) ─────────────────────────────────────
 # Primary storage layer — all Iceberg data, MLflow artifacts, etc.
-seaweedfs:
+minio:
   enabled: true
-  volume:
-    replicas: 1
-    persistence:
-      size: 100Gi
+  clusterIP: 10.43.107.150
   auth:
-    s3User: datapond
-    s3Password: datapond_s3_password   # Change in production!
-  s3:
-    clusterIP: 10.43.107.150  # Static IP within K3s service CIDR (10.43.0.0/16)
+    rootUser: datapond
+    rootPassword: datapond_s3_password   # Change in production!
+  persistence:
+    size: 100Gi
 
 # ── Trino (OLAP SQL analytics engine) ────────────────────────────────────────
 trino:

@@ -86,15 +86,15 @@ spec:
               number: {{ .Values.spark.master.service.webPort }}
       {{- end }}
 
-      {{- if .Values.seaweedfs.enabled }}
-      # SeaweedFS Filer (Web UI)
-      - path: /seaweedfs
+      {{- if .Values.minio.enabled }}
+      # MinIO Console (Web UI)
+      - path: /minio
         pathType: Prefix
         backend:
           service:
-            name: {{ .Values.seaweedfs.name }}-filer
+            name: minio
             port:
-              number: 8888
+              number: 9001
       {{- end }}
 
       {{- if .Values.trino.enabled }}

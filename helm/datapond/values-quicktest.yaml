@@ -217,14 +217,6 @@ spark:
       - name: SPARK_WORKER_MEMORY
         value: "1G"
 
-# SeaweedFS - Minimal
-seaweedfs:
-  enabled: true
-  volume:
-    replicas: 1
-    persistence:
-      size: 20Gi
-
 # Trino - Minimal (SQL query engine)
 trino:
   enabled: true
@@ -340,16 +332,14 @@ jupyter:
     - name: JUPYTER_TOKEN
       value: "jupyter"
 
-seaweedfs:
+minio:
+  enabled: true
+  clusterIP: 10.43.107.150
   auth:
-    s3User: datapond
-    s3Password: datapond_dev
-  s3:
-    # Static ClusterIP so the CoreDNS override (coredns-custom-configmap.yaml)
-    # always resolves virtual-host bucket hostnames to the same endpoint.
-    # Verify the IP is inside the service CIDR (k3s default 10.43.0.0/16) and
-    # not in use: `kubectl get svc -A | grep 10.43.107.150`
-    clusterIP: 10.43.107.150
+    rootUser: datapond
+    rootPassword: datapond_dev
+  persistence:
+    size: 20Gi
 
 # LiteLLM gateway — always-on, lightweight (proxy only, no model weights ~256Mi).
 # Single entry point for all LLM providers; backends are added/switched at runtime

@@ -355,72 +355,6 @@ spark:
       - name: SPARK_WORKER_MEMORY
         value: "4G"
 
-# SeaweedFS (S3-compatible storage, Apache 2.0 License)
-seaweedfs:
-  enabled: true
-  name: seaweedfs
-  image:
-    repository: chrislusf/seaweedfs
-    tag: latest
-
-  # Master Server
-  master:
-    resources:
-      requests:
-        cpu: 200m
-        memory: 256Mi
-      limits:
-        cpu: 500m
-        memory: 512Mi
-    persistence:
-      size: 5Gi
-
-  # Volume Server
-  volume:
-    replicas: 1
-    resources:
-      requests:
-        cpu: 500m
-        memory: 1Gi
-      limits:
-        cpu: 1000m
-        memory: 2Gi
-    persistence:
-      size: 100Gi
-
-  # Filer
-  filer:
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: 500m
-        memory: 1Gi
-    persistence:
-      size: 10Gi
-
-  # S3 Gateway
-  s3:
-    replicas: 1
-    service:
-      type: ClusterIP
-      port: 8333
-    resources:
-      requests:
-        cpu: 200m
-        memory: 256Mi
-      limits:
-        cpu: 500m
-        memory: 512Mi
-
-  persistence:
-    enabled: true
-
-  auth:
-    s3User: datapond
-    s3Password: datapond_s3_password
-
 # MinIO (S3-compatible object store). Default ON for self-contained local/dev.
 # AWS profile disables it and uses native S3.
 minio:
@@ -437,11 +371,11 @@ minio:
     requests: { cpu: 200m, memory: 512Mi }
     limits: { cpu: "1", memory: 1Gi }
 
-# Object storage. SeaweedFS (S3-compatible) by default; AWS profile overrides
+# Object storage. MinIO (S3-compatible) by default; AWS profile overrides
 # endpoint to "" for native S3 (see values-aws.yaml).
 storage:
-  provider: seaweedfs
-  endpoint: "seaweedfs-s3:8333"
+  provider: minio
+  endpoint: "minio:9000"
   region: us-east-1
 
 # External managed database (AWS RDS/Aurora). Disabled by default; the AWS
@@ -553,8 +487,8 @@ polaris:
     - refined
     - serving
 
-  # Storage configuration (uses SeaweedFS)
-  warehouseBucket: iceberg   # S3 bucket auto-created in SeaweedFS (seaweedfs-bucket-init Job)
+  # Storage configuration (uses MinIO)
+  warehouseBucket: iceberg   # S3 bucket auto-created in MinIO (minio-bucket-init Job)
   storage:
     type: s3
     defaultBaseLocation: s3://iceberg/warehouse
