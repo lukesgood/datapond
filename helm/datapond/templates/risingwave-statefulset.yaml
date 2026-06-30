@@ -56,7 +56,7 @@ spec:
         - name: AWS_REGION
           value: "us-east-1"
         - name: RW_S3_ENDPOINT
-          value: "http://{{ .Values.seaweedfs.name }}-s3:{{ .Values.seaweedfs.s3.service.port }}"
+          value: "http://minio:9000"
         - name: RW_S3_PATH_STYLE_ACCESS
           value: "true"
         ports:
@@ -242,7 +242,7 @@ spec:
         - name: AWS_REGION
           value: "us-east-1"
         - name: RW_S3_ENDPOINT
-          value: "http://{{ .Values.seaweedfs.name }}-s3:{{ .Values.seaweedfs.s3.service.port }}"
+          value: "http://minio:9000"
         - name: RW_S3_PATH_STYLE_ACCESS
           value: "true"
         - name: RUST_BACKTRACE
@@ -341,7 +341,7 @@ spec:
         - name: AWS_REGION
           value: "us-east-1"
         - name: RW_S3_ENDPOINT
-          value: "http://{{ .Values.seaweedfs.name }}-s3:{{ .Values.seaweedfs.s3.service.port }}"
+          value: "http://minio:9000"
         - name: RW_S3_PATH_STYLE_ACCESS
           value: "true"
         - name: RUST_BACKTRACE

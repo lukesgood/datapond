@@ -1,4 +1,4 @@
-{{- if .Values.seaweedfs.enabled }}
+{{- if .Values.minio.enabled }}
 # CoreDNS override: synthesize A records for virtual-host-style S3 hostnames.
 #
 # The AWS SDK v2 defaults to virtual-host addressing (<bucket>.<host>) and many
@@ -30,9 +30,9 @@ metadata:
     "helm.sh/resource-policy": keep
 data:
   datapond-s3.override: |
-    template IN A seaweedfs-s3.{{ .Values.namespace }}.svc.cluster.local {
-      match ^[^.]+\.seaweedfs-s3\.{{ .Values.namespace }}\.svc\.cluster\.local\.$
-      answer "{{ "{{" }} .Name {{ "}}" }} 60 IN A {{ .Values.seaweedfs.s3.clusterIP | required "seaweedfs.s3.clusterIP must be set to the static ClusterIP of the seaweedfs-s3 Service (kubectl -n <ns> get svc seaweedfs-s3 -o jsonpath='{.spec.clusterIP}')" }}"
+    template IN A minio.{{ .Values.namespace }}.svc.cluster.local {
+      match ^[^.]+\.minio\.{{ .Values.namespace }}\.svc\.cluster\.local\.$
+      answer "{{ "{{" }} .Name {{ "}}" }} 60 IN A {{ .Values.minio.clusterIP | required "minio.clusterIP must be set to the static ClusterIP of the minio Service (kubectl -n <ns> get svc minio -o jsonpath='{.spec.clusterIP}')" }}"
       fallthrough
     }
 {{- end }}

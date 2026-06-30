@@ -79,7 +79,7 @@ spec:
           value: "yes"
         # SeaweedFS S3 Configuration (for DuckDB)
         - name: SEAWEEDFS_S3_ENDPOINT
-          value: "http://seaweedfs-s3:8333"
+          value: "http://minio:9000"
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
