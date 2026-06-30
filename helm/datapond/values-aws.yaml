@@ -41,9 +41,15 @@ ai:
   embedModel: "embed"
   embedDim: 1024
 
+vllm:
+  enabled: false
+
 # LiteLLM: route to AWS Bedrock
 litellm:
   enabled: true
+  serviceAccount:
+    # Set to the IRSA role ARN from `terraform output litellm_bedrock_role_arn`.
+    roleArn: ""   # e.g. arn:aws:iam::<acct>:role/datapond-litellm-bedrock
   config:
     model_list:
       - model_name: "embed"

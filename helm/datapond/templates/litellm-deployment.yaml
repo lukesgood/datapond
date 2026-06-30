@@ -93,6 +93,7 @@ spec:
         # Force pod restart when bootstrap config changes
         checksum/config: {{ .Values.litellm.config | toYaml | sha256sum }}
     spec:
+      serviceAccountName: {{ .Values.litellm.serviceAccount.name | default "default" }}
       {{- if .Values.postgres.enabled }}
       initContainers:
       - name: wait-for-postgres
@@ -178,6 +179,12 @@ spec:
         - name: DATABASE_URL
           value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ .Values.postgres.name | default "postgres" }}:{{ .Values.postgres.service.port | default 5432 }}/{{ .Values.litellm.database | default "litellm" }}"
         {{- end }}
+        {{- end }}
+        {{- if .Values.litellm.aws.staticCredentials }}
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom: { secretKeyRef: { name: datapond-secrets, key: AWS_ACCESS_KEY_ID } }
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom: { secretKeyRef: { name: datapond-secrets, key: AWS_SECRET_ACCESS_KEY } }
         {{- end }}
         volumeMounts:
         - name: litellm-config
