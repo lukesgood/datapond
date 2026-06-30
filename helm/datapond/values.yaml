@@ -421,6 +421,13 @@ seaweedfs:
     s3User: datapond
     s3Password: datapond_s3_password
 
+# Object storage. SeaweedFS (S3-compatible) by default; AWS profile overrides
+# endpoint to "" for native S3 (see values-aws.yaml).
+storage:
+  provider: seaweedfs
+  endpoint: "seaweedfs-s3:8333"
+  region: us-east-1
+
 # Trino (SQL Analytics with Iceberg)
 trino:
   enabled: true
