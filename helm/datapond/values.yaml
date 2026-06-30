@@ -505,7 +505,7 @@ risingwave:
   # PostgreSQL database for RisingWave metadata
   database: risingwave
 
-  # Storage configuration (uses SeaweedFS S3)
+  # Storage configuration (uses MinIO / S3)
   storage:
     bucket: risingwave
     dataDirectory: hummock
