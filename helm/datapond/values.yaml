@@ -355,10 +355,10 @@ spark:
       - name: SPARK_WORKER_MEMORY
         value: "4G"
 
-# MinIO (S3-compatible object store). Default ON for self-contained local/dev.
-# AWS profile disables it and uses native S3.
+# MinIO (S3-compatible object store). Default OFF; non-AWS profiles opt in.
+# AWS profile uses native S3 (see values-aws.yaml).
 minio:
-  enabled: true
+  enabled: false
   image:
     repository: minio/minio
     tag: latest
@@ -371,11 +371,11 @@ minio:
     requests: { cpu: 200m, memory: 512Mi }
     limits: { cpu: "1", memory: 1Gi }
 
-# Object storage. MinIO (S3-compatible) by default; AWS profile overrides
-# endpoint to "" for native S3 (see values-aws.yaml).
+# Object storage. Default = AWS-native S3 (endpoint empty → AWS regional
+# endpoint + IAM role). Non-AWS profiles set endpoint to their MinIO service.
 storage:
-  provider: minio
-  endpoint: "minio:9000"
+  provider: s3
+  endpoint: ""
   region: us-east-1
 
 # External managed database (AWS RDS/Aurora). Disabled by default; the AWS

@@ -332,6 +332,11 @@ jupyter:
     - name: JUPYTER_TOKEN
       value: "jupyter"
 
+storage:
+  provider: minio
+  endpoint: "minio:9000"
+  region: us-east-1
+
 minio:
   enabled: true
   clusterIP: 10.43.107.150
