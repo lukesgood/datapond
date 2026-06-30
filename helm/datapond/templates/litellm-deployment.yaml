@@ -93,7 +93,7 @@ spec:
         # Force pod restart when bootstrap config changes
         checksum/config: {{ .Values.litellm.config | toYaml | sha256sum }}
     spec:
-      serviceAccountName: {{ .Values.litellm.serviceAccount.name | default "default" }}
+      serviceAccountName: {{ .Values.litellm.serviceAccount.name | default "litellm" }}
       {{- if .Values.postgres.enabled }}
       initContainers:
       - name: wait-for-postgres
