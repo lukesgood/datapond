@@ -421,6 +421,22 @@ seaweedfs:
     s3User: datapond
     s3Password: datapond_s3_password
 
+# MinIO (S3-compatible object store). Default ON for self-contained local/dev.
+# AWS profile disables it and uses native S3.
+minio:
+  enabled: true
+  image:
+    repository: minio/minio
+    tag: latest
+  auth:
+    rootUser: datapond
+    rootPassword: datapond_s3_password
+  persistence:
+    size: 50Gi
+  resources:
+    requests: { cpu: 200m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
 # Object storage. SeaweedFS (S3-compatible) by default; AWS profile overrides
 # endpoint to "" for native S3 (see values-aws.yaml).
 storage:
