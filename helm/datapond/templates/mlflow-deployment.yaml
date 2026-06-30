@@ -52,8 +52,9 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: POSTGRES_PASSWORD
+        {{- if .Values.storage.endpoint }}
         - name: MLFLOW_S3_ENDPOINT_URL
-          value: "http://minio:9000"
+          value: "http://{{ .Values.storage.endpoint }}"
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
@@ -64,6 +65,7 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: SEAWEEDFS_S3_PASSWORD
+        {{- end }}
         resources:
           requests:
             cpu: {{ .Values.mlflow.resources.requests.cpu }}

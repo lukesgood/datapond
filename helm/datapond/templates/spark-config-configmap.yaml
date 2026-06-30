@@ -20,8 +20,10 @@ data:
     spark.sql.extensions org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
     spark.sql.catalog.iceberg org.apache.iceberg.spark.SparkCatalog
     spark.sql.catalog.iceberg.io-impl org.apache.iceberg.aws.s3.S3FileIO
-    spark.sql.catalog.iceberg.s3.endpoint http://minio:9000
+    {{- if .Values.storage.endpoint }}
+    spark.sql.catalog.iceberg.s3.endpoint http://{{ .Values.storage.endpoint }}
     spark.sql.catalog.iceberg.s3.path-style-access true
+    {{- end }}
     {{- if .Values.polaris.enabled }}
     spark.sql.catalog.iceberg.catalog-impl org.apache.iceberg.rest.RESTCatalog
     spark.sql.catalog.iceberg.uri http://{{ .Values.polaris.name }}:{{ .Values.polaris.service.port }}/api/catalog/v1
@@ -31,7 +33,9 @@ data:
     spark.sql.catalog.iceberg.type hadoop
     spark.sql.catalog.iceberg.warehouse s3a://iceberg/warehouse
     {{- end }}
-    spark.hadoop.fs.s3a.endpoint http://minio:9000
+    {{- if .Values.storage.endpoint }}
+    spark.hadoop.fs.s3a.endpoint http://{{ .Values.storage.endpoint }}
     spark.hadoop.fs.s3a.path.style.access true
+    {{- end }}
     spark.hadoop.fs.s3a.impl org.apache.hadoop.fs.s3a.S3AFileSystem
 {{- end }}

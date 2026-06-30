@@ -31,6 +31,7 @@ spec:
           name: http
           protocol: TCP
         env:
+        {{- if .Values.storage.endpoint }}
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
@@ -41,8 +42,9 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: SEAWEEDFS_S3_PASSWORD
+        {{- end }}
         - name: AWS_REGION
-          value: "us-east-1"
+          value: "{{ .Values.storage.region | default "us-east-1" }}"
         volumeMounts:
         - name: trino-config
           mountPath: /etc/trino
@@ -175,9 +177,11 @@ data:
     iceberg.jdbc-catalog.connection-password={{ .Values.postgres.auth.password }}
     {{- end }}
     fs.native-s3.enabled=true
-    s3.endpoint=http://minio:9000
+    {{- if .Values.storage.endpoint }}
+    s3.endpoint=http://{{ .Values.storage.endpoint }}
     s3.path-style-access=true
-    s3.region=us-east-1
+    {{- end }}
+    s3.region={{ .Values.storage.region | default "us-east-1" }}
 
   postgres.properties: |
     connector.name=postgresql
