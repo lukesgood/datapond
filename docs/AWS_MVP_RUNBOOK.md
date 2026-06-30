@@ -13,10 +13,10 @@
       --from-literal=INTERNAL_API_KEY=<random> \
       --dry-run=client -o yaml | kubectl apply -f -
 
+    # (the S3 bucket is specified per-request in /ingest-source, not via Helm)
     helm upgrade --install datapond helm/datapond -n datapond \
       -f helm/datapond/values-aws.yaml \
-      --set externalDatabase.host=<aurora_endpoint> \
-      --set storage.bucket=<bucket_name>
+      --set externalDatabase.host=<aurora_endpoint>
 
 ## 2. Wait for backend ready
     kubectl -n datapond rollout status deploy/backend

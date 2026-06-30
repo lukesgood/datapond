@@ -428,6 +428,12 @@ storage:
   endpoint: "seaweedfs-s3:8333"
   region: us-east-1
 
+# External managed database (AWS RDS/Aurora). Disabled by default; the AWS
+# profile (values-aws.yaml) enables it. Base skeleton keeps --strict renders safe.
+externalDatabase:
+  enabled: false
+  port: 5432
+
 # Trino (SQL Analytics with Iceberg)
 trino:
   enabled: true

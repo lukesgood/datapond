@@ -116,7 +116,7 @@ def _collect_overview() -> "StorageOverview":
     total_bytes = sum(b.total_size_bytes for b in bucket_stats)
     bucket_stats.sort(key=lambda x: x.total_size_bytes, reverse=True)
     return StorageOverview(
-        endpoint=S3_ENDPOINT,
+        endpoint=_s3_config().get("endpoint_url", "aws-native"),
         bucket_count=len(bucket_stats),
         total_object_count=total_objects,
         total_size_bytes=total_bytes,

@@ -281,7 +281,7 @@ def _pool_kwargs() -> dict:
     """asyncpg.create_pool kwargs. Enables TLS for Aurora/RDS via POSTGRES_SSLMODE."""
     kw: dict = dict(
         host=os.getenv("POSTGRES_HOST", "postgres"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
+        port=int(str(os.getenv("POSTGRES_PORT", "5432")).split(":")[-1]),
         database=os.getenv("POSTGRES_DB", "datapond"),
         user=os.getenv("POSTGRES_USER", "datapond"),
         password=os.getenv("POSTGRES_PASSWORD", "dev_password"),

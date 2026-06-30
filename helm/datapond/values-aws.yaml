@@ -28,7 +28,7 @@ ingress:
 seaweedfs:
   enabled: false
 
-# Storage: point all services at AWS S3
+# Storage: point the backend at AWS S3 (other services rewired in later phases)
 storage:
   provider: s3
   endpoint: ""          # empty = use AWS native S3 endpoints
