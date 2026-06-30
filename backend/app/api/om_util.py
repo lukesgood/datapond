@@ -8,6 +8,7 @@ auth flow / endpoint can't drift between the two (code-review finding #9).
 import os
 import base64
 import logging
+from typing import Optional
 
 import httpx
 
@@ -18,10 +19,10 @@ OPENMETADATA_URL = os.getenv("OPENMETADATA_URL", "http://openmetadata-server.dat
 OPENMETADATA_EMAIL = os.getenv("OPENMETADATA_EMAIL", "admin@open-metadata.org")
 OPENMETADATA_PASSWORD = os.getenv("OPENMETADATA_PASSWORD", "admin")
 
-_TOKEN_CACHE: str | None = None
+_TOKEN_CACHE: Optional[str] = None
 
 
-async def om_token() -> str | None:
+async def om_token() -> Optional[str]:
     """OpenMetadata JWT. Preferred: long-lived bot token via OPENMETADATA_JWT_TOKEN
     (ingestion-bot). Fallback: basic-auth /users/login (OM >=1.x needs the password
     Base-64 encoded). Cached in a module var after the first login."""

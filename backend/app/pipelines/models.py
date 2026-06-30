@@ -3,7 +3,7 @@ Pydantic models for declarative pipeline framework.
 Represents pipeline definitions, tables, sources, and quality checks.
 """
 from pydantic import BaseModel, Field, field_validator
-from typing import List, Optional, Dict, Any, Callable, Literal
+from typing import List, Optional, Dict, Any, Callable, Literal, Union
 from enum import Enum
 from datetime import datetime
 import uuid
@@ -191,7 +191,7 @@ class Pipeline(BaseModel):
         """Get all table and source names"""
         return list(self.sources.keys()) + list(self.tables.keys())
 
-    def get_table_or_source(self, name: str) -> Optional[TableDefinition | SourceDefinition]:
+    def get_table_or_source(self, name: str) -> Optional[Union[TableDefinition, SourceDefinition]]:
         """Get table or source by name"""
         return self.tables.get(name) or self.sources.get(name)
 
