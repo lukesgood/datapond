@@ -20,7 +20,7 @@
 
 - **Stage 1 ✅ 완료 (PR #101)** — SeaweedFS → MinIO 교체: MinIO 템플릿 추가, SeaweedFS 템플릿 제거, 소비처 8곳을 `seaweedfs-s3:8333` → `minio:9000`으로 재지정, coredns를 MinIO로 재지정, values 프로필 정리(중복 블록 제거).
 - **Stage 2 ✅ 완료** — base 기본값을 AWS 네이티브 S3로, 소비처를 `.Values.storage.endpoint` 단일 소스로 통일 + 자격증명 endpoint-게이팅(backend 패턴 복제, `_helpers.tpl` 대신 인라인 조건문), RisingWave dead S3 제거. *구현 노트*: 완전 IRSA·이미지 태그 핀은 Stage 3로 이월.
-- **Stage 3 (후속)** — coredns 완전 제거(Polaris path-style 검증 후), AWS IRSA(lakehouse Pod의 S3 IAM 접근), 이미지 태그 핀, MinIO 분산(prod HA).
+- **Stage 3 (후속)** — AWS IRSA (LiteLLM → Bedrock) ✅ done; remaining: coredns 완전 제거(Polaris path-style 검증 후), lakehouse-service IRSA (S3 IAM 접근), 이미지 태그 핀, MinIO 분산(prod HA).
 
 아래 §2~§7은 전체 그림이며, 본 계획서는 **Stage 1만** 구현한다.
 
