@@ -1,0 +1,4 @@
+# Test-only dependencies (NOT installed into the production image — the
+# Dockerfile installs requirements.txt only). CI installs this on top of
+# requirements.txt to run `pytest tests`.
+pytest==8.3.4
