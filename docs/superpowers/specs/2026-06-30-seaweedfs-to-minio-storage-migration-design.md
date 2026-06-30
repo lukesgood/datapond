@@ -14,6 +14,16 @@
 3. **모든 스토리지 소비처(8곳)가 단일 `.Values.storage.endpoint`/자격증명을 읽도록 통일** — 현재 `seaweedfs-s3:8333` 하드코딩 제거. 이로써 AWS 프로필에서도 lakehouse 서비스가 올바른 스토리지(S3)를 가리킴.
 4. **coredns virtual-host 해킹은 단계적 제거** — 우선 MinIO ClusterIP로 재지정·유지, Polaris path-style 검증 후 별도 제거.
 
+## 1b. 단계 분할 (확정)
+
+사용자 결정: **단계적으로 쪼개서 진행.**
+
+- **Stage 1 (이 계획) — SeaweedFS → MinIO 교체**: MinIO 템플릿 추가, SeaweedFS 템플릿 제거, 소비처 8곳을 `seaweedfs-s3:8333` → `minio:9000`으로 **재지정**(개별 endpoint 유지), coredns를 MinIO로 재지정, values 프로필 정리(중복 블록 제거). 각 단계가 렌더 가능 상태 유지.
+- **Stage 2 (후속) — base AWS 기본 + endpoint 통일**: base 기본값을 AWS 네이티브 S3로, 8곳을 `.Values.storage.endpoint` 단일 소스로 통일(`_helpers.tpl`), 자격증명 endpoint-게이팅. AWS에서 lakehouse 서비스가 S3에 연결되도록.
+- **Stage 3 (후속) — coredns 완전 제거** (Polaris path-style 검증 후), IRSA, MinIO 분산.
+
+아래 §2~§7은 전체 그림이며, 본 계획서는 **Stage 1만** 구현한다.
+
 ## 2. 결정 (확정)
 
 | 항목 | 결정 |
