@@ -1,4 +1,11 @@
 import importlib
+import os
+
+# connectors.py instantiates a module-level CredentialVault() at import time,
+# which requires ENCRYPTION_KEY. Set a throwaway-but-valid Fernet key so the
+# module (and our reload in _fresh) imports cleanly in CI where it's unset.
+# (urlsafe-b64 of 32 bytes "0123456789abcdef0123456789abcdef".)
+os.environ.setdefault("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
 
 def _fresh():
