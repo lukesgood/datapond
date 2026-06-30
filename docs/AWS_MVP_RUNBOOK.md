@@ -4,6 +4,16 @@
 - `terraform apply` complete (Tasks 4-5); Bedrock model access enabled.
 - Instance profile `datapond-app-profile` attached to the K3s EC2 instance.
 
+### Bedrock Credentials
+
+LiteLLM connects to Bedrock for embeddings (Titan) and generation (Claude). Credential wiring depends on deployment mode:
+
+- **EC2 / K3s PoC**: No config needed — instance profile `datapond-app-profile` is auto-assumed via metadata service.
+- **EKS**: Use IRSA: `terraform apply -var eks_oidc_provider_arn=... -var eks_oidc_provider_url=...`, then `helm upgrade ... --set litellm.serviceAccount.roleArn=$(terraform output -raw litellm_bedrock_role_arn)`.
+- **Portable / Static**: Set `litellm.aws.staticCredentials=true` and add `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` to `datapond-secrets` Secret.
+
+**Required:** Bedrock model access must be enabled in the AWS console per region (Claude Haiku/Sonnet + Titan Embed v2). See [AWS Bedrock Setup Guide](./AWS_BEDROCK_SETUP.md) for detailed instructions.
+
 ## 1. Seed credentials secret (Aurora) and deploy
     kubectl -n datapond create secret generic datapond-secrets \
       --from-literal=POSTGRES_USER=datapond \

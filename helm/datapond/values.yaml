@@ -756,6 +756,17 @@ litellm:
       cpu: 1000m
       memory: 2Gi
 
+  serviceAccount:
+    create: true
+    name: litellm
+    # For EKS IRSA, set the IAM role ARN (keyless Bedrock access). Leave empty
+    # on K3s/EC2 (uses the node instance profile) or when using static keys.
+    roleArn: ""
+  aws:
+    # Inject static AWS creds (AWS_ACCESS_KEY_ID/SECRET from datapond-secrets) into
+    # the LiteLLM pod for Bedrock. Leave false on EKS (IRSA) or EC2 (instance profile).
+    staticCredentials: false
+
   # Seed model_list rendered into the bootstrap ConfigMap (/app/config.yaml).
   # In DB mode these are merged with DB-managed models; leave empty to manage every
   # backend from the UI. Override per environment profile (e.g. values-aws.yaml).
