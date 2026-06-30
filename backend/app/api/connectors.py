@@ -166,7 +166,7 @@ async def register_om_table(target_schema: str, target_table: str):
 
 
 async def register_om_source_table(connector_type: str, connector_name: str,
-                                   source_schema: str, source_table: str, columns) -> Optional[str]:
+                                   source_schema: str, source_table: str, columns) -> str | None:
     """Best-effort: register the connector's SOURCE table as an OM entity so the
     lineage edge has a valid 'from' endpoint. Uses a CustomDatabase service (no live
     connection / no connection-config validation). The synced Iceberg table is a full
