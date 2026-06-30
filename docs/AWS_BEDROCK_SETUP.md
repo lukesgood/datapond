@@ -96,9 +96,8 @@ kubectl exec -it deploy/litellm -n datapond -- \
 
 **Step 1: Add credentials to secret**
 ```bash
-kubectl patch secret datapond-secrets -n datapond \
-  -p '{"data":{"AWS_ACCESS_KEY_ID":"'$(echo -n 'AKIA...' | base64)'","AWS_SECRET_ACCESS_KEY":"'$(echo -n 'wJ...' | base64)'"}}' \
-  --type='json' -p='[{"op":"add","path":"/data/AWS_ACCESS_KEY_ID","value":"'$(echo -n 'AKIA...' | base64)'"},{"op":"add","path":"/data/AWS_SECRET_ACCESS_KEY","value":"'$(echo -n 'wJ...' | base64)'"}]'
+kubectl -n datapond patch secret datapond-secrets --type merge -p \
+  '{"stringData":{"AWS_ACCESS_KEY_ID":"<your-key>","AWS_SECRET_ACCESS_KEY":"<your-secret>"}}'
 ```
 
 Or, recreate the secret:
@@ -199,9 +198,8 @@ litellm:
 **Steps:**
 1. AWS Console → Bedrock → Model access (left sidebar)
 2. For each region you use (us-east-1, ap-northeast-2):
-   - Search for "Claude 3.5 Sonnet" → Request access → Approve
-   - Search for "Claude 3 Haiku" → Request access → Approve
-   - Search for "Titan Embed Text" → Request access → Approve
+   - Search for "Anthropic Claude" (Sonnet 4.6 + Haiku 4.5) → Request access → Approve
+   - Search for "Amazon Titan Text Embeddings V2" → Request access → Approve
 3. Wait for "Access Granted" status (usually immediate, sometimes 5-10 min)
 
 Without model access, requests to unavailable models return 403 `ModelNotFound`.
