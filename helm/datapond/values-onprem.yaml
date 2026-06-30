@@ -185,6 +185,13 @@ spark:
   worker:
     replicas: 1
 
+# ── Storage (S3 routing) ──────────────────────────────────────────────────────
+# Points backend at SeaweedFS S3 endpoint (enables S3_ACCESS_KEY/S3_SECRET_KEY).
+storage:
+  endpoint: "seaweedfs-s3:8333"
+  region: "us-east-1"
+  bucket: iceberg
+
 # ── SeaweedFS (S3-compatible object storage) ──────────────────────────────────
 # Primary storage layer — all Iceberg data, MLflow artifacts, etc.
 seaweedfs:

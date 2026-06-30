@@ -14,19 +14,34 @@ from datetime import datetime, timezone
 
 router = APIRouter()
 
-S3_ENDPOINT   = f"http://{os.getenv('S3_ENDPOINT', 'seaweedfs-s3:8333')}"
-S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "datapond")
-S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "datapond_dev")
+S3_ENDPOINT   = os.getenv("S3_ENDPOINT", "").strip()
+S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "").strip()
+S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "").strip()
+S3_REGION     = os.getenv("S3_REGION", "us-east-1").strip() or "us-east-1"
+
+
+def _s3_config() -> dict:
+    """boto3 s3 client kwargs.
+
+    Native AWS S3 when S3_ENDPOINT is empty (default credential chain / IAM
+    role). SeaweedFS / S3-compatible when S3_ENDPOINT is set; bare host:port
+    is assumed http unless a scheme is given.
+    """
+    cfg: dict = {"region_name": S3_REGION}
+    if not S3_ENDPOINT:
+        return cfg
+    endpoint = S3_ENDPOINT
+    if not endpoint.startswith(("http://", "https://")):
+        endpoint = "http://" + endpoint
+    cfg["endpoint_url"] = endpoint
+    if S3_ACCESS_KEY and S3_SECRET_KEY:
+        cfg["aws_access_key_id"] = S3_ACCESS_KEY
+        cfg["aws_secret_access_key"] = S3_SECRET_KEY
+    return cfg
 
 
 def get_s3_client():
-    return boto3.client(
-        "s3",
-        endpoint_url=S3_ENDPOINT,
-        aws_access_key_id=S3_ACCESS_KEY,
-        aws_secret_access_key=S3_SECRET_KEY,
-        region_name="us-east-1",
-    )
+    return boto3.client("s3", **_s3_config())
 
 
 class BucketStat(BaseModel):
@@ -101,7 +116,7 @@ def _collect_overview() -> "StorageOverview":
     total_bytes = sum(b.total_size_bytes for b in bucket_stats)
     bucket_stats.sort(key=lambda x: x.total_size_bytes, reverse=True)
     return StorageOverview(
-        endpoint=S3_ENDPOINT,
+        endpoint=_s3_config().get("endpoint_url", "aws-native"),
         bucket_count=len(bucket_stats),
         total_object_count=total_objects,
         total_size_bytes=total_bytes,

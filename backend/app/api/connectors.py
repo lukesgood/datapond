@@ -277,19 +277,28 @@ class SyncStatusResponse(BaseModel):
 
 _db_pool = None
 
+def _pool_kwargs() -> dict:
+    """asyncpg.create_pool kwargs. Enables TLS for Aurora/RDS via POSTGRES_SSLMODE."""
+    kw: dict = dict(
+        host=os.getenv("POSTGRES_HOST", "postgres"),
+        port=int(str(os.getenv("POSTGRES_PORT", "5432")).split(":")[-1]),
+        database=os.getenv("POSTGRES_DB", "datapond"),
+        user=os.getenv("POSTGRES_USER", "datapond"),
+        password=os.getenv("POSTGRES_PASSWORD", "dev_password"),
+        min_size=2,
+        max_size=10,
+    )
+    sslmode = os.getenv("POSTGRES_SSLMODE", "").strip().lower()
+    if sslmode in ("require", "prefer", "allow", "verify-ca", "verify-full"):
+        kw["ssl"] = True  # asyncpg: ssl=True ⇒ TLS required (no cert verify)
+    return kw
+
+
 async def get_db_pool():
     """Get shared PostgreSQL connection pool (singleton)"""
     global _db_pool
     if _db_pool is None or _db_pool._closed:
-        _db_pool = await asyncpg.create_pool(
-            host=os.getenv("POSTGRES_HOST", "postgres"),
-            port=5432,
-            database=os.getenv("POSTGRES_DB", "datapond"),
-            user=os.getenv("POSTGRES_USER", "datapond"),
-            password=os.getenv("POSTGRES_PASSWORD", "dev_password"),
-            min_size=2,
-            max_size=10,
-        )
+        _db_pool = await asyncpg.create_pool(**_pool_kwargs())
         # 풀 생성 시 1회 멱등 마이그레이션 (CREATE TABLE IF NOT EXISTS는 컬럼을 추가하지 않음).
         # 실패해도 무시하되, 매 호출이 아닌 풀 재생성 시에만 재시도한다.
         try:

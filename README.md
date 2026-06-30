@@ -46,5 +46,5 @@ AI 데이터 레이어 ── Bedrock Knowledge Base ─ 벡터 스토어(pgvect
 - **Phase 0** — 보관 (이전 컨셉 아카이브) ✅
 - **Phase 1** — 컨셉 재정의 (PRODUCT_CONCEPT, README) ✅
 - **Phase 2** — 레퍼런스 아키텍처 (IaC, 보안)
-- **Phase 3** — MVP (S3 → 임베딩 → 벡터 → Bedrock RAG end-to-end)
+- **Phase 3** — MVP (S3 → 임베딩 → 벡터 → Bedrock RAG end-to-end) — [구현 계획](docs/superpowers/plans/2026-06-30-aws-mvp-bedrock-rag.md)
 - **Phase 4** — GTM 재정렬

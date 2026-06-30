@@ -263,6 +263,11 @@ seaweedfs:
   auth:
     s3User: CHANGE_THIS_SEAWEEDFS_USER  # CHANGE THIS!
     s3Password: CHANGE_THIS_SEAWEEDFS_PASSWORD_789!@#  # CHANGE THIS!
+  s3:
+    # Static ClusterIP required by the CoreDNS virtual-host rewrite
+    # (coredns-custom-configmap.yaml). CHANGE THIS to your cluster's actual
+    # seaweedfs-s3 Service ClusterIP within the service CIDR.
+    clusterIP: 10.43.107.150  # CHANGE THIS!
 
 jupyter:
   env:
