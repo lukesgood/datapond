@@ -505,11 +505,6 @@ risingwave:
   # PostgreSQL database for RisingWave metadata
   database: risingwave
 
-  # Storage configuration (uses MinIO / S3)
-  storage:
-    bucket: risingwave
-    dataDirectory: hummock
-
   # Meta Node (Metadata management)
   meta:
     replicas: 1
