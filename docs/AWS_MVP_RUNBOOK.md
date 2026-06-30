@@ -49,3 +49,16 @@
 - ingest-source returns documents > 0 and chunks > 0 (Titan embeddings succeeded).
 - /api/ai/rag returns has_ai=true with non-empty citations referencing s3://<bucket> sources.
 - backend logs show no 502 from embeddings and no egress-policy 403.
+
+## 6. Local / on-prem object storage (MinIO)
+On non-AWS profiles (`values-dev`, `values-quicktest`, `values-onprem`, `values-prod`)
+the in-cluster S3 store is **MinIO** (it replaced SeaweedFS). The AWS profile
+(`values-aws`) sets `minio.enabled: false` and uses native S3 instead.
+
+- S3 API: `http://minio:9000` (what Trino/Spark/Polaris/RisingWave/MLflow/Jupyter/backend point at)
+- Console UI: `http://minio:9001` (exposed via ingress when `minio.enabled`)
+- Buckets: the `iceberg` warehouse bucket is created by the `minio-bucket-init` Job
+  (post-install/upgrade hook).
+- Credentials: `minio.auth.rootUser` / `minio.auth.rootPassword` (per profile).
+- `minio.clusterIP` must be a static service IP in your cluster's service CIDR
+  (used by the CoreDNS virtual-host rewrite). Set per environment.

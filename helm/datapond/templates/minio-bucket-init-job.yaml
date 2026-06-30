@@ -1,0 +1,36 @@
+{{- if and .Values.minio.enabled .Values.polaris.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-bucket-init
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 5
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: minio/mc:latest
+          env:
+            - name: S3_USER
+              valueFrom: { secretKeyRef: { name: datapond-secrets, key: SEAWEEDFS_S3_USER } }
+            - name: S3_PASS
+              valueFrom: { secretKeyRef: { name: datapond-secrets, key: SEAWEEDFS_S3_PASSWORD } }
+            - name: BUCKET
+              value: "{{ .Values.polaris.warehouseBucket | default "iceberg" }}"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              for i in $(seq 1 36); do
+                mc alias set local http://minio:9000 "$S3_USER" "$S3_PASS" && break
+                echo "waiting for minio... ($i)"; sleep 5
+              done
+              mc mb --ignore-existing "local/$BUCKET"
+              echo "bucket '$BUCKET' ready."
+{{- end }}

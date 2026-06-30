@@ -117,52 +117,6 @@ mlflow:
     enabled: true
     size: 100Gi
 
-# SeaweedFS - Large storage
-seaweedfs:
-  enabled: true
-  master:
-    resources:
-      requests:
-        cpu: 500m
-        memory: 512Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-    persistence:
-      size: 10Gi
-  volume:
-    replicas: 3
-    resources:
-      requests:
-        cpu: 1000m
-        memory: 2Gi
-      limits:
-        cpu: 2000m
-        memory: 4Gi
-    persistence:
-      size: 500Gi
-  filer:
-    resources:
-      requests:
-        cpu: 500m
-        memory: 1Gi
-      limits:
-        cpu: 1000m
-        memory: 2Gi
-    persistence:
-      size: 20Gi
-  s3:
-    replicas: 2
-    resources:
-      requests:
-        cpu: 500m
-        memory: 512Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  persistence:
-    enabled: true
-
 # Airflow - Production with Celery
 airflow:
   enabled: true
@@ -259,15 +213,14 @@ airflow:
     username: admin
     password: CHANGE_THIS_AIRFLOW_PASSWORD_456!@#  # CHANGE THIS!
 
-seaweedfs:
+minio:
+  enabled: true
+  clusterIP: 10.43.107.150  # CHANGE THIS!
   auth:
-    s3User: CHANGE_THIS_SEAWEEDFS_USER  # CHANGE THIS!
-    s3Password: CHANGE_THIS_SEAWEEDFS_PASSWORD_789!@#  # CHANGE THIS!
-  s3:
-    # Static ClusterIP required by the CoreDNS virtual-host rewrite
-    # (coredns-custom-configmap.yaml). CHANGE THIS to your cluster's actual
-    # seaweedfs-s3 Service ClusterIP within the service CIDR.
-    clusterIP: 10.43.107.150  # CHANGE THIS!
+    rootUser: CHANGE_THIS_MINIO_USER  # CHANGE THIS!
+    rootPassword: CHANGE_THIS_MINIO_PASSWORD  # CHANGE THIS!
+  persistence:
+    size: 500Gi
 
 jupyter:
   env:

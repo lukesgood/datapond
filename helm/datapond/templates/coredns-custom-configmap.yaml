@@ -1,21 +1,21 @@
-{{- if .Values.seaweedfs.enabled }}
+{{- if .Values.minio.enabled }}
 # CoreDNS override: synthesize A records for virtual-host-style S3 hostnames.
 #
 # The AWS SDK v2 defaults to virtual-host addressing (<bucket>.<host>) and many
 # clients (notably Apache Polaris' embedded S3FileIO) ignore the `path-style`
-# toggle. Since SeaweedFS does not provide wildcard DNS for its own service,
-# requests like `iceberg.seaweedfs-s3.datapond.svc.cluster.local` would
+# toggle. Since MinIO does not provide wildcard DNS for its own service,
+# requests like `iceberg.minio.datapond.svc.cluster.local` would
 # NXDOMAIN and break Iceberg writes.
 #
 # The `template` plugin replies with a synthetic A record pointing at the
-# SeaweedFS S3 service's ClusterIP. The answer's owner-name equals the queried
-# name, so glibc accepts it (a plain `rewrite` to `seaweedfs-s3` would violate
+# MinIO service's ClusterIP. The answer's owner-name equals the queried
+# name, so glibc accepts it (a plain `rewrite` to `minio` would violate
 # strict-answer-matching and be discarded client-side).
 #
 # Requires k3s CoreDNS configured to `import /etc/coredns/custom/*.override`
 # inside the default `.:53` server block (k3s default).
 #
-# NOTE: `seaweedfsServiceIP` must be a fixed ClusterIP (set in values.yaml). If
+# NOTE: `minio.clusterIP` must be a fixed ClusterIP (set in values.yaml). If
 # the Service is recreated with a different IP this ConfigMap + CoreDNS need
 # to be redeployed. Put it in values-<env>.yaml so it's explicit per cluster.
 apiVersion: v1
@@ -30,9 +30,9 @@ metadata:
     "helm.sh/resource-policy": keep
 data:
   datapond-s3.override: |
-    template IN A seaweedfs-s3.{{ .Values.namespace }}.svc.cluster.local {
-      match ^[^.]+\.seaweedfs-s3\.{{ .Values.namespace }}\.svc\.cluster\.local\.$
-      answer "{{ "{{" }} .Name {{ "}}" }} 60 IN A {{ .Values.seaweedfs.s3.clusterIP | required "seaweedfs.s3.clusterIP must be set to the static ClusterIP of the seaweedfs-s3 Service (kubectl -n <ns> get svc seaweedfs-s3 -o jsonpath='{.spec.clusterIP}')" }}"
+    template IN A minio.{{ .Values.namespace }}.svc.cluster.local {
+      match ^[^.]+\.minio\.{{ .Values.namespace }}\.svc\.cluster\.local\.$
+      answer "{{ "{{" }} .Name {{ "}}" }} 60 IN A {{ .Values.minio.clusterIP | required "minio.clusterIP must be set to the static ClusterIP of the minio Service (kubectl -n <ns> get svc minio -o jsonpath='{.spec.clusterIP}')" }}"
       fallthrough
     }
 {{- end }}

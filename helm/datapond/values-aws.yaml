@@ -24,8 +24,8 @@ ingress:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
 
-# SeaweedFS disabled — use AWS S3 natively
-seaweedfs:
+# MinIO disabled — use AWS S3 natively
+minio:
   enabled: false
 
 # Storage: point the backend at AWS S3 (other services rewired in later phases)

@@ -175,7 +175,7 @@ data:
     iceberg.jdbc-catalog.connection-password={{ .Values.postgres.auth.password }}
     {{- end }}
     fs.native-s3.enabled=true
-    s3.endpoint=http://seaweedfs-s3:8333
+    s3.endpoint=http://minio:9000
     s3.path-style-access=true
     s3.region=us-east-1
 

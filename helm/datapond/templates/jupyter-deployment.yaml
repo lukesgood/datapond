@@ -77,9 +77,9 @@ spec:
         env:
         - name: JUPYTER_ENABLE_LAB
           value: "yes"
-        # SeaweedFS S3 Configuration (for DuckDB)
+        # MinIO S3 Configuration (for DuckDB)
         - name: SEAWEEDFS_S3_ENDPOINT
-          value: "http://seaweedfs-s3:8333"
+          value: "http://minio:9000"
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
@@ -171,7 +171,7 @@ spec:
 ---
 # RLS Layer 3: sanctioned DuckDB helper. Mounted at /opt/datapond (on PYTHONPATH) so
 # notebooks `import datapond_lake as dp; dp.sql(...)` get sensitive tables blocked from
-# direct S3 reads. Soft/UX layer — pair with SeaweedFS prefix-deny for the hard boundary.
+# direct S3 reads. Soft/UX layer — pair with MinIO bucket policies for the hard boundary.
 apiVersion: v1
 kind: ConfigMap
 metadata:
