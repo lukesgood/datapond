@@ -65,6 +65,14 @@
 ## 4. 단일 소스 헬퍼 (DRY)
 `templates/_helpers.tpl`에 `datapond.s3.endpoint`/`datapond.s3.pathStyle` 헬퍼를 추가해 8곳이 동일 로직을 공유 — 하드코딩·중복 제거.
 
+## 4b. Stage 2 carry-notes (Stage 1 최종 리뷰에서 발견)
+
+- **AWS lakehouse 자격증명 갭**: `values-aws`(minio.enabled=false)에서 Polaris/RisingWave/MLflow가 여전히 `minio:9000` + `SEAWEEDFS_S3_*` 키를 무조건 참조 → 활성 시 `CreateContainerConfigError`. (기존과 동일, 악화 아님.) Stage 2의 endpoint 통일 + 자격증명 endpoint-게이팅(IAM/IRSA)으로 해소.
+- **RisingWave S3 설정은 사실상 vestigial**: meta가 `--state-store hummock+memory`라 MinIO를 안 씀 → `RW_S3_*` env와 `storage.bucket: risingwave`는 불필요(init job도 이 버킷을 안 만듦). Stage 2에서 정리.
+- **이미지 태그 `:latest`**(minio/minio, minio/mc): 재현성 위해 digest/버전 핀 (Stage 2).
+- **base values.yaml**: `minio.enabled:true`인데 `minio.clusterIP` 없음 → 프로필 없는 bare 렌더는 coredns required 실패(기존 seaweedfs와 동일 패턴, CI는 프로필별 렌더라 무영향). base를 AWS 기본으로 바꿀 때(Stage 2) 자연 해소.
+- `configmap.yaml`의 `MINIO_ENDPOINT/MINIO_CONSOLE_ENDPOINT`는 현재 소비처 없음(dead) — 필요 시 활용 또는 제거.
+
 ## 5. 범위 밖 (YAGNI / 후속)
 - **AWS IRSA 완전 구성** (lakehouse Pod들이 S3에 IAM 역할로 접근) — 본 마이그레이션은 endpoint/creds 배선을 통일하고 "endpoint 비면 정적키 생략"까지만. 실제 AWS에서 Polaris/Spark 등이 IAM 역할로 S3 접근하려면 IRSA/ServiceAccount 주석이 별도 필요(EKS 작업과 함께).
 - **coredns 완전 제거** — 본 작업은 MinIO로 재지정까지. Polaris path-style 검증 후 별도.
