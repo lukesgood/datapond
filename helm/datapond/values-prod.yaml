@@ -213,6 +213,11 @@ airflow:
     username: admin
     password: CHANGE_THIS_AIRFLOW_PASSWORD_456!@#  # CHANGE THIS!
 
+storage:
+  provider: minio
+  endpoint: "minio:9000"
+  region: us-east-1
+
 minio:
   enabled: true
   clusterIP: 10.43.107.150  # CHANGE THIS!

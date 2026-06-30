@@ -93,9 +93,10 @@ spec:
         - name: POLARIS_REALM_CONTEXT_REQUIRE_HEADER
           value: "false"
 
-        # ── S3 storage (MinIO) ───────────────────────────────────
+        # ── S3 storage ───────────────────────────────────────────
         - name: AWS_REGION
-          value: "us-east-1"
+          value: "{{ .Values.storage.region | default "us-east-1" }}"
+        {{- if .Values.storage.endpoint }}
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
@@ -111,9 +112,9 @@ spec:
         # (bucket in URL path, not hostname) since MinIO does not provide
         # DNS for `<bucket>.<endpoint-host>` (CoreDNS template fills that gap).
         - name: AWS_ENDPOINT_URL_S3
-          value: "http://minio:9000"
+          value: "http://{{ .Values.storage.endpoint }}"
         - name: AWS_ENDPOINT_URL
-          value: "http://minio:9000"
+          value: "http://{{ .Values.storage.endpoint }}"
         - name: AWS_S3_FORCE_PATH_STYLE
           value: "true"
         - name: POLARIS_STORAGE_AWS_ACCESS_KEY
@@ -126,6 +127,7 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: SEAWEEDFS_S3_PASSWORD
+        {{- end }}
 
         # ── Feature flags ─────────────────────────────────────────
         # Polaris feature keys are quoted in properties form (e.g. polaris.features."KEY"=val).

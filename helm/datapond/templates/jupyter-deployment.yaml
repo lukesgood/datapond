@@ -77,9 +77,10 @@ spec:
         env:
         - name: JUPYTER_ENABLE_LAB
           value: "yes"
-        # MinIO S3 Configuration (for DuckDB)
+        # S3 Configuration (for DuckDB)
+        {{- if .Values.storage.endpoint }}
         - name: SEAWEEDFS_S3_ENDPOINT
-          value: "http://minio:9000"
+          value: "http://{{ .Values.storage.endpoint }}"
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
@@ -90,8 +91,9 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: SEAWEEDFS_S3_PASSWORD
+        {{- end }}
         - name: AWS_REGION
-          value: "us-east-1"
+          value: "{{ .Values.storage.region | default "us-east-1" }}"
         # Iceberg Python library
         - name: SPARK_JARS_PACKAGES
           value: "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.3,org.apache.hadoop:hadoop-aws:3.3.4"

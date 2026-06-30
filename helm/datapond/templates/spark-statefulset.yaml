@@ -45,7 +45,8 @@ spec:
         - containerPort: {{ .Values.spark.master.service.webPort }}
           name: http
         env:
-        # Standard AWS creds (read by hadoop-aws / S3FileIO for SeaweedFS).
+        {{- if .Values.storage.endpoint }}
+        # Standard AWS creds (read by hadoop-aws / S3FileIO for on-prem S3-compat).
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
@@ -56,8 +57,9 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: SEAWEEDFS_S3_PASSWORD
+        {{- end }}
         - name: AWS_REGION
-          value: "us-east-1"
+          value: "{{ .Values.storage.region | default "us-east-1" }}"
         volumeMounts:
         - name: spark-conf
           mountPath: /opt/spark/conf/spark-defaults.conf
@@ -138,6 +140,7 @@ spec:
         - containerPort: 8081
           name: http
         env:
+        {{- if .Values.storage.endpoint }}
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
@@ -148,8 +151,9 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: SEAWEEDFS_S3_PASSWORD
+        {{- end }}
         - name: AWS_REGION
-          value: "us-east-1"
+          value: "{{ .Values.storage.region | default "us-east-1" }}"
         # SPARK_WORKER_CORES / SPARK_WORKER_MEMORY (standard Spark env — cap the worker).
         {{- range .Values.spark.worker.env }}
         - name: {{ .name }}
