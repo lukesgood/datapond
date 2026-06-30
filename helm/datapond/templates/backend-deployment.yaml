@@ -46,12 +46,23 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: POSTGRES_DB
+        - name: POSTGRES_HOST
+          value: "{{ if .Values.externalDatabase.enabled }}{{ .Values.externalDatabase.host }}{{ else }}postgres{{ end }}"
+        - name: POSTGRES_PORT
+          value: "{{ if .Values.externalDatabase.enabled }}{{ .Values.externalDatabase.port | default 5432 }}{{ else }}5432{{ end }}"
+        {{- if .Values.externalDatabase.enabled }}
+        - name: POSTGRES_SSLMODE
+          value: "{{ .Values.externalDatabase.sslmode | default "require" }}"
+        {{- end }}
         - name: DATABASE_URL
-          value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)"
+          value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)"
         - name: REDIS_URL
           value: "redis://redis:6379"
         - name: S3_ENDPOINT
-          value: "seaweedfs-s3:8333"
+          value: "{{ .Values.storage.endpoint | default "" }}"
+        - name: S3_REGION
+          value: "{{ .Values.storage.region | default "us-east-1" }}"
+        {{- if .Values.storage.endpoint }}
         - name: S3_ACCESS_KEY
           valueFrom:
             secretKeyRef:
@@ -62,6 +73,7 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: SEAWEEDFS_S3_PASSWORD
+        {{- end }}
         - name: JWT_SECRET
           valueFrom:
             secretKeyRef:

@@ -38,12 +38,18 @@ storage:
 # AI egress policy — AWS profile uses managed Bedrock (external by design).
 ai:
   egressPolicy: "cloud-allowed"
+  embedModel: "embed"
+  embedDim: 1024
 
 # LiteLLM: route to AWS Bedrock
 litellm:
   enabled: true
   config:
     model_list:
+      - model_name: "embed"
+        litellm_params:
+          model: "bedrock/amazon.titan-embed-text-v2:0"
+          aws_region_name: "us-east-1"
       - model_name: "default"
         litellm_params:
           model: "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0"
@@ -72,6 +78,7 @@ postgres:
 # RDS connection (set host via secret or override)
 externalDatabase:
   enabled: true
-  host: ""     # RDS endpoint — replace before deploying
+  host: ""          # set at deploy time to the Aurora writer endpoint
   port: 5432
   name: datapond
+  sslmode: "require"
