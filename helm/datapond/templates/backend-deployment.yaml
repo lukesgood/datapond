@@ -146,6 +146,22 @@ spec:
         - name: AI_RERANK_MODEL
           value: {{ . | quote }}
         {{- end }}
+        # Feature flags for UI capability-gating — the frontend hides nav items
+        # whose backend component is disabled. Default true (unset ⇒ shown).
+        - name: FEATURE_TRINO
+          value: "{{ .Values.trino.enabled | default true }}"
+        - name: FEATURE_POLARIS
+          value: "{{ .Values.polaris.enabled | default true }}"
+        - name: FEATURE_AIRFLOW
+          value: "{{ .Values.airflow.enabled | default true }}"
+        - name: FEATURE_MLFLOW
+          value: "{{ .Values.mlflow.enabled | default true }}"
+        - name: FEATURE_RISINGWAVE
+          value: "{{ .Values.risingwave.enabled | default true }}"
+        - name: FEATURE_OPENMETADATA
+          value: "{{ .Values.openmetadata.enabled | default true }}"
+        - name: FEATURE_JUPYTER
+          value: "{{ .Values.jupyter.enabled | default true }}"
         {{- if (((.Values.auth).ldap).enabled) }}
         # LDAP / Active Directory authentication
         - name: LDAP_ENABLED
