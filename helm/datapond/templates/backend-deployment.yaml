@@ -149,19 +149,19 @@ spec:
         # Feature flags for UI capability-gating — the frontend hides nav items
         # whose backend component is disabled. Default true (unset ⇒ shown).
         - name: FEATURE_TRINO
-          value: "{{ .Values.trino.enabled | default true }}"
+          value: "{{ dig "enabled" true .Values.trino }}"
         - name: FEATURE_POLARIS
-          value: "{{ .Values.polaris.enabled | default true }}"
+          value: "{{ dig "enabled" true .Values.polaris }}"
         - name: FEATURE_AIRFLOW
-          value: "{{ .Values.airflow.enabled | default true }}"
+          value: "{{ dig "enabled" true .Values.airflow }}"
         - name: FEATURE_MLFLOW
-          value: "{{ .Values.mlflow.enabled | default true }}"
+          value: "{{ dig "enabled" true .Values.mlflow }}"
         - name: FEATURE_RISINGWAVE
-          value: "{{ .Values.risingwave.enabled | default true }}"
+          value: "{{ dig "enabled" true .Values.risingwave }}"
         - name: FEATURE_OPENMETADATA
-          value: "{{ .Values.openmetadata.enabled | default true }}"
+          value: "{{ dig "enabled" true .Values.openmetadata }}"
         - name: FEATURE_JUPYTER
-          value: "{{ .Values.jupyter.enabled | default true }}"
+          value: "{{ dig "enabled" true .Values.jupyter }}"
         {{- if (((.Values.auth).ldap).enabled) }}
         # LDAP / Active Directory authentication
         - name: LDAP_ENABLED

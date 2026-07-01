@@ -68,3 +68,14 @@ jobs:
             f="helm/datapond/$v.yaml"
             [ -f "$f" ] && { echo "== render $v =="; helm template datapond helm/datapond --values "$f" >/dev/null; }
           done
+      - name: FEATURE flags reflect component toggles
+        run: |
+          echo "== values-foundation (trino disabled) must render FEATURE_TRINO false =="
+          helm template datapond helm/datapond --values helm/datapond/values-foundation.yaml \
+            | grep -A1 'name: FEATURE_TRINO' | grep -q 'value: "false"' \
+            || { echo "FAIL: FEATURE_TRINO should be false in values-foundation"; exit 1; }
+          echo "== base values (trino enabled) must render FEATURE_TRINO true =="
+          helm template datapond helm/datapond \
+            | grep -A1 'name: FEATURE_TRINO' | grep -q 'value: "true"' \
+            || { echo "FAIL: FEATURE_TRINO should be true in base values"; exit 1; }
+          echo "OK: FEATURE flag gating verified"
