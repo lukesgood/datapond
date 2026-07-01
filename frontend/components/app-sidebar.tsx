@@ -10,6 +10,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { getUser, logout, type AuthUser } from "@/lib/auth"
+import { useCapabilities } from "@/lib/capabilities"
 
 import {
   Sidebar,
@@ -23,43 +24,57 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 
-const mainSections = [
+type NavItem = {
+  title: string
+  url: string
+  icon: React.ComponentType<{ className?: string }>
+  capability?: string
+  external?: boolean
+}
+
+type NavSection = {
+  label: string
+  hint: string
+  items: NavItem[]
+}
+
+const mainSections: NavSection[] = [
   {
     label: "Collect",
     hint: "데이터 수집",
     items: [
-      { title: "Ingestion",   url: "/connectors", icon: ArrowDownToLine },
-      { title: "Streaming",   url: "/streaming",  icon: Radio },
+      { title: "Ingestion",   url: "/connectors", icon: ArrowDownToLine, capability: "connectors" },
+      { title: "Streaming",   url: "/streaming",  icon: Radio,           capability: "streaming" },
     ]
   },
   {
     label: "Transform",
     hint: "데이터 변환",
     items: [
-      { title: "Transforms",  url: "/pipelines",  icon: GitBranch },
-      { title: "Catalog",     url: "/catalog",    icon: Database },
+      { title: "Transforms",  url: "/pipelines",  icon: GitBranch,  capability: "pipelines" },
+      { title: "Catalog",     url: "/catalog",    icon: Database,   capability: "catalog" },
     ]
   },
   {
     label: "Analyze",
     hint: "데이터 분석",
     items: [
-      { title: "Query Lab",    url: "/query",       icon: Code2 },
+      { title: "Query Lab",    url: "/query",       icon: Code2,        capability: "query" },
       { title: "Knowledge",    url: "/knowledge",   icon: Sparkles },
-      { title: "Notebooks",    url: "/notebooks",   icon: FileCode },
-      { title: "Experiments",  url: "/experiments", icon: FlaskConical },
-      { title: "Dashboards",   url: "/dashboards",  icon: BarChart3 },
+      { title: "Notebooks",    url: "/notebooks",   icon: FileCode,     capability: "notebooks" },
+      { title: "Experiments",  url: "/experiments", icon: FlaskConical, capability: "experiments" },
+      { title: "Dashboards",   url: "/dashboards",  icon: BarChart3,    capability: "dashboards" },
     ]
   },
   {
     label: "Platform",
     hint: "",
     items: [
-      { title: "Services",     url: "/services",                           icon: Activity },
-      { title: "System",       url: "/system",                             icon: Server },
-      { title: "Storage",      url: "/storage",                            icon: HardDrive },
-      { title: "Governance",   url: "/governance",                          icon: ShieldCheck },
-      { title: "Settings",     url: "/settings",                           icon: Settings },
+      { title: "Services",     url: "/services",    icon: Activity },
+      { title: "System",       url: "/system",      icon: Server },
+      { title: "Storage",      url: "/storage",     icon: HardDrive },
+      { title: "Governance",   url: "/governance",  icon: ShieldCheck },
+      { title: "Settings",     url: "/settings",    icon: Settings },
     ]
   },
 ]
@@ -74,6 +89,7 @@ export function AppSidebar() {
   const router    = useRouter()
   const [user, setUser] = useState<AuthUser | null>(null)
   const { setOpenMobile } = useSidebar()
+  const caps = useCapabilities()
 
   useEffect(() => { setUser(getUser()) }, [])
 
@@ -109,34 +125,40 @@ export function AppSidebar() {
 
         {/* Main sections */}
         <div className="flex-1 overflow-y-auto">
-          {mainSections.map((section) => (
-            <SidebarGroup key={section.label}>
-              <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {section.items.map((item) => (
-                    <SidebarMenuItem key={item.title}>
-                      {(item as any).external ? (
-                        <a href={item.url} target="_blank" rel="noopener noreferrer">
-                          <SidebarMenuButton>
-                            <item.icon />
-                            <span>{item.title}</span>
-                          </SidebarMenuButton>
-                        </a>
-                      ) : (
-                        <Link href={item.url}>
-                          <SidebarMenuButton isActive={isActive(item.url)}>
-                            <item.icon />
-                            <span>{item.title}</span>
-                          </SidebarMenuButton>
-                        </Link>
-                      )}
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          ))}
+          {mainSections.map((section) => {
+            const visibleItems = section.items.filter(
+              (item) => item.capability === undefined || caps[item.capability] !== false
+            )
+            if (visibleItems.length === 0) return null
+            return (
+              <SidebarGroup key={section.label}>
+                <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {visibleItems.map((item) => (
+                      <SidebarMenuItem key={item.title}>
+                        {item.external ? (
+                          <a href={item.url} target="_blank" rel="noopener noreferrer">
+                            <SidebarMenuButton>
+                              <item.icon />
+                              <span>{item.title}</span>
+                            </SidebarMenuButton>
+                          </a>
+                        ) : (
+                          <Link href={item.url}>
+                            <SidebarMenuButton isActive={isActive(item.url)}>
+                              <item.icon />
+                              <span>{item.title}</span>
+                            </SidebarMenuButton>
+                          </Link>
+                        )}
+                      </SidebarMenuItem>
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            )
+          })}
         </div>
 
         {/* Bottom: Help / Docs + User */}
