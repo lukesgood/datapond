@@ -33,6 +33,7 @@ from app.api.ai_vectors import router as ai_vectors_router
 from app.api.system_settings import router as system_settings_router, load_settings_on_startup
 from app.api.governance import router as governance_router
 from app.api.maintenance import router as maintenance_router, deploy_maintenance_dag
+from app.capabilities import compute_capabilities
 
 app = FastAPI(
     title="DataPond API",
@@ -255,6 +256,15 @@ async def health_check():
 async def api_health_check():
     """Health check endpoint (API path)"""
     return {"status": "healthy"}
+
+
+@app.get("/api/capabilities")
+async def get_capabilities():
+    """Feature capability flags from FEATURE_* env (default enabled).
+
+    Pure endpoint that never fails — useful for UI feature gating.
+    """
+    return compute_capabilities(os.environ)
 
 
 # API name → K8s app label
