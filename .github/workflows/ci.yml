@@ -64,7 +64,7 @@ jobs:
         run: helm lint helm/datapond --values helm/datapond/values-quicktest.yaml
       - name: Template render (모든 프로파일 — 구문 검증)
         run: |
-          for v in values-quicktest values-onprem values-aws values-dev values-prod; do
+          for v in values-quicktest values-onprem values-aws values-dev values-prod values-foundation; do
             f="helm/datapond/$v.yaml"
             [ -f "$f" ] && { echo "== render $v =="; helm template datapond helm/datapond --values "$f" >/dev/null; }
           done

@@ -1,0 +1,88 @@
+# Lean "AI Data Foundation" profile
+# ---------------------------------
+# The minimal footprint for the AWS-native AI-app use case: S3 → embed →
+# pgvector → Bedrock RAG, with governance (RLS, PII, spend). Disables the heavy
+# lakehouse components — use AWS managed services instead:
+#   Trino → Athena · Spark → EMR Serverless/Glue · Airflow → MWAA ·
+#   MLflow → SageMaker · RisingWave → MSK/Managed Flink · Polaris → Glue Catalog
+#
+# Keeps ~5 workloads (backend, frontend, Postgres+pgvector, LiteLLM, Valkey)
+# instead of ~16. Backend starts cleanly with the heavy components off (their
+# clients connect lazily); lakehouse-only UI pages degrade gracefully.
+#
+# Deploy:
+#   helm upgrade --install datapond helm/datapond -n datapond \
+#     -f helm/datapond/values-foundation.yaml
+#
+# Postgres runs in-cluster (pgvector) by default for a self-contained install.
+# To use Aurora instead: set postgres.enabled=false + externalDatabase.enabled=true
+# (see values-aws.yaml). Bedrock credentials: see docs/AWS_BEDROCK_SETUP.md.
+
+global:
+  externalScheme: https
+
+# --- Storage: AWS-native S3 (no in-cluster object store) ---
+minio:
+  enabled: false
+storage:
+  provider: s3
+  endpoint: ""          # empty ⇒ native AWS S3 + IAM role
+  region: us-east-1
+
+# --- AI: Bedrock via LiteLLM ---
+ai:
+  egressPolicy: "cloud-allowed"
+  embedModel: "embed"
+  embedDim: 1024
+
+litellm:
+  enabled: true
+  config:
+    model_list:
+      - model_name: "embed"
+        litellm_params:
+          model: "bedrock/amazon.titan-embed-text-v2:0"
+          aws_region_name: "us-east-1"
+      - model_name: "default"
+        litellm_params:
+          model: "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0"
+          aws_region_name: "us-east-1"
+      - model_name: "chat"
+        litellm_params:
+          model: "bedrock/us.anthropic.claude-sonnet-4-6"
+          aws_region_name: "us-east-1"
+  # EKS Bedrock access (keyless): set to `terraform output -raw litellm_bedrock_role_arn`
+  serviceAccount:
+    roleArn: ""
+
+# --- Core (kept) ---
+backend:
+  enabled: true
+frontend:
+  enabled: true
+postgres:
+  enabled: true          # pgvector — the AI vector store
+valkey:
+  enabled: true          # cache/sessions (lightweight)
+
+# --- Heavy lakehouse — DISABLED (replace with AWS managed services) ---
+trino:
+  enabled: false         # → Amazon Athena
+spark:
+  enabled: false         # → EMR Serverless / Glue ETL
+polaris:
+  enabled: false         # → Glue Data Catalog
+airflow:
+  enabled: false         # → MWAA
+mlflow:
+  enabled: false         # → SageMaker
+risingwave:
+  enabled: false         # → MSK / Managed Service for Apache Flink
+openmetadata:
+  enabled: false         # → DataZone (or re-enable as OSS differentiator)
+jupyter:
+  enabled: false         # → SageMaker Studio
+ollama:
+  enabled: false         # → Bedrock
+vllm:
+  enabled: false         # → Bedrock / SageMaker endpoints
