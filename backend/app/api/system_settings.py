@@ -15,7 +15,7 @@ from app.connectors.vault import CredentialVault
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-vault = CredentialVault(os.getenv("ENCRYPTION_KEY", "dev-key-32-bytes-padding-here!!"))
+vault = CredentialVault()  # reads ENCRYPTION_KEY; prod-fail-closed, dev-warns (see vault)
 
 # Keys that must be stored encrypted
 SENSITIVE_KEYS = {
