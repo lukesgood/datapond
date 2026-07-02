@@ -72,3 +72,26 @@ the in-cluster S3 store is **MinIO** (it replaced SeaweedFS). The AWS profile
 - Credentials: `minio.auth.rootUser` / `minio.auth.rootPassword` (per profile).
 - `minio.clusterIP` must be a static service IP in your cluster's service CIDR
   (used by the CoreDNS virtual-host rewrite). Set per environment.
+
+## 7. Critical secrets (auto-generated + preserved)
+`JWT_SECRET`, `INTERNAL_API_KEY`, `ENCRYPTION_KEY`, and `ADMIN_PASSWORD` are
+generated automatically by Helm on first install (no manual seeding needed —
+step 1's `--from-literal=JWT_SECRET=...`/`INTERNAL_API_KEY=...` are only
+required if you're bootstrapping the secret out-of-band before `helm upgrade
+--install`). On every subsequent `helm upgrade`, the chart looks up the
+existing in-cluster `datapond-secrets` Secret and preserves these values —
+they are never silently rotated. `ENCRYPTION_KEY` in particular must never
+change once set: it encrypts stored credentials (connector secrets, provider
+keys), and rotating it makes them undecryptable.
+
+Retrieve the generated initial admin password:
+
+    kubectl -n datapond get secret datapond-secrets -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d
+
+To pin the admin password instead of using the generated one, set
+`auth.adminPassword` in your values file before first install.
+
+Production (`values-aws.yaml`, `values-onprem.yaml`, `values-prod.yaml`)
+fails closed at backend startup if `JWT_SECRET`, `ENCRYPTION_KEY`, or
+`ADMIN_PASSWORD` are missing — a Helm deploy always provides them, so this
+should only trip if the Secret was hand-edited or deployed outside Helm.

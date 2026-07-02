@@ -87,6 +87,18 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: INTERNAL_API_KEY
+        # Encrypts credentials-at-rest (connector secrets, stored provider keys)
+        - name: ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: ENCRYPTION_KEY
+        # Initial admin login password (generated/preserved — see secrets.yaml)
+        - name: ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: ADMIN_PASSWORD
         # Iceberg catalog connection
         - name: ICEBERG_CATALOG_URI
           value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/iceberg_catalog"

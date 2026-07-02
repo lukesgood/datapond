@@ -643,6 +643,9 @@ openmetadata:
 auth:
   jwtSecret: ""
   tokenExpireHours: 24
+  # Optional: pin the initial admin password. Empty ⇒ Helm generates a strong random one
+  # (retrieve: kubectl -n datapond get secret datapond-secrets -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d).
+  adminPassword: ""
   # LDAP / Active Directory authentication (enterprise directories). Off by default.
   # When enabled, login falls back to an LDAP bind for non-local users and
   # auto-provisions them (auth_method=ldap). The local admin keeps working.

@@ -79,3 +79,10 @@ jobs:
             | grep -A1 'name: FEATURE_TRINO' | grep -q 'value: "true"' \
             || { echo "FAIL: FEATURE_TRINO should be true in base values"; exit 1; }
           echo "OK: FEATURE flag gating verified"
+      - name: Critical secrets generated + injected
+        run: |
+          echo "== critical secrets generated + injected =="
+          helm template datapond helm/datapond | grep -q 'ENCRYPTION_KEY:' || { echo FAIL ENCRYPTION_KEY; exit 1; }
+          helm template datapond helm/datapond | grep -q 'ADMIN_PASSWORD:'  || { echo FAIL ADMIN_PASSWORD; exit 1; }
+          helm template datapond helm/datapond | grep -q 'name: ENCRYPTION_KEY' || { echo FAIL ENCRYPTION_KEY inject; exit 1; }
+          echo "OK: secrets wired"
