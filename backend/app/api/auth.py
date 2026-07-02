@@ -23,27 +23,38 @@ from jose import JWTError, jwt
 import bcrypt as _bcrypt
 from pydantic import BaseModel
 
+from app.runtime import is_production
+
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
 # Accept either env name — the Helm chart injects JWT_SECRET (from datapond-secrets);
-# JWT_SECRET_KEY kept for backwards compatibility. Without this alignment the backend
-# silently fell back to the hardcoded default below, so every install shared one
-# publicly-known signing key (security hole) and any per-replica/per-upgrade wiring
-# difference invalidated active sessions.
-SECRET_KEY = (
-    os.getenv("JWT_SECRET_KEY")
-    or os.getenv("JWT_SECRET")
-    or "datapond-dev-secret-change-in-production"
-)
+# JWT_SECRET_KEY kept for backwards compatibility. In production (ENVIRONMENT=production)
+# an unset JWT secret now fails closed at import time instead of silently falling back to
+# a hardcoded default — every install previously shared one publicly-known signing key
+# (security hole) if the env wiring was missed. Local dev still gets an insecure default
+# (with a warning) so it keeps working without extra setup.
+_jwt = os.getenv("JWT_SECRET_KEY") or os.getenv("JWT_SECRET")
+if not _jwt:
+    if is_production():
+        raise RuntimeError("JWT_SECRET is required in production (ENVIRONMENT=production).")
+    logger.warning("JWT_SECRET unset — using an insecure local-dev key. NOT for production.")
+    _jwt = "datapond-local-dev-jwt-secret"
+SECRET_KEY = _jwt
 ALGORITHM  = "HS256"
 TOKEN_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "24"))
 
 # Default admin credentials (override via env in production)
-DEFAULT_ADMIN_USER     = os.getenv("ADMIN_USERNAME", "admin")
-DEFAULT_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "datapond123")
+DEFAULT_ADMIN_USER = os.getenv("ADMIN_USERNAME", "admin")
+_admin_pw = os.getenv("ADMIN_PASSWORD")
+if not _admin_pw:
+    if is_production():
+        raise RuntimeError("ADMIN_PASSWORD is required in production (ENVIRONMENT=production).")
+    logger.warning("ADMIN_PASSWORD unset — using an insecure dev default. NOT for production.")
+    _admin_pw = "datapond123"
+DEFAULT_ADMIN_PASSWORD = _admin_pw
 
 def _hash_password(password: str) -> str:
     return _bcrypt.hashpw(password.encode(), _bcrypt.gensalt(rounds=12)).decode()
