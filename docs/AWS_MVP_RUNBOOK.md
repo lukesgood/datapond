@@ -72,3 +72,40 @@ the in-cluster S3 store is **MinIO** (it replaced SeaweedFS). The AWS profile
 - Credentials: `minio.auth.rootUser` / `minio.auth.rootPassword` (per profile).
 - `minio.clusterIP` must be a static service IP in your cluster's service CIDR
   (used by the CoreDNS virtual-host rewrite). Set per environment.
+
+## 7. Critical secrets (auto-generated + preserved)
+`JWT_SECRET`, `INTERNAL_API_KEY`, `ENCRYPTION_KEY`, and `ADMIN_PASSWORD` are
+generated automatically by Helm on first install (no manual seeding needed —
+step 1's `--from-literal=JWT_SECRET=...`/`INTERNAL_API_KEY=...` are only
+required if you're bootstrapping the secret out-of-band before `helm upgrade
+--install`). On every subsequent `helm upgrade`, the chart looks up the
+existing in-cluster `datapond-secrets` Secret and preserves these values —
+they are never silently rotated. `ENCRYPTION_KEY` in particular must never
+change once set: it encrypts stored credentials (connector secrets, provider
+keys), and rotating it makes them undecryptable.
+
+**Pre-upgrade preflight (existing deployments only):** if your running backend
+got its `ENCRYPTION_KEY` out-of-band (hand-edited Secret under a different key
+name, or a raw Deployment env — the live EC2 deploy predates chart-managed
+generation), you MUST copy that working key into `datapond-secrets` under
+exactly `ENCRYPTION_KEY` **before** the first `helm upgrade` onto this chart.
+Otherwise Helm generates a fresh key and previously stored encrypted settings
+(provider API keys, connector credentials) silently become undecryptable.
+Check first:
+
+    kubectl -n datapond get secret datapond-secrets -o jsonpath='{.data.ENCRYPTION_KEY}' | base64 -d
+    # empty? seed it with the value your running backend currently uses:
+    kubectl -n datapond patch secret datapond-secrets --type merge \
+      -p '{"stringData":{"ENCRYPTION_KEY":"<the-live-key>"}}'
+
+Retrieve the generated initial admin password:
+
+    kubectl -n datapond get secret datapond-secrets -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d
+
+To pin the admin password instead of using the generated one, set
+`auth.adminPassword` in your values file before first install.
+
+Production (`values-aws.yaml`, `values-onprem.yaml`, `values-prod.yaml`)
+fails closed at backend startup if `JWT_SECRET`, `ENCRYPTION_KEY`, or
+`ADMIN_PASSWORD` are missing — a Helm deploy always provides them, so this
+should only trip if the Secret was hand-edited or deployed outside Helm.

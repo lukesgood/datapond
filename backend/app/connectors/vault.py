@@ -5,6 +5,8 @@ Credentials are encrypted before storage and never logged in plaintext.
 """
 
 import os
+import base64
+import hashlib
 import json
 import logging
 from typing import Dict, Any, Optional
@@ -12,6 +14,17 @@ from cryptography.fernet import Fernet
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_fernet_key(key) -> bytes:
+    """Valid Fernet key: an already-valid key passes through (preserves existing
+    ciphertext); any other string is deterministically derived (SHA-256 → urlsafe b64)."""
+    kb = key.encode() if isinstance(key, str) else key
+    try:
+        Fernet(kb)
+        return kb
+    except Exception:
+        return base64.urlsafe_b64encode(hashlib.sha256(kb).digest())
 
 
 class CredentialVault:
@@ -27,24 +40,24 @@ class CredentialVault:
         Initialize credential vault.
 
         Args:
-            encryption_key: Base64-encoded Fernet key. If None, reads from ENCRYPTION_KEY env var.
+            encryption_key: Fernet key or arbitrary string (derived via SHA-256).
+                If None, reads from ENCRYPTION_KEY env var.
 
         Raises:
-            ValueError: If encryption key is not provided or invalid
+            ValueError: If no key is available and ENVIRONMENT=production (fail-closed).
         """
+        from app.runtime import is_production
         key = encryption_key or os.getenv("ENCRYPTION_KEY")
-
         if not key:
-            raise ValueError(
-                "Encryption key not provided. Set ENCRYPTION_KEY environment variable "
-                "or pass encryption_key parameter. Generate with: "
-                "python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+            if is_production():
+                raise ValueError(
+                    "ENCRYPTION_KEY is required in production (ENVIRONMENT=production)."
+                )
+            logger.warning(
+                "ENCRYPTION_KEY unset — using an insecure local-dev key. NOT for production."
             )
-
-        try:
-            self.cipher = Fernet(key.encode() if isinstance(key, str) else key)
-        except Exception as e:
-            raise ValueError(f"Invalid encryption key: {e}")
+            key = "datapond-local-dev-encryption-key"
+        self.cipher = Fernet(_coerce_fernet_key(key))
 
     def encrypt_credentials(self, credentials: Dict[str, Any]) -> str:
         """

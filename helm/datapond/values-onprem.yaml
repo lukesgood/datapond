@@ -51,11 +51,6 @@ backend:
     tag: latest
     pullPolicy: IfNotPresent
   env:
-    - name: ENCRYPTION_KEY
-      valueFrom:
-        secretKeyRef:
-          name: datapond-secrets
-          key: encryption-key
     # LiteLLM is the primary AI provider — Ollama backend
     - name: LITELLM_URL
       value: "http://litellm.datapond.svc.cluster.local:4000"
