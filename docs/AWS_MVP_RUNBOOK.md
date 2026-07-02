@@ -84,6 +84,20 @@ they are never silently rotated. `ENCRYPTION_KEY` in particular must never
 change once set: it encrypts stored credentials (connector secrets, provider
 keys), and rotating it makes them undecryptable.
 
+**Pre-upgrade preflight (existing deployments only):** if your running backend
+got its `ENCRYPTION_KEY` out-of-band (hand-edited Secret under a different key
+name, or a raw Deployment env — the live EC2 deploy predates chart-managed
+generation), you MUST copy that working key into `datapond-secrets` under
+exactly `ENCRYPTION_KEY` **before** the first `helm upgrade` onto this chart.
+Otherwise Helm generates a fresh key and previously stored encrypted settings
+(provider API keys, connector credentials) silently become undecryptable.
+Check first:
+
+    kubectl -n datapond get secret datapond-secrets -o jsonpath='{.data.ENCRYPTION_KEY}' | base64 -d
+    # empty? seed it with the value your running backend currently uses:
+    kubectl -n datapond patch secret datapond-secrets --type merge \
+      -p '{"stringData":{"ENCRYPTION_KEY":"<the-live-key>"}}'
+
 Retrieve the generated initial admin password:
 
     kubectl -n datapond get secret datapond-secrets -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d

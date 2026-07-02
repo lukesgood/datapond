@@ -47,12 +47,6 @@ backend:
     repository: datapond/backend
     tag: latest
     pullPolicy: IfNotPresent
-  env:
-    - name: ENCRYPTION_KEY
-      valueFrom:
-        secretKeyRef:
-          name: datapond-secrets
-          key: encryption-key
   resources:
     requests:
       cpu: 200m

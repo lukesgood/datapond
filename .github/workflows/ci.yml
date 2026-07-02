@@ -85,4 +85,10 @@ jobs:
           helm template datapond helm/datapond | grep -q 'ENCRYPTION_KEY:' || { echo FAIL ENCRYPTION_KEY; exit 1; }
           helm template datapond helm/datapond | grep -q 'ADMIN_PASSWORD:'  || { echo FAIL ADMIN_PASSWORD; exit 1; }
           helm template datapond helm/datapond | grep -q 'name: ENCRYPTION_KEY' || { echo FAIL ENCRYPTION_KEY inject; exit 1; }
+          helm template datapond helm/datapond | grep -q 'name: ADMIN_PASSWORD' || { echo FAIL ADMIN_PASSWORD inject; exit 1; }
+          echo "== no duplicate ENCRYPTION_KEY env (stale backend.env would shadow the injection) =="
+          for v in "" "--values helm/datapond/values-quicktest.yaml" "--values helm/datapond/values-onprem.yaml"; do
+            n=$(helm template datapond helm/datapond $v | grep -c 'name: ENCRYPTION_KEY')
+            [ "$n" -eq 1 ] || { echo "FAIL: ENCRYPTION_KEY env appears $n times (profile: ${v:-base})"; exit 1; }
+          done
           echo "OK: secrets wired"
