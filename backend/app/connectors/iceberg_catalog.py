@@ -23,7 +23,7 @@ def get_catalog():
             if _catalog is None:
                 from pyiceberg.catalog.rest import RestCatalog
                 client_id = os.getenv("POLARIS_CLIENT_ID", "polaris-client")
-                client_secret = os.getenv("POLARIS_CLIENT_SECRET", "changeme-polaris-secret")
+                client_secret = component_secret("POLARIS_CLIENT_SECRET", "changeme-polaris-secret", component="polaris")
                 _catalog = RestCatalog(
                     name="datapond",
                     **{

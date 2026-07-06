@@ -30,6 +30,7 @@ from app.guardrails import pii_ko
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
 from app.api.auth import require_user
 from app.ai_context import set_actor, actor_payload
+from app.runtime import component_secret
 
 logger = logging.getLogger(__name__)
 
@@ -38,13 +39,14 @@ router = APIRouter()
 # ── Gateway configuration (read dynamically — settings API updates os.environ) ─
 def _cfg():
     """Read gateway config fresh from env each call so Settings changes apply immediately."""
+    # OpenAI 호환 게이트웨이 URL. 비어 있으면 시도하지 않음(템플릿 폴백).
+    # 기본은 co-located LiteLLM, 또는 고객 사내 OpenAI 호환 엔드포인트(BYO).
+    url = os.getenv("LITELLM_URL", "").strip()
     return {
-        # OpenAI 호환 게이트웨이 URL. 비어 있으면 시도하지 않음(템플릿 폴백).
-        # 기본은 co-located LiteLLM, 또는 고객 사내 OpenAI 호환 엔드포인트(BYO).
-        "litellm_url":   os.getenv("LITELLM_URL", "").strip(),
+        "litellm_url":   url,
         "litellm_model": os.getenv("LITELLM_MODEL", "default"),
         # Master key — authenticates to the gateway (admin + chat) when set.
-        "master_key":    os.getenv("LITELLM_MASTER_KEY", "").strip(),
+        "master_key":    component_secret("LITELLM_MASTER_KEY", "", component="litellm") if url else "",
     }
 
 from app.api.trino_util import TRINO_CATALOG, trino_conn

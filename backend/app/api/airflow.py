@@ -9,13 +9,21 @@ import httpx
 import os
 from datetime import datetime
 
+from app.runtime import component_secret
+
 router = APIRouter()
 
 # Airflow API configuration
 AIRFLOW_API_BASE = os.getenv("AIRFLOW_API_URL", "http://airflow-webserver.datapond.svc.cluster.local:8080/api/v1")
-AIRFLOW_USERNAME = os.getenv("AIRFLOW_USERNAME", "airflow")
-AIRFLOW_PASSWORD = os.getenv("AIRFLOW_PASSWORD", "airflow")
 REQUEST_TIMEOUT = 30
+
+
+def _airflow_auth() -> tuple:
+    """Resolved per-request: fail-closed in prod when Airflow creds are missing."""
+    return (
+        os.getenv("AIRFLOW_USERNAME", "airflow"),
+        component_secret("AIRFLOW_PASSWORD", "airflow", component="airflow"),
+    )
 
 
 # ============================================================================
@@ -227,7 +235,7 @@ async def airflow_request(
 ) -> Dict[str, Any]:
     """Make authenticated request to Airflow API"""
     url = f"{AIRFLOW_API_BASE}{endpoint}"
-    auth = (AIRFLOW_USERNAME, AIRFLOW_PASSWORD)
+    auth = _airflow_auth()
 
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
