@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException
 
 # transforms의 배포/연결 헬퍼·상수 재사용 (동일 메커니즘)
 from app.api.transforms import (
-    _deploy_dag, _ensure_trino_connection, DAGS_PATH, AIRFLOW_API, AIRFLOW_AUTH,
+    _deploy_dag, _ensure_trino_connection, _airflow_auth, DAGS_PATH, AIRFLOW_API,
 )
 
 logger = logging.getLogger(__name__)
@@ -165,7 +165,7 @@ async def run_now():
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
                 f"{AIRFLOW_API}/dags/{DAG_ID}/dagRuns",
-                auth=AIRFLOW_AUTH, json={},
+                auth=_airflow_auth(), json={},
             )
         if resp.status_code >= 400:
             raise HTTPException(status_code=502, detail=f"airflow trigger failed: {resp.text}")
@@ -181,12 +181,12 @@ async def status():
     """DAG 상태 + 최근 실행 조회."""
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            dag_resp = await client.get(f"{AIRFLOW_API}/dags/{DAG_ID}", auth=AIRFLOW_AUTH)
+            dag_resp = await client.get(f"{AIRFLOW_API}/dags/{DAG_ID}", auth=_airflow_auth())
             if dag_resp.status_code == 404:
                 return {"dag_id": DAG_ID, "deployed": False}
             runs_resp = await client.get(
                 f"{AIRFLOW_API}/dags/{DAG_ID}/dagRuns",
-                auth=AIRFLOW_AUTH, params={"order_by": "-execution_date", "limit": 5},
+                auth=_airflow_auth(), params={"order_by": "-execution_date", "limit": 5},
             )
         dag = dag_resp.json()
         runs = runs_resp.json().get("dag_runs", []) if runs_resp.status_code < 400 else []
