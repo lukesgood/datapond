@@ -3,6 +3,7 @@ Database connection and session management for DataPond
 """
 import os
 from sqlalchemy import create_engine
+from app.runtime import component_secret
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from contextlib import contextmanager
@@ -13,7 +14,7 @@ from contextlib import contextmanager
 DATABASE_URL = os.getenv("DATABASE_URL") or (
     "postgresql://{user}:{password}@{host}:{port}/{db}".format(
         user=os.getenv("POSTGRES_USER", "datapond"),
-        password=os.getenv("POSTGRES_PASSWORD", "datapond"),
+        password=component_secret("POSTGRES_PASSWORD", "datapond", component="postgres"),
         host=os.getenv("POSTGRES_HOST", "postgres.datapond.svc.cluster.local"),
         port="5432",
         db=os.getenv("POSTGRES_DB", "datapond"),

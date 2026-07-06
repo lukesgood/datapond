@@ -27,6 +27,7 @@ import os
 import logging
 import httpx
 
+from app.runtime import component_secret
 from app.api.om_util import OPENMETADATA_URL, om_token as _om_token
 
 logger = logging.getLogger(__name__)
@@ -284,7 +285,7 @@ def _pool_kwargs() -> dict:
         port=int(str(os.getenv("POSTGRES_PORT", "5432")).split(":")[-1]),
         database=os.getenv("POSTGRES_DB", "datapond"),
         user=os.getenv("POSTGRES_USER", "datapond"),
-        password=os.getenv("POSTGRES_PASSWORD", "dev_password"),
+        password=component_secret("POSTGRES_PASSWORD", "dev_password", component="postgres"),
         min_size=2,
         max_size=10,
     )
@@ -655,7 +656,7 @@ CREATE TABLE IF NOT EXISTS page_events (
             port=5432,
             database="postgres",
             user=os.getenv("POSTGRES_USER", "datapond"),
-            password=os.getenv("POSTGRES_PASSWORD", "dev_password"),
+            password=component_secret("POSTGRES_PASSWORD", "dev_password", component="postgres"),
         )
         db_exists = await sys_conn.fetchval(
             "SELECT 1 FROM pg_database WHERE datname='sampledb'"
@@ -670,7 +671,7 @@ CREATE TABLE IF NOT EXISTS page_events (
             port=5432,
             database="sampledb",
             user=os.getenv("POSTGRES_USER", "datapond"),
-            password=os.getenv("POSTGRES_PASSWORD", "dev_password"),
+            password=component_secret("POSTGRES_PASSWORD", "dev_password", component="postgres"),
         )
         await sample_conn.execute(SAMPLE_DDL)
 
@@ -765,7 +766,7 @@ INSERT INTO page_events (customer_id,event_type,page,device,session_id) VALUES
             "port": 5432,
             "database": "sampledb",
             "username": os.getenv("POSTGRES_USER", "datapond"),
-            "password": os.getenv("POSTGRES_PASSWORD", "dev_password"),
+            "password": component_secret("POSTGRES_PASSWORD", "dev_password", component="postgres"),
             "ssl": False,
         }
         encrypted = vault.encrypt_credentials(sample_config)
