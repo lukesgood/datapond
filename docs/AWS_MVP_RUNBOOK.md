@@ -109,3 +109,15 @@ Production (`values-aws.yaml`, `values-onprem.yaml`, `values-prod.yaml`)
 fails closed at backend startup if `JWT_SECRET`, `ENCRYPTION_KEY`, or
 `ADMIN_PASSWORD` are missing — a Helm deploy always provides them, so this
 should only trip if the Secret was hand-edited or deployed outside Helm.
+
+## Component passwords (P0-1b)
+POSTGRES_PASSWORD, MinIO S3_SECRET_KEY, AIRFLOW_PASSWORD, JUPYTER_TOKEN, POLARIS_CLIENT_SECRET
+are auto-generated on first install and preserved across upgrades (lookup-preserve).
+Retrieve any of them:
+
+    kubectl -n datapond get secret datapond-secrets -o jsonpath='{.data.<KEY>}' | base64 -d
+
+⚠️ **NEVER delete datapond-secrets while keeping data PVCs:** Postgres/MinIO were initialized
+with the generated passwords — a regenerated Secret will not match the data volumes and
+every component login will fail. Delete the Secret only together with the PVCs (full reset).
+Existing installs keep their current passwords (no rotation is performed by upgrades).
