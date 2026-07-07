@@ -149,14 +149,20 @@ spec:
               name: datapond-secrets
               key: LITELLM_SALT_KEY
         {{- if and (.Values.litellm.tracing | default dict).enabled (eq .Values.litellm.tracing.provider "langfuse") }}
-        # Tracing backend (opt-in). Point at a self-hosted Langfuse; keys can be moved
-        # to a Secret for production.
+        # Tracing backend (opt-in). Point at a self-hosted Langfuse; keys come from
+        # datapond-secrets.
         - name: LANGFUSE_HOST
           value: {{ .Values.litellm.tracing.host | quote }}
         - name: LANGFUSE_PUBLIC_KEY
-          value: {{ .Values.litellm.tracing.publicKey | quote }}
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: LANGFUSE_PUBLIC_KEY
         - name: LANGFUSE_SECRET_KEY
-          value: {{ .Values.litellm.tracing.secretKey | quote }}
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: LANGFUSE_SECRET_KEY
         {{- end }}
         {{- if $dbMode }}
         # DB mode — persist model_list / keys / spend in PostgreSQL for runtime config.

@@ -96,8 +96,15 @@ spec:
             fi
             exec java -jar /deployments/polaris-admin-tool.jar bootstrap \
               --realm={{ .Values.polaris.auth.realm | default "default-realm" }} \
-              --credential={{ .Values.polaris.auth.realm | default "default-realm" }},{{ .Values.polaris.auth.clientId }},{{ .Values.polaris.auth.clientSecret }}
+              --credential={{ .Values.polaris.auth.realm | default "default-realm" }},${POLARIS_CLIENT_ID},${POLARIS_CLIENT_SECRET}
         env:
+        - name: POLARIS_CLIENT_ID
+          value: {{ .Values.polaris.auth.clientId | quote }}
+        - name: POLARIS_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POLARIS_CLIENT_SECRET
         - name: POLARIS_PERSISTENCE_TYPE
           value: "relational-jdbc"
         - name: POLARIS_PERSISTENCE_RELATIONAL_JDBC_DATABASE_TYPE

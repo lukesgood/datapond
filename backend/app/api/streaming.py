@@ -27,6 +27,8 @@ import psycopg2.extras
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app.runtime import component_secret
+
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["streaming"])
 
@@ -254,7 +256,7 @@ async def create_sink(req: CreateSinkRequest):
         target_table = req.iceberg_table or req.name
         s3_endpoint  = os.getenv("S3_ENDPOINT", "seaweedfs-s3:8333")
         s3_key       = os.getenv("S3_ACCESS_KEY", "datapond")
-        s3_secret    = os.getenv("S3_SECRET_KEY", "datapond_dev")
+        s3_secret    = component_secret("S3_SECRET_KEY", "datapond_dev", component="s3")
         warehouse    = os.getenv("ICEBERG_WAREHOUSE", "s3a://iceberg/warehouse")
 
         if req.connector == "iceberg":
@@ -370,7 +372,7 @@ async def create_cdc_pipeline(req: CdcPipelineRequest):
     """
     s3_endpoint = os.getenv("S3_ENDPOINT", "seaweedfs-s3:8333")
     s3_key      = os.getenv("S3_ACCESS_KEY", "datapond")
-    s3_secret   = os.getenv("S3_SECRET_KEY", "datapond_dev")
+    s3_secret   = component_secret("S3_SECRET_KEY", "datapond_dev", component="s3")
     warehouse   = os.getenv("ICEBERG_WAREHOUSE", "s3a://iceberg/warehouse")
     slot_name   = req.slot_name or f"datapond_{req.pipeline_name.lower().replace('-','_')}"
 

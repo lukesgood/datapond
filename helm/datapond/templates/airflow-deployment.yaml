@@ -32,16 +32,26 @@ spec:
           airflow db init && \
           airflow users create \
             --username {{ .Values.airflow.auth.username }} \
-            --password {{ .Values.airflow.auth.password }} \
+            --password "$AIRFLOW_ADMIN_PASSWORD" \
             --firstname Admin \
             --lastname User \
             --role Admin \
             --email admin@example.com || true
         env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_PASSWORD
         - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
-          value: "postgresql+psycopg2://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.password }}@postgres:5432/airflow"
+          value: "postgresql+psycopg2://{{ .Values.postgres.auth.username | default "datapond" }}:$(POSTGRES_PASSWORD)@postgres:5432/airflow"
         - name: AIRFLOW__CORE__EXECUTOR
           value: {{ .Values.airflow.executor }}
+        - name: AIRFLOW_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: AIRFLOW_PASSWORD
       containers:
       - name: webserver
         image: "{{ .Values.airflow.image.repository }}:{{ .Values.airflow.image.tag }}"
@@ -52,8 +62,13 @@ spec:
         - airflow
         - webserver
         env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_PASSWORD
         - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
-          value: "postgresql+psycopg2://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.password }}@postgres:5432/airflow"
+          value: "postgresql+psycopg2://{{ .Values.postgres.auth.username | default "datapond" }}:$(POSTGRES_PASSWORD)@postgres:5432/airflow"
         - name: AIRFLOW__CORE__EXECUTOR
           value: {{ .Values.airflow.executor }}
         - name: AIRFLOW__WEBSERVER__BASE_URL
@@ -139,8 +154,13 @@ spec:
         - airflow
         - scheduler
         env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_PASSWORD
         - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
-          value: "postgresql+psycopg2://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.password }}@postgres:5432/airflow"
+          value: "postgresql+psycopg2://{{ .Values.postgres.auth.username | default "datapond" }}:$(POSTGRES_PASSWORD)@postgres:5432/airflow"
         - name: AIRFLOW__CORE__EXECUTOR
           value: {{ .Values.airflow.executor }}
         # Lets scheduled RAG-ingest DAGs authenticate to the backend (X-Internal-Key).

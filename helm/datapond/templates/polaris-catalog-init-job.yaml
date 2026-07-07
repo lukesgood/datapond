@@ -38,7 +38,10 @@ spec:
         - name: CID
           value: "{{ .Values.polaris.auth.clientId }}"
         - name: CSECRET
-          value: "{{ .Values.polaris.auth.clientSecret }}"
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POLARIS_CLIENT_SECRET
         - name: CATALOG
           value: "{{ .Values.polaris.catalogName | default "iceberg" }}"
         - name: BASELOC

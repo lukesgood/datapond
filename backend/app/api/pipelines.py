@@ -17,11 +17,20 @@ from app.pipelines.models import CompilationResult
 from app.pipelines.dependency_graph import DependencyGraphBuilder
 from app.database.connection import get_db, engine, Base
 from app.models.pipeline import SavedPipeline
+from app.runtime import component_secret
 
 router = APIRouter()
 
 # Ensure pipelines table exists
 Base.metadata.create_all(bind=engine, tables=[SavedPipeline.__table__], checkfirst=True)
+
+
+def _airflow_auth() -> tuple:
+    """Resolved per-request: fail-closed in prod when Airflow creds are missing."""
+    return (
+        os.getenv("AIRFLOW_USERNAME", "airflow"),
+        component_secret("AIRFLOW_PASSWORD", "airflow", component="airflow"),
+    )
 
 
 # === Request/Response Models ===
@@ -263,7 +272,7 @@ async def deploy_pipeline(request: PipelineDeployRequest, db: Session = Depends(
     """
     DAGS_PATH = Path(os.getenv("AIRFLOW_DAGS_PATH", "/opt/airflow/dags"))
     AIRFLOW_API = os.getenv("AIRFLOW_API_URL", "http://airflow-webserver.datapond.svc.cluster.local:8080/api/v1")
-    AIRFLOW_AUTH = (os.getenv("AIRFLOW_USERNAME", "airflow"), os.getenv("AIRFLOW_PASSWORD", "airflow"))
+    AIRFLOW_AUTH = _airflow_auth()
 
     dag_code = request.dag_code
 
@@ -335,7 +344,6 @@ class PipelineUpdateRequest(BaseModel):
 
 # Airflow API config (shared with airflow.py)
 AIRFLOW_API = os.getenv("AIRFLOW_API_URL", "http://airflow-webserver.datapond.svc.cluster.local:8080/api/v1")
-AIRFLOW_AUTH = (os.getenv("AIRFLOW_USERNAME", "airflow"), os.getenv("AIRFLOW_PASSWORD", "airflow"))
 DAGS_PATH = Path(os.getenv("AIRFLOW_DAGS_PATH", "/opt/airflow/dags"))
 
 
@@ -343,7 +351,7 @@ async def _airflow_request(method: str, path: str, **kwargs) -> httpx.Response:
     """Helper for Airflow API calls."""
     async with httpx.AsyncClient(timeout=15) as client:
         return await getattr(client, method)(
-            f"{AIRFLOW_API}{path}", auth=AIRFLOW_AUTH, **kwargs
+            f"{AIRFLOW_API}{path}", auth=_airflow_auth(), **kwargs
         )
 
 

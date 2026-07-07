@@ -23,7 +23,7 @@ from jose import JWTError, jwt
 import bcrypt as _bcrypt
 from pydantic import BaseModel
 
-from app.runtime import is_production
+from app.runtime import is_production, component_secret
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
@@ -79,7 +79,7 @@ async def _get_pool():
             port=5432,
             database=os.getenv("POSTGRES_DB", "datapond"),
             user=os.getenv("POSTGRES_USER", "datapond"),
-            password=os.getenv("POSTGRES_PASSWORD", "dev_password"),
+            password=component_secret("POSTGRES_PASSWORD", "dev_password", component="postgres"),
             min_size=1, max_size=5,
         )
     return _db_pool

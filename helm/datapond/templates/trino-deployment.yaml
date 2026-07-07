@@ -45,6 +45,20 @@ spec:
         {{- end }}
         - name: AWS_REGION
           value: "{{ .Values.storage.region | default "us-east-1" }}"
+        {{- if .Values.postgres.enabled }}
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_PASSWORD
+        {{- end }}
+        {{- if .Values.polaris.enabled }}
+        - name: POLARIS_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POLARIS_CLIENT_SECRET
+        {{- end }}
         volumeMounts:
         - name: trino-config
           mountPath: /etc/trino
@@ -166,15 +180,16 @@ data:
     # Polaris uses the catalog NAME (not the S3 path) as the warehouse identifier
     iceberg.rest-catalog.warehouse={{ .Values.polaris.catalogName | default "iceberg" }}
     iceberg.rest-catalog.security=OAUTH2
-    iceberg.rest-catalog.oauth2.credential={{ .Values.polaris.auth.clientId }}:{{ .Values.polaris.auth.clientSecret }}
+    iceberg.rest-catalog.oauth2.credential={{ .Values.polaris.auth.clientId }}:${ENV:POLARIS_CLIENT_SECRET}
     iceberg.rest-catalog.oauth2.scope=PRINCIPAL_ROLE:ALL
-    {{- else }}
-    # Fallback: JDBC Catalog (deprecated)
+    {{- else if .Values.postgres.enabled }}
+    # Fallback: JDBC Catalog (deprecated). With neither polaris nor in-cluster
+    # postgres enabled there is no local catalog backend at all.
     iceberg.catalog.type=jdbc
     iceberg.jdbc-catalog.driver-class=org.postgresql.Driver
     iceberg.jdbc-catalog.connection-url=jdbc:postgresql://postgres:5432/iceberg_catalog
     iceberg.jdbc-catalog.connection-user={{ .Values.postgres.auth.username }}
-    iceberg.jdbc-catalog.connection-password={{ .Values.postgres.auth.password }}
+    iceberg.jdbc-catalog.connection-password=${ENV:POSTGRES_PASSWORD}
     {{- end }}
     fs.native-s3.enabled=true
     {{- if .Values.storage.endpoint }}
@@ -182,12 +197,14 @@ data:
     s3.path-style-access=true
     {{- end }}
     s3.region={{ .Values.storage.region | default "us-east-1" }}
+  {{- if .Values.postgres.enabled }}
 
   postgres.properties: |
     connector.name=postgresql
     connection-url=jdbc:postgresql://postgres:5432/datapond
     connection-user={{ .Values.postgres.auth.username }}
-    connection-password={{ .Values.postgres.auth.password }}
+    connection-password=${ENV:POSTGRES_PASSWORD}
+  {{- end }}
 {{- end }}
 {{- if .Values.trino.rls.enabled }}
 ---

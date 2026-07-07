@@ -130,7 +130,7 @@ postgres:
   auth:
     database: datapond
     username: datapond
-    password: datapond_password  # Change in production!
+    password: ""  # empty ⇒ Helm generates & preserves (see templates/secrets.yaml)
 
   # High Availability (optional)
   replication:
@@ -195,8 +195,11 @@ jupyter:
   env:
     - name: JUPYTER_ENABLE_LAB
       value: "yes"
-    - name: JUPYTER_TOKEN
-      value: "jupyter"
+
+  auth:
+    # JupyterLab token. Empty ⇒ Helm generates & preserves (retrieve:
+    # kubectl -n datapond get secret datapond-secrets -o jsonpath='{.data.JUPYTER_TOKEN}' | base64 -d)
+    token: ""
 
   # Git integration extensions
   extensions:
@@ -244,7 +247,6 @@ mlflow:
     port: 5432
     database: mlflow
     username: datapond
-    password: datapond_password
 
 # Airflow
 airflow:
@@ -302,7 +304,7 @@ airflow:
 
   auth:
     username: airflow
-    password: airflow
+    password: ""  # empty ⇒ Helm generates & preserves (see templates/secrets.yaml)
 
   # SMTP alert configuration
   # Set smtp.enabled: true and configure your mail server to enable email alerts
@@ -364,7 +366,7 @@ minio:
     tag: latest
   auth:
     rootUser: datapond
-    rootPassword: datapond_s3_password
+    rootPassword: ""  # empty ⇒ Helm generates & preserves (see templates/secrets.yaml)
   persistence:
     size: 50Gi
   resources:
@@ -431,7 +433,7 @@ monitoring:
   grafana:
     enabled: true
     adminUser: admin
-    adminPassword: admin
+    adminPassword: ""  # set explicitly if you enable grafana (no template consumes this yet)
 
 # ServiceMonitor for Prometheus
 serviceMonitor:
@@ -476,8 +478,7 @@ polaris:
   auth:
     realm: default-realm
     clientId: polaris-client
-    clientSecret: changeme-polaris-secret
-    adminPassword: changeme-admin-password
+    clientSecret: ""  # empty ⇒ Helm generates & preserves (see templates/secrets.yaml)
 
   # Catalog name (Trino warehouse identifier) — created by polaris-catalog-init Job
   catalogName: iceberg

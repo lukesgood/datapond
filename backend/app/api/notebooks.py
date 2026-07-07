@@ -9,12 +9,17 @@ import os
 from datetime import datetime
 import json
 
+from app.runtime import component_secret
+
 router = APIRouter()
 
 # Configuration
 JUPYTER_URL = os.getenv("JUPYTER_URL", "http://jupyterlab:8888/jupyter")
-JUPYTER_TOKEN = os.getenv("JUPYTER_TOKEN", "jupyter")
 REQUEST_TIMEOUT = 30.0
+
+
+def _jupyter_token() -> str:
+    return component_secret("JUPYTER_TOKEN", "jupyter", component="jupyter")
 
 
 # Pydantic Models
@@ -89,7 +94,7 @@ class NotebookTemplateRequest(BaseModel):
 def get_jupyter_headers():
     """Get headers for JupyterLab API requests"""
     return {
-        "Authorization": f"token {JUPYTER_TOKEN}",
+        "Authorization": f"token {_jupyter_token()}",
         "Content-Type": "application/json"
     }
 

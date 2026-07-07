@@ -203,8 +203,8 @@ jupyter:
   env:
     - name: JUPYTER_ENABLE_LAB
       value: "yes"
-    - name: JUPYTER_TOKEN
-      value: "jupyter"
+  auth:
+    token: "jupyter"   # known dev token (explicit-wins; docs reference it)
 
 # RisingWave - Minimal resources for dev
 risingwave:

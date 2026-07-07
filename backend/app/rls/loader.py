@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 import asyncpg
 
+from app.runtime import component_secret
 from .engine import UserContext, RlsPolicy, MaskPolicy
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ async def _get_pool() -> asyncpg.Pool:
             port=int(str(os.getenv("POSTGRES_PORT", "5432")).split(":")[-1]),
             database=os.getenv("POSTGRES_DB", "datapond"),
             user=os.getenv("POSTGRES_USER", "datapond"),
-            password=os.getenv("POSTGRES_PASSWORD", "dev_password"),
+            password=component_secret("POSTGRES_PASSWORD", "dev_password", component="postgres"),
             min_size=1, max_size=5,
         )
     return _pool

@@ -47,7 +47,10 @@ spec:
           value: /data/hf
         {{- if .Values.vllm.hfToken }}
         - name: HUGGING_FACE_HUB_TOKEN
-          value: {{ .Values.vllm.hfToken | quote }}
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: HF_TOKEN
         {{- end }}
         ports:
         - name: http

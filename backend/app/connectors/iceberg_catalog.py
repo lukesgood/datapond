@@ -9,6 +9,7 @@ PyIceberg가 직접 쓰고 단일 스냅샷으로 커밋한다.
 """
 import os
 import threading
+from app.runtime import component_secret
 
 _catalog = None
 _lock = threading.Lock()
@@ -22,7 +23,7 @@ def get_catalog():
             if _catalog is None:
                 from pyiceberg.catalog.rest import RestCatalog
                 client_id = os.getenv("POLARIS_CLIENT_ID", "polaris-client")
-                client_secret = os.getenv("POLARIS_CLIENT_SECRET", "changeme-polaris-secret")
+                client_secret = component_secret("POLARIS_CLIENT_SECRET", "changeme-polaris-secret", component="polaris")
                 _catalog = RestCatalog(
                     name="datapond",
                     **{
@@ -33,7 +34,7 @@ def get_catalog():
                         # SeaweedFS S3 — Polaris가 vended-credentials 미지원이므로 FileIO에 직접 주입
                         "s3.endpoint":          _s3_endpoint(),
                         "s3.access-key-id":     os.getenv("S3_ACCESS_KEY", "datapond"),
-                        "s3.secret-access-key": os.getenv("S3_SECRET_KEY", "datapond_dev"),
+                        "s3.secret-access-key": component_secret("S3_SECRET_KEY", "datapond_dev", component="s3"),
                         "s3.path-style-access": "true",
                         "s3.region":            os.getenv("S3_REGION", "us-east-1"),
                     },

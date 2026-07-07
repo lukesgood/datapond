@@ -26,6 +26,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.api.connectors import get_db_pool
+from app.runtime import component_secret
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -78,9 +79,9 @@ def provider_of_model(model_str: str) -> str:
 def _gateway() -> tuple[str, str]:
     """Return (base_url, master_key). Raises 503 if the gateway isn't configured."""
     url = os.getenv("LITELLM_URL", "").strip().rstrip("/")
-    key = os.getenv("LITELLM_MASTER_KEY", "").strip()
     if not url:
         raise HTTPException(503, "LiteLLM gateway not configured (LITELLM_URL is empty).")
+    key = component_secret("LITELLM_MASTER_KEY", "", component="litellm")
     return url, key
 
 

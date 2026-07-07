@@ -32,6 +32,7 @@ from app.api.connectors import get_db_pool
 from app.api.auth import require_user, require_user_or_internal
 from app.ai_context import set_actor, actor_payload
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
+from app.runtime import component_secret
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -47,9 +48,9 @@ def EMBED_DIM() -> int:
 
 def _gateway() -> tuple[str, str]:
     url = os.getenv("LITELLM_URL", "").strip().rstrip("/")
-    key = os.getenv("LITELLM_MASTER_KEY", "").strip()
     if not url:
         raise HTTPException(503, "LiteLLM gateway not configured (LITELLM_URL empty).")
+    key = component_secret("LITELLM_MASTER_KEY", "", component="litellm")
     return url, key
 
 

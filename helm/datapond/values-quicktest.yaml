@@ -322,9 +322,8 @@ postgres:
     password: dev_password
 
 jupyter:
-  env:
-    - name: JUPYTER_TOKEN
-      value: "jupyter"
+  auth:
+    token: "jupyter"   # known dev token (explicit-wins; docs reference it)
 
 storage:
   provider: minio

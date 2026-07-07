@@ -21,14 +21,22 @@ from sqlalchemy.orm import Session
 from app.database.connection import get_db, engine, Base
 from app.models.transform import SavedTransform
 from app.api.trino_util import trino_conn
+from app.runtime import component_secret
 
 router = APIRouter()
 
 Base.metadata.create_all(bind=engine, tables=[SavedTransform.__table__], checkfirst=True)
 
 AIRFLOW_API  = os.getenv("AIRFLOW_API_URL", "http://airflow-webserver.datapond.svc.cluster.local:8080/airflow/api/v1")
-AIRFLOW_AUTH = (os.getenv("AIRFLOW_USERNAME", "airflow"), os.getenv("AIRFLOW_PASSWORD", "airflow"))
 DAGS_PATH    = Path(os.getenv("AIRFLOW_DAGS_PATH", "/opt/airflow/dags"))
+
+
+def _airflow_auth() -> tuple:
+    """Resolved per-request: fail-closed in prod when Airflow creds are missing."""
+    return (
+        os.getenv("AIRFLOW_USERNAME", "airflow"),
+        component_secret("AIRFLOW_PASSWORD", "airflow", component="airflow"),
+    )
 
 NAMESPACES = ["raw", "refined", "serving"]
 
@@ -50,12 +58,12 @@ async def _ensure_trino_connection() -> None:
         # Try PATCH first, fall back to POST
         resp = await client.patch(
             f"{AIRFLOW_API}/connections/trino_default",
-            auth=AIRFLOW_AUTH, json=payload,
+            auth=_airflow_auth(), json=payload,
         )
         if resp.status_code == 404:
             await client.post(
                 f"{AIRFLOW_API}/connections",
-                auth=AIRFLOW_AUTH, json=payload,
+                auth=_airflow_auth(), json=payload,
             )
 
 
@@ -209,7 +217,7 @@ async def _deploy_dag(dag_id: str, dag_code: str) -> bool:
         async with httpx.AsyncClient(timeout=10) as client:
             await client.patch(
                 f"{AIRFLOW_API}/dags/{dag_id}",
-                auth=AIRFLOW_AUTH,
+                auth=_airflow_auth(),
                 json={"is_paused": False},
             )
     except Exception:
@@ -292,7 +300,7 @@ async def _last_runs(dag_ids: list) -> dict:
             async def one(d):
                 try:
                     r = await client.get(f"{AIRFLOW_API}/dags/{d}/dagRuns",
-                                         auth=AIRFLOW_AUTH,
+                                         auth=_airflow_auth(),
                                          params={"limit": 1, "order_by": "-execution_date"})
                     runs = r.json().get("dag_runs", [])
                     if runs:
@@ -362,10 +370,10 @@ async def trigger_transform(transform_id: str, db: Session = Depends(get_db)):
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             # DAG가 발견 전 배포된 unpause PATCH(404)를 못 받았을 수 있다 — 트리거 직전 보장
-            await client.patch(f"{AIRFLOW_API}/dags/{row.dag_id}", auth=AIRFLOW_AUTH, json={"is_paused": False})
+            await client.patch(f"{AIRFLOW_API}/dags/{row.dag_id}", auth=_airflow_auth(), json={"is_paused": False})
             resp = await client.post(
                 f"{AIRFLOW_API}/dags/{row.dag_id}/dagRuns",
-                auth=AIRFLOW_AUTH,
+                auth=_airflow_auth(),
                 json={"conf": {}},
             )
         if resp.status_code not in (200, 201):
@@ -388,8 +396,8 @@ async def delete_transform(transform_id: str, db: Session = Depends(get_db)):
         dag_file.unlink(missing_ok=True)
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                await client.patch(f"{AIRFLOW_API}/dags/{row.dag_id}", auth=AIRFLOW_AUTH, json={"is_paused": True})
-                await client.delete(f"{AIRFLOW_API}/dags/{row.dag_id}", auth=AIRFLOW_AUTH)
+                await client.patch(f"{AIRFLOW_API}/dags/{row.dag_id}", auth=_airflow_auth(), json={"is_paused": True})
+                await client.delete(f"{AIRFLOW_API}/dags/{row.dag_id}", auth=_airflow_auth())
         except Exception:
             pass
 

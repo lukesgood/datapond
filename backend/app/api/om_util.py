@@ -11,12 +11,13 @@ import logging
 
 import httpx
 
+from app.runtime import component_secret
+
 logger = logging.getLogger(__name__)
 
 OPENMETADATA_URL = os.getenv("OPENMETADATA_URL", "http://openmetadata-server.datapond.svc.cluster.local:8585")
 # OM admin creds (env-overridable; password must match the OM instance to log in).
 OPENMETADATA_EMAIL = os.getenv("OPENMETADATA_EMAIL", "admin@open-metadata.org")
-OPENMETADATA_PASSWORD = os.getenv("OPENMETADATA_PASSWORD", "admin")
 
 _TOKEN_CACHE: str | None = None
 
@@ -32,7 +33,8 @@ async def om_token() -> str | None:
     if _TOKEN_CACHE:
         return _TOKEN_CACHE
     try:
-        pw_b64 = base64.b64encode(OPENMETADATA_PASSWORD.encode()).decode()
+        password = component_secret("OPENMETADATA_PASSWORD", "admin", component="openmetadata")
+        pw_b64 = base64.b64encode(password.encode()).decode()
         async with httpx.AsyncClient(timeout=5) as c:
             r = await c.post(
                 f"{OPENMETADATA_URL}/api/v1/users/login",

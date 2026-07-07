@@ -9,11 +9,12 @@ from typing import List, Dict, Any, Optional
 
 import requests
 
+from app.runtime import component_secret
+
 logger = logging.getLogger(__name__)
 
 POLARIS_URL = os.getenv("POLARIS_URL", "http://polaris:8181")
 POLARIS_CLIENT_ID = os.getenv("POLARIS_CLIENT_ID", "polaris-client")
-POLARIS_CLIENT_SECRET = os.getenv("POLARIS_CLIENT_SECRET", "changeme-polaris-secret")
 
 _token_cache: Dict[str, Any] = {"token": None, "expires_at": 0}
 
@@ -23,12 +24,13 @@ def _get_token() -> str:
     if _token_cache["token"] and _token_cache["expires_at"] > now + 30:
         return _token_cache["token"]
 
+    client_secret = component_secret("POLARIS_CLIENT_SECRET", "changeme-polaris-secret", component="polaris")
     resp = requests.post(
         f"{POLARIS_URL}/api/catalog/v1/oauth/tokens",
         data={
             "grant_type": "client_credentials",
             "client_id": POLARIS_CLIENT_ID,
-            "client_secret": POLARIS_CLIENT_SECRET,
+            "client_secret": client_secret,
             "scope": "PRINCIPAL_ROLE:ALL",
         },
         headers={"Content-Type": "application/x-www-form-urlencoded"},

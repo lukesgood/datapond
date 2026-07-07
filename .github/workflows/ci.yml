@@ -92,3 +92,20 @@ jobs:
             [ "$n" -eq 1 ] || { echo "FAIL: ENCRYPTION_KEY env appears $n times (profile: ${v:-base})"; exit 1; }
           done
           echo "OK: secrets wired"
+          echo "== component credentials generated (P0-1b, onprem render) =="
+          out=$(helm template datapond helm/datapond --values helm/datapond/values-onprem.yaml)
+          for k in POSTGRES_PASSWORD S3_SECRET_KEY AIRFLOW_PASSWORD JUPYTER_TOKEN POLARIS_CLIENT_SECRET; do
+            echo "$out" | grep -q "$k:" || { echo "FAIL $k not generated"; exit 1; }
+          done
+          echo "$out" | grep -q 'token="${JUPYTER_TOKEN}"' || { echo "FAIL jupyter token still hardcoded"; exit 1; }
+          echo "== no weak literals in rendered manifests (base/prod/onprem/foundation) =="
+          for v in "" "--values helm/datapond/values-prod.yaml" "--values helm/datapond/values-onprem.yaml" "--values helm/datapond/values-foundation.yaml"; do
+            r=$(helm template datapond helm/datapond $v)
+            if echo "$r" | grep -E 'CHANGE_THIS|changeme|datapond_password|datapond_s3_password'; then
+              echo "FAIL: weak credential literal rendered (profile: ${v:-base})"; exit 1
+            fi
+            if echo "$r" | grep -q 'AIRFLOW_PASSWORD: "airflow"'; then
+              echo "FAIL: weak airflow password rendered (profile: ${v:-base})"; exit 1
+            fi
+          done
+          echo "OK: component credentials wired"

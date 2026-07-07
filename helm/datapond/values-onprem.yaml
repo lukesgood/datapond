@@ -82,7 +82,7 @@ postgres:
   auth:
     database: datapond
     username: datapond
-    password: datapond_password   # Change in production!
+    password: ""  # empty ⇒ Helm generates & preserves (see templates/secrets.yaml)
 
 # ── Valkey (Redis-compatible cache / sessions) ─────────────────────────────────
 valkey:
@@ -117,9 +117,6 @@ jupyter:
   gitConfig:
     defaultUser: "DataPond User"
     defaultEmail: "user@datapond.local"
-  env:
-    - name: JUPYTER_TOKEN
-      value: "jupyter"
 
 # ── MLflow ────────────────────────────────────────────────────────────────────
 mlflow:
@@ -167,7 +164,7 @@ airflow:
       size: 10Gi
   auth:
     username: airflow
-    password: airflow
+    password: ""  # empty ⇒ Helm generates & preserves (see templates/secrets.yaml)
   smtp:
     enabled: false
 
@@ -194,7 +191,7 @@ minio:
   clusterIP: 10.43.107.150
   auth:
     rootUser: datapond
-    rootPassword: datapond_s3_password   # Change in production!
+    rootPassword: ""  # empty ⇒ Helm generates & preserves (see templates/secrets.yaml)
   persistence:
     size: 100Gi
 

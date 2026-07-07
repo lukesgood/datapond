@@ -113,7 +113,10 @@ spec:
         - name: POLARIS_CLIENT_ID
           value: "{{ .Values.polaris.auth.clientId }}"
         - name: POLARIS_CLIENT_SECRET
-          value: "{{ .Values.polaris.auth.clientSecret }}"
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POLARIS_CLIENT_SECRET
         {{- end }}
         # Iceberg 유지보수 DAG 설정 (P0-3)
         - name: DATAPOND_MAINTENANCE_SCHEDULE
@@ -130,7 +133,17 @@ spec:
         - name: AIRFLOW_USERNAME
           value: "{{ .Values.airflow.auth.username }}"
         - name: AIRFLOW_PASSWORD
-          value: "{{ .Values.airflow.auth.password }}"
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: AIRFLOW_PASSWORD
+              optional: true
+        - name: JUPYTER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: JUPYTER_TOKEN
+              optional: true
         - name: AIRFLOW_DAGS_PATH
           value: "/opt/airflow/dags"
         # AI gateway configuration.

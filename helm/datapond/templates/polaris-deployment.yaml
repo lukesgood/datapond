@@ -194,16 +194,4 @@ spec:
   selector:
     app: {{ .Values.polaris.name }}
 
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: polaris-secret
-  namespace: {{ .Values.namespace }}
-type: Opaque
-stringData:
-  clientId: {{ .Values.polaris.auth.clientId | quote }}
-  clientSecret: {{ .Values.polaris.auth.clientSecret | quote }}
-  realm: {{ .Values.polaris.auth.realm | default "default-realm" | quote }}
-
 {{- end }}
