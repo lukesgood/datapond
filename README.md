@@ -1,104 +1,157 @@
 # DataPond — AWS-Native Data Foundation for AI Apps
 
-> **AWS 위에서 RAG·에이전트의 데이터 연료를 공급하는 S3+Bedrock 네이티브 데이터 기반.**
-> 거버넌스·카탈로그·실시간은 오픈소스로 차별화.
+> **The S3 + Bedrock native data foundation that fuels RAG and agent applications on AWS —**
+> **with open-source governance, catalog, and streaming as the differentiators.**
 
 ---
 
 ## 🎯 Overview
 
-**DataPond는 AWS에서 AI 앱(RAG·에이전트)을 프로덕션에 올리려는 팀을 위한 데이터 기반 플랫폼입니다.**
+**DataPond is a data-foundation platform for teams taking AI applications (RAG, agents) from PoC to production on AWS.**
 
-RAG를 PoC에서 프로덕션으로 올릴 때 필요한 배관 — S3 데이터 → 청킹 → 임베딩 → 벡터 적재 →
-검색 → Bedrock 응답 — 을 **거버넌스(권한·계보·PII·비용)까지 갖춰 즉시 제공**합니다.
-Bedrock Knowledge Bases가 '검색'만 준다면, DataPond는 그 위에 거버넌스·비용 관리·
-레이크하우스 통합을 더합니다. 고객의 AWS 계정 안에서 동작하므로 데이터 주권이 유지되고,
-차별화 레이어가 오픈소스이므로 락인을 회피합니다.
+Moving RAG to production means hand-assembling the whole pipeline — S3 data → chunking →
+embedding → vector loading → retrieval → Bedrock responses — while governance (permissions,
+lineage, PII, cost) gets deferred indefinitely. DataPond ships that pipeline **complete with
+governance built in**. Where Bedrock Knowledge Bases gives you retrieval, DataPond adds
+access control, cost attribution, and lakehouse integration on top. It runs inside the
+customer's own AWS account (data sovereignty preserved), and its differentiating layers are
+open source (no lock-in).
 
-**타깃**: AWS를 이미 쓰는 조직에서 RAG·에이전트를 프로덕션에 올리려는 **AI 앱 개발팀 / 플랫폼 엔지니어**.
-S3 데이터 → 임베딩 → 벡터 검색 → 거버넌스를 직접 조립하기엔 손이 많이 가는 팀.
+**Who it's for:** AI application developers and platform engineers at organizations already
+on AWS who need RAG/agents in production — and for whom hand-wiring S3 → embeddings →
+vector search → governance is too much undifferentiated plumbing.
 
-### 핵심 가치
+### Core value
 
-1. **AI 데이터 파이프라인을 거버넌스까지 완성형으로** — 청크 업서트·재시도·PII 마스킹을 갖춘
-   인제스천, pgvector RAG + 리랭크 + 컬렉션 단위 RLS, 카탈로그→Knowledge 브릿지,
-   OpenMetadata 계보, 사용자별 비용 귀속·예산 알림. "RAG 데모"가 아니라 **거버넌스 갖춘
-   프로덕션 RAG 기반**.
-2. **AWS 네이티브 코어로 운영부담 제거** — 스토리지 S3, 쿼리 Athena, 배치 EMR Serverless,
-   LLM은 Bedrock(Claude) + LiteLLM 멀티모델 라우팅, 벡터는 pgvector(Aurora) 기본 /
-   OpenSearch Serverless 확장.
-3. **오픈소스 차별화 레이어로 이식성 확보** — 거버넌스(OpenMetadata)·카탈로그(Polaris)·
-   실시간(RisingWave)·로컬 분석(DuckDB)은 OSS 유지. 상품화 가치가 낮은 인프라만 AWS
-   매니지드로 교체하는 **하이브리드 원칙**.
+1. **A governance-complete AI data pipeline** — ingestion with chunk upserts, retries, and
+   PII masking; pgvector RAG with reranking and per-collection row-level security; a
+   catalog → knowledge bridge; OpenMetadata lineage; per-user cost attribution and budget
+   alerts. Not a RAG demo — **a production RAG foundation with governance**.
+2. **AWS-native core, zero ops burden** — S3 for storage, Athena for queries, EMR
+   Serverless for batch, Bedrock (Claude) + LiteLLM multi-model routing for LLMs, and
+   pgvector on Aurora by default (OpenSearch Serverless at scale).
+3. **Open-source differentiation layer for portability** — governance (OpenMetadata),
+   catalog (Polaris), streaming (RisingWave), and local analytics (DuckDB) stay OSS.
+   The hybrid principle: replace only low-differentiation infrastructure with AWS managed
+   services; keep the layers that matter open.
 
-### 포지셔닝
+### Positioning
 
-| 항목 | 내용 |
+| | |
 |---|---|
-| 핵심 가치 | AWS 네이티브 AI 데이터 기반 (RAG·에이전트의 데이터 연료) |
-| 타깃 | AWS에서 AI 앱을 만드는 개발팀 / 플랫폼 엔지니어 |
-| 경쟁축 | AWS 통합 깊이 + 거버넌스 + 이식성 (가격 아님) |
-| 모델 | **하이브리드** — AWS 코어(S3·Athena·EMR·Bedrock) + OSS 차별화(Polaris·OpenMetadata·RisingWave·DuckDB) |
-| 주요 경쟁 | Snowflake Cortex · Databricks · AWS DIY 직접 조합 |
+| **Core value** | AWS-native AI data foundation — the data fuel for RAG & agents |
+| **Target** | AI app dev teams / platform engineers building on AWS |
+| **Competes on** | Depth of AWS integration + governance + portability (not price) |
+| **Model** | **Hybrid** — AWS core (S3 · Athena · EMR · Bedrock) + OSS differentiators (Polaris · OpenMetadata · RisingWave · DuckDB) |
+| **Main competitors** | Snowflake Cortex · Databricks · AWS DIY |
 
-> 자세한 컨셉·경쟁 분석·비즈니스 모델: [docs/PRODUCT_CONCEPT.md](docs/PRODUCT_CONCEPT.md) ·
-> 설계 스펙: [docs/superpowers/specs/2026-06-30-aws-ai-data-platform-pivot-design.md](docs/superpowers/specs/2026-06-30-aws-ai-data-platform-pivot-design.md)
+> Full concept, competitive analysis, and business model: [docs/PRODUCT_CONCEPT.md](docs/PRODUCT_CONCEPT.md) ·
+> Design spec: [docs/superpowers/specs/2026-06-30-aws-ai-data-platform-pivot-design.md](docs/superpowers/specs/2026-06-30-aws-ai-data-platform-pivot-design.md)
 
-## 🏗️ 아키텍처 (개요)
+## 🏗️ Architecture
 
+```mermaid
+flowchart TB
+    APP["🤖 AI Applications — RAG · Agents"]
+
+    subgraph AIDATA["AI Data Layer"]
+        direction LR
+        RAGAPI["RAG API +<br/>Knowledge Collections"]
+        VEC["Vector Store<br/>pgvector (Aurora) · AOSS"]
+        EMB["Embedding Pipeline<br/>(Bedrock Titan)"]
+    end
+
+    subgraph LAKE["Lakehouse Core"]
+        direction LR
+        S3["Amazon S3<br/>Iceberg · S3 Tables"]
+        QRY["Athena / Trino<br/>(SQL)"]
+        BATCH["EMR Serverless / Spark<br/>(batch)"]
+        STREAM["RisingWave<br/>(streaming SQL)"]
+    end
+
+    subgraph GOV["Governance & Observability — OSS differentiators"]
+        direction LR
+        OM["OpenMetadata<br/>lineage · quality"]
+        POL["Polaris<br/>Iceberg REST catalog"]
+        IAM["Lake Formation / IAM<br/>+ RLS engine"]
+        DUCK["DuckDB<br/>local analytics"]
+    end
+
+    LLM["Amazon Bedrock (Claude) · LiteLLM multi-model gateway"]
+
+    APP -->|"RAG API"| RAGAPI
+    RAGAPI --> VEC
+    EMB --> VEC
+    S3 -->|"ingest-source"| EMB
+    QRY --> S3
+    BATCH --> S3
+    STREAM --> S3
+    RAGAPI --> LLM
+    EMB --> LLM
+    LAKE --- GOV
 ```
-AI 앱 (RAG / 에이전트)
-        │ RAG API
-AI 데이터 레이어 ── Bedrock Knowledge Base ─ 벡터 스토어(pgvector/AOSS)
-        │                    ▲ 임베딩 파이프라인(Bedrock)
-레이크하우스 코어 ── S3 + Iceberg/S3 Tables + Glue · Athena · EMR · RisingWave
-        │
-거버넌스/관측(OSS) ── OpenMetadata · Polaris · Lake Formation/IAM · DuckDB
-```
 
-스토리지는 **네이티브 S3가 기본**(`storage.endpoint: ""` + IAM)이며, 셀프호스티드/개발
-환경은 S3 호환 **MinIO**를 사용합니다.
+**Layer by layer — what's AWS-managed vs open source:**
 
-## 🚀 배포 (Quickstart)
+| Layer | AWS core (managed) | OSS differentiator | Why |
+|---|---|---|---|
+| Storage & tables | S3, S3 Tables + Glue Catalog | Apache Iceberg format | Zero-ops durability; open table format |
+| Query & batch | Athena, EMR Serverless | Trino, Spark (self-hosted profiles) | Serverless by default; engine portability |
+| Streaming | Kinesis/MSK sources | **RisingWave** — PostgreSQL-wire streaming SQL → Iceberg | CDC & streams without a Spark cluster |
+| Vector / RAG | Bedrock (embeddings + LLM), Aurora pgvector, AOSS | RAG service with rerank + per-collection RLS | Governed retrieval, not just search |
+| Catalog & governance | Lake Formation / IAM | **Polaris** (Iceberg REST), **OpenMetadata** (lineage/quality), RLS + Korean-PII guardrails | Cross-engine catalog; portable governance |
+| LLM access | Amazon Bedrock (Claude) | **LiteLLM** gateway — routing, fallbacks, per-user spend, budgets | Multi-model + cost governance |
+| Local analytics | — | **DuckDB** reads Iceberg straight from S3 | Exploration without a cluster |
+
+**Data paths:** streaming (Kafka/Kinesis → RisingWave → Iceberg) · batch (Airflow → Spark/EMR → Iceberg) ·
+analytics (Athena/Trino → Polaris → Iceberg) · RAG (S3/lakehouse → embeddings → pgvector → Bedrock) ·
+exploration (JupyterLab → DuckDB → Iceberg on S3).
+
+Object storage defaults to **native S3** (`storage.endpoint: ""` + IAM); self-hosted/dev
+profiles use S3-compatible **MinIO**.
+
+## 🚀 Quickstart
 
 ```bash
-# AWS-native AI Data Foundation (권장 — 5 workloads)
+# AWS-native AI Data Foundation (recommended — 5 workloads)
 helm upgrade --install datapond helm/datapond -n datapond \
   -f helm/datapond/values-foundation.yaml
 
-# 풀스택 프로파일: values-aws.yaml (EKS+S3+Bedrock) · values-onprem.yaml · values-quicktest.yaml
+# Full-stack profiles: values-aws.yaml (EKS+S3+Bedrock) · values-onprem.yaml · values-quicktest.yaml
 ```
 
-Bedrock 자격증명 설정은 `docs/AWS_BEDROCK_SETUP.md`, 인프라 프로비저닝은 `terraform/README.md` 참조.
+Bedrock credentials: `docs/AWS_BEDROCK_SETUP.md` · Infrastructure provisioning: `terraform/README.md`.
 
 ---
 
-## 🧭 현재 상태: 피보팅 완료 → 상품화 하드닝 진행 중
+## 🧭 Status: pivot complete → productization hardening in progress
 
-DataPond는 **벤더 중립 OSS Databricks 대안**(v3.0)에서 **AWS 특화 AI 데이터 기반**(v4.0)으로
-피보팅을 완료했습니다. MVP(S3 → 임베딩 → pgvector → Bedrock RAG)가 main에 머지되어 있고,
-현재는 상품화를 위한 보안·운영 하드닝(P0 백로그)을 진행 중입니다.
-이전 컨셉은 [ARCHIVE.md](ARCHIVE.md) 참조 — `archive/oss-lakehouse` 브랜치 / `v3.0-oss-lakehouse` 태그에 보관.
+DataPond pivoted from a vendor-neutral OSS Databricks alternative (v3.0) to the
+**AWS-native AI data foundation** (v4.0). The MVP (S3 → embeddings → pgvector → Bedrock RAG)
+is merged to main; current work is the productization P0 backlog (security & ops hardening).
+Previous concept: see [ARCHIVE.md](ARCHIVE.md) — preserved on the `archive/oss-lakehouse`
+branch / `v3.0-oss-lakehouse` tag.
 
-### 피보팅 이후 구현된 것 (main 머지 완료)
+### Shipped since the pivot (merged to main)
 
-- **AWS MVP** — S3 → Bedrock 임베딩 → Aurora pgvector → Bedrock RAG end-to-end + Terraform 레퍼런스 IaC (`terraform/`: S3, Aurora, IAM/IRSA) (#100)
-- **스토리지 전환** — SeaweedFS → MinIO, AWS-native S3를 base 기본값으로 + `storage.endpoint` 단일화 (#101, #102)
-- **LiteLLM ↔ Bedrock 자격증명** — IRSA / static-key / instance-profile 3가지 모드 (#103)
-- **린 "AI Data Foundation" Helm 프로파일** — `values-foundation.yaml`, 워크로드 16개 → 5개(backend, frontend, Postgres+pgvector, LiteLLM, Valkey); 무거운 레이크하우스 컴포넌트는 AWS 매니지드로 대체 (#104)
-- **UI capability-gating** — `/api/capabilities` + Helm `FEATURE_*` 플래그로 비활성 컴포넌트 페이지 숨김 (#105)
-- **시크릿 하드닝 P0-1a/1b** — 크리티컬 시크릿 + 컴포넌트 패스워드 fail-closed, Helm lookup-preserve 생성, pod manifest 평문 제거 (#106, #107)
+- **AWS MVP** — S3 → Bedrock embeddings → Aurora pgvector → Bedrock RAG end-to-end + Terraform reference IaC (`terraform/`: S3, Aurora, IAM/IRSA) (#100)
+- **Storage migration** — SeaweedFS → MinIO; AWS-native S3 as the base default + unified `storage.endpoint` (#101, #102)
+- **LiteLLM ↔ Bedrock credentials** — IRSA / static-key / instance-profile modes (#103)
+- **Lean "AI Data Foundation" Helm profile** — `values-foundation.yaml`, 16 workloads → 5 (backend, frontend, Postgres+pgvector, LiteLLM, Valkey); heavy lakehouse components replaced by AWS managed services (#104)
+- **UI capability gating** — `/api/capabilities` + Helm `FEATURE_*` flags hide pages for disabled components (#105)
+- **Secrets hardening P0-1a/1b** — critical secrets + component passwords fail closed in production, Helm lookup-preserve generation, zero plaintext credentials in pod manifests (#106, #107)
+- **Apache-2.0 open core** — LICENSE/NOTICE + fact-checked third-party attribution, `/ee` commercial-edition boundary, CI license gate (#108)
 
-## 🗺️ 로드맵
+## 🗺️ Roadmap
 
-- **Phase 0** — 보관 (이전 컨셉 아카이브) ✅
-- **Phase 1** — 컨셉 재정의 (PRODUCT_CONCEPT, README) ✅
-- **Phase 2** — 레퍼런스 아키텍처 (Terraform IaC ✅, 보안 하드닝 🔄 진행 중)
-- **Phase 3** — MVP (S3 → 임베딩 → 벡터 → Bedrock RAG end-to-end) ✅ — [구현 계획](docs/superpowers/plans/2026-06-30-aws-mvp-bedrock-rag.md)
-- **Phase 4** — GTM 재정렬
+- **Phase 0** — Archive previous concept ✅
+- **Phase 1** — Concept redefinition (PRODUCT_CONCEPT, README) ✅
+- **Phase 2** — Reference architecture (Terraform IaC ✅ · security hardening 🔄)
+- **Phase 3** — MVP (S3 → embeddings → vector → Bedrock RAG end-to-end) ✅ — [plan](docs/superpowers/plans/2026-06-30-aws-mvp-bedrock-rag.md)
+- **Phase 4** — GTM realignment
 
-**진행 중인 P0 (상품화 하드닝)**: ~~시크릿/패스워드 하드닝~~ ✅ · LICENSE/서드파티 어트리뷰션 🔄 ·
-SSO(SAML/OIDC) 핸들러 · 이미지 태그 고정 · 백업/DR(Aurora) · lakehouse-service IRSA · AWS 라이브 apply+E2E
+**P0 backlog (productization hardening):** ~~secrets/password hardening~~ ✅ · ~~LICENSE / third-party attribution~~ ✅ ·
+SSO (OIDC, first `/ee` feature) 🔄 · image-tag pinning · backup/DR (Aurora) · lakehouse-service IRSA · AWS live apply + E2E
 
 ## 📄 License
 
