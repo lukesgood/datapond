@@ -13,5 +13,5 @@ valid DataPond Enterprise subscription to use in production.
 - **Enterprise (`/ee`, commercial)**: future additions — SSO (SAML/OIDC), multi-tenancy,
   AWS Marketplace billing integration, SLA-backed support.
 
-First tenant: SSO (OIDC) — `backend/ee/sso/` (endpoints `/api/auth/oidc/*`). SAML is a
-planned follow-up.
+First tenant: SSO (OIDC) — source in `ee/backend/ee/sso/`, served at `/api/auth/oidc/*` by
+enterprise-edition backend images. SAML is a planned follow-up.
