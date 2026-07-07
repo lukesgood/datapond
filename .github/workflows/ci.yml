@@ -54,6 +54,38 @@ jobs:
         run: npm run lint
         continue-on-error: true   # 경고는 차단하지 않음(점진 정리)
 
+  license-gate:
+    name: License gate (direct deps)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Python direct-deps license check
+        working-directory: backend
+        run: |
+          pip install -q -r requirements.txt pip-licenses
+          # Direct deps only: names from requirements.txt (strip extras/pins/comments)
+          PKGS=$(sed -E 's/\[[^]]*\]//; s/[<>=!~;].*$//' requirements.txt | tr -d ' ' | grep -v '^#' | grep -v '^$' | tr '\n' ' ')
+          pip-licenses --format=csv --packages $PKGS | tee /tmp/pylic.csv
+          # Denylist (UNKNOWN fails closed); allowlisted packages (.license-allowlist.txt) are accepted-by-review
+          viol=$(tail -n +2 /tmp/pylic.csv | awk -F'","' '{ lic=toupper($3); gsub(/"/,"",lic); if (lic ~ /GPL|AGPL|SSPL|ELASTIC|BSL|COMMONS CLAUSE|EPL|MPL|CDDL|UNKNOWN/) print }' | grep -vFf ../.license-allowlist.txt || true)
+          if [ -n "$viol" ]; then echo "::error::Disallowed dependency licenses:"; echo "$viol"; exit 1; fi
+          echo "OK: python direct deps clean"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: npm production-deps license check
+        working-directory: frontend
+        run: |
+          npm ci --ignore-scripts
+          npx --yes license-checker --production --csv | tee /tmp/jslic.csv
+          # NOTE: npm side scans production-TRANSITIVE deps (license-checker walks the tree); python side is direct-deps-only (--packages). Full transitive/image SBOM coverage is deferred to P0-4.
+          viol=$(tail -n +2 /tmp/jslic.csv | awk -F'","' '{ lic=toupper($2); gsub(/"/,"",lic); if (lic ~ /GPL|AGPL|SSPL|ELASTIC|BSL|COMMONS CLAUSE|EPL|MPL|CDDL|UNKNOWN/) print }' | grep -vFf ../.license-allowlist.txt || true)
+          if [ -n "$viol" ]; then echo "::error::Disallowed dependency licenses:"; echo "$viol"; exit 1; fi
+          echo "OK: npm production deps clean"
+
   helm-lint:
     name: Helm chart lint
     runs-on: ubuntu-latest
