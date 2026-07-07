@@ -274,8 +274,8 @@ DataPond is **Apache-2.0** ([LICENSE](LICENSE)) — everything in this repositor
 the [`/ee`](ee/README.md) directory, which is reserved for commercially-licensed
 Enterprise features ([ee/LICENSE](ee/LICENSE)). Third-party components and their
 licenses are inventoried in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) —
-regulated-procurement note included (AGPL/ELv2 components apply only to
-onprem/dev profiles).
+regulated-procurement note included (the foundation profile deploys no AGPL/ELv2
+components; see the notices file for per-profile details).
 ```
 
 - [ ] **Step 2: PRODUCT_CONCEPT.md — replace the Open Core yaml block** (inside `## 💰 비즈니스 모델 (요약)`; current text says `Community: 100% 오픈소스, 고객 AWS 계정 셀프호스팅`):
