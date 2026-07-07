@@ -229,6 +229,7 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: OIDC_CLIENT_SECRET
+              optional: true
         - name: OIDC_SCOPES
           value: {{ .Values.auth.oidc.scopes | default "openid profile email" | quote }}
         - name: OIDC_REDIRECT_URL

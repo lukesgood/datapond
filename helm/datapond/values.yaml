@@ -669,7 +669,7 @@ auth:
     enabled: false
     issuer: ""            # e.g. https://login.microsoftonline.com/<tenant>/v2.0
     clientId: ""
-    clientSecret: ""      # → datapond-secrets/OIDC_CLIENT_SECRET (from your IdP)
+    clientSecret: ""      # → datapond-secrets/OIDC_CLIENT_SECRET (from your IdP; REQUIRED when enabled — SSO logins fail cleanly until set)
     scopes: "openid profile email"
     redirectUrl: ""       # empty ⇒ {externalScheme}://{domain}/api/auth/oidc/callback
     groupClaim: "groups"
