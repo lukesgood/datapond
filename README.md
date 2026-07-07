@@ -99,3 +99,12 @@ DataPond는 **벤더 중립 OSS Databricks 대안**(v3.0)에서 **AWS 특화 AI 
 
 **진행 중인 P0 (상품화 하드닝)**: ~~시크릿/패스워드 하드닝~~ ✅ · LICENSE/서드파티 어트리뷰션 🔄 ·
 SSO(SAML/OIDC) 핸들러 · 이미지 태그 고정 · 백업/DR(Aurora) · lakehouse-service IRSA · AWS 라이브 apply+E2E
+
+## 📄 License
+
+DataPond is **Apache-2.0** ([LICENSE](LICENSE)) — everything in this repository except
+the [`/ee`](ee/README.md) directory, which is reserved for commercially-licensed
+Enterprise features ([ee/LICENSE](ee/LICENSE)). Third-party components and their
+licenses are inventoried in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) —
+regulated-procurement note included (AGPL/ELv2 components apply only to
+onprem/dev profiles).
