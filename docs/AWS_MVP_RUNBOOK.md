@@ -121,3 +121,7 @@ Retrieve any of them:
 with the generated passwords — a regenerated Secret will not match the data volumes and
 every component login will fail. Delete the Secret only together with the PVCs (full reset).
 Existing installs keep their current passwords (no rotation is performed by upgrades).
+If catalog auth starts failing with 401 after an upgrade (POLARIS_CLIENT_SECRET desync),
+recover by re-running the Polaris bootstrap with the current POLARIS_CLIENT_SECRET (delete
+the /shared/skip sentinel-guarded state only with care) — or restore the previous secret
+value into datapond-secrets.
