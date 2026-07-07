@@ -193,7 +193,7 @@ monitoring:
   grafana:
     enabled: true
     adminUser: admin
-    adminPassword: CHANGE_THIS_PASSWORD  # CHANGE THIS!
+    adminPassword: ""  # empty ⇒ generated (see templates/secrets.yaml); set explicitly if you enable grafana
 
 # Security - Production hardening
 networkPolicies:
@@ -206,12 +206,12 @@ postgres:
   auth:
     database: datapond
     username: datapond
-    password: CHANGE_THIS_STRONG_PASSWORD_123!@#  # CHANGE THIS!
+    password: ""  # empty ⇒ generated (see templates/secrets.yaml)
 
 airflow:
   auth:
     username: admin
-    password: CHANGE_THIS_AIRFLOW_PASSWORD_456!@#  # CHANGE THIS!
+    password: ""  # empty ⇒ generated (see templates/secrets.yaml)
 
 storage:
   provider: minio
@@ -222,8 +222,8 @@ minio:
   enabled: true
   clusterIP: 10.43.107.150  # CHANGE THIS!
   auth:
-    rootUser: CHANGE_THIS_MINIO_USER  # CHANGE THIS!
-    rootPassword: CHANGE_THIS_MINIO_PASSWORD  # CHANGE THIS!
+    rootUser: datapond
+    rootPassword: ""  # empty ⇒ generated (see templates/secrets.yaml)
   persistence:
     size: 500Gi
 
@@ -231,8 +231,6 @@ jupyter:
   env:
     - name: JUPYTER_ENABLE_LAB
       value: "yes"
-    - name: JUPYTER_TOKEN
-      value: "CHANGE_THIS_JUPYTER_TOKEN_ABC!@#"  # CHANGE THIS!
 
 # ServiceMonitor for Prometheus Operator
 serviceMonitor:
@@ -310,4 +308,4 @@ openmetadata:
       size: 200Gi
   auth:
     provider: "custom-oidc"  # Use SSO in production
-    adminPassword: "CHANGE_THIS_OPENMETADATA_PASSWORD"  # CHANGE THIS!
+    adminPassword: ""  # set to your OM instance's admin password (OM manages this itself)
