@@ -83,8 +83,8 @@ spec:
             memory: {{ .Values.spark.master.resources.limits.memory }}
       volumes:
       - name: spark-conf
-        configMap:
-          name: {{ .Values.spark.name }}-defaults
+        secret:
+          secretName: {{ .Values.spark.name }}-defaults
 ---
 # Spark Master Service
 apiVersion: v1
@@ -177,8 +177,8 @@ spec:
             memory: {{ .Values.spark.worker.resources.limits.memory }}
       volumes:
       - name: spark-conf
-        configMap:
-          name: {{ .Values.spark.name }}-defaults
+        secret:
+          secretName: {{ .Values.spark.name }}-defaults
 ---
 # Spark Worker Service (Headless)
 apiVersion: v1
