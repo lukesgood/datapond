@@ -295,13 +295,14 @@ Open Core:
 
 ## License considerations for regulated procurement
 
-The AWS-native profiles (`values-foundation.yaml`, `values-aws.yaml`) deploy **no
-AGPL or Elastic-licensed components**: object storage is native Amazon S3 (no MinIO)
-and OpenMetadata/Elasticsearch is disabled. The onprem/dev profiles deploy MinIO
-(AGPL-3.0) and, when OpenMetadata is enabled, Elasticsearch 8.x (Elastic License
-2.0/SSPL) as unmodified upstream images operated by you. If ELv2 is a procurement
-blocker, set `openmetadata.enabled: false`. Full inventory:
-[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+The **foundation profile** (`values-foundation.yaml`) deploys **no AGPL or
+Elastic-licensed components**: object storage is native Amazon S3 (no MinIO) and
+OpenMetadata/Elasticsearch is disabled. `values-aws.yaml` also uses native S3 (no
+MinIO) but inherits OpenMetadata — and with it Elasticsearch 8.x (Elastic License
+2.0/SSPL) — from the base chart defaults; set `openmetadata.enabled: false` there if
+ELv2 is a procurement blocker. Profiles that enable MinIO (onprem/dev/quicktest/prod)
+deploy it under AGPL-3.0 as an unmodified upstream image operated by you. Full
+inventory: [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
 ```
 
 - [ ] **Step 4: Commit**

@@ -12,7 +12,7 @@
 | Edition boundary | **Repo = Community; Enterprise = future only.** Everything currently in the repo (incl. already-built LDAP #41, RLS engine #13, AI governance) becomes Apache-2.0. Enterprise features (SSO/SAML P0-3, multi-tenancy, marketplace billing, SLA) are built under `/ee` with a commercial license (GitLab pattern) |
 | Scope depth | **Files + CI license gate** — licensing artifacts plus a CI tripwire on direct dependencies; no SPDX headers on source files |
 | Attribution strategy | **Hand-curated THIRD_PARTY_NOTICES** from the audited inventory + CI denylist gate (Approach A). NOT fully-generated attribution (unreviewable churn) and NOT image SBOMs (blocked on P0-4 tag pinning) |
-| MinIO (AGPL-3.0) / Elasticsearch (ELv2/SSPL) | **Document, don't swap.** Both are unmodified upstream images pulled at deploy time and run by the customer (aggregation, not derivation); both are disabled in the AWS-native default profiles. Notices file + INSTALLATION procurement note |
+| MinIO (AGPL-3.0) / Elasticsearch (ELv2/SSPL) | **Document, don't swap.** Both are unmodified upstream images pulled at deploy time and run by the customer (aggregation, not derivation). MinIO is off in base/foundation/aws (native S3); Elasticsearch (via OpenMetadata) is off ONLY in foundation — values-aws inherits it enabled from base defaults (documented, with the `openmetadata.enabled: false` opt-out). Notices file + procurement note |
 
 ## 2. Licensing exposure inventory (audited 2026-07-07)
 
