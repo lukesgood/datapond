@@ -75,12 +75,18 @@ def test_upsert_conflict_with_local_account_returns_none(monkeypatch):
     assert got is None
 
 
+class _Req:
+    """Minimal stand-in for fastapi.Request — only .cookies is read by the router."""
+    def __init__(self, cookies=None):
+        self.cookies = cookies or {}
+
+
 def test_callback_state_store_failure_redirects_not_500(monkeypatch):
     from ee.sso import router as r
     monkeypatch.setattr(r, "oidc_enabled", lambda: True)
     async def boom(state): raise RuntimeError("redis down")
     monkeypatch.setattr(r, "state_pop", boom)
-    resp = _run(r.oidc_callback(code="c", state="s"))
+    resp = _run(r.oidc_callback(_Req({"oidc_state": "s"}), code="c", state="s"))
     assert resp.status_code == 302
     assert "reason=state" in resp.headers["location"]
 
@@ -94,6 +100,63 @@ def test_callback_jwks_network_failure_redirects_not_500(monkeypatch):
     monkeypatch.setattr(r, "state_pop", ok_state)
     monkeypatch.setattr(r, "exchange_code", ok_exchange)
     monkeypatch.setattr(r, "verify_id_token", net_boom)
-    resp = _run(r.oidc_callback(code="c", state="s"))
+    resp = _run(r.oidc_callback(_Req({"oidc_state": "s"}), code="c", state="s"))
     assert resp.status_code == 302
     assert "reason=token" in resp.headers["location"]
+
+
+def test_callback_missing_state_cookie_rejected(monkeypatch):
+    """No oidc_state browser cookie → login-CSRF guard trips before state_pop."""
+    from ee.sso import router as r
+    monkeypatch.setattr(r, "oidc_enabled", lambda: True)
+    called = []
+    async def spy(state):
+        called.append(state)
+        return {"nonce": "n", "verifier": "v"}
+    monkeypatch.setattr(r, "state_pop", spy)
+    resp = _run(r.oidc_callback(_Req({}), code="c", state="s"))
+    assert resp.status_code == 302
+    assert "reason=state" in resp.headers["location"]
+    assert called == []
+
+
+def test_callback_state_cookie_mismatch_rejected(monkeypatch):
+    from ee.sso import router as r
+    monkeypatch.setattr(r, "oidc_enabled", lambda: True)
+    called = []
+    async def spy(state):
+        called.append(state)
+        return {"nonce": "n", "verifier": "v"}
+    monkeypatch.setattr(r, "state_pop", spy)
+    resp = _run(r.oidc_callback(_Req({"oidc_state": "other"}), code="c", state="s"))
+    assert resp.status_code == 302
+    assert "reason=state" in resp.headers["location"]
+    assert called == []
+
+
+def test_callback_state_cookie_match_reaches_state_pop(monkeypatch):
+    """Matching cookie passes the CSRF guard: state_pop IS called (returns None → still reason=state)."""
+    from ee.sso import router as r
+    monkeypatch.setattr(r, "oidc_enabled", lambda: True)
+    called = []
+    async def spy(state):
+        called.append(state)
+        return None
+    monkeypatch.setattr(r, "state_pop", spy)
+    resp = _run(r.oidc_callback(_Req({"oidc_state": "s"}), code="c", state="s"))
+    assert resp.status_code == 302
+    assert "reason=state" in resp.headers["location"]
+    assert called == ["s"]
+
+
+def test_login_sets_state_cookie_matching_authorize_url(monkeypatch):
+    from ee.sso import router as r
+    monkeypatch.setattr(r, "oidc_enabled", lambda: True)
+    async def fake_authorize(): return ("http://idp/auth?state=XYZ", "XYZ")
+    monkeypatch.setattr(r, "build_authorize_url", fake_authorize)
+    resp = _run(r.oidc_login())
+    assert resp.status_code == 302
+    assert resp.headers["location"] == "http://idp/auth?state=XYZ"
+    set_cookie = resp.headers.get("set-cookie", "")
+    assert "oidc_state=XYZ" in set_cookie
+    assert "HttpOnly" in set_cookie

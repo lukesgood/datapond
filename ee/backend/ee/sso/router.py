@@ -1,9 +1,10 @@
 # DataPond Enterprise — Commercial License (see ee/LICENSE). Not covered by the root Apache-2.0 grant.
 """OIDC SSO endpoints: /api/auth/oidc/login (302 to IdP) + /api/auth/oidc/callback."""
 import logging
+import os
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from starlette.responses import RedirectResponse
 
 from ee.sso.oidc import (
@@ -16,6 +17,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 COOKIE_MAX_AGE = 24 * 3600
+STATE_COOKIE = "oidc_state"
+STATE_COOKIE_PATH = "/api/auth/oidc"
+STATE_COOKIE_MAX_AGE = 600
+
+
+def _cookie_secure() -> bool:
+    # HTTPS-fronted deployments (the sovereign/on-prem default) → Secure cookies.
+    return os.getenv("EXTERNAL_SCHEME", "https").strip().lower() == "https"
 
 
 async def _pool():
@@ -72,18 +81,30 @@ async def oidc_login():
     if not oidc_enabled():
         raise HTTPException(status_code=404, detail="SSO not enabled")
     try:
-        url = await build_authorize_url()
+        url, state = await build_authorize_url()
     except (OIDCError, Exception) as e:
         return _fail("provider", str(e))
-    return RedirectResponse(url, status_code=302)
+    resp = RedirectResponse(url, status_code=302)
+    # Bind the state to THIS browser (login-CSRF / session-fixation guard):
+    # the callback requires this cookie to equal the state query param.
+    resp.set_cookie(STATE_COOKIE, state, max_age=STATE_COOKIE_MAX_AGE, httponly=True,
+                    secure=_cookie_secure(), samesite="lax", path=STATE_COOKIE_PATH)
+    return resp
 
 
 @router.get("/auth/oidc/callback")
-async def oidc_callback(code: str = "", state: str = "", error: str = ""):
+async def oidc_callback(request: Request, code: str = "", state: str = "", error: str = ""):
     if not oidc_enabled():
         raise HTTPException(status_code=404, detail="SSO not enabled")
     if error or not code or not state:
         return _fail("provider", f"idp error={error!r}")
+
+    # The browser completing the callback must be the one that initiated login
+    # (state cookie set by /auth/oidc/login). Plain != is fine: state is
+    # single-use + high-entropy random, so timing is not exploitable.
+    cookie_state = request.cookies.get(STATE_COOKIE, "")
+    if not cookie_state or cookie_state != state:
+        return _fail("state", "browser state cookie missing/mismatch")
 
     try:
         st = await state_pop(state)
@@ -108,7 +129,10 @@ async def oidc_callback(code: str = "", state: str = "", error: str = ""):
     username = (claims.get("preferred_username") or claims.get("email") or "").strip()
     if not username:
         return _fail("claims", "no preferred_username/email claim")
-    cfg = _cfg()
+    try:
+        cfg = _cfg()
+    except Exception as e:
+        return _fail("provider", str(e))
     role = _map_role(claims, group_claim=cfg["group_claim"],
                      admin_group=cfg["admin_group"], default_role=cfg["default_role"])
 
@@ -126,5 +150,6 @@ async def oidc_callback(code: str = "", state: str = "", error: str = ""):
     token = _create_token(str(row["id"]), row["username"], row["role"])
     resp = RedirectResponse("/login?sso=1", status_code=302)
     resp.set_cookie("datapond_token", token, max_age=COOKIE_MAX_AGE,
-                    samesite="lax", path="/")
+                    secure=_cookie_secure(), samesite="lax", path="/")
+    resp.delete_cookie(STATE_COOKIE, path=STATE_COOKIE_PATH)
     return resp

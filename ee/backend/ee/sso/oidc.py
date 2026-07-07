@@ -143,7 +143,9 @@ async def _jwks(force: bool = False) -> dict:
 
 # ── Authorize URL / token exchange ─────────────────────────────────────────────
 
-async def build_authorize_url() -> str:
+async def build_authorize_url() -> tuple:
+    """(authorize_url, state) — state is also returned so the router can bind it
+    to a browser cookie (login-CSRF / session-fixation guard)."""
     cfg = _cfg()
     doc = await discovery()
     state = secrets.token_urlsafe(32)
@@ -160,7 +162,7 @@ async def build_authorize_url() -> str:
         "code_challenge": challenge,
         "code_challenge_method": "S256",
     })
-    return f"{doc['authorization_endpoint']}?{params}"
+    return f"{doc['authorization_endpoint']}?{params}", state
 
 
 async def exchange_code(code: str, verifier: str) -> dict:

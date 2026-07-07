@@ -107,8 +107,12 @@ try:
     from ee.sso.router import router as sso_router
     app.include_router(sso_router, prefix="/api")
     EE_SSO = True
-except ImportError:
+except ImportError as e:
     EE_SSO = False
+    # ModuleNotFoundError for the top-level 'ee' package = community image (expected, silent).
+    # Any other ImportError = an enterprise image whose ee module failed to load (a real bug).
+    if not (isinstance(e, ModuleNotFoundError) and (e.name == "ee" or (e.name or "").startswith("ee."))):
+        logging.getLogger(__name__).warning("[ee] SSO module present but failed to import: %s", e)
 
 
 @app.on_event("startup")
