@@ -46,7 +46,7 @@ Current state: no LICENSE/NOTICE/COPYING anywhere; no license headers; no attrib
 ### 3c. Docs alignment
 - **`README.md`** — new "License" section: Apache-2.0 core, `/ee` exception, THIRD_PARTY_NOTICES pointer.
 - **`docs/PRODUCT_CONCEPT.md`** — tighten the Open Core block: Community = Apache-2.0 (this repo, explicitly including LDAP/RLS since they are already open); Enterprise (`/ee`) = SSO/SAML, multi-tenancy, marketplace billing, SLA.
-- **`docs/INSTALLATION.md`** — "License considerations for regulated procurement" note: AGPL (MinIO) and ELv2 (Elasticsearch via OpenMetadata) apply only to onprem/dev profiles; AWS-native profiles pull neither; OpenMetadata can be disabled if ELv2 is a procurement blocker.
+- **`docs/FOUNDATION_PROFILE.md`** — "License considerations for regulated procurement" note (docs/INSTALLATION.md no longer exists post-pivot): AGPL (MinIO) and ELv2 (Elasticsearch via OpenMetadata) apply only to onprem/dev profiles; AWS-native profiles pull neither; OpenMetadata can be disabled if ELv2 is a procurement blocker.
 
 ### 3d. CI license gate (direct-deps tripwire)
 New step in `.github/workflows/ci.yml`:
