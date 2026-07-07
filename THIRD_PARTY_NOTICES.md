@@ -15,12 +15,14 @@ not derivation). Their licenses govern those components, not DataPond's code.
 
 | Component | License | Where it applies |
 |---|---|---|
-| MinIO (`minio/minio`, `minio/mc`) | **AGPL-3.0** | onprem / dev / quicktest profiles only — base, foundation, and aws profiles use native Amazon S3 and pull no MinIO image |
-| Elasticsearch 8.x (via OpenMetadata) | **Elastic License 2.0 / SSPL** (source-available, not OSI open source) | Profiles with OpenMetadata enabled; disabled in the foundation profile. Set `openmetadata.enabled: false` if ELv2 is a procurement blocker |
+| MinIO (`minio/minio`, `minio/mc`) | **AGPL-3.0** | Any profile with minio.enabled (onprem / dev / quicktest / prod) — base, foundation, and aws profiles use native Amazon S3 and pull no MinIO image |
+| Elasticsearch 8.x (via OpenMetadata) | **Elastic License 2.0 / SSPL** (source-available, not OSI open source) | Profiles with OpenMetadata enabled — the base chart default is ENABLED, and values-aws inherits it; disabled in the foundation profile. Set openmetadata.enabled: false if ELv2 is a procurement blocker |
 | BusyBox (init containers) | GPL-2.0 | Unmodified standalone utility image (mere aggregation) |
 
-**Procurement note for regulated environments:** the AWS-native profiles
-(`values-foundation.yaml`, `values-aws.yaml`) deploy neither MinIO nor Elasticsearch.
+**Procurement note for regulated environments:** the foundation profile
+(`values-foundation.yaml`) deploys neither MinIO nor Elasticsearch. `values-aws.yaml`
+deploys no MinIO but inherits OpenMetadata (and its Elasticsearch) from base defaults —
+set `openmetadata.enabled: false` there if ELv2 is a blocker.
 
 ## 1. Deployed container images
 
