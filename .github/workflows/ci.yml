@@ -31,7 +31,9 @@ jobs:
       - name: Run unit tests
         working-directory: backend
         # backend/tests = 서비스 비의존 단위테스트. 루트 test_*.py(통합 스크립트)는 제외.
-        run: python -m pytest tests -q
+        run: |
+          python -m pytest tests -q
+          PYTHONPATH=../ee/backend python -m pytest ../ee/backend/tests -q
 
   frontend-check:
     name: Frontend type check + lint
