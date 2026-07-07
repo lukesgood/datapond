@@ -143,3 +143,14 @@ jobs:
             fi
           done
           echo "OK: component credentials wired"
+          echo "== OIDC env wiring (enterprise SSO) =="
+          r=$(helm template datapond helm/datapond \
+            --set auth.oidc.enabled=true --set auth.oidc.issuer=https://idp.example \
+            --set auth.oidc.clientId=cid --set auth.oidc.clientSecret=csecret)
+          echo "$r" | grep -q 'name: OIDC_CLIENT_SECRET' || { echo "FAIL OIDC secretKeyRef"; exit 1; }
+          echo "$r" | grep -q 'OIDC_CLIENT_SECRET: "csecret"' || { echo "FAIL OIDC secret entry"; exit 1; }
+          echo "$r" | grep -q 'name: OIDC_ISSUER' || { echo "FAIL OIDC env"; exit 1; }
+          if helm template datapond helm/datapond | grep -q 'OIDC_'; then
+            echo "FAIL: OIDC leaks into default render"; exit 1
+          fi
+          echo "OK: OIDC wired"

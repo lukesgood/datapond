@@ -663,6 +663,19 @@ auth:
     defaultRole: "viewer"            # role granted to LDAP users
     adminGroup: ""                   # optional group DN/CN whose members get admin
 
+  # OIDC SSO (Enterprise, /ee) — off by default. Requires an enterprise-edition
+  # backend image; community images do not contain the endpoints.
+  oidc:
+    enabled: false
+    issuer: ""            # e.g. https://login.microsoftonline.com/<tenant>/v2.0
+    clientId: ""
+    clientSecret: ""      # → datapond-secrets/OIDC_CLIENT_SECRET (from your IdP)
+    scopes: "openid profile email"
+    redirectUrl: ""       # empty ⇒ {externalScheme}://{domain}/api/auth/oidc/callback
+    groupClaim: "groups"
+    adminGroup: ""        # IdP group whose members get role=admin
+    defaultRole: "viewer"
+
 # ── AI / LLM (BYO-LLM 기본) ───────────────────────────────────────────────────
 # DataPond는 LiteLLM 게이트웨이 추상화만 기본 제공하고, LLM 추론은 외부 엔드포인트에 위임한다.
 # 단일 노드에 무거운 모델(Ollama 7B 등)을 co-locate하지 않는다(자원·성능 부담).
