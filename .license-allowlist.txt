@@ -1,3 +1,5 @@
 psycopg2-binary
 ldap3
 elkjs
+@img/sharp-libvips
+dompurify

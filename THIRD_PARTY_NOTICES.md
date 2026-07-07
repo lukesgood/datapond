@@ -92,6 +92,14 @@ tw-animate-css. Exceptions:
 | lucide-react | ISC (Lucide License) |
 | **elkjs** | **EPL-2.0** — weak copyleft; consumed as an unmodified npm package; source available upstream at https://github.com/kieler/elkjs |
 
+The CI license gate also scans production-TRANSITIVE npm packages; two carry reviewed
+weak-copyleft licenses and are allowlisted:
+
+| Package (transitive) | License | Review |
+|---|---|---|
+| `@img/sharp-libvips-*` | LGPL-3.0-or-later | Prebuilt libvips binaries pulled in by Next.js/sharp image optimization; dynamically linked, unmodified |
+| `dompurify` | MPL-2.0 OR Apache-2.0 (dual) | Apache-2.0 elected |
+
 ## 4. Vendored source
 
 `frontend/components/ui/*.tsx` are shadcn/ui components, copied into the repo by design
