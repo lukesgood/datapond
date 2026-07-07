@@ -92,8 +92,8 @@ jobs:
             [ "$n" -eq 1 ] || { echo "FAIL: ENCRYPTION_KEY env appears $n times (profile: ${v:-base})"; exit 1; }
           done
           echo "OK: secrets wired"
-          echo "== component credentials generated (P0-1b) =="
-          out=$(helm template datapond helm/datapond)
+          echo "== component credentials generated (P0-1b, onprem render) =="
+          out=$(helm template datapond helm/datapond --values helm/datapond/values-onprem.yaml)
           for k in POSTGRES_PASSWORD S3_SECRET_KEY AIRFLOW_PASSWORD JUPYTER_TOKEN POLARIS_CLIENT_SECRET; do
             echo "$out" | grep -q "$k:" || { echo "FAIL $k not generated"; exit 1; }
           done
