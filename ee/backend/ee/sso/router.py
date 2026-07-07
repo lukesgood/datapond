@@ -85,21 +85,24 @@ async def oidc_callback(code: str = "", state: str = "", error: str = ""):
     if error or not code or not state:
         return _fail("provider", f"idp error={error!r}")
 
-    st = await state_pop(state)
+    try:
+        st = await state_pop(state)
+    except Exception as e:
+        return _fail("state", f"state store error: {e}")
     if not st:
         return _fail("state")
 
     try:
         tokens = await exchange_code(code, st["verifier"])
+        id_token = tokens.get("id_token") if isinstance(tokens, dict) else None
     except (OIDCError, Exception) as e:
         return _fail("exchange", str(e))
-    id_token = tokens.get("id_token")
     if not id_token:
         return _fail("exchange", "no id_token in response")
 
     try:
         claims = await verify_id_token(id_token, st["nonce"])
-    except OIDCError as e:
+    except (OIDCError, Exception) as e:
         return _fail("token", str(e))
 
     username = (claims.get("preferred_username") or claims.get("email") or "").strip()

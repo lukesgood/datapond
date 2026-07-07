@@ -73,3 +73,27 @@ def test_upsert_conflict_with_local_account_returns_none(monkeypatch):
                                    "display_name": "A", "role": "viewer",
                                    "external_id": "sub-1"}))
     assert got is None
+
+
+def test_callback_state_store_failure_redirects_not_500(monkeypatch):
+    from ee.sso import router as r
+    monkeypatch.setattr(r, "oidc_enabled", lambda: True)
+    async def boom(state): raise RuntimeError("redis down")
+    monkeypatch.setattr(r, "state_pop", boom)
+    resp = _run(r.oidc_callback(code="c", state="s"))
+    assert resp.status_code == 302
+    assert "reason=state" in resp.headers["location"]
+
+
+def test_callback_jwks_network_failure_redirects_not_500(monkeypatch):
+    from ee.sso import router as r
+    monkeypatch.setattr(r, "oidc_enabled", lambda: True)
+    async def ok_state(state): return {"nonce": "n", "verifier": "v"}
+    async def ok_exchange(code, verifier): return {"id_token": "x.y.z"}
+    async def net_boom(tok, nonce): raise ConnectionError("jwks unreachable")
+    monkeypatch.setattr(r, "state_pop", ok_state)
+    monkeypatch.setattr(r, "exchange_code", ok_exchange)
+    monkeypatch.setattr(r, "verify_id_token", net_boom)
+    resp = _run(r.oidc_callback(code="c", state="s"))
+    assert resp.status_code == 302
+    assert "reason=token" in resp.headers["location"]
