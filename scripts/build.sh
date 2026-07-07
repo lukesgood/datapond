@@ -38,9 +38,19 @@ restart_deployment() {
   ok "${name} restarted"
 }
 
+build_backend() {
+  # EDITION: enterprise (default, includes /ee) | community (Apache-2.0 only)
+  log "Building datapond/backend:${TAG} (${EDITION:-enterprise})..."
+  docker build -t "datapond/backend:${TAG}" -f backend/Dockerfile --target "${EDITION:-enterprise}" .
+  log "Importing into k3s containerd..."
+  docker save "datapond/backend:${TAG}" | \
+    k3s ctr --address /run/k3s/containerd/containerd.sock images import -
+  ok "backend image ready"
+}
+
 case "$TARGET" in
   backend)
-    build_and_import backend backend/
+    build_backend
     restart_deployment backend
     ;;
   frontend)
@@ -48,7 +58,7 @@ case "$TARGET" in
     restart_deployment frontend
     ;;
   all)
-    build_and_import backend backend/
+    build_backend
     build_and_import frontend frontend/
     kubectl rollout restart deployment/backend deployment/frontend -n datapond
     sleep 10

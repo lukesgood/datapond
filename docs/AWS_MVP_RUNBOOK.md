@@ -125,3 +125,13 @@ If catalog auth starts failing with 401 after an upgrade (POLARIS_CLIENT_SECRET 
 recover by re-running the Polaris bootstrap with the current POLARIS_CLIENT_SECRET (delete
 the /shared/skip sentinel-guarded state only with care) — or restore the previous secret
 value into datapond-secrets.
+
+## 8. Live EC2 deploy — tar-sync caveat
+
+The live EC2 (K3s) deployment is updated via an SSM tar-sync pipeline, not a full git
+checkout — `/home/ubuntu/datapond` only contains whatever was last synced. Any new
+runtime file (routes, schema, config) must be added to the tar-sync set or it never
+reaches the built image. **`ee/` must be included in the tar-sync set** — the enterprise
+image build COPYs `ee/backend/ee`; a sync that omits `ee/` silently produces a community
+image (no SSO endpoints, no error). This does not affect a fresh install via
+`helm/install.sh`, which always builds from a full checkout.

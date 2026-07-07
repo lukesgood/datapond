@@ -36,8 +36,10 @@ mkdir -p "$WORKDIR/images"
 # Tag with :latest to match the chart's image defaults (repository: datapond/<x>,
 # tag: latest). This lets ANY values profile (quicktest/onprem) consume the bundle
 # without rewriting image tags — the freeze record lives in images-digests.txt.
-log "Building backend image..."
-docker build -t "datapond/backend:latest" "$PROJECT_ROOT/backend/"
+log "Building backend image (${EDITION:-enterprise})..."
+docker build -t "datapond/backend:latest" \
+  -f "$PROJECT_ROOT/backend/Dockerfile" --target "${EDITION:-enterprise}" \
+  "$PROJECT_ROOT"
 docker save "datapond/backend:latest" -o "$WORKDIR/images/backend.tar"
 ok "Backend image saved"
 

@@ -1,0 +1,15 @@
+.git
+.github
+.superpowers
+.claude
+docs
+node_modules
+frontend/node_modules
+frontend/.next
+**/__pycache__
+**/*.pyc
+terraform
+helm
+scripts
+*.md
+!ee/**/*.md
