@@ -17,6 +17,11 @@ local state: `terraform init -migrate-state`. See bootstrap/README.md.
                     -var app_security_group_id=sg-xxx -var db_master_password=...
     terraform apply <same vars>
 
+> **Teardown:** `deletion_protection=true` (default) blocks `terraform destroy` — run
+> `terraform apply -var db_deletion_protection=false` first. A second destroy also collides
+> on the fixed `final_snapshot_identifier` (`datapond-pg-final-snapshot`) — rename/remove the
+> prior snapshot or set `-var db_skip_final_snapshot=true` for a throwaway env.
+
 ## Manual prerequisite — enable Bedrock model access (one-time, per region)
 In the AWS console → Bedrock → Model access, enable:
 - Amazon Titan Text Embeddings V2 (amazon.titan-embed-text-v2:0)

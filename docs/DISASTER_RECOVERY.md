@@ -25,7 +25,8 @@ backend connects to the restored Aurora.** (Extends the P0-1a preflight in AWS_M
 
 ## One-time: seed the Secrets Manager vault (after first install)
 ```bash
-SM=$(terraform -chdir=terraform output -raw critical_secrets_arn)
+SM=datapond/critical-secrets   # deterministic name — works even if terraform state is unavailable
+# convenience alternative (needs TF state): SM=$(terraform -chdir=terraform output -raw critical_secrets_arn)
 ns=datapond
 payload=$(kubectl -n $ns get secret datapond-secrets -o json | jq '{
   ENCRYPTION_KEY:   (.data.ENCRYPTION_KEY   | @base64d),
@@ -35,26 +36,66 @@ payload=$(kubectl -n $ns get secret datapond-secrets -o json | jq '{
 aws secretsmanager put-secret-value --secret-id "$SM" --secret-string "$payload"
 ```
 Re-run whenever these values legitimately change (they normally never do).
+**Record the vault name/ARN (`datapond/critical-secrets`) out-of-band** (password manager,
+runbook) — in a real DR you may not have terraform state to look it up.
 
 ## Recovery procedures
 
 ### A. Aurora — point-in-time / snapshot restore
+> **Networking (critical):** the restore commands MUST pass the stack's subnet group
+> (`datapond-aurora`) and SG (`datapond-aurora-sg`) — otherwise the restored cluster
+> lands in the default VPC/SG and the app cannot reach it. A restored cluster also has
+> NO instances; you must add a `db.serverless` instance before it accepts connections.
 ```bash
+SUBNET_GROUP=datapond-aurora
+SG_ID=$(aws ec2 describe-security-groups \
+  --filters Name=group-name,Values=datapond-aurora-sg \
+  --query 'SecurityGroups[0].GroupId' --output text)
+
+# Find an available snapshot id (automatic or the final snapshot):
+aws rds describe-db-cluster-snapshots --db-cluster-identifier datapond-pg \
+  --query 'DBClusterSnapshots[].DBClusterSnapshotIdentifier'
+
 # PITR to a new cluster (within the 14-day window):
 aws rds restore-db-cluster-to-point-in-time \
   --source-db-cluster-identifier datapond-pg \
   --db-cluster-identifier datapond-pg-restored \
-  --restore-to-time <UTC-timestamp>
+  --restore-to-time <UTC-timestamp> \
+  --db-subnet-group-name "$SUBNET_GROUP" --vpc-security-group-ids "$SG_ID"
 # or from the automatic/final snapshot:
 aws rds restore-db-cluster-from-snapshot \
   --db-cluster-identifier datapond-pg-restored \
-  --snapshot-identifier <snapshot-id> --engine aurora-postgresql
-# then add a serverless instance, and point Helm externalDatabase.host at the new writer endpoint.
+  --snapshot-identifier <snapshot-id> --engine aurora-postgresql \
+  --db-subnet-group-name "$SUBNET_GROUP" --vpc-security-group-ids "$SG_ID"
+
+# The restored cluster has NO instances — add a serverless writer (matches
+# aws_rds_cluster_instance in aurora.tf) before it accepts connections:
+aws rds create-db-cluster-instance \
+  --db-cluster-identifier datapond-pg-restored \
+  --db-instance-identifier datapond-pg-restored-1 \
+  --db-instance-class db.serverless --engine aurora-postgresql
+# (cluster-level scaling is inherited: MinCapacity=0.5, MaxCapacity=4.0)
+
+# then point Helm externalDatabase.host at the new writer endpoint.
 ```
+
+#### A.1 Reconcile with Terraform state (do this BEFORE any `terraform apply`)
+TF state manages `aws_rds_cluster.aurora` = `datapond-pg`. Restoring to a different id
+(`datapond-pg-restored`) leaves state pointing at a cluster that no longer exists — a bare
+`terraform apply` would then try to **recreate an empty `datapond-pg`**. Pick ONE:
+- **(preferred) restore into the ORIGINAL identifier `datapond-pg`** — once the old cluster
+  is fully gone, use `--db-cluster-identifier datapond-pg` (and instance `datapond-pg-1`) in
+  the commands above. It stays under TF management; no import needed.
+- **restore to a new id, then import** — `terraform import aws_rds_cluster.aurora datapond-pg-restored`
+  and `terraform import aws_rds_cluster_instance.aurora datapond-pg-restored-1`, updating any
+  hardcoded identifier in the config to match.
+
+**Do NOT run `terraform apply` until the restored cluster is reconciled with state.**
 
 ### B. Secrets — re-seed BEFORE app start
 ```bash
-SM=$(terraform -chdir=terraform output -raw critical_secrets_arn)
+SM=datapond/critical-secrets   # deterministic — no TF state needed
+# convenience alternative: SM=$(terraform -chdir=terraform output -raw critical_secrets_arn)
 vals=$(aws secretsmanager get-secret-value --secret-id "$SM" --query SecretString --output text)
 kubectl -n datapond create secret generic datapond-secrets \
   --from-literal=ENCRYPTION_KEY="$(echo "$vals" | jq -r .ENCRYPTION_KEY)" \
@@ -71,13 +112,18 @@ aws s3api list-object-versions --bucket datapond-iceberg --prefix <key>
 ```
 
 ### D. Full cluster rebuild (order)
-1. `terraform apply` (Aurora + S3 already exist / restored per A & C).
+1. Reconcile the restored Aurora with TF state (§A.1) FIRST, then `terraform apply`
+   (Aurora + S3 already exist / restored per A & C). A bare apply against a mismatched
+   state recreates an empty `datapond-pg` — see §A.1.
 2. Re-seed `datapond-secrets` from Secrets Manager (procedure B).
 3. `helm upgrade --install` with `externalDatabase.host` = restored Aurora writer.
 4. Verify (drill below).
 
 ## Quarterly backup-verification drill
-1. Restore the latest Aurora snapshot to a scratch cluster (procedure A).
+1. Find a snapshot id
+   (`aws rds describe-db-cluster-snapshots --db-cluster-identifier datapond-pg --query 'DBClusterSnapshots[].DBClusterSnapshotIdentifier'`)
+   and restore the latest Aurora snapshot to a scratch cluster (procedure A — remember the
+   subnet group / SG flags and the `create-db-cluster-instance` step).
 2. `psql` → `SELECT count(*) FROM ai_chunks;` — vectors present.
 3. Re-seed secrets from SM into a scratch namespace; confirm the backend can decrypt
    a stored connector credential (Settings → connector → test) — proves ENCRYPTION_KEY match.
