@@ -70,11 +70,13 @@ aws rds restore-db-cluster-from-snapshot \
 
 # The restored cluster has NO instances — add a serverless writer (matches
 # aws_rds_cluster_instance in aurora.tf) before it accepts connections:
-aws rds create-db-cluster-instance \
-  --db-cluster-identifier datapond-pg-restored \
+aws rds create-db-instance \
   --db-instance-identifier datapond-pg-restored-1 \
-  --db-instance-class db.serverless --engine aurora-postgresql
-# (cluster-level scaling is inherited: MinCapacity=0.5, MaxCapacity=4.0)
+  --db-instance-class db.serverless \
+  --engine aurora-postgresql \
+  --db-cluster-identifier datapond-pg-restored
+# (cluster-level serverlessv2_scaling_configuration governs scaling:
+#  MinCapacity=0.5, MaxCapacity=4.0 — no per-instance scaling flag needed)
 
 # then point Helm externalDatabase.host at the new writer endpoint.
 ```
@@ -123,7 +125,7 @@ aws s3api list-object-versions --bucket datapond-iceberg --prefix <key>
 1. Find a snapshot id
    (`aws rds describe-db-cluster-snapshots --db-cluster-identifier datapond-pg --query 'DBClusterSnapshots[].DBClusterSnapshotIdentifier'`)
    and restore the latest Aurora snapshot to a scratch cluster (procedure A — remember the
-   subnet group / SG flags and the `create-db-cluster-instance` step).
+   subnet group / SG flags and the `create-db-instance` step).
 2. `psql` → `SELECT count(*) FROM ai_chunks;` — vectors present.
 3. Re-seed secrets from SM into a scratch namespace; confirm the backend can decrypt
    a stored connector credential (Settings → connector → test) — proves ENCRYPTION_KEY match.
