@@ -156,3 +156,22 @@ jobs:
             echo "FAIL: OIDC leaks into default render"; exit 1
           fi
           echo "OK: OIDC wired"
+          echo "== no moving image tags (P0-4) =="
+          MOVING='(:latest|:main-latest|:main|:stable|:edge|:nightly)$'
+          for v in "" "--values helm/datapond/values-prod.yaml" "--values helm/datapond/values-onprem.yaml" \
+                   "--values helm/datapond/values-quicktest.yaml" "--values helm/datapond/values-foundation.yaml" \
+                   "--values helm/datapond/values-aws.yaml"; do
+            imgs=$(helm template datapond helm/datapond $v | grep -E '^\s*image:' | sed -E 's/.*image:\s*"?([^"]+)"?.*/\1/')
+            if echo "$imgs" | grep -qE "$MOVING"; then
+              echo "FAIL: moving image tag in profile ${v:-base}:"; echo "$imgs" | grep -E "$MOVING"; exit 1
+            fi
+            if echo "$imgs" | grep -vqE ':'; then
+              echo "FAIL: untagged image in profile ${v:-base}:"; echo "$imgs" | grep -vE ':'; exit 1
+            fi
+          done
+          echo "== no moving Docker base images =="
+          if grep -hE '^FROM ' backend/Dockerfile frontend/Dockerfile docker/jupyter/Dockerfile \
+             | grep -vE 'FROM \S+ AS |FROM base' | grep -qE "$MOVING|:3.11-slim$|:20-alpine$"; then
+            echo "FAIL: moving Docker base image"; exit 1
+          fi
+          echo "OK: no moving image tags"
