@@ -180,3 +180,22 @@ jobs:
             echo "FAIL: untagged Docker base image:"; echo "$bimgs" | grep -vE ':'; exit 1
           fi
           echo "OK: no moving image tags"
+
+  terraform-validate:
+    name: Terraform validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+      - name: fmt
+        run: terraform -chdir=terraform fmt -check -recursive
+      - name: validate (main)
+        run: |
+          terraform -chdir=terraform init -backend=false -input=false
+          terraform -chdir=terraform validate
+      - name: validate (bootstrap)
+        run: |
+          terraform -chdir=terraform/bootstrap init -backend=false -input=false
+          terraform -chdir=terraform/bootstrap validate
