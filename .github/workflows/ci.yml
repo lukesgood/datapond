@@ -180,6 +180,20 @@ jobs:
             echo "FAIL: untagged Docker base image:"; echo "$bimgs" | grep -vE ':'; exit 1
           fi
           echo "OK: no moving image tags"
+          echo "== lakehouse IRSA ServiceAccounts =="
+          # default render (no roleArn): 6 SAs exist, NO IRSA annotation leaks
+          d=$(helm template datapond helm/datapond --values helm/datapond/values-onprem.yaml)
+          for sa in datapond-backend datapond-trino datapond-spark datapond-jupyter datapond-mlflow datapond-polaris; do
+            echo "$d" | grep -q "name: $sa" || { echo "FAIL: SA $sa missing (onprem render)"; exit 1; }
+          done
+          if echo "$d" | grep -q 'eks.amazonaws.com/role-arn'; then
+            echo "FAIL: IRSA annotation leaked into a no-roleArn render"; exit 1
+          fi
+          # with roleArn set: annotation renders on the SAs
+          a=$(helm template datapond helm/datapond --values helm/datapond/values-onprem.yaml --set lakehouseIrsa.roleArn=arn:aws:iam::123456789012:role/datapond-lakehouse-s3)
+          echo "$a" | grep -q 'eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/datapond-lakehouse-s3"' || { echo "FAIL: IRSA annotation not rendered when roleArn set"; exit 1; }
+          echo "$a" | grep -q 'serviceAccountName: datapond-backend' || { echo "FAIL: backend serviceAccountName not set"; exit 1; }
+          echo "OK: lakehouse IRSA wired"
 
   terraform-validate:
     name: Terraform validate
