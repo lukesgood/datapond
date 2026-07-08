@@ -6,6 +6,7 @@ set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+APPVER="$(grep '^appVersion:' "$PROJECT_ROOT/helm/datapond/Chart.yaml" | tr -d ' "' | cut -d: -f2)"
 
 # Colors for output
 RED='\033[0;31m'
@@ -37,9 +38,10 @@ SAVE_CMD="sudo docker save"
 log_info "Using Docker with sudo (temporary workaround)"
 
 # Build backend image
+# Backend Dockerfile needs repo-root context + --target (COPY backend/... and ee/backend/...).
 log_info "Building backend image..."
-cd "$PROJECT_ROOT/backend"
-$BUILD_CMD build -t datapond/backend:latest .
+cd "$PROJECT_ROOT"
+$BUILD_CMD build -t datapond/backend:$APPVER -f backend/Dockerfile --target enterprise .
 if [ $? -eq 0 ]; then
     log_success "Backend image built successfully"
 else
@@ -63,7 +65,7 @@ NPM_BIN="$NVM_NODE_DIR/npm"
 log_info "Using npm at: $NPM_BIN (node dir: $NVM_NODE_DIR)"
 su -c "export PATH=$NVM_NODE_DIR:\$PATH; cd $PROJECT_ROOT/frontend && $NVM_NODE_DIR/npm install && $NVM_NODE_DIR/npm run build" "$REAL_USER"
 
-$BUILD_CMD build --no-cache -t datapond/frontend:latest .
+$BUILD_CMD build --no-cache -t datapond/frontend:$APPVER .
 if [ $? -eq 0 ]; then
     log_success "Frontend image built successfully"
 else
@@ -76,8 +78,8 @@ log_info "Importing images into K3s..."
 cd "$PROJECT_ROOT"
 
 # Save images to tar files
-$SAVE_CMD datapond/backend:latest -o /tmp/backend.tar
-$SAVE_CMD datapond/frontend:latest -o /tmp/frontend.tar
+$SAVE_CMD datapond/backend:$APPVER -o /tmp/backend.tar
+$SAVE_CMD datapond/frontend:$APPVER -o /tmp/frontend.tar
 
 # Import into K3s containerd
 sudo k3s ctr images import /tmp/backend.tar

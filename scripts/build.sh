@@ -5,7 +5,7 @@ set -e
 cd "$(dirname "$0")/.."
 
 TARGET="${1:-all}"   # all | backend | frontend
-TAG="${2:-latest}"
+TAG="${2:-$(grep '^appVersion:' helm/datapond/Chart.yaml | tr -d ' "' | cut -d: -f2)}"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; NC='\033[0m'
 log()  { echo -e "${BLUE}[•]${NC} $*"; }

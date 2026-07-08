@@ -24,7 +24,7 @@ frontend:
   replicas: 1
   image:
     repository: datapond/frontend
-    tag: latest
+    tag: ""   # empty ⇒ chart appVersion (Chart.yaml); override for local dev / CD sha tags
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -45,7 +45,7 @@ backend:
   replicas: 1
   image:
     repository: datapond/backend
-    tag: latest
+    tag: ""   # empty ⇒ chart appVersion (Chart.yaml); override for local dev / CD sha tags
     pullPolicy: IfNotPresent
   resources:
     requests:

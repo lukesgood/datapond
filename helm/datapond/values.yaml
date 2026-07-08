@@ -34,7 +34,7 @@ frontend:
   replicas: 2
   image:
     repository: datapond/frontend
-    tag: latest
+    tag: ""   # empty ⇒ chart appVersion (Chart.yaml); override for local dev / CD sha tags
     pullPolicy: IfNotPresent
 
   service:
@@ -69,7 +69,7 @@ backend:
   replicas: 2
   image:
     repository: datapond/backend
-    tag: latest
+    tag: ""   # empty ⇒ chart appVersion (Chart.yaml); override for local dev / CD sha tags
     pullPolicy: IfNotPresent
 
   service:
@@ -107,7 +107,7 @@ postgres:
     # pgvector image = drop-in superset of postgres:16 (adds the `vector` extension for
     # the AI vector store / RAG). Data dir is plain PG16, so this is a drop-in swap.
     repository: pgvector/pgvector
-    tag: "pg16"
+    tag: "0.8.4-pg16"
 
   service:
     type: ClusterIP
@@ -174,7 +174,7 @@ jupyter:
   replicas: 1
   image:
     repository: datapond/jupyter
-    tag: "latest"
+    tag: ""   # empty ⇒ chart appVersion (Chart.yaml); override for local dev / CD sha tags
 
   service:
     type: ClusterIP
@@ -363,7 +363,7 @@ minio:
   enabled: false
   image:
     repository: minio/minio
-    tag: latest
+    tag: "RELEASE.2025-09-07T16-13-09Z"
   auth:
     rootUser: datapond
     rootPassword: ""  # empty ⇒ Helm generates & preserves (see templates/secrets.yaml)
@@ -393,7 +393,7 @@ trino:
   replicas: 1
   image:
     repository: trinodb/trino
-    tag: latest
+    tag: "482"
     pullPolicy: IfNotPresent
 
   service:
@@ -714,7 +714,7 @@ litellm:
   replicas: 1
   image:
     repository: ghcr.io/berriai/litellm
-    tag: "main-latest"
+    tag: "v1.91.0"
     pullPolicy: IfNotPresent
 
   service:
@@ -799,7 +799,7 @@ ollama:
   name: ollama
   image:
     repository: ollama/ollama
-    tag: "latest"
+    tag: "0.31.1"
     pullPolicy: IfNotPresent
 
   service:
@@ -846,7 +846,7 @@ vllm:
   name: vllm
   image:
     repository: vllm/vllm-openai
-    tag: "latest"
+    tag: "v0.24.0"
     pullPolicy: IfNotPresent
   # HuggingFace model id (or mounted local path for air-gap).
   model: "Qwen/Qwen2.5-7B-Instruct"

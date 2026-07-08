@@ -18,11 +18,11 @@ spec:
     metadata:
       labels:
         app: {{ .Values.backend.name }}
-        version: {{ .Values.backend.image.tag }}
+        version: {{ .Values.backend.image.tag | default .Chart.AppVersion }}
     spec:
       containers:
       - name: backend
-        image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+        image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
         ports:
         - containerPort: {{ .Values.backend.service.targetPort }}

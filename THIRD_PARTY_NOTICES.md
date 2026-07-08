@@ -28,23 +28,23 @@ set `openmetadata.enabled: false` there if ELv2 is a blocker.
 
 | Image | Project | License |
 |---|---|---|
-| `pgvector/pgvector:pg16`, `postgres:16-alpine` | PostgreSQL + pgvector | PostgreSQL License |
+| `pgvector/pgvector:0.8.4-pg16`, `postgres:16.14-alpine` | PostgreSQL + pgvector | PostgreSQL License |
 | `valkey/valkey:7.2.5` | Valkey | BSD-3-Clause |
-| `trinodb/trino` | Trino | Apache-2.0 |
+| `trinodb/trino:482` | Trino | Apache-2.0 |
 | `apache/spark:3.5.8-python3` | Apache Spark | Apache-2.0 |
 | `apache/airflow:2.8.1` | Apache Airflow | Apache-2.0 |
 | `ghcr.io/mlflow/mlflow:v2.10.0` | MLflow | Apache-2.0 |
 | `apache/polaris:1.4.0`, `apache/polaris-admin-tool` | Apache Polaris | Apache-2.0 |
 | `risingwavelabs/risingwave:v1.7.0` | RisingWave (core) | Apache-2.0 |
 | `openmetadata/server:1.3.1` | OpenMetadata | Apache-2.0 |
-| `ghcr.io/berriai/litellm` | LiteLLM | MIT |
-| `ollama/ollama` | Ollama | MIT |
-| `vllm/vllm-openai` | vLLM | Apache-2.0 |
-| `jupyter/scipy-notebook` (base of `datapond/jupyter`) | Jupyter Docker Stacks | BSD-3-Clause (bundles a broad BSD/PSF/Apache scientific-Python stack) |
+| `ghcr.io/berriai/litellm:v1.91.0` | LiteLLM | MIT |
+| `ollama/ollama:0.31.1` | Ollama | MIT |
+| `vllm/vllm-openai:v0.24.0` | vLLM | Apache-2.0 |
+| `quay.io/jupyter/scipy-notebook:2026-07-06` (base of `datapond/jupyter`) | Jupyter Docker Stacks | BSD-3-Clause (bundles a broad BSD/PSF/Apache scientific-Python stack) |
 | `curlimages/curl:8.10.1` | curl | curl license (MIT/X-style) |
-| `minio/minio`, `minio/mc` | MinIO | AGPL-3.0 (see callout above) |
+| `minio/minio:RELEASE.2025-09-07T16-13-09Z`, `minio/mc:RELEASE.2025-08-13T08-35-41Z` | MinIO | AGPL-3.0 (see callout above) |
 | `docker.elastic.co/elasticsearch/elasticsearch:8.10.2` | Elasticsearch | ELv2 / SSPL (see callout above) |
-| `busybox:1.36` | BusyBox | GPL-2.0 (see callout above) |
+| `busybox:1.36.1` | BusyBox | GPL-2.0 (see callout above) |
 
 The `datapond/jupyter` image additionally installs: duckdb (MIT), pyiceberg (Apache-2.0),
 boto3 (Apache-2.0), pandas (BSD-3-Clause), matplotlib (Matplotlib License, BSD-style),
@@ -132,5 +132,5 @@ SOFTWARE.
 No other third-party source is vendored in this repository.
 
 ---
-Image tags reflect `helm/datapond/values.yaml` at audit time; several use moving tags
-(`latest`) until image pinning (P0-4) lands, so exact bundled versions may drift.
+Image tags are pinned to specific versions (P0-4); they are bumped deliberately, never
+floating. See helm/datapond/values.yaml and the Dockerfiles for the authoritative tags.

@@ -37,7 +37,7 @@ spec:
       # Step 1 — wait for PostgreSQL, ensure polaris_catalog DB exists,
       # and set a skip flag if bootstrap has already been run.
       - name: precheck
-        image: postgres:16-alpine
+        image: postgres:16.14-alpine
         volumeMounts:
         - name: shared
           mountPath: /shared
