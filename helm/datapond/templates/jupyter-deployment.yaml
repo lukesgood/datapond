@@ -18,6 +18,7 @@ spec:
       labels:
         app: {{ .Values.jupyter.name }}
     spec:
+      serviceAccountName: {{ .Values.jupyter.serviceAccountName | default "datapond-jupyter" }}
       initContainers:
       - name: install-extensions
         image: "{{ .Values.jupyter.image.repository }}:{{ .Values.jupyter.image.tag | default .Chart.AppVersion }}"

@@ -22,6 +22,7 @@ spec:
         app: {{ .Values.trino.name }}
         version: {{ .Values.trino.image.tag }}
     spec:
+      serviceAccountName: {{ .Values.trino.serviceAccountName | default "datapond-trino" }}
       containers:
       - name: trino
         image: "{{ .Values.trino.image.repository }}:{{ .Values.trino.image.tag }}"

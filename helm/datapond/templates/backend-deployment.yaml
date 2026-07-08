@@ -20,6 +20,7 @@ spec:
         app: {{ .Values.backend.name }}
         version: {{ .Values.backend.image.tag | default .Chart.AppVersion }}
     spec:
+      serviceAccountName: {{ .Values.backend.serviceAccountName | default "datapond-backend" }}
       containers:
       - name: backend
         image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag | default .Chart.AppVersion }}"
