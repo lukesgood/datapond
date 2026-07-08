@@ -161,7 +161,7 @@ jobs:
           for v in "" "--values helm/datapond/values-prod.yaml" "--values helm/datapond/values-onprem.yaml" \
                    "--values helm/datapond/values-quicktest.yaml" "--values helm/datapond/values-foundation.yaml" \
                    "--values helm/datapond/values-aws.yaml"; do
-            imgs=$(helm template datapond helm/datapond $v | grep -E '^\s*image:' | sed -E 's/.*image:\s*"?([^"]+)"?.*/\1/')
+            imgs=$(helm template datapond helm/datapond $v | grep -E '^\s*image:' | sed -E 's/.*image:\s*"?([^"]+)"?.*/\1/' || true)
             if echo "$imgs" | grep -qE "$MOVING"; then
               echo "FAIL: moving image tag in profile ${v:-base}:"; echo "$imgs" | grep -E "$MOVING"; exit 1
             fi
@@ -170,8 +170,13 @@ jobs:
             fi
           done
           echo "== no moving Docker base images =="
-          if grep -hE '^FROM ' backend/Dockerfile frontend/Dockerfile docker/jupyter/Dockerfile \
-             | grep -vE 'FROM \S+ AS |FROM base' | grep -qE "$MOVING|:3.11-slim$|:20-alpine$"; then
-            echo "FAIL: moving Docker base image"; exit 1
+          bimgs=$(grep -hE '^FROM ' backend/Dockerfile frontend/Dockerfile docker/jupyter/Dockerfile \
+            | sed -E 's/[[:space:]]+[Aa][Ss][[:space:]]+[A-Za-z0-9_.-]+[[:space:]]*$//' \
+            | awk '{print $2}' | grep -E '[:/]' || true)
+          if echo "$bimgs" | grep -qE "$MOVING|:3.11-slim$|:20-alpine$"; then
+            echo "FAIL: moving Docker base image:"; echo "$bimgs" | grep -E "$MOVING|:3.11-slim$|:20-alpine$"; exit 1
+          fi
+          if echo "$bimgs" | grep -qvE ':'; then
+            echo "FAIL: untagged Docker base image:"; echo "$bimgs" | grep -vE ':'; exit 1
           fi
           echo "OK: no moving image tags"
