@@ -151,7 +151,7 @@ branch / `v3.0-oss-lakehouse` tag.
 - **Phase 4** — GTM realignment
 
 **P0 backlog (productization hardening):** ~~secrets/password hardening~~ ✅ · ~~LICENSE / third-party attribution~~ ✅ ·
-SSO (OIDC, first `/ee` feature) 🔄 · image-tag pinning · backup/DR (Aurora) · lakehouse-service IRSA · AWS live apply + E2E
+SSO (OIDC, first `/ee` feature) 🔄 · ~~image-tag pinning~~ ✅ · backup/DR (Aurora) · lakehouse-service IRSA · AWS live apply + E2E
 
 ## 📄 License
 

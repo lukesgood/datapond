@@ -77,8 +77,8 @@ Builds and imports DataPond images.
 6. Verifies with crictl
 
 **Images created:**
-- `datapond/backend:latest`
-- `datapond/frontend:latest`
+- `datapond/backend:<chart appVersion>` (currently `2.3.0`, read from `helm/datapond/Chart.yaml`)
+- `datapond/frontend:<chart appVersion>` (currently `2.3.0`, read from `helm/datapond/Chart.yaml`)
 
 ### quick-deploy.sh
 
