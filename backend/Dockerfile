@@ -2,7 +2,7 @@
 #   docker build -f backend/Dockerfile --target enterprise .
 #   docker build -f backend/Dockerfile --target community .
 # enterprise = community + /ee (commercially licensed, see ee/LICENSE).
-FROM python:3.11-slim AS base
+FROM python:3.11.15-slim AS base
 
 WORKDIR /app
 
