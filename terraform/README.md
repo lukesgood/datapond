@@ -2,6 +2,14 @@
 
 Provisions S3, IAM (Bedrock + S3), and Aurora pgvector for the DataPond AWS MVP.
 
+## State backend (one-time)
+Terraform state lives in S3 (versioned, encrypted). Bootstrap the state bucket once:
+
+    cd bootstrap && terraform init && terraform apply -var aws_region=us-east-1 && cd ..
+
+Then `terraform init` in this directory uses the S3 backend. Migrating an existing
+local state: `terraform init -migrate-state`. See bootstrap/README.md.
+
 ## Apply
     terraform init
     terraform validate
