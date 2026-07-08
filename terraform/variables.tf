@@ -18,3 +18,4 @@ variable "eks_oidc_provider_arn" { type = string  default = "" }   # arn:aws:iam
 variable "eks_oidc_provider_url" { type = string  default = "" }   # oidc.eks.<region>.amazonaws.com/id/XXXX (no https://)
 variable "k8s_namespace"         { type = string  default = "datapond" }
 variable "litellm_sa_name"       { type = string  default = "litellm" }
+variable "s3_noncurrent_version_expiration_days" { type = number  default = 90 }  # cull old object versions
