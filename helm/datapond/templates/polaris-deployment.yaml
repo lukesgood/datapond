@@ -21,6 +21,7 @@ spec:
         app: {{ .Values.polaris.name }}
         component: catalog
     spec:
+      serviceAccountName: {{ .Values.polaris.serviceAccountName | default "datapond-polaris" }}
       initContainers:
       - name: wait-for-bootstrap
         image: postgres:16.14-alpine

@@ -27,6 +27,7 @@ spec:
         app: {{ .Values.spark.name }}
         component: master
     spec:
+      serviceAccountName: {{ .Values.spark.serviceAccountName | default "datapond-spark" }}
       containers:
       - name: spark-master
         image: "{{ .Values.spark.image.repository }}:{{ .Values.spark.image.tag }}"
@@ -127,6 +128,7 @@ spec:
         app: {{ .Values.spark.name }}
         component: worker
     spec:
+      serviceAccountName: {{ .Values.spark.serviceAccountName | default "datapond-spark" }}
       containers:
       - name: spark-worker
         image: "{{ .Values.spark.image.repository }}:{{ .Values.spark.image.tag }}"

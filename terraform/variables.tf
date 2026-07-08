@@ -85,3 +85,8 @@ variable "s3_noncurrent_version_expiration_days" {
   type    = number
   default = 90 # cull old object versions
 }
+
+variable "lakehouse_sa_names" {
+  type    = list(string)
+  default = ["datapond-backend", "datapond-trino", "datapond-spark", "datapond-jupyter", "datapond-mlflow", "datapond-polaris"]
+}

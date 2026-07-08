@@ -18,6 +18,7 @@ spec:
       labels:
         app: {{ .Values.mlflow.name }}
     spec:
+      serviceAccountName: {{ .Values.mlflow.serviceAccountName | default "datapond-mlflow" }}
       containers:
       - name: mlflow
         image: "{{ .Values.mlflow.image.repository }}:{{ .Values.mlflow.image.tag }}"

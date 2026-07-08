@@ -31,23 +31,39 @@ def get_catalog():
                         "warehouse": os.getenv("POLARIS_WAREHOUSE", "iceberg"),
                         "credential": f"{client_id}:{client_secret}",
                         "scope":      "PRINCIPAL_ROLE:ALL",
-                        # SeaweedFS S3 — Polaris가 vended-credentials 미지원이므로 FileIO에 직접 주입
-                        "s3.endpoint":          _s3_endpoint(),
-                        "s3.access-key-id":     os.getenv("S3_ACCESS_KEY", "datapond"),
-                        "s3.secret-access-key": component_secret("S3_SECRET_KEY", "datapond_dev", component="s3"),
-                        "s3.path-style-access": "true",
-                        "s3.region":            os.getenv("S3_REGION", "us-east-1"),
+                        # S3 FileIO: static keys on MinIO, credential-chain on AWS (see _s3_fileio_props)
+                        **_s3_fileio_props(),
                     },
                 )
     return _catalog
 
 
+def _s3_fileio_props() -> dict:
+    """S3 FileIO kwargs for pyiceberg's RestCatalog.
+
+    MinIO/onprem: static keys are injected as env → pass them + the endpoint.
+    AWS/IRSA: no keys, empty endpoint → omit static-cred/endpoint keys so
+    pyiceberg's S3FileIO uses the default AWS credential chain (instance profile
+    on K3s, projected web-identity token under IRSA)."""
+    props = {"s3.region": os.getenv("S3_REGION", "us-east-1")}
+    ak = os.getenv("S3_ACCESS_KEY", "").strip()
+    sk = os.getenv("S3_SECRET_KEY", "").strip()
+    if ak and sk:
+        props["s3.access-key-id"] = ak
+        props["s3.secret-access-key"] = sk
+        props["s3.path-style-access"] = "true"
+    ep = _s3_endpoint()
+    if ep:
+        props["s3.endpoint"] = ep
+    return props
+
+
 def _s3_endpoint() -> str:
-    """S3_ENDPOINT는 'host:port' 형태로 주입되므로 scheme을 보정한다."""
-    ep = os.getenv("S3_ENDPOINT_URL") or os.getenv("S3_ENDPOINT", "seaweedfs-s3:8333")
-    if not ep.startswith("http"):
-        ep = f"http://{ep}"
-    return ep
+    """Return an http-scheme'd endpoint, or '' when none is configured (AWS native S3)."""
+    ep = (os.getenv("S3_ENDPOINT_URL") or os.getenv("S3_ENDPOINT", "")).strip()
+    if not ep:
+        return ""
+    return ep if ep.startswith("http") else f"http://{ep}"
 
 
 def reset_catalog():

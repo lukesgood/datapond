@@ -66,6 +66,7 @@ frontend:
 backend:
   enabled: true
   name: backend
+  serviceAccountName: datapond-backend
   replicas: 2
   image:
     repository: datapond/backend
@@ -885,3 +886,9 @@ maintenance:
   fileSize: "128MB"          # compaction 목표 파일 크기
   snapshotRetention: "7d"    # 스냅샷 보존창(시간여행 범위) — Trino 최소 7d
   orphanRetention: "7d"      # 고아 파일 보존창
+
+# EKS IRSA — shared IAM role ARN for the S3-consuming lakehouse ServiceAccounts
+# (backend/trino/spark/jupyter/mlflow/polaris). Set to `terraform output
+# lakehouse_s3_role_arn` on EKS; leave empty on K3s/EC2 (node instance profile) or MinIO.
+lakehouseIrsa:
+  roleArn: ""
