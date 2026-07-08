@@ -25,7 +25,7 @@ data "aws_iam_policy_document" "app" {
   statement {
     sid       = "BedrockInvoke"
     actions   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
-    resources = ["*"]  # scope to inference-profile ARNs once finalized
+    resources = ["*"] # scope to inference-profile ARNs once finalized
   }
 }
 
