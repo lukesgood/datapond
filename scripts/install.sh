@@ -24,6 +24,7 @@ BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+APPVER="$(grep '^appVersion:' "$PROJECT_ROOT/helm/datapond/Chart.yaml" | tr -d ' "' | cut -d: -f2)"
 LOG_FILE="/tmp/datapond-install-$(date +%Y%m%d-%H%M%S).log"
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
@@ -269,21 +270,22 @@ elif ! $SKIP_BUILD; then
   fi
 
   log "Building backend image..."
-  docker build -t datapond/backend:latest "$PROJECT_ROOT/backend/" 2>&1 | tee -a "$LOG_FILE"
-  docker save datapond/backend:latest | k3s ctr images import -
+  # Backend Dockerfile needs repo-root context + --target (COPY backend/... and ee/backend/...).
+  docker build -t "datapond/backend:$APPVER" -f "$PROJECT_ROOT/backend/Dockerfile" --target enterprise "$PROJECT_ROOT" 2>&1 | tee -a "$LOG_FILE"
+  docker save "datapond/backend:$APPVER" | k3s ctr images import -
   ok "Backend image built and imported"
 
   log "Building frontend image..."
-  docker build -t datapond/frontend:latest "$PROJECT_ROOT/frontend/" 2>&1 | tee -a "$LOG_FILE"
-  docker save datapond/frontend:latest | k3s ctr images import -
+  docker build -t "datapond/frontend:$APPVER" "$PROJECT_ROOT/frontend/" 2>&1 | tee -a "$LOG_FILE"
+  docker save "datapond/frontend:$APPVER" | k3s ctr images import -
   ok "Frontend image built and imported"
 
   # JupyterLab is a custom image (docker/jupyter/Dockerfile). It's not on any public
   # registry, so a non-built jupyter leaves the chart pointing at a missing image.
   if [[ -f "$PROJECT_ROOT/docker/jupyter/Dockerfile" ]]; then
     log "Building jupyter image..."
-    docker build -t datapond/jupyter:latest "$PROJECT_ROOT/docker/jupyter/" 2>&1 | tee -a "$LOG_FILE"
-    docker save datapond/jupyter:latest | k3s ctr images import -
+    docker build -t "datapond/jupyter:$APPVER" "$PROJECT_ROOT/docker/jupyter/" 2>&1 | tee -a "$LOG_FILE"
+    docker save "datapond/jupyter:$APPVER" | k3s ctr images import -
     ok "Jupyter image built and imported"
   fi
 else
