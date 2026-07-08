@@ -150,7 +150,9 @@ jobs:
           echo "$r" | grep -q 'name: OIDC_CLIENT_SECRET' || { echo "FAIL OIDC secretKeyRef"; exit 1; }
           echo "$r" | grep -q 'OIDC_CLIENT_SECRET: "csecret"' || { echo "FAIL OIDC secret entry"; exit 1; }
           echo "$r" | grep -q 'name: OIDC_ISSUER' || { echo "FAIL OIDC env"; exit 1; }
-          if helm template datapond helm/datapond | grep -q 'OIDC_'; then
+          # Match only DataPond's OIDC envs/secret — not Polaris's unrelated
+          # QUARKUS_OIDC_TENANT_ENABLED (which renders unconditionally in the base profile).
+          if helm template datapond helm/datapond | grep -qE 'name: OIDC_|OIDC_CLIENT_SECRET:'; then
             echo "FAIL: OIDC leaks into default render"; exit 1
           fi
           echo "OK: OIDC wired"
