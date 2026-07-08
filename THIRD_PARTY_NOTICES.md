@@ -40,7 +40,7 @@ set `openmetadata.enabled: false` there if ELv2 is a blocker.
 | `ghcr.io/berriai/litellm:v1.91.0` | LiteLLM | MIT |
 | `ollama/ollama:0.31.1` | Ollama | MIT |
 | `vllm/vllm-openai:v0.24.0` | vLLM | Apache-2.0 |
-| `jupyter/scipy-notebook` (base of `datapond/jupyter`) | Jupyter Docker Stacks | BSD-3-Clause (bundles a broad BSD/PSF/Apache scientific-Python stack) |
+| `quay.io/jupyter/scipy-notebook:2026-07-06` (base of `datapond/jupyter`) | Jupyter Docker Stacks | BSD-3-Clause (bundles a broad BSD/PSF/Apache scientific-Python stack) |
 | `curlimages/curl:8.10.1` | curl | curl license (MIT/X-style) |
 | `minio/minio:RELEASE.2025-09-07T16-13-09Z`, `minio/mc:RELEASE.2025-08-13T08-35-41Z` | MinIO | AGPL-3.0 (see callout above) |
 | `docker.elastic.co/elasticsearch/elasticsearch:8.10.2` | Elasticsearch | ELv2 / SSPL (see callout above) |

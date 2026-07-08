@@ -18,7 +18,7 @@ spec:
     metadata:
       labels:
         app: {{ .Values.backend.name }}
-        version: {{ .Values.backend.image.tag }}
+        version: {{ .Values.backend.image.tag | default .Chart.AppVersion }}
     spec:
       containers:
       - name: backend

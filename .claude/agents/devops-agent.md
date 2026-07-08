@@ -81,9 +81,10 @@ Created production-ready Docker images and Helm charts for frontend/backend
 ### Deployment Commands
 
 ```bash
-# Build images locally
-docker build -t datapond/backend:latest backend/
-docker build -t datapond/frontend:latest frontend/
+# Build images locally (backend needs repo-root context for the multi-stage /ee build;
+# tag with the chart appVersion — see scripts/build.sh)
+docker build -t datapond/backend:2.3.0 -f backend/Dockerfile --target enterprise .
+docker build -t datapond/frontend:2.3.0 frontend/
 
 # Deploy to Kubernetes
 helm upgrade --install datapond helm/datapond \

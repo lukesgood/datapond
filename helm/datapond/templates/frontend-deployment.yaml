@@ -18,7 +18,7 @@ spec:
     metadata:
       labels:
         app: {{ .Values.frontend.name }}
-        version: {{ .Values.frontend.image.tag }}
+        version: {{ .Values.frontend.image.tag | default .Chart.AppVersion }}
     spec:
       containers:
       - name: frontend
