@@ -110,6 +110,11 @@ fails closed at backend startup if `JWT_SECRET`, `ENCRYPTION_KEY`, or
 `ADMIN_PASSWORD` are missing — a Helm deploy always provides them, so this
 should only trip if the Secret was hand-edited or deployed outside Helm.
 
+> **DR:** the full backup/restore posture (Aurora PITR, S3 versioning, Secrets Manager
+> re-seed, restore ORDERING) is in [docs/DISASTER_RECOVERY.md](DISASTER_RECOVERY.md).
+> Critical: re-seed `datapond-secrets` from Secrets Manager BEFORE the app touches a
+> restored Aurora, or stored encrypted credentials are undecryptable.
+
 ## Component passwords (P0-1b)
 POSTGRES_PASSWORD, MinIO S3_SECRET_KEY, AIRFLOW_PASSWORD, JUPYTER_TOKEN, POLARIS_CLIENT_SECRET
 are auto-generated on first install and preserved across upgrades (lookup-preserve).

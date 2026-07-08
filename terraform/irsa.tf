@@ -35,7 +35,7 @@ data "aws_iam_policy_document" "litellm_bedrock" {
   count = local.irsa_enabled ? 1 : 0
   statement {
     actions   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
-    resources = ["*"]  # scope to inference-profile ARNs once finalized
+    resources = ["*"] # scope to inference-profile ARNs once finalized
   }
 }
 

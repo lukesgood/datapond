@@ -26,14 +26,23 @@ resource "aws_rds_cluster" "aurora" {
   cluster_identifier     = "${var.name_prefix}-pg"
   engine                 = "aurora-postgresql"
   engine_mode            = "provisioned"
-  engine_version         = "15.4"                 # pgvector available (>= 15.3)
+  engine_version         = "15.4" # pgvector available (>= 15.3)
   database_name          = "datapond"
   master_username        = "datapond"
   master_password        = var.db_master_password
   db_subnet_group_name   = aws_db_subnet_group.aurora.name
   vpc_security_group_ids = [aws_security_group.aurora.id]
   storage_encrypted      = true
-  skip_final_snapshot    = true
+  kms_key_id             = var.db_kms_key_id
+
+  # ── Backup / DR (P0-5) ──
+  backup_retention_period      = var.db_backup_retention_period
+  preferred_backup_window      = var.db_preferred_backup_window
+  preferred_maintenance_window = var.db_preferred_maintenance_window
+  copy_tags_to_snapshot        = true
+  deletion_protection          = var.db_deletion_protection
+  skip_final_snapshot          = var.db_skip_final_snapshot
+  final_snapshot_identifier    = "${var.name_prefix}-pg-final-snapshot"
 
   serverlessv2_scaling_configuration {
     min_capacity = 0.5

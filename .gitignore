@@ -51,3 +51,10 @@ backend/tests/**/__pycache__/
 pytest_cache/
 .coverage
 htmlcov/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+crash.log

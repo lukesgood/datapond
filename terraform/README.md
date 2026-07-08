@@ -2,12 +2,25 @@
 
 Provisions S3, IAM (Bedrock + S3), and Aurora pgvector for the DataPond AWS MVP.
 
+## State backend (one-time)
+Terraform state lives in S3 (versioned, encrypted). Bootstrap the state bucket once:
+
+    cd bootstrap && terraform init && terraform apply -var aws_region=us-east-1 && cd ..
+
+Then `terraform init` in this directory uses the S3 backend. Migrating an existing
+local state: `terraform init -migrate-state`. See bootstrap/README.md.
+
 ## Apply
     terraform init
     terraform validate
     terraform plan  -var vpc_id=vpc-xxx -var 'db_subnet_ids=["subnet-a","subnet-b"]' \
                     -var app_security_group_id=sg-xxx -var db_master_password=...
     terraform apply <same vars>
+
+> **Teardown:** `deletion_protection=true` (default) blocks `terraform destroy` — run
+> `terraform apply -var db_deletion_protection=false` first. A second destroy also collides
+> on the fixed `final_snapshot_identifier` (`datapond-pg-final-snapshot`) — rename/remove the
+> prior snapshot or set `-var db_skip_final_snapshot=true` for a throwaway env.
 
 ## Manual prerequisite — enable Bedrock model access (one-time, per region)
 In the AWS console → Bedrock → Model access, enable:
