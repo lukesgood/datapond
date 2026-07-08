@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { login, isAuthenticated, clearAuth } from "@/lib/auth"
+import { login, isAuthenticated, clearAuth, saveAuth } from "@/lib/auth"
 import { Loader2, Eye, EyeOff, ShieldCheck, Layers, Zap, Lock, AlertTriangle, WifiOff } from "lucide-react"
 
 const FEATURES = [
@@ -35,6 +35,7 @@ export default function LoginPage() {
   const [error, setError]         = useState<string | null>(null)
   const [shake, setShake]         = useState(false)
   const [networkError, setNetworkError] = useState(false)
+  const [ssoEnabled, setSsoEnabled] = useState(false)
 
   // Password change modal state
   const [showChangePw, setShowChangePw]     = useState(false)
@@ -47,6 +48,29 @@ export default function LoginPage() {
   const [pendingToken, setPendingToken]     = useState<string | null>(null)
 
   useEffect(() => {
+    // SSO return leg: /login?sso=1 arrives with the datapond_token cookie set by
+    // the backend callback. Promote it into localStorage (saveAuth) and enter.
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("sso") === "1") {
+      const m = document.cookie.match(/(?:^|;\s*)datapond_token=([^;]+)/)
+      const ssoToken = m?.[1]
+      if (ssoToken) {
+        fetch("/api/auth/me", { headers: { Authorization: `Bearer ${ssoToken}` } })
+          .then(r => { if (!r.ok) throw new Error("sso session invalid"); return r.json() })
+          .then(me => { saveAuth(ssoToken, me); window.location.replace("/dashboard") })
+          .catch(() => { clearAuth(); setError("SSO 로그인에 실패했습니다. 다시 시도해 주세요.") })
+        return
+      }
+    }
+    if (params.get("error") === "sso_failed") {
+      const reason = params.get("reason") ?? "unknown"
+      setError(`SSO 로그인 실패 (${reason}). 관리자에게 문의하거나 로컬 계정으로 로그인하세요.`)
+    }
+    // Feature flag: show the SSO button only when the backend (enterprise image +
+    // OIDC_ENABLED) reports it. Fail-quiet: button simply doesn't render.
+    fetch("/api/capabilities").then(r => r.ok ? r.json() : null)
+      .then(caps => setSsoEnabled(Boolean(caps?.sso))).catch(() => {})
+
     // Auth state lives in BOTH localStorage (no expiry) and the cookie (24h,
     // checked by proxy.ts). If only the cookie has expired, blindly bouncing to
     // /dashboard loops forever: proxy → /login → here → /dashboard → proxy …
@@ -277,6 +301,13 @@ export default function LoginPage() {
               disabled={loading || !username || !password}>
               {loading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Signing in…</> : "Sign in"}
             </Button>
+
+            {ssoEnabled && (
+              <Button type="button" variant="outline" className="w-full h-10 font-medium mt-2"
+                      onClick={() => { window.location.href = "/api/auth/oidc/login" }}>
+                Sign in with SSO
+              </Button>
+            )}
           </form>
 
           <div className="rounded-lg border bg-muted/40 px-4 py-3 space-y-1">

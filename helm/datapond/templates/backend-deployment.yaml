@@ -216,6 +216,31 @@ spec:
         - name: LDAP_ADMIN_GROUP
           value: "{{ .Values.auth.ldap.adminGroup | default "" }}"
         {{- end }}
+        {{- if (((.Values.auth).oidc).enabled) }}
+        # OIDC SSO (Enterprise /ee feature)
+        - name: OIDC_ENABLED
+          value: "true"
+        - name: OIDC_ISSUER
+          value: "{{ .Values.auth.oidc.issuer }}"
+        - name: OIDC_CLIENT_ID
+          value: "{{ .Values.auth.oidc.clientId }}"
+        - name: OIDC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: OIDC_CLIENT_SECRET
+              optional: true
+        - name: OIDC_SCOPES
+          value: {{ .Values.auth.oidc.scopes | default "openid profile email" | quote }}
+        - name: OIDC_REDIRECT_URL
+          value: "{{ .Values.auth.oidc.redirectUrl | default (printf "%s://%s/api/auth/oidc/callback" (.Values.global.externalScheme | default "http") (.Values.ingress.domain | default .Values.global.domain)) }}"
+        - name: OIDC_GROUP_CLAIM
+          value: "{{ .Values.auth.oidc.groupClaim | default "groups" }}"
+        - name: OIDC_ADMIN_GROUP
+          value: "{{ .Values.auth.oidc.adminGroup | default "" }}"
+        - name: OIDC_DEFAULT_ROLE
+          value: "{{ .Values.auth.oidc.defaultRole | default "viewer" }}"
+        {{- end }}
         {{- if .Values.litellm.enabled }}
         # Master key — authenticates the backend to the LiteLLM admin API
         # (manage/switch model backends at runtime) and to /v1/chat/completions.

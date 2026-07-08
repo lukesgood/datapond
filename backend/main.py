@@ -55,6 +55,9 @@ AUTH_EXEMPT = {
     "/docs",
     "/openapi.json",
     "/redoc",
+    "/api/auth/oidc/login",     # SSO redirect entry (pre-auth by definition)
+    "/api/auth/oidc/callback",  # IdP redirects back here without our JWT
+    "/api/capabilities",        # login page needs the sso flag pre-auth (feature flags only)
 }
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -97,6 +100,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
         )
 
 app.add_middleware(AuthMiddleware)
+
+# ── Enterprise (/ee) features — present only in enterprise-edition images ──────
+# Community builds lack /app/ee entirely; the import fails and SSO stays off.
+try:
+    from ee.sso.router import router as sso_router
+    app.include_router(sso_router, prefix="/api")
+    EE_SSO = True
+except ImportError as e:
+    EE_SSO = False
+    # ModuleNotFoundError for the top-level 'ee' package = community image (expected, silent).
+    # Any other ImportError = an enterprise image whose ee module failed to load (a real bug).
+    if not (isinstance(e, ModuleNotFoundError) and (e.name == "ee" or (e.name or "").startswith("ee."))):
+        logging.getLogger(__name__).warning("[ee] SSO module present but failed to import: %s", e)
 
 
 @app.on_event("startup")
@@ -264,7 +280,9 @@ async def get_capabilities():
 
     Pure endpoint that never fails — useful for UI feature gating.
     """
-    return compute_capabilities(os.environ)
+    caps = compute_capabilities(os.environ)
+    caps["sso"] = EE_SSO and str(os.environ.get("OIDC_ENABLED", "")).strip().lower() in ("1", "true", "yes", "on")
+    return caps
 
 
 # API name → K8s app label
