@@ -9,6 +9,7 @@ set -euo pipefail
 DATAPOND_VERSION="2.3.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+APPVER="$(grep '^appVersion:' "$PROJECT_ROOT/helm/datapond/Chart.yaml" | tr -d ' "' | cut -d: -f2)"
 OUTPUT_DIR="${1:-/tmp}"
 BUNDLE_NAME="datapond-airgap-${DATAPOND_VERSION}-$(date +%Y%m%d).tar.gz"
 BUNDLE_PATH="${OUTPUT_DIR}/${BUNDLE_NAME}"
@@ -33,27 +34,27 @@ log "Working directory: $WORKDIR"
 mkdir -p "$WORKDIR/images"
 
 # ─── Build DataPond images ────────────────────────────────────────────────────
-# Tag with :latest to match the chart's image defaults (repository: datapond/<x>,
-# tag: latest). This lets ANY values profile (quicktest/onprem) consume the bundle
-# without rewriting image tags — the freeze record lives in images-digests.txt.
+# Tag with :$APPVER to match the chart's image defaults (repository: datapond/<x>,
+# tag: "" ⇒ chart appVersion). This lets ANY values profile (quicktest/onprem) consume
+# the bundle without rewriting image tags — the freeze record lives in images-digests.txt.
 log "Building backend image (${EDITION:-enterprise})..."
-docker build -t "datapond/backend:latest" \
+docker build -t "datapond/backend:$APPVER" \
   -f "$PROJECT_ROOT/backend/Dockerfile" --target "${EDITION:-enterprise}" \
   "$PROJECT_ROOT"
-docker save "datapond/backend:latest" -o "$WORKDIR/images/backend.tar"
+docker save "datapond/backend:$APPVER" -o "$WORKDIR/images/backend.tar"
 ok "Backend image saved"
 
 log "Building frontend image..."
-docker build -t "datapond/frontend:latest" "$PROJECT_ROOT/frontend/"
-docker save "datapond/frontend:latest" -o "$WORKDIR/images/frontend.tar"
+docker build -t "datapond/frontend:$APPVER" "$PROJECT_ROOT/frontend/"
+docker save "datapond/frontend:$APPVER" -o "$WORKDIR/images/frontend.tar"
 ok "Frontend image saved"
 
 # JupyterLab is a CUSTOM image (docker/jupyter/Dockerfile: scipy-notebook + DuckDB/
 # PyIceberg + helper). It is NOT on a public registry, so it must be built here or the
 # air-gapped install has no jupyter image to import.
 log "Building jupyter image..."
-docker build -t "datapond/jupyter:latest" "$PROJECT_ROOT/docker/jupyter/"
-docker save "datapond/jupyter:latest" -o "$WORKDIR/images/jupyter.tar"
+docker build -t "datapond/jupyter:$APPVER" "$PROJECT_ROOT/docker/jupyter/"
+docker save "datapond/jupyter:$APPVER" -o "$WORKDIR/images/jupyter.tar"
 ok "Jupyter image saved"
 
 # ─── Derive image list from the actual chart (single source of truth) ─────────

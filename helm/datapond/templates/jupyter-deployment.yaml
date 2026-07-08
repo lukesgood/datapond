@@ -20,7 +20,7 @@ spec:
     spec:
       initContainers:
       - name: install-extensions
-        image: "{{ .Values.jupyter.image.repository }}:{{ .Values.jupyter.image.tag }}"
+        image: "{{ .Values.jupyter.image.repository }}:{{ .Values.jupyter.image.tag | default .Chart.AppVersion }}"
         command:
         - /bin/bash
         - -c
@@ -42,7 +42,7 @@ spec:
           mountPath: /opt/conda/share/jupyter/lab/extensions
       containers:
       - name: jupyter
-        image: "{{ .Values.jupyter.image.repository }}:{{ .Values.jupyter.image.tag }}"
+        image: "{{ .Values.jupyter.image.repository }}:{{ .Values.jupyter.image.tag | default .Chart.AppVersion }}"
         ports:
         - containerPort: {{ .Values.jupyter.service.port }}
           name: jupyter

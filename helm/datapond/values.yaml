@@ -34,7 +34,7 @@ frontend:
   replicas: 2
   image:
     repository: datapond/frontend
-    tag: latest
+    tag: ""   # empty ⇒ chart appVersion (Chart.yaml); override for local dev / CD sha tags
     pullPolicy: IfNotPresent
 
   service:
@@ -69,7 +69,7 @@ backend:
   replicas: 2
   image:
     repository: datapond/backend
-    tag: latest
+    tag: ""   # empty ⇒ chart appVersion (Chart.yaml); override for local dev / CD sha tags
     pullPolicy: IfNotPresent
 
   service:
@@ -174,7 +174,7 @@ jupyter:
   replicas: 1
   image:
     repository: datapond/jupyter
-    tag: "latest"
+    tag: ""   # empty ⇒ chart appVersion (Chart.yaml); override for local dev / CD sha tags
 
   service:
     type: ClusterIP
