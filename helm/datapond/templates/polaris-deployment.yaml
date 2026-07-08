@@ -23,7 +23,7 @@ spec:
     spec:
       initContainers:
       - name: wait-for-bootstrap
-        image: postgres:16-alpine
+        image: postgres:16.14-alpine
         command:
           - sh
           - -c

@@ -26,13 +26,13 @@ spec:
     spec:
       initContainers:
       - name: fix-permissions
-        image: busybox:1.36
+        image: busybox:1.36.1
         command: ["sh", "-c", "chown -R 1000:1000 /usr/share/elasticsearch/data"]
         volumeMounts:
         - name: data
           mountPath: /usr/share/elasticsearch/data
       - name: increase-vm-max-map
-        image: busybox:1.36
+        image: busybox:1.36.1
         command: ["sysctl", "-w", "vm.max_map_count=262144"]
         securityContext:
           privileged: true
@@ -133,10 +133,10 @@ spec:
     spec:
       initContainers:
       - name: wait-for-db
-        image: busybox:1.36
+        image: busybox:1.36.1
         command: ['sh', '-c', 'until nc -z {{ .Values.postgres.name }} {{ .Values.postgres.service.port }}; do echo waiting for postgres; sleep 2; done;']
       - name: wait-for-elasticsearch
-        image: busybox:1.36
+        image: busybox:1.36.1
         command: ['sh', '-c', 'until nc -z {{ .Values.openmetadata.name }}-elasticsearch 9200; do echo waiting for elasticsearch; sleep 2; done;']
       - name: run-migrations
         image: "{{ .Values.openmetadata.server.image.repository }}:{{ .Values.openmetadata.server.image.tag }}"

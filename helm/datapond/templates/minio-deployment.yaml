@@ -30,7 +30,7 @@ spec:
     spec:
       containers:
         - name: minio
-          image: "{{ .Values.minio.image.repository | default "minio/minio" }}:{{ .Values.minio.image.tag | default "latest" }}"
+          image: "{{ .Values.minio.image.repository | default "minio/minio" }}:{{ .Values.minio.image.tag | default "RELEASE.2025-09-07T16-13-09Z" }}"
           args: ["server", "/data", "--console-address", ":9001"]
           env:
             - name: MINIO_ROOT_USER

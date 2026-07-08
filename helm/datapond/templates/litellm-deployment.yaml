@@ -97,7 +97,7 @@ spec:
       {{- if .Values.postgres.enabled }}
       initContainers:
       - name: wait-for-postgres
-        image: postgres:16-alpine
+        image: postgres:16.14-alpine
         env:
         - name: PGPASSWORD
           valueFrom:
