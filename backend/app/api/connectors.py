@@ -24,6 +24,7 @@ import asyncpg
 import asyncio
 import json
 import os
+import ssl
 import logging
 import httpx
 
@@ -290,8 +291,18 @@ def _pool_kwargs() -> dict:
         max_size=10,
     )
     sslmode = os.getenv("POSTGRES_SSLMODE", "").strip().lower()
-    if sslmode in ("require", "prefer", "allow", "verify-ca", "verify-full"):
-        kw["ssl"] = True  # asyncpg: ssl=True ⇒ TLS required (no cert verify)
+    if sslmode in ("require", "prefer", "allow"):
+        # Encrypt but do NOT verify the server cert — matches libpq sslmode=require.
+        # asyncpg's ssl=True builds a CERT_REQUIRED + check_hostname context that FAILS
+        # on Aurora/RDS ("unable to get local issuer certificate": the RDS CA is not in
+        # the container trust store), so build an explicitly-unverified context instead.
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        kw["ssl"] = ctx
+    elif sslmode in ("verify-ca", "verify-full"):
+        # Full verification — requires the RDS CA bundle in the trust store.
+        kw["ssl"] = True
     return kw
 
 
