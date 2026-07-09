@@ -18,7 +18,11 @@ variable "name_prefix" {
 }
 
 variable "vpc_id" {
-  type = string # existing PoC VPC
+  type = string
+  # Existing VPC (Aurora + the single-node EC2 both live here). Default "" ⇒ the account
+  # default VPC is used for the EC2 node/subnet data lookups (see ec2.tf); Aurora's
+  # aws_security_group still requires a real VPC id to be supplied at apply time.
+  default = ""
 }
 
 variable "db_subnet_ids" {
@@ -107,4 +111,34 @@ variable "lakehouse_sa_names" {
 variable "route53_zone_id" {
   type    = string
   default = "" # Hosted zone ID for var.domain; required at deploy time for DNS-01 + the A record.
+}
+
+variable "instance_type" {
+  type    = string
+  default = "m6i.xlarge" # 4 vCPU / 16 GB — headroom over the t3.xlarge that ran foundation
+}
+
+variable "subnet_id" {
+  type    = string
+  default = "" # Public subnet for the node. Default "" ⇒ first default-VPC subnet (data lookup).
+}
+
+variable "domain" {
+  type    = string
+  default = "" # e.g. datapond.example.com — the app hostname. Required at deploy time.
+}
+
+variable "allowed_cidrs" {
+  type    = list(string)
+  default = ["0.0.0.0/0"] # Restrict to a customer CIDR in production if desired.
+}
+
+variable "acme_email" {
+  type    = string
+  default = "" # Let's Encrypt account email (cert-manager ClusterIssuer). Required at deploy time.
+}
+
+variable "app_version" {
+  type    = string
+  default = "2.3.0" # image tag pushed to ECR by CI; matches helm Chart.yaml appVersion
 }
