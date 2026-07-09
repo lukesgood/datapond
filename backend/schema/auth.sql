@@ -48,6 +48,13 @@ CREATE TABLE IF NOT EXISTS users (
     auth_method auth_method NOT NULL DEFAULT 'local',
     status user_status NOT NULL DEFAULT 'active',
 
+    -- Minimal-shape columns read directly by auth.py (login/admin-seed/directory-upsert)
+    -- and the RLS loader (rls_migration backfills user_roles from users.role). These
+    -- coexist with status/roles/user_roles; auth.py uses role/is_active/require_password_change.
+    role VARCHAR(32) NOT NULL DEFAULT 'viewer',
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    require_password_change BOOLEAN NOT NULL DEFAULT false,
+
     -- External identity (populated for LDAP/SAML/OIDC users)
     external_id VARCHAR(512),                  -- DN for LDAP, NameID for SAML, sub for OIDC
     external_provider VARCHAR(128),            -- e.g., 'corporate-ad', 'keycloak', 'adfs'

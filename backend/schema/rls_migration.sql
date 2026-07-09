@@ -9,6 +9,14 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- RLS attributes on users (department / region / clearance / ...)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS attributes JSONB NOT NULL DEFAULT '{}';
 
+-- Minimal-shape auth columns that auth.py reads directly (login/admin-seed/directory).
+-- The "full" auth.sql historically omitted these (used status + roles/user_roles), so on
+-- an already-bootstrapped DB (auth.sql is sentinel-guarded and won't re-run) they must be
+-- added here — this migration runs every startup and is idempotent.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(32) NOT NULL DEFAULT 'viewer';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS require_password_change BOOLEAN NOT NULL DEFAULT false;
+
 -- Roles + user-role assignment (loader reads these; falls back to users.role if absent)
 CREATE TABLE IF NOT EXISTS roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
