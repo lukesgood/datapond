@@ -27,13 +27,36 @@ import psycopg2.extras
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.runtime import component_secret
-
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["streaming"])
 
 RW_HOST = os.getenv("RISINGWAVE_HOST", "risingwave-frontend.datapond.svc.cluster.local")
 RW_PORT = int(os.getenv("RISINGWAVE_PORT", "4566"))
+
+
+def _iceberg_sink_s3_props() -> dict:
+    """S3 credential/endpoint props for a RisingWave Iceberg sink.
+
+    MinIO/onprem: S3_ACCESS_KEY/S3_SECRET_KEY/S3_ENDPOINT are injected as env → pass
+    them into the sink DDL. AWS: they're absent (empty endpoint, no keys) → omit them
+    so RisingWave's Iceberg connector falls back to its own credential chain instead of
+    a bogus literal key. Mirrors iceberg_catalog._s3_fileio_props().
+
+    NOTE: RisingWave's Iceberg 'storage' connector credential-chain support on AWS is
+    version-dependent and unverified live — RisingWave is disabled on the AWS profiles
+    today, so this omit-path is not currently exercised on AWS. Omitting a bogus literal
+    is still strictly better than injecting one.
+    """
+    props: dict = {}
+    ep = os.getenv("S3_ENDPOINT", "").strip()
+    if ep:
+        props["s3.endpoint"] = ep if ep.startswith("http") else f"http://{ep}"
+    ak = os.getenv("S3_ACCESS_KEY", "").strip()
+    sk = os.getenv("S3_SECRET_KEY", "").strip()
+    if ak and sk:
+        props["s3.access.key"] = ak
+        props["s3.secret.key"] = sk
+    return props
 
 
 def _rw_conn():
@@ -254,9 +277,6 @@ async def list_sinks():
 async def create_sink(req: CreateSinkRequest):
     try:
         target_table = req.iceberg_table or req.name
-        s3_endpoint  = os.getenv("S3_ENDPOINT", "seaweedfs-s3:8333")
-        s3_key       = os.getenv("S3_ACCESS_KEY", "datapond")
-        s3_secret    = component_secret("S3_SECRET_KEY", "datapond_dev", component="s3")
         warehouse    = os.getenv("ICEBERG_WAREHOUSE", "s3a://iceberg/warehouse")
 
         if req.connector == "iceberg":
@@ -265,9 +285,7 @@ async def create_sink(req: CreateSinkRequest):
                 "type":            req.sink_type,
                 "catalog.type":    "storage",
                 "warehouse.path":  warehouse,
-                "s3.endpoint":     f"http://{s3_endpoint}",
-                "s3.access.key":   s3_key,
-                "s3.secret.key":   s3_secret,
+                **_iceberg_sink_s3_props(),
                 "database.name":   req.iceberg_schema,
                 "table.name":      target_table,
                 **req.extra_props,
@@ -370,9 +388,6 @@ async def create_cdc_pipeline(req: CdcPipelineRequest):
       3. CREATE SINK <name>_<table>_sink  (Iceberg sink)
     Returns the generated SQL and status for each table.
     """
-    s3_endpoint = os.getenv("S3_ENDPOINT", "seaweedfs-s3:8333")
-    s3_key      = os.getenv("S3_ACCESS_KEY", "datapond")
-    s3_secret   = component_secret("S3_SECRET_KEY", "datapond_dev", component="s3")
     warehouse   = os.getenv("ICEBERG_WAREHOUSE", "s3a://iceberg/warehouse")
     slot_name   = req.slot_name or f"datapond_{req.pipeline_name.lower().replace('-','_')}"
 
@@ -408,19 +423,22 @@ WITH (
             _execute(mv_sql, fetch=False)
             sqls.append(mv_sql.strip())
 
-            # 3. Iceberg Sink
+            # 3. Iceberg Sink — S3 creds injected on MinIO, omitted on AWS (credential
+            # chain) via _iceberg_sink_s3_props().
+            sink_props = {
+                "connector":      "iceberg",
+                "type":           "upsert",
+                "catalog.type":   "storage",
+                "warehouse.path": warehouse,
+                **_iceberg_sink_s3_props(),
+                "database.name":  req.iceberg_schema,
+                "table.name":     safe,
+            }
+            sink_props_sql = ",\n  ".join(f"{k} = '{v}'" for k, v in sink_props.items())
             sink_sql = f"""CREATE SINK IF NOT EXISTS {sink_name}
 FROM {mv_name}
 WITH (
-  connector      = 'iceberg',
-  type           = 'upsert',
-  catalog.type   = 'storage',
-  warehouse.path = '{warehouse}',
-  s3.endpoint    = 'http://{s3_endpoint}',
-  s3.access.key  = '{s3_key}',
-  s3.secret.key  = '{s3_secret}',
-  database.name  = '{req.iceberg_schema}',
-  table.name     = '{safe}'
+  {sink_props_sql}
 )"""
             _execute(sink_sql, fetch=False)
             sqls.append(sink_sql.strip())
