@@ -56,6 +56,12 @@ if not _admin_pw:
     _admin_pw = "datapond123"
 DEFAULT_ADMIN_PASSWORD = _admin_pw
 
+# auth.sql seeds the admin row with this LITERAL placeholder (not a real bcrypt hash).
+# _ensure_admin_exists replaces it with hash(ADMIN_PASSWORD) on first real deploy — a
+# valid hash from a later password change is left untouched (only the placeholder/NULL
+# is (re)initialized), so operators' password changes are respected.
+PLACEHOLDER_ADMIN_HASH = "$2b$12$placeholder_hash_replace_on_first_deploy"
+
 def _hash_password(password: str) -> str:
     return _bcrypt.hashpw(password.encode(), _bcrypt.gensalt(rounds=12)).decode()
 
@@ -133,16 +139,19 @@ async def _ensure_admin_exists():
             )
             logger.info(f"[auth] Default admin created: {DEFAULT_ADMIN_USER}")
         else:
-            # Ensure password is set if missing
+            # Initialize the admin password if it's missing OR still the auth.sql
+            # placeholder (never a real, user-changed hash — those are left untouched).
             pw_row = await conn.fetchrow(
                 "SELECT password_hash FROM users WHERE username=$1", DEFAULT_ADMIN_USER
             )
-            if not pw_row or not pw_row["password_hash"]:
+            current = pw_row["password_hash"] if pw_row else None
+            if not current or current == PLACEHOLDER_ADMIN_HASH:
                 hashed = _hash_password(DEFAULT_ADMIN_PASSWORD)
                 await conn.execute(
                     "UPDATE users SET password_hash=$1, role='admin', is_active=true WHERE username=$2",
                     hashed, DEFAULT_ADMIN_USER
                 )
+                logger.info("[auth] Default admin password initialized from ADMIN_PASSWORD")
 
 # ── Dependency: get current user from token ────────────────────────────────────
 
