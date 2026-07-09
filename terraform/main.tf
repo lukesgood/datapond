@@ -4,13 +4,15 @@ terraform {
     aws = { source = "hashicorp/aws", version = "~> 5.0" }
   }
 
-  # Remote state — S3 bucket created by terraform/bootstrap (run once). The bucket
-  # name + region are literal here (backend blocks can't use variables); override
-  # per-environment with `terraform init -backend-config=...` if needed.
+  # Remote state — S3 bucket created by terraform/bootstrap (run once). PARTIAL config:
+  # bucket + region are NOT hardcoded (a bare "datapond-terraform-state" collides in S3's
+  # GLOBAL namespace — it is already taken by another account). Supply them at init:
+  #   terraform init \
+  #     -backend-config="bucket=$(terraform -chdir=bootstrap output -raw state_bucket_name)" \
+  #     -backend-config="region=us-east-1"
+  # (bootstrap defaults the bucket to datapond-terraform-state-<account-id>.)
   backend "s3" {
-    bucket       = "datapond-terraform-state"
     key          = "datapond/terraform.tfstate"
-    region       = "us-east-1"
     encrypt      = true
     use_lockfile = true
   }

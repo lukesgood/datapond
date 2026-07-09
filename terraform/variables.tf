@@ -4,7 +4,11 @@ variable "aws_region" {
 }
 
 variable "bucket_name" {
-  type    = string
+  type = string
+  # S3 bucket names are GLOBALLY unique. "datapond-iceberg" is free today but generic —
+  # if it collides, override with an account-scoped name, e.g.
+  #   -var bucket_name=datapond-iceberg-<account-id>
+  # Keep the Helm `storage.bucket` (values-aws.yaml) in sync with whatever you set here.
   default = "datapond-iceberg"
 }
 
