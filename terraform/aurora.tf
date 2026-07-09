@@ -26,7 +26,7 @@ resource "aws_rds_cluster" "aurora" {
   cluster_identifier     = "${var.name_prefix}-pg"
   engine                 = "aurora-postgresql"
   engine_mode            = "provisioned"
-  engine_version         = "15.4" # pgvector available (>= 15.3)
+  engine_version         = var.db_engine_version
   database_name          = "datapond"
   master_username        = "datapond"
   master_password        = var.db_master_password
