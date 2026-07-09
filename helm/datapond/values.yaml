@@ -89,10 +89,10 @@ backend:
   env:
     - name: ENVIRONMENT
       value: "production"
-    - name: DATABASE_URL
-      value: "postgresql://datapond:datapond@postgres:5432/datapond"
-    - name: REDIS_URL
-      value: "redis://redis:6379"
+    # NOTE: DATABASE_URL and REDIS_URL are constructed in backend-deployment.yaml from
+    # POSTGRES_HOST/PORT/etc (externalDatabase-aware). Do NOT hardcode DATABASE_URL here —
+    # a static "@postgres:5432" entry is appended AFTER the constructed one and overrides it,
+    # silently breaking external-DB (Aurora/RDS) connectivity.
 
   autoscaling:
     enabled: true
