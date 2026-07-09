@@ -34,6 +34,15 @@ variable "db_master_password" {
   sensitive = true
 }
 
+variable "db_engine_version" {
+  type = string
+  # Aurora PostgreSQL version. AWS RETIRES minor versions (15.4 was pulled → apply failed
+  # with "Cannot find version 15.4"), so this is a var, not a literal. pgvector needs >= 15.3;
+  # Serverless v2 needs >= 13.6. Check availability: aws rds describe-db-engine-versions
+  # --engine aurora-postgresql --query 'DBEngineVersions[].EngineVersion'.
+  default = "15.10"
+}
+
 # ── Backup / DR (P0-5) ──────────────────────────────────────────────────────
 variable "db_backup_retention_period" {
   type    = number
