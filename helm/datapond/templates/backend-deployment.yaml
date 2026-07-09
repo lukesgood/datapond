@@ -299,13 +299,17 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 10
           failureThreshold: 4
+        {{- if (dig "enabled" true .Values.airflow) }}
         volumeMounts:
         - name: airflow-dags
           mountPath: /opt/airflow/dags
+        {{- end }}
+      {{- if (dig "enabled" true .Values.airflow) }}
       volumes:
       - name: airflow-dags
         persistentVolumeClaim:
           claimName: airflow-dags-pvc
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service
