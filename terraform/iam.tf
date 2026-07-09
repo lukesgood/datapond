@@ -27,6 +27,33 @@ data "aws_iam_policy_document" "app" {
     actions   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
     resources = ["*"] # scope to inference-profile ARNs once finalized
   }
+  statement {
+    sid       = "EcrAuth"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"] # GetAuthorizationToken is account-wide, cannot be resource-scoped
+  }
+  statement {
+    sid = "EcrPull"
+    actions = [
+      "ecr:BatchGetImage",
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:BatchCheckLayerAvailability",
+    ]
+    resources = [
+      aws_ecr_repository.backend.arn,
+      aws_ecr_repository.frontend.arn,
+    ]
+  }
+  statement {
+    sid       = "Route53DNS01"
+    actions   = ["route53:GetChange"]
+    resources = ["arn:aws:route53:::change/*"]
+  }
+  statement {
+    sid       = "Route53Records"
+    actions   = ["route53:ChangeResourceRecordSets", "route53:ListResourceRecordSets"]
+    resources = ["arn:aws:route53:::hostedzone/${var.route53_zone_id}"]
+  }
 }
 
 resource "aws_iam_role_policy" "app" {
@@ -38,4 +65,9 @@ resource "aws_iam_role_policy" "app" {
 resource "aws_iam_instance_profile" "app" {
   name = "${var.name_prefix}-app-profile"
   role = aws_iam_role.app.name
+}
+
+resource "aws_iam_role_policy_attachment" "app_ssm" {
+  role       = aws_iam_role.app.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }

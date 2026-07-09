@@ -103,3 +103,8 @@ variable "lakehouse_sa_names" {
   type    = list(string)
   default = ["datapond-backend", "datapond-trino", "datapond-spark", "datapond-jupyter", "datapond-mlflow", "datapond-polaris"]
 }
+
+variable "route53_zone_id" {
+  type    = string
+  default = "" # Hosted zone ID for var.domain; required at deploy time for DNS-01 + the A record.
+}
