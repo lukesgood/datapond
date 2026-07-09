@@ -4,11 +4,16 @@ Creates the S3 bucket that stores the main stack's remote state. Run ONCE.
 
     cd terraform/bootstrap
     terraform init
-    terraform apply -var aws_region=us-east-1      # creates datapond-terraform-state
+    terraform apply -var aws_region=us-east-1      # creates datapond-terraform-state-<account-id>
 
-Then in the main stack (../), `terraform init` will use the S3 backend; if migrating
-from an existing local state, run `terraform init -migrate-state`.
+The bucket name is account-scoped by default (`datapond-terraform-state-<account-id>`) because
+S3 names are GLOBALLY unique — a bare `datapond-terraform-state` collides with another account.
+Override with `-var state_bucket_name=…` if needed.
 
-The bucket name must match the `backend "s3"` block in ../main.tf
-(`datapond-terraform-state`). To use a different name, set `-var state_bucket_name=…`
-here AND `terraform init -backend-config="bucket=…"` in the main stack.
+The main stack (../) uses a PARTIAL backend config — its `backend "s3"` block does NOT hardcode a
+bucket. Feed this bucket to its init:
+
+    STATE_BUCKET=$(terraform output -raw state_bucket_name)
+    cd .. && terraform init -backend-config="bucket=$STATE_BUCKET" -backend-config="region=us-east-1"
+
+If migrating from an existing local state, add `-migrate-state` to that init.

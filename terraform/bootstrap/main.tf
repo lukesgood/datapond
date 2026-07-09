@@ -10,6 +10,8 @@ terraform {
 
 provider "aws" { region = var.aws_region }
 
+data "aws_caller_identity" "current" {}
+
 variable "aws_region" {
   type    = string
   default = "us-east-1"
@@ -17,11 +19,18 @@ variable "aws_region" {
 
 variable "state_bucket_name" {
   type    = string
-  default = "datapond-terraform-state"
+  default = "" # empty ⇒ datapond-terraform-state-<account-id> (globally unique; S3 names are global)
+}
+
+locals {
+  # A bare "datapond-terraform-state" collides in S3's global namespace (it is already
+  # taken by another account). Suffix with the account id — matching this account's own
+  # convention (datapond-deploy-<acct>, okr-config-<acct>, …). Override via var if needed.
+  state_bucket = var.state_bucket_name != "" ? var.state_bucket_name : "datapond-terraform-state-${data.aws_caller_identity.current.account_id}"
 }
 
 resource "aws_s3_bucket" "state" {
-  bucket = var.state_bucket_name
+  bucket = local.state_bucket
 }
 
 resource "aws_s3_bucket_versioning" "state" {
