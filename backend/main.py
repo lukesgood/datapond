@@ -291,6 +291,8 @@ async def get_capabilities():
     """
     caps = compute_capabilities(os.environ)
     caps["sso"] = EE_SSO and str(os.environ.get("OIDC_ENABLED", "")).strip().lower() in ("1", "true", "yes", "on")
+    from app.api.webauthn import webauthn_enabled
+    caps["webauthn"] = webauthn_enabled()
     return caps
 
 
