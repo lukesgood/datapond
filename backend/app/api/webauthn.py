@@ -153,3 +153,64 @@ async def register_complete(req: CompleteReq, user: dict = Depends(require_user)
             (uuid.UUID(v.aaguid) if getattr(v, "aaguid", None) else None), req.name,
         )
     return {"status": "ok"}
+
+
+def _sign_count_ok(stored: int, new: int) -> bool:
+    if stored == 0 and new == 0:
+        return True          # authenticator doesn't implement a counter
+    return new > stored
+
+
+@router.post("/authenticate/begin")
+async def authenticate_begin():
+    _require_enabled()
+    from webauthn import generate_authentication_options, options_to_json
+    from webauthn.helpers.structs import UserVerificationRequirement
+    cfg = _webauthn_cfg()
+    opts = generate_authentication_options(
+        rp_id=cfg["rp_id"], user_verification=UserVerificationRequirement.PREFERRED,
+    )  # no allow_credentials → discoverable/usernameless
+    nonce = _new_nonce()
+    _challenge_store(nonce, base64.b64encode(opts.challenge).decode())
+    return {"nonce": nonce, "options": json.loads(options_to_json(opts))}
+
+
+class AuthCompleteReq(BaseModel):
+    nonce: str
+    credential: dict
+
+
+@router.post("/authenticate/complete")
+async def authenticate_complete(req: AuthCompleteReq):
+    _require_enabled()
+    from webauthn import verify_authentication_response
+    from webauthn.helpers import base64url_to_bytes
+    chal = _challenge_pop(req.nonce)
+    if not chal:
+        raise HTTPException(status_code=400, detail="Challenge expired or already used")
+    raw_id = base64url_to_bytes(req.credential["rawId"] if "rawId" in req.credential else req.credential["id"])
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT c.id cid, c.public_key, c.sign_count, u.id uid, u.username, u.role
+               FROM webauthn_credentials c JOIN users u ON u.id = c.user_id
+               WHERE c.credential_id = $1""", raw_id)
+    if not row:
+        raise HTTPException(status_code=401, detail="Unknown credential")
+    cfg = _webauthn_cfg()
+    try:
+        v = verify_authentication_response(
+            credential=req.credential, expected_challenge=base64.b64decode(chal),
+            expected_origin=cfg["origin"], expected_rp_id=cfg["rp_id"],
+            credential_public_key=row["public_key"], credential_current_sign_count=row["sign_count"],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {e}")
+    if not _sign_count_ok(row["sign_count"], v.new_sign_count):
+        raise HTTPException(status_code=401, detail="Possible cloned authenticator (sign count)")
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE webauthn_credentials SET sign_count=$1, last_used_at=NOW() WHERE id=$2",
+                           v.new_sign_count, row["cid"])
+    token = _create_token(str(row["uid"]), row["username"], row["role"])
+    return {"access_token": token, "token_type": "bearer",
+            "user": {"id": str(row["uid"]), "username": row["username"], "role": row["role"]}}

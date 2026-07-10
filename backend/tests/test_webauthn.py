@@ -44,3 +44,11 @@ def test_register_begin_returns_options_and_stores_challenge(monkeypatch):
     assert "challenge" in opts and "rp" in opts
     assert w._challenge_pop(nonce) is not None      # stored
     assert w._challenge_pop(nonce) is None           # single-use consumed
+
+
+def test_sign_count_regression_rejected(monkeypatch):
+    w = _fresh(monkeypatch, {"WEBAUTHN_RP_ID": "localhost", "WEBAUTHN_ORIGIN": "http://localhost:3000"})
+    assert w._sign_count_ok(stored=5, new=6) is True
+    assert w._sign_count_ok(stored=5, new=5) is False   # no increase
+    assert w._sign_count_ok(stored=5, new=4) is False   # regression
+    assert w._sign_count_ok(stored=0, new=0) is True    # counter-less authenticator
