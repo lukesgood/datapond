@@ -58,6 +58,20 @@ resource "aws_instance" "node" {
     delete_on_termination = true
   }
 
+  # Spot (cost-optimized, matches the existing pattern). PERSISTENT + stop-on-interruption
+  # makes the node stoppable — so the weekday-hours scheduler can stop/start it and a spot
+  # reclaim stops (not terminates) it, preserving K3s + the Helm release on the EBS root.
+  dynamic "instance_market_options" {
+    for_each = var.use_spot ? [1] : []
+    content {
+      market_type = "spot"
+      spot_options {
+        spot_instance_type             = "persistent"
+        instance_interruption_behavior = "stop"
+      }
+    }
+  }
+
   user_data = templatefile("${path.module}/templates/user-data.sh.tftpl", {
     aws_region      = var.aws_region
     domain          = var.domain

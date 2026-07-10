@@ -138,3 +138,25 @@ variable "app_version" {
   type    = string
   default = "2.3.0" # image tag pushed to ECR by CI; matches helm Chart.yaml appVersion
 }
+
+# ── Spot + weekday-hours scheduling (cost-optimized, matches existing pattern) ──
+variable "use_spot" {
+  type    = bool
+  default = true # persistent spot node (stoppable). false ⇒ on-demand.
+}
+variable "schedule_enabled" {
+  type    = bool
+  default = true # start/stop the node on a weekday-hours schedule
+}
+variable "schedule_start_cron" {
+  type    = string
+  default = "cron(30 7 ? * MON-FRI *)" # 07:30 Mon-Fri (see schedule_timezone)
+}
+variable "schedule_stop_cron" {
+  type    = string
+  default = "cron(0 18 ? * MON-FRI *)" # 18:00 Mon-Fri
+}
+variable "schedule_timezone" {
+  type    = string
+  default = "Asia/Seoul" # KST
+}
