@@ -9,8 +9,9 @@ Helm profile (backend/frontend/valkey/litellm). Heavy analytics (Trino/Spark/Pol
 Airflow/OpenMetadata) are **not** part of this topology — see the design doc §8 for the
 AWS-managed alternative (Athena/EMR Serverless).
 
-Read this top to bottom before starting; steps 3-5 are order-dependent and step 4's
-ordering is load-bearing (see the warning there).
+Read this top to bottom before starting; the steps are order-dependent (apply infra
+before pushing images so the ECR repos exist; on a rebuild, re-seed secrets before the
+app connects to a restored Aurora — see step 4's two paths).
 
 ---
 
@@ -87,36 +88,11 @@ Before touching Terraform, have these ready:
 
 ---
 
-## 2. Build images
+## 2. Apply infra
 
-Images are built and pushed by CI, not on the node (that was the bring-up hack this
-spec replaces). `.github/workflows/ecr-push.yml` triggers on:
-
-- **A published GitHub Release** (recommended for production cuts) — tags the images
-  with the chart's `appVersion` (`helm/datapond/Chart.yaml`, currently `2.3.0`) unless
-  overridden.
-- **`workflow_dispatch`** with an explicit `tag` input — useful for a hotfix build
-  without cutting a full release.
-
-```bash
-# Option A: cut a release (GitHub UI, or gh CLI)
-gh release create v2.3.0 --title "v2.3.0" --notes "Single-node prod deploy"
-
-# Option B: manual dispatch with an explicit tag
-gh workflow run ecr-push.yml -f tag=2.3.0-hotfix1
-```
-
-The workflow builds `backend/Dockerfile --target enterprise` from the **repo root**
-context (the P0-3/P0-4 requirement — the enterprise build needs `ee/` alongside
-`backend/`) and `frontend/Dockerfile` from `frontend/`, then pushes both to
-`datapond-backend:<tag>` / `datapond-frontend:<tag>` in ECR.
-
-> **ECR repos are `IMMUTABLE`** (`terraform/ecr.tf`): pushing the same tag twice fails.
-> Bump `appVersion` (or pass a distinct `-f tag=`) for every re-push, including hotfixes.
-
----
-
-## 3. Apply infra
+Do this **before** building images: the ECR repos that CI pushes to (step 3) are created
+here, and they are `IMMUTABLE` — a push to a non-existent repo fails with "repository does
+not exist". Apply first, then push.
 
 ```bash
 cd terraform
@@ -156,10 +132,10 @@ automatically as Aurora's DB-ingress source (the T2 integration fix — no separ
 `app_security_group_id` variable exists or is needed). `instance_type` defaults to
 `m6i.xlarge` (4 vCPU/16 GB); `allowed_cidrs` defaults to `["0.0.0.0/0"]` for port 80/443
 ingress — pass a customer CIDR allowlist here if the deployment shouldn't be open to the
-internet. `app_version` defaults to `2.3.0` (must match whatever tag you pushed in step 2 —
+internet. `app_version` defaults to `2.3.0` (must match whatever tag CI pushes in step 3 —
 it seeds the node's cloud-init with the image tag used for `ecr-refresh`/pull auth, and
-should match the Helm `--set ...image.tag` you use in step 5, though the chart itself
-already defaults the image tag to `appVersion`).
+should match the Helm image tag the chart uses at install in step 5, though the chart
+itself already defaults the image tag to `appVersion`).
 
 This creates: two ECR repos (`datapond-backend`, `datapond-frontend`), the Aurora
 Serverless v2 pgvector cluster, the S3 data bucket, IAM (node instance role: S3 + Bedrock +
@@ -177,7 +153,8 @@ below):
   tokens expire every 12h; there's no static ECR credential anywhere).
 
 It does **not** install the DataPond app — that's a deliberate manual gate so the
-critical-secrets ordering in step 4 happens before the backend ever touches Aurora.
+operator controls secret handling (step 4) and passes the DB password + deploy-time
+outputs at install (step 5) rather than the node guessing them.
 
 ```bash
 # Confirm cloud-init finished before continuing:
@@ -189,46 +166,60 @@ tail -100 /var/log/datapond-bootstrap.log   # if it's not there yet
 
 ---
 
-## 4. Seed the critical-secrets vault (BEFORE the app runs)
+## 3. Build images
+
+The ECR repos now exist (created by step 2). Images are built and pushed by CI, not on
+the node (that was the bring-up hack this spec replaces). `.github/workflows/ecr-push.yml`
+triggers on:
+
+- **A published GitHub Release** (recommended for production cuts) — tags the images
+  with the chart's `appVersion` (`helm/datapond/Chart.yaml`, currently `2.3.0`) unless
+  overridden.
+- **`workflow_dispatch`** with an explicit `tag` input — useful for a hotfix build
+  without cutting a full release.
+
+```bash
+# Option A: cut a release (GitHub UI, or gh CLI)
+gh release create v2.3.0 --title "v2.3.0" --notes "Single-node prod deploy"
+
+# Option B: manual dispatch with an explicit tag
+gh workflow run ecr-push.yml -f tag=2.3.0-hotfix1
+```
+
+The workflow builds `backend/Dockerfile --target enterprise` from the **repo root**
+context (the P0-3/P0-4 requirement — the enterprise build needs `ee/` alongside
+`backend/`) and `frontend/Dockerfile` from `frontend/`, then pushes both to
+`datapond-backend:<tag>` / `datapond-frontend:<tag>` in the ECR repos created in step 2.
+
+> **ECR repos are `IMMUTABLE`** (`terraform/ecr.tf`): pushing the same tag twice fails.
+> Bump `appVersion` (or pass a distinct `-f tag=`) for every re-push, including hotfixes.
+
+---
+
+## 4. Seed the critical-secrets vault
 
 `ENCRYPTION_KEY` (plus `JWT_SECRET`/`INTERNAL_API_KEY`) live only in the in-cluster
 `datapond-secrets` Kubernetes Secret — they are **not durable across node loss**. If the
 node is ever rebuilt and Helm regenerates a fresh `ENCRYPTION_KEY`, every credential
 already encrypted-at-rest in Aurora under the old key becomes **permanently
-undecryptable**. `docs/DISASTER_RECOVERY.md` documents the mirror-to-Secrets-Manager
-procedure and the restore ordering; for a **production** bring-up, do the seeding
-up front so the vault and the live secret are identical from minute one — there is no
-window where they can drift, and a future node-loss restore is a pure copy-back with zero
-guesswork about which key generation is "the real one."
+undecryptable**. So the vault (`datapond/critical-secrets`, created empty by step 2) must
+hold a copy of these values. The mechanics differ between a first install and a rebuild —
+**pick the section that matches your situation.**
 
-Do this from the SSM session on the node (KUBECONFIG is already set up by cloud-init),
-**before** running `helm upgrade --install` in step 5:
+### 4a. Fresh install (primary path): let Helm generate, then mirror
+
+On a brand-new cluster, **do NOT hand-create `datapond-secrets` before Helm** — a
+`kubectl create secret` you make yourself lacks the Helm ownership metadata
+(`app.kubernetes.io/managed-by`, release annotations), and the `helm upgrade --install` in
+step 5 then aborts with *"Secret datapond-secrets ... cannot be imported into the current
+release: invalid ownership metadata"*. Instead let Helm generate all of `ENCRYPTION_KEY`/
+`JWT_SECRET`/`INTERNAL_API_KEY`/`ADMIN_PASSWORD` on first install (it does this
+automatically — see `helm/datapond/templates/secrets.yaml`), then **immediately after step
+5 completes and before any real connector credentials get stored**, mirror the DR subset
+into the Secrets Manager vault:
 
 ```bash
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-kubectl create namespace datapond --dry-run=client -o yaml | kubectl apply -f -
-
-# 1. Generate strong values yourself (rather than letting Helm auto-generate on first
-#    install) so you can seed the vault before the app ever starts:
-ENCRYPTION_KEY=$(openssl rand -base64 36)
-JWT_SECRET=$(openssl rand -base64 48)
-INTERNAL_API_KEY=$(openssl rand -base64 40)
-ADMIN_PASSWORD=$(openssl rand -base64 24)
-
-# 2. Pre-create the datapond-secrets Secret with these values. The chart's
-#    lookup-preserve logic (helm/datapond/templates/secrets.yaml) always prefers an
-#    EXISTING in-cluster Secret's keys over generating new ones, so `helm install` in
-#    step 5 will pick these up as-is rather than randomizing its own.
-kubectl -n datapond create secret generic datapond-secrets \
-  --from-literal=ENCRYPTION_KEY="$ENCRYPTION_KEY" \
-  --from-literal=JWT_SECRET="$JWT_SECRET" \
-  --from-literal=INTERNAL_API_KEY="$INTERNAL_API_KEY" \
-  --from-literal=ADMIN_PASSWORD="$ADMIN_PASSWORD" \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-# 3. Mirror the DR-relevant subset (ENCRYPTION_KEY/JWT_SECRET/INTERNAL_API_KEY — the
-#    exact payload docs/DISASTER_RECOVERY.md's restore procedure expects) into the
-#    Secrets Manager vault Terraform already created:
 SM=datapond/critical-secrets   # deterministic name; works even without TF state
 payload=$(kubectl -n datapond get secret datapond-secrets -o json | jq '{
   ENCRYPTION_KEY:   (.data.ENCRYPTION_KEY   | @base64d),
@@ -238,42 +229,80 @@ payload=$(kubectl -n datapond get secret datapond-secrets -o json | jq '{
 aws secretsmanager put-secret-value --secret-id "$SM" --secret-string "$payload"
 ```
 
+This is exactly the "One-time: seed the Secrets Manager vault" procedure in
+[`docs/DISASTER_RECOVERY.md`](DISASTER_RECOVERY.md) (§26). It is safe **as long as the
+vault is seeded before the first time credentials get encrypted under this cluster's
+`ENCRYPTION_KEY`** — right after install, nothing is encrypted yet.
+
+Because 4a mirrors *after* step 5, on a fresh install **run step 5 next, then come back and
+run the mirror command above.** Then retrieve and record the generated admin password:
+
+```bash
+kubectl -n datapond get secret datapond-secrets -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d; echo
+```
+
 **Record the vault name (`datapond/critical-secrets`) and `ADMIN_PASSWORD` out-of-band**
 (password manager) — in a real DR you may not have Terraform state handy to look up the
 ARN via `terraform output -raw critical_secrets_arn`.
 
-> If you skip this pre-seed and just run `helm upgrade --install` in step 5 directly,
-> Helm auto-generates all four values on first install instead (fine for a fresh cluster
-> with nothing encrypted yet) — in that case run the exact same steps 2-3 above
-> **immediately after** the first install completes and before any real connector
-> credentials get stored, per `docs/DISASTER_RECOVERY.md`'s "One-time: seed the Secrets
-> Manager vault" procedure. Either path is safe **as long as the vault is seeded before
-> the first time credentials get encrypted under this cluster's `ENCRYPTION_KEY`** — the
-> pre-seed path above just removes the timing dependency entirely.
+### 4b. Rebuild / restore: re-seed the Secret from the vault BEFORE the app
+
+On a **node rebuild** (the Secrets Manager vault already holds the real values from a prior
+install's 4a), you MUST restore `datapond-secrets` from the vault **before** `helm upgrade
+--install`, so Helm's lookup-preserve logic adopts the restored key instead of generating a
+fresh one that can't decrypt the restored Aurora's rows. This is the load-bearing
+secrets-first ordering — the full procedure and its rationale are in
+[`docs/DISASTER_RECOVERY.md`](DISASTER_RECOVERY.md) (procedure B + "Restore ordering"):
+
+```bash
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+kubectl create namespace datapond --dry-run=client -o yaml | kubectl apply -f -
+SM=datapond/critical-secrets
+vals=$(aws secretsmanager get-secret-value --secret-id "$SM" --query SecretString --output text)
+kubectl -n datapond create secret generic datapond-secrets \
+  --from-literal=ENCRYPTION_KEY="$(echo "$vals" | jq -r .ENCRYPTION_KEY)" \
+  --from-literal=JWT_SECRET="$(echo "$vals" | jq -r .JWT_SECRET)" \
+  --from-literal=INTERNAL_API_KEY="$(echo "$vals" | jq -r .INTERNAL_API_KEY)" \
+  --dry-run=client -o yaml | kubectl apply -f -
+# THEN run step 5 — the chart's lookup-preserve keeps these exact values.
+```
+
+(On this restore path Helm adopts a Secret it created originally, and lookup-preserve
+reads the restored keys — no ownership-metadata conflict, unlike a hand-created Secret on a
+truly fresh cluster.)
 
 ---
 
 ## 5. Install the app
 
 Still on the SSM session on the node (cloud-init already installed K3s + Helm + cert-
-manager; step 4 already seeded/pre-created `datapond-secrets`):
+manager). On a **fresh install** Helm generates `datapond-secrets` here (then do the 4a
+mirror right after); on a **rebuild** step 4b already restored it from the vault.
 
 ```bash
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 cd /path/to/datapond   # a checkout of this repo on the node, or scp'd helm/ chart dir
 
 DOMAIN=datapond.example.com
+DB_MASTER_PASSWORD='<the same value you passed to terraform apply -var db_master_password>'
 
 helm upgrade --install datapond helm/datapond -n datapond \
   --values helm/datapond/values-prod-single.yaml \
   --set externalDatabase.host=$(terraform -chdir=/path/to/terraform output -raw aurora_endpoint) \
   --set backend.image.repository=$(terraform -chdir=/path/to/terraform output -raw ecr_backend_repo_url) \
   --set frontend.image.repository=$(terraform -chdir=/path/to/terraform output -raw ecr_frontend_repo_url) \
-  --set ingress.domain=$DOMAIN
+  --set ingress.domain=$DOMAIN \
+  --set postgres.auth.password="$DB_MASTER_PASSWORD"
 ```
 
+`postgres.auth.password` MUST equal the Aurora master password you passed to `terraform
+apply -var db_master_password` — the backend reads it from `datapond-secrets` (as
+`POSTGRES_PASSWORD`) to build `DATABASE_URL`. Omit it and the chart falls through to a
+freshly-random password that Aurora will reject, and the backend never comes up (this is
+the exact failure the live bring-up hit).
+
 If you don't have Terraform state locally on the node, get the three outputs from
-wherever you ran `terraform apply` (step 3) and substitute them literally instead of
+wherever you ran `terraform apply` (step 2) and substitute them literally instead of
 `terraform output`:
 
 ```bash
@@ -282,7 +311,8 @@ helm upgrade --install datapond helm/datapond -n datapond \
   --set externalDatabase.host=datapond-pg.cluster-xxxxx.us-east-1.rds.amazonaws.com \
   --set backend.image.repository=<acct>.dkr.ecr.us-east-1.amazonaws.com/datapond-backend \
   --set frontend.image.repository=<acct>.dkr.ecr.us-east-1.amazonaws.com/datapond-frontend \
-  --set ingress.domain=datapond.example.com
+  --set ingress.domain=datapond.example.com \
+  --set postgres.auth.password='<the-aurora-master-password>'
 ```
 
 `values-prod-single.yaml` already sets: `imagePullSecrets: [regcred]` (the Secret cloud-
@@ -293,8 +323,8 @@ frontend/valkey/litellm; Trino/Spark/Polaris/Airflow/MLflow/Jupyter/RisingWave/
 OpenMetadata/Ollama/vLLM/MinIO all `enabled: false`), litellm's Bedrock model list
 (Titan embed + Claude Haiku/Sonnet, `us-east-1`), and `ingress.tls.enabled=true` with the
 `cert-manager.io/cluster-issuer: letsencrypt-prod` annotation. The image `tag` is not set
-explicitly — it defaults to the chart `appVersion`, which must match whatever you pushed
-in step 2.
+explicitly — it defaults to the chart `appVersion`, which must match whatever CI pushed
+in step 3.
 
 ```bash
 kubectl -n datapond rollout status deploy/backend

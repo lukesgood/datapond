@@ -66,6 +66,7 @@ spec:
     - dns01:
         route53:
           region: ${aws_region}
+          hostedZoneID: ${route53_zone_id}
 EOS
 
 # Note: app install (helm upgrade --install datapond ... from ECR) is done by the operator

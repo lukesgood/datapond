@@ -31,7 +31,7 @@ resource "aws_security_group" "node" {
     cidr_blocks = var.allowed_cidrs
   }
   ingress {
-    description = "HTTP (Traefik 301 -> 443 + ACME HTTP-01 fallback)"
+    description = "HTTP (Traefik 301 -> 443 redirect; TLS is DNS-01, not HTTP-01)"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
@@ -59,15 +59,16 @@ resource "aws_instance" "node" {
   }
 
   user_data = templatefile("${path.module}/templates/user-data.sh.tftpl", {
-    aws_region    = var.aws_region
-    domain        = var.domain
-    acme_email    = var.acme_email
-    ecr_registry  = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
-    backend_repo  = aws_ecr_repository.backend.repository_url
-    frontend_repo = aws_ecr_repository.frontend.repository_url
-    aurora_host   = aws_rds_cluster.aurora.endpoint
-    bucket_name   = aws_s3_bucket.data.bucket
-    app_version   = var.app_version
+    aws_region      = var.aws_region
+    domain          = var.domain
+    acme_email      = var.acme_email
+    route53_zone_id = var.route53_zone_id
+    ecr_registry    = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
+    backend_repo    = aws_ecr_repository.backend.repository_url
+    frontend_repo   = aws_ecr_repository.frontend.repository_url
+    aurora_host     = aws_rds_cluster.aurora.endpoint
+    bucket_name     = aws_s3_bucket.data.bucket
+    app_version     = var.app_version
   })
 
   tags = { Name = "${var.name_prefix}-k3s", managed-by = "terraform" }

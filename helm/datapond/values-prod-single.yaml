@@ -26,6 +26,8 @@ storage:
   region: us-east-1
 
 # --- Postgres: external Aurora (not in-cluster) ---
+# Set postgres.auth.password to the Aurora master password at deploy time (--set) — the
+# backend's POSTGRES_PASSWORD secret must match, or DB auth fails (backend won't come up).
 postgres:
   enabled: false
 externalDatabase:
