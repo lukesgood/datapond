@@ -20,6 +20,10 @@ spec:
         app: {{ .Values.backend.name }}
         version: {{ .Values.backend.image.tag | default .Chart.AppVersion }}
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       serviceAccountName: {{ .Values.backend.serviceAccountName | default "datapond-backend" }}
       containers:
       - name: backend
