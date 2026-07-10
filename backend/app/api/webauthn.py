@@ -67,11 +67,9 @@ def _challenge_store(nonce: str, challenge_b64: str, ttl: int = 300) -> None:
 def _challenge_pop(nonce: str) -> Optional[str]:
     r = _redis_client()
     if r:
-        key = f"webauthn:chal:{nonce}"
-        val = r.get(key)
-        if val is not None:
-            r.delete(key)  # single-use
-        return val
+        # getdel is atomic (Valkey/redis 7+): read+delete in one op so two concurrent
+        # replays cannot both observe the challenge before it is consumed.
+        return r.getdel(f"webauthn:chal:{nonce}")
     return _mem_challenges.pop(nonce, None)
 
 
@@ -188,14 +186,19 @@ async def authenticate_complete(req: AuthCompleteReq):
     chal = _challenge_pop(req.nonce)
     if not chal:
         raise HTTPException(status_code=400, detail="Challenge expired or already used")
-    raw_id = base64url_to_bytes(req.credential["rawId"] if "rawId" in req.credential else req.credential["id"])
+    try:
+        raw_id = base64url_to_bytes(req.credential["rawId"] if "rawId" in req.credential else req.credential["id"])
+    except Exception:
+        raise HTTPException(status_code=400, detail="Malformed credential")
     pool = await _get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            """SELECT c.id cid, c.public_key, c.sign_count, u.id uid, u.username, u.role
+            """SELECT c.id cid, c.public_key, c.sign_count, u.id uid, u.username, u.role, u.is_active
                FROM webauthn_credentials c JOIN users u ON u.id = c.user_id
                WHERE c.credential_id = $1""", raw_id)
-    if not row:
+    # Uniform "Unknown credential" for both unknown credential and disabled account so
+    # there is no active/inactive oracle. Lookup runs first so the two are indistinguishable.
+    if not row or not row["is_active"]:
         raise HTTPException(status_code=401, detail="Unknown credential")
     cfg = _webauthn_cfg()
     try:
