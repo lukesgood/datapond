@@ -31,7 +31,7 @@ resource "aws_security_group" "node" {
     cidr_blocks = var.allowed_cidrs
   }
   ingress {
-    description = "HTTP (Traefik 301 -> 443 redirect; TLS is DNS-01, not HTTP-01)"
+    description = "HTTP (Traefik 301 to 443 redirect; TLS via DNS-01, not HTTP-01)"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
