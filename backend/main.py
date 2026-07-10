@@ -33,6 +33,7 @@ from app.api.ai_vectors import router as ai_vectors_router
 from app.api.system_settings import router as system_settings_router, load_settings_on_startup
 from app.api.governance import router as governance_router
 from app.api.maintenance import router as maintenance_router, deploy_maintenance_dag
+from app.api.webauthn import router as webauthn_router
 from app.capabilities import compute_capabilities
 
 app = FastAPI(
@@ -170,6 +171,15 @@ async def startup():
     except Exception as e:
         logger.warning(f"[startup] RLS schema migration skipped: {e}")
 
+    # WebAuthn/passkey credentials table (idempotent — every startup). best-effort.
+    try:
+        from app.api.connectors import get_db_pool
+        from app.webauthn_schema import ensure_webauthn_schema
+        await ensure_webauthn_schema(await get_db_pool())
+        logger.info("[startup] webauthn schema ready")
+    except Exception as e:
+        logger.warning(f"[startup] webauthn schema skipped: {e}")
+
     # Iceberg 유지보수 DAG 배포 (best-effort — Airflow/PVC 미준비 시 건너뜀)
     try:
         await deploy_maintenance_dag()
@@ -224,6 +234,7 @@ app.include_router(ai_backends_router, prefix="/api")
 app.include_router(system_settings_router, prefix="/api")
 app.include_router(governance_router, prefix="/api")
 app.include_router(maintenance_router, prefix="/api")
+app.include_router(webauthn_router, prefix="/api")
 
 # Service endpoints (internal Kubernetes DNS)
 SERVICES = {
@@ -282,6 +293,8 @@ async def get_capabilities():
     """
     caps = compute_capabilities(os.environ)
     caps["sso"] = EE_SSO and str(os.environ.get("OIDC_ENABLED", "")).strip().lower() in ("1", "true", "yes", "on")
+    from app.api.webauthn import webauthn_enabled
+    caps["webauthn"] = webauthn_enabled()
     return caps
 
 

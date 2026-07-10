@@ -29,3 +29,4 @@ python-jose[cryptography]==3.3.0
 bcrypt==4.0.1
 anthropic==0.40.0
 ldap3==2.9.1
+webauthn>=2.0.0

@@ -677,6 +677,13 @@ auth:
     adminGroup: ""        # IdP group whose members get role=admin
     defaultRole: "viewer"
 
+  # Passkey / WebAuthn (passwordless login). Self-gates in the backend on
+  # HTTPS + RP config — always safe to inject even when empty.
+  webauthn:
+    rpId: ""      # Relying-Party ID = the app domain (no scheme/port), e.g. datapond.example.com. Empty ⇒ ingress.domain. WebAuthn needs HTTPS.
+    rpName: "DataPond"
+    origin: ""    # empty ⇒ {externalScheme}://{domain}. Must be https for passkeys to work.
+
 # ── AI / LLM (BYO-LLM 기본) ───────────────────────────────────────────────────
 # DataPond는 LiteLLM 게이트웨이 추상화만 기본 제공하고, LLM 추론은 외부 엔드포인트에 위임한다.
 # 단일 노드에 무거운 모델(Ollama 7B 등)을 co-locate하지 않는다(자원·성능 부담).

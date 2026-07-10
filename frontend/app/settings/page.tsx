@@ -23,6 +23,8 @@ import {
 } from "lucide-react"
 import { getUser } from "@/lib/auth"
 import { AiBackends } from "@/components/settings/ai-backends"
+import { PasskeyManager } from "@/components/passkey-manager"
+import { useCapability } from "@/lib/capabilities"
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -89,6 +91,7 @@ function CodeBlock({ label, code }: { label: string; code: string }) {
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
+  const webauthnEnabled = useCapability("webauthn")
   const [services, setServices] = useState<any[]>([])
   const [stats, setStats]       = useState<any>(null)
   const [loading, setLoading]   = useState(true)
@@ -299,6 +302,9 @@ export default function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Passkeys / WebAuthn */}
+            {webauthnEnabled && <PasskeyManager />}
 
             {/* Network isolation */}
             <Card>
