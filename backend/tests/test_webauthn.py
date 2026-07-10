@@ -33,3 +33,14 @@ def test_disabled_when_unconfigured(monkeypatch):
 def test_cfg_derives_origin_from_rp_id(monkeypatch):
     w = _fresh(monkeypatch, {"WEBAUTHN_RP_ID": "d.example.com"})
     assert w._webauthn_cfg()["origin"] == "https://d.example.com"
+
+
+def test_register_begin_returns_options_and_stores_challenge(monkeypatch):
+    w = _fresh(monkeypatch, {"WEBAUTHN_RP_ID": "localhost", "WEBAUTHN_ORIGIN": "http://localhost:3000"})
+    import asyncio
+    opts, nonce = asyncio.get_event_loop().run_until_complete(
+        w._build_registration_options(user_id="00000000-0000-0000-0000-000000000001", username="admin", existing=[])
+    )
+    assert "challenge" in opts and "rp" in opts
+    assert w._challenge_pop(nonce) is not None      # stored
+    assert w._challenge_pop(nonce) is None           # single-use consumed

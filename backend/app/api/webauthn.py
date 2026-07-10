@@ -6,7 +6,13 @@ import json
 import logging
 import os
 import secrets
+import uuid
 from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Depends, Request
+from pydantic import BaseModel
+
+from app.api.auth import require_user, _get_pool, _create_token, get_current_user
 
 logger = logging.getLogger(__name__)
 COSE_ALG_ALLOWLIST = [-7, -257]  # ES256, RS256
@@ -71,3 +77,79 @@ def _challenge_pop(nonce: str) -> Optional[str]:
 
 def _new_nonce() -> str:
     return secrets.token_urlsafe(24)
+
+
+router = APIRouter(prefix="/auth/webauthn", tags=["webauthn"])
+
+
+def _require_enabled():
+    if not webauthn_enabled():
+        raise HTTPException(status_code=404, detail="WebAuthn is not enabled")
+
+
+async def _build_registration_options(user_id: str, username: str, existing: list):
+    from webauthn import generate_registration_options, options_to_json
+    from webauthn.helpers.structs import (
+        AuthenticatorSelectionCriteria, ResidentKeyRequirement, UserVerificationRequirement,
+        PublicKeyCredentialDescriptor,
+    )
+    cfg = _webauthn_cfg()
+    opts = generate_registration_options(
+        rp_id=cfg["rp_id"], rp_name=cfg["rp_name"],
+        user_id=uuid.UUID(user_id).bytes, user_name=username,
+        exclude_credentials=[PublicKeyCredentialDescriptor(id=c) for c in existing],
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            resident_key=ResidentKeyRequirement.REQUIRED,
+            user_verification=UserVerificationRequirement.PREFERRED,
+        ),
+    )
+    nonce = _new_nonce()
+    _challenge_store(nonce, base64.b64encode(opts.challenge).decode())
+    return json.loads(options_to_json(opts)), nonce
+
+
+class CompleteReq(BaseModel):
+    nonce: str
+    credential: dict
+    name: Optional[str] = None
+
+
+@router.post("/register/begin")
+async def register_begin(user: dict = Depends(require_user)):
+    _require_enabled()
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT credential_id FROM webauthn_credentials WHERE user_id=$1", uuid.UUID(user["id"])
+        )
+    opts, nonce = await _build_registration_options(
+        user["id"], user["username"], [r["credential_id"] for r in rows]
+    )
+    return {"nonce": nonce, "options": opts}
+
+
+@router.post("/register/complete")
+async def register_complete(req: CompleteReq, user: dict = Depends(require_user)):
+    _require_enabled()
+    from webauthn import verify_registration_response
+    chal = _challenge_pop(req.nonce)
+    if not chal:
+        raise HTTPException(status_code=400, detail="Challenge expired or already used")
+    cfg = _webauthn_cfg()
+    try:
+        v = verify_registration_response(
+            credential=req.credential,
+            expected_challenge=base64.b64decode(chal),
+            expected_origin=cfg["origin"], expected_rp_id=cfg["rp_id"],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Registration verification failed: {e}")
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO webauthn_credentials (user_id, credential_id, public_key, sign_count, aaguid, name)
+               VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (credential_id) DO NOTHING""",
+            uuid.UUID(user["id"]), v.credential_id, v.credential_public_key, v.sign_count,
+            (uuid.UUID(v.aaguid) if getattr(v, "aaguid", None) else None), req.name,
+        )
+    return {"status": "ok"}
