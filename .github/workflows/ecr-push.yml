@@ -1,0 +1,44 @@
+name: Build + push images to ECR
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag (defaults to chart appVersion)"
+        required: false
+
+permissions:
+  id-token: write   # OIDC to assume the AWS role
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve tag
+        id: tag
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          [ -z "$TAG" ] && TAG=$(grep '^appVersion:' helm/datapond/Chart.yaml | awk '{print $2}' | tr -d '"')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+      - name: Build + push backend (enterprise, repo-root context)
+        run: |
+          REG=${{ steps.ecr.outputs.registry }}
+          docker build -f backend/Dockerfile --target enterprise -t $REG/datapond-backend:${{ steps.tag.outputs.tag }} .
+          docker push $REG/datapond-backend:${{ steps.tag.outputs.tag }}
+      - name: Build + push frontend
+        run: |
+          REG=${{ steps.ecr.outputs.registry }}
+          docker build -f frontend/Dockerfile -t $REG/datapond-frontend:${{ steps.tag.outputs.tag }} frontend/
+          docker push $REG/datapond-frontend:${{ steps.tag.outputs.tag }}
