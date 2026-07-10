@@ -1,0 +1,90 @@
+# Single-node K3s PRODUCTION profile. Foundation workloads + ECR images + real-domain TLS +
+# external Aurora/S3/Bedrock. Set ecr repo URLs + domain + externalDatabase.host at deploy
+# time from `terraform output` (they are account/deploy specific).
+#
+# Deploy:
+#   helm upgrade --install datapond helm/datapond -n datapond \
+#     -f helm/datapond/values-prod-single.yaml \
+#     --set externalDatabase.host=$(terraform output -raw aurora_endpoint) \
+#     --set backend.image.repository=$(terraform output -raw ecr_backend_repo_url) \
+#     --set frontend.image.repository=$(terraform output -raw ecr_frontend_repo_url) \
+#     --set ingress.domain=<your-domain>
+
+namespace: datapond
+
+# Pull the ECR images via the regcred secret the cloud-init ecr-refresh timer maintains.
+imagePullSecrets:
+  - name: regcred
+
+global:
+  externalScheme: https
+
+# --- Storage: native AWS S3 via the node instance profile (no static keys) ---
+storage:
+  provider: s3
+  endpoint: ""
+  region: us-east-1
+
+# --- Postgres: external Aurora (not in-cluster) ---
+# Set postgres.auth.password to the Aurora master password at deploy time (--set) — the
+# backend's POSTGRES_PASSWORD secret must match, or DB auth fails (backend won't come up).
+postgres:
+  enabled: false
+externalDatabase:
+  enabled: true
+  host: ""          # deploy time: terraform output -raw aurora_endpoint
+  port: 5432
+  name: datapond
+  sslmode: require
+
+# --- Images from ECR (repository set at deploy time; tag = chart appVersion via default) ---
+backend:
+  enabled: true
+  serviceAccountName: datapond-backend
+  image:
+    repository: ""  # deploy time: terraform output -raw ecr_backend_repo_url
+    pullPolicy: IfNotPresent
+frontend:
+  enabled: true
+  image:
+    repository: ""  # deploy time: terraform output -raw ecr_frontend_repo_url
+    pullPolicy: IfNotPresent
+valkey:
+  enabled: true
+
+litellm:
+  enabled: true
+  config:
+    model_list:
+      - model_name: "embed"
+        litellm_params: { model: "bedrock/amazon.titan-embed-text-v2:0", aws_region_name: "us-east-1" }
+      - model_name: "default"
+        litellm_params: { model: "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0", aws_region_name: "us-east-1" }
+      - model_name: "chat"
+        litellm_params: { model: "bedrock/us.anthropic.claude-sonnet-4-6", aws_region_name: "us-east-1" }
+  serviceAccount:
+    roleArn: ""     # K3s: empty (node instance profile). Not EKS/IRSA.
+
+# --- Heavy analytics: AWS-managed (Athena/EMR), not on the node ---
+trino: { enabled: false }
+spark: { enabled: false }
+polaris: { enabled: false }
+airflow: { enabled: false }
+mlflow: { enabled: false }
+jupyter: { enabled: false }
+risingwave: { enabled: false }
+openmetadata: { enabled: false }
+ollama: { enabled: false }
+vllm: { enabled: false }
+minio: { enabled: false }
+
+# --- Ingress: real domain + cert-manager Let's Encrypt TLS ---
+ingress:
+  enabled: true
+  className: traefik
+  domain: ""        # deploy time: var.domain (e.g. datapond.example.com)
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  tls:
+    enabled: true
+    secretName: datapond-tls
