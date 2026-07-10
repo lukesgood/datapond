@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { login, isAuthenticated, clearAuth, saveAuth } from "@/lib/auth"
-import { Loader2, Eye, EyeOff, ShieldCheck, Layers, Zap, Lock, AlertTriangle, WifiOff } from "lucide-react"
+import { Loader2, Eye, EyeOff, ShieldCheck, Layers, Zap, Lock, AlertTriangle, WifiOff, Fingerprint } from "lucide-react"
+import { startAuthentication } from "@simplewebauthn/browser"
 
 const FEATURES = [
   {
@@ -36,6 +37,8 @@ export default function LoginPage() {
   const [shake, setShake]         = useState(false)
   const [networkError, setNetworkError] = useState(false)
   const [ssoEnabled, setSsoEnabled] = useState(false)
+  const [webauthnEnabled, setWebauthnEnabled] = useState(false)
+  const [passkeyLoading, setPasskeyLoading] = useState(false)
 
   // Password change modal state
   const [showChangePw, setShowChangePw]     = useState(false)
@@ -69,7 +72,10 @@ export default function LoginPage() {
     // Feature flag: show the SSO button only when the backend (enterprise image +
     // OIDC_ENABLED) reports it. Fail-quiet: button simply doesn't render.
     fetch("/api/capabilities").then(r => r.ok ? r.json() : null)
-      .then(caps => setSsoEnabled(Boolean(caps?.sso))).catch(() => {})
+      .then(caps => {
+        setSsoEnabled(Boolean(caps?.sso))
+        setWebauthnEnabled(Boolean(caps?.webauthn))
+      }).catch(() => {})
 
     // Auth state lives in BOTH localStorage (no expiry) and the cookie (24h,
     // checked by proxy.ts). If only the cookie has expired, blindly bouncing to
@@ -126,6 +132,33 @@ export default function LoginPage() {
       setTimeout(() => setShake(false), 500)
       setPassword("")
       setLoading(false)
+    }
+  }
+
+  const passkeyLogin = async () => {
+    setPasskeyLoading(true)
+    setError(null)
+    try {
+      const begin = await fetch("/api/auth/webauthn/authenticate/begin", { method: "POST" })
+        .then(r => { if (!r.ok) throw new Error("Passkey sign-in is unavailable"); return r.json() })
+      const credential = await startAuthentication({ optionsJSON: begin.options })
+      const res = await fetch("/api/auth/webauthn/authenticate/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nonce: begin.nonce, credential }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => null)
+        throw new Error(d?.detail ?? "Passkey sign-in failed")
+      }
+      const data = await res.json()
+      // Same success path as password login: persist the token/user + navigate.
+      saveAuth(data.access_token, data.user)
+      window.location.replace("/dashboard")
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Passkey sign-in failed"
+      setError(msg)
+      setPasskeyLoading(false)
     }
   }
 
@@ -301,6 +334,15 @@ export default function LoginPage() {
               disabled={loading || !username || !password}>
               {loading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Signing in…</> : "Sign in"}
             </Button>
+
+            {webauthnEnabled && (
+              <Button type="button" variant="outline" className="w-full h-10 font-medium mt-2"
+                      disabled={passkeyLoading} onClick={passkeyLogin}>
+                {passkeyLoading
+                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Waiting for passkey…</>
+                  : <><Fingerprint className="h-4 w-4 mr-2" />Sign in with a passkey</>}
+              </Button>
+            )}
 
             {ssoEnabled && (
               <Button type="button" variant="outline" className="w-full h-10 font-medium mt-2"
