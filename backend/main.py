@@ -170,6 +170,15 @@ async def startup():
     except Exception as e:
         logger.warning(f"[startup] RLS schema migration skipped: {e}")
 
+    # WebAuthn/passkey credentials table (idempotent — every startup). best-effort.
+    try:
+        from app.api.connectors import get_db_pool
+        from app.webauthn_schema import ensure_webauthn_schema
+        await ensure_webauthn_schema(await get_db_pool())
+        logger.info("[startup] webauthn schema ready")
+    except Exception as e:
+        logger.warning(f"[startup] webauthn schema skipped: {e}")
+
     # Iceberg 유지보수 DAG 배포 (best-effort — Airflow/PVC 미준비 시 건너뜀)
     try:
         await deploy_maintenance_dag()

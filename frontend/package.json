@@ -11,6 +11,7 @@
   "dependencies": {
     "@base-ui/react": "^1.4.1",
     "@monaco-editor/react": "^4.7.0",
+    "@simplewebauthn/browser": "^13.0.0",
     "@types/dagre": "^0.7.54",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
