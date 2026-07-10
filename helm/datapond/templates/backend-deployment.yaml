@@ -242,6 +242,13 @@ spec:
         - name: OIDC_DEFAULT_ROLE
           value: "{{ .Values.auth.oidc.defaultRole | default "viewer" }}"
         {{- end }}
+        # Passkey / WebAuthn — always injected; backend self-gates on HTTPS + config.
+        - name: WEBAUTHN_RP_ID
+          value: "{{ .Values.auth.webauthn.rpId | default .Values.ingress.domain | default .Values.global.domain }}"
+        - name: WEBAUTHN_ORIGIN
+          value: "{{ .Values.auth.webauthn.origin | default (printf "%s://%s" (.Values.global.externalScheme | default "http") (.Values.ingress.domain | default .Values.global.domain)) }}"
+        - name: WEBAUTHN_RP_NAME
+          value: "{{ .Values.auth.webauthn.rpName | default "DataPond" }}"
         {{- if .Values.litellm.enabled }}
         # Master key — authenticates the backend to the LiteLLM admin API
         # (manage/switch model backends at runtime) and to /v1/chat/completions.
