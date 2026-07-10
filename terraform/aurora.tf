@@ -5,14 +5,14 @@ resource "aws_db_subnet_group" "aurora" {
 
 resource "aws_security_group" "aurora" {
   name   = "${var.name_prefix}-aurora-sg"
-  vpc_id = var.vpc_id
+  vpc_id = data.aws_vpc.selected.id
 
   ingress {
     description     = "Postgres from app"
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
-    security_groups = [var.app_security_group_id]
+    security_groups = [aws_security_group.node.id]
   }
   egress {
     from_port   = 0

@@ -20,9 +20,13 @@ Migrating an existing local state adds `-migrate-state` to that init. See bootst
 ## Apply
     terraform init
     terraform validate
-    terraform plan  -var vpc_id=vpc-xxx -var 'db_subnet_ids=["subnet-a","subnet-b"]' \
-                    -var app_security_group_id=sg-xxx -var db_master_password=...
+    terraform plan  -var 'db_subnet_ids=["subnet-a","subnet-b"]' -var db_master_password=... \
+                    -var domain=... -var route53_zone_id=... -var acme_email=...
     terraform apply <same vars>
+
+`vpc_id`/`subnet_id` are optional — omit them to use the account default VPC (see
+`data.aws_vpc.selected` in ec2.tf); the node's security group is wired automatically as
+Aurora's DB-ingress source, so no separate app-SG variable is needed.
 
 > **Teardown:** `deletion_protection=true` (default) blocks `terraform destroy` — run
 > `terraform apply -var db_deletion_protection=false` first. A second destroy also collides

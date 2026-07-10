@@ -20,17 +20,13 @@ variable "name_prefix" {
 variable "vpc_id" {
   type = string
   # Existing VPC (Aurora + the single-node EC2 both live here). Default "" ⇒ the account
-  # default VPC is used for the EC2 node/subnet data lookups (see ec2.tf); Aurora's
-  # aws_security_group still requires a real VPC id to be supplied at apply time.
+  # default VPC is used via data.aws_vpc.selected (see ec2.tf), which both the EC2
+  # node/subnet lookups and aurora.tf's security group now share.
   default = ""
 }
 
 variable "db_subnet_ids" {
   type = list(string) # >= 2 subnets for Aurora
-}
-
-variable "app_security_group_id" {
-  type = string # K3s EC2 SG (DB ingress source)
 }
 
 variable "db_master_password" {
