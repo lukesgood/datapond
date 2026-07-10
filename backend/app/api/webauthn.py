@@ -217,3 +217,25 @@ async def authenticate_complete(req: AuthCompleteReq):
     token = _create_token(str(row["uid"]), row["username"], row["role"])
     return {"access_token": token, "token_type": "bearer",
             "user": {"id": str(row["uid"]), "username": row["username"], "role": row["role"]}}
+
+
+@router.get("/credentials")
+async def list_credentials(user: dict = Depends(require_user)):
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT id, name, created_at, last_used_at FROM webauthn_credentials
+               WHERE user_id=$1 ORDER BY created_at DESC""", uuid.UUID(user["id"]))
+    return [{"id": str(r["id"]), "name": r["name"], "created_at": r["created_at"].isoformat(),
+             "last_used_at": r["last_used_at"].isoformat() if r["last_used_at"] else None} for r in rows]
+
+
+@router.delete("/credentials/{cred_id}")
+async def delete_credential(cred_id: str, user: dict = Depends(require_user)):
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        res = await conn.execute("DELETE FROM webauthn_credentials WHERE id=$1 AND user_id=$2",
+                                 uuid.UUID(cred_id), uuid.UUID(user["id"]))
+    if res.endswith("0"):
+        raise HTTPException(status_code=404, detail="Credential not found")
+    return {"status": "deleted"}

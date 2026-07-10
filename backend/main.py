@@ -33,6 +33,7 @@ from app.api.ai_vectors import router as ai_vectors_router
 from app.api.system_settings import router as system_settings_router, load_settings_on_startup
 from app.api.governance import router as governance_router
 from app.api.maintenance import router as maintenance_router, deploy_maintenance_dag
+from app.api.webauthn import router as webauthn_router
 from app.capabilities import compute_capabilities
 
 app = FastAPI(
@@ -233,6 +234,7 @@ app.include_router(ai_backends_router, prefix="/api")
 app.include_router(system_settings_router, prefix="/api")
 app.include_router(governance_router, prefix="/api")
 app.include_router(maintenance_router, prefix="/api")
+app.include_router(webauthn_router, prefix="/api")
 
 # Service endpoints (internal Kubernetes DNS)
 SERVICES = {
