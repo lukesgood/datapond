@@ -91,6 +91,7 @@ async def _build_registration_options(user_id: str, username: str, existing: lis
         AuthenticatorSelectionCriteria, ResidentKeyRequirement, UserVerificationRequirement,
         PublicKeyCredentialDescriptor,
     )
+    from webauthn.helpers.cose import COSEAlgorithmIdentifier
     cfg = _webauthn_cfg()
     opts = generate_registration_options(
         rp_id=cfg["rp_id"], rp_name=cfg["rp_name"],
@@ -100,6 +101,10 @@ async def _build_registration_options(user_id: str, username: str, existing: lis
             resident_key=ResidentKeyRequirement.REQUIRED,
             user_verification=UserVerificationRequirement.PREFERRED,
         ),
+        # Enforce the COSE algorithm allowlist (spec §6/§7): only offer ES256/RS256, so the
+        # authenticator can only mint a credential with an allowed alg. Driven from the module
+        # constant so the two never drift.
+        supported_pub_key_algs=[COSEAlgorithmIdentifier(a) for a in COSE_ALG_ALLOWLIST],
     )
     nonce = _new_nonce()
     _challenge_store(nonce, base64.b64encode(opts.challenge).decode())
