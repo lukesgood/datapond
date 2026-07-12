@@ -79,6 +79,22 @@ variable "db_kms_key_id" {
   default = null # optional CMK; null ⇒ AWS-managed aws/rds key
 }
 
+# ── Off-hours cost (Aurora Serverless v2 min ACU) ──────────────────────────
+variable "db_min_acu" {
+  type = number
+  # 0 = scale-to-zero (Aurora Serverless v2 "auto-pause"), which needs a recent-enough
+  # Postgres engine version (see var.db_engine_version) — if the engine rejects 0, set
+  # this to 0.5 (the pre-auto-pause floor) instead. Paired with the node's weekday-hours
+  # scheduler (scheduler.tf), this is what actually removes off-hours DB compute cost —
+  # stopping the EC2 node alone doesn't stop Aurora from billing at min ACU.
+  default = 0
+}
+
+variable "db_max_acu" {
+  type    = number
+  default = 4 # unchanged ceiling; scales up to this under load regardless of db_min_acu
+}
+
 variable "eks_oidc_provider_arn" {
   type    = string
   default = "" # arn:aws:iam::<acct>:oidc-provider/oidc.eks.<region>.amazonaws.com/id/XXXX

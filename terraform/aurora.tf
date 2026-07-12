@@ -51,9 +51,12 @@ resource "aws_rds_cluster" "aurora" {
   skip_final_snapshot          = var.db_skip_final_snapshot
   final_snapshot_identifier    = "${var.name_prefix}-pg-final-snapshot"
 
+  # min_capacity defaults to 0 (scale-to-zero) to cut off-hours cost — see var.db_min_acu.
+  # True pause (billing drops to ~0 between connections) requires the engine's scale-to-zero
+  # support; older engine versions only scale down to 0.5 ACU minimum.
   serverlessv2_scaling_configuration {
-    min_capacity = 0.5
-    max_capacity = 4.0
+    min_capacity = var.db_min_acu
+    max_capacity = var.db_max_acu
   }
 }
 
