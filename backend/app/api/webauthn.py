@@ -198,7 +198,8 @@ async def authenticate_complete(req: AuthCompleteReq):
     pool = await _get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            """SELECT c.id cid, c.public_key, c.sign_count, u.id uid, u.username, u.role, u.is_active
+            """SELECT c.id cid, c.public_key, c.sign_count, u.id uid, u.username, u.role, u.is_active,
+                      u.require_password_change
                FROM webauthn_credentials c JOIN users u ON u.id = c.user_id
                WHERE c.credential_id = $1""", raw_id)
     # Uniform "Unknown credential" for both unknown credential and disabled account so
@@ -221,7 +222,8 @@ async def authenticate_complete(req: AuthCompleteReq):
                            v.new_sign_count, row["cid"])
     token = _create_token(str(row["uid"]), row["username"], row["role"])
     return {"access_token": token, "token_type": "bearer",
-            "user": {"id": str(row["uid"]), "username": row["username"], "role": row["role"]}}
+            "user": {"id": str(row["uid"]), "username": row["username"], "role": row["role"],
+                     "require_password_change": bool(row["require_password_change"])}}
 
 
 @router.get("/credentials")
