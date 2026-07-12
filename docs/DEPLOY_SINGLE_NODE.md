@@ -279,6 +279,24 @@ Still on the SSM session on the node (cloud-init already installed K3s + Helm + 
 manager). On a **fresh install** Helm generates `datapond-secrets` here (then do the 4a
 mirror right after); on a **rebuild** step 4b already restored it from the vault.
 
+> **Namespace ownership.** Cloud-init already created the `datapond` namespace itself
+> (`kubectl create namespace datapond --dry-run=client -o yaml | kubectl apply -f -`, in
+> `terraform/templates/user-data.sh.tftpl`) so the `regcred` pull-secret has somewhere to
+> live before this step runs. The chart's own `templates/namespace.yaml` is gated behind
+> `createNamespace` (default `false` in `values.yaml`) for exactly this reason: if the
+> chart tried to render a `kind: Namespace` it doesn't already own, `helm upgrade
+> --install` below would fail with *"... cannot be imported into the current release:
+> invalid ownership metadata"* against the namespace cloud-init already made. With the
+> default (`createNamespace=false`, and no `--create-namespace` flag on the `helm` command
+> below), Helm neither renders nor tries to adopt the Namespace object — it just deploys
+> into the existing `datapond` namespace, no conflict. Only pass `--set
+> createNamespace=true` if you want Helm itself to own the namespace going forward; if you
+> do, first adopt the cloud-init-created one so Helm's ownership check passes:
+> ```bash
+> kubectl label ns datapond app.kubernetes.io/managed-by=Helm --overwrite
+> kubectl annotate ns datapond meta.helm.sh/release-name=datapond meta.helm.sh/release-namespace=datapond --overwrite
+> ```
+
 ```bash
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 cd /path/to/datapond   # a checkout of this repo on the node, or scp'd helm/ chart dir
