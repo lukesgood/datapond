@@ -24,7 +24,7 @@ import {
 import { getUser } from "@/lib/auth"
 import { AiBackends } from "@/components/settings/ai-backends"
 import { PasskeyManager } from "@/components/passkey-manager"
-import { useCapability } from "@/lib/capabilities"
+import { useCapabilityStrict } from "@/lib/capabilities"
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -91,7 +91,10 @@ function CodeBlock({ label, code }: { label: string; code: string }) {
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
-  const webauthnEnabled = useCapability("webauthn")
+  // Fail-closed: only render passkey management when the backend explicitly
+  // reports webauthn=true. A /api/capabilities fetch error must not show the
+  // secure-context-sensitive passkey UI (mirrors the login page's strict gate).
+  const webauthnEnabled = useCapabilityStrict("webauthn")
   const [services, setServices] = useState<any[]>([])
   const [stats, setStats]       = useState<any>(null)
   const [loading, setLoading]   = useState(true)
