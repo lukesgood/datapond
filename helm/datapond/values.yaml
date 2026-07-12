@@ -14,6 +14,16 @@ global:
 # Namespace
 namespace: datapond
 
+# Whether the chart itself renders a `kind: Namespace` resource. Default false: the
+# namespace is expected to already exist (created by `helm --create-namespace`, `kubectl
+# create namespace`, or e.g. cloud-init provisioning a regcred pull-secret target ahead of
+# install). Leaving this false avoids Helm's ownership-adoption failure ("cannot be
+# imported into the current release: invalid ownership metadata") when the namespace
+# pre-exists without Helm's `app.kubernetes.io/managed-by`/release annotations. Only set
+# true if you want Helm to create *and own* the namespace itself (and it does not already
+# exist, or has already been labeled/annotated for adoption — see docs/DEPLOY_SINGLE_NODE.md).
+createNamespace: false
+
 # Pull secrets for private registries (e.g. ECR regcred on single-node prod). Empty on
 # profiles that use public images.
 imagePullSecrets: []
