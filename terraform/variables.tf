@@ -26,7 +26,12 @@ variable "vpc_id" {
 }
 
 variable "db_subnet_ids" {
-  type = list(string) # >= 2 subnets for Aurora
+  type = list(string) # >= 2 subnets for Aurora, in different AZs
+  # Default [] ⇒ aurora.tf's local.db_subnet_ids falls back to the first 2 subnets
+  # discovered in the default VPC (data.aws_subnets.public, see ec2.tf). The default VPC
+  # gives one subnet per AZ, so slice(...,0,2) spans 2 AZs — good enough for a dev/PoC
+  # deploy. A custom VPC with fewer than 2 AZ-distinct subnets MUST set this explicitly.
+  default = []
 }
 
 variable "db_master_password" {

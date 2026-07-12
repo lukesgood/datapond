@@ -1,6 +1,13 @@
+locals {
+  # Aurora needs >= 2 subnets in different AZs. Default VPC gives one subnet per AZ, so
+  # slice(...,0,2) on the discovered public subnets (data.aws_subnets.public, ec2.tf) spans
+  # 2 AZs. A custom VPC with < 2 AZ-distinct subnets must set var.db_subnet_ids explicitly.
+  db_subnet_ids = length(var.db_subnet_ids) > 0 ? var.db_subnet_ids : slice(data.aws_subnets.public.ids, 0, 2)
+}
+
 resource "aws_db_subnet_group" "aurora" {
   name       = "${var.name_prefix}-aurora"
-  subnet_ids = var.db_subnet_ids
+  subnet_ids = local.db_subnet_ids
 }
 
 resource "aws_security_group" "aurora" {
