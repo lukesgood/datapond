@@ -71,6 +71,11 @@ postgres:
   replication:
     enabled: true  # Enable HA
     replicas: 2
+  # Auth - MUST CHANGE ALL PASSWORDS
+  auth:
+    database: datapond
+    username: datapond
+    password: ""  # empty ⇒ generated (see templates/secrets.yaml)
 
 # Valkey - Production (Redis-compatible)
 valkey:
@@ -102,6 +107,9 @@ jupyter:
   persistence:
     enabled: true
     size: 100Gi
+  env:
+    - name: JUPYTER_ENABLE_LAB
+      value: "yes"
 
 # MLflow - Production
 mlflow:
@@ -155,6 +163,10 @@ airflow:
       size: 50Gi
     logs:
       size: 100Gi
+  # Auth - MUST CHANGE ALL PASSWORDS
+  auth:
+    username: admin
+    password: ""  # empty ⇒ generated (see templates/secrets.yaml)
 
 # Spark - Full cluster
 spark:
@@ -201,18 +213,7 @@ networkPolicies:
 podSecurityPolicy:
   enabled: true
 
-# Auth - MUST CHANGE ALL PASSWORDS
-postgres:
-  auth:
-    database: datapond
-    username: datapond
-    password: ""  # empty ⇒ generated (see templates/secrets.yaml)
-
-airflow:
-  auth:
-    username: admin
-    password: ""  # empty ⇒ generated (see templates/secrets.yaml)
-
+# Object storage (MinIO) - Production
 storage:
   provider: minio
   endpoint: "minio:9000"
@@ -226,11 +227,6 @@ minio:
     rootPassword: ""  # empty ⇒ generated (see templates/secrets.yaml)
   persistence:
     size: 500Gi
-
-jupyter:
-  env:
-    - name: JUPYTER_ENABLE_LAB
-      value: "yes"
 
 # ServiceMonitor for Prometheus Operator
 serviceMonitor:
