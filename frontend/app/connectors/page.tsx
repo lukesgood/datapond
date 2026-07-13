@@ -120,9 +120,9 @@ function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated }: {
             <Zap className="h-3.5 w-3.5" />
             Get started with Ingestion
           </div>
-          <h3 className="text-xl font-bold">Connect your data sources to the Lakehouse</h3>
+          <h3 className="text-xl font-bold">Connect your data sources</h3>
           <p className="text-sm text-muted-foreground max-w-lg mx-auto">
-            DataPond pulls data from any source into Iceberg tables — queryable instantly via Trino, DuckDB, or any SQL tool.
+            DataPond pulls data from any source into governed tables on S3 — ready for RAG and queryable via Athena (or Trino when enabled).
           </p>
         </div>
       )}

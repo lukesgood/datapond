@@ -148,7 +148,7 @@ export default function CatalogPage() {
       <div>
         <h2 className="text-3xl font-bold tracking-tight">Data Catalog</h2>
         <p className="text-muted-foreground">
-          Browse and explore tables registered in the Lakehouse catalog
+          Browse and explore tables registered in the catalog
         </p>
       </div>
 

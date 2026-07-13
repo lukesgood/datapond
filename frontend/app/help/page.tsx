@@ -26,7 +26,7 @@ import {
 const guides = [
   {
     title: "SQL Lab Guide",
-    description: "Write and execute SQL queries against your lakehouse",
+    description: "Write and execute SQL queries against your data",
     icon: Code2,
     href: "/help/sql-lab",
     color: "text-blue-500",

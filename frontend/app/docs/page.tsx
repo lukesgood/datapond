@@ -60,7 +60,7 @@ const docCategories: DocCategory[] = [
       },
       {
         title: "Architecture Guide",
-        description: "Understanding the lakehouse architecture",
+        description: "Understanding the AWS-native foundation architecture",
         href: "/docs/architecture",
       },
       {
@@ -140,8 +140,8 @@ const docCategories: DocCategory[] = [
         href: "/docs/polaris",
       },
       {
-        title: "S3-Compatible Storage",
-        description: "Access data via SeaweedFS S3 API",
+        title: "Object Storage (AWS S3)",
+        description: "Native S3 via the node instance profile / IRSA",
         href: "/docs/storage",
       },
       {

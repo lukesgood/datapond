@@ -60,12 +60,16 @@ LiteLLM connects to Bedrock for embeddings (Titan) and generation (Claude). Cred
 - /api/ai/rag returns has_ai=true with non-empty citations referencing s3://<bucket> sources.
 - backend logs show no 502 from embeddings and no egress-policy 403.
 
-## 6. Local / on-prem object storage (MinIO)
-On non-AWS profiles (`values-dev`, `values-quicktest`, `values-onprem`, `values-prod`)
-the in-cluster S3 store is **MinIO** (it replaced SeaweedFS). The AWS profile
-(`values-aws`) sets `minio.enabled: false` and uses native S3 instead.
+## 6. Local / on-prem object storage (MinIO) — self-hosted / full-profile only
+> **Scope:** This section applies only to the **self-hosted / full lakehouse profiles**.
+> The AWS **foundation** profile (`values-foundation.yaml`) and `values-aws.yaml` use
+> **native Amazon S3** (no in-cluster MinIO) — skip this section for those deployments.
 
-- S3 API: `http://minio:9000` (what Trino/Spark/Polaris/RisingWave/MLflow/Jupyter/backend point at)
+On non-AWS profiles (`values-dev`, `values-quicktest`, `values-onprem`, `values-prod`)
+the in-cluster S3 store is **MinIO** (it replaced SeaweedFS). The AWS profiles
+(`values-aws`, `values-foundation`) set `minio.enabled: false` and use native S3 instead.
+
+- S3 API: `http://minio:9000` (what the analytics engines — Trino/Spark/Polaris/RisingWave/MLflow/Jupyter — and the backend point at **when those engines are enabled**; the foundation profile runs none of them)
 - Console UI: `http://minio:9001` (exposed via ingress when `minio.enabled`)
 - Buckets: the `iceberg` warehouse bucket is created by the `minio-bucket-init` Job
   (post-install/upgrade hook).
@@ -118,6 +122,9 @@ should only trip if the Secret was hand-edited or deployed outside Helm.
 ## Component passwords (P0-1b)
 POSTGRES_PASSWORD, MinIO S3_SECRET_KEY, AIRFLOW_PASSWORD, JUPYTER_TOKEN, POLARIS_CLIENT_SECRET
 are auto-generated on first install and preserved across upgrades (lookup-preserve).
+Note: MinIO/AIRFLOW/JUPYTER/POLARIS secrets are only generated/used on **self-hosted / full
+profiles** that enable those components — the AWS **foundation** profile (native S3, no
+Airflow/Jupyter/Polaris) does not use them.
 Retrieve any of them:
 
     kubectl -n datapond get secret datapond-secrets -o jsonpath='{.data.<KEY>}' | base64 -d
