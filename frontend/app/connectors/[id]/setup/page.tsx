@@ -517,7 +517,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                       note: hasIncrementalColumns
                         ? `${Object.values(tableConfigs).filter(c => c.enabled && c.incremental_column).length} tables configured`
                         : "No watermark columns set in Step 2",
-                      noteColor: hasIncrementalColumns ? "text-green-600" : "text-amber-500",
+                      noteColor: hasIncrementalColumns ? "text-[var(--dp-good)]" : "text-[var(--dp-warn)]",
                     },
                   ].map(opt => (
                     <button
@@ -540,7 +540,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                   ))}
                 </div>
                 {syncMode === "incremental" && !hasIncrementalColumns && (
-                  <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+                  <div className="flex items-start gap-2 rounded-md bg-[var(--dp-warn)]/10 border border-[var(--dp-warn)]/20 px-3 py-2 text-xs text-[var(--dp-warn)]">
                     <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                     No watermark columns were set in Step 2. Incremental sync will behave like Full Refresh until columns are configured.
                   </div>
@@ -579,7 +579,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                 </div>
                 {syncFrequency !== "manual" && (
                   <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                    <CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good)]" />
                     Airflow DAG will be created automatically
                   </p>
                 )}

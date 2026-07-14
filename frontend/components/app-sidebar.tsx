@@ -41,7 +41,7 @@ type NavSection = {
 const mainSections: NavSection[] = [
   {
     label: "Collect",
-    hint: "데이터 수집",
+    hint: "Data collection",
     items: [
       { title: "Ingestion",   url: "/connectors", icon: ArrowDownToLine, capability: "connectors" },
       { title: "Streaming",   url: "/streaming",  icon: Radio,           capability: "streaming" },
@@ -49,7 +49,7 @@ const mainSections: NavSection[] = [
   },
   {
     label: "Transform",
-    hint: "데이터 변환",
+    hint: "Data transformation",
     items: [
       { title: "Transforms",  url: "/pipelines",  icon: GitBranch,  capability: "pipelines" },
       { title: "Catalog",     url: "/catalog",    icon: Database,   capability: "catalog" },
@@ -57,7 +57,7 @@ const mainSections: NavSection[] = [
   },
   {
     label: "Analyze",
-    hint: "데이터 분석",
+    hint: "Data analysis",
     items: [
       { title: "Query Lab",    url: "/query",       icon: Code2,        capability: "query" },
       { title: "Knowledge",    url: "/knowledge",   icon: Sparkles },

@@ -61,13 +61,13 @@ export default function LoginPage() {
         fetch("/api/auth/me", { headers: { Authorization: `Bearer ${ssoToken}` } })
           .then(r => { if (!r.ok) throw new Error("sso session invalid"); return r.json() })
           .then(me => { saveAuth(ssoToken, me); window.location.replace("/dashboard") })
-          .catch(() => { clearAuth(); setError("SSO 로그인에 실패했습니다. 다시 시도해 주세요.") })
+          .catch(() => { clearAuth(); setError("SSO sign-in failed. Please try again.") })
         return
       }
     }
     if (params.get("error") === "sso_failed") {
       const reason = params.get("reason") ?? "unknown"
-      setError(`SSO 로그인 실패 (${reason}). 관리자에게 문의하거나 로컬 계정으로 로그인하세요.`)
+      setError(`SSO sign-in failed (${reason}). Contact your administrator or sign in with a local account.`)
     }
     // Feature flag: show the SSO button only when the backend (enterprise image +
     // OIDC_ENABLED) reports it. Fail-quiet: button simply doesn't render.
@@ -92,7 +92,7 @@ export default function LoginPage() {
         })
         .catch(() => {
           clearAuth()
-          setError("세션이 만료되었습니다. 다시 로그인해 주세요.")
+          setError("Your session has expired. Please sign in again.")
         })
     }
     usernameRef.current?.focus()

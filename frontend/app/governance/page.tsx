@@ -49,10 +49,10 @@ import type {
 
 function relativeTime(iso: string): string {
   const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
-  if (diff < 60) return `${diff}초 전`
-  if (diff < 3600) return `${Math.floor(diff / 60)}분 전`
-  if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`
-  return `${Math.floor(diff / 86400)}일 전`
+  if (diff < 60) return `${diff}s ago`
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return `${Math.floor(diff / 86400)}d ago`
 }
 
 function truncate(s: string, n: number) {
@@ -96,11 +96,11 @@ function StatCard({ label, value, icon, colorClass, bgClass, loading }: StatCard
 
 function EventBadge({ type }: { type: string }) {
   const map: Record<string, { label: string; className: string }> = {
-    query_executed:    { label: "쿼리 실행",    className: "border-blue-400 text-blue-500" },
+    query_executed:    { label: "Query executed",    className: "border-blue-400 text-blue-500" },
     ai_sql_generated:  { label: "AI SQL",       className: "border-violet-400 text-violet-500" },
-    pii_detected:      { label: "PII 탐지",     className: "border-amber-400 text-amber-500" },
-    login_success:     { label: "로그인 성공",  className: "border-gray-400 text-gray-500" },
-    login_failure:     { label: "로그인 실패",  className: "border-red-400 text-red-500" },
+    pii_detected:      { label: "PII detected",     className: "border-amber-400 text-amber-500" },
+    login_success:     { label: "Login success",  className: "border-gray-400 text-gray-500" },
+    login_failure:     { label: "Login failure",  className: "border-red-400 text-red-500" },
   }
   const cfg = map[type] ?? { label: type, className: "border-gray-300 text-gray-400" }
   return (
@@ -114,11 +114,11 @@ function EventBadge({ type }: { type: string }) {
 
 function ResultBadge({ result }: { result: string }) {
   if (result === "통과" || result === "pass" || result === "success")
-    return <Badge className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 border-0">통과</Badge>
+    return <Badge className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 border-0">Passed</Badge>
   if (result === "차단" || result === "blocked")
-    return <Badge className="bg-red-500/10 text-red-500 hover:bg-red-500/20 border-0">차단</Badge>
+    return <Badge className="bg-red-500/10 text-red-500 hover:bg-red-500/20 border-0">Blocked</Badge>
   if (result === "마스킹" || result === "masked")
-    return <Badge className="bg-amber-500/10 text-yellow-500 hover:bg-amber-500/20 border-0">마스킹</Badge>
+    return <Badge className="bg-amber-500/10 text-yellow-500 hover:bg-amber-500/20 border-0">Masked</Badge>
   return <Badge variant="secondary">{result}</Badge>
 }
 
@@ -126,10 +126,10 @@ function ResultBadge({ result }: { result: string }) {
 
 function RiskBadge({ risk }: { risk: string }) {
   if (risk === "high")
-    return <Badge className="bg-red-500/10 text-red-500 border-0">고위험</Badge>
+    return <Badge className="bg-red-500/10 text-red-500 border-0">High risk</Badge>
   if (risk === "medium")
-    return <Badge className="bg-amber-500/10 text-yellow-500 border-0">주의</Badge>
-  return <Badge className="bg-blue-500/10 text-blue-500 border-0">정상</Badge>
+    return <Badge className="bg-amber-500/10 text-yellow-500 border-0">Caution</Badge>
+  return <Badge className="bg-blue-500/10 text-blue-500 border-0">Normal</Badge>
 }
 
 // ─── PII type color ───────────────────────────────────────────────────────────
@@ -196,7 +196,7 @@ function AccessControlTab() {
       fetch("/api/governance/roles").then((r) => r.ok ? r.json() : []),
     ])
       .then(([p, m, ro]) => { setPolicies(p ?? []); setMasks(m ?? []); setRoles(ro ?? []) })
-      .catch((e) => setErr(e === 403 || e === 401 ? "admin 권한이 필요합니다" : `로드 실패 (${e})`))
+      .catch((e) => setErr(e === 403 || e === 401 ? "Admin permission required" : `Failed to load (${e})`))
       .finally(() => setLoading(false))
   }
   useEffect(load, [])
@@ -222,7 +222,7 @@ function AccessControlTab() {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     })
     if (r.ok) { setForm({ ...form, name: "", schema_name: "", table_name: "", filter_expression: "", role_names: "" }); load() }
-    else setErr((await r.json().catch(() => ({})))?.detail ?? "생성 실패")
+    else setErr((await r.json().catch(() => ({})))?.detail ?? "Failed to create")
   }
 
   const togglePolicy = async (p: RlsPolicy) => {
@@ -233,17 +233,17 @@ function AccessControlTab() {
   }
   const confirm = useConfirm()
   const deletePolicy = async (id: string) => {
-    if (!(await confirm({ title: "정책 삭제", message: "이 RLS 정책을 삭제할까요?", destructive: true, confirmText: "삭제" }))) return
+    if (!(await confirm({ title: "Delete policy", message: "Delete this RLS policy?", destructive: true, confirmText: "Delete" }))) return
     await fetch(`/api/governance/rls/policies/${id}`, { method: "DELETE" }); load()
   }
   const runPreview = async () => {
     let attrs = {}
-    try { attrs = JSON.parse(pvAttrs || "{}") } catch { setPvResult({ error: "attributes JSON 파싱 실패" }); return }
+    try { attrs = JSON.parse(pvAttrs || "{}") } catch { setPvResult({ error: "Failed to parse attributes JSON" }); return }
     const r = await fetch("/api/governance/rls/preview", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sql: pvSql, roles: pvRoles.split(",").map((s) => s.trim()).filter(Boolean), attributes: attrs }),
     })
-    setPvResult(await r.json().catch(() => ({ error: "응답 파싱 실패" })))
+    setPvResult(await r.json().catch(() => ({ error: "Failed to parse response" })))
   }
 
   if (loading) return <Skeleton className="h-64" />
@@ -257,38 +257,38 @@ function AccessControlTab() {
     <div className="space-y-4">
       {/* Create policy */}
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2"><Lock className="h-4 w-4" />RLS 정책 추가</CardTitle></CardHeader>
+        <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2"><Lock className="h-4 w-4" />Add RLS Policy</CardTitle></CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-3">
-          <Input placeholder="정책 이름" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <Input placeholder="schema (예: sales)" value={form.schema_name} onChange={(e) => setForm({ ...form, schema_name: e.target.value })} />
-          <Input placeholder="table (예: orders)" value={form.table_name} onChange={(e) => setForm({ ...form, table_name: e.target.value })} />
-          <Input className="md:col-span-2 font-mono text-xs" placeholder="filter (예: region = current_user_attribute('region'))" value={form.filter_expression} onChange={(e) => setForm({ ...form, filter_expression: e.target.value })} />
-          <Input placeholder="적용 역할 (쉼표, 예: business_analyst)" value={form.role_names} onChange={(e) => setForm({ ...form, role_names: e.target.value })} />
+          <Input placeholder="Policy name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <Input placeholder="schema (e.g. sales)" value={form.schema_name} onChange={(e) => setForm({ ...form, schema_name: e.target.value })} />
+          <Input placeholder="table (e.g. orders)" value={form.table_name} onChange={(e) => setForm({ ...form, table_name: e.target.value })} />
+          <Input className="md:col-span-2 font-mono text-xs" placeholder="filter (e.g. region = current_user_attribute('region'))" value={form.filter_expression} onChange={(e) => setForm({ ...form, filter_expression: e.target.value })} />
+          <Input placeholder="Roles to apply (comma-separated, e.g. business_analyst)" value={form.role_names} onChange={(e) => setForm({ ...form, role_names: e.target.value })} />
           <div className="md:col-span-3">
-            <Button size="sm" onClick={createPolicy} disabled={!form.name || !form.schema_name || !form.table_name || !form.filter_expression}>정책 생성</Button>
+            <Button size="sm" onClick={createPolicy} disabled={!form.name || !form.schema_name || !form.table_name || !form.filter_expression}>Create policy</Button>
           </div>
         </CardContent>
       </Card>
 
       {/* Policy list */}
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">RLS 정책 ({policies.length})</CardTitle></CardHeader>
+        <CardHeader className="pb-3"><CardTitle className="text-base">RLS Policies ({policies.length})</CardTitle></CardHeader>
         <CardContent className="p-0">
           <Table>
             <TableHeader><TableRow>
-              <TableHead>테이블</TableHead><TableHead>필터식</TableHead><TableHead>역할</TableHead>
-              <TableHead>우선순위</TableHead><TableHead>상태</TableHead><TableHead></TableHead>
+              <TableHead>Table</TableHead><TableHead>Filter expression</TableHead><TableHead>Roles</TableHead>
+              <TableHead>Priority</TableHead><TableHead>Status</TableHead><TableHead></TableHead>
             </TableRow></TableHeader>
             <TableBody>
-              {policies.length === 0 && <TableRow><TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-6">등록된 정책 없음 — default_deny로 모든 테이블이 차단됩니다.</TableCell></TableRow>}
+              {policies.length === 0 && <TableRow><TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-6">No policies registered — default_deny blocks all tables.</TableCell></TableRow>}
               {policies.map((p) => (
                 <TableRow key={p.id}>
                   <TableCell className="font-mono text-xs">{p.catalog_name}.{p.schema_name}.{p.table_name}</TableCell>
                   <TableCell className="font-mono text-xs max-w-[260px] truncate" title={p.filter_expression}>{p.filter_expression}</TableCell>
-                  <TableCell>{p.roles.map((r) => <Badge key={r} variant="secondary" className="text-[10px] mr-1">{r}</Badge>)}{p.exempt_roles.map((r) => <Badge key={r} variant="outline" className="text-[10px] mr-1">면제:{r}</Badge>)}</TableCell>
+                  <TableCell>{p.roles.map((r) => <Badge key={r} variant="secondary" className="text-[10px] mr-1">{r}</Badge>)}{p.exempt_roles.map((r) => <Badge key={r} variant="outline" className="text-[10px] mr-1">Exempt: {r}</Badge>)}</TableCell>
                   <TableCell className="text-xs">{p.priority}</TableCell>
-                  <TableCell><Badge variant={p.enabled ? "secondary" : "outline"} className="text-[10px] cursor-pointer" onClick={() => togglePolicy(p)}>{p.enabled ? "활성" : "비활성"}</Badge></TableCell>
-                  <TableCell><Button variant="ghost" size="sm" className="text-red-500 h-7" onClick={() => deletePolicy(p.id)}>삭제</Button></TableCell>
+                  <TableCell><Badge variant={p.enabled ? "secondary" : "outline"} className="text-[10px] cursor-pointer" onClick={() => togglePolicy(p)}>{p.enabled ? "Active" : "Inactive"}</Badge></TableCell>
+                  <TableCell><Button variant="ghost" size="sm" className="text-red-500 h-7" onClick={() => deletePolicy(p.id)}>Delete</Button></TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -298,18 +298,18 @@ function AccessControlTab() {
 
       {/* Masking list (read + delete) */}
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">컬럼 마스킹 정책 ({masks.length})</CardTitle></CardHeader>
+        <CardHeader className="pb-3"><CardTitle className="text-base">Column Masking Policies ({masks.length})</CardTitle></CardHeader>
         <CardContent className="p-0">
           <Table>
-            <TableHeader><TableRow><TableHead>테이블.컬럼</TableHead><TableHead>마스킹</TableHead><TableHead>역할</TableHead><TableHead>상태</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Table.Column</TableHead><TableHead>Masking</TableHead><TableHead>Roles</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
             <TableBody>
-              {masks.length === 0 && <TableRow><TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-6">마스킹 정책 없음</TableCell></TableRow>}
+              {masks.length === 0 && <TableRow><TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-6">No masking policies</TableCell></TableRow>}
               {masks.map((m) => (
                 <TableRow key={m.id}>
                   <TableCell className="font-mono text-xs">{m.schema_name}.{m.table_name}.{m.column_name}</TableCell>
                   <TableCell><Badge variant="outline" className="text-[10px]">{m.masking_type}</Badge></TableCell>
                   <TableCell>{m.roles.map((r) => <Badge key={r} variant="secondary" className="text-[10px] mr-1">{r}</Badge>)}</TableCell>
-                  <TableCell><Badge variant={m.enabled ? "secondary" : "outline"} className="text-[10px]">{m.enabled ? "활성" : "비활성"}</Badge></TableCell>
+                  <TableCell><Badge variant={m.enabled ? "secondary" : "outline"} className="text-[10px]">{m.enabled ? "Active" : "Inactive"}</Badge></TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -319,19 +319,19 @@ function AccessControlTab() {
 
       {/* Preview / simulate */}
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2"><Search className="h-4 w-4" />정책 미리보기 (시뮬레이션)</CardTitle></CardHeader>
+        <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2"><Search className="h-4 w-4" />Policy Preview (Simulation)</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <Input className="font-mono text-xs" value={pvSql} onChange={(e) => setPvSql(e.target.value)} placeholder="SQL" />
           <div className="grid gap-3 md:grid-cols-2">
-            <Input placeholder="역할 (쉼표)" value={pvRoles} onChange={(e) => setPvRoles(e.target.value)} />
+            <Input placeholder="Roles (comma-separated)" value={pvRoles} onChange={(e) => setPvRoles(e.target.value)} />
             <Input className="font-mono text-xs" placeholder='attributes JSON' value={pvAttrs} onChange={(e) => setPvAttrs(e.target.value)} />
           </div>
-          <Button size="sm" variant="outline" onClick={runPreview}>적용 결과 보기</Button>
+          <Button size="sm" variant="outline" onClick={runPreview}>Run preview</Button>
           {pvResult && (
             <div className={`rounded-md p-3 text-xs font-mono whitespace-pre-wrap ${pvResult.allowed ? "bg-emerald-500/10" : "bg-red-500/10"}`}>
-              {pvResult.error ? `오류: ${pvResult.error}`
-                : pvResult.allowed ? `✅ 허용 → ${pvResult.rewritten_sql}`
-                : `⛔ 차단: ${pvResult.reason}`}
+              {pvResult.error ? `Error: ${pvResult.error}`
+                : pvResult.allowed ? `✅ Allowed → ${pvResult.rewritten_sql}`
+                : `⛔ Blocked: ${pvResult.reason}`}
             </div>
           )}
         </CardContent>
@@ -425,9 +425,9 @@ export default function GovernancePage() {
   // pie chart data
   const pieData = riskDist
     ? [
-        { name: "정상 (low)", value: riskDist.low,    color: "#3b82f6" },
-        { name: "주의 (medium)", value: riskDist.medium, color: "#f59e0b" },
-        { name: "고위험 (high)", value: riskDist.high,   color: "#ef4444" },
+        { name: "Normal (low)", value: riskDist.low,    color: "var(--dp-good)" },
+        { name: "Caution (medium)", value: riskDist.medium, color: "var(--dp-warn)" },
+        { name: "High risk (high)", value: riskDist.high,   color: "var(--destructive)" },
       ]
     : []
 
@@ -440,13 +440,13 @@ export default function GovernancePage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold">Governance &amp; Trust</h1>
-        <p className="text-muted-foreground text-sm">데이터 보호, AI 안전성, 규정 준수 감사</p>
+        <p className="text-muted-foreground text-sm">Data protection, AI safety, and compliance auditing</p>
       </div>
 
       {/* Stats row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          label="오늘 쿼리"
+          label="Queries today"
           value={stats?.queries_today ?? null}
           icon={<Database className="h-5 w-5" />}
           colorClass="text-blue-500"
@@ -454,7 +454,7 @@ export default function GovernancePage() {
           loading={statsLoading}
         />
         <StatCard
-          label="AI SQL 실행"
+          label="AI SQL executions"
           value={stats?.ai_sql_count ?? null}
           icon={<Sparkles className="h-5 w-5" />}
           colorClass="text-violet-500"
@@ -462,7 +462,7 @@ export default function GovernancePage() {
           loading={statsLoading}
         />
         <StatCard
-          label="PII 탐지"
+          label="PII detections"
           value={stats?.pii_detections ?? null}
           icon={<ShieldAlert className="h-5 w-5" />}
           colorClass="text-yellow-500"
@@ -470,7 +470,7 @@ export default function GovernancePage() {
           loading={statsLoading}
         />
         <StatCard
-          label="차단 건수"
+          label="Blocked count"
           value={stats?.blocked_count ?? null}
           icon={<Ban className="h-5 w-5" />}
           colorClass="text-red-500"
@@ -500,21 +500,21 @@ export default function GovernancePage() {
           <div className="flex flex-col sm:flex-row gap-3">
             <Select value={eventTypeFilter} onValueChange={(v) => setEventTypeFilter(v ?? "all")}>
               <SelectTrigger className="w-full sm:w-52">
-                <SelectValue placeholder="이벤트 유형" />
+                <SelectValue placeholder="Event type" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">전체 이벤트</SelectItem>
-                <SelectItem value="query_executed">쿼리 실행</SelectItem>
-                <SelectItem value="ai_sql_generated">AI SQL 생성</SelectItem>
-                <SelectItem value="pii_detected">PII 탐지</SelectItem>
-                <SelectItem value="login_success">로그인 성공</SelectItem>
-                <SelectItem value="login_failure">로그인 실패</SelectItem>
+                <SelectItem value="all">All events</SelectItem>
+                <SelectItem value="query_executed">Query executed</SelectItem>
+                <SelectItem value="ai_sql_generated">AI SQL generated</SelectItem>
+                <SelectItem value="pii_detected">PII detected</SelectItem>
+                <SelectItem value="login_success">Login success</SelectItem>
+                <SelectItem value="login_failure">Login failure</SelectItem>
               </SelectContent>
             </Select>
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="사용자, 리소스, 액션 검색..."
+                placeholder="Search user, resource, action..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
@@ -543,11 +543,11 @@ export default function GovernancePage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-36">시각</TableHead>
-                    <TableHead>사용자</TableHead>
-                    <TableHead>이벤트</TableHead>
-                    <TableHead>대상</TableHead>
-                    <TableHead className="w-24">결과</TableHead>
+                    <TableHead className="w-36">Time</TableHead>
+                    <TableHead>User</TableHead>
+                    <TableHead>Event</TableHead>
+                    <TableHead>Target</TableHead>
+                    <TableHead className="w-24">Result</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -562,7 +562,7 @@ export default function GovernancePage() {
                   ) : filteredAudit.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
-                        감사 로그가 없습니다
+                        No audit log entries
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -587,7 +587,7 @@ export default function GovernancePage() {
 
           {!auditLoading && (
             <p className="text-xs text-muted-foreground">
-              전체 {auditTotal}건 중 {filteredAudit.length}건 표시
+              Showing {filteredAudit.length} of {auditTotal} total
             </p>
           )}
         </TabsContent>
@@ -598,7 +598,7 @@ export default function GovernancePage() {
             {/* Pie chart */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">위험도 분포</CardTitle>
+                <CardTitle className="text-base">Risk Distribution</CardTitle>
               </CardHeader>
               <CardContent>
                 {safetyLoading ? (
@@ -607,7 +607,7 @@ export default function GovernancePage() {
                   </div>
                 ) : pieData.length === 0 || totalRisk === 0 ? (
                   <p className="text-center text-muted-foreground py-12 text-sm">
-                    AI Safety 데이터가 없습니다
+                    No AI Safety data
                   </p>
                 ) : (
                   <>
@@ -630,7 +630,7 @@ export default function GovernancePage() {
                           formatter={(v: unknown, name: unknown) => {
                             const count = typeof v === "number" ? v : 0
                             const label = typeof name === "string" ? name : ""
-                            return [`${count}건 (${totalRisk > 0 ? Math.round((count / totalRisk) * 100) : 0}%)`, label]
+                            return [`${count} (${totalRisk > 0 ? Math.round((count / totalRisk) * 100) : 0}%)`, label]
                           }}
                         />
                         <Legend />
@@ -655,7 +655,7 @@ export default function GovernancePage() {
             {/* Recent flags */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">최근 플래그된 쿼리</CardTitle>
+                <CardTitle className="text-base">Recently Flagged Queries</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 {safetyLoading ? (
@@ -664,7 +664,7 @@ export default function GovernancePage() {
                   ))
                 ) : recentFlags.length === 0 ? (
                   <p className="text-center text-muted-foreground py-8 text-sm">
-                    플래그된 쿼리가 없습니다
+                    No flagged queries
                   </p>
                 ) : (
                   recentFlags.map((flag, i) => (
@@ -696,7 +696,7 @@ export default function GovernancePage() {
           <div className="grid grid-cols-2 gap-4">
             <Card>
               <CardContent className="pt-5 pb-4">
-                <p className="text-sm text-muted-foreground">스캔된 테이블</p>
+                <p className="text-sm text-muted-foreground">Tables scanned</p>
                 {piiLoading ? (
                   <Skeleton className="h-8 w-12 mt-1" />
                 ) : (
@@ -706,7 +706,7 @@ export default function GovernancePage() {
             </Card>
             <Card>
               <CardContent className="pt-5 pb-4">
-                <p className="text-sm text-muted-foreground">PII 컬럼 수</p>
+                <p className="text-sm text-muted-foreground">PII columns</p>
                 {piiLoading ? (
                   <Skeleton className="h-8 w-12 mt-1" />
                 ) : (
@@ -719,14 +719,14 @@ export default function GovernancePage() {
           {/* PII table */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">PII 탐지 현황</CardTitle>
+              <CardTitle className="text-base">PII Detection Status</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>테이블명</TableHead>
-                    <TableHead>PII 컬럼</TableHead>
+                    <TableHead>Table name</TableHead>
+                    <TableHead>PII columns</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -740,7 +740,7 @@ export default function GovernancePage() {
                   ) : piiTables.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={2} className="text-center py-12 text-muted-foreground">
-                        PII 탐지된 테이블이 없습니다
+                        No tables with PII detected
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -769,16 +769,16 @@ export default function GovernancePage() {
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <FileText className="h-4 w-4" />
-                규정 준수 리포트 생성
+                Generate Compliance Report
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Date range */}
               <div className="space-y-2">
-                <p className="text-sm font-medium">기간 선택</p>
+                <p className="text-sm font-medium">Date range</p>
                 <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
                   <div className="space-y-1">
-                    <Label htmlFor="report-from" className="text-xs text-muted-foreground">시작일</Label>
+                    <Label htmlFor="report-from" className="text-xs text-muted-foreground">Start date</Label>
                     <Input
                       id="report-from"
                       type="date"
@@ -789,7 +789,7 @@ export default function GovernancePage() {
                   </div>
                   <span className="text-muted-foreground text-sm sm:mt-5">~</span>
                   <div className="space-y-1">
-                    <Label htmlFor="report-to" className="text-xs text-muted-foreground">종료일</Label>
+                    <Label htmlFor="report-to" className="text-xs text-muted-foreground">End date</Label>
                     <Input
                       id="report-to"
                       type="date"
@@ -803,13 +803,13 @@ export default function GovernancePage() {
 
               {/* Report content checkboxes */}
               <div className="space-y-2">
-                <p className="text-sm font-medium">포함할 내용</p>
+                <p className="text-sm font-medium">Include in report</p>
                 <div className="space-y-2.5">
                   {[
-                    { key: "queries",  label: "전체 쿼리 실행 이력" },
-                    { key: "aiSql",    label: "AI SQL 생성 및 안전성 평가" },
-                    { key: "pii",      label: "PII 탐지 및 마스킹 현황" },
-                    { key: "blocked",  label: "접근 차단 이벤트" },
+                    { key: "queries",  label: "Full query execution history" },
+                    { key: "aiSql",    label: "AI SQL generation and safety assessment" },
+                    { key: "pii",      label: "PII detection and masking status" },
+                    { key: "blocked",  label: "Access blocked events" },
                   ].map(({ key, label }) => (
                     <div key={key} className="flex items-center gap-2">
                       <Checkbox
@@ -829,16 +829,16 @@ export default function GovernancePage() {
 
               {/* Note */}
               <p className="text-xs text-muted-foreground bg-muted/40 px-3 py-2 rounded-md">
-                규정 준수 증적(Compliance Evidence)으로 활용 가능합니다
+                Can be used as compliance evidence
               </p>
 
               {/* Export button */}
               <Button
-                onClick={() => toast("리포트 생성 기능은 준비 중입니다.", "info")}
+                onClick={() => toast("Report generation is coming soon.", "info")}
                 className="gap-2"
               >
                 <FileText className="h-4 w-4" />
-                PDF 내보내기
+                Export PDF
               </Button>
             </CardContent>
           </Card>

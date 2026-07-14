@@ -137,7 +137,7 @@ export function AiBackends() {
       })
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || "Failed to add backend") }
       setShowAdd(false); setForm({ ...emptyForm })
-      toast(`백엔드 '${form.model_name.trim()}' 추가됨`, "success")
+      toast(`Backend '${form.model_name.trim()}' added`, "success")
       await load()
     } catch (e) { setAddErr(e instanceof Error ? e.message : "Failed") }
     finally { setAdding(false) }
@@ -147,12 +147,12 @@ export function AiBackends() {
   const confirm = useConfirm()
   const deleteBackend = async (b: Backend) => {
     if (!b.id) return
-    if (!(await confirm({ title: "백엔드 제거", message: `'${b.model_name}' 백엔드를 제거합니다. 되돌릴 수 없습니다.`, destructive: true, confirmText: "제거" }))) return
+    if (!(await confirm({ title: "Remove backend", message: `Remove backend '${b.model_name}'. This cannot be undone.`, destructive: true, confirmText: "Remove" }))) return
     setBusy(b.model_name); setActionErr(null)
     try {
       const res = await fetch(`/api/settings/ai/backends/${encodeURIComponent(b.id)}`, { method: "DELETE" })
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `Delete failed (${res.status})`) }
-      toast(`백엔드 '${b.model_name}' 제거됨`, "success")
+      toast(`Backend '${b.model_name}' removed`, "success")
       await load()
     } catch (e) { setActionErr(e instanceof Error ? e.message : "Delete failed") }
     finally { setBusy(null) }
@@ -167,7 +167,7 @@ export function AiBackends() {
         body: JSON.stringify({ model_name: b.model_name }),
       })
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `Activate failed (${res.status})`) }
-      toast(`'${b.model_name}' 활성 백엔드로 전환됨`, "success")
+      toast(`Switched to '${b.model_name}' as the active backend`, "success")
       await load()
     } catch (e) { setActionErr(e instanceof Error ? e.message : "Activate failed") }
     finally { setBusy(null) }
@@ -215,8 +215,8 @@ export function AiBackends() {
             <p className="mt-1">
               <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium ${
                 localOnly
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                  : "border-slate-200 bg-slate-50 text-slate-600"}`}>
+                  ? "border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10 text-[var(--dp-good)]"
+                  : "border-border bg-muted text-muted-foreground"}`}>
                 AI egress: {localOnly
                   ? "local-only — sovereign, external LLMs blocked (no data egress)"
                   : "cloud-allowed — external providers permitted"}
@@ -232,7 +232,7 @@ export function AiBackends() {
       </div>
 
       {loadErr && (
-        <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-2.5 text-xs text-amber-700">
+        <div className="flex items-center gap-2 rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-4 py-2.5 text-xs text-[var(--dp-warn)]">
           <AlertCircle className="h-4 w-4 shrink-0" />{loadErr}
         </div>
       )}
@@ -282,7 +282,7 @@ export function AiBackends() {
                         {b.model}{b.api_base ? ` · ${b.api_base}` : ""}
                       </p>
                       {t && !t.testing && (
-                        <p className={`text-[11px] mt-1.5 flex items-center gap-1 ${t.ok ? "text-green-600" : "text-destructive"}`}>
+                        <p className={`text-[11px] mt-1.5 flex items-center gap-1 ${t.ok ? "text-[var(--dp-good)]" : "text-destructive"}`}>
                           {t.ok ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
                           {t.ok ? `OK · ${t.latency_ms}ms` : `Failed · ${t.message}`}
                         </p>
@@ -347,7 +347,7 @@ export function AiBackends() {
             </div>
 
             {providerBlocked && (
-              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-[11px] text-amber-700">
+              <div className="flex items-start gap-2 rounded-md border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-3 py-2 text-[11px] text-[var(--dp-warn)]">
                 <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                 <span>This environment runs a <b>local-only (sovereign)</b> AI egress policy — external
                 providers are blocked to keep data on-prem. Choose Ollama or vLLM, or change
@@ -412,7 +412,7 @@ export function AiBackends() {
 
             {/* Advanced per-model params (optional) */}
             <details className="rounded-lg border bg-muted/10 px-3 py-2">
-              <summary className="text-xs font-medium cursor-pointer select-none text-muted-foreground">고급 파라미터 (선택)</summary>
+              <summary className="text-xs font-medium cursor-pointer select-none text-muted-foreground">Advanced parameters (optional)</summary>
               <div className="grid grid-cols-2 gap-3 pt-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs">Temperature</Label>
@@ -421,16 +421,16 @@ export function AiBackends() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">Max Tokens</Label>
-                  <Input className="h-8 text-sm" type="number" placeholder="예: 1024"
+                  <Input className="h-8 text-sm" type="number" placeholder="e.g. 1024"
                     value={form.max_tokens} onChange={e => setForm(f => ({ ...f, max_tokens: e.target.value }))} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">RPM 한도</Label>
+                  <Label className="text-xs">RPM Limit</Label>
                   <Input className="h-8 text-sm" type="number" placeholder="requests/min"
                     value={form.rpm} onChange={e => setForm(f => ({ ...f, rpm: e.target.value }))} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">TPM 한도</Label>
+                  <Label className="text-xs">TPM Limit</Label>
                   <Input className="h-8 text-sm" type="number" placeholder="tokens/min"
                     value={form.tpm} onChange={e => setForm(f => ({ ...f, tpm: e.target.value }))} />
                 </div>
@@ -559,7 +559,7 @@ function UsagePanel() {
                     <span className="text-muted-foreground">{fmt$(k.spend)} / {fmt$(k.max_budget!)} ({k.pct}%)</span>
                   </div>
                   <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                    <div className={`h-full ${(k.pct || 0) >= 90 ? "bg-destructive" : (k.pct || 0) >= 70 ? "bg-amber-400" : "bg-primary"}`}
+                    <div className={`h-full ${(k.pct || 0) >= 90 ? "bg-destructive" : (k.pct || 0) >= 70 ? "bg-[var(--dp-warn)]" : "bg-primary"}`}
                       style={{ width: `${Math.min(100, k.pct || 0)}%` }} />
                   </div>
                 </div>
@@ -647,7 +647,7 @@ function SpendReportSection() {
                     “By model” usage above (from <span className="font-mono">/global/spend/models</span>) is the most current source.
                   </p>
                 )}
-                {data.detail && <p className="text-[11px] text-amber-700">{data.detail}</p>}
+                {data.detail && <p className="text-[11px] text-[var(--dp-warn)]">{data.detail}</p>}
               </>
             )
           })()}
@@ -662,10 +662,10 @@ function GatewayBanner({ status, loading, onRefresh }: {
 }) {
   const g = status?.gateway
   const tone =
-    g === "healthy"      ? { dot: "bg-green-500", text: "text-green-700", label: "Gateway healthy" } :
-    g === "unhealthy"    ? { dot: "bg-amber-400", text: "text-amber-700", label: "Gateway degraded" } :
+    g === "healthy"      ? { dot: "bg-[var(--dp-good)]", text: "text-[var(--dp-good)]", label: "Gateway healthy" } :
+    g === "unhealthy"    ? { dot: "bg-[var(--dp-warn)]", text: "text-[var(--dp-warn)]", label: "Gateway degraded" } :
     g === "unconfigured" ? { dot: "bg-muted-foreground/40", text: "text-muted-foreground", label: "Gateway not configured" } :
-                           { dot: "bg-red-500", text: "text-destructive", label: "Gateway unreachable" }
+                           { dot: "bg-destructive", text: "text-destructive", label: "Gateway unreachable" }
 
   return (
     <Card>
@@ -782,12 +782,12 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
   const { toast } = useToast()
   const confirm = useConfirm()
   const remove = async (k: VKey) => {
-    if (!(await confirm({ title: "키 취소", message: `'${k.key_alias || k.token}' 키를 취소할까요?`, destructive: true, confirmText: "취소(Revoke)" }))) return
+    if (!(await confirm({ title: "Revoke key", message: `Revoke key '${k.key_alias || k.token}'?`, destructive: true, confirmText: "Revoke" }))) return
     setBusy(k.token); setGenErr(null)
     try {
       const res = await fetch(`/api/settings/ai/keys/${encodeURIComponent(k.token)}`, { method: "DELETE" })
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `Revoke failed (${res.status})`) }
-      toast("API 키 취소됨", "success")
+      toast("API key revoked", "success")
       await load()
     } catch (e) { setGenErr(e instanceof Error ? e.message : "Revoke failed") }
     finally { setBusy(null) }
@@ -805,7 +805,7 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
               <KeyRound className="h-4 w-4 text-muted-foreground" />Virtual Keys & Budgets
             </CardTitle>
             <CardDescription>
-              사용자/팀별 API 키 발급 — 모델 범위·예산·속도 제한. 사용량 추적.
+              Issue API keys per user/team — scoped by model, budget, and rate limits. Tracks usage.
             </CardDescription>
           </div>
           <Button size="sm" className="gap-1.5" onClick={() => { setNewKey(null); setGenErr(null); setShowGen(true) }}>
@@ -832,7 +832,7 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
         {loading ? (
           <Skeleton className="h-16 rounded-lg" />
         ) : keys.length === 0 ? (
-          <p className="text-xs text-muted-foreground text-center py-4">발급된 키 없음 — Generate Key로 추가</p>
+          <p className="text-xs text-muted-foreground text-center py-4">No keys issued yet — add one with Generate Key</p>
         ) : (
           <div className="space-y-2">
             {keys.map(k => {
@@ -852,7 +852,7 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
                       </p>
                       {pct != null && (
                         <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden mt-1.5">
-                          <div className={`h-full rounded-full ${pct >= 90 ? "bg-destructive" : pct >= 70 ? "bg-amber-500" : "bg-green-500"}`} style={{ width: `${pct}%` }} />
+                          <div className={`h-full rounded-full ${pct >= 90 ? "bg-destructive" : pct >= 70 ? "bg-[var(--dp-warn)]" : "bg-[var(--dp-good)]"}`} style={{ width: `${pct}%` }} />
                         </div>
                       )}
                     </div>
@@ -874,13 +874,13 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
           <DialogHeader><DialogTitle>Generate Virtual Key</DialogTitle></DialogHeader>
           {newKey ? (
             <div className="space-y-3 py-2">
-              <div className="rounded-lg border border-green-200 bg-green-50/50 p-3">
-                <p className="text-xs text-green-700 font-medium mb-2">✓ 키가 생성됐습니다 — 지금만 표시됩니다. 안전하게 복사하세요.</p>
+              <div className="rounded-lg border border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10 p-3">
+                <p className="text-xs text-[var(--dp-good)] font-medium mb-2">✓ Key generated — shown only this once. Copy it somewhere safe.</p>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 text-xs font-mono bg-background border rounded px-2 py-1.5 break-all">{newKey}</code>
                   <Button size="icon" variant="outline" className="h-8 w-8 shrink-0"
                     onClick={() => { navigator.clipboard.writeText(newKey); setCopied(true); setTimeout(() => setCopied(false), 1500) }}>
-                    {copied ? <CheckCircle2 className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                    {copied ? <CheckCircle2 className="h-4 w-4 text-[var(--dp-good)]" /> : <Copy className="h-4 w-4" />}
                   </Button>
                 </div>
               </div>
@@ -888,13 +888,13 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
           ) : (
             <div className="space-y-3 py-2">
               <div className="space-y-1.5">
-                <Label className="text-xs">별칭 (alias) <span className="text-destructive">*</span></Label>
-                <Input className="h-9 text-sm" placeholder="예: team-analytics" value={alias} onChange={e => setAlias(e.target.value)} autoFocus />
+                <Label className="text-xs">Alias <span className="text-destructive">*</span></Label>
+                <Input className="h-9 text-sm" placeholder="e.g. team-analytics" value={alias} onChange={e => setAlias(e.target.value)} autoFocus />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs">허용 모델 <span className="text-muted-foreground">(비우면 전체)</span></Label>
+                <Label className="text-xs">Allowed models <span className="text-muted-foreground">(leave blank for all)</span></Label>
                 {backends.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground">등록된 백엔드 없음 — 전체 허용</p>
+                  <p className="text-[11px] text-muted-foreground">No backends registered — all allowed</p>
                 ) : (
                   <div className="flex flex-wrap gap-1.5">
                     {backends.map(b => (
@@ -908,20 +908,20 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1.5">
-                  <Label className="text-xs">예산 ($)</Label>
-                  <Input className="h-9 text-sm" type="number" step="0.01" placeholder="무제한" value={budget} onChange={e => setBudget(e.target.value)} />
+                  <Label className="text-xs">Budget ($)</Label>
+                  <Input className="h-9 text-sm" type="number" step="0.01" placeholder="Unlimited" value={budget} onChange={e => setBudget(e.target.value)} />
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">RPM</Label>
-                  <Input className="h-9 text-sm" type="number" placeholder="무제한" value={rpm} onChange={e => setRpm(e.target.value)} />
+                  <Input className="h-9 text-sm" type="number" placeholder="Unlimited" value={rpm} onChange={e => setRpm(e.target.value)} />
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">TPM</Label>
-                  <Input className="h-9 text-sm" type="number" placeholder="무제한" value={tpm} onChange={e => setTpm(e.target.value)} />
+                  <Input className="h-9 text-sm" type="number" placeholder="Unlimited" value={tpm} onChange={e => setTpm(e.target.value)} />
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs">유효기간 <span className="text-muted-foreground">(예: 30d, 24h — 비우면 무기한)</span></Label>
+                <Label className="text-xs">Duration <span className="text-muted-foreground">(e.g. 30d, 24h — leave blank for no expiry)</span></Label>
                 <Input className="h-9 text-sm" placeholder="30d" value={duration} onChange={e => setDuration(e.target.value)} />
               </div>
               {genErr && <ErrorBox msg={genErr} />}
@@ -929,13 +929,13 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
           )}
           <DialogFooter>
             {newKey ? (
-              <Button onClick={() => { setShowGen(false); setNewKey(null) }}>완료</Button>
+              <Button onClick={() => { setShowGen(false); setNewKey(null) }}>Done</Button>
             ) : (
               <>
                 <Button variant="outline" onClick={() => setShowGen(false)}>Cancel</Button>
                 <Button onClick={generate} disabled={!alias.trim() || generating}>
                   {generating ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
-                  {generating ? "생성 중…" : "Generate"}
+                  {generating ? "Generating…" : "Generate"}
                 </Button>
               </>
             )}

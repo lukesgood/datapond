@@ -49,29 +49,29 @@ const FLOW_STEPS = [
     icon: Database,
     label: "Source",
     desc: "PostgreSQL, MySQL, REST API, S3, Custom Python",
-    color: "bg-blue-500/10 text-primary border-primary/20",
+    color: "bg-primary/10 text-primary border-primary/20",
     dot: "bg-primary",
   },
   {
     icon: ArrowDownToLine,
     label: "Ingest",
     desc: "Batch sync with full or incremental mode",
-    color: "bg-purple-500/10 text-purple-600 border-purple-200",
-    dot: "bg-purple-500",
+    color: "bg-[var(--chart-2)]/10 text-[var(--chart-2)] border-[var(--chart-2)]/20",
+    dot: "bg-[var(--chart-2)]",
   },
   {
     icon: Layers,
     label: "Iceberg",
     desc: "ACID Iceberg tables on S3, cataloged in AWS Glue",
-    color: "bg-amber-500/10 text-amber-600 border-amber-200",
-    dot: "bg-amber-500",
+    color: "bg-[var(--chart-5)]/10 text-[var(--chart-5)] border-[var(--chart-5)]/20",
+    dot: "bg-[var(--chart-5)]",
   },
   {
     icon: BarChart2,
     label: "Query",
     desc: "Athena SQL Lab, BI tools",
-    color: "bg-green-500/10 text-green-600 border-green-200",
-    dot: "bg-green-500",
+    color: "bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-[var(--dp-good)]/20",
+    dot: "bg-[var(--dp-good)]",
   },
 ]
 
@@ -187,7 +187,7 @@ function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated }: {
 
         {/* Status message */}
         {sampleMsg && (
-          <p className={`text-xs text-center ${sampleMsg.includes("Failed") ? "text-destructive" : "text-green-600"}`}>
+          <p className={`text-xs text-center ${sampleMsg.includes("Failed") ? "text-destructive" : "text-[var(--dp-good)]"}`}>
             {sampleMsg}
           </p>
         )}
@@ -270,7 +270,7 @@ export default function ConnectorsPage() {
     setActionLoading(id)
     try {
       await fetch(`/api/connectors/${id}/sync`, { method: "POST" })
-      toast("동기화 시작됨 — 진행 상황은 커넥터 상세에서 확인", "info")
+      toast("Sync started — check connector details for progress", "info")
       await fetchConnections()
     } finally {
       setActionLoading(null)
@@ -280,11 +280,11 @@ export default function ConnectorsPage() {
   const { toast } = useToast()
   const confirm = useConfirm()
   const handleDelete = async (id: string) => {
-    if (!(await confirm({ title: "커넥션 삭제", message: "이 커넥션을 삭제할까요?", destructive: true, confirmText: "삭제" }))) return
+    if (!(await confirm({ title: "Delete connection", message: "Delete this connection?", destructive: true, confirmText: "Delete" }))) return
     setActionLoading(id)
     try {
       await fetch(`/api/connectors/${id}`, { method: "DELETE" })
-      toast("커넥션 삭제됨", "success")
+      toast("Connection deleted", "success")
       setConnections(prev => prev.filter(c => c.id !== id))
     } finally {
       setActionLoading(null)
@@ -312,7 +312,7 @@ export default function ConnectorsPage() {
 
   const statusBadge = (status: string) => {
     if (status === "active")
-      return <Badge className="bg-green-500/10 text-green-700 border-green-200 text-[10px] h-5">Active</Badge>
+      return <Badge className="bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-[var(--dp-good)]/20 text-[10px] h-5">Active</Badge>
     if (status === "error")
       return <Badge variant="destructive" className="text-[10px] h-5">Error</Badge>
     return <Badge variant="secondary" className="text-[10px] h-5 capitalize">{status}</Badge>
@@ -340,7 +340,7 @@ export default function ConnectorsPage() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Ingestion</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            배치 수집 — 외부 소스에서 Iceberg로
+            Batch ingestion — from external sources into Iceberg
           </p>
         </div>
         <div className="flex gap-2">
@@ -375,18 +375,18 @@ export default function ConnectorsPage() {
               value: avgSuccessRate !== null ? `${avgSuccessRate}%` : "—",
               sub: "across all sources",
               icon: TrendingUp,
-              color: avgSuccessRate !== null && avgSuccessRate < 80 ? "text-destructive" : avgSuccessRate !== null && avgSuccessRate >= 95 ? "text-green-600" : "",
+              color: avgSuccessRate !== null && avgSuccessRate < 80 ? "text-destructive" : avgSuccessRate !== null && avgSuccessRate >= 95 ? "text-[var(--dp-good)]" : "",
             },
             {
               label: "Stale Sources",
               value: staleSources,
               sub: staleSources === 0 ? "all sources up to date" : "last sync > 24h ago",
               icon: ShieldAlert,
-              color: staleSources > 0 ? "text-amber-500" : "text-green-600",
+              color: staleSources > 0 ? "text-[var(--dp-warn)]" : "text-[var(--dp-good)]",
               highlight: staleSources > 0,
             },
           ].map(({ label, value, sub, icon: Icon, color, highlight }) => (
-            <div key={label} className={`rounded-lg border px-4 py-3 ${highlight ? "border-amber-400/50 bg-amber-50/30" : "bg-card"}`}>
+            <div key={label} className={`rounded-lg border px-4 py-3 ${highlight ? "border-[var(--dp-warn)]/50 bg-[var(--dp-warn)]/10" : "bg-card"}`}>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs text-muted-foreground">{label}</span>
                 <Icon className={`h-3.5 w-3.5 ${color || "text-muted-foreground"}`} />
@@ -427,7 +427,7 @@ export default function ConnectorsPage() {
               <span className="text-muted-foreground">
                 <span className="font-semibold text-foreground">{connections.length}</span> total
               </span>
-              <span className="text-green-600">
+              <span className="text-[var(--dp-good)]">
                 <span className="font-semibold">{activeCount}</span> active
               </span>
               {errorCount > 0 && (
@@ -545,7 +545,7 @@ export default function ConnectorsPage() {
                           const rate = connStats.get(conn.id)?.successRate
                           if (rate == null) return <span className="text-muted-foreground">—</span>
                           return (
-                            <span className={rate >= 80 ? "text-green-600 font-medium" : rate >= 50 ? "text-amber-500 font-medium" : "text-red-500 font-medium"}>
+                            <span className={rate >= 80 ? "text-[var(--dp-good)] font-medium" : rate >= 50 ? "text-[var(--dp-warn)] font-medium" : "text-destructive font-medium"}>
                               {rate}%
                             </span>
                           )

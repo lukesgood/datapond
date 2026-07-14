@@ -18,15 +18,15 @@ export function ErrorBox({ msg, action, className = "" }: {
 }) {
   if (!msg) return null
   return (
-    <div className={`rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-700 space-y-1 ${className}`}>
+    <div className={`rounded-md border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-3 py-2 text-xs text-[var(--dp-warn)] space-y-1 ${className}`}>
       <div className="flex items-start gap-2">
         <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" /><span>{msg}</span>
       </div>
       {action && <div className="pl-6 pt-1">{action}</div>}
       {looksLikeNoModel(msg) && (
         <div className="pl-6">
-          임베딩/LLM 모델이 설정되지 않았을 수 있습니다 →{" "}
-          <Link href="/settings" className="underline font-medium">Settings → AI</Link>에서 모델을 등록하세요.
+          An embedding or LLM model may not be configured — register one under{" "}
+          <Link href="/settings" className="underline font-medium">Settings → AI</Link>.
         </div>
       )}
     </div>
