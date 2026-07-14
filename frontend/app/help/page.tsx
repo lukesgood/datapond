@@ -16,90 +16,111 @@ import {
   Database,
   Plug,
   BookOpen,
-  Video,
-  FileQuestion,
   Sparkles,
+  ShieldCheck,
+  HardDrive,
   ArrowRight,
   ExternalLink
 } from "lucide-react"
 
+// Guides for the foundation-live features. The first three have written
+// walkthroughs under /help/*; the rest link straight to the feature page.
 const guides = [
   {
-    title: "SQL Lab Guide",
-    description: "Write and execute SQL queries against your data",
+    title: "SQL Lab",
+    description: "Write and run SQL against your data — Athena on AWS, Trino on the full profile",
     icon: Code2,
     href: "/help/sql-lab",
-    color: "text-blue-500",
-    bgColor: "bg-blue-500/10",
+    color: "text-[var(--chart-1)]",
+    bgColor: "bg-[var(--chart-1)]/10",
     topics: ["Query editor", "Schema browser", "Query history", "Keyboard shortcuts"],
   },
   {
-    title: "Data Catalog Guide",
-    description: "Browse, search, and explore Iceberg tables",
+    title: "Data Catalog",
+    description: "Browse, search, and preview Iceberg tables in the Glue catalog",
     icon: Database,
     href: "/help/catalog",
-    color: "text-green-500",
-    bgColor: "bg-green-500/10",
-    topics: ["Table browser", "Schema explorer", "Metadata", "Lineage tracking"],
+    color: "text-[var(--chart-2)]",
+    bgColor: "bg-[var(--chart-2)]/10",
+    topics: ["Table browser", "Schema explorer", "Column stats", "Send to Knowledge"],
   },
   {
-    title: "Connectors Guide",
-    description: "Connect to databases, storage, and streaming sources",
+    title: "Connectors",
+    description: "Bring data in from databases, storage, and streaming sources",
     icon: Plug,
     href: "/help/connectors",
-    color: "text-purple-500",
-    bgColor: "bg-purple-500/10",
-    topics: ["Connector setup", "Authentication", "Data sync", "Monitoring"],
+    color: "text-[var(--chart-3)]",
+    bgColor: "bg-[var(--chart-3)]/10",
+    topics: ["Connector setup", "Authentication", "Data sync", "Health monitoring"],
+  },
+  {
+    title: "Knowledge & RAG",
+    description: "Build vector collections and get cited answers from your documents",
+    icon: Sparkles,
+    href: "/knowledge",
+    color: "text-[var(--chart-4)]",
+    bgColor: "bg-[var(--chart-4)]/10",
+    topics: ["Collections", "Ingest documents", "Semantic search", "Cited RAG answers"],
+  },
+  {
+    title: "Governance",
+    description: "Control access, mask PII, and keep an audit trail across your data",
+    icon: ShieldCheck,
+    href: "/governance",
+    color: "text-[var(--chart-5)]",
+    bgColor: "bg-[var(--chart-5)]/10",
+    topics: ["Row-level security", "PII masking", "Audit log", "Cost attribution"],
+  },
+  {
+    title: "Storage",
+    description: "Inspect the S3 buckets and objects backing your data foundation",
+    icon: HardDrive,
+    href: "/storage",
+    color: "text-primary",
+    bgColor: "bg-primary/10",
+    topics: ["Buckets", "Objects", "Usage", "Lifecycle"],
   },
 ]
 
 const quickHelp = [
   {
     question: "How do I execute a SQL query?",
-    answer: "Open SQL Lab, write your query, and press Ctrl+Enter or click Execute",
+    answer: "Open SQL Lab, write your query, and press Ctrl+Enter or click Execute.",
     href: "/help/sql-lab#execute-query",
   },
   {
     question: "Where can I see all my tables?",
-    answer: "Navigate to Data Catalog to browse all Iceberg tables across namespaces",
+    answer: "Open Data Catalog to browse every Iceberg table across namespaces, with column stats and previews.",
     href: "/help/catalog",
   },
   {
     question: "How do I connect a new data source?",
-    answer: "Go to Connectors, choose your source type, and follow the setup wizard",
+    answer: "Go to Connectors, choose your source type, and follow the setup wizard.",
     href: "/help/connectors#setup",
   },
   {
-    question: "Can I share queries with my team?",
-    answer: "Yes! Use the share button in SQL Lab to generate a shareable link",
-    href: "/help/sql-lab#sharing",
+    question: "How do I build a RAG knowledge base?",
+    answer: "In Knowledge, create a collection, ingest text, tables, or S3 objects to embed them, then search or ask with RAG.",
+    href: "/knowledge",
   },
   {
-    question: "How do I monitor connector health?",
-    answer: "Visit the Connectors page and check the status badges for each connection",
-    href: "/help/connectors#monitoring",
+    question: "How is data access controlled?",
+    answer: "Governance lets you define row-level security and PII masking per collection; every query is recorded in the audit log.",
+    href: "/governance",
+  },
+  {
+    question: "Can I revisit a past query?",
+    answer: "Every query you run is saved to Query History in your browser — open the History panel in SQL Lab to re-run or copy it.",
+    href: "/query",
   },
   {
     question: "What SQL dialect does DataPond use?",
-    answer: "DataPond uses Presto/Trino-family SQL (ANSI SQL compatible) for OLAP queries — Amazon Athena on the AWS profile, self-hosted Trino on the full profile",
+    answer: "Presto/Trino-family SQL (ANSI-compatible) for OLAP — Amazon Athena on the AWS profile, self-hosted Trino on the full profile.",
     href: "/docs/trino-sql",
   },
 ]
 
 const resources = [
-  {
-    title: "Video Tutorials",
-    description: "Watch step-by-step video guides",
-    icon: Video,
-    href: "/help/videos",
-    badge: "Coming Soon",
-  },
-  {
-    title: "API Reference",
-    description: "Complete REST API documentation",
-    icon: BookOpen,
-    href: "/docs/api",
-  },
   {
     title: "Sample Queries",
     description: "Common SQL patterns and examples",
@@ -107,10 +128,16 @@ const resources = [
     href: "/help/sql-lab#examples",
   },
   {
-    title: "Troubleshooting",
-    description: "Fix common issues",
-    icon: FileQuestion,
-    href: "/docs/troubleshooting",
+    title: "SQL Reference",
+    description: "Presto/Trino-family SQL, used by Athena",
+    icon: Code2,
+    href: "/docs/trino-sql",
+  },
+  {
+    title: "API Reference",
+    description: "Complete REST API documentation",
+    icon: BookOpen,
+    href: "/api/docs",
   },
 ]
 
@@ -202,7 +229,7 @@ export default function HelpPage() {
       {/* Additional Resources */}
       <div className="space-y-3">
         <h2 className="text-2xl font-bold">Additional Resources</h2>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-3">
           {resources.map((resource, idx) => {
             const Icon = resource.icon
             return (
@@ -212,11 +239,6 @@ export default function HelpPage() {
                     <Icon className="h-5 w-5 text-muted-foreground mb-2" />
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-base">{resource.title}</CardTitle>
-                      {resource.badge && (
-                        <Badge variant="outline" className="text-xs">
-                          {resource.badge}
-                        </Badge>
-                      )}
                     </div>
                     <CardDescription className="text-sm">
                       {resource.description}

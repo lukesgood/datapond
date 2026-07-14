@@ -36,6 +36,8 @@ import {
   Search,
   FileText,
   RefreshCw,
+  Download,
+  Loader2,
 } from "lucide-react"
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts"
 import type {
@@ -373,6 +375,63 @@ export default function GovernancePage() {
     pii: true,
     blocked: false,
   })
+  const [exporting, setExporting] = useState(false)
+
+  // Export the audit trail as CSV, scoped to the selected date range and the
+  // report sections that are checked. Real evidence from the audit-log API —
+  // not a placeholder.
+  const exportReport = async () => {
+    setExporting(true)
+    try {
+      const typeMap: Record<string, string> = {
+        queries: "query_executed",
+        aiSql: "ai_sql_generated",
+        pii: "pii_detected",
+        blocked: "login_failure",
+      }
+      const wanted = new Set(
+        Object.entries(reportChecks).filter(([, on]) => on).map(([k]) => typeMap[k]).filter(Boolean),
+      )
+      const qs = new URLSearchParams({ limit: "1000", offset: "0" })
+      const r = await fetch(`/api/governance/audit-log?${qs}`)
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const d = await r.json()
+      let items: AuditLogItem[] = d.items ?? []
+      if (wanted.size) items = items.filter((it) => wanted.has(it.event_type))
+      const from = reportFrom ? new Date(`${reportFrom}T00:00:00`).getTime() : null
+      const to = reportTo ? new Date(`${reportTo}T23:59:59`).getTime() : null
+      if (from !== null || to !== null) {
+        items = items.filter((it) => {
+          const t = new Date(it.created_at).getTime()
+          return (from === null || t >= from) && (to === null || t <= to)
+        })
+      }
+      if (!items.length) {
+        toast("No audit events match the selected range and sections.", "info")
+        return
+      }
+      const cols = ["created_at", "event_type", "user_email", "resource", "action", "result"]
+      const esc = (v: unknown) => {
+        const s = v == null ? "" : String(v)
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+      }
+      const csv = [cols.join(","), ...items.map((it) => cols.map((c) => esc(it[c as keyof AuditLogItem])).join(","))].join("\n")
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = "datapond-audit-report.csv"
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      toast(`Exported ${items.length} events to CSV.`, "success")
+    } catch (err) {
+      toast(`Export failed: ${err instanceof Error ? err.message : "unknown error"}`, "error")
+    } finally {
+      setExporting(false)
+    }
+  }
 
   useEffect(() => {
     fetch("/api/governance/stats")
@@ -833,12 +892,9 @@ export default function GovernancePage() {
               </p>
 
               {/* Export button */}
-              <Button
-                onClick={() => toast("Report generation is coming soon.", "info")}
-                className="gap-2"
-              >
-                <FileText className="h-4 w-4" />
-                Export PDF
+              <Button onClick={exportReport} disabled={exporting} className="gap-2">
+                {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                Export CSV
               </Button>
             </CardContent>
           </Card>
