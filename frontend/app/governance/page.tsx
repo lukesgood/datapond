@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useCapabilities } from "@/lib/capabilities"
 import { useConfirm } from "@/lib/confirm"
 import { useToast } from "@/lib/toast"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -199,6 +200,16 @@ function AccessControlTab() {
       .finally(() => setLoading(false))
   }
   useEffect(load, [])
+
+  // Default the policy catalog to the active engine's catalog (Athena →
+  // AwsDataCatalog, Trino → iceberg) instead of a hardcoded "iceberg".
+  const caps = useCapabilities()
+  useEffect(() => {
+    const qc = caps.query_catalog
+    if (typeof qc === "string" && qc && form.catalog_name === "iceberg") {
+      setForm((f) => ({ ...f, catalog_name: qc }))
+    }
+  }, [caps.query_catalog])
 
   const createPolicy = async () => {
     setErr(null)

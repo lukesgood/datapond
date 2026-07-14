@@ -1,4 +1,5 @@
 "use client"
+import { CapabilityGate } from "@/lib/capabilities"
 
 import { useState, useEffect, useCallback } from "react"
 import { useToast } from "@/lib/toast"
@@ -552,7 +553,7 @@ function NewExperimentDialog({
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
-export default function ExperimentsPage() {
+function ExperimentsPageInner() {
   const [experiments, setExperiments] = useState<Experiment[]>([])
   const [runCounts, setRunCounts] = useState<Record<string, number>>({})
   const [selectedExp, setSelectedExp] = useState<Experiment | null>(null)
@@ -1081,5 +1082,13 @@ export default function ExperimentsPage() {
         }}
       />
     </div>
+  )
+}
+
+export default function ExperimentsPage() {
+  return (
+    <CapabilityGate capability="experiments">
+      <ExperimentsPageInner />
+    </CapabilityGate>
   )
 }

@@ -1,4 +1,5 @@
 "use client"
+import { CapabilityGate } from "@/lib/capabilities"
 
 import { useEffect, useState, useRef } from "react"
 import { useToast } from "@/lib/toast"
@@ -308,7 +309,7 @@ function groupPipelines(sources: Source[], views: MV[], sinks: Sink[]): Pipeline
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
-export default function StreamingPage() {
+function StreamingPageInner() {
   const router = useRouter()
   const [cluster, setCluster] = useState<ClusterInfo | null>(null)
   const [sources, setSources] = useState<Source[]>([])
@@ -939,5 +940,13 @@ export default function StreamingPage() {
       </Dialog>
 
     </div>
+  )
+}
+
+export default function StreamingPage() {
+  return (
+    <CapabilityGate capability="streaming">
+      <StreamingPageInner />
+    </CapabilityGate>
   )
 }

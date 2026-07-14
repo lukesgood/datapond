@@ -239,7 +239,7 @@ export default function CatalogPage() {
                 catalogType={table.catalog_type}
                 tableType={table.table_type}
                 lastUpdated={table.last_updated}
-                onSendToKnowledge={table.catalog === "iceberg" ? () => setSendTable(table) : undefined}
+                onSendToKnowledge={() => setSendTable(table)}
               />
             ))}
           </div>
