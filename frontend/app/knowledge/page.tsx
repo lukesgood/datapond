@@ -138,7 +138,7 @@ export default function KnowledgePage() {
 
         {/* Selected collection workspace */}
         <div>
-          {sel ? <Workspace key={sel} name={sel} onChange={load} />
+          {sel ? <Workspace key={sel} name={sel} onChange={load} empty={(cols.find(c => c.name === sel)?.chunks ?? 0) === 0} />
             : <Card><CardContent className="py-16 text-center text-sm text-muted-foreground">
                 Select or create a collection.
               </CardContent></Card>}
@@ -194,14 +194,15 @@ function CreateCollection({ onCreated }: { onCreated: () => void }) {
   )
 }
 
-function Workspace({ name, onChange }: { name: string; onChange: () => void }) {
+function Workspace({ name, onChange, empty }: { name: string; onChange: () => void; empty: boolean }) {
   return (
     <Card>
       <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2">
         <Database className="h-4 w-4" />{name}</CardTitle>
         <CardDescription>Ingest documents, then search or ask with RAG.</CardDescription></CardHeader>
       <CardContent>
-        <Tabs defaultValue="search">
+        {/* An empty collection has nothing to search — open on Ingest so the first step is obvious. */}
+        <Tabs defaultValue={empty ? "ingest" : "search"}>
           <TabsList><TabsTrigger value="search"><Search className="h-3.5 w-3.5 mr-1" />Search / RAG</TabsTrigger>
             <TabsTrigger value="ingest"><Upload className="h-3.5 w-3.5 mr-1" />Ingest</TabsTrigger></TabsList>
           <TabsContent value="search"><SearchPanel name={name} /></TabsContent>

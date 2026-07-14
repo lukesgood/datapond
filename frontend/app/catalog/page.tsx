@@ -185,7 +185,7 @@ export default function CatalogPage() {
       </div>
 
       {/* Statistics Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -194,7 +194,7 @@ export default function CatalogPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{data?.tables.length || 0}</div>
+            <div className="dp-num text-2xl font-bold tabular-nums">{data?.tables.length || 0}</div>
           </CardContent>
         </Card>
 
@@ -206,27 +206,18 @@ export default function CatalogPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{data?.namespaces.length || 0}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Filtered Results</CardTitle>
-              <Search className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{filteredTables?.length || 0}</div>
+            <div className="dp-num text-2xl font-bold tabular-nums">{data?.namespaces.length || 0}</div>
           </CardContent>
         </Card>
       </div>
 
       {/* Tables Grid */}
       <div>
-        <h3 className="text-xl font-semibold mb-4">
+        <h3 className="text-xl font-semibold mb-4 flex items-baseline gap-2">
           {selectedNamespace === "all" ? "All Tables" : `Tables in ${selectedNamespace}`}
+          <span className="text-sm font-normal text-muted-foreground tabular-nums">
+            {filteredTables?.length ?? 0} shown
+          </span>
         </h3>
         {filteredTables && filteredTables.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

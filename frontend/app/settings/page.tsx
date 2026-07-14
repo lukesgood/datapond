@@ -627,8 +627,19 @@ function UserManagement() {
     fetchUsers()
   }
 
+  const confirmDialog = useConfirm()
   const handleToggleRole = async (u: UserRecord) => {
     const r = u.role === "admin" ? "viewer" : "admin"
+    const promoting = r === "admin"
+    const ok = await confirmDialog({
+      title: promoting ? "Promote to admin" : "Demote to viewer",
+      message: promoting
+        ? `Grant '${u.username}' full admin access — including user management, governance policies, and all collections.`
+        : `Remove admin access from '${u.username}'. They'll keep viewer access.`,
+      destructive: promoting,
+      confirmText: promoting ? "Promote to admin" : "Demote to viewer",
+    })
+    if (!ok) return
     await fetch(`/api/auth/users/${u.id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role: r }),
@@ -636,8 +647,6 @@ function UserManagement() {
     notify(`${u.username} role changed to ${r}`)
     fetchUsers()
   }
-
-  const confirmDialog = useConfirm()
   const handleDelete = async (u: UserRecord) => {
     if (!(await confirmDialog({ title: "Delete user", message: `Delete user '${u.username}'. This cannot be undone.`, destructive: true, confirmText: "Delete" }))) return
     const r = await fetch(`/api/auth/users/${u.id}`, { method: "DELETE" })

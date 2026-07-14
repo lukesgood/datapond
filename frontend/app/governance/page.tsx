@@ -36,6 +36,8 @@ import {
   Search,
   FileText,
   RefreshCw,
+  Download,
+  Loader2,
 } from "lucide-react"
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts"
 import type {
@@ -96,7 +98,9 @@ function StatCard({ label, value, icon, colorClass, bgClass, loading }: StatCard
 
 function EventBadge({ type }: { type: string }) {
   const map: Record<string, { label: string; className: string }> = {
-    query_executed:    { label: "Query executed",    className: "border-blue-400 text-blue-500" },
+    query_executed:    { label: "Query executed",    className: "border-primary/40 text-primary" },
+    query_error:       { label: "Query error",       className: "border-destructive/40 text-destructive" },
+    query_timeout:     { label: "Query timeout",      className: "border-[var(--dp-warn)]/40 text-[var(--dp-warn)]" },
     ai_sql_generated:  { label: "AI SQL",       className: "border-violet-400 text-violet-500" },
     pii_detected:      { label: "PII detected",     className: "border-amber-400 text-amber-500" },
     login_success:     { label: "Login success",  className: "border-gray-400 text-gray-500" },
@@ -114,11 +118,15 @@ function EventBadge({ type }: { type: string }) {
 
 function ResultBadge({ result }: { result: string }) {
   if (result === "통과" || result === "pass" || result === "success")
-    return <Badge className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 border-0">Passed</Badge>
+    return <Badge className="bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-0">Passed</Badge>
+  if (result === "error")
+    return <Badge className="bg-destructive/10 text-destructive border-0">Error</Badge>
+  if (result === "timeout")
+    return <Badge className="bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-0">Timeout</Badge>
   if (result === "차단" || result === "blocked")
-    return <Badge className="bg-red-500/10 text-red-500 hover:bg-red-500/20 border-0">Blocked</Badge>
+    return <Badge className="bg-destructive/10 text-destructive border-0">Blocked</Badge>
   if (result === "마스킹" || result === "masked")
-    return <Badge className="bg-amber-500/10 text-yellow-500 hover:bg-amber-500/20 border-0">Masked</Badge>
+    return <Badge className="bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-0">Masked</Badge>
   return <Badge variant="secondary">{result}</Badge>
 }
 
@@ -373,6 +381,89 @@ export default function GovernancePage() {
     pii: true,
     blocked: false,
   })
+  const [exporting, setExporting] = useState(false)
+
+  // Assemble a compliance report (JSON) from the sections that are checked.
+  // Each section comes from its real governance dataset — the query audit log
+  // is fetched fresh (the API caps at 200 rows / newest-first, so we surface a
+  // `capped` flag when we hit it); AI-SQL safety, PII, and the blocked summary
+  // are current snapshots already loaded on the page. No placeholders.
+  const AUDIT_LIMIT = 200
+  const exportReport = async () => {
+    setExporting(true)
+    try {
+      const from = reportFrom ? new Date(`${reportFrom}T00:00:00`).getTime() : null
+      const to = reportTo ? new Date(`${reportTo}T23:59:59`).getTime() : null
+      const inRange = (ts: string | null | undefined) => {
+        if (from === null && to === null) return true
+        if (!ts) return true
+        const t = new Date(ts).getTime()
+        return (from === null || t >= from) && (to === null || t <= to)
+      }
+
+      const report: Record<string, unknown> = {
+        generated_at: new Date().toISOString(),
+        date_range: { from: reportFrom || null, to: reportTo || null },
+        note: "AI-SQL safety, PII, and blocked sections are current snapshots; only the query audit log is time-scoped per event.",
+        sections: {},
+      }
+      const sections = report.sections as Record<string, unknown>
+
+      if (reportChecks.queries) {
+        const qs = new URLSearchParams({ limit: String(AUDIT_LIMIT), offset: "0" })
+        const r = await fetch(`/api/governance/audit-log?${qs}`)
+        if (!r.ok) throw new Error(`audit-log HTTP ${r.status}`)
+        const d = await r.json()
+        const all: AuditLogItem[] = d.items ?? []
+        const scoped = all.filter((it) => inRange(it.created_at))
+        sections.query_audit_log = {
+          total_available: d.total ?? all.length,
+          returned: all.length,
+          capped: (d.total ?? all.length) > all.length,
+          events_in_range: scoped.length,
+          events: scoped,
+        }
+      }
+      if (reportChecks.aiSql) {
+        sections.ai_sql_safety = {
+          risk_distribution: riskDist,
+          recent_flags: recentFlags.filter((f) => inRange(f.ts)),
+        }
+      }
+      if (reportChecks.pii) {
+        sections.pii_report = { tables: piiTables }
+      }
+      if (reportChecks.blocked) {
+        sections.blocked_summary = { blocked_count: stats?.blocked_count ?? 0 }
+      }
+
+      if (Object.keys(sections).length === 0) {
+        toast("Select at least one section to include in the report.", "info")
+        return
+      }
+
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = "datapond-compliance-report.json"
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      const audit = sections.query_audit_log as { capped?: boolean } | undefined
+      toast(
+        audit?.capped
+          ? "Report exported. Query audit log capped at the 200 most-recent events."
+          : "Compliance report exported.",
+        "success",
+      )
+    } catch (err) {
+      toast(`Export failed: ${err instanceof Error ? err.message : "unknown error"}`, "error")
+    } finally {
+      setExporting(false)
+    }
+  }
 
   useEffect(() => {
     fetch("/api/governance/stats")
@@ -414,12 +505,16 @@ export default function GovernancePage() {
 
   // client-side search filter on audit items
   const filteredAudit = searchQuery
-    ? auditItems.filter(
-        (i) =>
-          i.user_email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          i.resource?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          i.action?.toLowerCase().includes(searchQuery.toLowerCase())
-      )
+    ? auditItems.filter((i) => {
+        const q = searchQuery.toLowerCase()
+        return (
+          i.user_id?.toLowerCase().includes(q) ||
+          i.catalog?.toLowerCase().includes(q) ||
+          i.schema_name?.toLowerCase().includes(q) ||
+          i.query_text?.toLowerCase().includes(q) ||
+          i.status?.toLowerCase().includes(q)
+        )
+      })
     : auditItems
 
   // pie chart data
@@ -571,12 +666,12 @@ export default function GovernancePage() {
                         <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                           {relativeTime(item.created_at)}
                         </TableCell>
-                        <TableCell className="text-sm">{item.user_email}</TableCell>
+                        <TableCell className="text-sm">{item.user_id ?? "—"}</TableCell>
                         <TableCell><EventBadge type={item.event_type} /></TableCell>
                         <TableCell className="text-sm font-mono text-xs max-w-[200px] truncate">
-                          {item.resource}
+                          {[item.catalog, item.schema_name].filter(Boolean).join(".") || item.query_text || "—"}
                         </TableCell>
-                        <TableCell><ResultBadge result={item.result} /></TableCell>
+                        <TableCell><ResultBadge result={item.status} /></TableCell>
                       </TableRow>
                     ))
                   )}
@@ -833,12 +928,9 @@ export default function GovernancePage() {
               </p>
 
               {/* Export button */}
-              <Button
-                onClick={() => toast("Report generation is coming soon.", "info")}
-                className="gap-2"
-              >
-                <FileText className="h-4 w-4" />
-                Export PDF
+              <Button onClick={exportReport} disabled={exporting} className="gap-2">
+                {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                Export report (JSON)
               </Button>
             </CardContent>
           </Card>
