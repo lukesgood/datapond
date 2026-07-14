@@ -205,6 +205,19 @@ spec:
           value: {{ (.Values.catalog | default dict).backend | default "polaris" | quote }}
         - name: GLUE_WAREHOUSE
           value: {{ (.Values.catalog | default dict).glueWarehouse | default "" | quote }}
+        # Query engine (slice 2): Athena on the glue profile, else Trino. Derived from catalog.backend.
+        - name: FEATURE_ATHENA
+          value: "{{ if eq ((.Values.catalog | default dict).backend | default "polaris") "glue" }}true{{ else }}false{{ end }}"
+        - name: QUERY_ENGINE
+          value: "{{ if eq ((.Values.catalog | default dict).backend | default "polaris") "glue" }}athena{{ else }}trino{{ end }}"
+        - name: RLS_DEFAULT_CATALOG
+          value: "{{ if eq ((.Values.catalog | default dict).backend | default "polaris") "glue" }}AwsDataCatalog{{ else }}iceberg{{ end }}"
+        - name: ATHENA_OUTPUT_LOCATION
+          value: {{ (.Values.catalog | default dict).athenaOutputLocation | default "" | quote }}
+        - name: ATHENA_WORKGROUP
+          value: {{ (.Values.catalog | default dict).athenaWorkgroup | default "primary" | quote }}
+        - name: ATHENA_DATABASE
+          value: {{ (.Values.catalog | default dict).athenaDatabase | default "default" | quote }}
         {{- if (((.Values.auth).ldap).enabled) }}
         # LDAP / Active Directory authentication
         - name: LDAP_ENABLED

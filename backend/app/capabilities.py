@@ -19,6 +19,7 @@ def compute_capabilities(env: Mapping) -> dict:
     trino = _feat(env, "TRINO")
     polaris = _feat(env, "POLARIS")
     glue = _feat(env, "GLUE", default=False)  # new opt-in AWS backend — off unless set
+    athena = _feat(env, "ATHENA", default=False)  # AWS-native query engine (slice 2)
     lake = trino or polaris or glue
     return {
         # Core — always available
@@ -35,8 +36,8 @@ def compute_capabilities(env: Mapping) -> dict:
         # Component-gated
         "connectors": lake,  # Ingestion → Iceberg via Trino/Polaris or Glue
         "catalog": lake,
-        "query": trino,
-        "dashboards": trino,  # BI mini-charts run Trino queries
+        "query": trino or athena,
+        "dashboards": trino or athena,  # BI mini-charts run through /queries/execute
         "pipelines": _feat(env, "AIRFLOW"),  # Transforms
         "streaming": _feat(env, "RISINGWAVE"),
         "experiments": _feat(env, "MLFLOW"),

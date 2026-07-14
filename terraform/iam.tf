@@ -65,6 +65,15 @@ data "aws_iam_policy_document" "app" {
     ]
     resources = ["*"] # Glue ARNs are catalog/db/table-scoped; tighten to datapond* dbs in a follow-up
   }
+  statement {
+    sid    = "AthenaQuery"
+    effect = "Allow"
+    actions = [
+      "athena:StartQueryExecution", "athena:GetQueryExecution",
+      "athena:GetQueryResults", "athena:StopQueryExecution", "athena:GetWorkGroup",
+    ]
+    resources = ["*"] # workgroup-scoped; tighten to the primary workgroup ARN in a follow-up
+  }
 }
 
 resource "aws_iam_role_policy" "app" {

@@ -98,6 +98,20 @@ def test_enforce_wraps_table_with_filter():
     assert res.sql.strip().lower().startswith("select id, region from (")
 
 
+def test_enforce_dialect_param_exists():
+    import inspect
+    assert "dialect" in inspect.signature(enforce).parameters
+
+
+def test_enforce_athena_dialect_wraps_table():
+    # Athena (Presto-derived) dialect must round-trip the same rewrite without error.
+    res = enforce("SELECT id, region FROM iceberg.sales.orders",
+                  analyst(), [orders_region_policy()], dialect="athena")
+    assert "p-orders-region" in res.applied_policy_ids
+    assert "region = 'us-east'" in res.sql.lower()
+    assert "iceberg.sales.orders" in res.sql.lower()
+
+
 def test_enforce_unqualified_table_uses_defaults():
     # default catalog=iceberg schema=default; register a policy on that key
     pol = RlsPolicy(id="pd", catalog="iceberg", schema="default", table="t",
@@ -156,6 +170,18 @@ def test_enforce_applies_mask_in_projection():
                       role_map={"business_analyst": False})
     res = enforce("SELECT email FROM iceberg.sales.orders",
                   analyst(), [orders_region_policy()], [mask])
+    assert "m-email" in res.applied_mask_ids
+    low = res.sql.lower()
+    assert "except" in low and "regexp_replace" in low
+
+
+def test_enforce_mask_survives_athena_dialect():
+    # The SELECT * EXCEPT (col), <mask> AS col rewrite must round-trip on athena too.
+    mask = MaskPolicy(id="m-email", catalog="iceberg", schema="sales", table="orders",
+                      column="email", masking_type="partial_email",
+                      role_map={"business_analyst": False})
+    res = enforce("SELECT email FROM iceberg.sales.orders",
+                  analyst(), [orders_region_policy()], [mask], dialect="athena")
     assert "m-email" in res.applied_mask_ids
     low = res.sql.lower()
     assert "except" in low and "regexp_replace" in low

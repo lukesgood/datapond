@@ -49,7 +49,6 @@ def _cfg():
         "master_key":    component_secret("LITELLM_MASTER_KEY", "", component="litellm") if url else "",
     }
 
-from app.api.trino_util import TRINO_CATALOG, trino_conn
 
 
 # ── Schema context ────────────────────────────────────────────────────────────
@@ -63,39 +62,29 @@ _schema_cache: dict = {"text": None, "ts": 0.0}
 
 
 def _fetch_schema_context() -> str:
-    """Fetch Iceberg table/column info from Trino in a single query (no N+1)."""
+    """List tables + columns from the active catalog backend (Glue or Polaris)."""
     try:
-        conn = trino_conn(timeout=10)
-        cur = conn.cursor()
-        cur.execute(
-            f"SELECT table_schema, table_name, column_name, data_type "
-            f"FROM {TRINO_CATALOG}.information_schema.columns "
-            f"WHERE table_schema NOT IN ('information_schema','system') "
-            f"ORDER BY table_schema, table_name, ordinal_position"
-        )
-        rows = cur.fetchall()
-        if not rows:
-            return "No tables found in the Iceberg catalog."
-
-        lines = ["Available Iceberg tables (catalog: iceberg):"]
-        cur_key, cols = None, []
-        def flush():
-            if cur_key:
-                col_str = ", ".join(f"{c} ({t})" for c, t in cols[:20])
-                lines.append(f"  iceberg.{cur_key[0]}.{cur_key[1]}: {col_str}")
-        for schema, table, col, dtype in rows:
-            if (schema, table) != cur_key:
-                flush()
+        from app.api.query_engine import get_engine
+        from app.api.catalog_backend import get_catalog_reader
+        eng = get_engine()
+        reader = get_catalog_reader()
+        lines = [f"Available tables (catalog: {eng.ai_table_prefix}):"]
+        for ns in reader.list_namespaces():
+            for tbl in reader.list_tables(ns):
+                try:
+                    cols = reader.get_columns(ns, tbl)
+                except Exception:
+                    cols = []
+                col_str = ", ".join(f"{c['name']} ({c['type']})" for c in cols[:20])
+                lines.append(f"  {eng.ai_table_prefix}.{ns}.{tbl}: {col_str}")
                 if len(lines) > 50:  # cap prompt size: 50 tables
-                    break
-                cur_key, cols = (schema, table), []
-            cols.append((col, dtype))
-        else:
-            flush()
+                    return "\n".join(lines)
+        if len(lines) == 1:
+            return "No tables found in the catalog."
         return "\n".join(lines)
     except Exception as e:
         logger.warning(f"[ai_sql] schema fetch failed: {e}")
-        return "Schema unavailable — use iceberg.<schema>.<table> notation."
+        return "Schema unavailable — use <catalog>.<schema>.<table> notation."
 
 
 _refresh_lock = threading.Lock()
@@ -141,16 +130,18 @@ def _get_schema_context() -> str:
 # ── Prompt builder ────────────────────────────────────────────────────────────
 
 def _build_messages(schema_ctx: str, question: str, context: Optional[str]) -> tuple[str, list]:
-    system = f"""You are an expert SQL assistant for DataPond, an AI-Native Lakehouse.
-The query engine is Trino. Tables are Apache Iceberg format.
+    from app.api.query_engine import get_engine
+    eng = get_engine()
+    system = f"""You are an expert SQL assistant for DataPond, an AI Data Foundation.
+{eng.ai_dialect_prompt}
 
 {schema_ctx}
 
 Rules:
-- Always use fully-qualified table names: iceberg.<schema>.<table>
-- Trino SQL dialect: double-quote identifiers, no backticks
+- Always use fully-qualified table names: {eng.ai_table_prefix}.<schema>.<table>
+- Presto/Trino SQL dialect: double-quote identifiers, no backticks
 - Return ONLY valid JSON with exactly two keys: "sql" and "explanation"
-- "sql": runnable Trino SQL (no markdown, no code fences)
+- "sql": runnable SQL (no markdown, no code fences)
 - "explanation": one sentence describing what the query does
 - Include ORDER BY for aggregations; default LIMIT 1000"""
 
@@ -358,10 +349,12 @@ async def generate_sql(req: AskRequest, user: dict = Depends(require_user)):
             logger.warning(f"[ai_sql] gateway unavailable or no active backend: {e}")
 
     # ── 2. Graceful fallback — schema-aware SQL template ──────────────────────
+    from app.api.query_engine import get_engine
+    _prefix = get_engine().ai_table_prefix + "."
     table_lines = "\n".join(
         f"-- SELECT * FROM {line.split(':')[0].strip()} LIMIT 10;"
         for line in schema_ctx.split("\n")
-        if line.strip().startswith("iceberg.")
+        if line.strip().startswith(_prefix)
     )[:800]
 
     return AskResponse(

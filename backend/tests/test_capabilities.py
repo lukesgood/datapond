@@ -65,3 +65,16 @@ def test_glue_off_by_default():
     """Glue is opt-in: absent FEATURE_GLUE leaves the lake backends off."""
     caps = compute_capabilities(_env(TRINO="false", POLARIS="false"))
     assert caps["connectors"] is False and caps["catalog"] is False
+
+
+def test_athena_enables_query_and_dashboards():
+    """FEATURE_ATHENA (AWS-native query) re-enables SQL + dashboards."""
+    caps = compute_capabilities(_env(TRINO="false", POLARIS="false", GLUE="true", ATHENA="true"))
+    assert caps["query"] is True and caps["dashboards"] is True
+    assert caps["catalog"] is True
+
+
+def test_athena_off_keeps_query_off():
+    """Slice-1-only (glue catalog, no athena): catalog on, query off."""
+    caps = compute_capabilities(_env(TRINO="false", POLARIS="false", GLUE="true"))
+    assert caps["query"] is False and caps["catalog"] is True

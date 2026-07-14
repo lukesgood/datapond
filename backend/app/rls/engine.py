@@ -98,7 +98,8 @@ def _admin_bypass_enabled() -> bool:
 
 
 # Default catalog/schema used to qualify unqualified table refs (matches queries.py).
-DEFAULT_CATALOG = os.getenv("TRINO_CATALOG", "iceberg")
+# RLS_DEFAULT_CATALOG lets the Athena engine re-point the catalog (AwsDataCatalog).
+DEFAULT_CATALOG = os.getenv("RLS_DEFAULT_CATALOG", os.getenv("TRINO_CATALOG", "iceberg"))
 DEFAULT_SCHEMA = os.getenv("TRINO_SCHEMA", "default")
 
 _ATTR_KEY_RE = re.compile(r"^[A-Za-z0-9_]{1,64}$")
@@ -211,6 +212,7 @@ def enforce(
     masks: Sequence[MaskPolicy] = (),
     *,
     sensitive_block: bool = False,
+    dialect: str = "trino",
 ) -> EnforceResult:
     """
     Apply RLS to `sql` for `user`. Returns rewritten SQL or raises RlsDenied.
@@ -225,7 +227,7 @@ def enforce(
         return EnforceResult(sql=sql, tables=[])
 
     try:
-        statements = sqlglot.parse(sql, read="trino")
+        statements = sqlglot.parse(sql, read=dialect)
     except Exception as e:                  # unparseable -> fail closed
         raise RlsDenied(f"쿼리를 파싱할 수 없어 차단됨(default_deny): {e}")
 
@@ -281,12 +283,12 @@ def enforce(
                 # but table IS registered so access is allowed.
                 continue
 
-            _wrap_table(tbl, key, filt, eff_masks)
+            _wrap_table(tbl, key, filt, eff_masks, dialect)
             applied_pids.extend(p.id for p in eff)
             applied_mids.extend(m.id for m in eff_masks)
 
-    rewritten = statements[0].sql(dialect="trino") if len(statements) == 1 \
-        else ";\n".join(s.sql(dialect="trino") for s in statements)
+    rewritten = statements[0].sql(dialect=dialect) if len(statements) == 1 \
+        else ";\n".join(s.sql(dialect=dialect) for s in statements)
     return EnforceResult(
         sql=rewritten,
         applied_policy_ids=applied_pids,
@@ -303,7 +305,8 @@ def _mask_applies(mask: MaskPolicy, user: UserContext) -> bool:
     return not any(mapped.values())          # any exempt role -> mask not applied
 
 
-def _wrap_table(tbl: exp.Table, key: str, filt: Optional[str], masks: List[MaskPolicy]) -> None:
+def _wrap_table(tbl: exp.Table, key: str, filt: Optional[str], masks: List[MaskPolicy],
+                dialect: str = "trino") -> None:
     """
     Replace `tbl` in-place with a filtered/masked subquery, preserving its alias:
         FROM cat.sch.t  ->  FROM (SELECT * [EXCEPT(masked), <mask> AS col] FROM cat.sch.t
@@ -324,6 +327,6 @@ def _wrap_table(tbl: exp.Table, key: str, filt: Optional[str], masks: List[MaskP
     if filt:
         select_sql += f" WHERE {filt}"
 
-    inner = sqlglot.parse_one(select_sql, read="trino")
+    inner = sqlglot.parse_one(select_sql, read=dialect)
     subquery = exp.Subquery(this=inner, alias=exp.TableAlias(this=exp.to_identifier(alias)))
     tbl.replace(subquery)
