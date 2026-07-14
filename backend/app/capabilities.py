@@ -18,7 +18,8 @@ def compute_capabilities(env: Mapping) -> dict:
     """
     trino = _feat(env, "TRINO")
     polaris = _feat(env, "POLARIS")
-    lake = trino or polaris
+    glue = _feat(env, "GLUE", default=False)  # new opt-in AWS backend — off unless set
+    lake = trino or polaris or glue
     return {
         # Core — always available
         "knowledge": True,
@@ -32,7 +33,7 @@ def compute_capabilities(env: Mapping) -> dict:
         "docs": True,
         "help": True,
         # Component-gated
-        "connectors": lake,  # Ingestion → Iceberg via Trino/Polaris
+        "connectors": lake,  # Ingestion → Iceberg via Trino/Polaris or Glue
         "catalog": lake,
         "query": trino,
         "dashboards": trino,  # BI mini-charts run Trino queries

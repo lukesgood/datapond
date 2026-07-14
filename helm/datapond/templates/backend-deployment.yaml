@@ -197,6 +197,10 @@ spec:
           value: "{{ dig "enabled" true .Values.openmetadata }}"
         - name: FEATURE_JUPYTER
           value: "{{ dig "enabled" true .Values.jupyter }}"
+        # Glue is the AWS-native catalog backend — capability derives from catalog.backend
+        # (single source of truth) so the flag can't drift from the actual backend.
+        - name: FEATURE_GLUE
+          value: "{{ if eq ((.Values.catalog | default dict).backend | default "polaris") "glue" }}true{{ else }}false{{ end }}"
         {{- if (((.Values.auth).ldap).enabled) }}
         # LDAP / Active Directory authentication
         - name: LDAP_ENABLED
