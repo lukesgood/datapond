@@ -74,6 +74,20 @@ def test_ingest_documents_appends_when_no_group(monkeypatch):
     assert not dels
 
 
+def test_refresh_from_source_purges_legacy_untagged_chunks(monkeypatch):
+    import app.api.ai_vectors as v
+    sink = []
+    pool = _FakePool(); pool.acquire = lambda: _FakeConn(sink)
+    monkeypatch.setattr(v, "_read_s3_docs", lambda b, p, m: [])
+    async def fake_ingest(coll_id, docs, cs, ov, source_group=None):
+        return {"chunks": 0, "pii_masked": 0}
+    monkeypatch.setattr(v, "_ingest_documents", fake_ingest)
+    src = v.SourceIngest(type="s3", bucket="b", prefix="p/")
+    asyncio.get_event_loop().run_until_complete(v._refresh_from_source(pool, "cid", src))
+    legacy = [s for s in sink if isinstance(s, str) and "source_group IS NULL" in s]
+    assert legacy and "LIKE" in legacy[0]
+
+
 def test_preset_to_minutes():
     import pytest
     import app.api.ai_vectors as v

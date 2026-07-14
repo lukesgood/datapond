@@ -423,6 +423,19 @@ async def _refresh_from_source(pool, coll_id, src: "SourceIngest") -> dict:
         docs = await asyncio.to_thread(_read_s3_docs, src.bucket, src.prefix, src.max_files)
     else:
         raise HTTPException(400, "type must be 'iceberg' or 's3'.")
+    # One-time self-heal: purge legacy (pre-source_group) chunks for this logical
+    # source, so the first re-embed after upgrade doesn't leave the old appended
+    # duplicates behind. After the first run every chunk is source_group-tagged and
+    # this deletes nothing.
+    async with pool.acquire() as c:
+        if src.type == "iceberg":
+            await c.execute(
+                "DELETE FROM ai_chunks WHERE collection_id = $1 AND source_group IS NULL AND source = $2",
+                coll_id, f"iceberg.{src.db_schema}.{src.table}.{src.text_column}")
+        else:
+            await c.execute(
+                "DELETE FROM ai_chunks WHERE collection_id = $1 AND source_group IS NULL AND source LIKE $2",
+                coll_id, f"s3://{src.bucket}/{src.prefix or ''}%")
     res = await _ingest_documents(coll_id, docs, src.chunk_size, src.chunk_overlap,
                                   source_group=_source_group(src))
     return {"documents": len(docs), **res}

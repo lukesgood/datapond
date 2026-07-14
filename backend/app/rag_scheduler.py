@@ -11,6 +11,10 @@ from datetime import datetime, timezone
 logger = logging.getLogger("rag_scheduler")
 
 # Fixed 64-bit key (derived from ASCII 'datapond', high bit cleared) for pg_try_advisory_lock.
+# NOTE: pg_try_advisory_lock is SESSION-scoped. The backend connects to Aurora directly via
+# asyncpg (no transaction-pooling proxy), so lock + tick statements share one session and the
+# cross-replica exclusion holds. If a transaction-mode pooler (RDS Proxy / PgBouncer) is ever
+# put in front, this exclusion breaks — switch to a row-lock/leader-row approach then.
 LOCK_KEY = 7233183143331076964
 
 
