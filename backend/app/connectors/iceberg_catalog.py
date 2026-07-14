@@ -16,26 +16,45 @@ _lock = threading.Lock()
 
 
 def get_catalog():
-    """RestCatalog 싱글톤. 최초 호출 시 1회 생성."""
+    """pyiceberg catalog 싱글톤. 백엔드는 ICEBERG_CATALOG_BACKEND로 선택
+    (glue = AWS Glue Data Catalog; polaris = 자체 REST, 기본값). 최초 1회 생성."""
     global _catalog
     if _catalog is None:
         with _lock:
             if _catalog is None:
-                from pyiceberg.catalog.rest import RestCatalog
-                client_id = os.getenv("POLARIS_CLIENT_ID", "polaris-client")
-                client_secret = component_secret("POLARIS_CLIENT_SECRET", "changeme-polaris-secret", component="polaris")
-                _catalog = RestCatalog(
-                    name="datapond",
-                    **{
-                        "uri":       os.getenv("POLARIS_URI", "http://polaris:8181/api/catalog"),
-                        "warehouse": os.getenv("POLARIS_WAREHOUSE", "iceberg"),
-                        "credential": f"{client_id}:{client_secret}",
-                        "scope":      "PRINCIPAL_ROLE:ALL",
-                        # S3 FileIO: static keys on MinIO, credential-chain on AWS (see _s3_fileio_props)
-                        **_s3_fileio_props(),
-                    },
-                )
+                backend = os.getenv("ICEBERG_CATALOG_BACKEND", "polaris").strip().lower()
+                _catalog = _build_glue_catalog() if backend == "glue" else _build_polaris_catalog()
     return _catalog
+
+
+def _build_glue_catalog():
+    """AWS Glue Data Catalog (서버리스). Glue/S3 모두 기본 자격증명 체인
+    (노드 instance profile / IRSA) 사용 — _s3_fileio_props가 AWS에서 정적키를 생략."""
+    from pyiceberg.catalog.glue import GlueCatalog
+    props = {
+        "warehouse":  os.getenv("GLUE_WAREHOUSE", ""),
+        "glue.region": os.getenv("S3_REGION", "us-east-1"),
+        **_s3_fileio_props(),
+    }
+    return GlueCatalog(name="datapond", **props)
+
+
+def _build_polaris_catalog():
+    """자체 호스팅 Polaris REST 카탈로그 (온프렘/full 프로파일). 기존 동작 그대로."""
+    from pyiceberg.catalog.rest import RestCatalog
+    client_id = os.getenv("POLARIS_CLIENT_ID", "polaris-client")
+    client_secret = component_secret("POLARIS_CLIENT_SECRET", "changeme-polaris-secret", component="polaris")
+    return RestCatalog(
+        name="datapond",
+        **{
+            "uri":       os.getenv("POLARIS_URI", "http://polaris:8181/api/catalog"),
+            "warehouse": os.getenv("POLARIS_WAREHOUSE", "iceberg"),
+            "credential": f"{client_id}:{client_secret}",
+            "scope":      "PRINCIPAL_ROLE:ALL",
+            # S3 FileIO: static keys on MinIO, credential-chain on AWS (see _s3_fileio_props)
+            **_s3_fileio_props(),
+        },
+    )
 
 
 def _s3_fileio_props() -> dict:

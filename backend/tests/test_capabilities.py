@@ -50,3 +50,18 @@ def test_catalog_on_if_only_polaris():
     """Catalog available if Polaris enabled, even without Trino."""
     caps = compute_capabilities(_env(TRINO="false", POLARIS="true"))
     assert caps["catalog"] is True
+
+
+def test_glue_enables_connectors_and_catalog_but_not_query():
+    """FEATURE_GLUE (AWS-native) re-enables ingestion+catalog, but not SQL query (Athena = later slice)."""
+    caps = compute_capabilities(_env(TRINO="false", POLARIS="false", GLUE="true"))
+    assert caps["connectors"] is True
+    assert caps["catalog"] is True
+    assert caps["query"] is False
+    assert caps["dashboards"] is False
+
+
+def test_glue_off_by_default():
+    """Glue is opt-in: absent FEATURE_GLUE leaves the lake backends off."""
+    caps = compute_capabilities(_env(TRINO="false", POLARIS="false"))
+    assert caps["connectors"] is False and caps["catalog"] is False

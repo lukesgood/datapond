@@ -54,6 +54,17 @@ data "aws_iam_policy_document" "app" {
     actions   = ["route53:ChangeResourceRecordSets", "route53:ListResourceRecordSets"]
     resources = ["arn:aws:route53:::hostedzone/${var.route53_zone_id}"]
   }
+  statement {
+    sid    = "GlueDataCatalog"
+    effect = "Allow"
+    actions = [
+      "glue:GetDatabase", "glue:GetDatabases", "glue:CreateDatabase",
+      "glue:GetTable", "glue:GetTables", "glue:CreateTable", "glue:UpdateTable", "glue:DeleteTable",
+      "glue:GetPartition", "glue:GetPartitions", "glue:BatchGetPartition",
+      "glue:BatchCreatePartition", "glue:CreatePartition", "glue:UpdatePartition", "glue:DeletePartition",
+    ]
+    resources = ["*"] # Glue ARNs are catalog/db/table-scoped; tighten to datapond* dbs in a follow-up
+  }
 }
 
 resource "aws_iam_role_policy" "app" {

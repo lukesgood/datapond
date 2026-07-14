@@ -2,9 +2,7 @@
 Data Catalog API — reads from Polaris (governance gate) + Trino for details.
 Only data registered in Polaris is visible.
 """
-import os
 import logging
-import re
 import math
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -12,15 +10,10 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.api.polaris_client import list_catalogs, list_namespaces, list_tables, get_catalog_type
-from app.api.trino_util import trino_conn
+from app.api.catalog_backend import get_catalog_reader
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-
-def _trino(catalog: str = "iceberg"):
-    return trino_conn(catalog=catalog, timeout=15)
 
 
 # ── Models ─────────────────────────────────────────────────────────────────────
@@ -73,21 +66,10 @@ class CatalogTree(BaseModel):
 
 @router.get("/catalog/namespaces", response_model=NamespacesResponse)
 async def list_all_namespaces():
-    """List namespaces across all Polaris-registered catalogs."""
+    """List namespaces from the active catalog backend (Glue or Polaris)."""
     try:
-        polaris_cats = list_catalogs()
-        namespaces = []
-        for pcat in polaris_cats:
-            cat_name = pcat["name"]
-            cat_type = get_catalog_type(pcat)
-            try:
-                for ns in list_namespaces(cat_name):
-                    namespaces.append(NamespaceInfo(
-                        name=ns, catalog=cat_name, catalog_type=cat_type,
-                    ))
-            except Exception:
-                continue
-        return NamespacesResponse(namespaces=namespaces)
+        names = get_catalog_reader().list_namespaces()
+        return NamespacesResponse(namespaces=[NamespaceInfo(name=n) for n in names])
     except Exception as e:
         logger.error(f"catalog namespaces error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -95,23 +77,14 @@ async def list_all_namespaces():
 
 @router.get("/catalog/tables", response_model=TablesResponse)
 async def list_all_tables():
-    """List all tables across all Polaris-registered catalogs."""
+    """List all tables from the active catalog backend (Glue or Polaris)."""
     try:
-        polaris_cats = list_catalogs()
+        reader = get_catalog_reader()
         tables = []
-        for pcat in polaris_cats:
-            cat_name = pcat["name"]
-            cat_type = get_catalog_type(pcat)
+        for ns in reader.list_namespaces():
             try:
-                for ns in list_namespaces(cat_name):
-                    try:
-                        for tbl in list_tables(cat_name, ns):
-                            tables.append(TableInfo(
-                                name=tbl, namespace=ns,
-                                catalog=cat_name, catalog_type=cat_type,
-                            ))
-                    except Exception:
-                        continue
+                for tbl in reader.list_tables(ns):
+                    tables.append(TableInfo(name=tbl, namespace=ns))
             except Exception:
                 continue
         return TablesResponse(tables=tables)
@@ -122,54 +95,21 @@ async def list_all_tables():
 
 @router.get("/catalog/tables/{namespace}/{table}", response_model=TableDetails)
 async def get_table_details(namespace: str, table: str, catalog: str = "iceberg"):
-    """Get table schema, properties, and row count from Trino."""
+    """Get table schema, location, and row count from the active catalog backend."""
     try:
-        cur = _trino(catalog).cursor()
-
-        # Columns
-        cur.execute(
-            f"SELECT column_name, data_type, is_nullable "
-            f"FROM {catalog}.information_schema.columns "
-            f"WHERE table_schema='{namespace}' AND table_name='{table}' "
-            f"ORDER BY ordinal_position"
-        )
-        columns = [
-            TableColumn(name=r[0], type=r[1], nullable=(r[2].upper() == "YES"))
-            for r in cur.fetchall()
-        ]
-
+        reader = get_catalog_reader()
+        columns = [TableColumn(**c) for c in reader.get_columns(namespace, table)]
         if not columns:
             raise HTTPException(status_code=404, detail=f"Table {namespace}.{table} not found")
-
-        # Row count
-        row_count = None
-        try:
-            cur2 = _trino(catalog).cursor()
-            cur2.execute(f"SELECT COUNT(*) FROM {catalog}.{namespace}.{table}")
-            row_count = cur2.fetchone()[0]
-        except Exception:
-            pass
-
-        # Table properties (location, format)
-        props: Dict[str, Any] = {}
-        try:
-            cur3 = _trino(catalog).cursor()
-            cur3.execute(f"SHOW CREATE TABLE {catalog}.{namespace}.{table}")
-            ddl = cur3.fetchone()[0]
-            if "location" in ddl.lower():
-                m = re.search(r"location\s*=\s*'([^']+)'", ddl, re.IGNORECASE)
-                if m:
-                    props["location"] = m.group(1)
-        except Exception:
-            pass
-
+        location = reader.get_location(namespace, table)
+        row_count = reader.row_count(namespace, table)
         return TableDetails(
             name=table,
             namespace=namespace,
             table_type="iceberg",
-            location=props.get("location"),
+            location=location,
             columns=columns,
-            properties=props,
+            properties={"location": location} if location else {},
             row_count=row_count,
             last_updated=datetime.utcnow().isoformat() + "Z",
         )
@@ -184,15 +124,10 @@ async def get_table_details(namespace: str, table: str, catalog: str = "iceberg"
 async def preview_table(namespace: str, table: str, catalog: str = "iceberg", limit: int = 100):
     """Return top N rows and per-column statistics (null rate, distinct count, min, max)."""
     try:
-        fqtn = f"{catalog}.{namespace}.{table}"
-
-        # Sample rows
-        cur = _trino(catalog).cursor()
-        cur.execute(f"SELECT * FROM {fqtn} LIMIT {min(limit, 500)}")
-        rows_raw = cur.fetchall()
-        cols = [d[0] for d in cur.description]
-
-        rows = [dict(zip(cols, row)) for row in rows_raw]
+        # Sample rows via the active catalog backend (Glue → pyiceberg scan; Polaris → Trino)
+        preview = get_catalog_reader().preview(namespace, table, limit)
+        cols = preview["columns"]
+        rows = [dict(zip(cols, row)) for row in preview["rows"]]
         # Serialise non-JSON-safe types
         import math
         for row in rows:
@@ -241,8 +176,9 @@ async def preview_table(namespace: str, table: str, catalog: str = "iceberg", li
 @router.get("/catalog/health")
 async def catalog_health():
     try:
-        cats = list_catalogs()
-        return {"status": "healthy", "catalogs": [c["name"] for c in cats]}
+        # Reachability check against the active catalog backend (Glue or Polaris).
+        get_catalog_reader().list_namespaces()
+        return {"status": "healthy", "catalogs": ["iceberg"]}
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
 

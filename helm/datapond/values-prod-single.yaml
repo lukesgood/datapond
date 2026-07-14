@@ -25,6 +25,12 @@ storage:
   endpoint: ""
   region: us-east-1
 
+# --- Catalog: AWS Glue Data Catalog (serverless) — enables Connectors + Catalog.
+# Sets FEATURE_GLUE + ICEBERG_CATALOG_BACKEND=glue. Query (Athena) is a later slice. ---
+catalog:
+  backend: glue
+  glueWarehouse: "s3://datapond-iceberg/warehouse"
+
 # --- Postgres: external Aurora (not in-cluster) ---
 # Set postgres.auth.password to the Aurora master password at deploy time (--set) — the
 # backend's POSTGRES_PASSWORD secret must match, or DB auth fails (backend won't come up).
