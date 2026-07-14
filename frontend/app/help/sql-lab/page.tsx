@@ -274,7 +274,7 @@ FROM catalog.users.profiles;`}</code>
           <div className="space-y-2">
             <h3 className="font-semibold">What's the maximum query timeout?</h3>
             <p className="text-sm text-muted-foreground">
-              Queries timeout after 5 minutes by default. For long-running queries, consider using Airflow or Spark batch jobs instead.
+              Queries timeout after 5 minutes by default. For long-running queries, consider a batch job (Amazon MWAA / EMR, or Airflow / Spark on the full profile) instead.
             </p>
           </div>
 

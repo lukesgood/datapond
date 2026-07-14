@@ -1,7 +1,7 @@
 "use client"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { CheckCircle2, AlertCircle, Info, XCircle, RefreshCw, Database, Zap } from "lucide-react"
+import { CheckCircle2, Info, RefreshCw, Database, Zap } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 
 interface ActivityTimelineProps {
@@ -24,40 +24,32 @@ const generateActivityEvents = () => {
     {
       id: 2,
       type: "success" as const,
-      title: "Trino query completed",
-      description: "Processed 2.4M rows in 12.3s",
+      title: "Query executed",
+      description: "Analytics query completed successfully",
       timestamp: new Date(now.getTime() - 15 * 60 * 1000), // 15 minutes ago
       icon: Database
     },
     {
       id: 3,
-      type: "warning" as const,
-      title: "MLflow connection timeout",
-      description: "Retrying connection...",
+      type: "success" as const,
+      title: "Collection embedded",
+      description: "Knowledge base re-embedded",
       timestamp: new Date(now.getTime() - 62 * 60 * 1000), // 1 hour ago
-      icon: AlertCircle
+      icon: Zap
     },
     {
       id: 4,
       type: "info" as const,
-      title: "Backup completed",
-      description: "SeaweedFS snapshot created",
+      title: "Connector synced",
+      description: "Incremental sync completed",
       timestamp: new Date(now.getTime() - 3 * 60 * 60 * 1000), // 3 hours ago
       icon: CheckCircle2
     },
     {
       id: 5,
-      type: "success" as const,
-      title: "RisingWave stream processing",
-      description: "Ingested 15k events/sec",
-      timestamp: new Date(now.getTime() - 4 * 60 * 60 * 1000), // 4 hours ago
-      icon: Zap
-    },
-    {
-      id: 6,
       type: "info" as const,
-      title: "JupyterLab notebook saved",
-      description: "analysis_2026-04-29.ipynb",
+      title: "Table cataloged",
+      description: "New Iceberg table registered",
       timestamp: new Date(now.getTime() - 6 * 60 * 60 * 1000), // 6 hours ago
       icon: Info
     }

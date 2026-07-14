@@ -81,7 +81,7 @@ const quickHelp = [
   },
   {
     question: "What SQL dialect does DataPond use?",
-    answer: "DataPond uses Presto/Trino-family SQL (ANSI SQL compatible) for OLAP queries — Amazon Athena on the AWS profile, self-hosted Trino on-prem",
+    answer: "DataPond uses Presto/Trino-family SQL (ANSI SQL compatible) for OLAP queries — Amazon Athena on the AWS profile, self-hosted Trino on the full profile",
     href: "/docs/trino-sql",
   },
 ]

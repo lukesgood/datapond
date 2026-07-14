@@ -196,7 +196,7 @@ export default function CatalogHelpPage() {
                 <h3 className="font-semibold">Lineage Tracking</h3>
               </div>
               <p className="text-sm text-muted-foreground">
-                See upstream sources and downstream consumers for each table. Lineage is automatically collected by OpenMetadata from query logs.
+                See upstream sources and downstream consumers for each table. Lineage is available when OpenMetadata is enabled (full profile), collected from query logs.
               </p>
             </div>
 
@@ -287,7 +287,7 @@ export default function CatalogHelpPage() {
           <div className="space-y-2">
             <h3 className="font-semibold">How is lineage captured?</h3>
             <p className="text-sm text-muted-foreground">
-              OpenMetadata automatically captures lineage by parsing SQL queries from Trino, Spark, and RisingWave. Manual lineage can be added via the OpenMetadata API.
+              When OpenMetadata is enabled (full profile), lineage is captured automatically by parsing SQL queries from the analytics engines. Manual lineage can be added via the OpenMetadata API.
             </p>
           </div>
 
@@ -331,7 +331,7 @@ export default function CatalogHelpPage() {
             <CheckCircle2 className="h-4 w-4" />
             <AlertTitle>Lineage not showing</AlertTitle>
             <AlertDescription>
-              Lineage collection may be delayed (up to 15 minutes). Ensure OpenMetadata ingestion is running. Check OpenMetadata UI at <code className="bg-muted px-1 py-0.5 rounded">{serviceUrls.openmetadata()}</code>.
+              Lineage is available when OpenMetadata is enabled (full profile). Ensure OpenMetadata ingestion is running; collection may be delayed (up to 15 minutes). Check the OpenMetadata UI at <code className="bg-muted px-1 py-0.5 rounded">{serviceUrls.openmetadata()}</code>.
             </AlertDescription>
           </Alert>
         </CardContent>

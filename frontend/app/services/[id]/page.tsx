@@ -43,18 +43,18 @@ import { LogsViewer } from "@/components/services/logs-viewer"
 import { MetricsChart } from "@/components/services/metrics-chart"
 import { PodList } from "@/components/services/pod-list"
 
+// Only services that actually expose a sub-path console. Trino / SeaweedFS UIs
+// don't support sub-path hosting and AWS-managed services have no in-cluster UI.
 const EXTERNAL_URLS: Record<string, string> = {
   jupyterlab:   "/jupyter",
   mlflow:       "/mlflow",
-  trino:        "/api/trino",
   openmetadata: "/openmetadata",
-  seaweedfs:    "/storage",
   airflow:      "/airflow",
 }
 
 interface ServiceDetail {
   name: string
-  status: "healthy" | "unhealthy" | "unknown"
+  status: "healthy" | "unhealthy" | "unknown" | "managed"
   url?: string
   version?: string
   description?: string
@@ -281,6 +281,7 @@ export default function ServiceDetailPage() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "healthy":
+      case "managed":
         return <CheckCircle2 className="h-4 w-4 text-green-500" />
       case "unhealthy":
         return <AlertCircle className="h-4 w-4 text-red-500" />
@@ -295,10 +296,19 @@ export default function ServiceDetailPage() {
         return <Badge variant="default" className="bg-green-600">Healthy</Badge>
       case "unhealthy":
         return <Badge variant="destructive">Unhealthy</Badge>
+      case "managed":
+        return (
+          <Badge variant="outline" className="border-green-600 text-green-600">
+            <CheckCircle2 className="mr-1 h-3 w-3" />
+            AWS managed
+          </Badge>
+        )
       default:
         return <Badge variant="secondary">Unknown</Badge>
     }
   }
+
+  const isManaged = service?.status === "managed"
 
   if (loading) {
     return (
@@ -381,26 +391,30 @@ export default function ServiceDetailPage() {
             <RefreshCw className="mr-2 h-4 w-4" />
             Refresh
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowScaleDialog(true)}
-          >
-            <Layers className="mr-2 h-4 w-4" />
-            Scale
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRestart}
-            disabled={isRestarting}
-          >
-            <Power
-              className={`mr-2 h-4 w-4 ${isRestarting ? "animate-spin" : ""}`}
-            />
-            {isRestarting ? "Restarting..." : "Restart"}
-          </Button>
-          {EXTERNAL_URLS[service.name] && (
+          {!isManaged && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowScaleDialog(true)}
+              >
+                <Layers className="mr-2 h-4 w-4" />
+                Scale
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRestart}
+                disabled={isRestarting}
+              >
+                <Power
+                  className={`mr-2 h-4 w-4 ${isRestarting ? "animate-spin" : ""}`}
+                />
+                {isRestarting ? "Restarting..." : "Restart"}
+              </Button>
+            </>
+          )}
+          {!isManaged && EXTERNAL_URLS[service.name] && (
             <Button
               variant="default"
               size="sm"
@@ -471,6 +485,22 @@ export default function ServiceDetailPage() {
         </Card>
       </div>
 
+      {/* Managed services have no in-cluster pods to inspect or control */}
+      {isManaged ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Managed by AWS</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              Managed by AWS — no pod controls. This service runs as an AWS-managed
+              resource, so scaling, restarts, pod inspection, and log streaming are
+              handled by AWS and are not available here.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+      <>
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
@@ -621,6 +651,8 @@ export default function ServiceDetailPage() {
           </Card>
         </TabsContent>
       </Tabs>
+      </>
+      )}
 
       {/* Scale Dialog */}
       <Dialog open={showScaleDialog} onOpenChange={setShowScaleDialog}>

@@ -91,8 +91,8 @@ const docCategories: DocCategory[] = [
         href: "/help/connectors",
       },
       {
-        title: "Pipeline Development",
-        description: "Build and orchestrate data pipelines with Airflow",
+        title: "Pipeline Development (MWAA / EMR)",
+        description: "Orchestrate batch/ELT with Amazon MWAA and EMR Serverless/Glue",
         href: "/docs/pipelines",
       },
     ]
@@ -103,18 +103,18 @@ const docCategories: DocCategory[] = [
     icon: Code2,
     docs: [
       {
-        title: "Trino SQL Reference",
-        description: "SQL syntax and functions for OLAP queries",
+        title: "SQL Analytics (Athena / Trino)",
+        description: "Serverless SQL on S3 with Amazon Athena (Trino on the full profile)",
         href: "/docs/trino-sql",
       },
       {
-        title: "RisingWave Streaming",
-        description: "Real-time SQL on streaming data",
+        title: "Streaming (MSK / Managed Flink)",
+        description: "Real-time streaming with Amazon MSK and Managed Flink",
         href: "/docs/streaming",
       },
       {
-        title: "DuckDB in Notebooks",
-        description: "Fast analytics in JupyterLab",
+        title: "Notebooks (SageMaker Studio / DuckDB)",
+        description: "Notebook exploration with SageMaker Studio (DuckDB on the full profile)",
         href: "/docs/duckdb",
       },
       {
@@ -135,8 +135,8 @@ const docCategories: DocCategory[] = [
         href: "/docs/api",
       },
       {
-        title: "Iceberg REST Catalog",
-        description: "Connect Spark/Trino to Polaris catalog",
+        title: "Data Catalog (Glue / Polaris)",
+        description: "Table catalog with AWS Glue Data Catalog (Polaris on the full profile)",
         href: "/docs/polaris",
       },
       {
@@ -196,8 +196,8 @@ const docCategories: DocCategory[] = [
         href: "/docs/rbac",
       },
       {
-        title: "Data Lineage",
-        description: "Track data flow with OpenMetadata",
+        title: "Data Lineage (DataZone / OpenMetadata)",
+        description: "Track data flow with Amazon DataZone (OpenMetadata on the full profile)",
         href: "/docs/lineage",
       },
       {

@@ -24,7 +24,7 @@ import {
 import { getUser } from "@/lib/auth"
 import { AiBackends } from "@/components/settings/ai-backends"
 import { PasskeyManager } from "@/components/passkey-manager"
-import { useCapabilityStrict } from "@/lib/capabilities"
+import { useCapabilityStrict, useCapability } from "@/lib/capabilities"
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -39,6 +39,22 @@ const SERVICE_META: Record<string, { label: string; desc: string; color: string;
   polaris:      { label: "Apache Polaris",    desc: "Iceberg REST catalog",           color: "text-red-500" },
   valkey:       { label: "Valkey",            desc: "Redis-compatible cache",         color: "text-rose-500" },
   airflow:      { label: "Airflow",           desc: "Pipeline orchestration",         color: "text-sky-600",    url: "/airflow/" },
+  // AWS-managed foundation services (names match /api/services display names)
+  "Amazon S3":      { label: "Amazon S3",      desc: "Object storage",              color: "text-green-600" },
+  "Amazon Aurora":  { label: "Amazon Aurora",  desc: "Postgres + pgvector",         color: "text-blue-600" },
+  "Amazon Bedrock": { label: "Amazon Bedrock", desc: "LLM / embeddings",            color: "text-purple-600" },
+  "AWS Glue":       { label: "AWS Glue",       desc: "Iceberg Data Catalog",        color: "text-orange-600" },
+  "Amazon Athena":  { label: "Amazon Athena",  desc: "Serverless SQL query engine", color: "text-indigo-600" },
+  // Lowercase aliases (in case the API keys by short name)
+  s3:           { label: "Amazon S3",         desc: "Object storage",                 color: "text-green-600" },
+  aurora:       { label: "Amazon Aurora",     desc: "Postgres + pgvector",            color: "text-blue-600" },
+  bedrock:      { label: "Amazon Bedrock",    desc: "LLM / embeddings",               color: "text-purple-600" },
+  glue:         { label: "AWS Glue",          desc: "Iceberg Data Catalog",           color: "text-orange-600" },
+  athena:       { label: "Amazon Athena",     desc: "Serverless SQL query engine",    color: "text-indigo-600" },
+  // In-cluster pods
+  backend:      { label: "Backend API",       desc: "FastAPI application",            color: "text-slate-600" },
+  frontend:     { label: "Frontend",          desc: "Management UI (Next.js)",        color: "text-slate-500" },
+  litellm:      { label: "LiteLLM",           desc: "AI model gateway (→ Bedrock)",   color: "text-fuchsia-600" },
 }
 
 // Access URLs (path-hosted services). OpenMetadata / SeaweedFS / Trino are NOT
@@ -48,12 +64,14 @@ const SERVICE_META: Record<string, { label: string; desc: string; color: string;
 // 308 add-slash redirect with an absolute http:// URL (the proxy hop drops
 // X-Forwarded-Proto), which downgrades the click to http. Linking the slashed
 // form skips that redirect — /mlflow/ → 200, /airflow/ → relative 302.
+// `cap` gates a row behind a platform capability — dead links for disabled
+// components (Jupyter/Airflow/MLflow on the AWS foundation profile) are hidden.
 const ACCESS_URL_DEFS = [
   { service: "Management UI",  path: "",                  cred: undefined },
   { service: "Backend API",    path: "/api/health",       cred: undefined },
-  { service: "JupyterLab",     path: "/jupyter",          cred: "token: jupyter" },
-  { service: "Airflow",        path: "/airflow/",         cred: "airflow / airflow" },
-  { service: "MLflow",         path: "/mlflow/",          cred: undefined },
+  { service: "JupyterLab",     path: "/jupyter",          cred: "token: jupyter",   cap: "notebooks" },
+  { service: "Airflow",        path: "/airflow/",         cred: "airflow / airflow", cap: "pipelines" },
+  { service: "MLflow",         path: "/mlflow/",          cred: undefined,          cap: "experiments" },
 ]
 
 const HELM_CMDS = [
@@ -95,6 +113,10 @@ export default function SettingsPage() {
   // reports webauthn=true. A /api/capabilities fetch error must not show the
   // secure-context-sensitive passkey UI (mirrors the login page's strict gate).
   const webauthnEnabled = useCapabilityStrict("webauthn")
+  // Capability gates for profile-dependent access URLs / cards
+  const notebooksEnabled = useCapability("notebooks")
+  const pipelinesEnabled = useCapability("pipelines")
+  const experimentsEnabled = useCapability("experiments")
   const [services, setServices] = useState<any[]>([])
   const [stats, setStats]       = useState<any>(null)
   const [loading, setLoading]   = useState(true)
@@ -117,7 +139,7 @@ export default function SettingsPage() {
   useEffect(() => { load() }, [load])
   useEffect(() => { setMounted(true) }, [])
 
-  const healthy = services.filter(s => s.status === "healthy").length
+  const healthy = services.filter(s => ["healthy", "managed"].includes(s.status)).length
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -233,7 +255,11 @@ export default function SettingsPage() {
               </CardHeader>
               <CardContent>
                 <div className="divide-y">
-                  {ACCESS_URL_DEFS.map(({ service, path, cred }) => {
+                  {ACCESS_URL_DEFS.filter(({ cap }) =>
+                    cap === "notebooks" ? notebooksEnabled :
+                    cap === "pipelines" ? pipelinesEnabled :
+                    cap === "experiments" ? experimentsEnabled : true
+                  ).map(({ service, path, cred }) => {
                     const url = mounted
                       ? `${window.location.protocol}//${window.location.host}${path}`
                       : path
@@ -287,9 +313,9 @@ export default function SettingsPage() {
                     { label: "TLS/HTTPS",            status: "pending", note: "HTTP only — configure cert-manager" },
                     { label: "LDAP / SSO",           status: "planned", note: "Planned for Phase 2" },
                     { label: "MFA",                  status: "planned", note: "Planned for Phase 2" },
-                    { label: "Audit Log",            status: "planned", note: "Planned for Phase 2" },
-                    { label: "Column Masking",       status: "planned", note: "Planned for Phase 3" },
-                    { label: "Row-level Security",   status: "planned", note: "Planned for Phase 3" },
+                    { label: "Audit Log",            status: "ok",      note: "auth_audit_log + AI spend logs" },
+                    { label: "Column Masking",       status: "ok",      note: "Governance — masking policies" },
+                    { label: "Row-level Security",   status: "ok",      note: "Governance — RLS engine" },
                   ].map(({ label, status, note }) => (
                     <div key={label} className="flex items-center gap-3 py-2.5 text-sm">
                       <span className={`h-2 w-2 rounded-full shrink-0 ${
@@ -322,7 +348,7 @@ export default function SettingsPage() {
                     { label: "Secret Encryption",  note: "K8s Secrets encrypted at rest" },
                     { label: "Network Isolation",  note: "K8s namespace isolation" },
                     { label: "Container Runtime",  note: "containerd — pod isolation" },
-                    { label: "Image Pull Policy",  note: "IfNotPresent — airgap compatible" },
+                    { label: "Image Pull Policy",  note: "IfNotPresent" },
                     { label: "Deployment Strategy",note: "Recreate — no partial state" },
                   ].map(({ label, note }) => (
                     <div key={label} className="flex items-center gap-3 py-2.5 text-sm">
@@ -441,7 +467,8 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
-            {/* SMTP */}
+            {/* SMTP — Airflow-based, only relevant when pipelines (Airflow) is deployed */}
+            {pipelinesEnabled && (
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -485,6 +512,7 @@ export default function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
+            )}
           </TabsContent>
         </Tabs>
 

@@ -107,7 +107,7 @@ export const availableConnectors: Connector[] = [
     name: "Apache Kafka",
     category: "streaming",
     icon: "/connectors/kafka.svg",
-    description: "Stream data from Kafka topics (batch connector 미구현 — 스트리밍은 Streaming 탭/RisingWave 사용)",
+    description: "Stream data from Kafka topics (batch connector 미구현)",
     supported: false,
     features: ["Real-time Streaming", "Schema Registry", "Exactly-once Processing"],
     fields: [

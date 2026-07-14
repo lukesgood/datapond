@@ -177,7 +177,7 @@ export default function ConnectorsHelpPage() {
                 <h3 className="font-semibold">Streaming Connectors</h3>
                 <p className="text-sm text-muted-foreground">
                   Connect to streaming platforms: Kafka, Kinesis, Pulsar, RabbitMQ.
-                  Process events in real-time with RisingWave streaming SQL.
+                  Process events in real-time with Amazon MSK / Managed Flink (full profile: RisingWave streaming SQL).
                 </p>
                 <div className="flex gap-2 mt-2">
                   <Badge variant="secondary">Real-time</Badge>
@@ -259,7 +259,7 @@ export default function ConnectorsHelpPage() {
               Use CDC for real-time replication with minimal lag.
             </p>
             <pre className="bg-muted p-3 rounded-lg text-xs">
-              <code>PostgreSQL → CDC Connector → RisingWave → Iceberg Table</code>
+              <code>PostgreSQL → CDC Connector → MSK / Managed Flink → Iceberg Table</code>
             </pre>
           </div>
 
@@ -277,11 +277,11 @@ export default function ConnectorsHelpPage() {
           <div className="space-y-2">
             <h3 className="font-semibold">Streaming Analytics</h3>
             <p className="text-sm text-muted-foreground">
-              Process events from Kafka/Kinesis in real-time using RisingWave streaming SQL.
+              Process events from Kafka/Kinesis in real-time using Amazon MSK / Managed Flink (RisingWave streaming SQL on the full profile).
               Write results to Iceberg for historical analysis and dashboards.
             </p>
             <pre className="bg-muted p-3 rounded-lg text-xs">
-              <code>Kafka Topic → RisingWave Source → Streaming SQL → Iceberg Sink</code>
+              <code>Kafka Topic → MSK / Managed Flink → Streaming SQL → Iceberg Sink</code>
             </pre>
           </div>
 
