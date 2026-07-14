@@ -38,9 +38,9 @@ function TablesCard({
   const [editingTable, setEditingTable] = useState<string | null>(null)
   const [editMode, setEditMode]         = useState("full")
   const [editIncCol, setEditIncCol]     = useState("")
-  const [editKeyCols, setEditKeyCols]   = useState("")   // 쉼표구분 PK (증분 upsert)
-  const [editPiiCols, setEditPiiCols]   = useState("")   // 쉼표구분 마스킹 컬럼 (* = 전체)
-  // 파티션: editPartCol "" = Auto(자동추론), "__none__" = 무파티션, 그 외 = 컬럼명
+  const [editKeyCols, setEditKeyCols]   = useState("")   // comma-separated PK (incremental upsert)
+  const [editPiiCols, setEditPiiCols]   = useState("")   // comma-separated masking columns (* = all)
+  // Partition: editPartCol "" = Auto (inferred), "__none__" = unpartitioned, other = column name
   const [editPartCol, setEditPartCol]   = useState("")
   const [editPartTransform, setEditPartTransform] = useState("day")
   const [saving, setSaving]             = useState(false)
@@ -58,7 +58,7 @@ function TablesCard({
     setEditIncCol(t.incremental_column || "")
     setEditKeyCols((t.key_columns || []).join(", "))
     setEditPiiCols((t.pii_columns || []).join(", "))
-    // 파티션 초기화: null/undefined = Auto, [] = None, [{...}] = 첫 필드
+    // Partition init: null/undefined = Auto, [] = None, [{...}] = first field
     const ps = t.partition_spec
     if (ps == null)            { setEditPartCol(""); setEditPartTransform("day") }
     else if (ps.length === 0)  { setEditPartCol("__none__"); setEditPartTransform("day") }
@@ -96,7 +96,7 @@ function TablesCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sync_mode: editMode, table_name: editingTable }),
       })
-      // 파티션 spec 저장: Auto→null, None→[], 컬럼→[{column,transform}]
+      // Save partition spec: Auto→null, None→[], Column→[{column,transform}]
       const partitionSpec =
         editPartCol === ""        ? null :
         editPartCol === "__none__" ? [] :
@@ -199,7 +199,7 @@ function TablesCard({
                             </span>
                           )}
                           {incMisconfigured && (
-                            <span className="text-[10px] text-amber-500 block">⚠ no watermark column</span>
+                            <span className="text-[10px] text-[var(--dp-warn)] block">⚠ no watermark column</span>
                           )}
                           {table.partition_spec && table.partition_spec.length > 0 && (
                             <span className="text-[10px] text-muted-foreground/70 font-mono block truncate">
@@ -217,7 +217,7 @@ function TablesCard({
                         className={`w-28 text-left`}
                       >
                         <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${
-                          incMisconfigured       ? "bg-amber-500/10 text-amber-600 border-amber-200" :
+                          incMisconfigured       ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-[var(--dp-warn)]/20" :
                           mode === "incremental" ? "bg-primary/10 text-primary border-primary/20" :
                           "bg-muted text-muted-foreground border-transparent"
                         }`}>
@@ -311,11 +311,11 @@ function TablesCard({
                           </div>
                         </div>
                         {editMode === "incremental" && !editIncCol && (
-                          <p className="text-[10px] text-amber-600 flex items-center gap-1">
+                          <p className="text-[10px] text-[var(--dp-warn)] flex items-center gap-1">
                             ⚠ No watermark column set — incremental will load all rows on first run
                           </p>
                         )}
-                        {/* 증분 Upsert PK — 설정 시 append 대신 merge(변경행 갱신·중복 방지) */}
+                        {/* Incremental upsert PK — when set, merges instead of appending (updates changed rows, prevents duplicates) */}
                         <div className="space-y-1 pt-1">
                           <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                             Key Columns (upsert PK)
@@ -324,15 +324,15 @@ function TablesCard({
                           <Input
                             value={editKeyCols}
                             onChange={e => setEditKeyCols(e.target.value)}
-                            placeholder={editMode !== "incremental" ? "—" : "e.g. id  (비우면 append)"}
+                            placeholder={editMode !== "incremental" ? "—" : "e.g. id  (leave blank to append)"}
                             disabled={editMode !== "incremental"}
                             className="h-7 text-xs font-mono"
                           />
                           {editMode === "incremental" && editKeyCols.trim() && (
-                            <p className="text-[10px] text-emerald-600">merge by [{editKeyCols.split(",").map(s=>s.trim()).filter(Boolean).join(", ")}] — 변경행 갱신·중복 방지</p>
+                            <p className="text-[10px] text-[var(--dp-good)]">merge by [{editKeyCols.split(",").map(s=>s.trim()).filter(Boolean).join(", ")}] — updates changed rows, prevents duplicates</p>
                           )}
                         </div>
-                        {/* PII 마스킹 — 적재 전 민감 컬럼 마스킹(주권/규제). 모든 sync 모드 적용 */}
+                        {/* PII masking — masks sensitive columns before load (sovereignty/compliance). Applies to all sync modes */}
                         <div className="space-y-1 pt-1 border-t">
                           <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                             PII Masking Columns
@@ -340,24 +340,24 @@ function TablesCard({
                           <Input
                             value={editPiiCols}
                             onChange={e => setEditPiiCols(e.target.value)}
-                            placeholder="e.g. email, phone  ·  * = 모든 문자열 컬럼  (비우면 비활성)"
+                            placeholder="e.g. email, phone  ·  * = all string columns  (leave blank to disable)"
                             className="h-7 text-xs font-mono"
                           />
                           {editPiiCols.trim() && (
-                            <p className="text-[10px] text-emerald-600">
-                              적재 전 마스킹: {editPiiCols.trim() === "*" ? "모든 문자열 컬럼" : `[${editPiiCols.split(",").map(s=>s.trim()).filter(Boolean).join(", ")}]`} (주민/전화/카드/이메일 등)
+                            <p className="text-[10px] text-[var(--dp-good)]">
+                              Masked before load: {editPiiCols.trim() === "*" ? "all string columns" : `[${editPiiCols.split(",").map(s=>s.trim()).filter(Boolean).join(", ")}]`} (SSN/phone/card/email, etc.)
                             </p>
                           )}
                         </div>
-                        {/* 파티셔닝 (Iceberg) */}
+                        {/* Partitioning (Iceberg) */}
                         <div className="grid grid-cols-2 gap-3 pt-1 border-t">
                           <div className="space-y-1">
                             <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Partition Column</label>
                             <Select value={editPartCol || "__auto__"} onValueChange={v => setEditPartCol(v === "__auto__" ? "" : (v ?? ""))}>
                               <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="__auto__" className="text-xs">Auto (시간 컬럼 day)</SelectItem>
-                                <SelectItem value="__none__" className="text-xs text-muted-foreground">None (무파티션)</SelectItem>
+                                <SelectItem value="__auto__" className="text-xs">Auto (day, on timestamp column)</SelectItem>
+                                <SelectItem value="__none__" className="text-xs text-muted-foreground">None (unpartitioned)</SelectItem>
                                 {schemaColumns.map(c => (
                                   <SelectItem key={c.name} value={c.name} className="text-xs">
                                     {c.name} <span className="text-muted-foreground font-mono ml-1">{c.type}</span>
@@ -368,22 +368,22 @@ function TablesCard({
                           </div>
                           <div className="space-y-1">
                             <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                              Transform {(editPartCol === "" || editPartCol === "__none__") && <span className="font-normal normal-case">(컬럼 선택 시)</span>}
+                              Transform {(editPartCol === "" || editPartCol === "__none__") && <span className="font-normal normal-case">(when a column is selected)</span>}
                             </label>
                             <Select value={editPartTransform} onValueChange={v => setEditPartTransform(v ?? "day")}>
                               <SelectTrigger className="h-7 text-xs" disabled={editPartCol === "" || editPartCol === "__none__"}><SelectValue /></SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="day" className="text-xs">day (일별)</SelectItem>
-                                <SelectItem value="month" className="text-xs">month (월별)</SelectItem>
-                                <SelectItem value="year" className="text-xs">year (연별)</SelectItem>
-                                <SelectItem value="identity" className="text-xs">identity (값 그대로)</SelectItem>
-                                <SelectItem value="bucket" className="text-xs">bucket (해시 16버킷)</SelectItem>
+                                <SelectItem value="day" className="text-xs">day (daily)</SelectItem>
+                                <SelectItem value="month" className="text-xs">month (monthly)</SelectItem>
+                                <SelectItem value="year" className="text-xs">year (yearly)</SelectItem>
+                                <SelectItem value="identity" className="text-xs">identity (value as-is)</SelectItem>
+                                <SelectItem value="bucket" className="text-xs">bucket (16-way hash)</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
                         </div>
                         <p className="text-[10px] text-muted-foreground">
-                          파티션은 신규 테이블 생성 시 적용됩니다. 기존 테이블은 다음 full 동기화(재생성) 때 반영됩니다.
+                          Partitioning applies when a new table is created. Existing tables pick it up on the next full sync (recreate).
                         </p>
                         <div className="flex items-center gap-2">
                           <Button size="sm" className="h-6 text-xs" onClick={saveEdit} disabled={saving}>
@@ -460,12 +460,12 @@ function ScheduleCard({
 
         {/* Status */}
         {schedule ? (
-          <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-3 py-2">
-            <Zap className="h-4 w-4 text-green-600 shrink-0" />
+          <div className="flex items-center gap-2 rounded-lg bg-[var(--dp-good)]/10 border border-[var(--dp-good)]/20 px-3 py-2">
+            <Zap className="h-4 w-4 text-[var(--dp-good)] shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-green-700">{parseCron(schedule)}</p>
+              <p className="text-sm font-medium text-[var(--dp-good)]">{parseCron(schedule)}</p>
               {nextRun(schedule) && (
-                <p className="text-xs text-green-600/70 flex items-center gap-1 mt-0.5">
+                <p className="text-xs text-[var(--dp-good)]/70 flex items-center gap-1 mt-0.5">
                   <Clock className="h-3 w-3" />Next run {nextRun(schedule)}
                 </p>
               )}
@@ -522,7 +522,7 @@ function ScheduleCard({
         {scheduleMsg && (
           <p className={`text-xs flex items-center gap-1 ${
             scheduleMsg.toLowerCase().includes("error") || scheduleMsg.toLowerCase().includes("fail")
-              ? "text-destructive" : "text-green-600"
+              ? "text-destructive" : "text-[var(--dp-good)]"
           }`}>
             {scheduleMsg.toLowerCase().includes("error") || scheduleMsg.toLowerCase().includes("fail")
               ? <X className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
@@ -786,8 +786,8 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           } else if (eventType === "done") {
             if (elapsedRef.current) clearInterval(elapsedRef.current)
             setSyncing(false)
-            if (d.tables_failed > 0) toast(`Sync 완료 — ${d.tables_failed}개 테이블 실패 (이력 참조)`, "error")
-            else toast("Sync 완료 — Catalog에서 적재 결과를 확인하세요", "success")
+            if (d.tables_failed > 0) toast(`Sync complete — ${d.tables_failed} table(s) failed (see history)`, "error")
+            else toast("Sync complete — check Catalog for the ingested results", "success")
             setLiveSession(prev => prev ? {
               ...prev, isLive: false,
               status: d.tables_failed > 0 ? "failed" : "success",
@@ -1030,7 +1030,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
 
       {/* Feedback */}
       {saveMessage && (
-        <div className={`text-sm px-1 ${saveMessage.includes("success") ? "text-green-600" : "text-destructive"}`}>
+        <div className={`text-sm px-1 ${saveMessage.includes("success") ? "text-[var(--dp-good)]" : "text-destructive"}`}>
           {saveMessage}
         </div>
       )}
@@ -1083,10 +1083,10 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           </CardHeader>
         </Card>
         {/* 4. Data Freshness */}
-        <Card className={`flex flex-col ${freshnessStale ? "border-amber-500/40" : ""}`}>
+        <Card className={`flex flex-col ${freshnessStale ? "border-[var(--dp-warn)]/40" : ""}`}>
           <CardHeader className="pb-2 flex-1">
             <CardDescription className="flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5" />Data Freshness</CardDescription>
-            <CardTitle className={`text-xl ${freshnessStale ? "text-amber-500" : ""}`}>{freshnessLabel}</CardTitle>
+            <CardTitle className={`text-xl ${freshnessStale ? "text-[var(--dp-warn)]" : ""}`}>{freshnessLabel}</CardTitle>
             <p className="text-[11px] text-muted-foreground mt-0.5">
               {connector.last_sync_at ? formatDateTime(connector.last_sync_at) : "never synced"}
             </p>
@@ -1175,7 +1175,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         />
       </div>{/* end 2-col grid */}
 
-      {/* ── Tables: 동기화 범위 정의 (원인) ── */}
+      {/* ── Tables: defines sync scope (cause) ── */}
       <TablesCard
         tables={tables}
         latestTableRows={latestTableRows}
@@ -1185,7 +1185,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         onSaved={fetchConnector}
       />
 
-      {/* ── Sync History: 실행 결과 (결과) ── */}
+      {/* ── Sync History: run results (effect) ── */}
       {(liveSession || sessions.length > 0) && (
         <SyncHistory sessions={allSessions} />
       )}
@@ -1202,7 +1202,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                 )}
                 {!qualityChecks.some(c => c.overall_status === "alert") &&
                   qualityChecks.some(c => c.overall_status === "warning") && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 font-medium">Warning</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] font-medium">Warning</span>
                 )}
               </div>
               <button onClick={fetchQuality} className="text-[10px] text-muted-foreground hover:text-foreground">Refresh</button>
@@ -1221,9 +1221,9 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                     <span className="font-mono text-xs font-medium">{table}</span>
                     <div className="flex items-center gap-2">
                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                        check.overall_status === "ok" ? "bg-green-500/10 text-green-600" :
+                        check.overall_status === "ok" ? "bg-[var(--dp-good)]/10 text-[var(--dp-good)]" :
                         check.overall_status === "alert" ? "bg-destructive/10 text-destructive" :
-                        "bg-amber-500/10 text-amber-600"
+                        "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]"
                       }`}>{check.overall_status}</span>
                       <span className="text-[10px] text-muted-foreground">
                         {new Date(check.checked_at).toLocaleString()}
@@ -1238,7 +1238,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                     {check.row_change_pct != null && (
                       <span className={`font-mono text-[10px] ${
                         check.row_change_status === "alert" ? "text-destructive" :
-                        check.row_change_status === "warning" ? "text-amber-500" :
+                        check.row_change_status === "warning" ? "text-[var(--dp-warn)]" :
                         "text-muted-foreground"
                       }`}>
                         {check.row_change_pct > 0 ? "+" : ""}{check.row_change_pct.toFixed(1)}% vs prev
@@ -1251,7 +1251,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                     <div className="space-y-1 mb-2">
                       {check.warnings.map((w: any, i: number) => (
                         <div key={i} className={`text-[10px] px-2 py-1 rounded flex items-start gap-1.5 ${
-                          w.severity === "alert" ? "bg-destructive/10 text-destructive" : "bg-amber-500/10 text-amber-700"
+                          w.severity === "alert" ? "bg-destructive/10 text-destructive" : "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]"
                         }`}>
                           <span>{w.severity === "alert" ? "⚠" : "○"}</span>
                           <span>{w.message}</span>
@@ -1272,7 +1272,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                           <div
                             className={`h-full rounded-full ${
                               v.status === "alert" ? "bg-destructive" :
-                              v.status === "warning" ? "bg-amber-500" :
+                              v.status === "warning" ? "bg-[var(--dp-warn)]" :
                               "bg-primary/40"
                             }`}
                             style={{ width: `${Math.min(v.null_rate, 100)}%` }}
@@ -1280,7 +1280,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                         </div>
                         <span className={`text-[10px] font-mono w-10 text-right ${
                           v.status === "alert" ? "text-destructive" :
-                          v.status === "warning" ? "text-amber-500" :
+                          v.status === "warning" ? "text-[var(--dp-warn)]" :
                           "text-muted-foreground"
                         }`}>{v.null_rate}%</span>
                       </div>

@@ -169,7 +169,7 @@ export default function ServiceDetailPage() {
 
   const confirm = useConfirm()
   const handleRestart = async () => {
-    if (!(await confirm({ title: "서비스 재시작", message: "이 서비스를 재시작할까요?", confirmText: "재시작" }))) return
+    if (!(await confirm({ title: "Restart service", message: "Restart this service?", confirmText: "Restart" }))) return
 
     setIsRestarting(true)
     try {
@@ -282,23 +282,23 @@ export default function ServiceDetailPage() {
     switch (status) {
       case "healthy":
       case "managed":
-        return <CheckCircle2 className="h-4 w-4 text-green-500" />
+        return <CheckCircle2 className="h-4 w-4 text-[var(--dp-good)]" />
       case "unhealthy":
-        return <AlertCircle className="h-4 w-4 text-red-500" />
+        return <AlertCircle className="h-4 w-4 text-destructive" />
       default:
-        return <Clock className="h-4 w-4 text-gray-500" />
+        return <Clock className="h-4 w-4 text-muted-foreground" />
     }
   }
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "healthy":
-        return <Badge variant="default" className="bg-green-600">Healthy</Badge>
+        return <Badge variant="default" className="bg-[var(--dp-good)] text-white">Healthy</Badge>
       case "unhealthy":
         return <Badge variant="destructive">Unhealthy</Badge>
       case "managed":
         return (
-          <Badge variant="outline" className="border-green-600 text-green-600">
+          <Badge variant="outline" className="border-[var(--dp-good)] text-[var(--dp-good)]">
             <CheckCircle2 className="mr-1 h-3 w-3" />
             AWS managed
           </Badge>
@@ -582,7 +582,7 @@ export default function ServiceDetailPage() {
                             href={EXTERNAL_URLS[service.name]}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-blue-500 hover:underline"
+                            className="text-primary hover:underline"
                           >
                             {EXTERNAL_URLS[service.name]}
                           </a>

@@ -114,7 +114,7 @@ export default function StoragePage() {
         const d = await res.json()
         throw new Error(d.detail || "Failed to create bucket")
       }
-      toast(`버킷 "${newBucketName.trim()}" 생성됨`, "success")
+      toast(`Bucket "${newBucketName.trim()}" created`, "success")
       setNewBucketName("")
       await loadOverview()
     } catch (e) {
@@ -127,7 +127,7 @@ export default function StoragePage() {
   const { toast } = useToast()
   const confirm = useConfirm()
   const handleDeleteBucket = async (name: string) => {
-    if (!(await confirm({ title: "버킷 삭제", message: `"${name}" 버킷을 삭제합니다. 되돌릴 수 없습니다.`, destructive: true, confirmText: "삭제" }))) return
+    if (!(await confirm({ title: "Delete bucket", message: `This deletes the "${name}" bucket. This cannot be undone.`, destructive: true, confirmText: "Delete" }))) return
     setActionError(null)
     try {
       const res = await fetch(`/api/storage/buckets/${encodeURIComponent(name)}`, { method: "DELETE" })
@@ -136,7 +136,7 @@ export default function StoragePage() {
         throw new Error(d.detail || "Failed to delete")
       }
       if (selectedBucket === name) setSelectedBucket(null)
-      toast(`버킷 "${name}" 삭제됨`, "success")
+      toast(`Bucket "${name}" deleted`, "success")
       await loadOverview()
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed")
@@ -170,9 +170,9 @@ export default function StoragePage() {
       <div className="grid grid-cols-4 gap-3">
         {[
           { label: "Endpoint",       value: loading ? null : "Amazon S3",        sub: overview?.endpoint ?? "", icon: HardDrive },
-          { label: "Buckets",        value: loading ? null : overview?.bucket_count ?? 0, sub: "총 버킷 수", icon: Database },
-          { label: "Total Objects",  value: loading ? null : (overview?.total_object_count ?? 0).toLocaleString(), sub: "저장된 객체", icon: FileText },
-          { label: "Total Size",     value: loading ? null : (overview?.total_size_human ?? "0 B"), sub: "사용 용량", icon: Package },
+          { label: "Buckets",        value: loading ? null : overview?.bucket_count ?? 0, sub: "Total buckets", icon: Database },
+          { label: "Total Objects",  value: loading ? null : (overview?.total_object_count ?? 0).toLocaleString(), sub: "Objects stored", icon: FileText },
+          { label: "Total Size",     value: loading ? null : (overview?.total_size_human ?? "0 B"), sub: "Storage used", icon: Package },
         ].map(({ label, value, sub, icon: Icon }) => (
           <Card key={label}>
             <CardContent className="p-4">
@@ -217,7 +217,7 @@ export default function StoragePage() {
               </div>
               {actionError && <ErrorBox msg={actionError} />}
               <p className="text-[11px] text-muted-foreground">
-                소문자·숫자·하이픈만 허용
+                Lowercase letters, numbers, and hyphens only
               </p>
             </CardContent>
           </Card>
@@ -242,9 +242,9 @@ export default function StoragePage() {
               ) : !overview || overview.buckets.length === 0 ? (
                 <div className="flex flex-col items-center py-10 text-center px-4">
                   <Database className="h-8 w-8 text-muted-foreground/30 mb-2" />
-                  <p className="text-sm text-muted-foreground">버킷이 없습니다</p>
+                  <p className="text-sm text-muted-foreground">No buckets yet</p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
-                    위에서 첫 번째 버킷을 만드세요
+                    Create your first bucket above
                   </p>
                 </div>
               ) : (
@@ -331,7 +331,7 @@ export default function StoragePage() {
             {!selectedBucket ? (
               <div className="flex flex-col items-center justify-center h-48 text-center px-4">
                 <FolderOpen className="h-10 w-10 text-muted-foreground/20 mb-3" />
-                <p className="text-sm text-muted-foreground">버킷을 선택하면 객체 목록이 표시됩니다</p>
+                <p className="text-sm text-muted-foreground">Select a bucket to view its objects</p>
               </div>
             ) : objectsLoading ? (
               <div className="p-4 space-y-2">
@@ -340,7 +340,7 @@ export default function StoragePage() {
             ) : objects.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-48 text-center px-4">
                 <FileText className="h-8 w-8 text-muted-foreground/20 mb-2" />
-                <p className="text-sm text-muted-foreground">이 버킷은 비어 있습니다</p>
+                <p className="text-sm text-muted-foreground">This bucket is empty</p>
               </div>
             ) : (
               <Table>

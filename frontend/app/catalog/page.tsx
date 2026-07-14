@@ -249,9 +249,9 @@ export default function CatalogPage() {
               {(data?.tables.length || 0) === 0 ? (
                 <EmptyState
                   icon={Database}
-                  title="아직 테이블이 없습니다"
-                  hint="Ingestion에서 데이터 소스를 연결하고 Sync하면 여기에 Iceberg 테이블이 나타납니다."
-                  action={<Button size="sm" render={<NextLink href="/connectors" />}>Ingestion으로 이동</Button>}
+                  title="No tables yet"
+                  hint="Connect a data source and sync it from Ingestion, and Iceberg tables will appear here."
+                  action={<Button size="sm" render={<NextLink href="/connectors" />}>Go to Ingestion</Button>}
                 />
               ) : (
                 <p className="py-8 text-center text-muted-foreground">No tables found matching your search criteria</p>
@@ -294,7 +294,7 @@ function SendToKnowledgeDialog({ table, onClose }: { table: Table | null; onClos
   const submit = async () => {
     if (!table) return
     const target = (collection === "__new__" ? newName : collection).trim()
-    if (!target || !col) { setErr("컬렉션과 텍스트 컬럼을 선택하세요."); return }
+    if (!target || !col) { setErr("Select a collection and a text column."); return }
     setBusy(true); setErr(null); setMsg(null)
     try {
       // ensure collection exists (idempotent)
@@ -305,12 +305,12 @@ function SendToKnowledgeDialog({ table, onClose }: { table: Table | null; onClos
         const r = await fetch(`/api/ai/collections/${encodeURIComponent(target)}/schedule`, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ schedule: sched, source }) })
         if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-        const d = await r.json(); setMsg(`예약 등록됨: ${d.interval_minutes}분마다 자동 재임베딩`)
+        const d = await r.json(); setMsg(`Schedule created: auto re-embeds every ${d.interval_minutes} min`)
       } else {
         const r = await fetch(`/api/ai/collections/${encodeURIComponent(target)}/ingest-source`, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(source) })
         if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-        const d = await r.json(); setMsg(`${d.documents} docs → ${d.chunks} chunks 적재됨 (${target})`)
+        const d = await r.json(); setMsg(`${d.documents} docs → ${d.chunks} chunks ingested (${target})`)
       }
     } catch (e: any) { setErr(e.message) }
     setBusy(false)
@@ -327,14 +327,14 @@ function SendToKnowledgeDialog({ table, onClose }: { table: Table | null; onClos
         {table && (
           <div className="space-y-3 text-sm">
             <p className="text-xs text-muted-foreground">
-              <span className="font-mono">{table.namespace}.{table.name}</span> 의 텍스트 컬럼을 임베딩해 RAG 컬렉션에 적재합니다.
+              Embeds a text column from <span className="font-mono">{table.namespace}.{table.name}</span> into a RAG collection.
             </p>
             <div className="space-y-1">
               <label className="text-[11px] text-muted-foreground">Collection</label>
               <select value={collection} onChange={e => setCollection(e.target.value)}
                 className="h-9 w-full rounded-md border bg-background px-2 text-xs">
                 {collections.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                <option value="__new__">+ 새 컬렉션…</option>
+                <option value="__new__">+ New collection…</option>
               </select>
               {collection === "__new__" && (
                 <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="new collection name" className="text-sm mt-1" />
@@ -352,21 +352,21 @@ function SendToKnowledgeDialog({ table, onClose }: { table: Table | null; onClos
               <label className="text-[11px] text-muted-foreground">Mode</label>
               <select value={sched} onChange={e => setSched(e.target.value)}
                 className="h-9 w-full rounded-md border bg-background px-2 text-xs">
-                <option value="">한 번 적재 (now)</option>
-                <option value="@hourly">예약 — 매시간</option>
-                <option value="@daily">예약 — 매일</option>
-                <option value="@weekly">예약 — 매주</option>
+                <option value="">Ingest once (now)</option>
+                <option value="@hourly">Schedule — hourly</option>
+                <option value="@daily">Schedule — daily</option>
+                <option value="@weekly">Schedule — weekly</option>
               </select>
             </div>
-            {msg && <p className="text-xs text-emerald-700">{msg}</p>}
+            {msg && <p className="text-xs text-[var(--dp-good)]">{msg}</p>}
             {err && <ErrorBox msg={err} />}
           </div>
         )}
         <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>닫기</Button>
+          <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
           <Button size="sm" onClick={submit} disabled={busy || !table}>
             {busy ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : (sched ? <Clock className="h-4 w-4 mr-1.5" /> : <Sparkles className="h-4 w-4 mr-1.5" />)}
-            {sched ? "예약" : "적재"}
+            {sched ? "Schedule" : "Ingest"}
           </Button>
         </DialogFooter>
       </DialogContent>

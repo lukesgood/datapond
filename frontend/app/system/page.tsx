@@ -33,15 +33,15 @@ interface SystemInfo {
 }
 
 const CMP_STATUS: Record<string, { label: string; cls: string }> = {
-  ok:           { label: "권장 충족", cls: "bg-emerald-500/10 text-emerald-600 border-emerald-200" },
-  warning:      { label: "권장 미달", cls: "bg-amber-500/10 text-amber-600 border-amber-200" },
-  insufficient: { label: "최소 미달", cls: "bg-red-500/10 text-red-600 border-red-200" },
-  unknown:      { label: "확인 불가", cls: "bg-muted text-muted-foreground border-transparent" },
+  ok:           { label: "Meets recommended", cls: "bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-[var(--dp-good)]/30" },
+  warning:      { label: "Below recommended", cls: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-[var(--dp-warn)]/30" },
+  insufficient: { label: "Below minimum", cls: "bg-destructive/10 text-destructive border-destructive/30" },
+  unknown:      { label: "Unknown", cls: "bg-muted text-muted-foreground border-transparent" },
 }
 
 function Meter({ label, pct, Icon }: { label: string; pct?: number | null; Icon: any }) {
   const v = typeof pct === "number" ? pct : null
-  const color = v == null ? "bg-muted-foreground/30" : v > 85 ? "bg-red-500" : v > 60 ? "bg-amber-500" : "bg-emerald-500"
+  const color = v == null ? "bg-muted-foreground/30" : v > 85 ? "bg-destructive" : v > 60 ? "bg-[var(--dp-warn)]" : "bg-[var(--dp-good)]"
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-sm">
@@ -77,7 +77,7 @@ export default function SystemPage() {
 
   useEffect(() => {
     load()
-    const t = setInterval(load, 15000)  // 15s 주기 갱신
+    const t = setInterval(load, 15000)  // refresh every 15s
     return () => clearInterval(t)
   }, [])
 
@@ -97,9 +97,9 @@ export default function SystemPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><Server className="h-6 w-6" />System</h1>
-          <p className="text-muted-foreground text-sm">서버 시스템 정보 · 구성 사양</p>
+          <p className="text-muted-foreground text-sm">Server system information · configuration specs</p>
         </div>
-        <Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-4 w-4 mr-1.5" />새로고침</Button>
+        <Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-4 w-4 mr-1.5" />Refresh</Button>
       </div>
 
       {loading && !info ? (
@@ -107,66 +107,66 @@ export default function SystemPage() {
       ) : (
       <>
         <div className="grid gap-4 md:grid-cols-2">
-          {/* 노드 사양 */}
+          {/* Node specs */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2"><Cpu className="h-4 w-4" />서버 사양</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2"><Cpu className="h-4 w-4" />Server Specs</CardTitle>
               <CardDescription>{n.name ?? "node"}</CardDescription>
             </CardHeader>
             <CardContent>
               <Spec label="CPU" value={n.cpu_cores ? `${n.cpu_cores} vCPU` : undefined} />
-              <Spec label="메모리" value={n.memory_gb ? `${n.memory_gb} GB` : undefined} />
-              <Spec label="디스크" value={n.ephemeral_storage_gb ? `${n.ephemeral_storage_gb} GB` : undefined} />
-              <Spec label="할당 가능 CPU/메모리" value={n.allocatable_cpu_cores != null ? `${n.allocatable_cpu_cores} vCPU / ${n.allocatable_memory_gb} GB` : undefined} />
-              <Spec label="아키텍처" value={n.arch} />
+              <Spec label="Memory" value={n.memory_gb ? `${n.memory_gb} GB` : undefined} />
+              <Spec label="Disk" value={n.ephemeral_storage_gb ? `${n.ephemeral_storage_gb} GB` : undefined} />
+              <Spec label="Allocatable CPU/Memory" value={n.allocatable_cpu_cores != null ? `${n.allocatable_cpu_cores} vCPU / ${n.allocatable_memory_gb} GB` : undefined} />
+              <Spec label="Architecture" value={n.arch} />
               <Spec label="OS" value={n.os} />
-              <Spec label="커널" value={n.kernel} />
-              <Spec label="컨테이너 런타임" value={n.container_runtime} />
+              <Spec label="Kernel" value={n.kernel} />
+              <Spec label="Container Runtime" value={n.container_runtime} />
               <Spec label="Kubernetes" value={c.kubernetes ?? n.kubelet} />
-              <Spec label="최대 Pod" value={n.max_pods} />
+              <Spec label="Max Pods" value={n.max_pods} />
               <div className="flex justify-between gap-3 py-1.5 text-sm">
-                <span className="text-muted-foreground">노드 상태</span>
+                <span className="text-muted-foreground">Node Status</span>
                 <span className="flex gap-1.5">
-                  <Badge variant="outline" className={`text-[10px] ${n.ready ? "text-emerald-600 border-emerald-200" : "text-red-600 border-red-200"}`}>{n.ready ? "Ready" : "NotReady"}</Badge>
-                  {n.memory_pressure && <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-200">MemPressure</Badge>}
-                  {n.disk_pressure && <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-200">DiskPressure</Badge>}
+                  <Badge variant="outline" className={`text-[10px] ${n.ready ? "text-[var(--dp-good)] border-[var(--dp-good)]/30" : "text-destructive border-destructive/30"}`}>{n.ready ? "Ready" : "NotReady"}</Badge>
+                  {n.memory_pressure && <Badge variant="outline" className="text-[10px] text-[var(--dp-warn)] border-[var(--dp-warn)]/30">MemPressure</Badge>}
+                  {n.disk_pressure && <Badge variant="outline" className="text-[10px] text-[var(--dp-warn)] border-[var(--dp-warn)]/30">DiskPressure</Badge>}
                 </span>
               </div>
             </CardContent>
           </Card>
 
-          {/* 사용량 + Pod 요약 */}
+          {/* Usage + Pod summary */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2"><MemoryStick className="h-4 w-4" />실시간 사용량</CardTitle>
-              <CardDescription>15초 주기 갱신</CardDescription>
+              <CardTitle className="text-base flex items-center gap-2"><MemoryStick className="h-4 w-4" />Live Usage</CardTitle>
+              <CardDescription>Refreshes every 15s</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <Meter label="CPU" pct={info?.usage?.cpu_percent} Icon={Cpu} />
-              <Meter label="메모리" pct={info?.usage?.memory_percent} Icon={MemoryStick} />
+              <Meter label="Memory" pct={info?.usage?.memory_percent} Icon={MemoryStick} />
               <div className="flex items-center justify-between pt-2 border-t text-sm">
-                <span className="flex items-center gap-1.5 text-muted-foreground"><Boxes className="h-3.5 w-3.5" />실행 Pod</span>
+                <span className="flex items-center gap-1.5 text-muted-foreground"><Boxes className="h-3.5 w-3.5" />Running Pods</span>
                 <Badge variant="secondary" className="font-mono">{c.pods_running ?? "—"} / {c.pods_total ?? "—"}</Badge>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* 사양 비교: 필요(요청 합) vs 권장 vs 실제 */}
+        {/* Spec comparison: required (sum of requests) vs recommended vs actual */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2"><Gauge className="h-4 w-4" />사양 비교</CardTitle>
+            <CardTitle className="text-base flex items-center gap-2"><Gauge className="h-4 w-4" />Spec Comparison</CardTitle>
             <CardDescription>
-              필요(배포 리소스 요청 합) · 권장(DATAPOND_REC_*) · 실제(현재 노드) — 환경에 무관하게 현재 클러스터 기준으로 자동 계산
+              Required (sum of deployment resource requests) · Recommended (DATAPOND_REC_*) · Actual (current node) — computed automatically from the current cluster, regardless of environment
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-4 gap-y-1 text-sm">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">리소스</div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">필요(최소)</div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">권장</div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">실제</div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">판정</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Resource</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">Required (min)</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">Recommended</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">Actual</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">Status</div>
               {(info?.comparison ?? []).map((r) => {
                 const st = CMP_STATUS[r.status] ?? CMP_STATUS.unknown
                 return (
@@ -183,18 +183,18 @@ export default function SystemPage() {
           </CardContent>
         </Card>
 
-        {/* 구성 컴포넌트 */}
+        {/* Deployed Components */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2"><Layers className="h-4 w-4" />구성 컴포넌트 ({info?.components?.length ?? 0})</CardTitle>
-            <CardDescription>배포된 컴포넌트 · 이미지 · 리소스 요청/제한 (CPU · 메모리)</CardDescription>
+            <CardTitle className="text-base flex items-center gap-2"><Layers className="h-4 w-4" />Deployed Components ({info?.components?.length ?? 0})</CardTitle>
+            <CardDescription>Deployed components · image · resource requests/limits (CPU · memory)</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-[1fr_1.5fr_auto_auto_auto] gap-x-4 gap-y-1 text-sm">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">컴포넌트</div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">이미지</div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">CPU 요청/제한</div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">메모리 요청/제한</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Component</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Image</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">CPU Req/Limit</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">Memory Req/Limit</div>
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">Ready</div>
               {(info?.components ?? []).map((co) => (
                 <div key={co.name} className="contents">
@@ -209,17 +209,17 @@ export default function SystemPage() {
           </CardContent>
         </Card>
 
-        {/* 영속 스토리지 */}
+        {/* Persistent Storage */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2"><HardDrive className="h-4 w-4" />영속 스토리지 ({info?.storage?.length ?? 0})</CardTitle>
+            <CardTitle className="text-base flex items-center gap-2"><HardDrive className="h-4 w-4" />Persistent Storage ({info?.storage?.length ?? 0})</CardTitle>
             <CardDescription>PVC (PersistentVolumeClaim)</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-[1.5fr_auto_auto_1fr] gap-x-4 gap-y-1 text-sm">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">이름</div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">용량</div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">상태</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Name</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">Capacity</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Status</div>
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">StorageClass</div>
               {(info?.storage ?? []).map((s) => (
                 <div key={s.name} className="contents">

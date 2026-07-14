@@ -639,7 +639,7 @@ function UserManagement() {
 
   const confirmDialog = useConfirm()
   const handleDelete = async (u: UserRecord) => {
-    if (!(await confirmDialog({ title: "사용자 삭제", message: `'${u.username}' 사용자를 삭제합니다. 되돌릴 수 없습니다.`, destructive: true, confirmText: "삭제" }))) return
+    if (!(await confirmDialog({ title: "Delete user", message: `Delete user '${u.username}'. This cannot be undone.`, destructive: true, confirmText: "Delete" }))) return
     const r = await fetch(`/api/auth/users/${u.id}`, { method: "DELETE" })
     if (r.ok) { notify(`User '${u.username}' deleted`); fetchUsers() }
     else notify("Failed to delete user", false)
@@ -773,7 +773,7 @@ function UserManagement() {
                             <Shield className="h-3.5 w-3.5" />
                           </Button>
                           <Button variant="ghost" size="icon" className="h-7 w-7"
-                            aria-label="RLS 속성 (부서/지역/등급)" title="RLS 속성 (부서/지역/등급)"
+                            aria-label="RLS attributes (department/region/clearance)" title="RLS attributes (department/region/clearance)"
                             onClick={() => openAttrs(u)}>
                             <SlidersHorizontal className="h-3.5 w-3.5" />
                           </Button>
@@ -876,27 +876,27 @@ function UserManagement() {
       {/* ── RLS Attributes (department / region / clearance) ── */}
       <Dialog open={!!attrTarget} onOpenChange={o => !o && setAttrTarget(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>RLS 속성 — @{attrTarget?.username}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>RLS Attributes — @{attrTarget?.username}</DialogTitle></DialogHeader>
           <div className="space-y-3 py-2">
             <p className="text-[11px] text-muted-foreground">
-              행수준 보안(RLS) 정책의 <code>current_user_attribute(...)</code>에서 참조됩니다. 비우면 해당 속성 제거.
+              Referenced by row-level security (RLS) policies via <code>current_user_attribute(...)</code>. Leave blank to remove an attribute.
             </p>
             <div className="space-y-1.5">
-              <Label className="text-xs">부서 (department)</Label>
-              <Input value={attrDept} onChange={e => setAttrDept(e.target.value)} placeholder="예: sales" autoFocus />
+              <Label className="text-xs">Department</Label>
+              <Input value={attrDept} onChange={e => setAttrDept(e.target.value)} placeholder="e.g. sales" autoFocus />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">지역 (region)</Label>
-              <Input value={attrRegion} onChange={e => setAttrRegion(e.target.value)} placeholder="예: us-east" />
+              <Label className="text-xs">Region</Label>
+              <Input value={attrRegion} onChange={e => setAttrRegion(e.target.value)} placeholder="e.g. us-east" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">보안등급 (clearance)</Label>
-              <Input value={attrClear} onChange={e => setAttrClear(e.target.value)} placeholder="예: confidential" />
+              <Label className="text-xs">Clearance</Label>
+              <Input value={attrClear} onChange={e => setAttrClear(e.target.value)} placeholder="e.g. confidential" />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAttrTarget(null)}>Cancel</Button>
-            <Button onClick={saveAttributes}>저장</Button>
+            <Button onClick={saveAttributes}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

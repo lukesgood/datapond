@@ -24,14 +24,14 @@ interface Collection {
   sources?: number; index?: string | null; last_ingested?: string | null
 }
 
-// "방금 전" / "3시간 전" 같은 상대 시각
+// Relative time, e.g. "just now" / "3 hr ago"
 function timeAgo(iso: string | null | undefined): string {
-  if (!iso) return "적재 없음"
+  if (!iso) return "Not ingested"
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
-  if (s < 60) return "방금 전"
-  if (s < 3600) return `${Math.floor(s / 60)}분 전`
-  if (s < 86400) return `${Math.floor(s / 3600)}시간 전`
-  return `${Math.floor(s / 86400)}일 전`
+  if (s < 60) return "just now"
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`
+  if (s < 86400) return `${Math.floor(s / 3600)} hr ago`
+  return `${Math.floor(s / 86400)} d ago`
 }
 interface Hit { source: string | null; content: string; score: number }
 
@@ -76,7 +76,7 @@ export default function KnowledgePage() {
         </div>
         <div className="flex items-center gap-2">
           {egress && (
-            <Badge variant="outline" className={egress === "local-only" ? "border-emerald-200 text-emerald-700" : ""}>
+            <Badge variant="outline" className={egress === "local-only" ? "border-[var(--dp-good)]/30 text-[var(--dp-good)]" : ""}>
               AI egress: {egress}
             </Badge>
           )}
@@ -85,7 +85,7 @@ export default function KnowledgePage() {
       </div>
 
       {err && (
-        <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-2.5 text-xs text-amber-700">
+        <div className="flex items-center gap-2 rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/5 px-4 py-2.5 text-xs text-[var(--dp-warn)]">
           <AlertCircle className="h-4 w-4 shrink-0" />{err}
         </div>
       )}
@@ -98,9 +98,9 @@ export default function KnowledgePage() {
               <Card><CardContent>
                 <EmptyState
                   icon={Sparkles}
-                  title="컬렉션이 없습니다"
-                  hint="위의 New collection으로 만들거나, Catalog에서 테이블의 ✨(Send to Knowledge)로 데이터를 바로 보낼 수 있습니다."
-                  action={<Button size="sm" variant="outline" render={<Link href="/catalog" />}>Catalog에서 보내기</Button>}
+                  title="No collections yet"
+                  hint="Create one with New Collection above, or send data straight from a table's ✨ (Send to Knowledge) action in Catalog."
+                  action={<Button size="sm" variant="outline" render={<Link href="/catalog" />}>Send from Catalog</Button>}
                 />
               </CardContent></Card>
             ) : cols.map(c => (
@@ -128,7 +128,7 @@ export default function KnowledgePage() {
                   </div>
                   <div className="text-[10px] text-muted-foreground/70 mt-0.5 flex flex-wrap gap-x-2 items-center">
                     <Badge variant="outline" className="text-[9px] gap-0.5"><Database className="h-2.5 w-2.5" />{c.index || "HNSW · cosine"}</Badge>
-                    <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />최근 적재 {timeAgo(c.last_ingested)}</span>
+                    <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />Last ingested {timeAgo(c.last_ingested)}</span>
                   </div>
                   {c.description && <div className="text-[11px] text-muted-foreground mt-0.5 truncate">{c.description}</div>}
                 </CardContent>
@@ -149,9 +149,9 @@ export default function KnowledgePage() {
 }
 
 async function deleteCol(name: string, after: () => void, confirm: (o: any) => Promise<boolean>, notify?: (m: string, t?: any) => void) {
-  if (!(await confirm({ title: "컬렉션 삭제", message: `"${name}" 와 모든 청크를 삭제합니다. 되돌릴 수 없습니다.`, destructive: true, confirmText: "삭제" }))) return
+  if (!(await confirm({ title: "Delete collection", message: `This deletes "${name}" and all its chunks. This cannot be undone.`, destructive: true, confirmText: "Delete" }))) return
   await fetch(`/api/ai/collections/${encodeURIComponent(name)}`, { method: "DELETE" })
-  notify?.(`컬렉션 "${name}" 삭제됨`, "success")
+  notify?.(`Collection "${name}" deleted`, "success")
   after()
 }
 
@@ -169,7 +169,7 @@ function CreateCollection({ onCreated }: { onCreated: () => void }) {
         body: JSON.stringify({ name: name.trim(), description: desc || undefined }),
       })
       if (!r.ok) throw new Error((await r.json()).detail || "Create failed")
-      setOpen(false); toast(`컬렉션 "${name.trim()}" 생성됨`, "success"); setName(""); setDesc(""); onCreated()
+      setOpen(false); toast(`Collection "${name.trim()}" created`, "success"); setName(""); setDesc(""); onCreated()
     } catch (err: any) { setE(err.message) }
     setBusy(false)
   }
@@ -249,7 +249,7 @@ function SearchPanel({ name }: { name: string }) {
         </div>
         <Button onClick={run} disabled={!q.trim() || busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}</Button>
       </div>
-      {pii > 0 && <div className="text-[11px] text-emerald-700 flex items-center gap-1"><ShieldCheck className="h-3 w-3" />PII {pii}건 마스킹 후 처리됨 (가드레일)</div>}
+      {pii > 0 && <div className="text-[11px] text-[var(--dp-good)] flex items-center gap-1"><ShieldCheck className="h-3 w-3" />{pii} PII item(s) masked before processing (guardrail)</div>}
       {e && <ErrorBox msg={e} />}
       {ans && <Card><CardContent className="py-3 text-sm whitespace-pre-wrap">{ans}</CardContent></Card>}
       {hits.length > 0 && (
@@ -329,7 +329,7 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ schedule: sched, source: sourceBody() }) })
       if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-      const d = await r.json(); setMsg(`예약 등록됨: ${d.interval_minutes}분마다 자동 재임베딩`)
+      const d = await r.json(); setMsg(`Schedule created: auto re-embeds every ${d.interval_minutes} min`)
     } catch (err: any) { setE(err.message) }
     setSchedBusy(false)
   }
@@ -392,22 +392,22 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
             <div className="flex flex-wrap items-center gap-2">
               <Button onClick={ingestSource} disabled={busy || schedBusy || !ready}>
                 {busy && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}Ingest from {stype}</Button>
-              <span className="text-xs text-muted-foreground ml-1">또는 예약:</span>
+              <span className="text-xs text-muted-foreground ml-1">or schedule:</span>
               <select value={sched} onChange={e => setSched(e.target.value)}
                 className="h-9 rounded-md border bg-background px-2 text-xs">
-                <option value="@hourly">매시간</option>
-                <option value="@daily">매일</option>
-                <option value="@weekly">매주</option>
+                <option value="@hourly">Hourly</option>
+                <option value="@daily">Daily</option>
+                <option value="@weekly">Weekly</option>
               </select>
               <Button variant="outline" onClick={scheduleSource} disabled={busy || schedBusy || !ready}>
                 {schedBusy ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Clock className="h-4 w-4 mr-1.5" />}
-                예약 적재</Button>
+                Schedule ingest</Button>
             </div>
           )})()}
-          <p className="text-[11px] text-muted-foreground">예약 적재는 Airflow DAG를 생성해 소스를 주기적으로 재임베딩합니다 (AI 데이터 파이프라인).</p>
+          <p className="text-[11px] text-muted-foreground">Scheduled ingest creates an Airflow DAG that periodically re-embeds the source (AI data pipeline).</p>
         </>
       )}
-      {msg && <p className="text-xs text-emerald-700">{msg}</p>}
+      {msg && <p className="text-xs text-[var(--dp-good)]">{msg}</p>}
       {e && <ErrorBox msg={e} />}
     </div>
   )

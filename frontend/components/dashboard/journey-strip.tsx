@@ -42,10 +42,10 @@ export function JourneyStrip() {
   }, [])
 
   const steps: Step[] = [
-    { title: "Ingestion",  href: "/connectors", icon: ArrowDownToLine, count: counts[0], unit: "connectors",  hint: "데이터 소스 연결" },
-    { title: "Catalog",    href: "/catalog",    icon: Database,        count: counts[1], unit: "tables",      hint: "Iceberg 테이블" },
-    { title: "Knowledge",  href: "/knowledge",  icon: Sparkles,        count: counts[2], unit: "collections", hint: "RAG 벡터스토어" },
-    { title: "Dashboards", href: "/dashboards", icon: BarChart3,       count: counts[3], unit: "dashboards",  hint: "쿼리 시각화" },
+    { title: "Ingestion",  href: "/connectors", icon: ArrowDownToLine, count: counts[0], unit: "connectors",  hint: "Connect a data source" },
+    { title: "Catalog",    href: "/catalog",    icon: Database,        count: counts[1], unit: "tables",      hint: "Iceberg tables" },
+    { title: "Knowledge",  href: "/knowledge",  icon: Sparkles,        count: counts[2], unit: "collections", hint: "RAG vector store" },
+    { title: "Dashboards", href: "/dashboards", icon: BarChart3,       count: counts[3], unit: "dashboards",  hint: "Query visualization" },
   ]
 
   // The path data takes through the foundation — a real sequence, so it's numbered.
