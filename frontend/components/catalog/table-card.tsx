@@ -55,7 +55,7 @@ export function TableCard({
 
   return (
     <Link href={`/catalog/${namespace}/${name}${catalog ? `?catalog=${catalog}` : ""}`}>
-      <Card className="cursor-pointer hover:shadow-md hover:border-primary/40 transition-colors transition-shadow">
+      <Card className="cursor-pointer hover:shadow-md hover:border-primary/40 transition-[color,box-shadow,border-color]">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm font-medium truncate">{name}</CardTitle>
