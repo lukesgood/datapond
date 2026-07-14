@@ -76,6 +76,13 @@ frontend:
     maxReplicas: 5
     targetCPUUtilizationPercentage: 80
 
+# Iceberg catalog backend for ingestion + catalog reads.
+#   polaris = self-hosted Polaris REST (on-prem/full profile, default)
+#   glue    = AWS Glue Data Catalog (serverless; sets FEATURE_GLUE + ICEBERG_CATALOG_BACKEND)
+catalog:
+  backend: polaris
+  glueWarehouse: ""   # s3://<bucket>/warehouse — required when backend=glue
+
 # Backend (FastAPI)
 backend:
   enabled: true

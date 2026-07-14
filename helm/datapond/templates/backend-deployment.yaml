@@ -201,6 +201,10 @@ spec:
         # (single source of truth) so the flag can't drift from the actual backend.
         - name: FEATURE_GLUE
           value: "{{ if eq ((.Values.catalog | default dict).backend | default "polaris") "glue" }}true{{ else }}false{{ end }}"
+        - name: ICEBERG_CATALOG_BACKEND
+          value: {{ (.Values.catalog | default dict).backend | default "polaris" | quote }}
+        - name: GLUE_WAREHOUSE
+          value: {{ (.Values.catalog | default dict).glueWarehouse | default "" | quote }}
         {{- if (((.Values.auth).ldap).enabled) }}
         # LDAP / Active Directory authentication
         - name: LDAP_ENABLED
