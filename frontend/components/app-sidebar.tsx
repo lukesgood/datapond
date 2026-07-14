@@ -110,7 +110,7 @@ export function AppSidebar() {
         {/* Logo */}
         <div className="px-4 py-5 shrink-0">
           <h1 className="text-xl font-bold">DataPond</h1>
-          <p className="text-xs text-muted-foreground">AI-Native Lakehouse</p>
+          <p className="text-xs text-muted-foreground">AI Data Foundation</p>
         </div>
 
         {/* Dashboard — top-level, no section label */}

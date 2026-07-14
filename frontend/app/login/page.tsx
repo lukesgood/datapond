@@ -11,18 +11,18 @@ import { startAuthentication } from "@simplewebauthn/browser"
 const FEATURES = [
   {
     icon: ShieldCheck,
-    title: "Sovereign Infrastructure",
-    desc: "Run a full-featured lakehouse inside your network — air-gapped, on-prem, or private cloud.",
+    title: "Governance-Complete RAG",
+    desc: "Ingestion, embeddings, and pgvector retrieval with per-collection RLS, PII masking, and cost attribution — governance built in.",
   },
   {
     icon: Layers,
-    title: "Iceberg Lakehouse",
-    desc: "ACID transactions, schema evolution, and time-travel queries on your own storage.",
+    title: "AWS-Native Foundation",
+    desc: "S3 storage, Aurora pgvector, and Bedrock models — managed and serverless, with zero ops burden.",
   },
   {
     icon: Zap,
-    title: "Real-time + Batch",
-    desc: "RisingWave streaming SQL and Airflow batch pipelines — unified in one platform.",
+    title: "Your AWS Account",
+    desc: "Runs entirely inside your own AWS account — data sovereignty preserved, differentiating layers open source.",
   },
 ]
 
@@ -230,7 +230,7 @@ export default function LoginPage() {
               </div>
               <span className="text-2xl font-bold tracking-tight text-white">DataPond</span>
             </div>
-            <p className="text-sm ml-12" style={{ color: "#64748b" }}>AI-Native Lakehouse Platform</p>
+            <p className="text-sm ml-12" style={{ color: "#64748b" }}>AWS-Native AI Data Foundation</p>
           </div>
 
           {/* Hero */}
@@ -239,11 +239,11 @@ export default function LoginPage() {
               <h2 className="text-4xl font-bold text-white leading-tight mb-3">
                 Your Data.<br />
                 <span style={{ background: "linear-gradient(90deg, #60a5fa, #a78bfa)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-                  Your Infrastructure.
+                  Your AI Foundation.
                 </span>
               </h2>
               <p style={{ color: "#94a3b8" }} className="text-base leading-relaxed max-w-sm">
-                Full-stack AI lakehouse built for regulated, air-gapped, and sovereign infrastructure — deployed entirely within your environment.
+                The S3 + Bedrock native data foundation that fuels production RAG and agent applications on AWS — with governance built in.
               </p>
             </div>
             <div className="space-y-4">
@@ -263,7 +263,7 @@ export default function LoginPage() {
           </div>
 
           <p className="text-xs" style={{ color: "#334155" }}>
-            © 2026 DataPond · AI-Native Lakehouse for Sovereign Infrastructure
+            © 2026 DataPond · AWS-Native AI Data Foundation
           </p>
         </div>
       </div>
@@ -279,7 +279,7 @@ export default function LoginPage() {
               <Layers className="h-6 w-6 text-white" />
             </div>
             <h1 className="text-2xl font-bold">DataPond</h1>
-            <p className="text-sm text-muted-foreground">AI-Native Lakehouse</p>
+            <p className="text-sm text-muted-foreground">AI Data Foundation</p>
           </div>
 
           <div className="space-y-1">

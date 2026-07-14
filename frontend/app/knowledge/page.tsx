@@ -70,7 +70,7 @@ export default function KnowledgePage() {
             <Sparkles className="h-5 w-5 text-primary" /> Knowledge
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Vector collections & RAG over your lakehouse — embeddings and chat run through the
+            Vector collections & RAG over your data — embeddings and chat run through the
             governed LiteLLM gateway (PII-masked at ingest{egress === "local-only" ? ", no data egress" : ""}).
           </p>
         </div>
@@ -339,7 +339,7 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
       <div className="flex rounded-md border overflow-hidden w-fit text-xs">
         {(["text", "source"] as const).map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-1 ${tab === t ? "bg-primary text-primary-foreground" : "bg-background"}`}>
-            {t === "text" ? "Paste text" : "From lakehouse / S3"}</button>
+            {t === "text" ? "Paste text" : "From catalog / S3"}
         ))}
       </div>
       {tab === "text" ? (

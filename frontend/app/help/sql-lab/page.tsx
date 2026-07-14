@@ -53,7 +53,7 @@ export default function SqlLabHelpPage() {
         <div>
           <h1 className="text-4xl font-bold tracking-tight">SQL Lab Guide</h1>
           <p className="text-lg text-muted-foreground mt-2">
-            Interactive query interface for your data lakehouse
+            Interactive query interface for your data
           </p>
         </div>
       </div>

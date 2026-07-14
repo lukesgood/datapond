@@ -4,121 +4,111 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DataPond is an **AI-Native Lakehouse Platform** targeting on-premises and private cloud environments where Databricks cannot operate. It is positioned as an enterprise-grade product — not as a budget alternative — with AI as a first-class architectural concern. The primary differentiator is enabling organizations with strict data sovereignty requirements (regulated industries, air-gapped environments, private infrastructure) to run a full Databricks-class lakehouse on their own infrastructure.
+DataPond is an **AI Data Foundation** — an AWS-native platform that fuels production RAG and agent applications on AWS. It ships the full data pipeline (S3 data → chunking → embedding → pgvector retrieval → Bedrock responses) **with governance built in** (per-collection RLS, PII masking, cost attribution, lineage), running inside the customer's own AWS account. The heavy analytics stack is delegated to AWS-managed services; DataPond's differentiating layers (governed RAG, catalog/knowledge bridge, cost governance) are open source (no lock-in).
 
-Key product positioning (critical — do not revert):
-- **Target**: Organizations that **cannot use Databricks** due to regulatory, air-gap, or data sovereignty requirements — financial institutions (FSS regulations), public sector (network isolation mandates), healthcare (EMR data residency), defense, manufacturing (OT network separation)
-- **NOT** "cheap Databricks alternative" — price is not the differentiator
-- **NOT** open-source community play — no public GitHub launch planned currently
-- **Unique position**: Databricks is SaaS-only and cannot enter this market; DataPond is the enterprise-grade AI-Native Lakehouse for sovereign infrastructure
+> **Positioning history (v3.0 → v4.0 pivot):** DataPond was previously an on-prem "AI-Native Lakehouse / sovereign Databricks alternative" (self-hosted Trino/Spark/RisingWave/Polaris/SeaweedFS). That OSS full-stack is archived to the `archive/oss-lakehouse` branch (`v3.0-oss-lakehouse` tag) and remains available as optional Helm profiles, but it is **no longer the product story**. See `README.md`, `docs/PRODUCT_CONCEPT.md`, and `docs/superpowers/specs/2026-06-30-aws-ai-data-platform-pivot-design.md`.
+
+Key product positioning (v4.0 — AWS-native):
+- **Target**: teams already on AWS taking AI apps (RAG, agents) from PoC to production — who need governed retrieval without hand-wiring S3 → embeddings → vector search → governance
+- **Core value**: a governance-complete AI data pipeline on AWS-managed infrastructure (S3, Aurora pgvector, Bedrock) with zero ops burden
+- **Differentiator**: where Bedrock Knowledge Bases gives you retrieval, DataPond adds access control, cost attribution, and catalog integration — all open source, running in your own AWS account (data sovereignty preserved)
+- **Secondary**: the OSS lakehouse profiles still deploy on-prem/private-VPC for teams that need self-hosted analytics engines
 
 ## Architecture
 
-### Layer Structure (top to bottom)
+### Layer Structure — foundation profile (live default)
+
+The lean **foundation profile** (`values-foundation.yaml` / `values-prod-single.yaml`, 5 workloads) is the live AWS deployment. Heavy analytics is delegated to AWS-managed services, not run on the node.
 
 ```
-Ingress (Traefik/Nginx)
+Ingress (Traefik) + cert-manager (Let's Encrypt DNS-01 TLS)
   ↓
-Application Layer: Frontend (Next.js) · Backend (FastAPI) · JupyterLab · Airflow · MLflow
+Application Layer: Frontend (Next.js) · Backend (FastAPI)
   ↓
-Compute Layer: Trino (OLAP SQL) · Spark (batch) · RisingWave (streaming SQL)
+AI Layer: LiteLLM (multi-model gateway → Amazon Bedrock: Claude, Titan embeddings)
   ↓
-Catalog & Governance: Apache Polaris REST Catalog (Unity Catalog equivalent)
+Vector/State: Aurora Serverless v2 + pgvector (RAG) · Valkey (cache/sessions)
   ↓
-Storage Layer: SeaweedFS (S3-compatible) + Apache Iceberg (ACID table format)
+Storage: Amazon S3 (native, via node instance profile / IRSA)
   ↓
-Metadata/State: PostgreSQL (primary DB for all services) · Valkey (cache/sessions)
-  ↓
-Observability: OpenMetadata (lineage, catalog, data quality)
-  ↓
-AI Layer: LiteLLM (multi-model proxy: Claude, GPT-4, Gemini, Llama)
+AWS-managed analytics (not on the node): Athena (query) · EMR (batch) ·
+  Glue Data Catalog · MWAA (Airflow) · SageMaker (MLflow/Jupyter) · DataZone (lineage)
 ```
+
+> The OSS full-stack (self-hosted Trino/Spark/RisingWave/Polaris/SeaweedFS/OpenMetadata/Jupyter/Airflow/MLflow/Ollama) still exists in the chart, gated behind `enabled` flags, for on-prem/full profiles (`values-onprem.yaml`). It is **off** in the foundation profile. See `docs/FOUNDATION_PROFILE.md` for the full disabled→AWS-managed mapping.
 
 ### Critical design decisions
 
-**Apache Polaris** (port 8181) is the central catalog — all compute engines (Trino, Spark, RisingWave) connect via REST to the same Iceberg catalog. This enables cross-engine table sharing and RBAC at the catalog level. Polaris stores metadata in PostgreSQL and data in SeaweedFS.
+**Storage is native S3** (foundation profile) via the node instance profile / backend IRSA — no static keys, no SeaweedFS. The `storage.provider: s3` values key selects it. (Self-hosted profiles can still use SeaweedFS/MinIO.)
 
-**RisingWave** (port 4566, PostgreSQL wire protocol) replaces the Kafka + Spark Streaming combination. It processes streams with PostgreSQL-compatible SQL and sinks directly to Iceberg tables via Polaris.
+**pgvector on Aurora** is the vector store — `ai_chunks(vector(1024), HNSW cosine)`. `externalDatabase.enabled: true` points the backend at the Aurora endpoint; `postgres.enabled: false`.
 
-**DuckDB** runs embedded inside JupyterLab (no separate pod). It reads Iceberg tables directly from SeaweedFS via S3 API — no Spark cluster needed for exploratory queries under ~100GB.
-
-**PostgreSQL** is shared across services: `datapond` (app data), `mlflow` (experiment metadata), `airflow` (workflow metadata), `iceberg_catalog` (Polaris metastore), `openmetadata_catalog`, `polaris_catalog`. All databases are auto-created on first PostgreSQL startup via `/docker-entrypoint-initdb.d/01-init-databases.sh` (mounted from `postgres-init-configmap.yaml`).
+**Bedrock via LiteLLM** — the LiteLLM gateway maps `embed`→Titan, `chat`→Claude Sonnet, `default`→Claude Haiku, all `bedrock/...`. This is the single egress path for embeddings/RAG/AI-SQL.
 
 **Valkey** is used instead of Redis (license-compatible drop-in replacement).
 
 **All Deployments use `strategy: Recreate`** (not RollingUpdate) to prevent memory pressure from simultaneous old+new pods on single-node K3s. This is set in all Helm templates.
 
-### Data paths
+> **Full-profile only:** Apache Polaris (central Iceberg REST catalog), RisingWave (streaming SQL → Iceberg), DuckDB-in-Jupyter, and the shared-PostgreSQL multi-DB layout (`iceberg_catalog`/`openmetadata_catalog`/`polaris_catalog` auto-created via `postgres-init-configmap.yaml`) apply only when those OSS engines are enabled. In the AWS foundation profile their roles are filled by Glue / MSK-Flink / Athena / Aurora.
 
-- **Real-time**: Kafka/Kinesis → RisingWave → Polaris → Iceberg (SeaweedFS)
-- **Batch**: Airflow DAG → Spark → Polaris → Iceberg (SeaweedFS)
-- **Analytics**: Trino → Polaris (auth check) → Iceberg (SeaweedFS)
-- **DS/exploration**: JupyterLab → DuckDB → Iceberg direct S3 read
-- **Lineage**: All services → OpenMetadata (automatic collection)
+### Data paths (foundation profile)
 
-### Internal service addresses
+- **RAG ingest**: source (text / S3 object / catalog column) → chunk + Titan embed (LiteLLM→Bedrock) → pgvector (Aurora)
+- **RAG serve**: query → embed → pgvector search (+ optional rerank) → Bedrock (Claude) cited answer
+- **AI SQL**: natural language → LiteLLM→Bedrock → SQL (targets Athena/Trino when an analytics engine is wired)
+- **Full-profile analytics** (when enabled): Airflow→Spark→Polaris→Iceberg (batch), Trino→Polaris→Iceberg (OLAP), RisingWave→Polaris→Iceberg (streaming)
+
+### Internal service addresses (foundation profile)
 
 ```
 backend.datapond.svc.cluster.local:8000
-postgres.datapond.svc.cluster.local:5432
 valkey.datapond.svc.cluster.local:6379
-seaweedfs.datapond.svc.cluster.local:9000
-polaris.datapond.svc.cluster.local:8181
-trino.datapond.svc.cluster.local:8080
-spark-master.datapond.svc.cluster.local:7077
-risingwave.datapond.svc.cluster.local:4566
-openmetadata.datapond.svc.cluster.local:8585
-litellm.datapond.svc.cluster.local:4000    (AI proxy — disabled on values-quicktest)
-ollama.datapond.svc.cluster.local:11434    (LLM runtime — disabled on values-quicktest)
-mlflow.datapond.svc.cluster.local:5000
+litellm.datapond.svc.cluster.local:4000    (AI gateway → Bedrock)
+# External AWS-managed:
+#   Aurora Serverless v2 (pgvector)  — externalDatabase.host (terraform output)
+#   Amazon S3                        — native, node instance profile
+#   Amazon Bedrock                   — via LiteLLM
 ```
+
+> Full-profile services (`postgres`/`seaweedfs`/`polaris`/`trino`/`spark-master`/`risingwave`/`openmetadata`/`ollama`/`mlflow` on the cluster) exist only when their `enabled` flags are set (`values-onprem.yaml`).
 
 ## Deployment
 
 ### Prerequisites
 
-- Kubernetes 1.25+ (K3s recommended for on-prem)
-- Helm 3.12+
-- 8GB+ RAM (dev), 32GB+ RAM (prod)
+- An AWS account (foundation profile: EC2 + Aurora Serverless v2 + S3 + Bedrock + ECR)
+- Terraform 1.10+ (infra in `terraform/`) · Helm 3.12+
+- Single-node K3s host (m6i.xlarge+); Bedrock model access enabled in-region
 
-### Install K3s + Helm (on-prem bootstrap)
+### Deploy — AWS foundation (live default)
+
+The live deployment is **single-node K3s on AWS** with external Aurora/S3/Bedrock. Infra is provisioned by `terraform/` (EC2 + EIP + Aurora + S3 + ECR + Route53 + cert-manager DNS-01). Full runbook: **`docs/DEPLOY_SINGLE_NODE.md`**.
 
 ```bash
-# Full install (interactive, handles K3s + Helm + deploy)
-sudo bash scripts/install.sh --domain datapond.local
-
-# Air-gapped environment
-sudo bash scripts/bundle-airgap.sh          # on internet machine
-sudo bash datapond-airgap-*/install.sh       # on target machine
+# Foundation profile (backend/frontend/litellm/valkey + Aurora/S3/Bedrock)
+helm upgrade --install datapond helm/datapond -n datapond \
+  -f helm/datapond/values-prod-single.yaml \
+  --set externalDatabase.host=$(terraform -chdir=terraform output -raw aurora_endpoint) \
+  --set backend.image.repository=$(terraform -chdir=terraform output -raw ecr_backend_repo_url) \
+  --set frontend.image.repository=$(terraform -chdir=terraform output -raw ecr_frontend_repo_url) \
+  --set ingress.domain=<your-domain> \
+  --wait=false
 ```
 
-### Deploy / upgrade
+### Deploy — other profiles
 
-Three values profiles are available depending on the environment:
-
-| Profile | File | RAM | Use case |
-|---------|------|-----|----------|
-| Single-node dev | `values-quicktest.yaml` | 15 GB | Local dev, CI — LiteLLM/Ollama disabled |
-| On-prem production | `values-onprem.yaml` | 32 GB+ | Full stack incl. LiteLLM + Ollama |
-| AWS EKS | `values-aws.yaml` | — | S3 + Bedrock, no SeaweedFS/Ollama/PG |
+| Profile | File | Use case |
+|---------|------|----------|
+| **AWS foundation (live)** | `values-prod-single.yaml` | Single-node K3s + Aurora/S3/Bedrock, 5 workloads |
+| AWS foundation (generic) | `values-foundation.yaml` | Foundation defaults (S3 + Bedrock) |
+| Single-node dev | `values-quicktest.yaml` | Local dev, CI — LiteLLM/Ollama disabled |
+| On-prem full (OSS) | `values-onprem.yaml` | Self-hosted full lakehouse (Trino/Spark/Polaris/…), 32 GB+ |
 
 ```bash
-# Single-node dev (current default)
-helm upgrade datapond helm/datapond \
-  --namespace datapond \
-  --values helm/datapond/values-quicktest.yaml \
-  --wait=false
-
-# On-prem production (all services, LiteLLM + Ollama)
+# On-prem full OSS stack (secondary — self-hosted analytics engines)
 helm upgrade datapond helm/datapond \
   --namespace datapond \
   --values helm/datapond/values-onprem.yaml \
-  --wait=false
-
-# AWS EKS (S3 + Bedrock)
-helm upgrade datapond helm/datapond \
-  --namespace datapond \
-  --values helm/datapond/values-aws.yaml \
   --wait=false
 ```
 
@@ -143,32 +133,32 @@ kubectl get ingress -n datapond
 kubectl top nodes
 ```
 
-## Key URLs (dev)
+## Key URLs
+
+**Foundation profile (live):** the UI capability-gates to what's deployed — Dashboard · Knowledge (RAG) · AI · Governance · Storage · Settings. Lakehouse pages (Catalog/Query/Connectors/Pipelines/Streaming/Notebooks/Experiments/Lineage) are hidden unless the corresponding OSS engines are enabled (`GET /api/capabilities`).
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| Frontend (Management UI) | http://datapond.local | — |
-| Backend API + Docs | http://datapond.local/api | — |
-| JupyterLab | http://datapond.local/jupyter | token: `jupyter` |
-| Airflow | http://datapond.local/airflow | airflow / airflow |
-| MLflow | http://datapond.local/mlflow | — |
-| OpenMetadata | http://datapond.local/openmetadata | — |
-| SeaweedFS Console | http://datapond.local/seaweedfs-console | — |
+| Frontend (Management UI) | `https://<your-domain>` | admin / (generated; see runbook) |
+| Backend API + Docs | `https://<your-domain>/api` | — |
 
-> **Note:** Spark runs as a standalone master+worker via explicit `spark-class` commands on the `apache/spark` image (the old bitnami-style `SPARK_MODE` env never worked on that image). Enabled in `values-onprem.yaml` (32GB+); disabled in `values-quicktest.yaml` for memory. Iceberg/Polaris/S3 job config is in the `spark-defaults` ConfigMap. Air-gap still needs the Iceberg/S3 jars baked into a custom image (`spark.jars.packages` resolves from Maven at submit time).
-> **Note:** Airflow Webserver uses `BASE_URL=/airflow` and `AUTH_BACKENDS=basic_auth,session` — the REST API is at `/airflow/api/v1` internally.
+> **Full-profile only (OSS on-prem):** JupyterLab (`/jupyter`), Airflow (`/airflow`), MLflow (`/mlflow`), OpenMetadata (`/openmetadata`), SeaweedFS console (`/seaweedfs-console`) exist only when those workloads are enabled in `values-onprem.yaml`.
+> **Note (full-profile):** Spark runs as a standalone master+worker via explicit `spark-class` commands on the `apache/spark` image (the old bitnami-style `SPARK_MODE` env never worked on that image). Iceberg/Polaris/S3 job config is in the `spark-defaults` ConfigMap.
+> **Note (full-profile):** Airflow Webserver uses `BASE_URL=/airflow` and `AUTH_BACKENDS=basic_auth,session` — the REST API is at `/airflow/api/v1` internally.
 
 ## Helm Chart Structure
 
 ```
 helm/datapond/
-  values.yaml            # Base defaults (HA, production scale)
-  values-quicktest.yaml  # Single-node dev/test (Recreate strategy, 1 replica)
-  values-dev.yaml        # Dev overrides
-  values-prod.yaml       # Production (HA, full resources)
-  Chart.yaml             # v2.3.0
+  values.yaml               # Base defaults
+  values-foundation.yaml    # AWS AI Data Foundation — 5 workloads, S3 + Bedrock
+  values-prod-single.yaml   # Live: single-node K3s on AWS + external Aurora/S3/Bedrock + TLS
+  values-quicktest.yaml     # Single-node dev/test (Recreate strategy, 1 replica)
+  values-onprem.yaml        # OSS full stack (self-hosted Trino/Spark/Polaris/…), 32GB+
+  values-aws.yaml           # AWS EKS profile
+  Chart.yaml
   templates/
-    postgres-init-configmap.yaml  # Auto-creates all DBs on first startup
+    postgres-init-configmap.yaml  # Full-profile: auto-creates DBs on first startup
     *-deployment.yaml             # All use strategy: Recreate
 ```
 
@@ -352,17 +342,20 @@ See `.claude/agents/pm-agent.md` for detailed spawning examples and coordination
 
 | Doc | Purpose |
 |-----|---------|
-| `docs/ARCHITECTURE.md` | Full component specs, AI layer, multi-env profiles |
-| `docs/PRODUCT_CONCEPT.md` | Product strategy, positioning, roadmap |
-| `docs/DATABRICKS_FEATURE_COMPARISON.md` | Feature parity analysis (updated 2026-05-11) |
-| `docs/LITELLM_INTEGRATION.md` | AI assistant config — LiteLLM + Ollama + Bedrock |
-| `docs/RISINGWAVE_INTEGRATION.md` | Streaming SQL setup (CDC) |
-| `docs/OPENMETADATA_INTEGRATION.md` | Lineage and catalog setup |
-| `docs/TROUBLESHOOTING.md` | Common failure modes incl. POSTGRES_PORT, SeaweedFS |
-| `docs/INSTALLATION.md` | Detailed install guide (quicktest/onprem/aws profiles) |
-| `docs/SPRINT_PLAN.md` | Sprint 진행 현황 및 완료 항목 |
+| `README.md` | Product overview — AWS-native AI Data Foundation (v4.0) |
+| `docs/PRODUCT_CONCEPT.md` | Product strategy, positioning, competitive analysis (v4.0-aws-pivot) |
+| `docs/FOUNDATION_PROFILE.md` | The lean foundation profile — 5 workloads + disabled→AWS-managed mapping |
+| `docs/DEPLOY_SINGLE_NODE.md` | Live deployment runbook — single-node K3s on AWS (EC2+Aurora+S3+Bedrock) |
+| `docs/AWS_MVP_RUNBOOK.md` | End-to-end Bedrock RAG on S3 + Aurora pgvector; secrets handling |
+| `docs/AWS_BEDROCK_SETUP.md` | LiteLLM ↔ Bedrock credential wiring + model config |
+| `docs/DISASTER_RECOVERY.md` | DR runbook — Aurora PITR, S3 versioning, Secrets Manager re-seed |
+| `docs/superpowers/specs/2026-06-30-aws-ai-data-platform-pivot-design.md` | Source-of-truth pivot design spec (v3.0→v4.0) |
 
-## Current Status (2026-06-09)
+> The v3.0 OSS lakehouse docs (ARCHITECTURE / DATABRICKS_FEATURE_COMPARISON / LITELLM_INTEGRATION / RISINGWAVE_INTEGRATION / OPENMETADATA_INTEGRATION / TROUBLESHOOTING / INSTALLATION / SPRINT_PLAN) were archived to the `archive/oss-lakehouse` branch — see `ARCHIVE.md`.
+
+## Current Status
+
+> **Current direction (v4.0, 2026-07):** AWS-native **AI Data Foundation** — live on single-node K3s on AWS (EC2 + Aurora pgvector + S3 + Bedrock), foundation profile (5 workloads), real-domain TLS, passkey/WebAuthn auth. The completed-work log below (through the 2026-06 Sprint work) is the history that built up to the pivot; items referencing self-hosted SeaweedFS/Ollama/Trino/Polaris pertain to the OSS full profiles, not the live AWS foundation.
 
 ### Sprint 1: Ingestion (완료)
 - ✅ Incremental Sync: watermark 기반, max_value DB 저장, 빈 결과 시 덮어쓰기 방지
@@ -452,10 +445,11 @@ See `.claude/agents/pm-agent.md` for detailed spawning examples and coordination
 
 ### 미완성 항목
 - ✅ ~~Row-level security~~ — 완료 (엔진 #13 + 컬렉션 RLS #52/#57)
-- ✅ ~~LDAP 연동~~ — 완료 (#41). SSO(SAML/OIDC)는 미구현
-- ✅ ~~에어갭 설치 패키지 (bundle-airgap.sh 검증)~~ — 구성요소 검증 완료 (#59). **단절 호스트 클린룸 E2E + Ollama 모델 blob 번들은 미수행**
-- ✅ ~~Iceberg VACUUM DAG~~ — startup `deploy_maintenance_dag()`로 유지보수 DAG 배포
-- [ ] 주권 AI 실증: onprem `local-only` + Ollama로 외부 egress 없는 RAG 라이브 시연 (메커니즘 구현 완료, 라이브는 cloud-allowed+Bedrock 운영 중)
-- [ ] SSO(SAML/OIDC), 모니터링 스택(Prometheus/Grafana)·Langfuse 실배포(차트 opt-in만), 커넥터 RAG sink(자동 재임베딩)
+- ✅ ~~LDAP 연동~~ — 완료 (#41). ✅ ~~SSO OIDC~~ — 완료 (enterprise 이미지, /ee). ✅ ~~Passkey/WebAuthn~~ — 완료 (passwordless). SAML은 미구현
+- ✅ ~~에어갭 설치 패키지~~ — 구성요소 검증 완료 (#59). *(OSS 온프렘 프로파일 한정; AWS 파운데이션은 ECR pull 기반)*
+- ✅ ~~Iceberg VACUUM DAG~~ — startup `deploy_maintenance_dag()`로 유지보수 DAG 배포 *(full-profile Airflow 한정)*
+- [ ] **자동 신선도(AI Data Foundation 핵심)**: 재임베딩을 Airflow-free 경량 경로(EventBridge/백엔드 크론)로 — 현재 재임베딩 DAG가 Airflow에 묶여 foundation 프로파일에서 공백
+- [ ] 커넥터 RAG sink(소스 변경 시 자동 재임베딩), 모니터링 스택(Prometheus/Grafana)·Langfuse 실배포(차트 opt-in만)
+- [ ] (deprioritized) 주권 AI(onprem local-only + Ollama) 실증 — v3.0 OSS 방향, AWS-native 전환으로 우선순위 하향
 
 > **배포 주의 (AWS 라이브):** 라이브는 단일 EC2(K3s) + SSM tar-sync 파이프라인으로 운영되며 `/home/ubuntu/datapond`는 풀 체크아웃이 아님 — 새 런타임 파일(라우트/스키마/설정)을 추가하면 배포 시 전체 소스를 동기화해야 이미지에 포함됨. 정식 신규설치(helm/install.sh)는 무관.
