@@ -58,7 +58,7 @@ data "aws_iam_policy_document" "app" {
     sid    = "GlueDataCatalog"
     effect = "Allow"
     actions = [
-      "glue:GetDatabase", "glue:GetDatabases", "glue:CreateDatabase",
+      "glue:GetDatabase", "glue:GetDatabases", "glue:CreateDatabase", "glue:DeleteDatabase",
       "glue:GetTable", "glue:GetTables", "glue:CreateTable", "glue:UpdateTable", "glue:DeleteTable",
       "glue:GetPartition", "glue:GetPartitions", "glue:BatchGetPartition",
       "glue:BatchCreatePartition", "glue:CreatePartition", "glue:UpdatePartition", "glue:DeletePartition",
