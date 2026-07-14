@@ -1,5 +1,5 @@
 # Frontend Dockerfile for DataPond
-FROM node:20.20.0-alpine AS base
+FROM node:22.23.1-alpine AS base
 
 # Install dependencies only when needed
 FROM base AS deps

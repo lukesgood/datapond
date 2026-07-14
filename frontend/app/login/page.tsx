@@ -152,8 +152,17 @@ export default function LoginPage() {
         throw new Error(d?.detail ?? "Passkey sign-in failed")
       }
       const data = await res.json()
-      // Same success path as password login: persist the token/user + navigate.
+      // Same success path as password login: persist the token/user first...
       saveAuth(data.access_token, data.user)
+      if (data.user?.require_password_change) {
+        // ...but honor a pending forced password change exactly like the password
+        // path does: gate on the modal instead of entering the app.
+        setPendingUserId(data.user.id)
+        setPendingToken(data.access_token)
+        setShowChangePw(true)
+        setPasskeyLoading(false)
+        return
+      }
       window.location.replace("/dashboard")
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Passkey sign-in failed"

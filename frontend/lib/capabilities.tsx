@@ -24,6 +24,16 @@ export function useCapability(key?: string): boolean {
   return caps[key] !== false
 }
 
+// Fail-CLOSED: true only when the capability is explicitly true. A missing/unknown
+// flag (e.g. a /api/capabilities fetch error, in which case caps stays {}) resolves
+// to false. Use this for security/secure-context-sensitive gates — e.g. webauthn —
+// where a network hiccup must never reveal gated UI. Mirrors the login page's
+// `useState(false)` default for webauthn, which is fail-closed by construction.
+export function useCapabilityStrict(key: string): boolean {
+  const caps = useContext(CapsContext)
+  return caps[key] === true
+}
+
 export function useCapabilities(): Capabilities {
   return useContext(CapsContext)
 }
