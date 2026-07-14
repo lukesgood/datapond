@@ -88,6 +88,27 @@ jobs:
           if [ -n "$viol" ]; then echo "::error::Disallowed dependency licenses:"; echo "$viol"; exit 1; fi
           echo "OK: npm production deps clean"
 
+  security-scan:
+    name: Trivy filesystem scan (dependency vulns / SBOM)
+    runs-on: ubuntu-latest
+    # Report-only for now (exit-code: 0) — surfaces HIGH/CRITICAL CVEs in
+    # backend/requirements.txt + frontend/package-lock.json without blocking builds.
+    # P0-2/P0-3 deferred full SBOM/vuln coverage to this job; flip exit-code to 1 once
+    # the baseline below is triaged/clean, to make this a real merge gate.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy vulnerability scan (fs mode — no image build required)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          format: table
+          exit-code: "0"
+          # Both dependency files are picked up automatically by fs-mode's
+          # lockfile detection (backend/requirements.txt, frontend/package-lock.json).
+
   helm-lint:
     name: Helm chart lint
     runs-on: ubuntu-latest
@@ -127,18 +148,20 @@ jobs:
           done
           echo "OK: secrets wired"
           echo "== component credentials generated (P0-1b, onprem render) =="
+          # NOTE: here-strings (grep <<<"$VAR"), NOT echo "$VAR" | grep — same SIGPIPE
+          # hazard as the P0-4 image-tag checks below; reproduced locally on a large render.
           out=$(helm template datapond helm/datapond --values helm/datapond/values-onprem.yaml)
           for k in POSTGRES_PASSWORD S3_SECRET_KEY AIRFLOW_PASSWORD JUPYTER_TOKEN POLARIS_CLIENT_SECRET; do
-            echo "$out" | grep -q "$k:" || { echo "FAIL $k not generated"; exit 1; }
+            grep -q "$k:" <<<"$out" || { echo "FAIL $k not generated"; exit 1; }
           done
-          echo "$out" | grep -q 'token="${JUPYTER_TOKEN}"' || { echo "FAIL jupyter token still hardcoded"; exit 1; }
+          grep -q 'token="${JUPYTER_TOKEN}"' <<<"$out" || { echo "FAIL jupyter token still hardcoded"; exit 1; }
           echo "== no weak literals in rendered manifests (base/prod/onprem/foundation) =="
           for v in "" "--values helm/datapond/values-prod.yaml" "--values helm/datapond/values-onprem.yaml" "--values helm/datapond/values-foundation.yaml"; do
             r=$(helm template datapond helm/datapond $v)
-            if echo "$r" | grep -E 'CHANGE_THIS|changeme|datapond_password|datapond_s3_password'; then
+            if grep -E 'CHANGE_THIS|changeme|datapond_password|datapond_s3_password' <<<"$r"; then
               echo "FAIL: weak credential literal rendered (profile: ${v:-base})"; exit 1
             fi
-            if echo "$r" | grep -q 'AIRFLOW_PASSWORD: "airflow"'; then
+            if grep -q 'AIRFLOW_PASSWORD: "airflow"' <<<"$r"; then
               echo "FAIL: weak airflow password rendered (profile: ${v:-base})"; exit 1
             fi
           done
@@ -147,9 +170,9 @@ jobs:
           r=$(helm template datapond helm/datapond \
             --set auth.oidc.enabled=true --set auth.oidc.issuer=https://idp.example \
             --set auth.oidc.clientId=cid --set auth.oidc.clientSecret=csecret)
-          echo "$r" | grep -q 'name: OIDC_CLIENT_SECRET' || { echo "FAIL OIDC secretKeyRef"; exit 1; }
-          echo "$r" | grep -q 'OIDC_CLIENT_SECRET: "csecret"' || { echo "FAIL OIDC secret entry"; exit 1; }
-          echo "$r" | grep -q 'name: OIDC_ISSUER' || { echo "FAIL OIDC env"; exit 1; }
+          grep -q 'name: OIDC_CLIENT_SECRET' <<<"$r" || { echo "FAIL OIDC secretKeyRef"; exit 1; }
+          grep -q 'OIDC_CLIENT_SECRET: "csecret"' <<<"$r" || { echo "FAIL OIDC secret entry"; exit 1; }
+          grep -q 'name: OIDC_ISSUER' <<<"$r" || { echo "FAIL OIDC env"; exit 1; }
           # Match only DataPond's OIDC envs/secret — not Polaris's unrelated
           # QUARKUS_OIDC_TENANT_ENABLED (which renders unconditionally in the base profile).
           if helm template datapond helm/datapond | grep -qE 'name: OIDC_|OIDC_CLIENT_SECRET:'; then
@@ -157,28 +180,62 @@ jobs:
           fi
           echo "OK: OIDC wired"
           echo "== no moving image tags (P0-4) =="
+          # NOTE: use here-strings (grep <<<"$VAR"), NOT echo "$VAR" | grep — see the
+          # lakehouse-IRSA SIGPIPE note further down for why `echo | grep -q` false-fails
+          # under `bash -eo pipefail` on a large render.
           MOVING='(:latest|:main-latest|:main|:stable|:edge|:nightly)$'
+          # Family/rolling tags: a version tag with no patch component, e.g. "pg16",
+          # "16-alpine", "20-alpine" — these track upstream's rolling family branch and
+          # drift unpinned even though they look versioned. A concrete pin either has a "."
+          # (16.14-alpine, 0.8.4-pg16, v1.91.0, 3.11.15-slim, 1.36.1, RELEASE.2025-...) or is
+          # a documented bare-version exception below. Tags with a "." are never flagged here.
+          FAMILY_RE='^[a-z]*[0-9]+(-[a-z0-9]+)?$'
+          # Bare (dot-less) tags that ARE already fully concrete, allowlisted per-image and
+          # cross-checked against docs/superpowers/plans/p0-4-pinned-versions.md:
+          #   482 -> trinodb/trino uses monotonic integer release numbers (no semver patch to omit)
+          FAMILY_ALLOWLIST='^(482)$'
+          is_family_tag() {
+            # $1 = bare tag (no image name/repo, no leading colon)
+            case "$1" in
+              *.*) return 1 ;;  # has a dot -> treated as a concrete pin
+            esac
+            grep -qE "$FAMILY_RE" <<<"$1" && ! grep -qE "$FAMILY_ALLOWLIST" <<<"$1"
+          }
           for v in "" "--values helm/datapond/values-prod.yaml" "--values helm/datapond/values-onprem.yaml" \
                    "--values helm/datapond/values-quicktest.yaml" "--values helm/datapond/values-foundation.yaml" \
                    "--values helm/datapond/values-aws.yaml"; do
             imgs=$(helm template datapond helm/datapond $v | grep -E '^\s*image:' | sed -E 's/.*image:\s*"?([^"]+)"?.*/\1/' || true)
-            if echo "$imgs" | grep -qE "$MOVING"; then
-              echo "FAIL: moving image tag in profile ${v:-base}:"; echo "$imgs" | grep -E "$MOVING"; exit 1
+            if grep -qE "$MOVING" <<<"$imgs"; then
+              echo "FAIL: moving image tag in profile ${v:-base}:"; grep -E "$MOVING" <<<"$imgs"; exit 1
             fi
-            if echo "$imgs" | grep -vqE ':'; then
-              echo "FAIL: untagged image in profile ${v:-base}:"; echo "$imgs" | grep -vE ':'; exit 1
+            if grep -qvE ':' <<<"$imgs"; then
+              echo "FAIL: untagged image in profile ${v:-base}:"; grep -vE ':' <<<"$imgs"; exit 1
             fi
+            while IFS= read -r img; do
+              [ -z "$img" ] && continue
+              tag="${img##*:}"
+              if is_family_tag "$tag"; then
+                echo "FAIL: family/rolling image tag (no patch version) in profile ${v:-base}: $img"; exit 1
+              fi
+            done <<<"$imgs"
           done
           echo "== no moving Docker base images =="
           bimgs=$(grep -hE '^FROM ' backend/Dockerfile frontend/Dockerfile docker/jupyter/Dockerfile \
             | sed -E 's/[[:space:]]+[Aa][Ss][[:space:]]+[A-Za-z0-9_.-]+[[:space:]]*$//' \
             | awk '{print $2}' | grep -E '[:/]' || true)
-          if echo "$bimgs" | grep -qE "$MOVING|:3.11-slim$|:20-alpine$"; then
-            echo "FAIL: moving Docker base image:"; echo "$bimgs" | grep -E "$MOVING|:3.11-slim$|:20-alpine$"; exit 1
+          if grep -qE "$MOVING|:3.11-slim$|:20-alpine$" <<<"$bimgs"; then
+            echo "FAIL: moving Docker base image:"; grep -E "$MOVING|:3.11-slim$|:20-alpine$" <<<"$bimgs"; exit 1
           fi
-          if echo "$bimgs" | grep -qvE ':'; then
-            echo "FAIL: untagged Docker base image:"; echo "$bimgs" | grep -vE ':'; exit 1
+          if grep -qvE ':' <<<"$bimgs"; then
+            echo "FAIL: untagged Docker base image:"; grep -vE ':' <<<"$bimgs"; exit 1
           fi
+          while IFS= read -r bimg; do
+            [ -z "$bimg" ] && continue
+            tag="${bimg##*:}"
+            if is_family_tag "$tag"; then
+              echo "FAIL: family/rolling Docker base image tag (no patch version): $bimg"; exit 1
+            fi
+          done <<<"$bimgs"
           echo "OK: no moving image tags"
           echo "== lakehouse IRSA ServiceAccounts =="
           # NOTE: use here-strings (grep -q PATTERN <<<"$VAR"), NOT echo "$VAR" | grep -q.
