@@ -205,6 +205,17 @@ async def startup():
     except Exception as e:
         logger.warning(f"[startup] pgvector schema skipped: {e}")
 
+    # RAG freshness scheduler — periodic re-embedding of scheduled collections
+    # (Airflow-free; multi-replica safe via pg advisory lock).
+    try:
+        if os.getenv("RAG_SCHEDULER_ENABLED", "true").lower() in ("1", "true", "yes"):
+            from app.api.connectors import get_db_pool
+            from app.rag_scheduler import run_scheduler
+            asyncio.create_task(run_scheduler(await get_db_pool()))
+            logger.info("[startup] RAG freshness scheduler started")
+    except Exception as e:
+        logger.warning(f"[startup] RAG scheduler not started: {e}")
+
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,

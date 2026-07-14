@@ -448,7 +448,7 @@ See `.claude/agents/pm-agent.md` for detailed spawning examples and coordination
 - ✅ ~~LDAP 연동~~ — 완료 (#41). ✅ ~~SSO OIDC~~ — 완료 (enterprise 이미지, /ee). ✅ ~~Passkey/WebAuthn~~ — 완료 (passwordless). SAML은 미구현
 - ✅ ~~에어갭 설치 패키지~~ — 구성요소 검증 완료 (#59). *(OSS 온프렘 프로파일 한정; AWS 파운데이션은 ECR pull 기반)*
 - ✅ ~~Iceberg VACUUM DAG~~ — startup `deploy_maintenance_dag()`로 유지보수 DAG 배포 *(full-profile Airflow 한정)*
-- [ ] **자동 신선도(AI Data Foundation 핵심)**: 재임베딩을 Airflow-free 경량 경로(EventBridge/백엔드 크론)로 — 현재 재임베딩 DAG가 Airflow에 묶여 foundation 프로파일에서 공백
+- ✅ ~~**자동 신선도(AI Data Foundation 핵심)**~~ — 완료: 백엔드 인프로세스 재임베딩 스케줄러(`backend/app/rag_scheduler.py`, pg advisory-lock으로 replica 중복 방지, interval 기반). Airflow DAG 경로 제거, append→replace(`ai_chunks.source_group`) 버그 수정. `RAG_SCHEDULER_ENABLED`/`TICK_SECONDS` env
 - [ ] 커넥터 RAG sink(소스 변경 시 자동 재임베딩), 모니터링 스택(Prometheus/Grafana)·Langfuse 실배포(차트 opt-in만)
 - [ ] (deprioritized) 주권 AI(onprem local-only + Ollama) 실증 — v3.0 OSS 방향, AWS-native 전환으로 우선순위 하향
 

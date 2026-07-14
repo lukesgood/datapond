@@ -92,6 +92,11 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: INTERNAL_API_KEY
+        # RAG freshness scheduler (Airflow-free periodic re-embedding)
+        - name: RAG_SCHEDULER_ENABLED
+          value: {{ (.Values.backend.ragScheduler | default dict).enabled | default true | quote }}
+        - name: RAG_SCHEDULER_TICK_SECONDS
+          value: {{ (.Values.backend.ragScheduler | default dict).tickSeconds | default 300 | quote }}
         # Encrypts credentials-at-rest (connector secrets, stored provider keys)
         - name: ENCRYPTION_KEY
           valueFrom:

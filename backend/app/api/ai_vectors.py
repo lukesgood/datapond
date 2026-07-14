@@ -21,7 +21,6 @@ import json
 import asyncio
 import logging
 import uuid
-import pathlib
 from typing import Optional, List
 
 import httpx
@@ -107,7 +106,17 @@ async def ensure_vector_schema(pool) -> None:
                 )""")
             # Per-collection access control (RLS): the creating user owns it.
             await c.execute("ALTER TABLE ai_collections ADD COLUMN IF NOT EXISTS owner_id UUID")
+            # RAG freshness scheduler: saved source + interval per collection.
+            await c.execute("ALTER TABLE ai_collections ADD COLUMN IF NOT EXISTS refresh_source JSONB")
+            await c.execute("ALTER TABLE ai_collections ADD COLUMN IF NOT EXISTS refresh_interval_minutes INT")
+            await c.execute("ALTER TABLE ai_collections ADD COLUMN IF NOT EXISTS refresh_enabled BOOLEAN NOT NULL DEFAULT false")
+            await c.execute("ALTER TABLE ai_collections ADD COLUMN IF NOT EXISTS last_refreshed_at TIMESTAMPTZ")
+            await c.execute("ALTER TABLE ai_collections ADD COLUMN IF NOT EXISTS last_refresh_status TEXT")
+            # Replace-scope for re-embedding: a logical source group (distinct from
+            # per-document `source`, which stays for citations / COUNT(DISTINCT)).
+            await c.execute("ALTER TABLE ai_chunks ADD COLUMN IF NOT EXISTS source_group TEXT")
             await c.execute("CREATE INDEX IF NOT EXISTS ai_chunks_coll_idx ON ai_chunks(collection_id)")
+            await c.execute("CREATE INDEX IF NOT EXISTS ai_chunks_group_idx ON ai_chunks(collection_id, source_group)")
             await c.execute(
                 "CREATE INDEX IF NOT EXISTS ai_chunks_embed_idx "
                 "ON ai_chunks USING hnsw (embedding vector_cosine_ops)"
@@ -283,8 +292,11 @@ async def _collection_id(c, name: str, user: dict, *, destroy: bool = False):
     return row["id"]
 
 
-async def _ingest_documents(coll_id, docs: List[tuple], chunk_size: int, overlap: int) -> dict:
-    """docs: list of (source, text, metadata). Chunk → PII-mask → embed → upsert."""
+async def _ingest_documents(coll_id, docs: List[tuple], chunk_size: int, overlap: int,
+                            source_group: Optional[str] = None) -> dict:
+    """docs: list of (source, text, metadata). Chunk → PII-mask → embed → insert.
+    When source_group is given, replace (delete-then-insert) all chunks for that
+    (collection, source_group) so recurring re-embeds don't duplicate."""
     from app.guardrails import pii_ko
     items = []  # (source, idx, content, metadata_json)
     pii_masked = 0
@@ -293,20 +305,24 @@ async def _ingest_documents(coll_id, docs: List[tuple], chunk_size: int, overlap
             masked, found, _blk = pii_ko.apply(raw)
             pii_masked += len(found)
             items.append((source, idx, masked, json.dumps(meta or {})))
-    if not items:
-        return {"chunks": 0, "pii_masked": 0}
     embeddings: List[List[float]] = []
     B = 64
     for i in range(0, len(items), B):
         embeddings.extend(await _embed([it[2] for it in items[i:i + B]]))
     pool = await get_db_pool()
     async with pool.acquire() as c:
-        await c.executemany(
-            """INSERT INTO ai_chunks (collection_id, source, chunk_index, content, metadata, embedding)
-               VALUES ($1, $2, $3, $4, $5::jsonb, $6::vector)""",
-            [(coll_id, it[0], it[1], it[2], it[3], _vec_literal(emb))
-             for it, emb in zip(items, embeddings)],
-        )
+        async with c.transaction():
+            if source_group is not None:
+                await c.execute(
+                    "DELETE FROM ai_chunks WHERE collection_id = $1 AND source_group = $2",
+                    coll_id, source_group)
+            if items:
+                await c.executemany(
+                    """INSERT INTO ai_chunks (collection_id, source, chunk_index, content, metadata, embedding, source_group)
+                       VALUES ($1, $2, $3, $4, $5::jsonb, $6::vector, $7)""",
+                    [(coll_id, it[0], it[1], it[2], it[3], _vec_literal(emb), source_group)
+                     for it, emb in zip(items, embeddings)],
+                )
     return {"chunks": len(items), "pii_masked": pii_masked}
 
 
@@ -383,92 +399,123 @@ def _ident_ok(*vals) -> bool:
     return all(re.fullmatch(r"[A-Za-z0-9_]+", v or "") for v in vals)
 
 
+def _source_group(src: "SourceIngest") -> str:
+    """Deterministic replace-scope key for a logical source (used to delete-then-insert
+    on re-embed). Distinct from per-document `source`, which stays for citations."""
+    if src.type == "iceberg":
+        return f"iceberg:{src.db_schema}.{src.table}.{src.text_column}"
+    return f"s3:{src.bucket}/{src.prefix or ''}"
+
+
+async def _refresh_from_source(pool, coll_id, src: "SourceIngest") -> dict:
+    """Read a source (Iceberg column / S3 prefix) and re-embed it into coll_id with
+    replace semantics. Shared by the ingest-source endpoint and the scheduler."""
+    if src.type == "iceberg":
+        if not (src.db_schema and src.table and src.text_column):
+            raise HTTPException(400, "iceberg source needs schema, table, text_column.")
+        if not _ident_ok(src.db_schema, src.table, src.text_column):
+            raise HTTPException(400, "schema/table/text_column must be bare identifiers.")
+        docs = await asyncio.to_thread(_read_iceberg_docs, src.db_schema, src.table,
+                                       src.text_column, src.limit)
+    elif src.type == "s3":
+        if not src.bucket:
+            raise HTTPException(400, "s3 source needs bucket (and optional prefix).")
+        docs = await asyncio.to_thread(_read_s3_docs, src.bucket, src.prefix, src.max_files)
+    else:
+        raise HTTPException(400, "type must be 'iceberg' or 's3'.")
+    res = await _ingest_documents(coll_id, docs, src.chunk_size, src.chunk_overlap,
+                                  source_group=_source_group(src))
+    return {"documents": len(docs), **res}
+
+
 @router.post("/ai/collections/{name}/ingest-source")
 async def ingest_source(name: str, req: SourceIngest, user: dict = Depends(require_user_or_internal)):
     """Feed the vector store from a lakehouse/object-store source — the AI data
     pipeline over DataPond's own data (Iceberg table column, or S3 text files).
 
-    Accepts either a user JWT or the in-cluster X-Internal-Key so scheduled Airflow
-    DAGs (which run unattended) can call back to re-ingest on a schedule."""
+    Accepts either a user JWT or the in-cluster X-Internal-Key so unattended
+    automation (e.g. the RAG freshness scheduler) can re-ingest on a schedule.
+    Re-embedding replaces the source's prior chunks (no duplication)."""
     set_actor(user)
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
     async with pool.acquire() as c:
         coll_id = await _collection_id(c, name, user)
-
-    if req.type == "iceberg":
-        if not (req.db_schema and req.table and req.text_column):
-            raise HTTPException(400, "iceberg source needs schema, table, text_column.")
-        if not _ident_ok(req.db_schema, req.table, req.text_column):
-            raise HTTPException(400, "schema/table/text_column must be bare identifiers.")
-        docs = await asyncio.to_thread(_read_iceberg_docs, req.db_schema, req.table,
-                                       req.text_column, req.limit)
-    elif req.type == "s3":
-        if not req.bucket:
-            raise HTTPException(400, "s3 source needs bucket (and optional prefix).")
-        docs = await asyncio.to_thread(_read_s3_docs, req.bucket, req.prefix, req.max_files)
-    else:
-        raise HTTPException(400, "type must be 'iceberg' or 's3'.")
-
-    res = await _ingest_documents(coll_id, docs, req.chunk_size, req.chunk_overlap)
-    return {"success": True, "documents": len(docs), **res}
+    res = await _refresh_from_source(pool, coll_id, req)
+    return {"success": True, **res}
 
 
-# ── Scheduled ingestion (recurring AI data pipeline via Airflow) ─────────────────
+# ── Scheduled ingestion (recurring AI data pipeline, backend-native) ─────────────
+# The backend in-process scheduler (app.rag_scheduler) runs due collections on an
+# interval. No Airflow: the schedule (source + interval) is persisted on the
+# collection row and re-embedded in-process with replace semantics.
 
-DAGS_PATH = pathlib.Path(os.getenv("AIRFLOW_DAGS_PATH", "/opt/airflow/dags"))
-BACKEND_URL = os.getenv("BACKEND_URL", "http://backend.datapond.svc.cluster.local:8000")
+_PRESETS = {"@hourly": 60, "@daily": 1440, "@weekly": 10080}
+
+
+def _preset_to_minutes(schedule: Optional[str], interval_minutes: Optional[int]) -> int:
+    if interval_minutes is not None:
+        if interval_minutes <= 0:
+            raise HTTPException(400, "interval_minutes must be > 0.")
+        return interval_minutes
+    if schedule:
+        if schedule not in _PRESETS:
+            raise HTTPException(400, f"unknown schedule preset '{schedule}'.")
+        return _PRESETS[schedule]
+    return 1440  # default: daily
 
 
 class ScheduleRequest(BaseModel):
-    schedule: str = "@daily"
+    interval_minutes: Optional[int] = None
+    schedule: Optional[str] = None      # legacy Airflow preset (@hourly/@daily/@weekly)
     source: SourceIngest
-
-
-def _generate_ingest_dag(dag_id: str, collection: str, schedule: str, source_json: str) -> str:
-    return f'''"""DataPond RAG ingestion — auto-generated. Re-embeds a source into a
-collection on a schedule (AI data pipeline: lakehouse/object-store → vector store)."""
-from datetime import datetime
-from airflow import DAG
-from airflow.operators.python import PythonOperator
-import json, os, urllib.request
-
-COLLECTION = {collection!r}
-SOURCE = json.loads({source_json!r})
-URL = "{BACKEND_URL}/api/ai/collections/" + COLLECTION + "/ingest-source"
-
-def ingest(**_):
-    headers = {{"Content-Type": "application/json"}}
-    # Unattended auth: present the in-cluster shared key (mounted from datapond-secrets).
-    key = (os.getenv("DATAPOND_INTERNAL_KEY") or "").strip()
-    if key:
-        headers["X-Internal-Key"] = key
-    req = urllib.request.Request(URL, data=json.dumps(SOURCE).encode(),
-                                 headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=600) as r:
-        print(r.read().decode())
-
-with DAG(dag_id={dag_id!r}, start_date=datetime(2024,1,1), schedule={schedule!r},
-         catchup=False, tags=["datapond","rag","ai"]) as dag:
-    PythonOperator(task_id="ingest_source", python_callable=ingest)
-'''
 
 
 @router.post("/ai/collections/{name}/schedule")
 async def schedule_ingest(name: str, body: ScheduleRequest, user: dict = Depends(require_user)):
-    """Deploy an Airflow DAG that re-ingests `source` into this collection on a schedule."""
+    """Save a recurring re-embed schedule for this collection. The backend
+    in-process scheduler (rag_scheduler) runs due collections — no Airflow."""
+    minutes = _preset_to_minutes(body.schedule, body.interval_minutes)
     pool = await get_db_pool()
+    await ensure_vector_schema(pool)
     async with pool.acquire() as c:
-        await _collection_id(c, name, user)  # 404/403 gate
-    dag_id = "datapond_rag_ingest_" + re.sub(r"[^A-Za-z0-9_]+", "_", name).strip("_")
-    source_json = json.dumps(body.source.model_dump(by_alias=True, exclude_none=True))
-    code = _generate_ingest_dag(dag_id, name, body.schedule, source_json)
-    try:
-        DAGS_PATH.mkdir(parents=True, exist_ok=True)
-        (DAGS_PATH / f"{dag_id}.py").write_text(code, encoding="utf-8")
-    except Exception as e:
-        raise HTTPException(500, f"Failed to write DAG (Airflow DAGs volume mounted?): {e}")
-    return {"success": True, "dag_id": dag_id, "schedule": body.schedule}
+        coll_id = await _collection_id(c, name, user)  # 404/403 gate
+        source_json = json.dumps(body.source.model_dump(by_alias=True, exclude_none=True))
+        await c.execute(
+            """UPDATE ai_collections
+               SET refresh_source = $2::jsonb, refresh_interval_minutes = $3, refresh_enabled = true
+               WHERE id = $1""",
+            coll_id, source_json, minutes)
+    return {"success": True, "enabled": True, "interval_minutes": minutes}
+
+
+@router.get("/ai/collections/{name}/schedule")
+async def get_schedule(name: str, user: dict = Depends(require_user)):
+    pool = await get_db_pool()
+    await ensure_vector_schema(pool)
+    async with pool.acquire() as c:
+        coll_id = await _collection_id(c, name, user)
+        row = await c.fetchrow(
+            """SELECT refresh_enabled, refresh_interval_minutes, refresh_source,
+                      last_refreshed_at, last_refresh_status
+               FROM ai_collections WHERE id = $1""", coll_id)
+    return {
+        "enabled": bool(row["refresh_enabled"]),
+        "interval_minutes": row["refresh_interval_minutes"],
+        "source": (json.loads(row["refresh_source"]) if row["refresh_source"] else None),
+        "last_refreshed_at": row["last_refreshed_at"].isoformat() if row["last_refreshed_at"] else None,
+        "last_refresh_status": row["last_refresh_status"],
+    }
+
+
+@router.delete("/ai/collections/{name}/schedule")
+async def delete_schedule(name: str, user: dict = Depends(require_user)):
+    pool = await get_db_pool()
+    await ensure_vector_schema(pool)
+    async with pool.acquire() as c:
+        coll_id = await _collection_id(c, name, user)
+        await c.execute("UPDATE ai_collections SET refresh_enabled = false WHERE id = $1", coll_id)
+    return {"success": True, "enabled": False}
 
 
 def _rerank_model() -> str:
