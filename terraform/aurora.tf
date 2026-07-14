@@ -1,6 +1,13 @@
+locals {
+  # Aurora needs >= 2 subnets in different AZs. Default VPC gives one subnet per AZ, so
+  # slice(...,0,2) on the discovered public subnets (data.aws_subnets.public, ec2.tf) spans
+  # 2 AZs. A custom VPC with < 2 AZ-distinct subnets must set var.db_subnet_ids explicitly.
+  db_subnet_ids = length(var.db_subnet_ids) > 0 ? var.db_subnet_ids : slice(data.aws_subnets.public.ids, 0, 2)
+}
+
 resource "aws_db_subnet_group" "aurora" {
   name       = "${var.name_prefix}-aurora"
-  subnet_ids = var.db_subnet_ids
+  subnet_ids = local.db_subnet_ids
 }
 
 resource "aws_security_group" "aurora" {
@@ -44,9 +51,12 @@ resource "aws_rds_cluster" "aurora" {
   skip_final_snapshot          = var.db_skip_final_snapshot
   final_snapshot_identifier    = "${var.name_prefix}-pg-final-snapshot"
 
+  # min_capacity defaults to 0 (scale-to-zero) to cut off-hours cost — see var.db_min_acu.
+  # True pause (billing drops to ~0 between connections) requires the engine's scale-to-zero
+  # support; older engine versions only scale down to 0.5 ACU minimum.
   serverlessv2_scaling_configuration {
-    min_capacity = 0.5
-    max_capacity = 4.0
+    min_capacity = var.db_min_acu
+    max_capacity = var.db_max_acu
   }
 }
 
