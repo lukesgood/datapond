@@ -22,8 +22,8 @@ class _Pool:
 
 
 # (table, target, ok, rows, status) — mirrors connectors.py sync `results`.
-def _r(table, ok):
-    return (table, f"datapond.default.{table}", ok, 10, None)
+def _r(table, ok, ns="default"):
+    return (table, f"datapond.{ns}.{table}", ok, 10, None)
 
 
 def _run(coro):
@@ -43,8 +43,19 @@ def test_invalidate_matches_only_successful_tables(monkeypatch):
     sql, args = updates[0]
     assert "last_refreshed_at = NULL" in sql
     assert "refresh_source->>'type' = 'iceberg'" in sql
-    assert "refresh_source->>'schema' = 'default'" in sql
-    assert args == (["customers", "orders"],)  # sorted, "broken" excluded
+    assert "unnest($1::text[], $2::text[])" in sql
+    # parallel (namespaces, tables) arrays, sorted by pair, "broken" excluded
+    assert args == (["default", "default"], ["customers", "orders"])
+
+
+def test_namespace_derived_from_target(monkeypatch):
+    import app.api.connectors as c
+    monkeypatch.setenv("RAG_SINK_ENABLED", "true")
+    conn = _Conn(update_count=1)
+    # a single-table sync that overrode target into another namespace
+    _run(c._invalidate_sink_collections(_Pool(conn), [_r("orders", True, ns="warehouse")]))
+    sql, args = [(s, a) for s, a in conn.sink if s.strip().startswith("UPDATE")][0]
+    assert args == (["warehouse"], ["orders"])  # ns comes from target, not hardcoded
 
 
 def test_no_update_when_no_successful_tables(monkeypatch):

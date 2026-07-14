@@ -92,14 +92,17 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: INTERNAL_API_KEY
-        # RAG freshness scheduler (Airflow-free periodic re-embedding)
+        # RAG freshness scheduler (Airflow-free periodic re-embedding).
+        # Use `dig` (key-existence), NOT `| default true` — sprig's `default`
+        # treats a bool `false` as empty, so `false | default true` renders
+        # "true" and the off-switch silently does nothing.
         - name: RAG_SCHEDULER_ENABLED
-          value: {{ (.Values.backend.ragScheduler | default dict).enabled | default true | quote }}
+          value: {{ dig "enabled" true (.Values.backend.ragScheduler | default dict) | quote }}
         - name: RAG_SCHEDULER_TICK_SECONDS
-          value: {{ (.Values.backend.ragScheduler | default dict).tickSeconds | default 300 | quote }}
+          value: {{ dig "tickSeconds" 300 (.Values.backend.ragScheduler | default dict) | quote }}
         # Connector → RAG sink: re-embed fresh collections when their source table syncs
         - name: RAG_SINK_ENABLED
-          value: {{ (.Values.backend.ragScheduler | default dict).sinkEnabled | default true | quote }}
+          value: {{ dig "sinkEnabled" true (.Values.backend.ragScheduler | default dict) | quote }}
         # Encrypts credentials-at-rest (connector secrets, stored provider keys)
         - name: ENCRYPTION_KEY
           valueFrom:

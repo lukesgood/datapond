@@ -1786,29 +1786,52 @@ def _rag_sink_enabled() -> bool:
     return os.getenv("RAG_SINK_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
 
 
+def _synced_namespace_table_pairs(results: list) -> list:
+    """Derive the (namespace, table) each successful sync wrote to, from the
+    `target` field ("catalog.namespace.table", e.g. datapond.default.orders).
+    Deriving the namespace from target — rather than hardcoding 'default' —
+    keeps the match exact even when a single-table sync overrides target_table
+    into another namespace. Falls back to the source table name if target is
+    malformed. Returns a sorted, de-duplicated list of (namespace, table)."""
+    pairs = set()
+    for tbl, tgt, ok, _rows, _st in results:
+        if not ok:
+            continue
+        parts = (tgt or "").split(".")
+        ns = parts[-2] if len(parts) >= 2 else "default"
+        name = parts[-1] if parts and parts[-1] else tbl
+        if ns and name:
+            pairs.add((ns, name))
+    return sorted(pairs)
+
+
 async def _invalidate_sink_collections(pool, results: list) -> int:
     """Mark fresh RAG collections stale when their iceberg source table was just
     synced. `results` is a list of (table, target, ok, rows, status). Returns the
     number of collections invalidated. Best-effort: never raises to the caller."""
     if not _rag_sink_enabled():
         return 0
-    tables = sorted({tbl for tbl, _tgt, ok, _rows, _st in results if ok})
-    if not tables:
+    pairs = _synced_namespace_table_pairs(results)
+    if not pairs:
         return 0
+    namespaces = [ns for ns, _ in pairs]
+    tables = [t for _, t in pairs]
     try:
         async with pool.acquire() as c:
+            # Exact per-pair match: unnest the two parallel arrays into (ns, tbl)
+            # rows so schema and table must come from the SAME synced target.
             res = await c.execute(
                 """UPDATE ai_collections
                       SET last_refreshed_at = NULL
                     WHERE refresh_enabled
                       AND refresh_source->>'type' = 'iceberg'
-                      AND refresh_source->>'schema' = 'default'
-                      AND refresh_source->>'table' = ANY($1::text[])""",
-                tables,
+                      AND (refresh_source->>'schema', refresh_source->>'table')
+                          IN (SELECT ns, tbl FROM unnest($1::text[], $2::text[]) AS t(ns, tbl))""",
+                namespaces, tables,
             )
         n = int(str(res).split()[-1]) if str(res).startswith("UPDATE") else 0
         if n:
-            logger.info(f"[rag-sink] invalidated {n} collection(s) after sync of {tables}")
+            logger.info(f"[rag-sink] invalidated {n} collection(s) after sync of {pairs}")
         return n
     except Exception as e:
         logger.warning(f"[rag-sink] invalidation failed (non-fatal): {e}")
