@@ -253,7 +253,7 @@ FROM catalog.users.profiles;`}</code>
           <div className="space-y-2">
             <h3 className="font-semibold">What SQL dialect does DataPond use?</h3>
             <p className="text-sm text-muted-foreground">
-              DataPond uses Trino SQL (ANSI SQL compatible) for OLAP queries. Trino supports standard SQL-92/99/2003 syntax plus extensions for analytics.
+              DataPond uses Presto/Trino-family SQL (ANSI SQL compatible) for OLAP queries — Amazon Athena (AWS) or self-hosted Trino. It supports standard SQL-92/99/2003 syntax plus analytics extensions.
             </p>
           </div>
 
@@ -318,7 +318,7 @@ FROM catalog.users.profiles;`}</code>
             <CheckCircle2 className="h-4 w-4" />
             <AlertTitle>Results not showing</AlertTitle>
             <AlertDescription>
-              Check the browser console for errors. Clear your browser cache and reload. If the issue persists, check backend logs for Trino errors.
+              Check the browser console for errors. Clear your browser cache and reload. If the issue persists, check backend logs for query-engine errors.
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -344,7 +344,7 @@ FROM catalog.users.profiles;`}</code>
             </Link>
             <Link href="/docs/trino-sql">
               <Badge variant="outline" className="cursor-pointer hover:bg-background">
-                Trino SQL Reference
+                SQL Reference
               </Badge>
             </Link>
             <Link href="/docs/optimization">

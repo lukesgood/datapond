@@ -21,6 +21,10 @@ def compute_capabilities(env: Mapping) -> dict:
     glue = _feat(env, "GLUE", default=False)  # new opt-in AWS backend — off unless set
     athena = _feat(env, "ATHENA", default=False)  # AWS-native query engine (slice 2)
     lake = trino or polaris or glue
+    # Active query engine + its catalog prefix, so the UI labels/qualified-name
+    # generators stay truthful (Athena → AwsDataCatalog, else Trino → iceberg).
+    query_engine = str(env.get("QUERY_ENGINE", "trino")).strip().lower()
+    query_catalog = "AwsDataCatalog" if query_engine == "athena" else "iceberg"
     return {
         # Core — always available
         "knowledge": True,
@@ -43,4 +47,7 @@ def compute_capabilities(env: Mapping) -> dict:
         "experiments": _feat(env, "MLFLOW"),
         "notebooks": _feat(env, "JUPYTER"),
         "lineage": _feat(env, "OPENMETADATA"),  # governance sub-tab (nav stays core)
+        # Non-boolean UI hints (safe extras — nav gating ignores these):
+        "query_engine": query_engine,      # "athena" | "trino"
+        "query_catalog": query_catalog,    # catalog prefix for fully-qualified names
     }

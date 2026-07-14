@@ -476,7 +476,7 @@ function PipelinesPageInner() {
                         </span>
                       </td>
                       <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
-                        iceberg.{t.target_namespace}.{t.target_table}
+                        {t.target_namespace}.{t.target_table}
                       </td>
                       <td className="px-4 py-2.5 text-xs text-muted-foreground">
                         {t.schedule || <span className="text-muted-foreground/50">manual</span>}
