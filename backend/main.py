@@ -248,24 +248,21 @@ app.include_router(governance_router, prefix="/api")
 app.include_router(maintenance_router, prefix="/api")
 app.include_router(webauthn_router, prefix="/api")
 
-# Service endpoints (internal Kubernetes DNS)
-SERVICES = {
-    "postgres": "http://postgres:5432",
-    "mlflow": "http://mlflow:5000",
-    "jupyterlab": "http://jupyterlab:8888",
-    "trino": "http://trino:8080",
-    "risingwave": "http://risingwave-frontend:4566",
-    "openmetadata": "http://openmetadata-server:8585",
-    "seaweedfs": "http://seaweedfs-filer:8888",
-    "polaris": "http://polaris:8181",
-}
+from app.service_registry import service_registry as _service_registry_pure
+
+
+def _service_registry() -> List[dict]:
+    """Profile-aware platform-service list (see app.service_registry)."""
+    return _service_registry_pure(os.environ)
 
 
 class ServiceStatus(BaseModel):
     name: str
-    status: str  # "healthy", "unhealthy", "unknown"
+    status: str  # "healthy", "unhealthy", "unknown", "managed"
     url: Optional[str] = None
     version: Optional[str] = None
+    description: Optional[str] = None
+    kind: Optional[str] = None  # "pod" | "managed"
 
 
 class DashboardStats(BaseModel):
@@ -310,13 +307,6 @@ async def get_capabilities():
     return caps
 
 
-# API name → K8s app label
-SERVICE_MAPPINGS = {
-    "postgres": "postgres", "mlflow": "mlflow", "jupyterlab": "jupyterlab",
-    "trino": "trino", "risingwave": "risingwave", "openmetadata": "openmetadata",
-    "seaweedfs": "seaweedfs", "polaris": "polaris", "valkey": "valkey",
-}
-
 # 대시보드가 자주 폴링하므로 짧은 TTL 캐시 + 스레드 오프로드로 견고화.
 # 블로킹 k8s 호출(list_namespaced_pod / kubectl top)을 이벤트 루프에서 직접 실행하면
 # k8s API가 느릴 때 백엔드 전체가 멈추고 liveness 실패→재시작→502 연쇄가 발생한다.
@@ -327,7 +317,8 @@ _stats_cache: dict = {"data": None, "ts": 0.0}
 
 
 def _compute_services_sync() -> List[ServiceStatus]:
-    """단일 pod 목록 캐시에서 서비스별 상태 산출 (블로킹 — 스레드에서 실행)."""
+    """단일 pod 목록 캐시에서 서비스별 상태 산출 (블로킹 — 스레드에서 실행).
+    프로파일별 실제 워크로드만 표시(레지스트리 기반) + AWS 관리형은 'managed'."""
     pods = k8s_client._get_all_pods_cached()
     by_app: dict = {}
     for pod in pods:
@@ -337,8 +328,12 @@ def _compute_services_sync() -> List[ServiceStatus]:
             by_app.setdefault(app, []).append(pod)
 
     out = []
-    for name, k8s_name in SERVICE_MAPPINGS.items():
-        sp = by_app.get(k8s_name, [])
+    for svc in _service_registry():
+        if svc.get("kind") == "managed":
+            out.append(ServiceStatus(name=svc["name"], status="managed", version="AWS managed",
+                                     description=svc.get("desc"), kind="managed"))
+            continue
+        sp = by_app.get(svc["app"], [])
         if not sp:
             status = "unknown"
         else:
@@ -346,14 +341,18 @@ def _compute_services_sync() -> List[ServiceStatus]:
             all_ready = all(k8s_client._is_pod_ready(p) for p in sp)
             status = "healthy" if (all_running and all_ready) else "unhealthy"
         out.append(ServiceStatus(
-            name=name, status=status, url=SERVICES.get(name),
-            version="Running" if sp else None,
+            name=svc["name"], status=status, url=svc.get("url"),
+            version="Running" if sp else None, description=svc.get("desc"), kind="pod",
         ))
     return out
 
 
 def _degraded_services() -> List[ServiceStatus]:
-    return [ServiceStatus(name=n, status="unknown", url=SERVICES.get(n)) for n in SERVICE_MAPPINGS]
+    return [
+        ServiceStatus(name=s["name"], kind=s.get("kind"), url=s.get("url"), description=s.get("desc"),
+                      status="managed" if s.get("kind") == "managed" else "unknown")
+        for s in _service_registry()
+    ]
 
 
 @app.get("/api/services", response_model=List[ServiceStatus])
@@ -379,7 +378,7 @@ async def get_dashboard_stats():
         return _stats_cache["data"]
 
     services = await get_services()  # 자체적으로 캐시/오류허용
-    healthy = sum(1 for s in services if s.status == "healthy")
+    healthy = sum(1 for s in services if s.status in ("healthy", "managed"))
     unhealthy = sum(1 for s in services if s.status == "unhealthy")
 
     cpu = mem = None

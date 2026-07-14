@@ -7,7 +7,7 @@ import { CheckCircle2, XCircle, Loader2, ExternalLink, TrendingUp } from "lucide
 
 interface ServiceCardProps {
   name: string
-  status: "healthy" | "unhealthy" | "unknown"
+  status: "healthy" | "unhealthy" | "unknown" | "managed"
   description?: string
   url?: string
   version?: string
@@ -39,6 +39,11 @@ export function ServiceCard({
       icon: Loader2,
       badge: "secondary",
       label: "Unknown"
+    },
+    managed: {
+      icon: CheckCircle2,
+      badge: "outline",
+      label: "AWS managed"
     }
   }
 
@@ -74,7 +79,7 @@ export function ServiceCard({
           <span className="ml-2 text-xs text-muted-foreground font-mono">{version}</span>
         )}
 
-        {status !== "unknown" && (
+        {status !== "unknown" && status !== "managed" && (
           <div className="flex items-center justify-between text-xs mt-3">
             <span className="text-muted-foreground">Uptime</span>
             <span className="font-medium">
