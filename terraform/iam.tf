@@ -15,8 +15,13 @@ resource "aws_iam_role" "app" {
 
 data "aws_iam_policy_document" "app" {
   statement {
-    sid     = "S3Data"
-    actions = ["s3:ListBucket", "s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    sid = "S3Data"
+    # GetBucketLocation + multipart are required by Athena to verify/write the query
+    # results bucket (ATHENA_OUTPUT_LOCATION).
+    actions = [
+      "s3:ListBucket", "s3:GetObject", "s3:PutObject", "s3:DeleteObject",
+      "s3:GetBucketLocation", "s3:ListBucketMultipartUploads", "s3:AbortMultipartUpload",
+    ]
     resources = [
       aws_s3_bucket.data.arn,
       "${aws_s3_bucket.data.arn}/*",
