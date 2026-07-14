@@ -39,6 +39,7 @@ except ImportError:
 from app.database.connection import get_db
 from app.models.query import QueryHistory
 from app.schemas.query import QueryExecuteRequest, QueryHistoryResponse, QueryHistoryListResponse
+from app.api.query_engine import get_engine
 
 router = APIRouter()
 
@@ -169,6 +170,7 @@ async def execute_query(
     if not effective_query:
         raise HTTPException(status_code=400, detail="Query cannot be empty")
 
+    engine = get_engine()
     # ── RLS enforcement (Layer 1) — gated by RLS_ENABLED ──────────────────────
     trino_user = TRINO_USER
     if RLS_ENABLED and _RLS_IMPORTS_OK:
@@ -178,7 +180,7 @@ async def execute_query(
             ctx = await rls_loader.load_user_context(user)
             policies = await rls_loader.load_policies()
             masks = await rls_loader.load_masks()
-            result = enforce(effective_query, ctx, policies, masks)
+            result = enforce(effective_query, ctx, policies, masks, dialect=engine.rls_dialect)
             effective_query = result.sql
             trino_user = ctx.username or TRINO_USER  # run as the real user
         except RlsDenied as d:
@@ -201,16 +203,9 @@ async def execute_query(
     columns = []
 
     def _run_blocking():
-        """Trino 실행/페치(블로킹) — 워커 스레드에서 수행해 이벤트루프를 보호한다.
+        """엔진 실행/페치(블로킹) — 워커 스레드에서 수행해 이벤트루프를 보호한다.
         무거운 쿼리 1건이 전체 API를 동결시키던 문제의 근본 수정."""
-        conn = get_trino_connection(trino_user)
-        cursor = conn.cursor()
-        cursor.execute(safe_query)
-        _rows = cursor.fetchall()
-        _columns = [desc[0] for desc in cursor.description] if cursor.description else []
-        cursor.close()
-        conn.close()
-        return _rows, _columns
+        return engine.execute(safe_query, trino_user)
 
     try:
         rows, columns = await asyncio.to_thread(_run_blocking)
@@ -219,34 +214,8 @@ async def execute_query(
         raise
     except Exception as e:
         error_msg = str(e)
-        status = "error"
-
-        # Extract clean message from Trino error
-        # TrinoUserError format: "...message="actual message", query_id=..."
-        clean_msg = error_msg
-        if 'message="' in error_msg:
-            try:
-                clean_msg = error_msg.split('message="')[1].split('"')[0]
-            except Exception:
-                pass
-
-        if "SYNTAX_ERROR" in error_msg or "syntax error" in error_msg.lower():
-            error_detail = f"Syntax error: {clean_msg}"
-        elif "TABLE_NOT_FOUND" in error_msg or "Table" in error_msg and "not found" in error_msg.lower():
-            error_detail = f"Table not found: {clean_msg}"
-        elif "SCHEMA_NOT_FOUND" in error_msg or "Schema" in error_msg and "not found" in error_msg.lower():
-            error_detail = f"Schema not found: {clean_msg}"
-        elif "CATALOG_NOT_FOUND" in error_msg:
-            error_detail = f"Catalog not found: {clean_msg}"
-        elif "PERMISSION_DENIED" in error_msg:
-            error_detail = f"Permission denied: {clean_msg}"
-        elif "timeout" in error_msg.lower():
-            status = "timeout"
-            error_detail = "Query timed out (30s limit). Try adding a LIMIT clause."
-        elif "connect" in error_msg.lower() or "connection" in error_msg.lower():
-            error_detail = "Cannot connect to query engine. Check if Trino is running."
-        else:
-            error_detail = clean_msg if clean_msg != error_msg else f"Query failed: {clean_msg}"
+        # Engine-specific error taxonomy (Trino codes vs Athena/pyathena messages).
+        status, error_detail, http_code = engine.map_error(e)
 
         # Save error to history if requested
         if request.save_history:
@@ -258,8 +227,8 @@ async def execute_query(
                     rows_returned=0,
                     status=status,
                     error_message=error_msg,
-                    catalog=TRINO_CATALOG,
-                    schema=TRINO_SCHEMA
+                    catalog=engine.default_catalog,
+                    schema=engine.default_schema
                 )
                 db.add(history)
                 db.commit()
@@ -267,7 +236,7 @@ async def execute_query(
                 # Don't fail the request if history save fails
                 print(f"Failed to save query history: {db_err}")
 
-        raise HTTPException(status_code=400 if status == "error" else 504, detail=error_detail)
+        raise HTTPException(status_code=http_code, detail=error_detail)
 
     execution_time_ms = (time.time() - start_time) * 1000
 
@@ -280,8 +249,8 @@ async def execute_query(
                 execution_time_ms=int(execution_time_ms),
                 rows_returned=len(rows),
                 status=status,
-                catalog=TRINO_CATALOG,
-                schema=TRINO_SCHEMA
+                catalog=engine.default_catalog,
+                schema=engine.default_schema
             )
             db.add(history)
             db.commit()
