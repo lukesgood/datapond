@@ -48,73 +48,94 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* ── DataPond design system — "deep pond": layered depth, one aqua current.
+   Neutrals are slate hue-biased toward the aqua accent (chosen, not defaulted). ── */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.488 0.243 264.376);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.598 0.194 264.542);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --background: #eef3f4;
+  --foreground: #0e1c22;
+  --card: #ffffff;
+  --card-foreground: #0e1c22;
+  --popover: #ffffff;
+  --popover-foreground: #0e1c22;
+  --primary: #0894ac;
+  --primary-foreground: #ffffff;
+  --secondary: #f2f6f7;
+  --secondary-foreground: #172930;
+  --muted: #f2f6f7;
+  --muted-foreground: #51666e;
+  --accent: #e6eef0;
+  --accent-foreground: #0e1c22;
+  --destructive: #e11d48;
+  --border: #dae5e8;
+  --input: #d3e0e3;
+  --ring: #0894ac;
+  /* data-viz categorical ramp (charts stop being grey) */
+  --chart-1: #0894ac;
+  --chart-2: #6366f1;
+  --chart-3: #22c3d6;
+  --chart-4: #8b5cf6;
+  --chart-5: #f59e0b;
+  --radius: 0.7rem;
+  /* sidebar = the sunken floor; active nav lifts to a surface */
+  --sidebar: #e6eef0;
+  --sidebar-foreground: #2a3b42;
+  --sidebar-primary: #0894ac;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ffffff;
+  --sidebar-accent-foreground: #0e1c22;
+  --sidebar-border: #d7e3e6;
+  --sidebar-ring: #0894ac;
+  /* signature current + semantic + elevation (DataPond extras) */
+  --dp-gradient: linear-gradient(120deg, #06b6d4 0%, #3b82f6 55%, #4f46e5 100%);
+  --dp-aqua: #0894ac;
+  --dp-good: #0f9d6c;
+  --dp-warn: #e08a00;
+  --dp-managed: #0e7490;
+  --dp-shadow: 0 1px 2px rgb(14 28 34 / 0.04), 0 10px 26px -14px rgb(14 28 34 / 0.16);
+  --dp-shadow-lg: 0 2px 4px rgb(14 28 34 / 0.05), 0 26px 50px -22px rgb(14 28 34 / 0.28);
+  --dp-hairline: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.55), transparent);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.488 0.243 264.376);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.598 0.194 264.542);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: #081317;
+  --foreground: #e7f1f3;
+  --card: #0e1c21;
+  --card-foreground: #e7f1f3;
+  --popover: #0e1c21;
+  --popover-foreground: #e7f1f3;
+  --primary: #22c3d6;
+  --primary-foreground: #04181d;
+  --secondary: #122328;
+  --secondary-foreground: #e7f1f3;
+  --muted: #122328;
+  --muted-foreground: #93a8b0;
+  --accent: #16262c;
+  --accent-foreground: #e7f1f3;
+  --destructive: #fb7185;
+  --border: rgb(255 255 255 / 0.08);
+  --input: rgb(255 255 255 / 0.13);
+  --ring: #22c3d6;
+  --chart-1: #22c3d6;
+  --chart-2: #818cf8;
+  --chart-3: #67e8f9;
+  --chart-4: #a78bfa;
+  --chart-5: #fbbf24;
+  --sidebar: #0a171b;
+  --sidebar-foreground: #b8cbd1;
+  --sidebar-primary: #22c3d6;
+  --sidebar-primary-foreground: #04181d;
+  --sidebar-accent: #122328;
+  --sidebar-accent-foreground: #e7f1f3;
+  --sidebar-border: rgb(255 255 255 / 0.08);
+  --sidebar-ring: #22c3d6;
+  --dp-gradient: linear-gradient(120deg, #22d3ee 0%, #60a5fa 55%, #818cf8 100%);
+  --dp-aqua: #22c3d6;
+  --dp-good: #2dd4a7;
+  --dp-warn: #fbbf24;
+  --dp-managed: #22d3ee;
+  --dp-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 14px 30px -16px rgb(0 0 0 / 0.7);
+  --dp-shadow-lg: 0 2px 6px rgb(0 0 0 / 0.5), 0 30px 56px -24px rgb(0 0 0 / 0.8);
+  --dp-hairline: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.12), transparent);
 }
 
 @layer base {
@@ -123,11 +144,30 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "cv11", "ss01";
   }
   html {
     @apply font-sans;
   }
+  h1, h2, h3 { letter-spacing: -0.02em; }
 }
+
+/* ── DataPond utilities ────────────────────────────────────────────────────── */
+/* the one aqua current — logo, active rails, key emphasis */
+.dp-gradient { background-image: var(--dp-gradient); }
+.dp-gradient-text {
+  background-image: var(--dp-gradient);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+/* a surface floating on the pond: layered shadow + faint top hairline */
+.dp-surface { box-shadow: var(--dp-shadow); position: relative; }
+.dp-surface::before {
+  content: ""; position: absolute; inset: 0 1px auto 1px; height: 1px;
+  border-radius: inherit; background: var(--dp-hairline); opacity: 0.7; pointer-events: none;
+}
+.dp-elevated { box-shadow: var(--dp-shadow-lg); }
+/* tabular data numerals */
+.dp-num { font-variant-numeric: tabular-nums; }
 
 @keyframes shake {
   0%, 100% { transform: translateX(0); }

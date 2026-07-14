@@ -108,9 +108,15 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarContent className="flex flex-col h-full">
         {/* Logo */}
-        <div className="px-4 py-5 shrink-0">
-          <h1 className="text-xl font-bold">DataPond</h1>
-          <p className="text-xs text-muted-foreground">AI Data Foundation</p>
+        <div className="px-4 py-5 shrink-0 flex items-center gap-2.5">
+          <div className="dp-gradient relative h-8 w-8 shrink-0 overflow-hidden rounded-[9px] shadow-[0_4px_14px_-4px_var(--dp-aqua)]">
+            <span className="pointer-events-none absolute inset-x-1.5 bottom-[7px] h-0.5 rounded bg-white/85
+              shadow-[0_5px_0_rgba(255,255,255,.5),0_-5px_0_rgba(255,255,255,.35)]" />
+          </div>
+          <div className="min-w-0 leading-tight">
+            <h1 className="text-[15px] font-bold tracking-tight">DataPond</h1>
+            <p className="text-[10.5px] font-medium text-muted-foreground">AI Data Foundation</p>
+          </div>
         </div>
 
         {/* Dashboard — top-level, no section label */}

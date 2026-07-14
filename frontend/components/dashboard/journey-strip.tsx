@@ -48,23 +48,37 @@ export function JourneyStrip() {
     { title: "Dashboards", href: "/dashboards", icon: BarChart3,       count: counts[3], unit: "dashboards",  hint: "쿼리 시각화" },
   ]
 
+  // The path data takes through the foundation — a real sequence, so it's numbered.
+  const ramp = ["var(--chart-1)", "var(--chart-3)", "var(--chart-2)", "var(--chart-4)"]
+
   return (
     <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
       {steps.map((s, i) => (
         <Link key={s.title} href={s.href} className="group">
-          <Card className="transition hover:border-primary/40 hover:shadow-sm">
-            <CardContent className="py-3 px-4 flex items-center gap-3">
-              <s.icon className="h-5 w-5 text-muted-foreground shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium flex items-center gap-1">
+          <Card className="h-full transition-colors hover:border-primary/40">
+            <CardContent className="flex items-center gap-3 px-4 py-3.5">
+              <div
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
+                style={{ background: `color-mix(in oklab, ${ramp[i]} 13%, transparent)`, color: ramp[i] }}
+              >
+                <s.icon className="h-[18px] w-[18px]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-1 text-[13px] font-semibold">
+                  <span className="dp-num text-[10px] font-semibold tabular-nums text-muted-foreground/70">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
                   {s.title}
-                  {i < steps.length - 1 && <ArrowRight className="h-3 w-3 opacity-30 hidden lg:inline" />}
+                  {i < steps.length - 1 && <ArrowRight className="hidden h-3 w-3 opacity-25 lg:inline" />}
                 </p>
-                <p className="text-[11px] text-muted-foreground truncate">
-                  {s.count === null ? "…" : `${s.count} ${s.unit}`} · {s.hint}
+                <p className="truncate text-[11px] text-muted-foreground">
+                  <span className="dp-num font-medium text-foreground/80">
+                    {s.count === null ? "…" : s.count}
+                  </span>{" "}
+                  {s.unit} · {s.hint}
                 </p>
               </div>
-              <ArrowRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-60 transition shrink-0" />
+              <ArrowRight className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-60" />
             </CardContent>
           </Card>
         </Link>
