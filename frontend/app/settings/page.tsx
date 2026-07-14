@@ -380,7 +380,7 @@ export default function SettingsPage() {
                       { label: "Distribution",  value: "K3s" },
                       { label: "Namespace",     value: "datapond" },
                       { label: "Ingress",       value: "Traefik" },
-                      { label: "Storage",       value: "local-path (K3s)" },
+                      { label: "Storage",       value: "Amazon S3 (data)" },
                       { label: "Container RT",  value: "containerd" },
                     ].map(({ label, value }) => (
                       <div key={label} className="flex items-center justify-between py-2 text-sm">

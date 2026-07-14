@@ -145,7 +145,7 @@ export default function CatalogHelpPage() {
               <span className="text-sm text-muted-foreground">Iceberg table (e.g., "orders", "customers")</span>
             </div>
             <p className="text-sm text-muted-foreground ml-20">
-              Tables are Apache Iceberg tables stored in SeaweedFS. They support ACID transactions, time travel, schema evolution, and hidden partitioning.
+              Tables are Apache Iceberg tables stored in Amazon S3. They support ACID transactions, time travel, schema evolution, and hidden partitioning.
             </p>
           </div>
 
@@ -280,7 +280,7 @@ export default function CatalogHelpPage() {
           <div className="space-y-2">
             <h3 className="font-semibold">What table types are supported?</h3>
             <p className="text-sm text-muted-foreground">
-              DataPond supports standard Iceberg tables and materialized views. External tables (pointing to data outside SeaweedFS) are supported via Trino connectors.
+              DataPond supports standard Iceberg tables and materialized views. External tables (pointing to data outside the managed S3 location) are supported via connectors.
             </p>
           </div>
 

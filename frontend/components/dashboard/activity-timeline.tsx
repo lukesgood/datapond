@@ -16,8 +16,8 @@ const generateActivityEvents = () => {
     {
       id: 1,
       type: "success" as const,
-      title: "PostgreSQL restarted successfully",
-      description: "All connections restored",
+      title: "Aurora pgvector connection healthy",
+      description: "All connections active",
       timestamp: new Date(now.getTime() - 2 * 60 * 1000), // 2 minutes ago
       icon: RefreshCw
     },
