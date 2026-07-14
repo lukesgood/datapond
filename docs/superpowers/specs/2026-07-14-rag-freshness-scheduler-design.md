@@ -83,13 +83,16 @@ No new table. `ai_chunks.source` (existing) becomes the replace key.
 
 ### Component 4 — Replace semantics (fix the append bug)
 
-`_ingest_documents(coll_id, docs, chunk_size, chunk_overlap, source_key)` gains a `source_key`:
-- Compute a deterministic key from the source config:
+`ai_chunks.source` is per-document (S3 stores one distinct `s3://bucket/key` per file; it is surfaced as the citation and counted by `COUNT(DISTINCT ch.source)` in the collection stats). It therefore cannot double as the replace key. Add a dedicated **`ai_chunks.source_group TEXT`** column (indexed on `(collection_id, source_group)`) that scopes a logical source for replacement while leaving `source` for citations.
+
+`_ingest_documents(coll_id, docs, chunk_size, chunk_overlap, source_group=None)` gains an optional `source_group`:
+- Deterministic group key `_source_group(src: SourceIngest)`:
   - iceberg → `f"iceberg:{schema}.{table}.{text_column}"`
-  - s3 → `f"s3:{bucket}/{prefix}"`
-  - pasted text → `f"text:{sha1(content)[:12]}"` (unchanged dedup behavior for the text tab)
-- Before inserting, in a transaction: `DELETE FROM ai_chunks WHERE collection_id = $1 AND source = $2` (the `source_key`), then insert the fresh chunks with `source = source_key`.
-- Scoping by `source_key` means re-embedding an Iceberg source does **not** wipe separately-pasted text or a different source in the same collection.
+  - s3 → `f"s3:{bucket}/{prefix or ''}"`
+- When `source_group` is provided (the `ingest-source` path, manual or scheduled): in one transaction `DELETE FROM ai_chunks WHERE collection_id = $1 AND source_group = $2`, then insert fresh chunks with that `source_group` (and per-doc `source` unchanged).
+- When `source_group` is `None` (the inline `/ingest` text path): behave exactly as today — append, no delete.
+- Scoping by `source_group` means re-embedding an Iceberg source does **not** wipe a different source or inline text in the same collection.
+- Reading + ingest is extracted into `_refresh_from_source(pool, coll_id, src: SourceIngest) -> dict` shared by the `ingest-source` endpoint and the scheduler (DRY).
 - This fixes both scheduled re-embeds and manual `ingest-source` re-runs.
 
 ### Component 5 — Config / Helm
