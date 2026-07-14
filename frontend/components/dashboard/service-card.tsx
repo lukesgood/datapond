@@ -50,9 +50,6 @@ export function ServiceCard({
   const config = statusConfig[status]
   const Icon = config.icon
 
-  // Mock uptime percentage (would come from real data)
-  const mockUptime = status === "healthy" ? 99.2 + Math.random() * 0.7 : status === "unhealthy" ? 85.5 + Math.random() * 10 : 0
-
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -79,14 +76,6 @@ export function ServiceCard({
           <span className="ml-2 text-xs text-muted-foreground font-mono">{version}</span>
         )}
 
-        {status !== "unknown" && status !== "managed" && (
-          <div className="flex items-center justify-between text-xs mt-3">
-            <span className="text-muted-foreground">Uptime</span>
-            <span className="font-medium">
-              {mockUptime.toFixed(1)}%
-            </span>
-          </div>
-        )}
       </CardContent>
     </Card>
   )
