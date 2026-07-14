@@ -173,3 +173,15 @@ def test_enforce_applies_mask_in_projection():
     assert "m-email" in res.applied_mask_ids
     low = res.sql.lower()
     assert "except" in low and "regexp_replace" in low
+
+
+def test_enforce_mask_survives_athena_dialect():
+    # The SELECT * EXCEPT (col), <mask> AS col rewrite must round-trip on athena too.
+    mask = MaskPolicy(id="m-email", catalog="iceberg", schema="sales", table="orders",
+                      column="email", masking_type="partial_email",
+                      role_map={"business_analyst": False})
+    res = enforce("SELECT email FROM iceberg.sales.orders",
+                  analyst(), [orders_region_policy()], [mask], dialect="athena")
+    assert "m-email" in res.applied_mask_ids
+    low = res.sql.lower()
+    assert "except" in low and "regexp_replace" in low

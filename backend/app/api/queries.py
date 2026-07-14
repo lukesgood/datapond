@@ -360,7 +360,7 @@ async def get_catalog_schemas(columns: bool = False):
                 tables_list.append(CatalogTable(name=tbl, columns=cols))
             schemas_list.append(CatalogSchema(name=ns, tables=tables_list))
 
-        result = CatalogTree(catalogs=[Catalog(name="iceberg", catalog_type="managed", schemas=schemas_list)])
+        result = CatalogTree(catalogs=[Catalog(name=get_engine().default_catalog, catalog_type="managed", schemas=schemas_list)])
 
         # Cache result
         try:
