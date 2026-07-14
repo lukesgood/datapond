@@ -97,6 +97,9 @@ spec:
           value: {{ (.Values.backend.ragScheduler | default dict).enabled | default true | quote }}
         - name: RAG_SCHEDULER_TICK_SECONDS
           value: {{ (.Values.backend.ragScheduler | default dict).tickSeconds | default 300 | quote }}
+        # Connector → RAG sink: re-embed fresh collections when their source table syncs
+        - name: RAG_SINK_ENABLED
+          value: {{ (.Values.backend.ragScheduler | default dict).sinkEnabled | default true | quote }}
         # Encrypts credentials-at-rest (connector secrets, stored provider keys)
         - name: ENCRYPTION_KEY
           valueFrom:

@@ -418,7 +418,7 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
                 Schedule ingest</Button>
             </div>
           )})()}
-          <p className="text-[11px] text-muted-foreground">Scheduled ingest creates an Airflow DAG that periodically re-embeds the source (AI data pipeline).</p>
+          <p className="text-[11px] text-muted-foreground">Scheduled ingest re-embeds the source on an interval — and automatically whenever a connector sync updates the source table, so retrieval stays fresh.</p>
         </>
       )}
       {msg && <p className="text-xs text-[var(--dp-good)]">{msg}</p>}
