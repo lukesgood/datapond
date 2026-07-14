@@ -28,6 +28,7 @@ const SaveDashboardModal = dynamic(() => import("@/components/query/save-dashboa
 const LogToMlflowModal = dynamic(() => import("@/components/query/log-to-mlflow-modal").then(m => ({ default: m.LogToMlflowModal })), { ssr: false })
 const OpenInNotebookModal = dynamic(() => import("@/components/query/open-in-notebook-modal").then(m => ({ default: m.OpenInNotebookModal })), { ssr: false })
 import { useToast } from "@/lib/toast"
+import { useCapability } from "@/lib/capabilities"
 
 interface QueryResult {
   columns: string[]
@@ -68,6 +69,8 @@ export default function QueryPage() {
   const isResizingSchema   = useRef(false)
   const isResizingEditor   = useRef(false)
   const { toast } = useToast()
+  const notebooksEnabled = useCapability("notebooks")
+  const experimentsEnabled = useCapability("experiments")
 
   // Fetch the active query engine + its status on mount
   useEffect(() => {
@@ -183,7 +186,9 @@ export default function QueryPage() {
   }, [query, xAxis, yAxis])
 
   const handleTableSelect = (catalog: string, schema: string, table: string) => {
-    setQuery(`SELECT *\nFROM ${catalog}.${schema}.${table}\nLIMIT 100;`)
+    // 2-part name resolves under each engine's default catalog (Athena
+    // AwsDataCatalog / Trino iceberg) — avoids a wrong hardcoded catalog prefix.
+    setQuery(`SELECT *\nFROM ${schema}.${table}\nLIMIT 100;`)
   }
 
   const handleQuerySelect = (selectedQuery: string) => {
@@ -266,7 +271,7 @@ export default function QueryPage() {
             <span className="hidden md:inline">Save</span>
           </Button>
 
-          {hasResults && (
+          {hasResults && notebooksEnabled && (
             <Button
               variant="ghost" size="sm" className="h-8 text-xs gap-1.5"
               onClick={() => setOpenInNotebookOpen(true)}
@@ -277,7 +282,7 @@ export default function QueryPage() {
             </Button>
           )}
 
-          {hasResults && (
+          {hasResults && experimentsEnabled && (
             <Button
               variant="ghost" size="sm" className="h-8 text-xs gap-1.5"
               onClick={() => setLogToMlflowOpen(true)}

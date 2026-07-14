@@ -1,4 +1,5 @@
 "use client"
+import { CapabilityGate } from "@/lib/capabilities"
 
 import { useEffect, useState } from "react"
 import { useToast } from "@/lib/toast"
@@ -53,7 +54,7 @@ interface NotebookItem {
   kernel?: string
 }
 
-export default function NotebooksPage() {
+function NotebooksPageInner() {
   const { toast } = useToast()
   const [notebooks, setNotebooks] = useState<NotebookItem[]>([])
   const [filteredNotebooks, setFilteredNotebooks] = useState<NotebookItem[]>([])
@@ -560,5 +561,13 @@ export default function NotebooksPage() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+export default function NotebooksPage() {
+  return (
+    <CapabilityGate capability="notebooks">
+      <NotebooksPageInner />
+    </CapabilityGate>
   )
 }

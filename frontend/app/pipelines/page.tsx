@@ -1,4 +1,5 @@
 "use client"
+import { CapabilityGate } from "@/lib/capabilities"
 
 import { useEffect, useState, Suspense } from "react"
 import { useToast } from "@/lib/toast"
@@ -665,10 +666,18 @@ function PipelinesPageInner() {
   )
 }
 
-export default function PipelinesPage() {
+function PipelinesPageSuspense() {
   return (
     <Suspense>
       <PipelinesPageInner />
     </Suspense>
+  )
+}
+
+export default function PipelinesPage() {
+  return (
+    <CapabilityGate capability="pipelines">
+      <PipelinesPageSuspense />
+    </CapabilityGate>
   )
 }
