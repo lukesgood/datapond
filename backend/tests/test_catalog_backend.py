@@ -20,8 +20,8 @@ class _Arrow:
 
 
 class _Scan:
+    # Mirrors pyiceberg: limit is a scan() kwarg, NOT a chainable .limit() method.
     def __init__(self, arrow): self._a = arrow
-    def limit(self, n): return self
     def to_arrow(self): return self._a
 
 
@@ -31,15 +31,17 @@ class _Table:
         self.metadata = types.SimpleNamespace(location="s3://b/warehouse/db/t")
         self._snap = _Snapshot({"total-records": "42"})
         self._arrow = _Arrow(["id", "note"], [[1, "a"], [2, None]])
+        self.scan_limit = None
     def schema(self): return self._schema
     def current_snapshot(self): return self._snap
-    def scan(self, **_): return _Scan(self._arrow)
+    def scan(self, limit=None): self.scan_limit = limit; return _Scan(self._arrow)
 
 
 class _FakeCatalog:
+    def __init__(self): self.table = _Table()
     def list_namespaces(self, *a): return [("sales",), ("ops",)]
     def list_tables(self, ns): return [(ns, "orders")]
-    def load_table(self, ident): return _Table()
+    def load_table(self, ident): return self.table
 
 
 def test_reader_selection(monkeypatch):
@@ -67,7 +69,8 @@ def test_get_table_details_uses_reader(monkeypatch):
 
 def test_glue_reader_methods(monkeypatch):
     import app.api.catalog_backend as cb
-    monkeypatch.setattr(cb, "get_catalog", lambda: _FakeCatalog())
+    fake = _FakeCatalog()
+    monkeypatch.setattr(cb, "get_catalog", lambda: fake)
     r = cb.GlueCatalogReader()
     assert set(r.list_namespaces()) == {"sales", "ops"}
     assert r.list_tables("sales") == ["orders"]
@@ -79,3 +82,4 @@ def test_glue_reader_methods(monkeypatch):
     prev = r.preview("sales", "orders", 100)
     assert prev["columns"] == ["id", "note"]
     assert prev["rows"] == [[1, "a"], [2, None]]
+    assert fake.table.scan_limit == 100      # limit passed via scan(limit=), not .limit()

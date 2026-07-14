@@ -44,7 +44,8 @@ class GlueCatalogReader:
         return None
 
     def preview(self, namespace, table, limit):
-        arrow = self._load(namespace, table).scan().limit(min(limit, 500)).to_arrow()
+        # pyiceberg limit is a scan() kwarg — there is no chainable .limit().
+        arrow = self._load(namespace, table).scan(limit=min(limit, 500)).to_arrow()
         cols = list(arrow.column_names)
         rows = [[d.get(c) for c in cols] for d in arrow.to_pylist()]
         return {"columns": cols, "rows": rows}

@@ -176,8 +176,9 @@ async def preview_table(namespace: str, table: str, catalog: str = "iceberg", li
 @router.get("/catalog/health")
 async def catalog_health():
     try:
-        cats = list_catalogs()
-        return {"status": "healthy", "catalogs": [c["name"] for c in cats]}
+        # Reachability check against the active catalog backend (Glue or Polaris).
+        get_catalog_reader().list_namespaces()
+        return {"status": "healthy", "catalogs": ["iceberg"]}
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
 

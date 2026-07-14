@@ -27,12 +27,6 @@ def get_catalog():
     return _catalog
 
 
-def reset_catalog():
-    """Test/reload helper: 캐시된 catalog 싱글톤을 비운다."""
-    global _catalog
-    _catalog = None
-
-
 def _build_glue_catalog():
     """AWS Glue Data Catalog (서버리스). Glue/S3 모두 기본 자격증명 체인
     (노드 instance profile / IRSA) 사용 — _s3_fileio_props가 AWS에서 정적키를 생략."""
