@@ -58,3 +58,4 @@ htmlcov/
 *.tfstate.*
 .terraform.lock.hcl
 crash.log
+.claude/worktrees/

@@ -49,8 +49,8 @@ export function MetricsChart({
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: "hsl(var(--background))",
-                border: "1px solid hsl(var(--border))",
+                backgroundColor: "var(--popover)",
+                border: "1px solid var(--border)",
                 borderRadius: "6px",
               }}
             />
@@ -115,8 +115,8 @@ export function MultiMetricsChart({ title, metrics }: MultiMetricsChartProps) {
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: "hsl(var(--background))",
-                border: "1px solid hsl(var(--border))",
+                backgroundColor: "var(--popover)",
+                border: "1px solid var(--border)",
                 borderRadius: "6px",
               }}
             />

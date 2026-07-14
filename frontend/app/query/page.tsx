@@ -87,6 +87,13 @@ export default function QueryPage() {
     }).catch(() => {})
   }, [])
 
+  // Deep link: /query?sql=<encoded> preloads the editor so "Open in SQL Lab"
+  // affordances elsewhere (Catalog, AI) can hand off a ready-to-run statement.
+  useEffect(() => {
+    const sql = new URLSearchParams(window.location.search).get("sql")
+    if (sql && sql.trim()) setQuery(sql)
+  }, [])
+
   // ── Schema panel horizontal resize ──────────────────────────────────────────
   const startSchemaResize = (e: React.MouseEvent) => {
     e.preventDefault()

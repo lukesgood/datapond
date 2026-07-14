@@ -5,13 +5,8 @@ import { PageHeader } from "@/components/dashboard/page-header"
 import { JourneyStrip } from "@/components/dashboard/journey-strip"
 import { StatsCards } from "@/components/dashboard/stats-cards"
 import { ServiceCard } from "@/components/dashboard/service-card"
-import { ServiceHealthChart } from "@/components/dashboard/service-health-chart"
-import { ResourceCharts } from "@/components/dashboard/resource-charts"
-import { ActivityTimeline } from "@/components/dashboard/activity-timeline"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { AlertCircle, Info } from "lucide-react"
 
 interface Service {
   name: string
@@ -120,16 +115,6 @@ export default function DashboardPage() {
       {/* Data journey entry points */}
       <JourneyStrip />
 
-      {/* Development mode notice */}
-      {unhealthyCount > 0 && (
-        <Alert>
-          <Info className="h-4 w-4" />
-          <AlertDescription>
-            Running in local development mode. Services may show as unhealthy when accessed outside the cluster.
-          </AlertDescription>
-        </Alert>
-      )}
-
       {/* Stats Cards */}
       {stats && (
         <StatsCards
@@ -139,19 +124,6 @@ export default function DashboardPage() {
           memoryUsage={stats.memory_usage}
         />
       )}
-
-      {/* Two-column layout: Service Health Chart + Activity Timeline */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2">
-          <ServiceHealthChart />
-        </div>
-        <div>
-          <ActivityTimeline />
-        </div>
-      </div>
-
-      {/* Resource Usage Chart */}
-      <ResourceCharts />
 
       {/* Services Section with Tabs */}
       <Tabs defaultValue="all" className="space-y-4">
