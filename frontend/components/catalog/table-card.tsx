@@ -16,9 +16,9 @@ interface TableCardProps {
 }
 
 const CATALOG_TYPE_STYLES: Record<string, { label: string; cls: string }> = {
-  managed:  { label: "Managed",  cls: "bg-emerald-100 text-emerald-700 border-emerald-200" },
-  external: { label: "External", cls: "bg-amber-100 text-amber-700 border-amber-200" },
-  foreign:  { label: "Foreign",  cls: "bg-blue-100 text-blue-700 border-blue-200" },
+  managed:  { label: "Managed",  cls: "bg-[var(--dp-managed)]/10 text-[var(--dp-managed)] border-[var(--dp-managed)]/25" },
+  external: { label: "External", cls: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-[var(--dp-warn)]/25" },
+  foreign:  { label: "Foreign",  cls: "bg-[var(--chart-2)]/10 text-[var(--chart-2)] border-[var(--chart-2)]/25" },
 }
 
 export function TableCard({
@@ -55,7 +55,7 @@ export function TableCard({
 
   return (
     <Link href={`/catalog/${namespace}/${name}${catalog ? `?catalog=${catalog}` : ""}`}>
-      <Card className="cursor-pointer hover:shadow-md transition-shadow">
+      <Card className="cursor-pointer hover:shadow-md hover:border-primary/40 transition-colors transition-shadow">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm font-medium truncate">{name}</CardTitle>
