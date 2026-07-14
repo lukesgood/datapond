@@ -339,7 +339,7 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
       <div className="flex rounded-md border overflow-hidden w-fit text-xs">
         {(["text", "source"] as const).map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-1 ${tab === t ? "bg-primary text-primary-foreground" : "bg-background"}`}>
-            {t === "text" ? "Paste text" : "From catalog / S3"}
+            {t === "text" ? "Paste text" : "From catalog / S3"}</button>
         ))}
       </div>
       {tab === "text" ? (
