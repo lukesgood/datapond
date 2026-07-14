@@ -369,78 +369,33 @@ async def get_catalog_schemas(columns: bool = False):
         _redis = None
 
     try:
-        from app.api.polaris_client import list_catalogs, list_namespaces, list_tables, get_catalog_type
+        from app.api.catalog_backend import get_catalog_reader
+        reader = get_catalog_reader()
 
-        polaris_catalogs = list_catalogs()
-        catalogs = []
-
-        # Trino connection only needed for the (opt-in) eager column scan.
-        has_trino = False
-        cursor = conn = None
-        if columns:
+        schemas_list = []
+        for ns in reader.list_namespaces():
             try:
-                conn = get_trino_connection()
-                cursor = conn.cursor()
-                has_trino = True
+                table_names = reader.list_tables(ns)
             except Exception:
-                has_trino = False
-                cursor = None
-
-        for pcat in polaris_catalogs:
-            cat_name = pcat["name"]
-            cat_type = get_catalog_type(pcat)
-            schemas_list = []
-
-            try:
-                namespaces = list_namespaces(cat_name)
-            except Exception:
-                namespaces = []
-
-            for ns in namespaces:
-                tables_list = []
-                try:
-                    table_names = list_tables(cat_name, ns)
-                except Exception:
-                    table_names = []
-
-                # Batch column fetch from Trino — only when explicitly requested.
-                col_map: dict = {}
-                if columns and has_trino and table_names:
+                table_names = []
+            tables_list = []
+            for tbl in table_names:
+                cols = None
+                if columns:
+                    # Opt-in eager column load (per-table). Lazy /catalog/columns is the default.
                     try:
-                        cursor.execute(
-                            f"SELECT table_name, column_name, data_type "
-                            f"FROM {cat_name}.information_schema.columns "
-                            f"WHERE table_schema = '{ns}' "
-                            f"ORDER BY table_name, ordinal_position"
-                        )
-                        for tbl, col, dtype in cursor.fetchall():
-                            col_map.setdefault(tbl, []).append(
-                                CatalogColumn(name=col, type=dtype)
-                            )
+                        cols = [CatalogColumn(name=c["name"], type=c["type"])
+                                for c in reader.get_columns(ns, tbl)]
                     except Exception:
-                        pass
+                        cols = None
+                tables_list.append(CatalogTable(name=tbl, columns=cols))
+            schemas_list.append(CatalogSchema(name=ns, tables=tables_list))
 
-                for tbl in table_names:
-                    cols = col_map.get(tbl)
-                    tables_list.append(CatalogTable(name=tbl, columns=cols))
-
-                schemas_list.append(CatalogSchema(name=ns, tables=tables_list))
-
-            catalogs.append(Catalog(name=cat_name, schemas=schemas_list, catalog_type=cat_type))
-
-        if has_trino and cursor:
-            try:
-                cursor.close()
-                conn.close()
-            except Exception:
-                pass
-
-        result = CatalogTree(catalogs=catalogs)
+        result = CatalogTree(catalogs=[Catalog(name="iceberg", catalog_type="managed", schemas=schemas_list)])
 
         # Cache result
         try:
             if _redis:
-                import json as _json
                 _redis.setex(cache_key, 60, result.model_dump_json())
         except Exception:
             pass
@@ -499,17 +454,9 @@ async def get_table_columns(catalog: str, schema: str, table: str):
     except Exception:
         _r = None
     try:
-        conn = get_trino_connection()
-        cur = conn.cursor()
-        cur.execute(
-            f"SELECT column_name, data_type FROM {catalog}.information_schema.columns "
-            f"WHERE table_schema = '{schema}' AND table_name = '{table}' ORDER BY ordinal_position"
-        )
-        cols = [CatalogColumn(name=n, type=t) for n, t in cur.fetchall()]
-        try:
-            cur.close(); conn.close()
-        except Exception:
-            pass
+        from app.api.catalog_backend import get_catalog_reader
+        cols = [CatalogColumn(name=c["name"], type=c["type"])
+                for c in get_catalog_reader().get_columns(schema, table)]
         try:
             if _r:
                 import json as _json

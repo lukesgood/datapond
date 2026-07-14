@@ -50,6 +50,21 @@ def test_reader_selection(monkeypatch):
     assert cb.get_catalog_reader().__class__.__name__ == "PolarisCatalogReader"
 
 
+def test_get_table_details_uses_reader(monkeypatch):
+    import asyncio
+    import app.api.catalog as cat
+
+    class _R:
+        def get_columns(self, ns, t): return [{"name": "id", "type": "long", "nullable": False}]
+        def get_location(self, ns, t): return "s3://b/t"
+        def row_count(self, ns, t): return 7
+    monkeypatch.setattr(cat, "get_catalog_reader", lambda: _R())
+    res = asyncio.get_event_loop().run_until_complete(cat.get_table_details("sales", "orders"))
+    assert res.columns[0].name == "id"
+    assert res.location == "s3://b/t"
+    assert res.row_count == 7
+
+
 def test_glue_reader_methods(monkeypatch):
     import app.api.catalog_backend as cb
     monkeypatch.setattr(cb, "get_catalog", lambda: _FakeCatalog())
