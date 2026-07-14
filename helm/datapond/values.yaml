@@ -82,6 +82,10 @@ frontend:
 catalog:
   backend: polaris
   glueWarehouse: ""   # s3://<bucket>/warehouse — required when backend=glue
+  # Athena query engine (slice 2), used when backend=glue:
+  athenaOutputLocation: ""     # s3://<bucket>/athena-results/ — Athena result staging
+  athenaWorkgroup: "primary"
+  athenaDatabase: "default"    # default Glue database for unqualified queries
 
 # Backend (FastAPI)
 backend:

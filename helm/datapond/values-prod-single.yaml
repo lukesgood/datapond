@@ -30,6 +30,9 @@ storage:
 catalog:
   backend: glue
   glueWarehouse: "s3://datapond-iceberg/warehouse"
+  athenaOutputLocation: "s3://datapond-iceberg/athena-results/"
+  athenaWorkgroup: "primary"
+  athenaDatabase: "default"
 
 # --- Postgres: external Aurora (not in-cluster) ---
 # Set postgres.auth.password to the Aurora master password at deploy time (--set) — the
