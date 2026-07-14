@@ -15,9 +15,10 @@ import { AlertCircle, Info } from "lucide-react"
 
 interface Service {
   name: string
-  status: "healthy" | "unhealthy" | "unknown"
+  status: "healthy" | "unhealthy" | "unknown" | "managed"
   url?: string
   version?: string
+  description?: string
 }
 
 interface DashboardStats {
@@ -176,7 +177,7 @@ export default function DashboardPage() {
                 key={service.name}
                 name={service.name}
                 status={service.status}
-                description={serviceDescriptions[service.name]}
+                description={service.description ?? serviceDescriptions[service.name]}
                 url={service.url}
                 version={service.version}
               />
@@ -187,13 +188,13 @@ export default function DashboardPage() {
         <TabsContent value="healthy" className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {services
-              .filter((s) => s.status === "healthy")
+              .filter((s) => s.status === "healthy" || s.status === "managed")
               .map((service) => (
                 <ServiceCard
                   key={service.name}
                   name={service.name}
                   status={service.status}
-                  description={serviceDescriptions[service.name]}
+                  description={service.description ?? serviceDescriptions[service.name]}
                   url={service.url}
                   version={service.version}
                 />
@@ -210,7 +211,7 @@ export default function DashboardPage() {
                   key={service.name}
                   name={service.name}
                   status={service.status}
-                  description={serviceDescriptions[service.name]}
+                  description={service.description ?? serviceDescriptions[service.name]}
                   url={service.url}
                   version={service.version}
                 />

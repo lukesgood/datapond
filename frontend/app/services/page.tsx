@@ -27,7 +27,7 @@ import {
 
 interface Service {
   name: string
-  status: "healthy" | "unhealthy" | "unknown"
+  status: "healthy" | "unhealthy" | "unknown" | "managed"
   url?: string
   version?: string
   description?: string
@@ -89,7 +89,7 @@ export default function ServicesPage() {
     service.name.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
-  const healthyCount = services.filter((s) => s.status === "healthy").length
+  const healthyCount = services.filter((s) => s.status === "healthy" || s.status === "managed").length
   const unhealthyCount = services.filter((s) => s.status === "unhealthy" || s.status === "unknown").length
 
   const getStatusBadge = (status: string) => {
@@ -106,6 +106,13 @@ export default function ServicesPage() {
           <Badge variant="destructive">
             <XCircle className="mr-1 h-3 w-3" />
             Unhealthy
+          </Badge>
+        )
+      case "managed":
+        return (
+          <Badge variant="outline">
+            <CheckCircle2 className="mr-1 h-3 w-3" />
+            AWS managed
           </Badge>
         )
       default:
@@ -232,7 +239,7 @@ export default function ServicesPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-sm text-muted-foreground line-clamp-2">
-                {serviceDescriptions[service.name] || "DataPond platform service"}
+                {service.description ?? serviceDescriptions[service.name] ?? "DataPond platform service"}
               </p>
 
               {service.version && (
