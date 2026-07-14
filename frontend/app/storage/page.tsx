@@ -153,7 +153,7 @@ export default function StoragePage() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Object Storage</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            SeaweedFS S3-compatible storage
+            Amazon S3 object storage
           </p>
         </div>
         <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs"
@@ -169,7 +169,7 @@ export default function StoragePage() {
       {/* Stats strip */}
       <div className="grid grid-cols-4 gap-3">
         {[
-          { label: "Endpoint",       value: loading ? null : "SeaweedFS S3",        sub: overview?.endpoint ?? "", icon: HardDrive },
+          { label: "Endpoint",       value: loading ? null : "Amazon S3",        sub: overview?.endpoint ?? "", icon: HardDrive },
           { label: "Buckets",        value: loading ? null : overview?.bucket_count ?? 0, sub: "총 버킷 수", icon: Database },
           { label: "Total Objects",  value: loading ? null : (overview?.total_object_count ?? 0).toLocaleString(), sub: "저장된 객체", icon: FileText },
           { label: "Total Size",     value: loading ? null : (overview?.total_size_human ?? "0 B"), sub: "사용 용량", icon: Package },

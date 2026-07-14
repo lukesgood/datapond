@@ -73,16 +73,22 @@ export default function ServicesPage() {
     return () => clearInterval(interval)
   }, [])
 
+  // Fallback descriptions only — the backend now supplies `description`.
   const serviceDescriptions: Record<string, string> = {
+    backend: "DataPond API (FastAPI)",
+    frontend: "Management UI (Next.js)",
+    litellm: "AI model gateway (→ Bedrock)",
+    valkey: "Redis-compatible cache / sessions",
+    "Amazon S3": "Object storage (Iceberg data)",
+    "Amazon Aurora": "PostgreSQL + pgvector (managed)",
+    "Amazon Bedrock": "LLM / embeddings (managed)",
+    "AWS Glue": "Iceberg Data Catalog (serverless)",
+    "Amazon Athena": "Serverless SQL query engine",
+    // Full-profile (self-hosted) services
     postgres: "PostgreSQL database - metadata storage",
-    mlflow: "ML experiment tracking and model registry",
-    jupyterlab: "Interactive data science notebooks",
-    trino: "Distributed SQL query engine",
-    risingwave: "Streaming SQL database",
-    openmetadata: "Data catalog and lineage tracking",
     seaweedfs: "S3-compatible object storage",
+    trino: "Distributed SQL query engine",
     polaris: "Apache Iceberg REST catalog",
-    valkey: "Redis-compatible cache",
   }
 
   const filteredServices = services.filter((service) =>

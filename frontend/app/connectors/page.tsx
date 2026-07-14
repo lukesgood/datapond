@@ -62,14 +62,14 @@ const FLOW_STEPS = [
   {
     icon: Layers,
     label: "Iceberg",
-    desc: "ACID tables in SeaweedFS S3 via Apache Polaris",
+    desc: "ACID Iceberg tables on S3, cataloged in AWS Glue",
     color: "bg-amber-500/10 text-amber-600 border-amber-200",
     dot: "bg-amber-500",
   },
   {
     icon: BarChart2,
     label: "Query",
-    desc: "Trino SQL Lab, DuckDB in Notebooks, BI tools",
+    desc: "Athena SQL Lab, BI tools",
     color: "bg-green-500/10 text-green-600 border-green-200",
     dot: "bg-green-500",
   },
