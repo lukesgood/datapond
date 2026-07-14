@@ -87,6 +87,11 @@ backend:
     tag: ""   # empty ⇒ chart appVersion (Chart.yaml); override for local dev / CD sha tags
     pullPolicy: IfNotPresent
 
+  # RAG freshness scheduler — periodic re-embedding of scheduled collections (no Airflow)
+  ragScheduler:
+    enabled: true
+    tickSeconds: 300
+
   service:
     type: ClusterIP
     port: 8000

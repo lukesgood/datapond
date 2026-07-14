@@ -329,7 +329,7 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ schedule: sched, source: sourceBody() }) })
       if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-      const d = await r.json(); setMsg(`예약 등록됨: DAG ${d.dag_id} (${d.schedule}) — Airflow에서 실행`)
+      const d = await r.json(); setMsg(`예약 등록됨: ${d.interval_minutes}분마다 자동 재임베딩`)
     } catch (err: any) { setE(err.message) }
     setSchedBusy(false)
   }
