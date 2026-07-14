@@ -186,7 +186,7 @@ export function AiBackends() {
 
   const prov = PROVIDERS[form.provider]
   const localOnly = status?.egress_policy === "local-only"
-  // Under a local-only (sovereign) egress policy, external providers are blocked.
+  // Under a local-only egress policy, external providers are blocked.
   const providerBlocked = localOnly && !!prov?.external
   const formValid = !providerBlocked && form.model_name.trim() && form.model.trim() &&
     (!prov?.fields.includes("api_base") || form.api_base.trim()) &&
@@ -218,7 +218,7 @@ export function AiBackends() {
                   ? "border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10 text-[var(--dp-good)]"
                   : "border-border bg-muted text-muted-foreground"}`}>
                 AI egress: {localOnly
-                  ? "local-only — sovereign, external LLMs blocked (no data egress)"
+                  ? "local-only — external LLMs blocked (no data egress)"
                   : "cloud-allowed — external providers permitted"}
               </span>
             </p>
@@ -332,7 +332,7 @@ export function AiBackends() {
                       const blocked = localOnly && v.external
                       return (
                         <SelectItem key={k} value={k} disabled={blocked}>
-                          {v.label}{blocked ? " — blocked (sovereign)" : ""}
+                          {v.label}{blocked ? " — blocked (local-only)" : ""}
                         </SelectItem>
                       )
                     })}
@@ -349,8 +349,8 @@ export function AiBackends() {
             {providerBlocked && (
               <div className="flex items-start gap-2 rounded-md border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-3 py-2 text-[11px] text-[var(--dp-warn)]">
                 <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                <span>This environment runs a <b>local-only (sovereign)</b> AI egress policy — external
-                providers are blocked to keep data on-prem. Choose Ollama or vLLM, or change
+                <span>This environment runs a <b>local-only</b> AI egress policy — external
+                providers are blocked to keep data in your environment. Choose Ollama or vLLM, or change
                 <code className="mx-1">ai.egressPolicy</code> for this deployment.</span>
               </div>
             )}

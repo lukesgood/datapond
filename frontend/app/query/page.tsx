@@ -244,12 +244,12 @@ export default function QueryPage() {
           <div className="h-4 w-px bg-border hidden sm:block" />
           {isRunning && (
             <Badge variant="secondary" className="text-xs gap-1">
-              <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse inline-block" />
+              <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse inline-block" />
               Executing...
             </Badge>
           )}
           {queryStatus === "success" && results && (
-            <Badge className="text-xs bg-emerald-600/90 hover:bg-emerald-600/90 gap-1">
+            <Badge className="dp-num text-xs text-white bg-[var(--dp-good)] hover:bg-[var(--dp-good)] gap-1">
               <TableProperties className="h-3 w-3" />
               {results.rows.length.toLocaleString()} rows · {
                 results.execution_time_ms < 1000
@@ -430,8 +430,8 @@ export default function QueryPage() {
                   title={`Query engine: ${engineName} (${engineStatus})`}
                 >
                   <span className={`h-1.5 w-1.5 rounded-full inline-block ${
-                    engineStatus === "healthy" || engineStatus === "managed" ? "bg-emerald-500" :
-                    engineStatus === "unhealthy" ? "bg-red-500" : "bg-yellow-400"
+                    engineStatus === "healthy" || engineStatus === "managed" ? "bg-[var(--dp-good)]" :
+                    engineStatus === "unhealthy" ? "bg-destructive" : "bg-[var(--dp-warn)]"
                   }`} />
                   {engineName}
                 </Badge>
@@ -485,15 +485,15 @@ export default function QueryPage() {
                 {hasResults && (
                   <>
                     <div className="h-3.5 w-px bg-border" />
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="dp-num text-[11px] text-muted-foreground">
                       {results.rows.length.toLocaleString()} rows
                     </span>
                     <span className="text-[11px] text-muted-foreground/60">·</span>
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="dp-num text-[11px] text-muted-foreground">
                       {results.columns.length} cols
                     </span>
                     <span className="text-[11px] text-muted-foreground/60">·</span>
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="dp-num text-[11px] text-muted-foreground">
                       {results.execution_time_ms < 1000
                         ? `${Math.round(results.execution_time_ms)}ms`
                         : `${(results.execution_time_ms / 1000).toFixed(2)}s`}
@@ -515,9 +515,9 @@ export default function QueryPage() {
                   <div className="text-muted-foreground/30">
                     <Play className="h-8 w-8" />
                   </div>
-                  <p className="text-sm text-muted-foreground">Run a query to see results</p>
+                  <p className="text-sm text-muted-foreground">Write a query and run it to see results here</p>
                   <p className="text-xs text-muted-foreground/60">
-                    Press <kbd className="px-1.5 py-0.5 text-[10px] border rounded font-mono">⌘↵</kbd> or click Run
+                    Press <kbd className="px-1.5 py-0.5 text-[10px] border rounded font-mono">⌘↵</kbd> or click Run — or pick a table from the schema tree to start
                   </p>
                 </div>
               )}

@@ -102,9 +102,9 @@ function EventBadge({ type }: { type: string }) {
     query_error:       { label: "Query error",       className: "border-destructive/40 text-destructive" },
     query_timeout:     { label: "Query timeout",      className: "border-[var(--dp-warn)]/40 text-[var(--dp-warn)]" },
     ai_sql_generated:  { label: "AI SQL",       className: "border-violet-400 text-violet-500" },
-    pii_detected:      { label: "PII detected",     className: "border-amber-400 text-amber-500" },
+    pii_detected:      { label: "PII detected",     className: "border-[var(--dp-warn)]/40 text-[var(--dp-warn)]" },
     login_success:     { label: "Login success",  className: "border-gray-400 text-gray-500" },
-    login_failure:     { label: "Login failure",  className: "border-red-400 text-red-500" },
+    login_failure:     { label: "Login failure",  className: "border-destructive/40 text-destructive" },
   }
   const cfg = map[type] ?? { label: type, className: "border-gray-300 text-gray-400" }
   return (
@@ -134,10 +134,10 @@ function ResultBadge({ result }: { result: string }) {
 
 function RiskBadge({ risk }: { risk: string }) {
   if (risk === "high")
-    return <Badge className="bg-red-500/10 text-red-500 border-0">High risk</Badge>
+    return <Badge className="bg-destructive/10 text-destructive border-0">High risk</Badge>
   if (risk === "medium")
-    return <Badge className="bg-amber-500/10 text-yellow-500 border-0">Caution</Badge>
-  return <Badge className="bg-blue-500/10 text-blue-500 border-0">Normal</Badge>
+    return <Badge className="bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-0">Caution</Badge>
+  return <Badge className="bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-0">Normal</Badge>
 }
 
 // ─── PII type color ───────────────────────────────────────────────────────────
@@ -190,6 +190,15 @@ function AccessControlTab() {
     name: "", catalog_name: "iceberg", schema_name: "", table_name: "",
     filter_expression: "", role_names: "",
   })
+  // create-mask form
+  const [maskForm, setMaskForm] = useState<{
+    name: string; catalog_name: string; schema_name: string; table_name: string
+    column_name: string; masking_type: string; custom_expression: string; role_names: string
+  }>({
+    name: "", catalog_name: "iceberg", schema_name: "", table_name: "",
+    column_name: "", masking_type: "full", custom_expression: "", role_names: "",
+  })
+  const [maskErr, setMaskErr] = useState<string | null>(null)
   // preview
   const [pvSql, setPvSql] = useState("SELECT * FROM sales.orders")
   const [pvRoles, setPvRoles] = useState("business_analyst")
@@ -214,8 +223,9 @@ function AccessControlTab() {
   const caps = useCapabilities()
   useEffect(() => {
     const qc = caps.query_catalog
-    if (typeof qc === "string" && qc && form.catalog_name === "iceberg") {
-      setForm((f) => ({ ...f, catalog_name: qc }))
+    if (typeof qc === "string" && qc) {
+      if (form.catalog_name === "iceberg") setForm((f) => ({ ...f, catalog_name: qc }))
+      if (maskForm.catalog_name === "iceberg") setMaskForm((f) => ({ ...f, catalog_name: qc }))
     }
   }, [caps.query_catalog])
 
@@ -243,6 +253,26 @@ function AccessControlTab() {
   const deletePolicy = async (id: string) => {
     if (!(await confirm({ title: "Delete policy", message: "Delete this RLS policy?", destructive: true, confirmText: "Delete" }))) return
     await fetch(`/api/governance/rls/policies/${id}`, { method: "DELETE" }); load()
+  }
+
+  const createMask = async () => {
+    setMaskErr(null)
+    const body = {
+      name: maskForm.name, catalog_name: maskForm.catalog_name, schema_name: maskForm.schema_name,
+      table_name: maskForm.table_name, column_name: maskForm.column_name,
+      masking_type: maskForm.masking_type,
+      custom_expression: maskForm.masking_type === "custom" ? maskForm.custom_expression : null,
+      role_names: maskForm.role_names.split(",").map((s) => s.trim()).filter(Boolean),
+    }
+    const r = await fetch("/api/governance/masking/policies", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    })
+    if (r.ok) { setMaskForm({ ...maskForm, name: "", schema_name: "", table_name: "", column_name: "", custom_expression: "", role_names: "" }); load() }
+    else setMaskErr((await r.json().catch(() => ({})))?.detail ?? "Failed to create")
+  }
+  const deleteMask = async (id: string) => {
+    if (!(await confirm({ title: "Delete masking policy", message: "Delete this column masking policy?", destructive: true, confirmText: "Delete" }))) return
+    await fetch(`/api/governance/masking/policies/${id}`, { method: "DELETE" }); load()
   }
   const runPreview = async () => {
     let attrs = {}
@@ -296,7 +326,7 @@ function AccessControlTab() {
                   <TableCell>{p.roles.map((r) => <Badge key={r} variant="secondary" className="text-[10px] mr-1">{r}</Badge>)}{p.exempt_roles.map((r) => <Badge key={r} variant="outline" className="text-[10px] mr-1">Exempt: {r}</Badge>)}</TableCell>
                   <TableCell className="text-xs">{p.priority}</TableCell>
                   <TableCell><Badge variant={p.enabled ? "secondary" : "outline"} className="text-[10px] cursor-pointer" onClick={() => togglePolicy(p)}>{p.enabled ? "Active" : "Inactive"}</Badge></TableCell>
-                  <TableCell><Button variant="ghost" size="sm" className="text-red-500 h-7" onClick={() => deletePolicy(p.id)}>Delete</Button></TableCell>
+                  <TableCell><Button variant="ghost" size="sm" className="text-destructive h-7" onClick={() => deletePolicy(p.id)}>Delete</Button></TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -304,20 +334,52 @@ function AccessControlTab() {
         </CardContent>
       </Card>
 
-      {/* Masking list (read + delete) */}
+      {/* Masking policies (create / list / delete) */}
       <Card>
         <CardHeader className="pb-3"><CardTitle className="text-base">Column Masking Policies ({masks.length})</CardTitle></CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="space-y-4">
+          {/* Create form — mirrors the RLS form; masking has no update, so edit = delete + recreate */}
+          <div className="grid gap-2 md:grid-cols-2">
+            <Input placeholder="Policy name" value={maskForm.name} onChange={(e) => setMaskForm({ ...maskForm, name: e.target.value })} />
+            <Select value={maskForm.masking_type} onValueChange={(v) => setMaskForm({ ...maskForm, masking_type: v ?? "full" })}>
+              <SelectTrigger><SelectValue placeholder="Masking type" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="full">Full (redact entirely)</SelectItem>
+                <SelectItem value="partial_email">Partial — email</SelectItem>
+                <SelectItem value="partial_ssn">Partial — SSN</SelectItem>
+                <SelectItem value="partial_phone">Partial — phone</SelectItem>
+                <SelectItem value="hash">Hash</SelectItem>
+                <SelectItem value="null">Null out</SelectItem>
+                <SelectItem value="custom">Custom expression</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input placeholder="schema (e.g. sales)" value={maskForm.schema_name} onChange={(e) => setMaskForm({ ...maskForm, schema_name: e.target.value })} />
+            <Input placeholder="table (e.g. customers)" value={maskForm.table_name} onChange={(e) => setMaskForm({ ...maskForm, table_name: e.target.value })} />
+            <Input placeholder="column (e.g. email)" value={maskForm.column_name} onChange={(e) => setMaskForm({ ...maskForm, column_name: e.target.value })} />
+            <Input placeholder="Roles to mask for (comma-separated)" value={maskForm.role_names} onChange={(e) => setMaskForm({ ...maskForm, role_names: e.target.value })} />
+            {maskForm.masking_type === "custom" && (
+              <Input className="md:col-span-2 font-mono text-xs" placeholder="custom SQL expression (e.g. regexp_replace(email, '.+@', '***@'))" value={maskForm.custom_expression} onChange={(e) => setMaskForm({ ...maskForm, custom_expression: e.target.value })} />
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <Button size="sm" onClick={createMask}
+              disabled={!maskForm.name || !maskForm.schema_name || !maskForm.table_name || !maskForm.column_name || (maskForm.masking_type === "custom" && !maskForm.custom_expression)}>
+              Create masking policy
+            </Button>
+            {maskErr && <span className="text-xs text-destructive">{maskErr}</span>}
+          </div>
+
           <Table>
-            <TableHeader><TableRow><TableHead>Table.Column</TableHead><TableHead>Masking</TableHead><TableHead>Roles</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Table.Column</TableHead><TableHead>Masking</TableHead><TableHead>Roles</TableHead><TableHead>Status</TableHead><TableHead className="w-16"></TableHead></TableRow></TableHeader>
             <TableBody>
-              {masks.length === 0 && <TableRow><TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-6">No masking policies</TableCell></TableRow>}
+              {masks.length === 0 && <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-6">No masking policies</TableCell></TableRow>}
               {masks.map((m) => (
                 <TableRow key={m.id}>
                   <TableCell className="font-mono text-xs">{m.schema_name}.{m.table_name}.{m.column_name}</TableCell>
                   <TableCell><Badge variant="outline" className="text-[10px]">{m.masking_type}</Badge></TableCell>
                   <TableCell>{m.roles.map((r) => <Badge key={r} variant="secondary" className="text-[10px] mr-1">{r}</Badge>)}</TableCell>
                   <TableCell><Badge variant={m.enabled ? "secondary" : "outline"} className="text-[10px]">{m.enabled ? "Active" : "Inactive"}</Badge></TableCell>
+                  <TableCell><Button variant="ghost" size="sm" className="text-destructive h-7" onClick={() => deleteMask(m.id)}>Delete</Button></TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -544,32 +606,32 @@ export default function GovernancePage() {
           label="Queries today"
           value={stats?.queries_today ?? null}
           icon={<Database className="h-5 w-5" />}
-          colorClass="text-blue-500"
-          bgClass="bg-blue-500/10"
+          colorClass="text-[var(--chart-1)]"
+          bgClass="bg-[var(--chart-1)]/10"
           loading={statsLoading}
         />
         <StatCard
           label="AI SQL executions"
           value={stats?.ai_sql_count ?? null}
           icon={<Sparkles className="h-5 w-5" />}
-          colorClass="text-violet-500"
-          bgClass="bg-violet-500/10"
+          colorClass="text-[var(--chart-4)]"
+          bgClass="bg-[var(--chart-4)]/10"
           loading={statsLoading}
         />
         <StatCard
           label="PII detections"
           value={stats?.pii_detections ?? null}
           icon={<ShieldAlert className="h-5 w-5" />}
-          colorClass="text-yellow-500"
-          bgClass="bg-amber-500/10"
+          colorClass="text-[var(--dp-warn)]"
+          bgClass="bg-[var(--dp-warn)]/10"
           loading={statsLoading}
         />
         <StatCard
           label="Blocked count"
           value={stats?.blocked_count ?? null}
           icon={<Ban className="h-5 w-5" />}
-          colorClass="text-red-500"
-          bgClass="bg-red-500/10"
+          colorClass="text-destructive"
+          bgClass="bg-destructive/10"
           loading={statsLoading}
         />
       </div>
