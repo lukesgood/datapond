@@ -182,7 +182,7 @@ function AccessControlTab() {
     filter_expression: "", role_names: "",
   })
   // preview
-  const [pvSql, setPvSql] = useState("SELECT * FROM iceberg.sales.orders")
+  const [pvSql, setPvSql] = useState("SELECT * FROM sales.orders")
   const [pvRoles, setPvRoles] = useState("business_analyst")
   const [pvAttrs, setPvAttrs] = useState('{"region":"us-east"}')
   const [pvResult, setPvResult] = useState<any>(null)

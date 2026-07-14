@@ -253,7 +253,7 @@ export default function TableDetailPage() {
             <TabsTrigger value="metadata">Metadata</TabsTrigger>
           </TabsList>
           <button
-            onClick={() => router.push(`/query?sql=${encodeURIComponent(`SELECT * FROM iceberg.${namespace}.${tableName} LIMIT 100`)}`)}
+            onClick={() => router.push(`/query?sql=${encodeURIComponent(`SELECT * FROM ${namespace}.${tableName} LIMIT 100`)}`)}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             <ExternalLink className="h-3.5 w-3.5" />Open in Query Lab

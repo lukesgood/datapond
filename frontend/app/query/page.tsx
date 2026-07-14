@@ -57,7 +57,8 @@ export default function QueryPage() {
   const [schemaOpen, setSchemaOpen]         = useState(true)
   const [schemaWidth, setSchemaWidth]       = useState(224)
   const [editorHeight, setEditorHeight]     = useState(240)
-  const [trinoStatus, setTrinoStatus]       = useState<"healthy" | "unhealthy" | "unknown">("unknown")
+  const [engineName, setEngineName]         = useState("Trino")
+  const [engineStatus, setEngineStatus]     = useState<"healthy" | "unhealthy" | "unknown" | "managed">("unknown")
 
   // AI Assistant
   const [aiQuestion, setAiQuestion]         = useState("")
@@ -68,15 +69,19 @@ export default function QueryPage() {
   const isResizingEditor   = useRef(false)
   const { toast } = useToast()
 
-  // Fetch engine status on mount
+  // Fetch the active query engine + its status on mount
   useEffect(() => {
-    fetch("/api/services")
-      .then(r => r.json())
-      .then((services: { name: string; status: string }[]) => {
-        const trino = services.find(s => s.name === "trino")
-        setTrinoStatus((trino?.status as "healthy" | "unhealthy" | "unknown") ?? "unknown")
-      })
-      .catch(() => setTrinoStatus("unknown"))
+    fetch("/api/capabilities").then(r => r.ok ? r.json() : null).then(caps => {
+      const eng = caps?.query_engine === "athena" ? "Athena" : "Trino"
+      setEngineName(eng)
+      const svcName = eng === "Athena" ? "Amazon Athena" : "trino"
+      fetch("/api/services").then(r => r.json())
+        .then((services: { name: string; status: string }[]) => {
+          const svc = services.find(s => s.name === svcName)
+          setEngineStatus((svc?.status as any) ?? "unknown")
+        })
+        .catch(() => setEngineStatus("unknown"))
+    }).catch(() => {})
   }, [])
 
   // ── Schema panel horizontal resize ──────────────────────────────────────────
@@ -133,7 +138,7 @@ export default function QueryPage() {
       setQuery(data.sql)
       setAiExplanation(data.explanation)
       if (!data.has_ai) {
-        toast("Set ANTHROPIC_API_KEY to enable AI SQL generation", "info")
+        toast("Configure an AI provider in Settings → AI to enable AI SQL generation", "info")
       }
     } catch (e: any) {
       toast(e.message || "AI request failed", "error")
@@ -410,13 +415,13 @@ export default function QueryPage() {
                 <Badge
                   variant="outline"
                   className="text-[10px] h-4 px-1.5 font-normal gap-1"
-                  title={`Query engine: Trino (${trinoStatus})`}
+                  title={`Query engine: ${engineName} (${engineStatus})`}
                 >
                   <span className={`h-1.5 w-1.5 rounded-full inline-block ${
-                    trinoStatus === "healthy" ? "bg-emerald-500" :
-                    trinoStatus === "unhealthy" ? "bg-red-500" : "bg-yellow-400"
+                    engineStatus === "healthy" || engineStatus === "managed" ? "bg-emerald-500" :
+                    engineStatus === "unhealthy" ? "bg-red-500" : "bg-yellow-400"
                   }`} />
-                  Trino
+                  {engineName}
                 </Badge>
               </div>
               <div className="flex items-center gap-0.5">
