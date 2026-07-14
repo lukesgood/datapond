@@ -213,33 +213,33 @@ export default function LoginPage() {
 
     <div className={`min-h-screen flex ${networkError ? "pt-10" : ""}`}>
 
-      {/* ── Left panel ── */}
+      {/* ── Left panel — deep-pond signature (dp-gradient: cyan→blue→indigo) ── */}
       <div className="hidden lg:flex lg:w-[52%] relative flex-col justify-between overflow-hidden"
-        style={{ background: "linear-gradient(135deg, #0a0f1e 0%, #0d1f3c 50%, #0a1628 100%)" }}>
+        style={{ background: "linear-gradient(140deg, #04171c 0%, #071d2e 55%, #0a1430 100%)" }}>
 
         {/* Grid pattern */}
         <div className="absolute inset-0 opacity-[0.07]"
           style={{
-            backgroundImage: `linear-gradient(rgba(99,179,237,0.8) 1px, transparent 1px),
-                              linear-gradient(90deg, rgba(99,179,237,0.8) 1px, transparent 1px)`,
+            backgroundImage: `linear-gradient(rgba(34,211,238,0.8) 1px, transparent 1px),
+                              linear-gradient(90deg, rgba(34,211,238,0.8) 1px, transparent 1px)`,
             backgroundSize: "40px 40px",
           }} />
         <div className="absolute top-1/4 left-1/3 w-96 h-96 rounded-full opacity-10 blur-3xl"
-          style={{ background: "radial-gradient(circle, #3b82f6 0%, transparent 70%)" }} />
+          style={{ background: "radial-gradient(circle, #22d3ee 0%, transparent 70%)" }} />
         <div className="absolute bottom-1/3 right-1/4 w-64 h-64 rounded-full opacity-10 blur-3xl"
-          style={{ background: "radial-gradient(circle, #6366f1 0%, transparent 70%)" }} />
+          style={{ background: "radial-gradient(circle, #818cf8 0%, transparent 70%)" }} />
 
         <div className="relative z-10 flex flex-col justify-between h-full px-12 py-10">
           {/* Logo */}
           <div>
             <div className="flex items-center gap-3 mb-1">
               <div className="h-9 w-9 rounded-xl flex items-center justify-center"
-                style={{ background: "linear-gradient(135deg, #3b82f6, #6366f1)" }}>
+                style={{ background: "linear-gradient(120deg, #22d3ee 0%, #60a5fa 55%, #818cf8 100%)" }}>
                 <Layers className="h-5 w-5 text-white" />
               </div>
               <span className="text-2xl font-bold tracking-tight text-white">DataPond</span>
             </div>
-            <p className="text-sm ml-12" style={{ color: "#64748b" }}>AWS-Native AI Data Foundation</p>
+            <p className="text-sm ml-12" style={{ color: "#7c93a3" }}>AWS-Native AI Data Foundation</p>
           </div>
 
           {/* Hero */}
@@ -247,11 +247,11 @@ export default function LoginPage() {
             <div>
               <h2 className="text-4xl font-bold text-white leading-tight mb-3">
                 Your Data.<br />
-                <span style={{ background: "linear-gradient(90deg, #60a5fa, #a78bfa)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+                <span style={{ background: "linear-gradient(90deg, #22d3ee, #818cf8)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
                   Your AI Foundation.
                 </span>
               </h2>
-              <p style={{ color: "#94a3b8" }} className="text-base leading-relaxed max-w-sm">
+              <p style={{ color: "#9fb3bf" }} className="text-base leading-relaxed max-w-sm">
                 The S3 + Bedrock native data foundation that fuels production RAG and agent applications on AWS — with governance built in.
               </p>
             </div>
@@ -259,19 +259,19 @@ export default function LoginPage() {
               {FEATURES.map(({ icon: Icon, title, desc }) => (
                 <div key={title} className="flex items-start gap-3">
                   <div className="h-8 w-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
-                    style={{ background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.25)" }}>
-                    <Icon className="h-4 w-4" style={{ color: "#60a5fa" }} />
+                    style={{ background: "rgba(34,211,238,0.14)", border: "1px solid rgba(34,211,238,0.22)" }}>
+                    <Icon className="h-4 w-4" style={{ color: "#22d3ee" }} />
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-white">{title}</p>
-                    <p className="text-xs leading-relaxed mt-0.5" style={{ color: "#64748b" }}>{desc}</p>
+                    <p className="text-xs leading-relaxed mt-0.5" style={{ color: "#7c93a3" }}>{desc}</p>
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          <p className="text-xs" style={{ color: "#334155" }}>
+          <p className="text-xs" style={{ color: "#3f5561" }}>
             © 2026 DataPond · AWS-Native AI Data Foundation
           </p>
         </div>
@@ -284,7 +284,7 @@ export default function LoginPage() {
           {/* Mobile logo */}
           <div className="lg:hidden text-center space-y-1">
             <div className="inline-flex items-center justify-center h-12 w-12 rounded-2xl mx-auto mb-2"
-              style={{ background: "linear-gradient(135deg, #3b82f6, #6366f1)" }}>
+              style={{ background: "linear-gradient(120deg, #22d3ee 0%, #60a5fa 55%, #818cf8 100%)" }}>
               <Layers className="h-6 w-6 text-white" />
             </div>
             <h1 className="text-2xl font-bold">DataPond</h1>
@@ -360,14 +360,6 @@ export default function LoginPage() {
               </Button>
             )}
           </form>
-
-          <div className="rounded-lg border bg-muted/40 px-4 py-3 space-y-1">
-            <p className="text-xs font-medium text-muted-foreground">Default credentials</p>
-            <div className="flex items-center gap-4 text-xs">
-              <span>Username: <code className="font-mono bg-muted px-1 py-0.5 rounded">admin</code></span>
-              <span>Password: <code className="font-mono bg-muted px-1 py-0.5 rounded">datapond123</code></span>
-            </div>
-          </div>
         </div>
       </div>
     </div>

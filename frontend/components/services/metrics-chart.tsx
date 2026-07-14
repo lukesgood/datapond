@@ -58,8 +58,10 @@ export function MetricsChart({ metrics, loading = false }: MetricsChartProps) {
     )
   }
 
-  // Generate mock history data if not available
-  const historyData = metrics.history || generateMockHistory(metrics)
+  // Show a real time-series only when the backend actually collected one.
+  // We never synthesize a trend — an empty history reads as "not collected".
+  const historyData = metrics.history ?? []
+  const hasHistory = historyData.length > 0
 
   return (
     <div className="space-y-4">
@@ -134,95 +136,109 @@ export function MetricsChart({ metrics, loading = false }: MetricsChartProps) {
         </Card>
       </div>
 
-      {/* CPU Usage Chart */}
-      <Card>
-        <CardHeader>
-          <CardTitle>CPU Usage History</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={historyData}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-              <XAxis
-                dataKey="timestamp"
-                className="text-xs"
-                tickFormatter={(value) => {
-                  const date = new Date(value)
-                  return date.toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })
-                }}
-              />
-              <YAxis className="text-xs" domain={[0, 100]} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "hsl(var(--popover))",
-                  border: "1px solid hsl(var(--border))",
-                  borderRadius: "var(--radius)",
-                }}
-                labelFormatter={(value) => {
-                  return new Date(value).toLocaleString()
-                }}
-              />
-              <Legend />
-              <Line
-                type="monotone"
-                dataKey="cpu"
-                stroke="hsl(var(--primary))"
-                strokeWidth={2}
-                name="CPU %"
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+      {/* Usage history — only when the backend supplied a real series */}
+      {hasHistory ? (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle>CPU Usage History</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={historyData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis
+                    dataKey="timestamp"
+                    className="text-xs"
+                    stroke="var(--muted-foreground)"
+                    tickFormatter={(value) => {
+                      const date = new Date(value)
+                      return date.toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    }}
+                  />
+                  <YAxis className="text-xs" stroke="var(--muted-foreground)" domain={[0, 100]} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "var(--popover)",
+                      border: "1px solid var(--border)",
+                      color: "var(--popover-foreground)",
+                      borderRadius: "var(--radius)",
+                    }}
+                    labelFormatter={(value) => {
+                      return new Date(value).toLocaleString()
+                    }}
+                  />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="cpu"
+                    stroke="var(--chart-1)"
+                    strokeWidth={2}
+                    name="CPU %"
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
 
-      {/* Memory Usage Chart */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Memory Usage History</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={historyData}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-              <XAxis
-                dataKey="timestamp"
-                className="text-xs"
-                tickFormatter={(value) => {
-                  const date = new Date(value)
-                  return date.toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })
-                }}
-              />
-              <YAxis className="text-xs" domain={[0, 100]} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "hsl(var(--popover))",
-                  border: "1px solid hsl(var(--border))",
-                  borderRadius: "var(--radius)",
-                }}
-                labelFormatter={(value) => {
-                  return new Date(value).toLocaleString()
-                }}
-              />
-              <Legend />
-              <Line
-                type="monotone"
-                dataKey="memory"
-                stroke="hsl(var(--chart-2))"
-                strokeWidth={2}
-                name="Memory %"
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Memory Usage History</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={historyData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis
+                    dataKey="timestamp"
+                    className="text-xs"
+                    stroke="var(--muted-foreground)"
+                    tickFormatter={(value) => {
+                      const date = new Date(value)
+                      return date.toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    }}
+                  />
+                  <YAxis className="text-xs" stroke="var(--muted-foreground)" domain={[0, 100]} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "var(--popover)",
+                      border: "1px solid var(--border)",
+                      color: "var(--popover-foreground)",
+                      borderRadius: "var(--radius)",
+                    }}
+                    labelFormatter={(value) => {
+                      return new Date(value).toLocaleString()
+                    }}
+                  />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="memory"
+                    stroke="var(--chart-2)"
+                    strokeWidth={2}
+                    name="Memory %"
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        </>
+      ) : (
+        <Card>
+          <CardContent className="p-8 text-center text-sm text-muted-foreground">
+            Usage history isn&apos;t being collected for this service yet — the
+            cards above show the latest sampled values.
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
@@ -252,23 +268,4 @@ function formatBytes(bytes: number): string {
   const sizes = ["B", "KB", "MB", "GB"]
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
-}
-
-function generateMockHistory(current: MetricsData) {
-  const now = Date.now()
-  const data = []
-
-  for (let i = 60; i >= 0; i--) {
-    const timestamp = new Date(now - i * 60000).toISOString()
-    const cpu = (current.cpu_usage || 0) + (Math.random() - 0.5) * 20
-    const memory = (current.memory_usage || 0) + (Math.random() - 0.5) * 15
-
-    data.push({
-      timestamp,
-      cpu: Math.max(0, Math.min(100, cpu)),
-      memory: Math.max(0, Math.min(100, memory)),
-    })
-  }
-
-  return data
 }

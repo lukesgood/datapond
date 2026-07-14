@@ -32,16 +32,18 @@ interface ChartRendererProps {
   }
 }
 
+// Draw from the design-system chart ramp (deep-pond tokens) so query
+// visualizations stay cohesive with the rest of the console. The ramp has
+// five stops; series beyond that wrap back through it.
 const DEFAULT_COLORS = [
-  "#3b82f6", // blue-500
-  "#10b981", // emerald-500
-  "#f59e0b", // amber-500
-  "#8b5cf6", // violet-500
-  "#ef4444", // red-500
-  "#06b6d4", // cyan-500
-  "#ec4899", // pink-500
-  "#14b8a6", // teal-500
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
 ]
+const GRID_STROKE = "var(--border)"
+const AXIS_STROKE = "var(--muted-foreground)"
 
 export function ChartRenderer({
   data,
@@ -69,24 +71,25 @@ export function ChartRenderer({
     return (
       <ResponsiveContainer width="100%" height={400}>
         <LineChart {...commonProps}>
-          {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
+          {showGrid && <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />}
           <XAxis
             dataKey={xAxis}
-            stroke="#6b7280"
+            stroke={AXIS_STROKE}
             fontSize={12}
             tickLine={false}
             axisLine={false}
           />
           <YAxis
-            stroke="#6b7280"
+            stroke={AXIS_STROKE}
             fontSize={12}
             tickLine={false}
             axisLine={false}
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: "white",
-              border: "1px solid #e5e7eb",
+              backgroundColor: "var(--popover)",
+              border: "1px solid var(--border)",
+              color: "var(--popover-foreground)",
               borderRadius: "6px",
               boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
             }}
@@ -109,24 +112,25 @@ export function ChartRenderer({
     return (
       <ResponsiveContainer width="100%" height={400}>
         <BarChart {...commonProps}>
-          {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
+          {showGrid && <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />}
           <XAxis
             dataKey={xAxis}
-            stroke="#6b7280"
+            stroke={AXIS_STROKE}
             fontSize={12}
             tickLine={false}
             axisLine={false}
           />
           <YAxis
-            stroke="#6b7280"
+            stroke={AXIS_STROKE}
             fontSize={12}
             tickLine={false}
             axisLine={false}
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: "white",
-              border: "1px solid #e5e7eb",
+              backgroundColor: "var(--popover)",
+              border: "1px solid var(--border)",
+              color: "var(--popover-foreground)",
               borderRadius: "6px",
               boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
             }}
@@ -142,24 +146,25 @@ export function ChartRenderer({
     return (
       <ResponsiveContainer width="100%" height={400}>
         <AreaChart {...commonProps}>
-          {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
+          {showGrid && <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />}
           <XAxis
             dataKey={xAxis}
-            stroke="#6b7280"
+            stroke={AXIS_STROKE}
             fontSize={12}
             tickLine={false}
             axisLine={false}
           />
           <YAxis
-            stroke="#6b7280"
+            stroke={AXIS_STROKE}
             fontSize={12}
             tickLine={false}
             axisLine={false}
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: "white",
-              border: "1px solid #e5e7eb",
+              backgroundColor: "var(--popover)",
+              border: "1px solid var(--border)",
+              color: "var(--popover-foreground)",
               borderRadius: "6px",
               boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
             }}
@@ -198,8 +203,9 @@ export function ChartRenderer({
           </Pie>
           <Tooltip
             contentStyle={{
-              backgroundColor: "white",
-              border: "1px solid #e5e7eb",
+              backgroundColor: "var(--popover)",
+              border: "1px solid var(--border)",
+              color: "var(--popover-foreground)",
               borderRadius: "6px",
               boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
             }}
