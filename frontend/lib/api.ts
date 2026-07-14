@@ -145,14 +145,18 @@ export interface GovernanceStats {
   blocked_count: number
 }
 
+// Matches backend AuditLogItem (backend/app/api/governance.py) — derived from
+// query_history. event_type ∈ query_executed | query_error | query_timeout.
 export interface AuditLogItem {
   id: string
   event_type: string
-  user_email: string
-  resource: string
-  action: string
-  result: string
-  details: Record<string, any>
+  query_text: string | null
+  user_id: string | null
+  status: string
+  execution_time_ms: number | null
+  rows_returned: number | null
+  catalog: string | null
+  schema_name: string | null
   created_at: string
 }
 

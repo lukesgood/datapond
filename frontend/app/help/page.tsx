@@ -134,10 +134,10 @@ const resources = [
     href: "/docs/trino-sql",
   },
   {
-    title: "API Reference",
-    description: "Complete REST API documentation",
+    title: "Documentation",
+    description: "Guides and reference docs",
     icon: BookOpen,
-    href: "/api/docs",
+    href: "/docs",
   },
 ]
 
