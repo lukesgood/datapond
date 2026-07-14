@@ -1718,6 +1718,9 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
                             connector_name=conn_info["name"],
                         ))
 
+            # Connector → RAG sink: nudge matching fresh collections to re-embed.
+            await _invalidate_sink_collections(pool, results)
+
         except Exception as e:
             # Save failed history entry so errors are always recorded
             try:
@@ -1767,6 +1770,74 @@ async def sync_stream(connection_id: str, sync_mode: str = "full"):
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+# Connector → RAG sink: when a connector sync writes new rows into the
+# `default` namespace, any RAG collection kept fresh (refresh_enabled) whose
+# saved source is an iceberg table in that namespace matching a synced table is
+# marked stale (last_refreshed_at = NULL). The existing in-process rag_scheduler
+# then re-embeds it on its next tick — advisory-locked and replace-by-source_group,
+# so this stays non-blocking, idempotent, and multi-replica-safe. We only
+# invalidate here; we never re-embed inline. Gated by RAG_SINK_ENABLED.
+#
+# NOTE (verified against ai_vectors.schedule_ingest): refresh_source is stored via
+# model_dump(by_alias=True), so the iceberg schema key in the JSONB is 'schema'
+# (SourceIngest.db_schema has alias='schema'), NOT 'db_schema'. Connector syncs
+# write to datapond.default.<table>, so the namespace to match is 'default'.
+def _rag_sink_enabled() -> bool:
+    return os.getenv("RAG_SINK_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _synced_namespace_table_pairs(results: list) -> list:
+    """Derive the (namespace, table) each successful sync wrote to, from the
+    `target` field ("catalog.namespace.table", e.g. datapond.default.orders).
+    Deriving the namespace from target — rather than hardcoding 'default' —
+    keeps the match exact even when a single-table sync overrides target_table
+    into another namespace. Falls back to the source table name if target is
+    malformed. Returns a sorted, de-duplicated list of (namespace, table)."""
+    pairs = set()
+    for tbl, tgt, ok, _rows, _st in results:
+        if not ok:
+            continue
+        parts = (tgt or "").split(".")
+        ns = parts[-2] if len(parts) >= 2 else "default"
+        name = parts[-1] if parts and parts[-1] else tbl
+        if ns and name:
+            pairs.add((ns, name))
+    return sorted(pairs)
+
+
+async def _invalidate_sink_collections(pool, results: list) -> int:
+    """Mark fresh RAG collections stale when their iceberg source table was just
+    synced. `results` is a list of (table, target, ok, rows, status). Returns the
+    number of collections invalidated. Best-effort: never raises to the caller."""
+    if not _rag_sink_enabled():
+        return 0
+    pairs = _synced_namespace_table_pairs(results)
+    if not pairs:
+        return 0
+    namespaces = [ns for ns, _ in pairs]
+    tables = [t for _, t in pairs]
+    try:
+        async with pool.acquire() as c:
+            # Exact per-pair match: unnest the two parallel arrays into (ns, tbl)
+            # rows so schema and table must come from the SAME synced target.
+            res = await c.execute(
+                """UPDATE ai_collections
+                      SET last_refreshed_at = NULL
+                    WHERE refresh_enabled
+                      AND refresh_source->>'type' = 'iceberg'
+                      AND (refresh_source->>'schema', refresh_source->>'table')
+                          IN (SELECT ns, tbl FROM unnest($1::text[], $2::text[]) AS t(ns, tbl))""",
+                namespaces, tables,
+            )
+        n = int(str(res).split()[-1]) if str(res).startswith("UPDATE") else 0
+        if n:
+            logger.info(f"[rag-sink] invalidated {n} collection(s) after sync of {pairs}")
+        return n
+    except Exception as e:
+        logger.warning(f"[rag-sink] invalidation failed (non-fatal): {e}")
+        return 0
+
+
 async def _persist_sync_session(pool, connection_id: str, job_id: str,
                                 started_at: datetime, results: list, sync_mode) -> str:
     """Record a connector_sync_history session row and fire best-effort data
@@ -1782,6 +1853,8 @@ async def _persist_sync_session(pool, connection_id: str, job_id: str,
     success_count = sum(1 for _, _, ok, _, _ in results if ok)
     failed_count = len(results) - success_count
     total_rows = sum(rows for _, _, _, rows, _ in results)
+    # Connector → RAG sink: nudge matching fresh collections to re-embed.
+    await _invalidate_sink_collections(pool, results)
     mode_val = sync_mode.value if hasattr(sync_mode, "value") else str(sync_mode)
     table_details = [
         {"table": tbl, "target": tgt,

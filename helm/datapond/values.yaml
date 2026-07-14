@@ -102,6 +102,9 @@ backend:
   ragScheduler:
     enabled: true
     tickSeconds: 300
+    # Connector → RAG sink: on a connector sync, mark matching fresh collections
+    # stale so the scheduler re-embeds them promptly (event-driven freshness).
+    sinkEnabled: true
 
   service:
     type: ClusterIP
