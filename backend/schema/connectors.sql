@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS connector_connections (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
     last_sync_at TIMESTAMP,
     status VARCHAR(20) NOT NULL DEFAULT 'active',
+    schedule TEXT,
     CONSTRAINT check_status CHECK (status IN ('active', 'paused', 'error', 'testing'))
 );
 
