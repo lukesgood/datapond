@@ -155,6 +155,43 @@ async def _ensure_admin_exists():
 
 # ── Dependency: get current user from token ────────────────────────────────────
 
+# Re-validate a decoded token against the live users row on every request, so a
+# deactivated / deleted / role-changed account loses access before the 24h token
+# expiry (JWTs are otherwise unrevocable). Default on; ops can disable if the
+# per-request PK lookup ever matters (it's a single indexed Aurora read).
+AUTH_DB_RECHECK = os.getenv("AUTH_DB_RECHECK", "true").lower() in ("1", "true", "yes")
+
+
+async def _recheck_user(uid: str, claims: dict) -> Optional[dict]:
+    """Return the token identity with role refreshed from the DB, None to reject.
+
+    - malformed / non-UUID sub            -> None (bad token)
+    - user deleted or is_active = false   -> None (revoked access)
+    - DB unreachable (transient)          -> fall back to token claims (fail-OPEN
+      on infra error: the JWT is still cryptographically valid + unexpired, so a
+      DB blip must not 401 every request)
+    """
+    try:
+        uid_uuid = uuid.UUID(str(uid))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    try:
+        pool = await _get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT is_active, role FROM users WHERE id = $1", uid_uuid
+            )
+    except Exception as e:                       # infra error -> fail open
+        logger.warning("[auth] user recheck DB error (%s) — using token claims", e)
+        return claims
+    if row is None or not row["is_active"]:      # deleted / disabled -> reject
+        return None
+    # Refresh role from the DB so a privilege change (e.g. admin -> viewer) takes
+    # effect on the next request instead of at token expiry.
+    claims["role"] = row["role"] or claims["role"]
+    return claims
+
+
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ) -> Optional[dict]:
@@ -163,13 +200,16 @@ async def get_current_user(
         return None
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-        return {
-            "id": payload.get("sub"),
-            "username": payload.get("username"),
-            "role": payload.get("role", "viewer"),
-        }
     except JWTError:
         return None
+    claims = {
+        "id": payload.get("sub"),
+        "username": payload.get("username"),
+        "role": payload.get("role", "viewer"),
+    }
+    if not AUTH_DB_RECHECK or not claims["id"]:
+        return claims
+    return await _recheck_user(claims["id"], claims)
 
 
 async def require_user(
