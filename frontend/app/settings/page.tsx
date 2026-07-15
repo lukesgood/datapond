@@ -289,7 +289,6 @@ export default function SettingsPage() {
             <UserManagement />
           </TabsContent>
 
-          {/* ── AI ── */}
 
           {/* ── Security ── */}
           <TabsContent value="security" className="mt-5 space-y-5">
