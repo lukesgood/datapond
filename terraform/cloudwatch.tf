@@ -2,6 +2,12 @@
 # emits (app.metrics → CloudWatch namespace var.cloudwatch_metrics_namespace).
 # Turns the raw metrics into something watchable, and surfaces Athena spend as
 # dollars (BytesScanned ÷ 1 TB × $5). No agents, no node load.
+#
+# REGION COUPLING: CloudWatch metrics are regional. The backend emits into the
+# region from its Helm `s3.region` (metrics.py reads S3_REGION), while these
+# resources are created in the provider's var.aws_region. Keep the two equal —
+# if they diverge, this dashboard/alarm watch an empty namespace in the wrong
+# region. Both default to us-east-1.
 
 variable "cloudwatch_metrics_namespace" {
   type        = string
