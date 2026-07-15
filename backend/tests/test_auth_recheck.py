@@ -44,7 +44,7 @@ class _FakePool:
         self._row = row
         self._raise = raise_exc
 
-    def acquire(self):
+    def acquire(self, *a, **k):   # real asyncpg Pool.acquire accepts timeout=
         return _FakeConn(self._row, self._raise)
 
 
@@ -108,6 +108,14 @@ def test_get_current_user_rechecks_and_rejects_disabled(monkeypatch):
     monkeypatch.setattr(auth, "AUTH_DB_RECHECK", True)
     _patch_pool(monkeypatch, row={"is_active": False, "role": "admin"})
     assert _run(auth.get_current_user(_creds(_token()))) is None
+
+
+def test_get_current_user_rejects_token_without_sub(monkeypatch):
+    # a validly-signed token with no `sub` is an unrevocable identity -> reject
+    monkeypatch.setattr(auth, "AUTH_DB_RECHECK", True)
+    tok = jwt.encode({"username": "nosub", "role": "admin"},
+                     auth.SECRET_KEY, algorithm=auth.ALGORITHM)
+    assert _run(auth.get_current_user(_creds(tok))) is None
 
 
 def test_get_current_user_recheck_disabled_skips_db(monkeypatch):
