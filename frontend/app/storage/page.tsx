@@ -150,8 +150,13 @@ export default function StoragePage() {
   // a newly-created bucket would never appear (dead-end), and deleting the sole
   // warehouse bucket (e.g. datapond-iceberg) would break the platform. Hide the
   // create/delete actions in that case; browsing stays read-only and available.
-  const bucketLifecycleManaged =
-    overview?.endpoint === "aws-native" || (overview?.buckets?.length ?? 0) <= 1
+  // Native AWS: buckets are provisioned by the AWS account / Terraform, and the
+  // overview only lists the configured bucket(s) — so hide create/delete here.
+  // Self-hosted S3 (SeaweedFS/MinIO) enumerates all buckets and manages lifecycle
+  // in-app, so it keeps create/delete regardless of count.
+  // Unknown (loading) → treat as managed (fail-closed on mutations) so the
+  // controls don't flash then vanish on the foundation profile.
+  const bucketLifecycleManaged = !overview || overview.endpoint === "aws-native"
 
   return (
     <div className="flex-1 space-y-5 px-6 py-5">
