@@ -190,6 +190,8 @@ class BaseConnector(ABC):
         last_value: Optional[Any] = None,
         on_step=None,
         partition_spec: Optional[list] = None,
+        key_columns: Optional[list] = None,
+        pii_columns: Optional[list] = None,
     ) -> SyncJobStatus:
         """
         Synchronize data to Iceberg table.
@@ -200,6 +202,8 @@ class BaseConnector(ABC):
             sync_mode: Synchronization mode
             incremental_column: Column for incremental sync
             last_value: Last synced value for incremental sync
+            key_columns: dedupe keys for upsert mode (None -> overwrite)
+            pii_columns: columns to mask before writing to the lakehouse
 
         Returns:
             SyncJobStatus with execution details
