@@ -60,6 +60,10 @@ AUTH_EXEMPT = {
     "/api/auth/oidc/login",     # SSO redirect entry (pre-auth by definition)
     "/api/auth/oidc/callback",  # IdP redirects back here without our JWT
     "/api/capabilities",        # login page needs the sso flag pre-auth (feature flags only)
+    # Passkey LOGIN is a pre-auth flow (you have no JWT yet) — must bypass the
+    # bearer gate. (register/* stays protected: you enroll a passkey while logged in.)
+    "/api/auth/webauthn/authenticate/begin",
+    "/api/auth/webauthn/authenticate/complete",
 }
 
 class AuthMiddleware(BaseHTTPMiddleware):

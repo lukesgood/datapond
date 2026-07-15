@@ -76,6 +76,12 @@ litellm:
         litellm_params: { model: "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0", aws_region_name: "us-east-1" }
       - model_name: "chat"
         litellm_params: { model: "bedrock/us.anthropic.claude-sonnet-4-6", aws_region_name: "us-east-1" }
+  # Chat failover — if Haiku(default) throttles/errors, retry on Sonnet(chat) and
+  # vice versa, so a single Bedrock model isn't a SPOF for RAG / AI-SQL. (embed has
+  # a single Titan model, so no fallback.)
+  fallbacks:
+    - { "default": ["chat"] }
+    - { "chat": ["default"] }
   serviceAccount:
     roleArn: ""     # K3s: empty (node instance profile). Not EKS/IRSA.
 
