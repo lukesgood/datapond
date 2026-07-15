@@ -17,6 +17,12 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(32) NOT NULL DEFAULT 'vi
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS require_password_change BOOLEAN NOT NULL DEFAULT false;
 
+-- Connector schedule column (connectors.py list/detail queries SELECT it). connectors.sql
+-- is sentinel-guarded, so a DB bootstrapped before the column was added to that file needs
+-- it here (this migration runs every startup). IF EXISTS keeps it a no-op when connectors
+-- aren't installed.
+ALTER TABLE IF EXISTS connector_connections ADD COLUMN IF NOT EXISTS schedule TEXT;
+
 -- Roles + user-role assignment (loader reads these; falls back to users.role if absent)
 CREATE TABLE IF NOT EXISTS roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
