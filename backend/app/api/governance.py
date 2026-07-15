@@ -114,6 +114,7 @@ class PiiTableEntry(BaseModel):
 
 class PiiReport(BaseModel):
     tables: List[PiiTableEntry]
+    scanned: bool = False  # False = no real scan ran (engine unsupported/unreachable) — NOT "clean"
 
 
 class RiskDistribution(BaseModel):
@@ -232,8 +233,8 @@ def get_governance_stats(db: Session = Depends(get_db)):
             or 0
         )
 
-        pii_tables = _scan_pii_tables()
-        pii_detections = sum(len(t.pii_columns) for t in pii_tables)
+        pii_tables = _scan_pii_tables()  # None if no scan ran
+        pii_detections = sum(len(t.pii_columns) for t in pii_tables) if pii_tables else 0
 
         return GovernanceStats(
             queries_today=queries_today,
@@ -245,18 +246,26 @@ def get_governance_stats(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to fetch governance stats: {exc}")
 
 
-def _scan_pii_tables() -> List[PiiTableEntry]:
+def _scan_pii_tables() -> Optional[List[PiiTableEntry]]:
     """
     Scan columns of tables in the active query engine's catalog for PII patterns.
 
-    Uses Trino information_schema.columns when a Trino engine is wired up.
-    On the live AWS foundation profile (Athena/Glue, no Trino) — or on any
-    failure/empty result — returns an empty list. NEVER fabricates rows:
-    an empty result means "no scan could be run", not "no PII found".
+    Returns:
+      - a list (possibly empty) when a real Trino scan RAN — [] means "scanned,
+        no PII columns found".
+      - None when a scan COULD NOT run (engine isn't Trino, package missing, or
+        Trino unreachable). None ≠ []: the caller must surface "not scanned",
+        never "clean". NEVER fabricates rows.
     """
+    # Skip entirely on a non-Trino engine (e.g. the live Athena/Glue foundation)
+    # so we don't attempt a doomed 10s Trino connection on every governance load.
+    engine = os.getenv("QUERY_ENGINE", "trino").strip().lower()
+    if engine != "trino":
+        logger.info("governance/pii-report: query engine is %s (not trino); no PII scan available", engine)
+        return None
     if not TRINO_AVAILABLE:
         logger.info("governance/pii-report: trino package not installed; no PII scan available on this engine")
-        return []
+        return None
 
     try:
         conn = trino_connect(
@@ -300,8 +309,8 @@ def _scan_pii_tables() -> List[PiiTableEntry]:
         return result
 
     except Exception as exc:
-        logger.warning("governance/pii-report: Trino unavailable (%s); returning empty result (no fabricated data)", exc)
-        return []
+        logger.warning("governance/pii-report: Trino unavailable (%s); no scan (no fabricated data)", exc)
+        return None
 
 
 @router.get("/governance/pii-report", response_model=PiiReport)
@@ -314,7 +323,8 @@ def get_pii_report():
     Athena/Glue foundation profile, which has no Trino information_schema
     to scan) or when the scan finds nothing.
     """
-    return PiiReport(tables=_scan_pii_tables())
+    scanned = _scan_pii_tables()
+    return PiiReport(tables=scanned or [], scanned=scanned is not None)
 
 
 # ── RLS / Masking policy management (P2) ──────────────────────────────────────

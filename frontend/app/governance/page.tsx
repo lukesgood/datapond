@@ -427,6 +427,7 @@ export default function GovernancePage() {
 
   // pii
   const [piiTables, setPiiTables] = useState<PiiTable[]>([])
+  const [piiScanned, setPiiScanned] = useState(false)  // did a real scan run? (vs engine unsupported)
   const [piiLoading, setPiiLoading] = useState(true)
 
   // ai safety
@@ -492,7 +493,7 @@ export default function GovernancePage() {
         }
       }
       if (reportChecks.pii) {
-        sections.pii_report = { tables: piiTables }
+        sections.pii_report = { scanned: piiScanned, tables: piiTables }
       }
 
       if (Object.keys(sections).length === 0) {
@@ -532,7 +533,7 @@ export default function GovernancePage() {
 
     fetch("/api/governance/pii-report")
       .then((r) => r.json())
-      .then((d) => setPiiTables(d.tables ?? []))
+      .then((d) => { setPiiTables(d.tables ?? []); setPiiScanned(!!d.scanned) })
       .catch(() => {})
       .finally(() => setPiiLoading(false))
 
@@ -844,7 +845,7 @@ export default function GovernancePage() {
                 {piiLoading ? (
                   <Skeleton className="h-8 w-12 mt-1" />
                 ) : (
-                  <p className="text-3xl font-bold mt-1 text-blue-500">{piiTables.length}</p>
+                  <p className="dp-num text-3xl font-bold mt-1 text-primary">{piiScanned ? piiTables.length : "—"}</p>
                 )}
               </CardContent>
             </Card>
@@ -854,7 +855,7 @@ export default function GovernancePage() {
                 {piiLoading ? (
                   <Skeleton className="h-8 w-12 mt-1" />
                 ) : (
-                  <p className="text-3xl font-bold mt-1 text-violet-500">{piiColumnCount}</p>
+                  <p className="dp-num text-3xl font-bold mt-1 text-[var(--chart-4)]">{piiScanned ? piiColumnCount : "—"}</p>
                 )}
               </CardContent>
             </Card>
@@ -884,7 +885,7 @@ export default function GovernancePage() {
                   ) : piiTables.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={2} className="text-center py-12 text-muted-foreground">
-                        {caps.query_engine === "trino"
+                        {piiScanned
                           ? "0 tables scanned — no PII columns detected."
                           : "No PII scan available on the active query engine" +
                             (typeof caps.query_engine === "string" && caps.query_engine
