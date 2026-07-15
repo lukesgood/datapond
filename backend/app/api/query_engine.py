@@ -77,7 +77,11 @@ class AthenaEngine:
         rows = cur.fetchall()
         cols = [d[0] for d in cur.description] if cur.description else []
         # Cost-governance metric: bytes scanned is directly billable ($5/TB).
-        scanned = getattr(cur, "data_scanned_in_bytes", None)
+        # Read defensively — nothing here may affect the query result.
+        try:
+            scanned = getattr(cur, "data_scanned_in_bytes", None)
+        except Exception:
+            scanned = None
         cur.close(); conn.close()
         try:
             from app.metrics import emit
