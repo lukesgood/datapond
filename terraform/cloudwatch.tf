@@ -24,12 +24,36 @@ variable "athena_daily_scan_alarm_tb" {
 variable "alarm_sns_topic_arn" {
   type        = string
   default     = ""
-  description = "Optional SNS topic ARN to notify on alarm. Empty = alarm changes state only (visible in console, no notification)."
+  description = "Pre-existing SNS topic ARN to notify on alarm. Ignored when alarm_email is set (a topic is created). Empty + no alarm_email = alarm changes state only."
+}
+
+variable "alarm_email" {
+  type        = string
+  default     = ""
+  description = "Email to notify on alarms. When set, a `<prefix>-alarms` SNS topic + email subscription are created (the recipient must confirm the AWS subscription email once)."
+}
+
+# Alarm notification topic — created only when an alarm_email is provided.
+resource "aws_sns_topic" "alarms" {
+  count = var.alarm_email == "" ? 0 : 1
+  name  = "${var.name_prefix}-alarms"
+}
+
+resource "aws_sns_topic_subscription" "alarm_email" {
+  count     = var.alarm_email == "" ? 0 : 1
+  topic_arn = aws_sns_topic.alarms[0].arn
+  protocol  = "email"
+  endpoint  = var.alarm_email
 }
 
 locals {
   cw_ns          = var.cloudwatch_metrics_namespace
   athena_scan_th = var.athena_daily_scan_alarm_tb * 1000000000000 # TB → bytes
+  # Prefer the topic we create for alarm_email; else a pre-existing ARN; else none.
+  # `one()` yields null when the topic isn't created (count=0) — avoids the
+  # `[0]`-on-count-0 index error.
+  sns_from_email  = one(aws_sns_topic.alarms[*].arn)
+  alarm_topic_arn = local.sns_from_email != null ? local.sns_from_email : var.alarm_sns_topic_arn
 }
 
 resource "aws_cloudwatch_dashboard" "datapond" {
@@ -97,10 +121,15 @@ resource "aws_cloudwatch_metric_alarm" "athena_daily_scan" {
   threshold           = local.athena_scan_th
   comparison_operator = "GreaterThanThreshold"
   treat_missing_data  = "notBreaching"
-  alarm_actions       = var.alarm_sns_topic_arn == "" ? [] : [var.alarm_sns_topic_arn]
-  ok_actions          = var.alarm_sns_topic_arn == "" ? [] : [var.alarm_sns_topic_arn]
+  alarm_actions       = local.alarm_topic_arn == "" ? [] : [local.alarm_topic_arn]
+  ok_actions          = local.alarm_topic_arn == "" ? [] : [local.alarm_topic_arn]
 }
 
 output "cloudwatch_dashboard_name" {
   value = aws_cloudwatch_dashboard.datapond.dashboard_name
+}
+
+output "alarm_sns_topic_arn" {
+  value       = local.alarm_topic_arn
+  description = "SNS topic wired to the CloudWatch alarms (empty when no alarm_email / pre-existing ARN)."
 }
