@@ -379,9 +379,9 @@ class RlsPreviewIn(BaseModel):
 
 async def _require_admin(user: Optional[dict]) -> dict:
     if not _RLS_ADMIN_OK:
-        raise HTTPException(status_code=503, detail="RLS 관리 비활성(의존성 누락)")
+        raise HTTPException(status_code=503, detail="RLS management disabled (missing dependency)")
     if not user:
-        raise HTTPException(status_code=401, detail="인증 필요")
+        raise HTTPException(status_code=401, detail="Authentication required")
     # JWT role or user_roles must include admin / security.manage_rls
     if user.get("role") == "admin":
         return user
@@ -391,7 +391,7 @@ async def _require_admin(user: Optional[dict]) -> dict:
             return user
     except Exception:
         pass
-    raise HTTPException(status_code=403, detail="admin 권한 필요")
+    raise HTTPException(status_code=403, detail="Admin privileges required")
 
 
 def _validate_bool_expr(expr: str) -> None:
@@ -400,7 +400,7 @@ def _validate_bool_expr(expr: str) -> None:
         import sqlglot
         sqlglot.parse_one(f"SELECT 1 WHERE {expr}", read="trino")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"filter_expression 파싱 실패: {e}")
+        raise HTTPException(status_code=400, detail=f"filter_expression failed to parse: {e}")
 
 
 @router.get("/governance/roles")
@@ -465,7 +465,7 @@ async def create_rls_policy(body: RlsPolicyIn, user: Optional[dict] = Depends(_g
                        SELECT $1, id, true FROM roles WHERE name = $2
                        ON CONFLICT (policy_id, role_id) DO UPDATE SET is_exempt = true""", pid, rn)
             await _audit_policy_event(conn, admin, "rls_policy_created", str(pid), body.name)
-    return {"id": str(pid), "message": "RLS 정책 생성됨"}
+    return {"id": str(pid), "message": "RLS policy created"}
 
 
 @router.patch("/governance/rls/policies/{policy_id}")
@@ -480,7 +480,7 @@ async def update_rls_policy(policy_id: str, body: dict, user: Optional[dict] = D
         if col in body:
             sets.append(f"{col} = ${idx}"); vals.append(body[col]); idx += 1
     if not sets:
-        raise HTTPException(status_code=400, detail="변경할 항목 없음")
+        raise HTTPException(status_code=400, detail="No fields to update")
     vals.append(_uuid.UUID(policy_id))
     pool = await _rls_loader._get_pool()
     async with pool.acquire() as conn:
@@ -488,8 +488,8 @@ async def update_rls_policy(policy_id: str, body: dict, user: Optional[dict] = D
             f"UPDATE rls_policies SET {', '.join(sets)}, updated_at = NOW() WHERE id = ${idx}", *vals)
         await _audit_policy_event(conn, admin, "rls_policy_updated", policy_id, None)
     if res == "UPDATE 0":
-        raise HTTPException(status_code=404, detail="정책 없음")
-    return {"message": "RLS 정책 수정됨"}
+        raise HTTPException(status_code=404, detail="Policy not found")
+    return {"message": "RLS policy updated"}
 
 
 @router.delete("/governance/rls/policies/{policy_id}")
@@ -501,8 +501,8 @@ async def delete_rls_policy(policy_id: str, user: Optional[dict] = Depends(_get_
         res = await conn.execute("DELETE FROM rls_policies WHERE id = $1", _uuid.UUID(policy_id))
         await _audit_policy_event(conn, admin, "rls_policy_deleted", policy_id, None)
     if res == "DELETE 0":
-        raise HTTPException(status_code=404, detail="정책 없음")
-    return {"message": "RLS 정책 삭제됨"}
+        raise HTTPException(status_code=404, detail="Policy not found")
+    return {"message": "RLS policy deleted"}
 
 
 @router.get("/governance/masking/policies")
@@ -525,7 +525,7 @@ async def create_mask_policy(body: MaskPolicyIn, user: Optional[dict] = Depends(
     admin = await _require_admin(user)
     valid = {"full", "partial_email", "partial_ssn", "partial_phone", "hash", "null", "custom"}
     if body.masking_type not in valid:
-        raise HTTPException(status_code=400, detail=f"masking_type은 {sorted(valid)} 중 하나")
+        raise HTTPException(status_code=400, detail=f"masking_type must be one of {sorted(valid)}")
     pool = await _rls_loader._get_pool()
     import uuid as _uuid
     async with pool.acquire() as conn:
@@ -544,7 +544,7 @@ async def create_mask_policy(body: MaskPolicyIn, user: Optional[dict] = Depends(
                     """INSERT INTO masking_policy_roles (policy_id, role_id, is_exempt)
                        SELECT $1, id, false FROM roles WHERE name = $2 ON CONFLICT DO NOTHING""", mid, rn)
             await _audit_policy_event(conn, admin, "masking_policy_created", str(mid), body.name)
-    return {"id": str(mid), "message": "마스킹 정책 생성됨"}
+    return {"id": str(mid), "message": "Masking policy created"}
 
 
 @router.delete("/governance/masking/policies/{policy_id}")
@@ -556,8 +556,8 @@ async def delete_mask_policy(policy_id: str, user: Optional[dict] = Depends(_get
         res = await conn.execute("DELETE FROM column_masking_policies WHERE id = $1", _uuid.UUID(policy_id))
         await _audit_policy_event(conn, admin, "masking_policy_deleted", policy_id, None)
     if res == "DELETE 0":
-        raise HTTPException(status_code=404, detail="정책 없음")
-    return {"message": "마스킹 정책 삭제됨"}
+        raise HTTPException(status_code=404, detail="Policy not found")
+    return {"message": "Masking policy deleted"}
 
 
 @router.post("/governance/rls/preview")
@@ -665,12 +665,12 @@ async def apply_trino_rules(user: Optional[dict] = Depends(_get_current_user)):
     except Exception as e:
         logger.warning("apply trino rules failed: %s", e)
         raise HTTPException(status_code=503,
-                            detail=f"ConfigMap '{cm_name}' 갱신 실패(RBAC/배선 확인): {e}")
+                            detail=f"ConfigMap '{cm_name}' update failed (check RBAC/wiring): {e}")
     pool = await _rls_loader._get_pool()
     async with pool.acquire() as conn:
         await _audit_policy_event(conn, admin, "rls_policy_updated", cm_name, "trino-rules-apply")
     return {"applied": True, "configmap": cm_name, "summary": rules_summary(rules),
-            "note": "Trino security.refresh-period 주기 후 반영됩니다"}
+            "note": "Applied after the next Trino security.refresh-period interval"}
 
 
 async def _audit_policy_event(conn, admin: dict, event_type: str, target: str, name: Optional[str]) -> None:

@@ -325,6 +325,8 @@ async def get_me(user: dict = Depends(require_user)):
 @router.post("/auth/setup")
 async def setup_password(request: SetupRequest, user: dict = Depends(require_admin)):
     """Admin: set password for a user (or create user)."""
+    if len(request.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     hashed = _hash_password(request.password)
     pool = await _get_pool()
     async with pool.acquire() as conn:

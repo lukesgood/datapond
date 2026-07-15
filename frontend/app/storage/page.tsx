@@ -145,6 +145,19 @@ export default function StoragePage() {
 
   useEffect(() => { loadOverview() }, [])
 
+  // On native AWS (S3 via node instance profile / IRSA), bucket lifecycle is managed
+  // by the account/Terraform — the overview only lists the one configured bucket, so
+  // a newly-created bucket would never appear (dead-end), and deleting the sole
+  // warehouse bucket (e.g. datapond-iceberg) would break the platform. Hide the
+  // create/delete actions in that case; browsing stays read-only and available.
+  // Native AWS: buckets are provisioned by the AWS account / Terraform, and the
+  // overview only lists the configured bucket(s) — so hide create/delete here.
+  // Self-hosted S3 (SeaweedFS/MinIO) enumerates all buckets and manages lifecycle
+  // in-app, so it keeps create/delete regardless of count.
+  // Unknown (loading) → treat as managed (fail-closed on mutations) so the
+  // controls don't flash then vanish on the foundation profile.
+  const bucketLifecycleManaged = !overview || overview.endpoint === "aws-native"
+
   return (
     <div className="flex-1 space-y-5 px-6 py-5">
 
@@ -195,32 +208,45 @@ export default function StoragePage() {
 
         {/* Left: Bucket list */}
         <div className="space-y-3">
-          {/* Create bucket */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm">New Bucket</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="flex gap-2">
-                <Input
-                  value={newBucketName}
-                  onChange={e => setNewBucketName(e.target.value.toLowerCase().replace(/[^a-z0-9\-]/g, ""))}
-                  className="h-8 text-sm font-mono"
-                  placeholder="my-bucket"
-                  onKeyDown={e => e.key === "Enter" && handleCreateBucket()}
-                />
-                <Button size="sm" className="h-8 shrink-0 gap-1"
-                  onClick={handleCreateBucket}
-                  disabled={creating || !newBucketName.trim()}>
-                  {creating ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                </Button>
-              </div>
-              {actionError && <ErrorBox msg={actionError} />}
-              <p className="text-[11px] text-muted-foreground">
-                Lowercase letters, numbers, and hyphens only
-              </p>
-            </CardContent>
-          </Card>
+          {/* Create bucket — hidden when bucket lifecycle is managed by the AWS account/Terraform */}
+          {bucketLifecycleManaged ? (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">New Bucket</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-[11px] text-muted-foreground">
+                  Bucket lifecycle is managed by your AWS account/Terraform on this profile — create buckets there.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">New Bucket</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <div className="flex gap-2">
+                  <Input
+                    value={newBucketName}
+                    onChange={e => setNewBucketName(e.target.value.toLowerCase().replace(/[^a-z0-9\-]/g, ""))}
+                    className="h-8 text-sm font-mono"
+                    placeholder="my-bucket"
+                    onKeyDown={e => e.key === "Enter" && handleCreateBucket()}
+                  />
+                  <Button size="sm" className="h-8 shrink-0 gap-1"
+                    onClick={handleCreateBucket}
+                    disabled={creating || !newBucketName.trim()}>
+                    {creating ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                  </Button>
+                </div>
+                {actionError && <ErrorBox msg={actionError} />}
+                <p className="text-[11px] text-muted-foreground">
+                  Lowercase letters, numbers, and hyphens only
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Bucket list */}
           <Card>
@@ -282,14 +308,16 @@ export default function StoragePage() {
                       <div className="flex flex-col items-center gap-1 shrink-0">
                         <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground/50
                           ${selectedBucket === b.name ? "text-primary" : ""}`} />
-                        <button
-                          onClick={e => { e.stopPropagation(); handleDeleteBucket(b.name) }}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity
-                            text-muted-foreground hover:text-destructive"
-                          aria-label="Delete bucket" title="Delete bucket"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
+                        {!bucketLifecycleManaged && (
+                          <button
+                            onClick={e => { e.stopPropagation(); handleDeleteBucket(b.name) }}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity
+                              text-muted-foreground hover:text-destructive"
+                            aria-label="Delete bucket" title="Delete bucket"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        )}
                       </div>
                     </button>
                   ))}

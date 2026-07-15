@@ -123,8 +123,8 @@ export function QueryHistorySidebar({ onQuerySelect, isOpen, onToggle }: Props) 
             ))}
           </div>
         ) : error ? (
-          <div className="text-center text-red-500 mt-8 px-4">
-            <Database className="h-12 w-12 mx-auto mb-2 text-red-300" />
+          <div className="text-center text-destructive mt-8 px-4">
+            <Database className="h-12 w-12 mx-auto mb-2 text-destructive/50" />
             <p className="text-sm font-medium">Failed to load history</p>
             <p className="text-xs mt-1">{error}</p>
             <Button
@@ -137,8 +137,8 @@ export function QueryHistorySidebar({ onQuerySelect, isOpen, onToggle }: Props) 
             </Button>
           </div>
         ) : filteredQueries.length === 0 ? (
-          <div className="text-center text-gray-500 mt-8 px-4">
-            <Database className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+          <div className="text-center text-muted-foreground mt-8 px-4">
+            <Database className="h-12 w-12 mx-auto mb-2 text-muted-foreground/40" />
             {queries.length === 0 ? (
               <p className="text-sm">No query history yet. Run a query to get started!</p>
             ) : filter === "favorites" ? (

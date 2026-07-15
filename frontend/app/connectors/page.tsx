@@ -269,8 +269,16 @@ export default function ConnectorsPage() {
   const handleSync = async (id: string) => {
     setActionLoading(id)
     try {
-      await fetch(`/api/connectors/${id}/sync`, { method: "POST" })
-      toast("Sync started — check connector details for progress", "info")
+      // This call runs the sync synchronously and only returns once it's done —
+      // so report actual completion/failure, not "started".
+      const res = await fetch(`/api/connectors/${id}/sync`, { method: "POST" })
+      if (res.ok) {
+        toast("Sync complete — check Catalog for the ingested results", "success")
+      } else {
+        let msg = `Sync failed (HTTP ${res.status})`
+        try { const d = await res.json(); if (d?.detail) msg = d.detail } catch {}
+        toast(msg, "error")
+      }
       await fetchConnections()
     } finally {
       setActionLoading(null)

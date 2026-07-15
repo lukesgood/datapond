@@ -79,12 +79,12 @@ export default function DashboardsPage() {
 
   const getChartIcon = (chartType: string) => {
     switch (chartType) {
-      case "line":  return <LineChart  className="h-4 w-4 text-blue-500" />
-      case "bar":   return <BarChart3  className="h-4 w-4 text-green-500" />
-      case "area":  return <AreaChart  className="h-4 w-4 text-purple-500" />
-      case "pie":   return <PieChart   className="h-4 w-4 text-orange-500" />
-      case "table": return <Table      className="h-4 w-4 text-gray-500" />
-      default:      return <TrendingUp className="h-4 w-4 text-blue-500" />
+      case "line":  return <LineChart  className="h-4 w-4 text-[var(--chart-1)]" />
+      case "bar":   return <BarChart3  className="h-4 w-4 text-[var(--chart-2)]" />
+      case "area":  return <AreaChart  className="h-4 w-4 text-[var(--chart-4)]" />
+      case "pie":   return <PieChart   className="h-4 w-4 text-[var(--chart-5)]" />
+      case "table": return <Table      className="h-4 w-4 text-muted-foreground" />
+      default:      return <TrendingUp className="h-4 w-4 text-primary" />
     }
   }
 
@@ -127,7 +127,7 @@ export default function DashboardsPage() {
                   <span className="text-xs text-muted-foreground">{label}</span>
                   <Icon className="h-3.5 w-3.5 text-muted-foreground" />
                 </div>
-                <div className="text-2xl font-bold">{value}</div>
+                <div className="text-2xl font-bold dp-num">{value}</div>
               </CardContent>
             </Card>
           ))}
@@ -204,7 +204,7 @@ export default function DashboardsPage() {
                         {chartType}
                       </Badge>
                       {dashboard.is_public
-                        ? <Globe className="h-3.5 w-3.5 text-blue-400" />
+                        ? <Globe className="h-3.5 w-3.5 text-primary" />
                         : <Lock className="h-3.5 w-3.5 text-muted-foreground/40" />}
                     </div>
                   </div>

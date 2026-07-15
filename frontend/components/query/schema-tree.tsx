@@ -15,9 +15,9 @@ interface Schema { name: string; tables: Table[] }
 interface Catalog { name: string; catalog_type?: string; schemas: Schema[] }
 
 const CATALOG_TYPE_BADGE: Record<string, { label: string; cls: string }> = {
-  managed:  { label: "M", cls: "text-emerald-700 bg-emerald-100" },
-  external: { label: "E", cls: "text-amber-700 bg-amber-100" },
-  foreign:  { label: "F", cls: "text-blue-700 bg-blue-100" },
+  managed:  { label: "M", cls: "text-[var(--dp-good)] bg-[var(--dp-good)]/10" },
+  external: { label: "E", cls: "text-[var(--dp-warn)] bg-[var(--dp-warn)]/10" },
+  foreign:  { label: "F", cls: "text-[var(--dp-managed)] bg-[var(--dp-managed)]/10" },
 }
 
 interface Props {
@@ -34,20 +34,20 @@ const SYSTEM_SCHEMAS = new Set([
 function typeTag(raw: string): { label: string; cls: string } {
   const t = raw.toLowerCase().split("(")[0].trim()
   if (["bigint","integer","int","smallint","tinyint","int64","int32"].includes(t))
-    return { label: "int", cls: "text-blue-600 bg-blue-50" }
+    return { label: "int", cls: "text-[var(--chart-1)] bg-[var(--chart-1)]/10" }
   if (["double","float","real","decimal","numeric","float64"].includes(t))
-    return { label: "dec", cls: "text-purple-600 bg-purple-50" }
+    return { label: "dec", cls: "text-[var(--chart-4)] bg-[var(--chart-4)]/10" }
   if (["varchar","char","text","string","character varying"].includes(t))
-    return { label: "str", cls: "text-green-700 bg-green-50" }
+    return { label: "str", cls: "text-[var(--dp-good)] bg-[var(--dp-good)]/10" }
   if (["boolean","bool"].includes(t))
-    return { label: "bool", cls: "text-orange-600 bg-orange-50" }
+    return { label: "bool", cls: "text-[var(--chart-5)] bg-[var(--chart-5)]/10" }
   if (["timestamp","date","time","timestamptz"].includes(t))
-    return { label: "date", cls: "text-rose-600 bg-rose-50" }
+    return { label: "date", cls: "text-[var(--chart-2)] bg-[var(--chart-2)]/10" }
   if (t === "array" || raw.startsWith("array"))
-    return { label: "arr", cls: "text-cyan-600 bg-cyan-50" }
+    return { label: "arr", cls: "text-[var(--chart-3)] bg-[var(--chart-3)]/10" }
   if (t === "row" || t === "map" || t === "json")
-    return { label: "obj", cls: "text-yellow-700 bg-yellow-50" }
-  return { label: t.slice(0, 4), cls: "text-gray-500 bg-gray-100" }
+    return { label: "obj", cls: "text-[var(--dp-managed)] bg-[var(--dp-managed)]/10" }
+  return { label: t.slice(0, 4), cls: "text-muted-foreground bg-muted" }
 }
 
 export function SchemaTree({ onTableSelect }: Props) {

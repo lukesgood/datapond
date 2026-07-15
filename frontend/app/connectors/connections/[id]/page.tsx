@@ -26,7 +26,7 @@ import { useCapability } from "@/lib/capabilities"
 
 // ── Tables Card (full-width, searchable) ──────────────────────────────────────
 function TablesCard({
-  tables, latestTableRows, togglingTable, onToggle, connId, onSaved,
+  tables, latestTableRows, togglingTable, onToggle, connId, onSaved, streamingEnabled,
 }: {
   tables: { name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null; last_value?: string | null; effective_mode?: string; partition_spec?: {column:string;transform:string}[] | null; key_columns?: string[] | null; pii_columns?: string[] | null }[]
   latestTableRows: Map<string, number>
@@ -34,6 +34,7 @@ function TablesCard({
   onToggle: (name: string, enabled: boolean) => void
   connId: string
   onSaved?: () => void | Promise<void>
+  streamingEnabled: boolean
 }) {
   const [search, setSearch]             = useState("")
   const [editingTable, setEditingTable] = useState<string | null>(null)
@@ -403,15 +404,17 @@ function TablesCard({
           </div>
         )}
 
-        {/* CDC callout */}
-        <div className="mt-3 flex items-start gap-2 rounded-md bg-muted/40 border px-3 py-2 text-xs text-muted-foreground">
-          <Zap className="h-3.5 w-3.5 shrink-0 mt-0.5 text-primary/60" />
-          <span>
-            Real-time CDC (Change Data Capture) is available via{" "}
-            <Link href="/streaming" className="text-primary underline underline-offset-2">Streaming</Link>
-            {" "}— captures every INSERT/UPDATE/DELETE with sub-second latency.
-          </span>
-        </div>
+        {/* CDC callout — only when the Streaming/RisingWave component is enabled on this profile */}
+        {streamingEnabled && (
+          <div className="mt-3 flex items-start gap-2 rounded-md bg-muted/40 border px-3 py-2 text-xs text-muted-foreground">
+            <Zap className="h-3.5 w-3.5 shrink-0 mt-0.5 text-primary/60" />
+            <span>
+              Real-time CDC (Change Data Capture) is available via{" "}
+              <Link href="/streaming" className="text-primary underline underline-offset-2">Streaming</Link>
+              {" "}— captures every INSERT/UPDATE/DELETE with sub-second latency.
+            </span>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -566,6 +569,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const { id } = use(params)
   const router = useRouter()
   const pipelinesEnabled = useCapability("pipelines")
+  const streamingEnabled = useCapability("streaming")
 
   const [connector, setConnector]         = useState<Connector | null>(null)
   const [tables, setTables]               = useState<{name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null; last_value?: string | null; effective_mode?: string; partition_spec?: {column:string;transform:string}[] | null; key_columns?: string[] | null; pii_columns?: string[] | null}[]>([])
@@ -1208,6 +1212,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         onToggle={handleTableToggle}
         connId={id}
         onSaved={fetchConnector}
+        streamingEnabled={streamingEnabled}
       />
 
       {/* ── Sync History: run results (effect) ── */}

@@ -102,7 +102,7 @@ export default function ServicesPage() {
     switch (status) {
       case "healthy":
         return (
-          <Badge variant="default" className="bg-green-600">
+          <Badge variant="default" className="bg-[var(--dp-good)] text-white">
             <CheckCircle2 className="mr-1 h-3 w-3" />
             Healthy
           </Badge>
@@ -200,7 +200,7 @@ export default function ServicesPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{services.length}</div>
+            <div className="text-2xl font-bold dp-num">{services.length}</div>
           </CardContent>
         </Card>
 
@@ -208,11 +208,11 @@ export default function ServicesPage() {
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium">Healthy</CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-green-500" />
+              <CheckCircle2 className="h-4 w-4 text-[var(--dp-good)]" />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{healthyCount}</div>
+            <div className="text-2xl font-bold text-[var(--dp-good)] dp-num">{healthyCount}</div>
           </CardContent>
         </Card>
 
@@ -220,11 +220,11 @@ export default function ServicesPage() {
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium">Issues</CardTitle>
-              <XCircle className="h-4 w-4 text-red-500" />
+              <XCircle className="h-4 w-4 text-destructive" />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{unhealthyCount}</div>
+            <div className="text-2xl font-bold text-destructive dp-num">{unhealthyCount}</div>
           </CardContent>
         </Card>
       </div>

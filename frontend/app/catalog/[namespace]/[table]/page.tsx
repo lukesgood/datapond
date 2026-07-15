@@ -182,7 +182,7 @@ export default function TableDetailPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="text-2xl font-bold dp-num">
               {formatNumber(tableDetail.row_count)}
             </div>
           </CardContent>
@@ -230,7 +230,7 @@ export default function TableDetailPage() {
                         <tr key={s.column} className="border-b last:border-0 hover:bg-muted/20">
                           <td className="px-4 py-1.5 font-mono">{s.column}</td>
                           <td className="px-4 py-1.5 text-right">
-                            <span className={s.null_rate > 20 ? "text-amber-500" : "text-muted-foreground"}>
+                            <span className={s.null_rate > 20 ? "text-[var(--dp-warn)]" : "text-muted-foreground"}>
                               {s.null_rate}%
                             </span>
                           </td>
