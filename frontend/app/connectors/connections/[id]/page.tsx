@@ -22,6 +22,7 @@ import Link from "next/link"
 import { ConnectionForm } from "@/components/connectors/connection-form"
 import { getConnector } from "@/lib/connectors"
 import { FREQ_OPTIONS, HOUR_OPTIONS, parseCron, cronToFreqHour, nextRun } from "@/lib/schedule"
+import { useCapability } from "@/lib/capabilities"
 
 // ── Tables Card (full-width, searchable) ──────────────────────────────────────
 function TablesCard({
@@ -419,12 +420,13 @@ function TablesCard({
 // Schedule frequency options (user-facing)
 // ── Schedule Card ─────────────────────────────────────────────────────────────
 function ScheduleCard({
-  schedule, savingSchedule, scheduleMsg, onSave,
+  schedule, savingSchedule, scheduleMsg, onSave, pipelinesEnabled,
 }: {
   schedule: string | null
   savingSchedule: boolean
   scheduleMsg: string | null
   onSave: (val: string | null) => void
+  pipelinesEnabled: boolean
 }) {
   const { freqId: initFreq, hour: initHour } = schedule ? cronToFreqHour(schedule) : { freqId: "daily", hour: 2 }
   const [freqId, setFreqId] = useState(initFreq)
@@ -441,6 +443,27 @@ function ScheduleCard({
       setFreqId(f); setHour(h)
     }
   }, [schedule])
+
+  // Foundation profile: no in-process/Airflow executor runs schedules, so the
+  // schedule UI would promise recurring syncs that never happen. Gate it off
+  // and point users at manual "Sync Now" instead of showing a false "Next run".
+  if (!pipelinesEnabled) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Calendar className="h-4 w-4" />Schedule
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-lg bg-muted/30 border border-dashed px-3 py-2.5 text-xs text-muted-foreground text-center">
+            Scheduled sync requires the Airflow pipelines component (not enabled
+            on this profile). Trigger syncs manually with <strong>Sync Now</strong>.
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <Card>
@@ -542,6 +565,7 @@ interface Connector {
 export default function ConnectionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
+  const pipelinesEnabled = useCapability("pipelines")
 
   const [connector, setConnector]         = useState<Connector | null>(null)
   const [tables, setTables]               = useState<{name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null; last_value?: string | null; effective_mode?: string; partition_spec?: {column:string;transform:string}[] | null; key_columns?: string[] | null; pii_columns?: string[] | null}[]>([])
@@ -1172,6 +1196,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           savingSchedule={savingSchedule}
           scheduleMsg={scheduleMsg}
           onSave={handleSaveSchedule}
+          pipelinesEnabled={pipelinesEnabled}
         />
       </div>{/* end 2-col grid */}
 

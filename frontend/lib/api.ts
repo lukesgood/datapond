@@ -138,11 +138,13 @@ export const dashboardApi = {
   },
 }
 
+// Matches backend GovernanceStats (backend/app/api/governance.py). Only
+// metrics with a genuine data source are included — no fabricated 0s for
+// AI SQL execution count / blocked-query count (no dedicated storage or
+// enforcement counter exists yet).
 export interface GovernanceStats {
   queries_today: number
-  ai_sql_count: number
   pii_detections: number
-  blocked_count: number
 }
 
 // Matches backend AuditLogItem (backend/app/api/governance.py) — derived from

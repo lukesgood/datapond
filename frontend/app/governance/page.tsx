@@ -29,9 +29,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import {
   Database,
-  Sparkles,
   ShieldAlert,
-  Ban,
   Lock,
   Search,
   FileText,
@@ -97,14 +95,15 @@ function StatCard({ label, value, icon, colorClass, bgClass, loading }: StatCard
 // ─── event type badge ─────────────────────────────────────────────────────────
 
 function EventBadge({ type }: { type: string }) {
+  // Only the event types the backend actually emits (derived from
+  // query_history.status — see /api/governance/audit-log). No entries for
+  // event types that are never written anywhere (ai_sql_generated /
+  // pii_detected / login_success / login_failure) — those filters were
+  // removed from the UI because they always returned 0 rows.
   const map: Record<string, { label: string; className: string }> = {
     query_executed:    { label: "Query executed",    className: "border-primary/40 text-primary" },
     query_error:       { label: "Query error",       className: "border-destructive/40 text-destructive" },
     query_timeout:     { label: "Query timeout",      className: "border-[var(--dp-warn)]/40 text-[var(--dp-warn)]" },
-    ai_sql_generated:  { label: "AI SQL",       className: "border-violet-400 text-violet-500" },
-    pii_detected:      { label: "PII detected",     className: "border-[var(--dp-warn)]/40 text-[var(--dp-warn)]" },
-    login_success:     { label: "Login success",  className: "border-gray-400 text-gray-500" },
-    login_failure:     { label: "Login failure",  className: "border-destructive/40 text-destructive" },
   }
   const cfg = map[type] ?? { label: type, className: "border-gray-300 text-gray-400" }
   return (
@@ -414,6 +413,7 @@ function AccessControlTab() {
 
 export default function GovernancePage() {
   const { toast } = useToast()
+  const caps = useCapabilities()
   // stats
   const [stats, setStats] = useState<GovernanceStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(true)
@@ -441,7 +441,6 @@ export default function GovernancePage() {
     queries: true,
     aiSql: true,
     pii: true,
-    blocked: false,
   })
   const [exporting, setExporting] = useState(false)
 
@@ -466,7 +465,7 @@ export default function GovernancePage() {
       const report: Record<string, unknown> = {
         generated_at: new Date().toISOString(),
         date_range: { from: reportFrom || null, to: reportTo || null },
-        note: "AI-SQL safety, PII, and blocked sections are current snapshots; only the query audit log is time-scoped per event.",
+        note: "AI-SQL safety and PII sections are current snapshots; only the query audit log is time-scoped per event.",
         sections: {},
       }
       const sections = report.sections as Record<string, unknown>
@@ -494,9 +493,6 @@ export default function GovernancePage() {
       }
       if (reportChecks.pii) {
         sections.pii_report = { tables: piiTables }
-      }
-      if (reportChecks.blocked) {
-        sections.blocked_summary = { blocked_count: stats?.blocked_count ?? 0 }
       }
 
       if (Object.keys(sections).length === 0) {
@@ -600,8 +596,11 @@ export default function GovernancePage() {
         <p className="text-muted-foreground text-sm">Data protection, AI safety, and compliance auditing</p>
       </div>
 
-      {/* Stats row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Stats row — only cards backed by a genuine data source. AI SQL
+          execution count and blocked-query count have no dedicated storage
+          or enforcement counter yet, so those cards are omitted rather than
+          showing a fabricated 0 (see backend/app/api/governance.py). */}
+      <div className="grid grid-cols-2 gap-4 max-w-xl">
         <StatCard
           label="Queries today"
           value={stats?.queries_today ?? null}
@@ -611,27 +610,11 @@ export default function GovernancePage() {
           loading={statsLoading}
         />
         <StatCard
-          label="AI SQL executions"
-          value={stats?.ai_sql_count ?? null}
-          icon={<Sparkles className="h-5 w-5" />}
-          colorClass="text-[var(--chart-4)]"
-          bgClass="bg-[var(--chart-4)]/10"
-          loading={statsLoading}
-        />
-        <StatCard
           label="PII detections"
           value={stats?.pii_detections ?? null}
           icon={<ShieldAlert className="h-5 w-5" />}
           colorClass="text-[var(--dp-warn)]"
           bgClass="bg-[var(--dp-warn)]/10"
-          loading={statsLoading}
-        />
-        <StatCard
-          label="Blocked count"
-          value={stats?.blocked_count ?? null}
-          icon={<Ban className="h-5 w-5" />}
-          colorClass="text-destructive"
-          bgClass="bg-destructive/10"
           loading={statsLoading}
         />
       </div>
@@ -660,12 +643,16 @@ export default function GovernancePage() {
                 <SelectValue placeholder="Event type" />
               </SelectTrigger>
               <SelectContent>
+                {/* Only filters the backend can actually resolve — the audit
+                    log is derived solely from query_history.status. The
+                    previously-offered ai_sql_generated / pii_detected /
+                    login_success / login_failure options always returned 0
+                    rows (nothing writes those event types), so they were
+                    removed rather than left as dead, misleading filters. */}
                 <SelectItem value="all">All events</SelectItem>
                 <SelectItem value="query_executed">Query executed</SelectItem>
-                <SelectItem value="ai_sql_generated">AI SQL generated</SelectItem>
-                <SelectItem value="pii_detected">PII detected</SelectItem>
-                <SelectItem value="login_success">Login success</SelectItem>
-                <SelectItem value="login_failure">Login failure</SelectItem>
+                <SelectItem value="query_error">Query error</SelectItem>
+                <SelectItem value="query_timeout">Query timeout</SelectItem>
               </SelectContent>
             </Select>
             <div className="relative flex-1">
@@ -897,7 +884,13 @@ export default function GovernancePage() {
                   ) : piiTables.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={2} className="text-center py-12 text-muted-foreground">
-                        No tables with PII detected
+                        {caps.query_engine === "trino"
+                          ? "0 tables scanned — no PII columns detected."
+                          : "No PII scan available on the active query engine" +
+                            (typeof caps.query_engine === "string" && caps.query_engine
+                              ? ` (${caps.query_engine}).`
+                              : ".") +
+                            " Column-level PII detection requires a Trino/Polaris catalog."}
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -966,7 +959,6 @@ export default function GovernancePage() {
                     { key: "queries",  label: "Full query execution history" },
                     { key: "aiSql",    label: "AI SQL generation and safety assessment" },
                     { key: "pii",      label: "PII detection and masking status" },
-                    { key: "blocked",  label: "Access blocked events" },
                   ].map(({ key, label }) => (
                     <div key={key} className="flex items-center gap-2">
                       <Checkbox
