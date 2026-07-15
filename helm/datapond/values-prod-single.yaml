@@ -76,6 +76,14 @@ litellm:
         litellm_params: { model: "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0", aws_region_name: "us-east-1" }
       - model_name: "chat"
         litellm_params: { model: "bedrock/us.anthropic.claude-sonnet-4-6", aws_region_name: "us-east-1" }
+      # RAG reranker (Bedrock Rerank via LiteLLM /v1/rerank). Requires Bedrock model
+      # ACCESS for amazon.rerank-v1:0 to be granted in this region (Bedrock console →
+      # Model access), same as Claude/Titan above. If access isn't granted, calls to
+      # this model_name fail and the backend's _rerank() (backend/app/api/ai_vectors.py)
+      # catches the error and falls back to plain vector-similarity order — retrieval
+      # never hard-fails on a missing/unavailable rerank model.
+      - model_name: "rerank"
+        litellm_params: { model: "bedrock/amazon.rerank-v1:0", aws_region_name: "us-east-1" }
   # Chat failover — if Haiku(default) throttles/errors, retry on Sonnet(chat) and
   # vice versa, so a single Bedrock model isn't a SPOF for RAG / AI-SQL. (embed has
   # a single Titan model, so no fallback.)
@@ -84,6 +92,14 @@ litellm:
     - { "chat": ["default"] }
   serviceAccount:
     roleArn: ""     # K3s: empty (node instance profile). Not EKS/IRSA.
+
+# RAG reranker — must match a model_name registered above in litellm.config.model_list.
+# Wires AI_RERANK_MODEL into the backend (backend-deployment.yaml). Requires Bedrock
+# model ACCESS for amazon.rerank-v1:0 granted in-region (see comment above); if access
+# isn't granted, the backend's _rerank() catches the failure and falls back to plain
+# vector-similarity order (retrieval never hard-fails on rerank being unavailable).
+ai:
+  rerankModel: "rerank"
 
 # --- Heavy analytics: AWS-managed (Athena/EMR), not on the node ---
 trino: { enabled: false }

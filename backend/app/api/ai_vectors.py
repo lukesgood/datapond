@@ -348,17 +348,31 @@ async def ingest(name: str, req: IngestRequest, user: dict = Depends(require_use
 # ── Source ingestion (the AI data pipeline: lakehouse / object store → vectors) ──
 
 def _read_iceberg_docs(schema: str, table: str, text_column: str, limit: int) -> List[tuple]:
-    """One document per row of iceberg.<schema>.<table>.<text_column> (via Trino)."""
-    from app.api.trino_util import trino_conn
-    src = f"iceberg.{schema}.{table}.{text_column}"
-    conn = trino_conn(timeout=60)
-    cur = conn.cursor()
-    cur.execute(
-        f'SELECT "{text_column}" FROM iceberg."{schema}"."{table}" '
+    """One document per row of <schema>.<table>.<text_column> — read via the active
+    query engine (self-hosted Trino 'iceberg' catalog, or Amazon Athena/Glue on the
+    AWS foundation profile). Engine selection mirrors app.api.query_engine.get_engine()
+    (QUERY_ENGINE=athena|trino), so this stays in lockstep with Query Lab / AI SQL."""
+    from app.api.query_engine import get_engine, AthenaEngine
+    eng = get_engine()
+    src = f"{eng.ai_table_prefix}.{schema}.{table}.{text_column}"
+    sql = (
+        f'SELECT "{text_column}" FROM {eng.ai_table_prefix}."{schema}"."{table}" '
         f'WHERE "{text_column}" IS NOT NULL LIMIT {int(limit)}'
     )
+    if isinstance(eng, AthenaEngine):
+        # Reuse AthenaEngine.execute() — same pyathena connection/error-mapping/cost
+        # metrics as Query Lab, so this path is exercised the same way in production.
+        rows, _cols = eng.execute(sql, None)
+    else:
+        # Unchanged Trino path (trino_util.trino_conn, not queries.get_trino_connection)
+        # so self-hosted behavior is untouched by this Athena addition.
+        from app.api.trino_util import trino_conn
+        conn = trino_conn(timeout=60)
+        cur = conn.cursor()
+        cur.execute(sql)
+        rows = cur.fetchall()
     return [(src, str(r[0]), {"schema": schema, "table": table, "row": i})
-            for i, r in enumerate(cur.fetchall())]
+            for i, r in enumerate(rows)]
 
 
 def _read_s3_docs(bucket: str, prefix: str, max_files: int) -> List[tuple]:

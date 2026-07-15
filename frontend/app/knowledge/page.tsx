@@ -16,7 +16,6 @@ import { Label } from "@/components/ui/label"
 import { getUser } from "@/lib/auth"
 import { useConfirm } from "@/lib/confirm"
 import { ErrorBox, EmptyState } from "@/components/ui/error-box"
-import { useCapabilities } from "@/lib/capabilities"
 
 interface Collection {
   name: string; embed_model: string; dim: number
@@ -286,11 +285,6 @@ function SearchPanel({ name }: { name: string }) {
 }
 
 function IngestPanel({ name, onChange }: { name: string; onChange: () => void }) {
-  const caps = useCapabilities()
-  // Foundation profile (live): query_engine === "athena" — the iceberg "from catalog"
-  // ingest path targets Trino, which 500s when Trino isn't the active engine. Gate it
-  // off so the option is disabled with an honest note, instead of a dead-end error.
-  const isAthena = caps.query_engine === "athena"
   const [tab, setTab] = useState<"text" | "source">("text")
   const [text, setText] = useState(""); const [src, setSrc] = useState("")
   const [stype, setStype] = useState<"iceberg" | "s3">("iceberg")
@@ -302,20 +296,13 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
   const [tree, setTree] = useState<{ schema: string; tables: string[] }[]>([])
   const [cols, setCols] = useState<{ name: string; type: string }[]>([])
 
-  // If the catalog-ingest path becomes unavailable (Athena engine), fall back to S3
-  // rather than leaving the user stuck on a disabled option.
   useEffect(() => {
-    if (isAthena && stype === "iceberg") setStype("s3")
-  }, [isAthena, stype])
-
-  useEffect(() => {
-    if (isAthena) return
     fetch("/api/catalog/schemas").then(r => r.json()).then(d => {
       const ice = (d.catalogs || []).find((c: any) => c.name === "iceberg") || (d.catalogs || [])[0]
       const sc = (ice?.schemas || []).map((s: any) => ({ schema: s.name, tables: (s.tables || []).map((t: any) => t.name) }))
       setTree(sc)
     }).catch(() => {})
-  }, [isAthena])
+  }, [])
   // When a table is picked, lazily fetch its columns to populate the text-column select.
   useEffect(() => {
     if (stype !== "iceberg" || !schema || !table) { setCols([]); return }
@@ -378,20 +365,11 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
       ) : (
         <>
           <div className="flex rounded-md border overflow-hidden w-fit text-xs">
-            {(["iceberg", "s3"] as const).map(t => {
-              const disabled = t === "iceberg" && isAthena
-              return (
-                <button key={t} onClick={() => !disabled && setStype(t)} disabled={disabled}
-                  title={disabled ? "Requires a Trino/Polaris catalog (not the active Athena engine)" : undefined}
-                  className={`px-3 py-1 ${stype === t ? "bg-primary text-primary-foreground" : "bg-background"} ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}>{t}</button>
-              )
-            })}
+            {(["iceberg", "s3"] as const).map(t => (
+              <button key={t} onClick={() => setStype(t)}
+                className={`px-3 py-1 ${stype === t ? "bg-primary text-primary-foreground" : "bg-background"}`}>{t}</button>
+            ))}
           </div>
-          {isAthena && (
-            <p className="text-[11px] text-muted-foreground">
-              Catalog ingest requires a Trino/Polaris catalog (not the active Athena engine); use text or S3 ingest instead.
-            </p>
-          )}
           {stype === "iceberg" ? (
             tree.length > 0 ? (
               <div className="grid grid-cols-3 gap-2">
