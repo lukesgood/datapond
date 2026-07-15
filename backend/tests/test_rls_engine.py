@@ -121,20 +121,46 @@ def test_enforce_unqualified_table_uses_defaults():
     assert "dept = 'sales'" in res.sql.lower()
 
 
-def test_default_deny_blocks_table_without_policy():
+def test_default_deny_blocks_table_without_policy(monkeypatch):
+    # default_deny is now opt-in via RLS_DEFAULT_DENY; with it ON, a table with no
+    # policy is blocked (the original strict behavior).
+    monkeypatch.setenv("RLS_DEFAULT_DENY", "true")
     with pytest.raises(RlsDenied) as e:
         enforce("SELECT * FROM iceberg.sales.secret", analyst(), [])
     assert "default_deny" in str(e.value)
     assert e.value.table == "iceberg.sales.secret"
 
 
+def test_no_policy_passes_through_when_default_deny_off(monkeypatch):
+    # RLS_DEFAULT_DENY off (the default): a policy-empty query is returned UNTOUCHED,
+    # so flipping RLS_ENABLED on a policy-empty database is a true no-op. The engine
+    # must not even round-trip the SQL through sqlglot in this case.
+    monkeypatch.delenv("RLS_DEFAULT_DENY", raising=False)
+    sql = "SELECT * FROM iceberg.sales.secret WHERE ts > date '2026-01-01'"
+    res = enforce(sql, analyst(), [])
+    assert res.sql == sql  # byte-for-byte, no sqlglot re-serialization
+    assert res.applied_policy_ids == []
+
+
+def test_no_policy_passes_through_even_if_unparseable_when_default_deny_off(monkeypatch):
+    # The no-op short-circuit runs BEFORE the parser, so a policy-empty database can
+    # never 403 a live query on a sqlglot dialect gap.
+    monkeypatch.delenv("RLS_DEFAULT_DENY", raising=False)
+    weird = "SELECT some_athena_only_construct FROM t /*+ HINT */"
+    res = enforce(weird, analyst(), [])
+    assert res.sql == weird
+
+
 def test_unparseable_sql_fails_closed():
+    # With a policy present the parser runs, and unparseable SQL still fails closed.
     with pytest.raises(RlsDenied):
         enforce("SELECT FROM WHERE )(", analyst(), [orders_region_policy()])
 
 
 def test_admin_denied_by_default(monkeypatch):
+    # admin (no bypass) + default_deny ON + no policy -> still blocked.
     monkeypatch.delenv("RLS_ADMIN_BYPASS", raising=False)
+    monkeypatch.setenv("RLS_DEFAULT_DENY", "true")
     admin = UserContext(user_id="a", username="root", roles=["admin"], attributes={})
     with pytest.raises(RlsDenied):
         enforce("SELECT * FROM iceberg.x.y", admin, [])
@@ -151,7 +177,7 @@ def test_sensitive_block_denies_policy_table():
     with pytest.raises(RlsDenied) as e:
         enforce("SELECT * FROM iceberg.sales.orders", analyst(),
                 [orders_region_policy()], sensitive_block=True)
-    assert "직접읽기" in str(e.value)
+    assert "direct read" in str(e.value)
 
 
 # ── column masking ──────────────────────────────────────────────────────────
