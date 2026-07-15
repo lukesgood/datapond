@@ -114,6 +114,16 @@ ollama: { enabled: false }
 vllm: { enabled: false }
 minio: { enabled: false }
 
+# --- Governance: RLS (Layer 1) enforcement — opt-in default_deny keeps this a no-op
+# until policies are registered (a table with no policy passes through unfiltered;
+# only policy-bearing tables get row-filtered/masked). See backend/app/rls/engine.py
+# and docs/RLS_DESIGN.md. Flip defaultDeny to true once policies exist for the tables
+# you want to lock down by default.
+governance:
+  rls:
+    enabled: true
+    defaultDeny: false
+
 # --- Ingress: real domain + cert-manager Let's Encrypt TLS ---
 ingress:
   enabled: true

@@ -224,6 +224,15 @@ spec:
           value: "{{ if eq ((.Values.catalog | default dict).backend | default "polaris") "glue" }}athena{{ else }}trino{{ end }}"
         - name: RLS_DEFAULT_CATALOG
           value: "{{ if eq ((.Values.catalog | default dict).backend | default "polaris") "glue" }}AwsDataCatalog{{ else }}iceberg{{ end }}"
+        # RLS (Layer 1) policy enforcement gate — off by default (dark) until governance.rls.enabled
+        # is set. See docs/RLS_DESIGN.md. Use `dig` (bool-false safe — see RAG_SCHEDULER note above).
+        - name: RLS_ENABLED
+          value: {{ dig "enabled" false ((.Values.governance | default dict).rls | default dict) | quote }}
+        # Opt-in strict mode: when false (default), a referenced table with no RLS policy
+        # passes through unfiltered (no-op on a policy-empty DB); true restores strict
+        # default_deny (blocks any unregistered table). See backend/app/rls/engine.py.
+        - name: RLS_DEFAULT_DENY
+          value: {{ dig "defaultDeny" false ((.Values.governance | default dict).rls | default dict) | quote }}
         - name: ATHENA_OUTPUT_LOCATION
           value: {{ (.Values.catalog | default dict).athenaOutputLocation | default "" | quote }}
         - name: ATHENA_WORKGROUP

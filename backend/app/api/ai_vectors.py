@@ -3,8 +3,10 @@ AI vector store + RAG on pgvector (in the shared Postgres).
 
 Sovereign by design: embeddings and chat both go through the LiteLLM gateway, so the
 local-only egress policy applies (documents are embedded by a LOCAL model and never
-leave the cluster). Chunk content is PII-masked at ingest. Vectors live in the
-existing Postgres (no new infra), so air-gap / on-prem just works.
+leave the cluster). Chunk content is PII-masked at ingest, and re-masked on
+retrieval (_retrieve) as defense-in-depth — covers chunks ingested before masking
+existed, or via any path that skipped it. Vectors live in the existing Postgres
+(no new infra), so air-gap / on-prem just works.
 
 Endpoints (all under /api):
   POST   /ai/embed                          text(s) → embedding(s)
@@ -585,6 +587,17 @@ async def _rerank(query: str, hits: List[dict], k: int) -> List[dict]:
 
 
 async def _retrieve(name: str, query: str, k: int, user: dict):
+    """Vector search top-k chunks, then re-apply the PII guardrail to the stored
+    content before it's returned. Defense-in-depth: chunk content is masked at
+    ingest (_ingest_documents), but chunks ingested before masking existed, or via
+    a path that skipped it, must not leak raw PII on retrieval. Mirrors the
+    ingest-time call (`pii_ko.apply` → take the masked text, drop the `blocked`
+    signal — retrieval can't "block" content that's already stored, so mask mode
+    and off mode behave as documented, and block mode degrades to masking, same
+    as ingest). Returns (hits, pii_masked_count) so callers can fold retrieval-side
+    masking into the same `pii_masked` total as query-side masking.
+    """
+    from app.guardrails import pii_ko
     pool = await get_db_pool()
     qvec = (await _embed([query]))[0]
     # Over-fetch candidates when a reranker is configured, then rerank down to k.
@@ -600,13 +613,19 @@ async def _retrieve(name: str, query: str, k: int, user: dict):
                LIMIT $3""",
             _vec_literal(qvec), coll_id, fetch_k,
         )
-    hits = [
-        {"source": r["source"], "chunk_index": r["chunk_index"], "content": r["content"],
-         "metadata": json.loads(r["metadata"]) if isinstance(r["metadata"], str) else (r["metadata"] or {}),
-         "score": round(float(r["score"]), 4)}
-        for r in rows
-    ]
-    return await _rerank(query, hits, k)
+    pii_masked = 0
+    hits = []
+    for r in rows:
+        content, found, _blk = pii_ko.apply(r["content"])
+        pii_masked += len(found)
+        hits.append({
+            "source": r["source"], "chunk_index": r["chunk_index"], "content": content,
+            "metadata": json.loads(r["metadata"]) if isinstance(r["metadata"], str) else (r["metadata"] or {}),
+            "score": round(float(r["score"]), 4),
+        })
+    # Mask before rerank too: the rerank call ships `content` to a (possibly
+    # external) LiteLLM rerank model, so unmasked text must never reach that hop.
+    return await _rerank(query, hits, k), pii_masked
 
 
 def _guard(text: str):
@@ -622,9 +641,10 @@ async def search(req: SearchRequest, user: dict = Depends(require_user)):
     q_text, q_find, q_block = _guard(req.query)
     if q_block:
         raise HTTPException(400, "Query blocked by PII guardrail (PII_GUARDRAIL_MODE=block).")
+    results, r_masked = await _retrieve(req.collection, q_text, req.k, user)
     return {"collection": req.collection, "query": req.query,
-            "pii_masked": len(q_find),
-            "results": await _retrieve(req.collection, q_text, req.k, user)}
+            "pii_masked": len(q_find) + r_masked,
+            "results": results}
 
 
 @router.post("/ai/rag")
@@ -643,10 +663,11 @@ async def rag(req: RagRequest, user: dict = Depends(require_user)):
         return {"answer": "The question contains detected personal information (PII) and was blocked (PII_GUARDRAIL_MODE=block).",
                 "citations": [], "has_ai": False, "pii_masked": len(q_find)}
 
-    hits = await _retrieve(req.collection, q_text, req.k, user)
+    hits, r_masked = await _retrieve(req.collection, q_text, req.k, user)
+    pii_masked = len(q_find) + r_masked
     if not hits:
         return {"answer": "No relevant documents found. (Collection is empty or has no related content.)",
-                "citations": [], "has_ai": False, "pii_masked": len(q_find)}
+                "citations": [], "has_ai": False, "pii_masked": pii_masked}
 
     context = "\n\n".join(
         f"[{i+1}] (source: {h['source'] or 'n/a'})\n{h['content']}" for i, h in enumerate(hits)
@@ -679,11 +700,11 @@ async def rag(req: RagRequest, user: dict = Depends(require_user)):
                                    **actor_payload("ai_rag")})
         if r.status_code >= 400:
             return {"answer": f"(LLM call failed: {r.status_code}) Returning search results only.",
-                    "citations": hits, "has_ai": False, "pii_masked": len(q_find)}
+                    "citations": hits, "has_ai": False, "pii_masked": pii_masked}
         answer = r.json()["choices"][0]["message"]["content"].strip()
     except Exception as e:
         logger.warning(f"[ai_vectors] rag chat failed: {e}")
         return {"answer": "(LLM not configured/error) Returning search results only.", "citations": hits,
-                "has_ai": False, "pii_masked": len(q_find)}
+                "has_ai": False, "pii_masked": pii_masked}
 
-    return {"answer": answer, "citations": hits, "has_ai": True, "pii_masked": len(q_find)}
+    return {"answer": answer, "citations": hits, "has_ai": True, "pii_masked": pii_masked}

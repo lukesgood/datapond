@@ -9,7 +9,12 @@ a rewritten SQL string or raises RlsDenied.
 Locked decisions (2026-06-02):
   - Hybrid enforcement; this module is the backend layer (real enforcement until
     Trino-native rules.json lands in P3).
-  - default_deny: a referenced table with no applicable policy is DENIED.
+  - default_deny: a referenced table with no applicable policy is DENIED —
+    but this is opt-in via RLS_DEFAULT_DENY (default **false**, 2026-07 update).
+    With it off, a table with no policy simply passes through unfiltered; only
+    policy-bearing tables are row-filtered/masked. This makes RLS_ENABLED safe
+    to flip on a policy-empty database (no behavior change until policies are
+    registered). Set RLS_DEFAULT_DENY=true to restore strict default-deny.
   - admin gets RLS applied unless RLS_ADMIN_BYPASS=true.
   - Row filter is injected by wrapping each policy-bearing table reference in a
     filtered (and column-masked) subquery via sqlglot.
@@ -95,6 +100,17 @@ class EnforceResult:
 
 def _admin_bypass_enabled() -> bool:
     return os.getenv("RLS_ADMIN_BYPASS", "false").lower() in ("1", "true", "yes")
+
+
+def _default_deny_enabled() -> bool:
+    """
+    RLS_DEFAULT_DENY (default false): whether a referenced table with NO
+    applicable policy is blocked. Off by default so RLS_ENABLED can be safely
+    flipped on a policy-empty database — only policy-bearing tables get
+    filtered/masked, everything else passes through unchanged. Set to
+    true/1/yes to restore strict default-deny (block unregistered tables).
+    """
+    return os.getenv("RLS_DEFAULT_DENY", "false").lower() in ("1", "true", "yes")
 
 
 # Default catalog/schema used to qualify unqualified table refs (matches queries.py).
@@ -229,11 +245,11 @@ def enforce(
     try:
         statements = sqlglot.parse(sql, read=dialect)
     except Exception as e:                  # unparseable -> fail closed
-        raise RlsDenied(f"쿼리를 파싱할 수 없어 차단됨(default_deny): {e}")
+        raise RlsDenied(f"Query could not be parsed — blocked (default_deny): {e}")
 
     statements = [s for s in statements if s is not None]
     if not statements:
-        raise RlsDenied("빈 쿼리")
+        raise RlsDenied("Empty query")
 
     # index policies/masks by canonical table key
     pol_by_table: Dict[str, List[RlsPolicy]] = {}
@@ -255,19 +271,26 @@ def enforce(
 
             tbl_policies = pol_by_table.get(key, [])
 
-            # default_deny: a referenced table with no policy is blocked
+            # default_deny (opt-in, RLS_DEFAULT_DENY — off by default): a referenced
+            # table with no policy is blocked only when explicitly enabled. Off ⇒
+            # skip the table (no filter, pass-through) so RLS_ENABLED is safe to
+            # flip on a policy-empty database.
             if not tbl_policies:
                 if user.is_admin and _admin_bypass_enabled():
                     continue
-                raise RlsDenied(
-                    f"테이블 '{key}'에 RLS 정책이 없어 차단됨(default_deny). 정책 등록 필요.",
-                    table=key,
-                )
+                if _default_deny_enabled():
+                    raise RlsDenied(
+                        f"Table '{key}' has no RLS policy — blocked (default_deny). "
+                        "Register a policy to allow access.",
+                        table=key,
+                    )
+                continue
 
             # DuckDB/direct-read guard: policy-bearing table = sensitive -> block
             if sensitive_block:
                 raise RlsDenied(
-                    f"민감 테이블 '{key}'은 직접읽기(DuckDB/S3) 차단 — Trino/뷰 경로 사용.",
+                    f"Sensitive table '{key}' — direct read (DuckDB/S3) blocked. "
+                    "Use the Trino/view path instead.",
                     table=key,
                 )
 
