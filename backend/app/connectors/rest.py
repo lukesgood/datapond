@@ -255,16 +255,62 @@ class RestConnector(BaseConnector):
         last_value: Optional[Any] = None,
         on_step=None,
         partition_spec: Optional[list] = None,
+        key_columns: Optional[list] = None,
+        pii_columns: Optional[list] = None,
     ) -> SyncJobStatus:
-        """Sync REST API data to Iceberg."""
+        """Fetch REST records and COMMIT them to an Iceberg table.
+
+        Records from `read_data` → pandas → `write_dataframe_to_iceberg` (the same
+        PyArrow → PyIceberg (Glue+S3) path the JDBC/S3 connectors use). A REST sync
+        re-fetches the whole endpoint each run (no per-record watermark), so `append`
+        would duplicate every row — the only safe modes are upsert (dedupe by
+        key_columns) or overwrite. `rows_processed` is the real row count written.
+        """
+        import asyncio
         from datetime import datetime
+
+        import pandas as pd
+
+        from .iceberg_writer import write_dataframe_to_iceberg
 
         started_at = datetime.utcnow()
         try:
             records = await self.read_data(source_table)
-            rows_processed = len(records)
+            tbl_name = target_table.rsplit(".", 1)[-1] if target_table else source_table
+
+            if not records:
+                # Honest no-op: an empty endpoint response is not a failure.
+                return SyncJobStatus(
+                    job_id=None,
+                    status=SyncStatus.SUCCESS,
+                    started_at=started_at,
+                    completed_at=datetime.utcnow(),
+                    rows_processed=0,
+                    rows_failed=0,
+                    metadata={"source": self.config.base_url, "target_table": target_table,
+                              "note": "No records returned by endpoint"},
+                )
+
+            df = pd.DataFrame(records)
+
+            # Mask configured PII columns before anything lands in the lakehouse.
+            masked = 0
+            if pii_columns:
+                try:
+                    from .database import _mask_pii_in_chunk
+                    masked = _mask_pii_in_chunk(df, pii_columns)
+                except Exception as e:
+                    logger.warning(f"[rest_connector] PII masking skipped ({e})")
+
+            upsert = bool(key_columns)
+            write_mode = "upsert" if upsert else "overwrite"
+            rows_processed = await asyncio.to_thread(
+                write_dataframe_to_iceberg, df, tbl_name,
+                mode=write_mode, on_step=on_step, partition_spec=partition_spec,
+                join_cols=key_columns if upsert else None,
+            )
             logger.info(
-                f"Syncing {rows_processed} records from REST endpoint to {target_table}"
+                f"[rest_connector] Wrote {rows_processed} rows from REST endpoint to {tbl_name}"
             )
             return SyncJobStatus(
                 job_id=None,
@@ -273,7 +319,9 @@ class RestConnector(BaseConnector):
                 completed_at=datetime.utcnow(),
                 rows_processed=rows_processed,
                 rows_failed=0,
-                metadata={"source": self.config.base_url, "target_table": target_table},
+                metadata={"source": self.config.base_url, "target_table": target_table,
+                          "iceberg_table": f"iceberg.default.{tbl_name}",
+                          "write_mode": write_mode, "pii_masked_cells": masked},
             )
         except Exception as e:
             logger.error(f"REST sync_to_iceberg failed: {e}")
@@ -281,7 +329,7 @@ class RestConnector(BaseConnector):
                 job_id=None,
                 status=SyncStatus.FAILED,
                 started_at=started_at,
-                completed_at=__import__("datetime").datetime.utcnow(),
+                completed_at=datetime.utcnow(),
                 rows_processed=0,
                 rows_failed=0,
                 error_message=str(e),

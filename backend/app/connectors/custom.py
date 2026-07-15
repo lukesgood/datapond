@@ -282,14 +282,59 @@ class CustomConnector(BaseConnector):
         last_value: Optional[Any] = None,
         on_step=None,
         partition_spec: Optional[list] = None,
+        key_columns: Optional[list] = None,
+        pii_columns: Optional[list] = None,
     ) -> SyncJobStatus:
-        """Execute user code and sync results to Iceberg."""
+        """Run the user code and COMMIT its records to an Iceberg table.
+
+        The user's `fetch_data()` returns records → pandas → `write_dataframe_to_iceberg`
+        (the same PyArrow → PyIceberg (Glue+S3) path the other connectors use). Custom
+        code re-produces its full result set each run, so `append` would duplicate — the
+        only safe modes are upsert (dedupe by key_columns) or overwrite. `rows_processed`
+        is the real row count written.
+        """
+        import asyncio
+
+        import pandas as pd
+
+        from .iceberg_writer import write_dataframe_to_iceberg
+
         started_at = datetime.utcnow()
         try:
             records = self._execute()
-            rows_processed = len(records)
+            tbl_name = target_table.rsplit(".", 1)[-1] if target_table else source_table
+
+            if not records:
+                return SyncJobStatus(
+                    job_id=None,
+                    status=SyncStatus.SUCCESS,
+                    started_at=started_at,
+                    completed_at=datetime.utcnow(),
+                    rows_processed=0,
+                    rows_failed=0,
+                    metadata={"target_table": target_table, "sync_mode": sync_mode.value,
+                              "note": "User code returned no records"},
+                )
+
+            df = pd.DataFrame(records)
+
+            masked = 0
+            if pii_columns:
+                try:
+                    from .database import _mask_pii_in_chunk
+                    masked = _mask_pii_in_chunk(df, pii_columns)
+                except Exception as e:
+                    logger.warning(f"[custom_connector] PII masking skipped ({e})")
+
+            upsert = bool(key_columns)
+            write_mode = "upsert" if upsert else "overwrite"
+            rows_processed = await asyncio.to_thread(
+                write_dataframe_to_iceberg, df, tbl_name,
+                mode=write_mode, on_step=on_step, partition_spec=partition_spec,
+                join_cols=key_columns if upsert else None,
+            )
             logger.info(
-                f"Custom connector: syncing {rows_processed} records to {target_table}"
+                f"[custom_connector] Wrote {rows_processed} rows to {tbl_name}"
             )
             return SyncJobStatus(
                 job_id=None,
@@ -298,7 +343,9 @@ class CustomConnector(BaseConnector):
                 completed_at=datetime.utcnow(),
                 rows_processed=rows_processed,
                 rows_failed=0,
-                metadata={"target_table": target_table, "sync_mode": sync_mode.value},
+                metadata={"target_table": target_table, "sync_mode": sync_mode.value,
+                          "iceberg_table": f"iceberg.default.{tbl_name}",
+                          "write_mode": write_mode, "pii_masked_cells": masked},
             )
         except Exception as e:
             logger.error(f"Custom connector sync_to_iceberg failed: {e}")
