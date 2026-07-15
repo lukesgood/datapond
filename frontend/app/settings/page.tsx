@@ -602,6 +602,16 @@ function UserManagement() {
 
   const handleCreate = async () => {
     if (!newUsername || !newPassword) return
+    const overwriting = users.some(u => u.username === newUsername)
+    if (overwriting) {
+      const ok = await confirmDialog({
+        title: "User already exists",
+        message: `A user named '${newUsername}' already exists. Continuing will reset their password — they won't be created as a new user.`,
+        destructive: true,
+        confirmText: "Reset password",
+      })
+      if (!ok) return
+    }
     setCreating(true); setCreateError(null)
     try {
       const r = await fetch("/api/auth/setup", {
@@ -618,7 +628,9 @@ function UserManagement() {
         })
       }
       setShowCreate(false); setNewUsername(""); setNewPassword(""); setNewDisplayName(""); setNewRole("viewer")
-      notify(`User '${newUsername}' created — must change password on first login`)
+      notify(overwriting
+        ? `Password reset for existing user '${newUsername}'`
+        : `User '${newUsername}' created — must change password on first login`)
       fetchUsers()
     } catch (e) { setCreateError(e instanceof Error ? e.message : "Failed") }
     finally { setCreating(false) }

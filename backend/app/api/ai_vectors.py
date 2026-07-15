@@ -626,12 +626,12 @@ async def rag(req: RagRequest, user: dict = Depends(require_user)):
     # PII guardrail on the question before it reaches retrieval/the LLM.
     q_text, q_find, q_block = _guard(req.question)
     if q_block:
-        return {"answer": "질문에 개인정보(PII)가 감지되어 차단되었습니다 (PII_GUARDRAIL_MODE=block).",
+        return {"answer": "The question contains detected personal information (PII) and was blocked (PII_GUARDRAIL_MODE=block).",
                 "citations": [], "has_ai": False, "pii_masked": len(q_find)}
 
     hits = await _retrieve(req.collection, q_text, req.k, user)
     if not hits:
-        return {"answer": "참고할 문서를 찾지 못했습니다. (컬렉션이 비었거나 관련 내용 없음)",
+        return {"answer": "No relevant documents found. (Collection is empty or has no related content.)",
                 "citations": [], "has_ai": False, "pii_masked": len(q_find)}
 
     context = "\n\n".join(
@@ -664,12 +664,12 @@ async def rag(req: RagRequest, user: dict = Depends(require_user)):
                                                 {"role": "user", "content": user_msg}],
                                    **actor_payload("ai_rag")})
         if r.status_code >= 400:
-            return {"answer": f"(LLM 호출 실패: {r.status_code}) 검색 결과만 반환합니다.",
+            return {"answer": f"(LLM call failed: {r.status_code}) Returning search results only.",
                     "citations": hits, "has_ai": False, "pii_masked": len(q_find)}
         answer = r.json()["choices"][0]["message"]["content"].strip()
     except Exception as e:
         logger.warning(f"[ai_vectors] rag chat failed: {e}")
-        return {"answer": "(LLM 미설정/오류) 검색 결과만 반환합니다.", "citations": hits,
+        return {"answer": "(LLM not configured/error) Returning search results only.", "citations": hits,
                 "has_ai": False, "pii_masked": len(q_find)}
 
     return {"answer": answer, "citations": hits, "has_ai": True, "pii_masked": len(q_find)}
