@@ -38,42 +38,40 @@ type NavSection = {
   items: NavItem[]
 }
 
+// Grouped by the data workflow (mirrors the design direction): Build gets data
+// in, organizes, and queries it; Analyze puts it to work; Manage is operations.
+// Capability-gated items hide themselves on the foundation profile, so live this
+// renders lean (Build: Connectors·Catalog·SQL Lab / Analyze: Knowledge·Governance·Dashboards).
 const mainSections: NavSection[] = [
   {
-    label: "Collect",
-    hint: "Data collection",
+    label: "Build",
+    hint: "Bring data in, organize it, query it",
     items: [
-      { title: "Ingestion",   url: "/connectors", icon: ArrowDownToLine, capability: "connectors" },
+      { title: "Connectors",  url: "/connectors", icon: ArrowDownToLine, capability: "connectors" },
       { title: "Streaming",   url: "/streaming",  icon: Radio,           capability: "streaming" },
-    ]
-  },
-  {
-    label: "Transform",
-    hint: "Data transformation",
-    items: [
-      { title: "Transforms",  url: "/pipelines",  icon: GitBranch,  capability: "pipelines" },
-      { title: "Catalog",     url: "/catalog",    icon: Database,   capability: "catalog" },
+      { title: "Transforms",  url: "/pipelines",  icon: GitBranch,       capability: "pipelines" },
+      { title: "Catalog",     url: "/catalog",    icon: Database,        capability: "catalog" },
+      { title: "SQL Lab",     url: "/query",      icon: Code2,           capability: "query" },
     ]
   },
   {
     label: "Analyze",
-    hint: "Data analysis",
+    hint: "Knowledge, BI, and governance",
     items: [
-      { title: "Query Lab",    url: "/query",       icon: Code2,        capability: "query" },
       { title: "Knowledge",    url: "/knowledge",   icon: Sparkles },
+      { title: "Governance",   url: "/governance",  icon: ShieldCheck },
+      { title: "Dashboards",   url: "/dashboards",  icon: BarChart3,    capability: "dashboards" },
       { title: "Notebooks",    url: "/notebooks",   icon: FileCode,     capability: "notebooks" },
       { title: "Experiments",  url: "/experiments", icon: FlaskConical, capability: "experiments" },
-      { title: "Dashboards",   url: "/dashboards",  icon: BarChart3,    capability: "dashboards" },
     ]
   },
   {
-    label: "Platform",
+    label: "Manage",
     hint: "",
     items: [
+      { title: "Storage",      url: "/storage",     icon: HardDrive },
       { title: "Services",     url: "/services",    icon: Activity },
       { title: "System",       url: "/system",      icon: Server },
-      { title: "Storage",      url: "/storage",     icon: HardDrive },
-      { title: "Governance",   url: "/governance",  icon: ShieldCheck },
       { title: "Settings",     url: "/settings",    icon: Settings },
     ]
   },

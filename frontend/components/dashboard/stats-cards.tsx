@@ -1,74 +1,75 @@
 "use client"
 
 import { Card, CardContent } from "@/components/ui/card"
-import { Activity, ShieldCheck, Cpu, HardDrive } from "lucide-react"
+import { Sparkles, Boxes, HardDrive, ShieldCheck } from "lucide-react"
 
 interface StatsCardsProps {
+  collections: number | null
+  vectors: number | null
+  storageHuman: string | null
+  storageObjects: number | null
   totalServices: number
   healthyServices: number
-  cpuUsage?: number
-  memoryUsage?: number
 }
 
-// A thin honest usage bar (0–100%) — real current value, not a fabricated trend.
-function UsageBar({ pct }: { pct: number }) {
-  const clamped = Math.max(0, Math.min(100, pct))
-  return (
-    <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-      <div className="dp-gradient h-full rounded-full transition-[width]" style={{ width: `${clamped}%` }} />
-    </div>
-  )
+// Compact SI-ish formatting for counts: 1_200_000 → "1.2M".
+function fmt(n: number | null): string {
+  if (n == null) return "—"
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1)}K`
+  return String(n)
 }
 
-export function StatsCards({ totalServices, healthyServices, cpuUsage, memoryUsage }: StatsCardsProps) {
-  const uptimePercent = totalServices > 0 ? (healthyServices / totalServices) * 100 : 0
-  const issues = totalServices - healthyServices
+export function StatsCards({
+  collections, vectors, storageHuman, storageObjects, totalServices, healthyServices,
+}: StatsCardsProps) {
+  const uptimePct = totalServices > 0 ? Math.round((healthyServices / totalServices) * 100) : 0
 
   const stats = [
     {
-      title: "Services",
-      value: String(totalServices),
-      icon: Activity,
-      description: issues > 0 ? `${healthyServices} healthy · ${issues} need attention` : "All healthy",
-      bar: undefined as number | undefined,
+      label: "Collections",
+      dot: "var(--chart-1)",
+      icon: Sparkles,
+      value: fmt(collections),
+      sub: "vector collections",
     },
     {
-      title: "Availability",
-      value: `${uptimePercent.toFixed(0)}%`,
-      icon: ShieldCheck,
-      description: `${healthyServices} of ${totalServices} operational`,
-      bar: undefined,
+      label: "Vectors",
+      dot: "var(--chart-3)",
+      icon: Boxes,
+      value: fmt(vectors),
+      sub: "embedded chunks",
     },
     {
-      title: "CPU",
-      value: cpuUsage != null ? `${cpuUsage.toFixed(0)}%` : "—",
-      icon: Cpu,
-      description: "Cluster average",
-      bar: cpuUsage,
-    },
-    {
-      title: "Memory",
-      value: memoryUsage != null ? `${memoryUsage.toFixed(0)}%` : "—",
+      label: "Storage",
+      dot: "var(--chart-5)",
       icon: HardDrive,
-      description: "Cluster average",
-      bar: memoryUsage,
+      value: storageHuman ?? "—",
+      sub: storageObjects != null ? `${storageObjects.toLocaleString()} objects · S3` : "S3 · Iceberg",
+    },
+    {
+      label: "Uptime",
+      dot: "var(--dp-good)",
+      icon: ShieldCheck,
+      value: totalServices > 0 ? `${uptimePct}%` : "—",
+      sub: `${healthyServices} / ${totalServices} services`,
     },
   ]
 
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-      {stats.map((stat) => {
-        const Icon = stat.icon
+      {stats.map((s) => {
+        const Icon = s.icon
         return (
-          <Card key={stat.title}>
+          <Card key={s.label}>
             <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                <Icon className="h-3.5 w-3.5" />
-                <span className="uppercase tracking-wide">{stat.title}</span>
+              <div className="flex items-center gap-2 text-[11.5px] font-medium text-muted-foreground">
+                <span className="h-1.5 w-1.5 rounded-full" style={{ background: s.dot }} />
+                <span>{s.label}</span>
+                <Icon className="ml-auto h-3.5 w-3.5 opacity-60" />
               </div>
-              <div className="dp-num mt-2 text-3xl font-semibold tracking-tight tabular-nums">{stat.value}</div>
-              <p className="mt-0.5 text-xs text-muted-foreground">{stat.description}</p>
-              {stat.bar != null && <UsageBar pct={stat.bar} />}
+              <div className="dp-num mt-2 text-[27px] font-semibold leading-none tracking-tight">{s.value}</div>
+              <p className="mt-1.5 text-[11.5px] text-muted-foreground">{s.sub}</p>
             </CardContent>
           </Card>
         )
