@@ -14,19 +14,20 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from app.api.auth import require_user
+
 # RLS (Layer 1) — gated by RLS_ENABLED (default off). See docs/RLS_DESIGN.md.
-# When off, query execution behaves exactly as before (no auth/policy required).
+# Query execution itself always requires an authenticated user (for history
+# attribution/RLS-identity); RLS *policy enforcement* on top of that remains
+# opt-in via RLS_ENABLED.
 RLS_ENABLED = os.getenv("RLS_ENABLED", "false").lower() in ("1", "true", "yes")
 try:
-    from app.api.auth import get_current_user
     from app.rls.engine import enforce, RlsDenied
     from app.rls import loader as rls_loader
     _RLS_IMPORTS_OK = True
 except Exception as _rls_imp_err:  # pragma: no cover - import-time guard
     logging.getLogger(__name__).warning(f"[rls] disabled, import failed: {_rls_imp_err}")
     _RLS_IMPORTS_OK = False
-    async def get_current_user(*a, **k):  # type: ignore
-        return None
 
 # Trino connection (lazy import to handle missing dependency gracefully)
 try:
@@ -58,9 +59,6 @@ TRINO_CATALOG = os.getenv("TRINO_CATALOG", "iceberg")
 TRINO_SCHEMA = os.getenv("TRINO_SCHEMA", "default")
 QUERY_TIMEOUT_SECONDS = 30
 MAX_ROWS = 1000
-
-# Mock user ID for now (replace with actual auth when implemented)
-MOCK_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 class QueryResult(BaseModel):
@@ -156,7 +154,7 @@ def add_limit_to_query(query: str, limit: int = MAX_ROWS) -> tuple[str, bool]:
 async def execute_query(
     request: QueryExecuteRequest,
     db: Session = Depends(get_db),
-    user: Optional[dict] = Depends(get_current_user),
+    user: dict = Depends(require_user),
 ):
     """
     Execute SQL query via Trino with optional history logging
@@ -164,7 +162,7 @@ async def execute_query(
     - Timeout: 30 seconds
     - Row limit: 1000 rows (auto-added if not present)
     - Returns: columns, rows, execution time, row count
-    - Saves to history if save_history=true
+    - Saves to history if save_history=true (attributed to the authenticated user)
     """
     # Strip comments and whitespace to get actual SQL
     sql_lines = [
@@ -176,12 +174,15 @@ async def execute_query(
     if not effective_query:
         raise HTTPException(status_code=400, detail="Query cannot be empty")
 
+    try:
+        user_id = uuid.UUID(user["id"])
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid user identity")
+
     engine = get_engine()
     # ── RLS enforcement (Layer 1) — gated by RLS_ENABLED ──────────────────────
     trino_user = TRINO_USER
     if RLS_ENABLED and _RLS_IMPORTS_OK:
-        if not user:
-            raise HTTPException(status_code=401, detail="RLS 활성화됨 — 인증이 필요합니다")
         try:
             ctx = await rls_loader.load_user_context(user)
             policies = await rls_loader.load_policies()
@@ -227,7 +228,7 @@ async def execute_query(
         if request.save_history:
             try:
                 history = QueryHistory(
-                    user_id=MOCK_USER_ID,
+                    user_id=user_id,
                     query_text=request.query,
                     execution_time_ms=int((time.time() - start_time) * 1000),
                     rows_returned=0,
@@ -250,7 +251,7 @@ async def execute_query(
     if request.save_history:
         try:
             history = QueryHistory(
-                user_id=MOCK_USER_ID,
+                user_id=user_id,
                 query_text=request.query,
                 execution_time_ms=int(execution_time_ms),
                 rows_returned=len(rows),
@@ -281,10 +282,11 @@ async def execute_query(
 async def get_query_history(
     limit: int = 50,
     offset: int = 0,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_user),
 ):
     """
-    Get query execution history for current user
+    Get query execution history for the current authenticated user
 
     - Paginated results (default: 50 items)
     - Ordered by most recent first
@@ -296,14 +298,19 @@ async def get_query_history(
         raise HTTPException(status_code=400, detail="Offset must be non-negative")
 
     try:
+        user_id = uuid.UUID(user["id"])
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid user identity")
+
+    try:
         # Get total count
         total = db.query(QueryHistory).filter(
-            QueryHistory.user_id == MOCK_USER_ID
+            QueryHistory.user_id == user_id
         ).count()
 
         # Get paginated results
         items = db.query(QueryHistory).filter(
-            QueryHistory.user_id == MOCK_USER_ID
+            QueryHistory.user_id == user_id
         ).order_by(
             QueryHistory.created_at.desc()
         ).limit(limit).offset(offset).all()
@@ -386,27 +393,13 @@ async def get_catalog_schemas(columns: bool = False):
         raise
     except Exception as e:
         if "connection" in str(e).lower() or "refused" in str(e).lower():
-            return CatalogTree(catalogs=[
-                Catalog(
-                    name="iceberg",
-                    catalog_type="managed",
-                    schemas=[
-                        CatalogSchema(
-                            name="default",
-                            tables=[
-                                CatalogTable(
-                                    name="sample_table",
-                                    columns=[
-                                        CatalogColumn(name="id", type="bigint"),
-                                        CatalogColumn(name="name", type="varchar"),
-                                        CatalogColumn(name="created_at", type="timestamp")
-                                    ]
-                                )
-                            ]
-                        )
-                    ]
-                )
-            ])
+            # Catalog reader unreachable — return an EMPTY tree rather than
+            # inventing a fake table. A fabricated "sample_table" looked real
+            # in the schema tree but errored on click (SELECT * FROM
+            # default.sample_table doesn't exist). Let the tree's own
+            # empty/error state communicate the failure instead.
+            logger.warning(f"[catalog] reader unreachable, returning empty tree: {e}")
+            return CatalogTree(catalogs=[])
         raise HTTPException(status_code=500, detail=f"Failed to fetch catalog: {str(e)}")
 
 

@@ -15,17 +15,21 @@ from app.schemas.dashboard import (
     DashboardResponse,
     DashboardListResponse
 )
+from app.api.auth import require_user
 
 router = APIRouter()
 
-# Mock user ID for now (replace with actual auth when implemented)
-MOCK_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+def _uid(user: dict) -> uuid.UUID:
+    """Authenticated user's id as a UUID (mirrors app.api.ai_vectors._uid)."""
+    return uuid.UUID(user["id"])
 
 
 @router.post("/dashboards", response_model=DashboardResponse, status_code=201)
 async def create_dashboard(
     dashboard: DashboardCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_user)
 ):
     """
     Create a new dashboard with saved query and chart configuration
@@ -37,7 +41,7 @@ async def create_dashboard(
     try:
         # Create new dashboard
         new_dashboard = Dashboard(
-            user_id=MOCK_USER_ID,
+            user_id=_uid(user),
             name=dashboard.name.strip(),
             description=dashboard.description.strip() if dashboard.description else None,
             query_text=dashboard.query_text,
@@ -62,26 +66,34 @@ async def create_dashboard(
 @router.get("/dashboards", response_model=DashboardListResponse)
 async def list_dashboards(
     include_public: bool = False,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_user)
 ):
     """
     List dashboards for current user
 
     - Returns user's own dashboards
     - Optionally include public dashboards (include_public=true)
+    - Admins see ALL dashboards regardless of owner or is_public — this also
+      surfaces any pre-existing MOCK_USER_ID-owned rows (from before real
+      per-user ownership was wired up) to admins instead of orphaning them.
     - Ordered by most recent first
     """
     try:
         query = db.query(Dashboard)
+        is_admin = user.get("role") == "admin"
 
-        if include_public:
+        if is_admin:
+            # Admins see every dashboard, regardless of owner or visibility.
+            pass
+        elif include_public:
             # User's dashboards + public dashboards from others
             query = query.filter(
-                (Dashboard.user_id == MOCK_USER_ID) | (Dashboard.is_public == True)
+                (Dashboard.user_id == _uid(user)) | (Dashboard.is_public == True)
             )
         else:
             # Only user's dashboards
-            query = query.filter(Dashboard.user_id == MOCK_USER_ID)
+            query = query.filter(Dashboard.user_id == _uid(user))
 
         dashboards = query.order_by(Dashboard.updated_at.desc()).all()
 
@@ -100,7 +112,8 @@ async def list_dashboards(
 @router.get("/dashboards/{dashboard_id}", response_model=DashboardResponse)
 async def get_dashboard(
     dashboard_id: uuid.UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_user)
 ):
     """
     Get a specific dashboard by ID
@@ -114,8 +127,9 @@ async def get_dashboard(
         if not dashboard:
             raise HTTPException(status_code=404, detail="Dashboard not found")
 
-        # Check access: owner or public dashboard
-        if dashboard.user_id != MOCK_USER_ID and not dashboard.is_public:
+        # Check access: owner, public dashboard, or admin
+        is_admin = user.get("role") == "admin"
+        if dashboard.user_id != _uid(user) and not dashboard.is_public and not is_admin:
             raise HTTPException(
                 status_code=403,
                 detail="Access denied: Dashboard is private"
@@ -136,12 +150,13 @@ async def get_dashboard(
 async def update_dashboard(
     dashboard_id: uuid.UUID,
     updates: DashboardUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_user)
 ):
     """
     Update an existing dashboard
 
-    - Only owner can update
+    - Only owner (or admin) can update
     - Partial updates supported
     - Returns updated dashboard
     """
@@ -151,8 +166,8 @@ async def update_dashboard(
         if not dashboard:
             raise HTTPException(status_code=404, detail="Dashboard not found")
 
-        # Check ownership
-        if dashboard.user_id != MOCK_USER_ID:
+        # Check ownership (admins may update any dashboard)
+        if dashboard.user_id != _uid(user) and user.get("role") != "admin":
             raise HTTPException(
                 status_code=403,
                 detail="Access denied: Only owner can update dashboard"
@@ -189,12 +204,13 @@ async def update_dashboard(
 @router.delete("/dashboards/{dashboard_id}", status_code=204)
 async def delete_dashboard(
     dashboard_id: uuid.UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_user)
 ):
     """
     Delete a dashboard
 
-    - Only owner can delete
+    - Only owner (or admin) can delete
     - Returns 204 No Content on success
     """
     try:
@@ -203,8 +219,8 @@ async def delete_dashboard(
         if not dashboard:
             raise HTTPException(status_code=404, detail="Dashboard not found")
 
-        # Check ownership
-        if dashboard.user_id != MOCK_USER_ID:
+        # Check ownership (admins may delete any dashboard)
+        if dashboard.user_id != _uid(user) and user.get("role") != "admin":
             raise HTTPException(
                 status_code=403,
                 detail="Access denied: Only owner can delete dashboard"
