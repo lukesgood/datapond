@@ -40,7 +40,7 @@ import {
   Layers,
 } from "lucide-react"
 import { LogsViewer } from "@/components/services/logs-viewer"
-import { MetricsChart } from "@/components/services/metrics-chart"
+import { MetricsChart, type ServiceMetricsData } from "@/components/services/metrics-chart"
 import { PodList } from "@/components/services/pod-list"
 
 // Only services that actually expose a sub-path console. Trino / SeaweedFS UIs
@@ -78,17 +78,16 @@ interface Pod {
   memory_usage?: number
 }
 
-interface MetricsData {
-  cpu_usage?: number
-  memory_usage?: number
-  network_in?: number
-  network_out?: number
-  disk_usage?: number
-  history?: {
-    timestamp: string
-    cpu: number
-    memory: number
-  }[]
+// Raw shape returned by GET /api/services/{service}/pods (backend PodInfo) —
+// note "phase", not "status".
+interface RawPod {
+  name: string
+  phase: Pod["status"]
+  ready: boolean
+  restarts: number
+  age: string
+  node?: string
+  ip?: string
 }
 
 export default function ServiceDetailPage() {
@@ -99,7 +98,7 @@ export default function ServiceDetailPage() {
   const [service, setService] = useState<ServiceDetail | null>(null)
   const [logs, setLogs] = useState<string[]>([])
   const [pods, setPods] = useState<Pod[]>([])
-  const [metrics, setMetrics] = useState<MetricsData | null>(null)
+  const [metrics, setMetrics] = useState<ServiceMetricsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [metricsLoading, setMetricsLoading] = useState(false)
   const [isRestarting, setIsRestarting] = useState(false)
@@ -115,11 +114,18 @@ export default function ServiceDetailPage() {
     try {
       setLoading(true)
       const response = await fetch(`/api/services/${serviceId}`)
+      if (!response.ok) {
+        // 404 (unknown service) or any other error — show the "not found" state
+        // rather than rendering a blank/zeroed-out page.
+        setService(null)
+        return
+      }
       const data = await response.json()
       setService(data)
       setScaleValue(data.replicas || 1)
     } catch (error) {
       console.error("Failed to fetch service details:", error)
+      setService(null)
     } finally {
       setLoading(false)
     }
@@ -145,9 +151,22 @@ export default function ServiceDetailPage() {
   const fetchPods = async () => {
     try {
       const response = await fetch(`/api/services/${serviceId}/pods`)
-      const data = await response.json()
-      if (data.pods && Array.isArray(data.pods)) {
-        setPods(data.pods)
+      if (!response.ok) {
+        // e.g. 404 when the service currently has no pods — nothing to show.
+        setPods([])
+        return
+      }
+      // GET /pods returns a bare array of PodInfo (field is "phase", not "status").
+      const data: RawPod[] = await response.json()
+      if (Array.isArray(data)) {
+        setPods(
+          data.map((p) => ({
+            name: p.name,
+            status: p.phase,
+            restarts: p.restarts,
+            age: p.age,
+          }))
+        )
       }
     } catch (error) {
       console.error("Failed to fetch pods:", error)

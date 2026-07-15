@@ -68,6 +68,7 @@ class QueryResult(BaseModel):
     rows: List[List[Any]]
     execution_time_ms: float
     row_count: int
+    truncated: bool = False
 
 
 class CatalogColumn(BaseModel):
@@ -122,28 +123,33 @@ def get_trino_connection(trino_user: Optional[str] = None):
         )
 
 
-def add_limit_to_query(query: str, limit: int = MAX_ROWS) -> str:
-    """Add LIMIT clause to query if not present"""
+def add_limit_to_query(query: str, limit: int = MAX_ROWS) -> tuple[str, bool]:
+    """Add LIMIT clause to query if not present.
+
+    Returns (query, limit_auto_added) — the second value is True only when we
+    injected the LIMIT ourselves (the user didn't supply one), so callers can
+    tell a genuinely-complete result set apart from one truncated by the cap.
+    """
     query = query.strip().rstrip(";")
 
     # Check if query already has LIMIT (case-insensitive)
     if re.search(r'\bLIMIT\s+\d+\b', query, re.IGNORECASE):
-        return query
+        return query, False
 
     # Don't add LIMIT to DDL or SHOW commands
     ddl_commands = ['CREATE', 'DROP', 'ALTER', 'SHOW', 'DESCRIBE', 'DESC']
     first_word = query.split()[0].upper() if query.split() else ""
     if first_word in ddl_commands:
-        return query
+        return query, False
 
     # Add LIMIT to SELECT queries
     if query.upper().startswith('SELECT'):
         # Remove trailing semicolon if present
         if query.endswith(';'):
             query = query[:-1]
-        return f"{query} LIMIT {limit}"
+        return f"{query} LIMIT {limit}", True
 
-    return query
+    return query, False
 
 
 @router.post("/queries/execute", response_model=QueryResult)
@@ -194,7 +200,7 @@ async def execute_query(
             raise HTTPException(status_code=403, detail="RLS 적용 중 오류로 쿼리가 차단되었습니다")
 
     # Add row limit for safety
-    safe_query = add_limit_to_query(effective_query, MAX_ROWS)
+    safe_query, limit_auto_added = add_limit_to_query(effective_query, MAX_ROWS)
 
     start_time = time.time()
     status = "success"
@@ -258,11 +264,16 @@ async def execute_query(
             # Don't fail the request if history save fails
             print(f"Failed to save query history: {e}")
 
+    # Only genuinely truncated when we auto-added the LIMIT (user didn't ask
+    # for one) AND we actually hit the cap — otherwise the result set is complete.
+    truncated = limit_auto_added and len(rows) >= MAX_ROWS
+
     return QueryResult(
         columns=columns,
         rows=rows,
         execution_time_ms=round(execution_time_ms, 2),
-        row_count=len(rows)
+        row_count=len(rows),
+        truncated=truncated
     )
 
 

@@ -13,6 +13,9 @@ import os
 import asyncio
 import json
 
+from app.service_registry import service_registry
+from k8s_client import k8s_client as _k8s
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -86,6 +89,23 @@ class ScaleResponse(BaseModel):
     new_replicas: int
     service: str
 
+class ServiceDetail(BaseModel):
+    """Consolidated single-service detail — backs the Services detail page."""
+    name: str
+    status: str  # "healthy" | "unhealthy" | "unknown" | "managed"
+    kind: Optional[str] = None  # "pod" | "managed"
+    url: Optional[str] = None
+    version: Optional[str] = None
+    description: Optional[str] = None
+    replicas: Optional[int] = None
+    cpu_usage: Optional[float] = None       # % of node allocatable (best-effort)
+    memory_usage: Optional[float] = None    # % of node allocatable (best-effort)
+    namespace: Optional[str] = None
+    labels: Optional[Dict[str, str]] = None
+    ports: Optional[List[Dict[str, Any]]] = None
+    env: Optional[Dict[str, str]] = None
+    uptime: Optional[str] = None
+
 # ==========================================
 # Helper Functions
 # ==========================================
@@ -126,6 +146,137 @@ def get_service_label_selector(service: str) -> str:
     # Try common label patterns
     # Most DataPond services use app=service-name
     return f"app={service}"
+
+def _node_allocatable():
+    """Best-effort cluster node allocatable (cpu_nanocores, memory_bytes).
+
+    Reuses k8s_client's quantity parsers (same ones the dashboard-wide
+    metrics use) so % figures are consistent across the app. Returns
+    (None, None) if node info isn't accessible (RBAC, etc.) — callers
+    must treat that as "percentage unavailable", never fabricate a number.
+    """
+    try:
+        nodes = core_v1.list_node()
+        cpu_nano = sum(_k8s._parse_cpu_nano((n.status.allocatable or {}).get("cpu", "0")) for n in nodes.items)
+        mem_bytes = sum(_k8s._parse_mem_bytes((n.status.allocatable or {}).get("memory", "0Ki")) for n in nodes.items)
+        if cpu_nano and mem_bytes:
+            return cpu_nano, mem_bytes
+        return None, None
+    except Exception as e:
+        logger.warning(f"Node allocatable lookup failed: {e}")
+        return None, None
+
+# ==========================================
+# Single-Service Detail Endpoint
+# ==========================================
+
+@router.get("/services/{service}", response_model=ServiceDetail)
+async def get_service_detail(service: str):
+    """
+    Consolidated detail for a single service — backs the Services detail page.
+
+    Base identity (name/status/description/kind/url/version) comes from the
+    profile-aware service_registry — 404 only when the service isn't in the
+    registry at all. For self-hosted ("pod") services this is enriched
+    best-effort with live k8s data (replicas/cpu/memory/namespace/labels/
+    ports/env/uptime), reusing the same pod + metrics-server lookups as
+    /pods and /metrics. AWS-managed services (S3/Aurora/Bedrock/Glue/Athena)
+    have no pods to inspect, so they return status="managed" with no pod data.
+
+    Never 500s — any k8s error degrades to partial data, not a failure.
+    """
+    entry = next((s for s in service_registry(os.environ) if s["name"] == service), None)
+    if entry is None:
+        raise HTTPException(404, f"Service not found: {service}")
+
+    if entry.get("kind") == "managed":
+        return ServiceDetail(
+            name=entry["name"],
+            status="managed",
+            kind="managed",
+            version="AWS managed",
+            description=entry.get("desc"),
+        )
+
+    app_label = entry.get("app", service)
+    detail = ServiceDetail(
+        name=entry["name"],
+        status="unknown",
+        kind="pod",
+        url=entry.get("url"),
+        description=entry.get("desc"),
+        namespace=NAMESPACE,
+    )
+
+    # Pod-derived fields: status/replicas/labels/uptime/version/env (best-effort).
+    try:
+        pods = core_v1.list_namespaced_pod(
+            namespace=NAMESPACE,
+            label_selector=get_service_label_selector(app_label),
+        )
+        pod_items = pods.items
+        if pod_items:
+            all_running = all(p.status.phase == "Running" for p in pod_items)
+            all_ready = all(is_pod_ready(p) for p in pod_items)
+            detail.status = "healthy" if (all_running and all_ready) else "unhealthy"
+            detail.replicas = len(pod_items)
+
+            first = pod_items[0]
+            detail.labels = first.metadata.labels or {}
+            detail.uptime = get_pod_age(first.metadata.creation_timestamp)
+
+            containers = first.spec.containers if first.spec and first.spec.containers else []
+            if containers:
+                image = containers[0].image or ""
+                detail.version = image.split(":")[-1] if ":" in image else image
+                if containers[0].env:
+                    detail.env = {
+                        e.name: e.value for e in containers[0].env if e.value is not None
+                    }
+    except ApiException as e:
+        logger.warning(f"[services/{service}] pod lookup failed: {e}")
+    except Exception as e:
+        logger.warning(f"[services/{service}] pod enrichment failed: {e}")
+
+    # Service ports — from the k8s Service object (falls back silently if absent).
+    try:
+        svc_obj = core_v1.read_namespaced_service(name=app_label, namespace=NAMESPACE)
+        if svc_obj.spec and svc_obj.spec.ports:
+            detail.ports = [
+                {"name": p.name or "", "port": p.port, "protocol": p.protocol or "TCP"}
+                for p in svc_obj.spec.ports
+            ]
+    except ApiException:
+        pass
+    except Exception as e:
+        logger.warning(f"[services/{service}] service ports lookup failed: {e}")
+
+    # CPU/Memory usage — sum pod usage from metrics-server, express as % of
+    # node allocatable (same semantics as the dashboard-wide metrics).
+    try:
+        custom_api = client.CustomObjectsApi()
+        metrics = custom_api.list_namespaced_custom_object(
+            group="metrics.k8s.io", version="v1beta1", namespace=NAMESPACE,
+            plural="pods", label_selector=get_service_label_selector(app_label),
+        )
+        total_cpu_nano = 0
+        total_mem_bytes = 0
+        for pod in metrics.get("items", []):
+            for c in pod.get("containers", []):
+                usage = c.get("usage", {})
+                total_cpu_nano += _k8s._parse_cpu_nano(usage.get("cpu", "0n"))
+                total_mem_bytes += _k8s._parse_mem_bytes(usage.get("memory", "0Ki"))
+
+        alloc_cpu, alloc_mem = _node_allocatable()
+        if alloc_cpu and alloc_mem:
+            detail.cpu_usage = round(total_cpu_nano / alloc_cpu * 100, 1)
+            detail.memory_usage = round(total_mem_bytes / alloc_mem * 100, 1)
+    except ApiException as e:
+        logger.warning(f"[services/{service}] metrics-server unavailable: {e}")
+    except Exception as e:
+        logger.warning(f"[services/{service}] metrics lookup failed: {e}")
+
+    return detail
 
 # ==========================================
 # Pod Management Endpoints
