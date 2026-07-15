@@ -477,9 +477,12 @@ class S3Connector(BaseConnector):
 
             tbl_name = target_table.rsplit(".", 1)[-1] if target_table else source_table
 
-            base_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
-            upsert = bool(key_columns) and base_mode == "append"
-            write_mode = "upsert" if upsert else base_mode
+            # S3 sync re-reads EVERY object under the prefix each run (there is no
+            # per-object watermark), so plain `append` would duplicate all rows on
+            # every subsequent sync. The only safe modes are: upsert (dedupe by
+            # key_columns) or overwrite (full replace). Never append for S3.
+            upsert = bool(key_columns)
+            write_mode = "upsert" if upsert else "overwrite"
 
             rows_processed = await asyncio.to_thread(
                 write_dataframe_to_iceberg,
