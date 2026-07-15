@@ -37,14 +37,14 @@ resource "aws_cloudwatch_dashboard" "datapond" {
   dashboard_body = jsonencode({
     widgets = [
       {
-        type   = "metric"
-        x      = 0, y = 0, width = 12, height = 6
+        type = "metric"
+        x    = 0, y = 0, width = 12, height = 6
         properties = {
-          title   = "AI usage — RAG queries & embeddings"
-          region  = var.aws_region
-          view    = "timeSeries"
-          stat    = "Sum"
-          period  = 300
+          title  = "AI usage — RAG queries & embeddings"
+          region = var.aws_region
+          view   = "timeSeries"
+          stat   = "Sum"
+          period = 300
           metrics = [
             [local.cw_ns, "RagQuery", { label = "RAG queries" }],
             [local.cw_ns, "EmbeddingCount", { label = "Embeddings" }],
@@ -52,27 +52,27 @@ resource "aws_cloudwatch_dashboard" "datapond" {
         }
       },
       {
-        type   = "metric"
-        x      = 12, y = 0, width = 12, height = 6
+        type = "metric"
+        x    = 12, y = 0, width = 12, height = 6
         properties = {
-          title   = "Athena queries"
-          region  = var.aws_region
-          view    = "timeSeries"
-          stat    = "Sum"
-          period  = 300
+          title  = "Athena queries"
+          region = var.aws_region
+          view   = "timeSeries"
+          stat   = "Sum"
+          period = 300
           metrics = [
             [local.cw_ns, "QueryCount", "Engine", "Athena", { label = "Athena queries" }],
           ]
         }
       },
       {
-        type   = "metric"
-        x      = 0, y = 6, width = 24, height = 6
+        type = "metric"
+        x    = 0, y = 6, width = 24, height = 6
         properties = {
-          title   = "Athena scan cost (estimated USD, $5/TB)"
-          region  = var.aws_region
-          view    = "timeSeries"
-          period  = 3600
+          title  = "Athena scan cost (estimated USD, $5/TB)"
+          region = var.aws_region
+          view   = "timeSeries"
+          period = 3600
           metrics = [
             [local.cw_ns, "BytesScanned", "Engine", "Athena", { id = "bytes", stat = "Sum", visible = false }],
             [{ expression = "bytes / 1000000000000 * 5", label = "Estimated cost (USD)", id = "cost" }],
