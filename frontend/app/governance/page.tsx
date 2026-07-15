@@ -43,6 +43,7 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recha
 import type {
   GovernanceStats,
   AuditLogItem,
+  AuditStreamItem,
   PiiTable,
   AiSafetyFlag,
 } from "@/lib/api"
@@ -115,11 +116,29 @@ function EventBadge({ type }: { type: string }) {
   )
 }
 
+// ─── source badge (unified audit stream) ──────────────────────────────────────
+
+function SourceBadge({ source }: { source: string }) {
+  const map: Record<string, { label: string; className: string }> = {
+    query:     { label: "Query",     className: "border-[var(--chart-1)]/40 text-[var(--chart-1)]" },
+    auth:      { label: "Auth",      className: "border-[var(--chart-3)]/40 text-[var(--chart-3)]" },
+    connector: { label: "Connector", className: "border-[var(--chart-4)]/40 text-[var(--chart-4)]" },
+  }
+  const cfg = map[source] ?? { label: source, className: "border-gray-300 text-gray-400" }
+  return (
+    <Badge variant="outline" className={cfg.className}>
+      {cfg.label}
+    </Badge>
+  )
+}
+
 // ─── result badge ─────────────────────────────────────────────────────────────
 
 function ResultBadge({ result }: { result: string }) {
   if (result === "통과" || result === "pass" || result === "success")
     return <Badge className="bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-0">Passed</Badge>
+  if (result === "failure" || result === "failed")
+    return <Badge className="bg-destructive/10 text-destructive border-0">Failed</Badge>
   if (result === "error")
     return <Badge className="bg-destructive/10 text-destructive border-0">Error</Badge>
   if (result === "timeout")
@@ -632,6 +651,12 @@ export default function GovernancePage() {
   const [eventTypeFilter, setEventTypeFilter] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
 
+  // unified activity stream (query + auth + connector)
+  const [activityItems, setActivityItems] = useState<AuditStreamItem[]>([])
+  const [activityLoading, setActivityLoading] = useState(true)
+  const [activitySource, setActivitySource] = useState("all")
+  const [activitySources, setActivitySources] = useState<string[]>([])
+
   // pii
   const [piiTables, setPiiTables] = useState<PiiTable[]>([])
   const [piiScanned, setPiiScanned] = useState(false)  // did a real scan run? (vs engine unsupported)
@@ -769,6 +794,21 @@ export default function GovernancePage() {
       .finally(() => setAuditLoading(false))
   }, [eventTypeFilter])
 
+  // Unified activity stream — re-fetch when source filter changes
+  useEffect(() => {
+    setActivityLoading(true)
+    const qs = new URLSearchParams({ limit: "100" })
+    if (activitySource !== "all") qs.set("source", activitySource)
+    fetch(`/api/governance/audit-stream?${qs}`)
+      .then((r) => r.json())
+      .then((d) => {
+        setActivityItems(d.items ?? [])
+        setActivitySources(d.sources ?? [])
+      })
+      .catch(() => { setActivityItems([]); setActivitySources([]) })
+      .finally(() => setActivityLoading(false))
+  }, [activitySource])
+
   // client-side search filter on audit items
   const filteredAudit = searchQuery
     ? auditItems.filter((i) => {
@@ -831,6 +871,7 @@ export default function GovernancePage() {
       <Tabs defaultValue="audit">
         <TabsList>
           <TabsTrigger value="audit">Audit Log</TabsTrigger>
+          <TabsTrigger value="activity">Activity</TabsTrigger>
           <TabsTrigger value="ai-safety">AI Safety</TabsTrigger>
           <TabsTrigger value="data-protection">Data Protection</TabsTrigger>
           <TabsTrigger value="access-control">Access Control</TabsTrigger>
@@ -946,6 +987,89 @@ export default function GovernancePage() {
           {!auditLoading && (
             <p className="text-xs text-muted-foreground">
               Showing {filteredAudit.length} of {auditTotal} total
+            </p>
+          )}
+        </TabsContent>
+
+        {/* ── Tab: Activity (unified audit stream) ──────────────────────── */}
+        <TabsContent value="activity" className="mt-4 space-y-4">
+          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+            <Select value={activitySource} onValueChange={(v) => setActivitySource(v ?? "all")}>
+              <SelectTrigger className="w-full sm:w-52">
+                <SelectValue placeholder="Source" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All sources</SelectItem>
+                <SelectItem value="query">Query (SQL executions)</SelectItem>
+                <SelectItem value="auth">Auth (logins, policy, denials)</SelectItem>
+                <SelectItem value="connector">Connector (sync runs)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              One time-ordered feed across query, auth, and connector events.
+            </p>
+          </div>
+
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-32">Time</TableHead>
+                    <TableHead className="w-24">Source</TableHead>
+                    <TableHead>Event</TableHead>
+                    <TableHead>Actor</TableHead>
+                    <TableHead>Target</TableHead>
+                    <TableHead className="w-24">Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {activityLoading ? (
+                    Array.from({ length: 8 }).map((_, i) => (
+                      <TableRow key={i}>
+                        {Array.from({ length: 6 }).map((_, j) => (
+                          <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  ) : activityItems.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                        No activity recorded yet
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    activityItems.map((item) => (
+                      <TableRow key={`${item.source}-${item.id}`}>
+                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                          {relativeTime(item.created_at)}
+                        </TableCell>
+                        <TableCell><SourceBadge source={item.source} /></TableCell>
+                        <TableCell className="text-sm">
+                          <span className="font-medium">{item.event_type}</span>
+                          {item.detail && (
+                            <span className="block font-mono text-xs text-muted-foreground max-w-[280px] truncate">
+                              {item.detail}
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm max-w-[160px] truncate">{item.actor ?? "—"}</TableCell>
+                        <TableCell className="text-sm font-mono text-xs max-w-[200px] truncate">
+                          {item.target ?? "—"}
+                        </TableCell>
+                        <TableCell>{item.status ? <ResultBadge result={item.status} /> : "—"}</TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          {!activityLoading && (
+            <p className="text-xs text-muted-foreground">
+              {activityItems.length} event{activityItems.length === 1 ? "" : "s"}
+              {activitySources.length > 0 && <> · sources: {activitySources.join(", ")}</>}
             </p>
           )}
         </TabsContent>

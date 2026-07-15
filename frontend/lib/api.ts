@@ -162,6 +162,26 @@ export interface AuditLogItem {
   created_at: string
 }
 
+// Matches backend AuditStreamItem (backend/app/api/governance.py) — one normalized
+// event in the unified audit stream. source ∈ query | auth | connector.
+export interface AuditStreamItem {
+  id: string
+  source: string
+  event_type: string
+  actor: string | null
+  target: string | null
+  action: string | null
+  status: string | null
+  detail: string | null
+  created_at: string
+}
+
+export interface AuditStreamResponse {
+  items: AuditStreamItem[]
+  total: number
+  sources: string[]
+}
+
 export interface PiiTable {
   table: string
   pii_columns: { column: string; type: string }[]
