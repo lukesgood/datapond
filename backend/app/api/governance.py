@@ -262,87 +262,6 @@ def _iso(dt) -> str:
     return dt.isoformat() if dt else ""
 
 
-@router.get("/governance/audit-stream", response_model=AuditStreamResponse)
-def get_audit_stream(
-    source: Optional[str] = None,
-    limit: int = 100,
-    db: Session = Depends(get_db),
-):
-    """Unified, time-ordered audit feed across query / auth / connector sources.
-
-    `source` optionally restricts to one of query|auth|connector. Each source is
-    best-effort: one failing (e.g. table absent) is logged and omitted from
-    `sources`, the rest still return. Never fabricates.
-    """
-    if limit < 1 or limit > 500:
-        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
-    if source is not None and source not in _AUDIT_SOURCES:
-        raise HTTPException(status_code=400, detail=f"source must be one of {list(_AUDIT_SOURCES)}")
-
-    per_source = min(limit, 200)
-    scored: list = []          # (epoch, AuditStreamItem)
-    sources_ok: List[str] = []
-
-    def _want(s: str) -> bool:
-        return source is None or source == s
-
-    if _want("query"):
-        try:
-            rows = db.execute(text(
-                "SELECT id, status, user_id, catalog, schema, query_text, created_at "
-                "FROM query_history ORDER BY created_at DESC LIMIT :n"), {"n": per_source}).fetchall()
-            for r in rows:
-                tgt = ".".join([p for p in (r.catalog, r.schema) if p]) or None
-                scored.append((_sort_epoch(r.created_at), AuditStreamItem(
-                    id=str(r.id), source="query", event_type=_query_event_type(r.status),
-                    actor=str(r.user_id) if r.user_id else None, target=tgt, action="execute",
-                    status=r.status, detail=(r.query_text or "")[:200] or None,
-                    created_at=_iso(r.created_at))))
-            sources_ok.append("query")
-        except Exception as e:
-            logger.warning("governance/audit-stream: query_history unavailable (%s)", e)
-            db.rollback()
-
-    if _want("auth"):
-        try:
-            rows = db.execute(text(
-                "SELECT id, event_type, user_email, user_id, resource, action, result, "
-                "failure_reason, created_at FROM auth_audit_log ORDER BY created_at DESC LIMIT :n"),
-                {"n": per_source}).fetchall()
-            for r in rows:
-                scored.append((_sort_epoch(r.created_at), AuditStreamItem(
-                    id=str(r.id), source="auth", event_type=str(r.event_type),
-                    actor=r.user_email or (str(r.user_id) if r.user_id else None),
-                    target=r.resource, action=r.action, status=r.result,
-                    detail=r.failure_reason, created_at=_iso(r.created_at))))
-            sources_ok.append("auth")
-        except Exception as e:
-            logger.warning("governance/audit-stream: auth_audit_log unavailable (%s)", e)
-            db.rollback()
-
-    if _want("connector"):
-        try:
-            rows = db.execute(text(
-                "SELECT h.id, h.status, h.rows_processed, h.rows_failed, h.error_message, "
-                "h.started_at, j.source_table FROM connector_sync_history h "
-                "LEFT JOIN connector_sync_jobs j ON h.job_id = j.id "
-                "ORDER BY h.started_at DESC LIMIT :n"), {"n": per_source}).fetchall()
-            for r in rows:
-                detail = r.error_message or f"{r.rows_processed or 0} rows"
-                scored.append((_sort_epoch(r.started_at), AuditStreamItem(
-                    id=str(r.id), source="connector", event_type="connector_sync",
-                    actor=None, target=r.source_table, action="sync", status=r.status,
-                    detail=detail, created_at=_iso(r.started_at))))
-            sources_ok.append("connector")
-        except Exception as e:
-            logger.warning("governance/audit-stream: connector_sync_history unavailable (%s)", e)
-            db.rollback()
-
-    scored.sort(key=lambda t: t[0], reverse=True)
-    items = [it for _, it in scored[:limit]]
-    return AuditStreamResponse(items=items, total=len(items), sources=sources_ok)
-
-
 @router.get("/governance/stats", response_model=GovernanceStats)
 def get_governance_stats(db: Session = Depends(get_db)):
     """
@@ -601,6 +520,101 @@ async def _require_admin(user: Optional[dict]) -> dict:
     except Exception:
         pass
     raise HTTPException(status_code=403, detail="Admin privileges required")
+
+
+@router.get("/governance/audit-stream", response_model=AuditStreamResponse)
+async def get_audit_stream(
+    source: Optional[str] = None,
+    limit: int = 100,
+    user: Optional[dict] = Depends(_get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Unified, time-ordered audit feed across query / auth / connector sources.
+
+    Admin-only (mirrors the RLS/mask governance endpoints + the auth.sql
+    `view_audit_log` permission): the feed exposes auth telemetry (login failures,
+    emails) and other users' query text. `source` optionally restricts to one of
+    query|auth|connector. Each source is best-effort: one failing (e.g. table
+    absent) is logged and omitted from `sources`, the rest still return. Never
+    fabricates.
+    """
+    await _require_admin(user)
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+    if source is not None and source not in _AUDIT_SOURCES:
+        raise HTTPException(status_code=400, detail=f"source must be one of {list(_AUDIT_SOURCES)}")
+
+    per_source = min(limit, 200)
+    scored: list = []          # (epoch, AuditStreamItem)
+    sources_ok: List[str] = []
+
+    def _want(s: str) -> bool:
+        return source is None or source == s
+
+    # Build each source's items into a LOCAL list and only merge on full success —
+    # so a throw mid-normalization drops the whole source (kept out of `sources`)
+    # instead of leaking half its rows into the feed (the honesty contract).
+    if _want("query"):
+        try:
+            rows = db.execute(text(
+                "SELECT id, status, user_id, catalog, schema, query_text, created_at "
+                "FROM query_history ORDER BY created_at DESC LIMIT :n"), {"n": per_source}).fetchall()
+            local = []
+            for r in rows:
+                tgt = ".".join([p for p in (r.catalog, r.schema) if p]) or None
+                local.append((_sort_epoch(r.created_at), AuditStreamItem(
+                    id=str(r.id), source="query", event_type=_query_event_type(r.status),
+                    actor=str(r.user_id) if r.user_id else None, target=tgt, action="execute",
+                    status=r.status, detail=(r.query_text or "")[:200] or None,
+                    created_at=_iso(r.created_at))))
+            scored.extend(local)
+            sources_ok.append("query")
+        except Exception as e:
+            logger.warning("governance/audit-stream: query_history unavailable (%s)", e)
+            db.rollback()
+
+    if _want("auth"):
+        try:
+            rows = db.execute(text(
+                "SELECT id, event_type, user_email, user_id, resource, action, result, "
+                "failure_reason, created_at FROM auth_audit_log ORDER BY created_at DESC LIMIT :n"),
+                {"n": per_source}).fetchall()
+            local = []
+            for r in rows:
+                local.append((_sort_epoch(r.created_at), AuditStreamItem(
+                    id=str(r.id), source="auth", event_type=str(r.event_type),
+                    actor=r.user_email or (str(r.user_id) if r.user_id else None),
+                    target=r.resource, action=r.action, status=r.result,
+                    detail=r.failure_reason, created_at=_iso(r.created_at))))
+            scored.extend(local)
+            sources_ok.append("auth")
+        except Exception as e:
+            logger.warning("governance/audit-stream: auth_audit_log unavailable (%s)", e)
+            db.rollback()
+
+    if _want("connector"):
+        try:
+            rows = db.execute(text(
+                "SELECT h.id, h.status, h.rows_processed, h.rows_failed, h.error_message, "
+                "h.started_at, j.source_table FROM connector_sync_history h "
+                "LEFT JOIN connector_sync_jobs j ON h.job_id = j.id "
+                "ORDER BY h.started_at DESC LIMIT :n"), {"n": per_source}).fetchall()
+            local = []
+            for r in rows:
+                detail = r.error_message or f"{r.rows_processed or 0} rows"
+                local.append((_sort_epoch(r.started_at), AuditStreamItem(
+                    id=str(r.id), source="connector", event_type="connector_sync",
+                    actor=None, target=r.source_table, action="sync", status=r.status,
+                    detail=detail, created_at=_iso(r.started_at))))
+            scored.extend(local)
+            sources_ok.append("connector")
+        except Exception as e:
+            logger.warning("governance/audit-stream: connector_sync_history unavailable (%s)", e)
+            db.rollback()
+
+    scored.sort(key=lambda t: t[0], reverse=True)
+    items = [it for _, it in scored[:limit]]
+    return AuditStreamResponse(items=items, total=len(items), sources=sources_ok)
 
 
 def _validate_bool_expr(expr: str) -> None:

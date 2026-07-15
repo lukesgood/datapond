@@ -2,16 +2,36 @@
 Unit tests for the unified audit stream (/governance/audit-stream).
 
 Merges query_history + auth_audit_log + connector_sync_history into one
-time-ordered feed. Pins: cross-source time ordering, per-source best-effort (a
-failing source is omitted from `sources`, the rest still return, session rolled
-back), the source filter, and input validation.
+time-ordered feed. Pins: admin-only gate, cross-source time ordering, per-source
+best-effort (a failing source is omitted from `sources`, the rest still return,
+session rolled back), the source filter, and input validation.
 """
+import asyncio
 from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
 
 import app.api.governance as gov
+
+ADMIN = {"id": "u1", "role": "admin"}
+VIEWER = {"id": "u2", "role": "viewer"}
+
+
+def _run(coro):
+    return asyncio.new_event_loop().run_until_complete(coro)
+
+
+@pytest.fixture(autouse=True)
+def _stub_admin_gate(monkeypatch):
+    """Replace the RLS-coupled _require_admin with a role check, so stream tests
+    don't depend on the RLS loader / _RLS_ADMIN_OK. (Real gate covered by the
+    non-admin test, which asserts a role!=admin is rejected.)"""
+    async def _fake(user):
+        if not user or user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Admin privileges required")
+        return user
+    monkeypatch.setattr(gov, "_require_admin", _fake)
 
 
 class _Row:
@@ -51,12 +71,13 @@ def _dt(day, tz=True):
     return d.replace(tzinfo=timezone.utc) if tz else d
 
 
+# query_history.created_at is naive (utcnow); auth is tz-aware (TIMESTAMPTZ);
+# connector.started_at is naive (TIMESTAMP) — mix exercises _sort_epoch.
 QUERY_ROWS = [_Row(id="q1", status="success", user_id="u1", catalog="AwsDataCatalog",
-                   schema="sales", query_text="SELECT 1", created_at=_dt(3))]
+                   schema="sales", query_text="SELECT 1", created_at=_dt(3, tz=False))]
 AUTH_ROWS = [_Row(id="a1", event_type="login", user_email="admin@x", user_id="u1",
                   resource=None, action="login", result="success",
                   failure_reason=None, created_at=_dt(5))]
-# connector uses naive timestamps (TIMESTAMP column) — must still sort correctly
 CONN_ROWS = [_Row(id="c1", status="failed", rows_processed=0, rows_failed=3,
                   error_message="boom", started_at=_dt(4, tz=False), source_table="orders")]
 
@@ -66,30 +87,39 @@ def _db(fail=None):
                     "connector_sync_history": CONN_ROWS}, fail_tables=fail)
 
 
+def _call(source=None, limit=100, user=ADMIN, db=None):
+    return _run(gov.get_audit_stream(source=source, limit=limit, user=user, db=db or _db()))
+
+
+def test_requires_admin():
+    with pytest.raises(HTTPException) as e:
+        _call(user=VIEWER)
+    assert e.value.status_code == 403
+
+
 def test_merges_all_sources_time_ordered():
-    resp = gov.get_audit_stream(source=None, limit=100, db=_db())
+    resp = _call()
     assert resp.sources == ["query", "auth", "connector"]
-    # newest first: auth(day5) > connector(day4) > query(day3)
+    # newest first across sources: auth(day5) > connector(day4) > query(day3)
     assert [i.id for i in resp.items] == ["a1", "c1", "q1"]
     assert resp.total == 3
 
 
 def test_normalizes_each_source():
-    resp = gov.get_audit_stream(source=None, limit=100, db=_db())
-    by_id = {i.id: i for i in resp.items}
+    by_id = {i.id: i for i in _call().items}
     assert by_id["q1"].event_type == "query_executed" and by_id["q1"].target == "AwsDataCatalog.sales"
     assert by_id["a1"].source == "auth" and by_id["a1"].actor == "admin@x"
     assert by_id["c1"].source == "connector" and by_id["c1"].detail == "boom" and by_id["c1"].target == "orders"
 
 
 def test_source_filter_restricts():
-    resp = gov.get_audit_stream(source="query", limit=100, db=_db())
+    resp = _call(source="query")
     assert resp.sources == ["query"] and {i.source for i in resp.items} == {"query"}
 
 
 def test_best_effort_skips_failing_source():
     db = _db(fail={"auth_audit_log"})
-    resp = gov.get_audit_stream(source=None, limit=100, db=db)
+    resp = _call(db=db)
     assert "auth" not in resp.sources          # failed source omitted (not "clean")
     assert set(resp.sources) == {"query", "connector"}
     assert db.rolled_back == 1                  # session rolled back after the failure
@@ -98,13 +128,13 @@ def test_best_effort_skips_failing_source():
 
 def test_limit_validation():
     with pytest.raises(HTTPException) as e:
-        gov.get_audit_stream(source=None, limit=0, db=_db())
+        _call(limit=0)
     assert e.value.status_code == 400
     with pytest.raises(HTTPException):
-        gov.get_audit_stream(source=None, limit=9999, db=_db())
+        _call(limit=9999)
 
 
 def test_bad_source_rejected():
     with pytest.raises(HTTPException) as e:
-        gov.get_audit_stream(source="nope", limit=10, db=_db())
+        _call(source="nope")
     assert e.value.status_code == 400
