@@ -106,6 +106,15 @@ backend:
     # stale so the scheduler re-embeds them promptly (event-driven freshness).
     sinkEnabled: true
 
+  # AWS-native observability — emit ops + cost metrics to CloudWatch. Off by
+  # default (needs cloudwatch:PutMetricData on the node/IRSA role). The AWS
+  # foundation profile enables it; keeps monitoring off the node (no extra pods).
+  # NOTE: if you change `namespace`, update the matching cloudwatch:namespace
+  # condition in terraform/iam.tf too, or PutMetricData is silently denied.
+  cloudwatchMetrics:
+    enabled: false
+    namespace: DataPond
+
   service:
     type: ClusterIP
     port: 8000

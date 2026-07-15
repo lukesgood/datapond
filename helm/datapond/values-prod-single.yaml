@@ -53,6 +53,11 @@ backend:
   image:
     repository: ""  # deploy time: terraform output -raw ecr_backend_repo_url
     pullPolicy: IfNotPresent
+  # AWS-native observability — the node instance profile carries
+  # cloudwatch:PutMetricData (terraform iam.tf), so metrics flow with no extra pods.
+  cloudwatchMetrics:
+    enabled: true
+    namespace: DataPond
 frontend:
   enabled: true
   image:
