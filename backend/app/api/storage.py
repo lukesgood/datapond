@@ -105,10 +105,34 @@ def _scan_bucket(s3, b) -> BucketStat:
     )
 
 
+def _configured_buckets() -> List[str]:
+    """The bucket(s) this deployment owns, for native-AWS storage overview —
+    so we never need account-wide s3:ListAllMyBuckets. Explicit STORAGE_BUCKETS
+    (comma-separated) wins; otherwise derive from the iceberg/glue warehouse URI
+    (s3://<bucket>/<prefix>)."""
+    explicit = os.getenv("STORAGE_BUCKETS", "").strip()
+    if explicit:
+        return [b.strip() for b in explicit.split(",") if b.strip()]
+    for env in ("GLUE_WAREHOUSE", "ICEBERG_WAREHOUSE"):
+        uri = os.getenv(env, "").strip()
+        if "://" in uri:
+            bucket = uri.split("://", 1)[1].split("/", 1)[0]
+            if bucket:
+                return [bucket]
+    return []
+
+
 def _collect_overview() -> "StorageOverview":
     """전체 수집(블로킹) — 버킷별 객체 나열을 스레드풀로 병렬화."""
     s3 = get_s3_client()
-    buckets_raw = s3.list_buckets().get("Buckets", [])
+    if S3_ENDPOINT:
+        # Self-hosted S3 (SeaweedFS/MinIO): every bucket is ours — enumerate.
+        buckets_raw = s3.list_buckets().get("Buckets", [])
+    else:
+        # Native AWS: report only the configured bucket(s). Enumerating the whole
+        # account (s3:ListAllMyBuckets) is over-broad and needs a permission the
+        # least-privilege node role intentionally lacks.
+        buckets_raw = [{"Name": n} for n in _configured_buckets()]
     # boto3 클라이언트는 스레드세이프 — 버킷 단위 병렬 스캔
     with ThreadPoolExecutor(max_workers=min(8, max(1, len(buckets_raw)))) as ex:
         bucket_stats = list(ex.map(lambda b: _scan_bucket(s3, b), buckets_raw))
