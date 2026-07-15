@@ -1,5 +1,5 @@
 {{- if .Values.litellm.enabled }}
-{{- $dbMode := or .Values.postgres.enabled .Values.litellm.databaseUrl }}
+{{- $dbMode := or .Values.postgres.enabled .Values.litellm.databaseUrl .Values.externalDatabase.enabled }}
 ---
 # LiteLLM ConfigMap — bootstrap config mounted as /app/config.yaml.
 # In DB mode (store_model_in_db) the real model_list lives in PostgreSQL and is
@@ -171,6 +171,22 @@ spec:
         {{- if .Values.litellm.databaseUrl }}
         - name: DATABASE_URL
           value: {{ .Values.litellm.databaseUrl | quote }}
+        {{- else if .Values.externalDatabase.enabled }}
+        # External DB (Aurora on the AWS foundation): reuse the app's POSTGRES_*
+        # secret + the external host; LiteLLM stores keys/spend in its own
+        # `litellm` database (must pre-exist — Aurora has no init container).
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_PASSWORD
+        - name: DATABASE_URL
+          value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ .Values.externalDatabase.host }}:{{ .Values.externalDatabase.port | default 5432 }}/{{ .Values.litellm.database | default "litellm" }}?sslmode={{ .Values.externalDatabase.sslmode | default "require" }}"
         {{- else }}
         - name: POSTGRES_USER
           valueFrom:
