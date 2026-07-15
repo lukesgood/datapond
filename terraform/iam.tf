@@ -79,6 +79,17 @@ data "aws_iam_policy_document" "app" {
     ]
     resources = ["*"] # workgroup-scoped; tighten to the primary workgroup ARN in a follow-up
   }
+  statement {
+    sid       = "CloudWatchMetrics"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"] # PutMetricData has no resource-level scoping
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["DataPond"]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "app" {

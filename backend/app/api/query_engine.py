@@ -76,7 +76,16 @@ class AthenaEngine:
         cur.execute(sql)
         rows = cur.fetchall()
         cols = [d[0] for d in cur.description] if cur.description else []
+        # Cost-governance metric: bytes scanned is directly billable ($5/TB).
+        scanned = getattr(cur, "data_scanned_in_bytes", None)
         cur.close(); conn.close()
+        try:
+            from app.metrics import emit
+            emit("QueryCount", 1, "Count", {"Engine": "Athena"})
+            if scanned is not None:
+                emit("BytesScanned", scanned, "Bytes", {"Engine": "Athena"})
+        except Exception:
+            pass
         return rows, cols
 
     def map_error(self, exc):

@@ -165,6 +165,11 @@ async def _embed(texts: List[str]) -> List[List[float]]:
         raise HTTPException(502, f"Embedding failed: {(r.text or '')[:200]}")
     data = r.json().get("data", [])
     data.sort(key=lambda x: x.get("index", 0))
+    try:
+        from app.metrics import emit
+        emit("EmbeddingCount", len(data), "Count")  # Bedrock Titan cost driver
+    except Exception:
+        pass
     return [d["embedding"] for d in data]
 
 
@@ -613,6 +618,11 @@ async def rag(req: RagRequest, user: dict = Depends(require_user)):
     """Retrieve top-k chunks, then ask the active LiteLLM chat model with that context.
     Returns the answer + the citations it was grounded on."""
     set_actor(user)
+    try:
+        from app.metrics import emit
+        emit("RagQuery", 1, "Count")  # core AI Data Foundation usage metric
+    except Exception:
+        pass
     # PII guardrail on the question before it reaches retrieval/the LLM.
     q_text, q_find, q_block = _guard(req.question)
     if q_block:

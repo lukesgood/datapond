@@ -103,6 +103,12 @@ spec:
         # Connector → RAG sink: re-embed fresh collections when their source table syncs
         - name: RAG_SINK_ENABLED
           value: {{ dig "sinkEnabled" true (.Values.backend.ragScheduler | default dict) | quote }}
+        # AWS-native observability: emit ops + cost metrics to CloudWatch (namespace DataPond).
+        # Default off — needs cloudwatch:PutMetricData on the node/IRSA role.
+        - name: CLOUDWATCH_METRICS_ENABLED
+          value: {{ dig "enabled" false (.Values.backend.cloudwatchMetrics | default dict) | quote }}
+        - name: CLOUDWATCH_METRICS_NAMESPACE
+          value: {{ dig "namespace" "DataPond" (.Values.backend.cloudwatchMetrics | default dict) | quote }}
         # Encrypts credentials-at-rest (connector secrets, stored provider keys)
         - name: ENCRYPTION_KEY
           valueFrom:
