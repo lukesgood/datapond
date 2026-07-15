@@ -22,7 +22,6 @@ import {
   Link, Terminal,
 } from "lucide-react"
 import { getUser } from "@/lib/auth"
-import { AiBackends } from "@/components/settings/ai-backends"
 import { PasskeyManager } from "@/components/passkey-manager"
 import { useCapabilityStrict, useCapability } from "@/lib/capabilities"
 
@@ -191,7 +190,6 @@ export default function SettingsPage() {
           <TabsList className="h-9">
             <TabsTrigger value="overview"  className="text-xs">Overview</TabsTrigger>
             <TabsTrigger value="users"     className="text-xs">Users</TabsTrigger>
-            <TabsTrigger value="ai"        className="text-xs">AI</TabsTrigger>
             <TabsTrigger value="security"  className="text-xs">Security</TabsTrigger>
             <TabsTrigger value="system"    className="text-xs">System</TabsTrigger>
           </TabsList>
@@ -291,10 +289,6 @@ export default function SettingsPage() {
             <UserManagement />
           </TabsContent>
 
-          {/* ── AI ── */}
-          <TabsContent value="ai" className="mt-5">
-            <AiBackends />
-          </TabsContent>
 
           {/* ── Security ── */}
           <TabsContent value="security" className="mt-5 space-y-5">

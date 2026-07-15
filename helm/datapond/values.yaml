@@ -774,7 +774,7 @@ litellm:
   # ── DB mode (store_model_in_db) ──────────────────────────────────────────────
   # Persists model_list / virtual keys / spend in PostgreSQL so the Settings UI can
   # add/remove/switch backends via the LiteLLM admin API at runtime.
-  database: litellm            # PostgreSQL database name (auto-created on first boot)
+  database: litellm            # LiteLLM DB name (ensured by the ensure-litellm-db initContainer on self-hosted AND external Aurora)
   # masterKey: admin-API + virtual-key auth. saltKey: encrypts stored model creds.
   # ⚠️ Both MUST stay stable across upgrades (saltKey change → stored creds undecryptable).
   # Leave EMPTY to auto-generate a strong key ONCE on first install and preserve it

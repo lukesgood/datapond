@@ -4,7 +4,7 @@ import {
   Home, Database, FlaskConical, Code2, Settings, Activity,
   Workflow, BarChart3, BookOpen, HelpCircle, FileCode,
   HardDrive, Radio, ArrowDownToLine, ShieldCheck, LogOut, User, GitBranch, Server,
-  Sparkles,
+  Sparkles, Bot,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
@@ -59,6 +59,7 @@ const mainSections: NavSection[] = [
     hint: "Knowledge, BI, and governance",
     items: [
       { title: "Knowledge",    url: "/knowledge",   icon: Sparkles },
+      { title: "AI Gateway",   url: "/ai",          icon: Bot },
       { title: "Governance",   url: "/governance",  icon: ShieldCheck },
       { title: "Dashboards",   url: "/dashboards",  icon: BarChart3,    capability: "dashboards" },
       { title: "Notebooks",    url: "/notebooks",   icon: FileCode,     capability: "notebooks" },
