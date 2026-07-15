@@ -9,6 +9,7 @@ Supports:
 - Auto-loader for continuous ingestion
 """
 
+import asyncio
 import logging
 import time
 import fnmatch
@@ -337,6 +338,32 @@ class S3Connector(BaseConnector):
             logger.error(f"Failed to read data from {table_name}: {e}")
             raise
 
+    def _read_file_to_df(self, client, key: str) -> Optional[pd.DataFrame]:
+        """Download one S3 object and parse it into a DataFrame by extension.
+
+        Supports CSV, JSON/JSONL, and Parquet — the common structured formats for
+        object-storage exports. Returns None for unsupported extensions (caller logs
+        + skips). Raises on read/parse failure so the caller can fail the job honestly.
+        """
+        ext = key.rsplit(".", 1)[-1].lower() if "." in key else ""
+
+        if ext not in ("csv", "json", "jsonl", "ndjson", "parquet", "pq"):
+            return None
+
+        body = client.get_object(Bucket=self.config.bucket, Key=key)["Body"].read()
+
+        if ext == "csv":
+            return pd.read_csv(BytesIO(body))
+        if ext in ("json", "jsonl", "ndjson"):
+            try:
+                # Most object-storage exports are newline-delimited JSON.
+                return pd.read_json(BytesIO(body), lines=True)
+            except ValueError:
+                # Fall back to a single JSON array/object document.
+                return pd.read_json(BytesIO(body))
+        # parquet / pq
+        return pd.read_parquet(BytesIO(body))
+
     async def sync_to_iceberg(
         self,
         source_table: str,
@@ -346,12 +373,20 @@ class S3Connector(BaseConnector):
         last_value: Optional[Any] = None,
         on_step=None,
         partition_spec: Optional[list] = None,
+        key_columns: Optional[list] = None,
+        pii_columns: Optional[list] = None,
     ) -> SyncJobStatus:
         """
-        Synchronize files from S3 to Iceberg table.
+        Synchronize files from S3 to an Iceberg table.
 
-        This would typically use Spark or Trino to read files and write to Iceberg.
+        Reads every matching object under the source prefix (CSV / JSON(L) / Parquet,
+        by extension), concatenates them into a single DataFrame, and commits via
+        `write_dataframe_to_iceberg` — the same pandas → PyArrow → PyIceberg (Glue+S3)
+        path the JDBC/database connectors use. `rows_processed` is the actual number of
+        rows written, not a file-count proxy.
         """
+        from .iceberg_writer import write_dataframe_to_iceberg
+
         started_at = datetime.utcnow()
 
         try:
@@ -359,12 +394,105 @@ class S3Connector(BaseConnector):
             files = await self.list_files(prefix=source_table, max_files=1000)
 
             logger.info(
-                f"Syncing {len(files)} files from s3://{self.config.bucket}/{source_table} "
-                f"to {target_table}"
+                f"[s3_connector] Found {len(files)} file(s) under "
+                f"s3://{self.config.bucket}/{source_table} for target {target_table}"
             )
 
-            # TODO: Implement actual Iceberg write using Spark
-            # For now, just return success
+            if not files:
+                # Honest no-op: nothing to sync is not a failure.
+                return SyncJobStatus(
+                    job_id=None,
+                    status=SyncStatus.SUCCESS,
+                    started_at=started_at,
+                    completed_at=datetime.utcnow(),
+                    rows_processed=0,
+                    rows_failed=0,
+                    metadata={
+                        "source_prefix": source_table,
+                        "target_table": target_table,
+                        "file_count": 0,
+                        "note": "No matching files under prefix",
+                    },
+                )
+
+            client = self._get_client()
+            frames: List[pd.DataFrame] = []
+            skipped_files: List[str] = []
+            read_errors: List[str] = []
+
+            for f in files:
+                key = f["key"]
+                try:
+                    df = await asyncio.to_thread(self._read_file_to_df, client, key)
+                except Exception as e:
+                    logger.error(f"[s3_connector] Failed to read/parse {key}: {e}")
+                    read_errors.append(f"{key}: {e}")
+                    continue
+
+                if df is None:
+                    logger.info(f"[s3_connector] Skipping unsupported file type: {key}")
+                    skipped_files.append(key)
+                    continue
+
+                if not df.empty:
+                    frames.append(df)
+
+            # All files errored and none were readable → fail honestly (don't fake success).
+            if read_errors and not frames and len(skipped_files) < len(files):
+                raise RuntimeError(
+                    f"Failed to read {len(read_errors)}/{len(files)} file(s): "
+                    + "; ".join(read_errors[:5])
+                )
+
+            if not frames:
+                # Every file was either unsupported or empty — honest zero-row success.
+                return SyncJobStatus(
+                    job_id=None,
+                    status=SyncStatus.SUCCESS,
+                    started_at=started_at,
+                    completed_at=datetime.utcnow(),
+                    rows_processed=0,
+                    rows_failed=0,
+                    metadata={
+                        "source_prefix": source_table,
+                        "target_table": target_table,
+                        "file_count": len(files),
+                        "skipped_files": skipped_files,
+                        "read_errors": read_errors,
+                        "note": "No rows parsed from matched files",
+                    },
+                )
+
+            df = frames[0] if len(frames) == 1 else pd.concat(frames, ignore_index=True)
+
+            # Mask configured PII columns before anything lands in the lakehouse
+            # (same guardrail the JDBC connectors apply pre-write).
+            masked = 0
+            if pii_columns:
+                try:
+                    from .database import _mask_pii_in_chunk
+                    masked = _mask_pii_in_chunk(df, pii_columns)
+                except Exception as e:
+                    logger.warning(f"[s3_connector] PII masking skipped ({e})")
+
+            tbl_name = target_table.rsplit(".", 1)[-1] if target_table else source_table
+
+            # S3 sync re-reads EVERY object under the prefix each run (there is no
+            # per-object watermark), so plain `append` would duplicate all rows on
+            # every subsequent sync. The only safe modes are: upsert (dedupe by
+            # key_columns) or overwrite (full replace). Never append for S3.
+            upsert = bool(key_columns)
+            write_mode = "upsert" if upsert else "overwrite"
+
+            rows_processed = await asyncio.to_thread(
+                write_dataframe_to_iceberg,
+                df,
+                tbl_name,
+                mode=write_mode,
+                on_step=on_step,
+                partition_spec=partition_spec,
+                join_cols=key_columns if upsert else None,
+            )
 
             completed_at = datetime.utcnow()
 
@@ -373,17 +501,22 @@ class S3Connector(BaseConnector):
                 status=SyncStatus.SUCCESS,
                 started_at=started_at,
                 completed_at=completed_at,
-                rows_processed=len(files),  # File count as proxy
+                rows_processed=rows_processed,
                 rows_failed=0,
                 metadata={
                     "source_prefix": source_table,
                     "target_table": target_table,
-                    "file_count": len(files)
-                }
+                    "iceberg_table": f"iceberg.default.{tbl_name}",
+                    "file_count": len(files),
+                    "files_parsed": len(frames),
+                    "skipped_files": skipped_files,
+                    "read_errors": read_errors,
+                    "pii_masked_cells": masked,
+                },
             )
 
         except Exception as e:
-            logger.error(f"Sync failed: {e}")
+            logger.error(f"[s3_connector] Sync failed: {e}")
             return SyncJobStatus(
                 job_id=None,
                 status=SyncStatus.FAILED,
