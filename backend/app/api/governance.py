@@ -99,9 +99,7 @@ class AuditLogResponse(BaseModel):
 
 class GovernanceStats(BaseModel):
     queries_today: int
-    ai_sql_count: int
     pii_detections: int
-    blocked_count: int
 
 
 class PiiColumn(BaseModel):
@@ -116,6 +114,7 @@ class PiiTableEntry(BaseModel):
 
 class PiiReport(BaseModel):
     tables: List[PiiTableEntry]
+    scanned: bool = False  # False = no real scan ran (engine unsupported/unreachable) — NOT "clean"
 
 
 class RiskDistribution(BaseModel):
@@ -218,8 +217,12 @@ def get_governance_stats(db: Session = Depends(get_db)):
     """
     Return high-level governance statistics.
 
-    queries_today is sourced from query_history; remaining counters are
-    placeholders until dedicated storage is implemented.
+    Only metrics with a genuine data source are returned: queries_today
+    (query_history) and pii_detections (real column scan, see
+    /governance/pii-report). Metrics with no dedicated storage/enforcement
+    counter (AI SQL execution count, blocked-query count) are intentionally
+    omitted rather than reported as a fabricated 0 — see the frontend, which
+    drops those stat cards accordingly.
     """
     try:
         today = date.today()
@@ -230,11 +233,12 @@ def get_governance_stats(db: Session = Depends(get_db)):
             or 0
         )
 
+        pii_tables = _scan_pii_tables()  # None if no scan ran
+        pii_detections = sum(len(t.pii_columns) for t in pii_tables) if pii_tables else 0
+
         return GovernanceStats(
             queries_today=queries_today,
-            ai_sql_count=0,      # no dedicated storage yet
-            pii_detections=0,    # computed on demand via /pii-report
-            blocked_count=0,     # no enforcement layer yet
+            pii_detections=pii_detections,
         )
 
     except Exception as exc:
@@ -242,43 +246,26 @@ def get_governance_stats(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to fetch governance stats: {exc}")
 
 
-@router.get("/governance/pii-report", response_model=PiiReport)
-def get_pii_report(db: Session = Depends(get_db)):
+def _scan_pii_tables() -> Optional[List[PiiTableEntry]]:
     """
-    Scan columns of recently queried tables for PII patterns.
+    Scan columns of tables in the active query engine's catalog for PII patterns.
 
-    Uses Trino information_schema.columns when available; falls back to
-    mock data if Trino is unreachable.
+    Returns:
+      - a list (possibly empty) when a real Trino scan RAN — [] means "scanned,
+        no PII columns found".
+      - None when a scan COULD NOT run (engine isn't Trino, package missing, or
+        Trino unreachable). None ≠ []: the caller must surface "not scanned",
+        never "clean". NEVER fabricates rows.
     """
-    # Fallback mock data (returned when Trino is unavailable)
-    mock_tables = [
-        PiiTableEntry(
-            table="raw.customers",
-            pii_columns=[
-                PiiColumn(column="email_address", type="email"),
-                PiiColumn(column="phone_number",  type="phone"),
-                PiiColumn(column="full_name",      type="name"),
-            ],
-        ),
-        PiiTableEntry(
-            table="raw.payments",
-            pii_columns=[
-                PiiColumn(column="card_number", type="card"),
-                PiiColumn(column="billing_address", type="address"),
-            ],
-        ),
-        PiiTableEntry(
-            table="refined.users",
-            pii_columns=[
-                PiiColumn(column="dob", type="dob"),
-                PiiColumn(column="ssn", type="ssn"),
-            ],
-        ),
-    ]
-
+    # Skip entirely on a non-Trino engine (e.g. the live Athena/Glue foundation)
+    # so we don't attempt a doomed 10s Trino connection on every governance load.
+    engine = os.getenv("QUERY_ENGINE", "trino").strip().lower()
+    if engine != "trino":
+        logger.info("governance/pii-report: query engine is %s (not trino); no PII scan available", engine)
+        return None
     if not TRINO_AVAILABLE:
-        logger.warning("governance/pii-report: trino package not installed, returning mock data")
-        return PiiReport(tables=mock_tables)
+        logger.info("governance/pii-report: trino package not installed; no PII scan available on this engine")
+        return None
 
     try:
         conn = trino_connect(
@@ -319,12 +306,25 @@ def get_pii_report(db: Session = Depends(get_db)):
                     )
                 )
 
-        # Return mock if Trino returned nothing (empty catalog)
-        return PiiReport(tables=result if result else mock_tables)
+        return result
 
     except Exception as exc:
-        logger.warning("governance/pii-report: Trino unavailable (%s), returning mock data", exc)
-        return PiiReport(tables=mock_tables)
+        logger.warning("governance/pii-report: Trino unavailable (%s); no scan (no fabricated data)", exc)
+        return None
+
+
+@router.get("/governance/pii-report", response_model=PiiReport)
+def get_pii_report():
+    """
+    Scan columns of recently queried tables for PII patterns.
+
+    Real Trino information_schema scan only — no fabricated/mock fallback.
+    Returns {tables: []} when no genuine scan can run (e.g. the live
+    Athena/Glue foundation profile, which has no Trino information_schema
+    to scan) or when the scan finds nothing.
+    """
+    scanned = _scan_pii_tables()
+    return PiiReport(tables=scanned or [], scanned=scanned is not None)
 
 
 # ── RLS / Masking policy management (P2) ──────────────────────────────────────

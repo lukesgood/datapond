@@ -76,7 +76,7 @@ const ACCESS_URL_DEFS = [
 
 const HELM_CMDS = [
   { label: "Check current values",  cmd: "helm get values datapond -n datapond" },
-  { label: "Upgrade (single-node)", cmd: "helm upgrade datapond helm/datapond \\\n  --namespace datapond \\\n  --values helm/datapond/values-quicktest.yaml \\\n  --wait=false" },
+  { label: "Upgrade (single-node)", cmd: "helm upgrade datapond helm/datapond \\\n  --namespace datapond \\\n  --values helm/datapond/values-prod-single.yaml \\\n  --wait=false" },
   { label: "Pod status",            cmd: "kubectl get pods -n datapond" },
   { label: "Resource usage",        cmd: "kubectl top pods -n datapond" },
   { label: "Backend logs",          cmd: "kubectl logs -f deployment/backend -n datapond" },
@@ -113,6 +113,10 @@ export default function SettingsPage() {
   // reports webauthn=true. A /api/capabilities fetch error must not show the
   // secure-context-sensitive passkey UI (mirrors the login page's strict gate).
   const webauthnEnabled = useCapabilityStrict("webauthn")
+  // Fail-closed like webauthn above — only claim SSO is active when the backend
+  // confirms it (EE image + OIDC_ENABLED). Avoids the Security Status card
+  // asserting a state we haven't verified.
+  const ssoEnabled = useCapabilityStrict("sso")
   // Capability gates for profile-dependent access URLs / cards
   const notebooksEnabled = useCapability("notebooks")
   const pipelinesEnabled = useCapability("pipelines")
@@ -310,22 +314,39 @@ export default function SettingsPage() {
                     { label: "Password Hashing",     status: "ok",      note: "bcrypt (rounds=12)" },
                     { label: "Session Expiry",       status: "ok",      note: "24h JWT expiry" },
                     { label: "First-login Policy",   status: "ok",      note: "Forced password change" },
-                    { label: "TLS/HTTPS",            status: "pending", note: "HTTP only — configure cert-manager" },
-                    { label: "LDAP / SSO",           status: "planned", note: "Planned for Phase 2" },
-                    { label: "MFA",                  status: "planned", note: "Planned for Phase 2" },
+                    // TLS is derived from the actual page origin (not hardcoded) so this
+                    // row can't drift from reality — the live deployment terminates TLS
+                    // via cert-manager/Let's Encrypt (values-prod-single.yaml), but a
+                    // port-forward or misconfigured ingress would correctly show HTTP.
+                    !mounted ? { label: "TLS/HTTPS", status: "ok", note: "Checking…" }
+                      : window.location.protocol === "https:"
+                        ? { label: "TLS/HTTPS", status: "ok",      note: "HTTPS — cert-manager (Let's Encrypt)" }
+                        : { label: "TLS/HTTPS", status: "pending", note: "HTTP only — configure cert-manager" },
+                    // LDAP/AD + OIDC SSO both ship in the image; gate the "Active" claim
+                    // on the real /api/capabilities flag (mirrors PasskeyManager below)
+                    // rather than asserting a state that may not be configured on every
+                    // install. Never falls back to "planned" — the feature is built.
+                    ssoEnabled
+                      ? { label: "LDAP / SSO", status: "ok",        note: "OIDC SSO active (LDAP/AD also available)" }
+                      : { label: "LDAP / SSO", status: "available", note: "Shipped — LDAP/AD + OIDC SSO (opt-in via env config)" },
+                    webauthnEnabled
+                      ? { label: "MFA", status: "ok",        note: "Passkey / WebAuthn active" }
+                      : { label: "MFA", status: "available", note: "Shipped — Passkey/WebAuthn (requires HTTPS)" },
                     { label: "Audit Log",            status: "ok",      note: "auth_audit_log + AI spend logs" },
                     { label: "Column Masking",       status: "ok",      note: "Governance — masking policies" },
                     { label: "Row-level Security",   status: "ok",      note: "Governance — RLS engine" },
                   ].map(({ label, status, note }) => (
                     <div key={label} className="flex items-center gap-3 py-2.5 text-sm">
                       <span className={`h-2 w-2 rounded-full shrink-0 ${
-                        status === "ok"      ? "bg-green-500" :
-                        status === "pending" ? "bg-amber-400" : "bg-muted-foreground/30"}`} />
+                        status === "ok"        ? "bg-green-500" :
+                        status === "pending"   ? "bg-amber-400" :
+                        status === "available" ? "bg-blue-400"  : "bg-muted-foreground/30"}`} />
                       <span className="flex-1">{label}</span>
                       <span className="text-xs text-muted-foreground">{note}</span>
-                      {status === "ok"      && <Badge variant="secondary" className="text-[10px] h-4 px-1.5 bg-green-500/10 text-green-700 border-green-200">Active</Badge>}
-                      {status === "pending" && <Badge variant="secondary" className="text-[10px] h-4 px-1.5 bg-amber-500/10 text-amber-700 border-amber-200">Pending</Badge>}
-                      {status === "planned" && <Badge variant="secondary" className="text-[10px] h-4 px-1.5">Planned</Badge>}
+                      {status === "ok"        && <Badge variant="secondary" className="text-[10px] h-4 px-1.5 bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-0">Active</Badge>}
+                      {status === "pending"   && <Badge variant="secondary" className="text-[10px] h-4 px-1.5 bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-0">Pending</Badge>}
+                      {status === "available" && <Badge variant="secondary" className="text-[10px] h-4 px-1.5 bg-primary/10 text-primary border-0">Available</Badge>}
+                      {status === "planned"   && <Badge variant="secondary" className="text-[10px] h-4 px-1.5">Planned</Badge>}
                     </div>
                   ))}
                 </div>
@@ -454,7 +475,7 @@ export default function SettingsPage() {
                 <div className="rounded-lg bg-muted/40 border px-4 py-3 text-xs space-y-1.5">
                   <p className="font-medium">How to apply changes</p>
                   <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                    <li>Edit <code className="bg-background rounded px-1">helm/datapond/values-quicktest.yaml</code></li>
+                    <li>Edit <code className="bg-background rounded px-1">helm/datapond/values-prod-single.yaml</code></li>
                     <li>Run the upgrade command below</li>
                     <li>Wait for pods to restart and verify</li>
                   </ol>
@@ -485,11 +506,11 @@ export default function SettingsPage() {
                 <CodeBlock label="Step 1 — Store SMTP password as K8s Secret"
                   code={`kubectl create secret generic datapond-secrets -n datapond \\\n  --from-literal=AIRFLOW_SMTP_PASSWORD="your-password" \\\n  --dry-run=client -o yaml | kubectl apply -f -`} />
 
-                <CodeBlock label="Step 2 — Add to values-quicktest.yaml"
+                <CodeBlock label="Step 2 — Add to values-prod-single.yaml"
                   code={`airflow:\n  smtp:\n    enabled: true\n    host: "smtp.gmail.com"\n    port: "587"\n    user: "alerts@company.com"\n    mailFrom: "DataPond <alerts@company.com>"`} />
 
                 <CodeBlock label="Step 3 — Apply with Helm upgrade"
-                  code="helm upgrade datapond helm/datapond -n datapond --values helm/datapond/values-quicktest.yaml --wait=false" />
+                  code="helm upgrade datapond helm/datapond -n datapond --values helm/datapond/values-prod-single.yaml --wait=false" />
 
                 <div>
                   <p className="text-xs font-medium mb-2">Common SMTP providers</p>

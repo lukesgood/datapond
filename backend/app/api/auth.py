@@ -328,14 +328,19 @@ async def setup_password(request: SetupRequest, user: dict = Depends(require_adm
     hashed = _hash_password(request.password)
     pool = await _get_pool()
     async with pool.acquire() as conn:
-        # New users must change password on first login
+        # New users must change password on first login. This endpoint is also
+        # reused by the admin "reset password" action (existing username -> the
+        # ON CONFLICT branch) — that path must ALSO force a password change on
+        # next login (matches the Reset Password dialog's promise in
+        # frontend/app/settings/page.tsx). Previously this cleared the flag,
+        # silently undoing the reset's own guarantee.
         await conn.execute("""
             INSERT INTO users (id, email, username, password_hash, display_name, role, is_active, require_password_change)
             VALUES (gen_random_uuid(), $1, $2, $3, $4, 'viewer', true, true)
             ON CONFLICT (username) DO UPDATE
               SET password_hash = EXCLUDED.password_hash,
                   display_name  = COALESCE(EXCLUDED.display_name, users.display_name),
-                  require_password_change = false
+                  require_password_change = true
         """,
             f"{request.username}@datapond.local",
             request.username,

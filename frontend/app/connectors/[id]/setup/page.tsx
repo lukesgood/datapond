@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ConnectionForm } from "@/components/connectors/connection-form"
 import { getConnector } from "@/lib/connectors"
+import { useCapability } from "@/lib/capabilities"
 import {
   ChevronLeft, ChevronRight, Loader2, CheckCircle2,
   Database, RefreshCw, Clock, Zap, AlertCircle, Search,
@@ -54,6 +55,9 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
   const { id } = use(params)
   const router = useRouter()
   const connector = getConnector(id)
+  // Foundation profile has no Airflow — recurring schedules never execute there.
+  // Gate the schedule picker so the wizard doesn't promise a DAG that won't run.
+  const pipelinesEnabled = useCapability("pipelines")
 
   // ── Step state ───────────────────────────────────────────────────────────────
   const [currentStep, setCurrentStep] = useState(1)
@@ -79,6 +83,13 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
   const [syncMode, setSyncMode] = useState<"full" | "incremental">("full")
   const [syncFrequency, setSyncFrequency] = useState("manual")
   const [syncImmediately, setSyncImmediately] = useState(true)  // Fix #6: opt-in
+
+  // If capabilities load after the user picked a recurring frequency (or this
+  // profile has no Airflow), force back to Manual so we never submit a
+  // schedule that can't actually run.
+  useEffect(() => {
+    if (!pipelinesEnabled && syncFrequency !== "manual") setSyncFrequency("manual")
+  }, [pipelinesEnabled, syncFrequency])
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
@@ -559,7 +570,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                     { value: "hourly",  icon: Clock,     label: "Hourly",         cron: "0 * * * *",     desc: "Fresh data every hour" },
                     { value: "daily",   icon: Clock,     label: "Daily at 2am",   cron: "0 2 * * *",     desc: "Recommended for batch" },
                     { value: "weekly",  icon: Clock,     label: "Weekly",         cron: "0 2 * * 1",     desc: "Low-frequency sources" },
-                  ].map(opt => (
+                  ].filter(opt => pipelinesEnabled || opt.value === "manual").map(opt => (
                     <button
                       key={opt.value}
                       onClick={() => setSyncFrequency(opt.value)}
@@ -577,7 +588,13 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                     </button>
                   ))}
                 </div>
-                {syncFrequency !== "manual" && (
+                {!pipelinesEnabled ? (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                    Scheduled sync requires the Airflow pipelines component (not enabled
+                    on this profile). Trigger syncs manually with Sync Now.
+                  </p>
+                ) : syncFrequency !== "manual" && (
                   <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                     <CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good)]" />
                     Airflow DAG will be created automatically
