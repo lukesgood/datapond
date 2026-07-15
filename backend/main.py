@@ -2,7 +2,8 @@
 DataPond Backend API
 FastAPI backend for DataPond unified management interface
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
+from app.component_guard import require_component
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -231,13 +232,16 @@ app.include_router(queries_router, prefix="/api")
 app.include_router(catalog_router, prefix="/api")
 app.include_router(connectors_router, prefix="/api")
 app.include_router(services_router, prefix="/api")
-app.include_router(notebooks_router, prefix="/api")
-app.include_router(mlflow_router, prefix="/api")
+app.include_router(notebooks_router, prefix="/api",
+                   dependencies=[Depends(require_component("JUPYTER", "Notebooks"))])
+app.include_router(mlflow_router, prefix="/api",
+                   dependencies=[Depends(require_component("MLFLOW", "Experiments (MLflow)"))])
 app.include_router(airflow_router, prefix="/api")
 app.include_router(dashboards_router, prefix="/api")
 app.include_router(pipelines_router, prefix="/api")
 app.include_router(storage_router, prefix="/api")
-app.include_router(streaming_router, prefix="/api")
+app.include_router(streaming_router, prefix="/api",
+                   dependencies=[Depends(require_component("RISINGWAVE", "Streaming"))])
 app.include_router(auth_router, prefix="/api")
 app.include_router(transforms_router, prefix="/api")
 app.include_router(ai_sql_router, prefix="/api")
@@ -245,7 +249,8 @@ app.include_router(ai_vectors_router, prefix="/api")
 app.include_router(ai_backends_router, prefix="/api")
 app.include_router(system_settings_router, prefix="/api")
 app.include_router(governance_router, prefix="/api")
-app.include_router(maintenance_router, prefix="/api")
+app.include_router(maintenance_router, prefix="/api",
+                   dependencies=[Depends(require_component("AIRFLOW", "Maintenance (Airflow)"))])
 app.include_router(webauthn_router, prefix="/api")
 
 from app.service_registry import service_registry as _service_registry_pure
