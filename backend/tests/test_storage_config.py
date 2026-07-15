@@ -29,3 +29,25 @@ def test_endpoint_keeps_explicit_scheme(monkeypatch):
     monkeypatch.setenv("S3_ENDPOINT", "https://my-minio.example.com")
     cfg = _fresh()._s3_config()
     assert cfg["endpoint_url"] == "https://my-minio.example.com"
+
+
+def test_configured_buckets_explicit_override(monkeypatch):
+    import app.api.storage as s
+    monkeypatch.setenv("STORAGE_BUCKETS", "a-bucket, b-bucket ,")
+    monkeypatch.setenv("GLUE_WAREHOUSE", "s3://ignored/warehouse")
+    assert s._configured_buckets() == ["a-bucket", "b-bucket"]  # explicit wins, trimmed
+
+
+def test_configured_buckets_derived_from_warehouse(monkeypatch):
+    import app.api.storage as s
+    monkeypatch.delenv("STORAGE_BUCKETS", raising=False)
+    monkeypatch.delenv("ICEBERG_WAREHOUSE", raising=False)
+    monkeypatch.setenv("GLUE_WAREHOUSE", "s3://datapond-iceberg/warehouse")
+    assert s._configured_buckets() == ["datapond-iceberg"]
+
+
+def test_configured_buckets_empty_when_unset(monkeypatch):
+    import app.api.storage as s
+    for e in ("STORAGE_BUCKETS", "GLUE_WAREHOUSE", "ICEBERG_WAREHOUSE"):
+        monkeypatch.delenv(e, raising=False)
+    assert s._configured_buckets() == []

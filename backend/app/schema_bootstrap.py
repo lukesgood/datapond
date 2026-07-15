@@ -27,6 +27,7 @@ _SCHEMA_DIR = Path(__file__).resolve().parents[1] / "schema"
 _BOOTSTRAP = [
     ("auth.sql", "users"),
     ("queries.sql", "dashboards"),
+    ("connectors.sql", "connector_connections"),
 ]
 
 
