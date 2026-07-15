@@ -14,7 +14,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { Table, Database, FileText, BarChart3, Eye, ExternalLink } from "lucide-react"
+import { Table, Database, Eye, ExternalLink } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 interface Column {
@@ -22,21 +22,6 @@ interface Column {
   type: string
   nullable: boolean
   comment?: string
-}
-
-interface PartitionSpec {
-  spec_id: number
-  fields: Array<{
-    name: string
-    transform: string
-    source_id: number
-  }>
-}
-
-interface TableStats {
-  row_count?: number
-  file_count?: number
-  total_size?: number
 }
 
 interface ColumnStat {
@@ -60,11 +45,8 @@ interface TableDetail {
   namespace: string
   table_type: string
   location: string
-  schema: {
-    columns: Column[]
-  }
-  partition_specs?: PartitionSpec[]
-  statistics?: TableStats
+  columns: Column[]
+  row_count?: number
   properties?: Record<string, any>
   last_updated?: string
 }
@@ -106,13 +88,6 @@ export default function TableDetailPage() {
       if (res.ok) setPreview(await res.json())
     } catch { /* non-critical */ }
     finally { setPreviewLoading(false) }
-  }
-
-  const formatBytes = (bytes?: number) => {
-    if (!bytes) return "0 B"
-    const sizes = ["B", "KB", "MB", "GB", "TB"]
-    const i = Math.floor(Math.log(bytes) / Math.log(1024))
-    return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${sizes[i]}`
   }
 
   const formatNumber = (num?: number) => {
@@ -208,35 +183,7 @@ export default function TableDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatNumber(tableDetail.statistics?.row_count)}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">File Count</CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {formatNumber(tableDetail.statistics?.file_count)}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Total Size</CardTitle>
-              <BarChart3 className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {formatBytes(tableDetail.statistics?.total_size)}
+              {formatNumber(tableDetail.row_count)}
             </div>
           </CardContent>
         </Card>
@@ -248,8 +195,6 @@ export default function TableDetailPage() {
           <TabsList>
             <TabsTrigger value="preview" className="gap-1.5"><Eye className="h-3.5 w-3.5" />Preview</TabsTrigger>
             <TabsTrigger value="schema">Schema</TabsTrigger>
-            <TabsTrigger value="statistics">Statistics</TabsTrigger>
-            <TabsTrigger value="partitions">Partitions</TabsTrigger>
             <TabsTrigger value="metadata">Metadata</TabsTrigger>
           </TabsList>
           <button
@@ -369,7 +314,7 @@ export default function TableDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {tableDetail.schema.columns.map((column, index) => (
+                    {tableDetail.columns.map((column, index) => (
                       <tr key={index} className="border-b last:border-b-0">
                         <td className="p-3 font-mono">{column.name}</td>
                         <td className="p-3">
@@ -387,82 +332,6 @@ export default function TableDetailPage() {
                     ))}
                   </tbody>
                 </table>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Partitions Tab */}
-        <TabsContent value="partitions" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Partition Specifications</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {tableDetail.partition_specs && tableDetail.partition_specs.length > 0 ? (
-                <div className="space-y-4">
-                  {tableDetail.partition_specs.map((spec) => (
-                    <div key={spec.spec_id} className="rounded-md border p-4">
-                      <h4 className="font-medium mb-2">Spec ID: {spec.spec_id}</h4>
-                      <div className="space-y-2">
-                        {spec.fields.map((field, index) => (
-                          <div key={index} className="flex gap-2 text-sm">
-                            <Badge variant="secondary">{field.name}</Badge>
-                            <span className="text-muted-foreground">
-                              Transform: {field.transform}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-muted-foreground">No partition specifications</p>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Statistics Tab */}
-        <TabsContent value="statistics" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Table Statistics</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm font-medium">Total Rows</p>
-                    <p className="text-2xl font-bold">
-                      {formatNumber(tableDetail.statistics?.row_count)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Total Files</p>
-                    <p className="text-2xl font-bold">
-                      {formatNumber(tableDetail.statistics?.file_count)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Total Size</p>
-                    <p className="text-2xl font-bold">
-                      {formatBytes(tableDetail.statistics?.total_size)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Average File Size</p>
-                    <p className="text-2xl font-bold">
-                      {tableDetail.statistics?.file_count && tableDetail.statistics?.total_size
-                        ? formatBytes(
-                            tableDetail.statistics.total_size /
-                              tableDetail.statistics.file_count
-                          )
-                        : "0 B"}
-                    </p>
-                  </div>
-                </div>
               </div>
             </CardContent>
           </Card>

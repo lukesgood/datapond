@@ -5,7 +5,6 @@ Only data registered in Polaris is visible.
 import logging
 import math
 from typing import List, Optional, Dict, Any
-from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -111,7 +110,9 @@ async def get_table_details(namespace: str, table: str, catalog: str = "iceberg"
             columns=columns,
             properties={"location": location} if location else {},
             row_count=row_count,
-            last_updated=datetime.utcnow().isoformat() + "Z",
+            # last_updated intentionally omitted: neither the Glue nor Polaris
+            # catalog reader currently surfaces a real snapshot/modification
+            # timestamp here, so we don't fabricate one (see TableDetails model).
         )
     except HTTPException:
         raise

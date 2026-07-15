@@ -34,6 +34,7 @@ interface QueryResult {
   columns: string[]
   rows: any[][]
   execution_time_ms: number
+  truncated?: boolean
 }
 
 type QueryStatus = "idle" | "running" | "success" | "error"
@@ -184,13 +185,17 @@ export default function QueryPage() {
       setResults(data)
       setQueryStatus("success")
       addToQueryHistory(query)
-      if (data.columns.length > 0 && !xAxis) setXAxis(data.columns[0])
-      if (data.columns.length > 1 && !yAxis) setYAxis(data.columns[1])
+      // Reset chart axes whenever the new result set's columns no longer
+      // contain the currently-selected axis (e.g. a second query with
+      // different columns) — otherwise Recharts silently renders empty.
+      const cols: string[] = data.columns ?? []
+      setXAxis(prev => (prev && cols.includes(prev)) ? prev : (cols[0] ?? ""))
+      setYAxis(prev => (prev && cols.includes(prev)) ? prev : (cols[1] ?? ""))
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error")
       setQueryStatus("error")
     }
-  }, [query, xAxis, yAxis])
+  }, [query])
 
   const handleTableSelect = (catalog: string, schema: string, table: string) => {
     // 2-part name resolves under each engine's default catalog (Athena
@@ -498,6 +503,16 @@ export default function QueryPage() {
                         ? `${Math.round(results.execution_time_ms)}ms`
                         : `${(results.execution_time_ms / 1000).toFixed(2)}s`}
                     </span>
+                    {results.truncated && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] h-4 px-1.5 font-normal gap-1 text-[var(--dp-warn)] border-[var(--dp-warn)]/40"
+                        title="Add your own LIMIT clause to see more rows"
+                      >
+                        <AlertCircle className="h-3 w-3" />
+                        Limited to 1,000 rows
+                      </Badge>
+                    )}
                   </>
                 )}
               </div>
