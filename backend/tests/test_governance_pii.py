@@ -11,7 +11,19 @@ name, a clean catalog scans to [] (not None), and an unreachable catalog is None
 import sys
 import types
 
+import pytest
+
 import app.api.governance as gov
+
+
+@pytest.fixture(autouse=True)
+def _reset_pii_cache():
+    """The scan caches its result in module state; clear it before each test."""
+    gov._PII_SCAN_CACHE["ts"] = 0.0
+    gov._PII_SCAN_CACHE["val"] = None
+    yield
+    gov._PII_SCAN_CACHE["ts"] = 0.0
+    gov._PII_SCAN_CACHE["val"] = None
 
 
 class _FakeReader:
@@ -86,3 +98,39 @@ def test_scan_dispatches_to_catalog_when_glue(monkeypatch):
     _patch_reader(monkeypatch, _FakeReader({"s": {"t": ["email"]}}))
     out = gov._scan_pii_tables()
     assert out is not None and out[0].table == "s.t"
+
+
+def test_all_tables_unreadable_reports_not_scanned(monkeypatch):
+    # catalog reachable (list works) but EVERY get_columns fails -> None, not []
+    # (must never report "clean" when nothing was actually read)
+    reader = _FakeReader(
+        {"s": {"a": ["x"], "b": ["y"]}},
+        raise_on={("s", "a"), ("s", "b")},
+    )
+    _patch_reader(monkeypatch, reader)
+    assert gov._scan_pii_via_catalog() is None
+
+
+def test_truncates_at_table_cap(monkeypatch):
+    monkeypatch.setattr(gov, "PII_SCAN_MAX_TABLES", 2)
+    # 4 tables, only first 2 examined; the PII table beyond the cap is not reported
+    reader = _FakeReader({"s": {
+        "t1": ["id"], "t2": ["sku"], "t3": ["email"], "t4": ["phone"],
+    }})
+    _patch_reader(monkeypatch, reader)
+    out = gov._scan_pii_via_catalog()
+    assert out == []                       # scanned first 2 (no PII), stopped at cap
+
+
+def test_result_is_cached(monkeypatch):
+    calls = {"n": 0}
+
+    class _CountingReader(_FakeReader):
+        def list_namespaces(self):
+            calls["n"] += 1
+            return super().list_namespaces()
+
+    _patch_reader(monkeypatch, _CountingReader({"s": {"t": ["email"]}}))
+    a = gov._scan_pii_via_catalog()
+    b = gov._scan_pii_via_catalog()        # served from cache
+    assert a == b and calls["n"] == 1

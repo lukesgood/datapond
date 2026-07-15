@@ -6,6 +6,7 @@ All endpoints are read-only; data is derived from existing query_history table a
 optional Trino information_schema queries.
 """
 import os
+import time
 import logging
 from datetime import datetime, date
 from typing import List, Optional, Any
@@ -246,34 +247,72 @@ def get_governance_stats(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to fetch governance stats: {exc}")
 
 
+# Each table read is a Glue GetTable + an S3 metadata.json GET, done sequentially
+# on the (sync) request thread. Cap the walk so a large catalog can't hang the
+# governance page / pin threadpool workers, and cache the result briefly so repeated
+# page loads don't re-walk the whole catalog. Both tunable via env.
+PII_SCAN_MAX_TABLES = int(os.getenv("PII_SCAN_MAX_TABLES", "200"))
+PII_SCAN_CACHE_TTL_S = float(os.getenv("PII_SCAN_CACHE_TTL_S", "60"))
+_PII_SCAN_CACHE: dict = {"ts": 0.0, "val": None}
+
+
 def _scan_pii_via_catalog() -> Optional[List[PiiTableEntry]]:
     """Glue/Iceberg-native PII discovery — enumerate namespaces → tables → columns
     via the shared catalog reader (Glue Data Catalog metadata, no query engine) and
     run the column-name PII detector. Returns a list (possibly empty = scanned, none
-    found) on success, or None if the catalog is unreachable. Never fabricates rows.
+    found) on success, or None if the catalog could not actually be scanned. Never
+    fabricates rows, and never reports "clean" when nothing was read.
     """
+    # Serve a fresh cached result to avoid re-walking the catalog on every load.
+    now = time.time()
+    if _PII_SCAN_CACHE["val"] is not None and now - _PII_SCAN_CACHE["ts"] < PII_SCAN_CACHE_TTL_S:
+        return _PII_SCAN_CACHE["val"]
+
     try:
         from app.api.catalog_backend import get_catalog_reader
         reader = get_catalog_reader()
         result: List[PiiTableEntry] = []
+        scanned_ok = 0
+        failed = 0
+        truncated = False
         for ns in reader.list_namespaces():
+            if truncated:
+                break
             try:
                 tables = reader.list_tables(ns)
             except Exception as e:
                 logger.warning("governance/pii-report: list_tables(%s) failed (%s); skipping", ns, e)
+                failed += 1
                 continue
             for tbl in tables:
+                if scanned_ok + failed >= PII_SCAN_MAX_TABLES:
+                    truncated = True
+                    break
                 try:
                     cols = reader.get_columns(ns, tbl)
                 except Exception as e:
                     logger.warning("governance/pii-report: get_columns(%s.%s) failed (%s); skipping", ns, tbl, e)
+                    failed += 1
                     continue
+                scanned_ok += 1
                 hits = detect_pii_columns([c["name"] for c in cols])
                 if hits:
                     result.append(PiiTableEntry(
                         table=f"{ns}.{tbl}",
                         pii_columns=[PiiColumn(**h) for h in hits],
                     ))
+
+        # Catalog was reachable but we could not read ANY table (e.g. IAM allows
+        # GetTables but denies GetTable / the metadata S3 read): that is NOT a scan —
+        # don't report "clean". (A truly empty catalog has failed==0 -> honest []).
+        if scanned_ok == 0 and failed > 0:
+            logger.warning("governance/pii-report: catalog reachable but 0/%d tables readable; reporting not-scanned", failed)
+            return None
+        if truncated:
+            logger.warning("governance/pii-report: table cap %d reached; PII scan is partial", PII_SCAN_MAX_TABLES)
+
+        _PII_SCAN_CACHE["ts"] = now
+        _PII_SCAN_CACHE["val"] = result
         return result
     except Exception as exc:
         logger.warning("governance/pii-report: catalog scan unavailable (%s); no scan (no fabricated data)", exc)
