@@ -155,6 +155,48 @@ async def _ensure_admin_exists():
 
 # ── Dependency: get current user from token ────────────────────────────────────
 
+# Re-validate a decoded token against the live users row on every request, so a
+# deactivated / deleted / role-changed account loses access before the 24h token
+# expiry (JWTs are otherwise unrevocable). Default on; ops can disable if the
+# per-request PK lookup ever matters (it's a single indexed Aurora read).
+AUTH_DB_RECHECK = os.getenv("AUTH_DB_RECHECK", "true").lower() in ("1", "true", "yes")
+RECHECK_TIMEOUT_S = float(os.getenv("AUTH_RECHECK_TIMEOUT_S", "2.0"))
+
+
+async def _recheck_user(uid: str, claims: dict) -> Optional[dict]:
+    """Return the token identity with role refreshed from the DB, None to reject.
+
+    - malformed / non-UUID sub            -> None (bad token)
+    - user deleted or is_active = false   -> None (revoked access)
+    - DB unreachable (transient)          -> fall back to token claims (fail-OPEN
+      on infra error: the JWT is still cryptographically valid + unexpired, so a
+      DB blip must not 401 every request)
+    """
+    try:
+        uid_uuid = uuid.UUID(str(uid))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    try:
+        pool = await _get_pool()
+        # Bounded acquire+command timeout: on a saturated 5-conn pool or a slow
+        # Aurora, fail OPEN fast (raise -> caught below) rather than hang the hot
+        # request path — the recheck must never block a request indefinitely.
+        async with pool.acquire(timeout=RECHECK_TIMEOUT_S) as conn:
+            row = await conn.fetchrow(
+                "SELECT is_active, role FROM users WHERE id = $1", uid_uuid,
+                timeout=RECHECK_TIMEOUT_S,
+            )
+    except Exception as e:                       # infra error / timeout -> fail open
+        logger.warning("[auth] user recheck DB error (%s) — using token claims", e)
+        return claims
+    if row is None or not row["is_active"]:      # deleted / disabled -> reject
+        return None
+    # Refresh role from the DB so a privilege change (e.g. admin -> viewer) takes
+    # effect on the next request instead of at token expiry.
+    claims["role"] = row["role"] or claims["role"]
+    return claims
+
+
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ) -> Optional[dict]:
@@ -163,20 +205,33 @@ async def get_current_user(
         return None
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-        return {
-            "id": payload.get("sub"),
-            "username": payload.get("username"),
-            "role": payload.get("role", "viewer"),
-        }
     except JWTError:
         return None
+    claims = {
+        "id": payload.get("sub"),
+        "username": payload.get("username"),
+        "role": payload.get("role", "viewer"),
+    }
+    if not AUTH_DB_RECHECK:
+        return claims
+    if not claims["id"]:
+        return None            # recheck on + no sub -> unrevocable identity, reject
+    return await _recheck_user(claims["id"], claims)
 
 
 async def require_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> dict:
-    """Require valid authentication. Raises 401 if missing/invalid."""
-    user = await get_current_user(credentials)
+    """Require valid authentication. Raises 401 if missing/invalid.
+
+    Reuses the identity AuthMiddleware already resolved AND rechecked into
+    request.state.user, so an authenticated request does exactly ONE recheck DB
+    lookup (in the middleware), not two. Falls back to a fresh resolve if the
+    middleware didn't run for this path (defensive; e.g. tests)."""
+    user = getattr(request.state, "user", None)
+    if user is None:
+        user = await get_current_user(credentials)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -206,7 +261,7 @@ async def require_user_or_internal(
     Used by endpoints that scheduled DAGs call back into (e.g. /ingest-source)."""
     if _internal_request(request):
         return {"id": None, "username": "system", "role": "admin", "internal": True}
-    return await require_user(credentials)
+    return await require_user(request, credentials)
 
 
 async def require_admin(user: dict = Depends(require_user)) -> dict:
