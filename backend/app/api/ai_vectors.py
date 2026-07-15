@@ -590,12 +590,12 @@ async def _retrieve(name: str, query: str, k: int, user: dict):
     """Vector search top-k chunks, then re-apply the PII guardrail to the stored
     content before it's returned. Defense-in-depth: chunk content is masked at
     ingest (_ingest_documents), but chunks ingested before masking existed, or via
-    a path that skipped it, must not leak raw PII on retrieval. Mirrors the
-    ingest-time call (`pii_ko.apply` → take the masked text, drop the `blocked`
-    signal — retrieval can't "block" content that's already stored, so mask mode
-    and off mode behave as documented, and block mode degrades to masking, same
-    as ingest). Returns (hits, pii_masked_count) so callers can fold retrieval-side
-    masking into the same `pii_masked` total as query-side masking.
+    a path that skipped it, must not leak raw PII on retrieval. Retrieval can't
+    "block" a chunk that's already stored and selected, so all three modes degrade
+    to the safe outcome: off → raw (guardrail disabled), mask → masked, block →
+    masked (pii_ko.apply returns raw+blocked in block mode, so we mask explicitly
+    rather than leak). Returns (hits, pii_masked_count) so callers can fold
+    retrieval-side masking into the same `pii_masked` total as query-side masking.
     """
     from app.guardrails import pii_ko
     pool = await get_db_pool()
@@ -616,7 +616,14 @@ async def _retrieve(name: str, query: str, k: int, user: dict):
     pii_masked = 0
     hits = []
     for r in rows:
-        content, found, _blk = pii_ko.apply(r["content"])
+        content, found, blocked = pii_ko.apply(r["content"])
+        # In `block` mode pii_ko.apply() returns the ORIGINAL (unmasked) text with
+        # blocked=True — that behavior is for rejecting an inbound request. A stored
+        # chunk that's already been retrieved can't be "blocked", so degrade to
+        # masking: never return raw PII from retrieval regardless of mode. (off mode
+        # → found=[] → content stays raw, as intended; mask mode → already masked.)
+        if blocked:
+            content = pii_ko.mask(r["content"], found)
         pii_masked += len(found)
         hits.append({
             "source": r["source"], "chunk_index": r["chunk_index"], "content": content,

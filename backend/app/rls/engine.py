@@ -242,6 +242,15 @@ def enforce(
     if user.is_admin and _admin_bypass_enabled():
         return EnforceResult(sql=sql, tables=[])
 
+    # True no-op short-circuit: when the caller pre-fetched ZERO policies and ZERO
+    # masks (a policy-empty database) AND default-deny is off, there is nothing to
+    # enforce. Return the query byte-for-byte untouched — no sqlglot round-trip, no
+    # fail-closed 403 on a dialect parse gap — so flipping RLS_ENABLED on a
+    # policy-empty foundation is genuinely a no-op. (When default-deny is ON we must
+    # still parse + block, so this short-circuit is intentionally skipped.)
+    if not policies and not masks and not _default_deny_enabled():
+        return EnforceResult(sql=sql, tables=[])
+
     try:
         statements = sqlglot.parse(sql, read=dialect)
     except Exception as e:                  # unparseable -> fail closed
