@@ -246,6 +246,40 @@ def get_governance_stats(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to fetch governance stats: {exc}")
 
 
+def _scan_pii_via_catalog() -> Optional[List[PiiTableEntry]]:
+    """Glue/Iceberg-native PII discovery — enumerate namespaces → tables → columns
+    via the shared catalog reader (Glue Data Catalog metadata, no query engine) and
+    run the column-name PII detector. Returns a list (possibly empty = scanned, none
+    found) on success, or None if the catalog is unreachable. Never fabricates rows.
+    """
+    try:
+        from app.api.catalog_backend import get_catalog_reader
+        reader = get_catalog_reader()
+        result: List[PiiTableEntry] = []
+        for ns in reader.list_namespaces():
+            try:
+                tables = reader.list_tables(ns)
+            except Exception as e:
+                logger.warning("governance/pii-report: list_tables(%s) failed (%s); skipping", ns, e)
+                continue
+            for tbl in tables:
+                try:
+                    cols = reader.get_columns(ns, tbl)
+                except Exception as e:
+                    logger.warning("governance/pii-report: get_columns(%s.%s) failed (%s); skipping", ns, tbl, e)
+                    continue
+                hits = detect_pii_columns([c["name"] for c in cols])
+                if hits:
+                    result.append(PiiTableEntry(
+                        table=f"{ns}.{tbl}",
+                        pii_columns=[PiiColumn(**h) for h in hits],
+                    ))
+        return result
+    except Exception as exc:
+        logger.warning("governance/pii-report: catalog scan unavailable (%s); no scan (no fabricated data)", exc)
+        return None
+
+
 def _scan_pii_tables() -> Optional[List[PiiTableEntry]]:
     """
     Scan columns of tables in the active query engine's catalog for PII patterns.
@@ -257,7 +291,13 @@ def _scan_pii_tables() -> Optional[List[PiiTableEntry]]:
         Trino unreachable). None ≠ []: the caller must surface "not scanned",
         never "clean". NEVER fabricates rows.
     """
-    # Skip entirely on a non-Trino engine (e.g. the live Athena/Glue foundation)
+    # On the Glue/Iceberg foundation, discover PII straight from the catalog
+    # metadata (Glue Data Catalog — no Athena query, ~free) instead of Trino.
+    catalog_backend = os.getenv("ICEBERG_CATALOG_BACKEND", "polaris").strip().lower()
+    if catalog_backend == "glue":
+        return _scan_pii_via_catalog()
+
+    # Skip entirely on a non-Trino engine with no Glue catalog (nothing to scan)
     # so we don't attempt a doomed 10s Trino connection on every governance load.
     engine = os.getenv("QUERY_ENGINE", "trino").strip().lower()
     if engine != "trino":
