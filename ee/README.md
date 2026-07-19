@@ -7,11 +7,12 @@ valid DataPond Enterprise subscription to use in production.
 
 ## Edition boundary
 
-- **Community (Apache-2.0, everything outside `/ee`)**: the full AI data foundation —
-  ingestion, vector/RAG, lakehouse integration, LDAP authentication, row-level security,
-  AI cost governance, and all current features.
-- **Enterprise (`/ee`, commercial)**: future additions — SSO (SAML/OIDC), multi-tenancy,
-  AWS Marketplace billing integration, SLA-backed support.
+- **Community (Apache-2.0, everything outside `/ee`)**: the Portable Core —
+  governed Knowledge/RAG, provider adapters, LDAP authentication, table-policy support,
+  AI cost governance, and optional OSS data add-ons.
+- **Enterprise (`/ee`, commercial)**: organization-level capabilities including the
+  shipped OIDC SSO implementation, plus future centrally managed policy, multi-environment
+  operations, Marketplace packaging, and SLA-backed support.
 
 First tenant: SSO (OIDC) — source in `ee/backend/ee/sso/`, served at `/api/auth/oidc/*` by
-enterprise-edition backend images. SAML is a planned follow-up.
+enterprise-edition backend images. SAML and Marketplace billing are planned follow-ups.

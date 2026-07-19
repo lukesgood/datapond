@@ -1,77 +1,139 @@
-# Lean "AI Data Foundation" Profile
+# Portable Core · AWS Starter
 
-`helm/datapond/values-foundation.yaml` — the minimal DataPond footprint for the
-**AWS-native AI-app use case**: `S3 → embed → pgvector → Bedrock` RAG with
-governance (RLS, PII masking, spend), and nothing else.
+> Backward-compatible file and values name: `FOUNDATION_PROFILE.md` / `values-foundation.yaml`.
 
-It cuts the deployable workloads from **~16 to ~5** by disabling the heavy
-lakehouse components, which on AWS are better served by managed services.
+This is the smallest maintained DataPond profile for governed RAG on AWS. It uses S3 and Bedrock while keeping PostgreSQL/pgvector, LiteLLM, Valkey, and the application in Kubernetes.
 
-## What runs (core, ~5 workloads)
+## What runs
 
 | Component | Role |
 |---|---|
-| **backend** (FastAPI) | AI data APIs — ingest, embed, vector search, RAG, governance |
-| **frontend** (Next.js) | Management UI |
-| **Postgres + pgvector** | The AI vector store (`ai_collections`/`ai_chunks`) |
-| **LiteLLM → Bedrock** | Embeddings (Titan) + generation (Claude), multi-model routing |
-| **Valkey** | Cache/sessions (lightweight) |
-| **S3** (external) | Source data + object storage (no in-cluster MinIO) |
+| Backend | Knowledge/RAG, authentication, governance, storage and AI APIs |
+| Frontend | Capability-aware operator UI |
+| PostgreSQL + pgvector | Application state, Knowledge collections, chunks, vectors |
+| LiteLLM | Logical model gateway to Bedrock |
+| Valkey | Cache/session support |
+| Amazon S3, external | Source objects; accessed with AWS credentials/IAM |
+| Amazon Bedrock, external | Embeddings and generation |
 
-## What's disabled → AWS managed alternative
+## What does not run
 
-| Disabled OSS | Use instead on AWS |
-|---|---|
-| Trino | **Amazon Athena** |
-| Spark | **EMR Serverless / Glue ETL** |
-| Airflow | **MWAA** |
-| MLflow | **SageMaker** (Experiments / Model Registry) |
-| RisingWave | **MSK / Managed Service for Apache Flink** |
-| Polaris | **Glue Data Catalog** |
-| OpenMetadata | **DataZone** — or re-enable as an OSS differentiator (`--set openmetadata.enabled=true`) |
-| Jupyter | **SageMaker Studio** |
-| Ollama / vLLM | **Bedrock** / SageMaker endpoints |
-
-## Graceful degradation (no code changes)
-
-The backend **starts cleanly** with the heavy components off: their clients
-connect lazily (inside request handlers), and startup steps that do reach out
-(Trino medallion init, Airflow maintenance DAG) are best-effort `try/except`.
-The core RAG path (`/api/ai/*`) depends only on S3 + LiteLLM + pgvector.
-
-Lakehouse-only UI pages (Catalog, Query Lab, Pipelines, Streaming, Experiments)
-return handled errors / empty states when their backend component is absent —
-the frontend already degrades per-page. (A capability-based UI that *hides*
-those pages in this profile is a possible future enhancement.)
-
-## Deploy
-
-```bash
-helm upgrade --install datapond helm/datapond -n datapond \
-  -f helm/datapond/values-foundation.yaml \
-  --set storage.bucket=<your-s3-bucket>
+```yaml
+trino: false
+spark: false
+polaris: false
+airflow: false
+mlflow: false
+risingwave: false
+openmetadata: false
+jupyter: false
+ollama: false
+vllm: false
+minio: false
 ```
 
-- **Bedrock credentials**: see [AWS_BEDROCK_SETUP.md](AWS_BEDROCK_SETUP.md)
-  (EKS IRSA / EC2 instance profile / static keys).
-- **Aurora instead of in-cluster Postgres**: set `postgres.enabled=false` +
-  `externalDatabase.enabled=true` (see `values-aws.yaml`).
+The absence of these services does not provision Athena, Glue, EMR, MWAA, SageMaker, Managed Flink, DataZone, or any other replacement.
 
-## When to use which profile
+Consequences:
 
-| Profile | For |
+- Knowledge, AI Gateway, Governance, Storage, Services, System, and Settings remain available.
+- Sources, Catalog, SQL Lab, Dashboards, Transforms, Streaming, Notebooks, Experiments, and external lineage are hidden.
+- Direct navigation to an optional module returns a profile-aware disabled state.
+
+## Core workflow
+
+```text
+S3/text → chunk → PII mask → Bedrock embedding → PostgreSQL/pgvector
+question → vector retrieve → optional rerank → Bedrock generation → citations
+```
+
+The RAG freshness scheduler is part of the backend and does not require Airflow.
+
+## Prerequisites
+
+- Kubernetes and Helm
+- reachable PostgreSQL storage for the in-cluster StatefulSet/PVC
+- AWS credentials through node role, IRSA on a bring-your-own EKS cluster, or static credentials
+- Bedrock model access in the selected region
+- access to the S3 sources used by ingestion requests
+
+## Install
+
+```bash
+helm upgrade --install datapond helm/datapond \
+  --namespace datapond --create-namespace \
+  --values helm/datapond/values-foundation.yaml
+```
+
+Confirm runtime identity:
+
+```bash
+curl -s https://<domain>/api/capabilities | jq '{
+  profile_id,
+  profile_label,
+  catalog_backend,
+  query_engine,
+  storage_provider,
+  vector_store,
+  model_gateway
+}'
+```
+
+Expected product identity:
+
+```json
+{
+  "profile_id": "portable-core-aws",
+  "profile_label": "Portable Core · AWS",
+  "catalog_backend": "none",
+  "query_engine": "none",
+  "storage_provider": "s3",
+  "vector_store": "postgres-pgvector",
+  "model_gateway": "litellm"
+}
+```
+
+## Use Aurora instead of in-cluster PostgreSQL
+
+Set:
+
+```yaml
+postgres:
+  enabled: false
+externalDatabase:
+  enabled: true
+  host: <aurora-writer-endpoint>
+  port: 5432
+  name: datapond
+  sslmode: require
+```
+
+This changes the vector/state adapter but does not add Glue/Athena or create infrastructure. For the actual Terraform-backed AWS reference use `values-prod-single.yaml` and [DEPLOY_SINGLE_NODE.md](DEPLOY_SINGLE_NODE.md).
+
+## Model configuration
+
+Default logical model names:
+
+- `embed` → Titan Text Embeddings v2
+- `default` → Claude Haiku
+- `chat` → Claude Sonnet
+
+Application code should use logical names. Provider model IDs stay in LiteLLM configuration. See [AWS_BEDROCK_SETUP.md](AWS_BEDROCK_SETUP.md).
+
+## Security boundary
+
+- Knowledge collection access is owner/admin/shared application ACL, not database-native collection RLS.
+- PII masking is applied on ingestion and retrieval.
+- AI egress is `cloud-allowed` because Bedrock is external to the cluster.
+- The profile does not deploy AGPL MinIO or Elasticsearch/OpenMetadata; review [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+
+## When to choose another profile
+
+| Requirement | Profile |
 |---|---|
-| **values-foundation** | AI-app teams — lean RAG data foundation on AWS |
-| values-aws | Full lakehouse on AWS (S3 + Bedrock, all engines) |
-| values-onprem / values-quicktest | Self-hosted / sovereign (MinIO, optional local LLM) |
+| Terraform-backed Aurora/S3/Glue/Athena/Bedrock reference | `values-prod-single.yaml` |
+| Existing Kubernetes plus AWS and intentionally retained OSS engines | `values-aws.yaml` |
+| Local/self-hosted services and model path | `values-onprem.yaml` |
+| Development/integration | `values-dev.yaml` or `values-quicktest.yaml` |
 
-## License considerations for regulated procurement
-
-The **foundation profile** (`values-foundation.yaml`) deploys **no AGPL or
-Elastic-licensed components**: object storage is native Amazon S3 (no MinIO) and
-OpenMetadata/Elasticsearch is disabled. `values-aws.yaml` also uses native S3 (no
-MinIO) but inherits OpenMetadata — and with it Elasticsearch 8.x (Elastic License
-2.0/SSPL) — from the base chart defaults; set `openmetadata.enabled: false` there if
-ELv2 is a procurement blocker. Profiles that enable MinIO (onprem/dev/quicktest/prod)
-deploy it under AGPL-3.0 as an unmodified upstream image operated by you. Full
-inventory: [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+See [DEPLOYMENT_PROFILES.md](DEPLOYMENT_PROFILES.md) for the full matrix.

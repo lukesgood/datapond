@@ -40,9 +40,11 @@ kubectl exec -it deploy/litellm -n datapond -- \
 
 ---
 
-### Mode 2: EKS + IRSA (Recommended for Production)
+### Mode 2: Bring-Your-Own EKS + IRSA
 
-**Use when:** Running on Amazon EKS with IRSA (IAM Roles for Service Accounts).
+**Use when:** Running DataPond on an existing EKS cluster. The chart supports IRSA,
+but the current Terraform stack does not create EKS; the maintained AWS infrastructure
+reference uses EC2/K3s and an instance profile.
 
 **Prerequisites:**
 - EKS cluster with OIDC provider configured.
@@ -55,10 +57,10 @@ Run Terraform with EKS OIDC parameters:
 cd terraform
 terraform apply \
   -var eks_oidc_provider_arn="arn:aws:iam::ACCOUNT_ID:oidc-provider/oidc.eks.REGION.amazonaws.com/id/EXAMPLE" \
-  -var eks_oidc_provider_url="https://oidc.eks.REGION.amazonaws.com/id/EXAMPLE"
+  -var eks_oidc_provider_url="oidc.eks.REGION.amazonaws.com/id/EXAMPLE"
 ```
 
-This creates an IAM role (`datapond-litellm-bedrock-role`) with Bedrock permissions and trust relationship to the EKS OIDC provider.
+This creates an IAM role (`datapond-litellm-bedrock-role`) with Bedrock permissions and a trust relationship to the EKS OIDC provider. `eks_oidc_provider_url` is the issuer host/path **without** `https://`, because Terraform uses it as an IAM condition-key prefix.
 
 **Step 2: Extract role ARN**
 ```bash

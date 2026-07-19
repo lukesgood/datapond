@@ -1,17 +1,14 @@
-# Deploying DataPond — Single-Node K3s Production (AWS)
+# Deploying DataPond — AWS Single-Node Reference (K3s)
 
-This is the end-to-end operator runbook for standing up a **production, customer-facing**
-DataPond deployment on a single K3s node in AWS, per
-`docs/superpowers/specs/2026-07-10-aws-single-node-production-deployment-design.md`. It
-provisions: EC2 (K3s) + Elastic IP, ECR, Aurora Serverless v2 pgvector, S3, a Secrets
-Manager DR vault, and a Route53 A record + Let's Encrypt TLS in front of the `foundation`
-Helm profile (backend/frontend/valkey/litellm). Heavy analytics (Trino/Spark/Polaris/
-Airflow/OpenMetadata) are **not** part of this topology — see the design doc §8 for the
-AWS-managed alternative (Athena/EMR Serverless).
+This is the end-to-end operator runbook for the current **production-oriented reference**
+DataPond deployment on a single K3s node in AWS. It provisions EC2 (K3s) + Elastic IP,
+ECR, Aurora Serverless v2 pgvector, S3, a Secrets Manager DR vault, and Route53 +
+Let's Encrypt TLS for the Portable Core application. `values-prod-single.yaml` also
+configures the shipped Glue/Athena and Bedrock adapters. Heavy self-hosted add-ons
+(Trino/Spark/Polaris/Airflow/OpenMetadata) are not part of this topology.
 
-Read this top to bottom before starting; the steps are order-dependent (apply infra
-before pushing images so the ECR repos exist; on a rebuild, re-seed secrets before the
-app connects to a restored Aurora — see step 4's two paths).
+This is deliberately not an EKS or application-node HA architecture. Read this top to
+bottom before starting; the steps are order-dependent.
 
 ---
 
@@ -116,15 +113,20 @@ terraform apply \
   -var db_master_password='<strong-random-password>'
 ```
 
-Only these five vars are **required** — everything else has a workable default:
+Four inputs are required for a real deployment. The example also pins database
+subnets explicitly for deterministic placement:
 
 | Var | Required | Why |
 |---|---|---|
 | `domain` | yes | App hostname (Route53 A record + cert-manager cert + ingress). |
 | `route53_zone_id` | yes | Hosted zone for the A record + DNS-01 solver. |
 | `acme_email` | yes | Let's Encrypt account contact (cert-manager `ClusterIssuer`). |
-| `db_subnet_ids` | yes | Aurora needs a DB subnet group spanning **≥ 2 AZs**. Pick two-plus subnet IDs from your VPC in different Availability Zones — `aws ec2 describe-subnets --filters Name=vpc-id,Values=<vpc-id> --query 'Subnets[].[SubnetId,AvailabilityZone]'` to list candidates. This has no default; `terraform plan` fails without it. |
+| `db_subnet_ids` | conditional | Defaults to the first two discovered subnets in the selected/default VPC. Set explicitly for a custom VPC, deterministic placement, or whenever discovery cannot provide two subnets in distinct AZs. |
 | `db_master_password` | yes | Aurora master password (sensitive; no default). |
+
+Aurora requires at least two subnets in different Availability Zones. Inspect candidates
+with `aws ec2 describe-subnets --filters Name=vpc-id,Values=<vpc-id> --query
+'Subnets[].[SubnetId,AvailabilityZone]'` and override `db_subnet_ids` when needed.
 
 `vpc_id` / `subnet_id` are **optional** — omitted, they resolve to the account's default
 VPC (`data.aws_vpc.selected` in `ec2.tf`), and the EC2 node's own security group is wired
@@ -303,12 +305,15 @@ cd /path/to/datapond   # a checkout of this repo on the node, or scp'd helm/ cha
 
 DOMAIN=datapond.example.com
 DB_MASTER_PASSWORD='<the same value you passed to terraform apply -var db_master_password>'
+BUCKET=$(terraform -chdir=/path/to/terraform output -raw bucket_name)
 
 helm upgrade --install datapond helm/datapond -n datapond \
   --values helm/datapond/values-prod-single.yaml \
   --set externalDatabase.host=$(terraform -chdir=/path/to/terraform output -raw aurora_endpoint) \
   --set backend.image.repository=$(terraform -chdir=/path/to/terraform output -raw ecr_backend_repo_url) \
   --set frontend.image.repository=$(terraform -chdir=/path/to/terraform output -raw ecr_frontend_repo_url) \
+  --set-string catalog.glueWarehouse="s3://$BUCKET/warehouse" \
+  --set-string catalog.athenaOutputLocation="s3://$BUCKET/athena-results/" \
   --set ingress.domain=$DOMAIN \
   --set postgres.auth.password="$DB_MASTER_PASSWORD"
 ```
@@ -319,9 +324,9 @@ apply -var db_master_password` — the backend reads it from `datapond-secrets` 
 freshly-random password that Aurora will reject, and the backend never comes up (this is
 the exact failure the live bring-up hit).
 
-If you don't have Terraform state locally on the node, get the three outputs from
-wherever you ran `terraform apply` (step 2) and substitute them literally instead of
-`terraform output`:
+If you don't have Terraform state locally on the node, obtain the Aurora endpoint, two
+ECR repository URLs, and S3 bucket name from the environment where `terraform apply` ran,
+then substitute all four values literally:
 
 ```bash
 helm upgrade --install datapond helm/datapond -n datapond \
@@ -329,6 +334,8 @@ helm upgrade --install datapond helm/datapond -n datapond \
   --set externalDatabase.host=datapond-pg.cluster-xxxxx.us-east-1.rds.amazonaws.com \
   --set backend.image.repository=<acct>.dkr.ecr.us-east-1.amazonaws.com/datapond-backend \
   --set frontend.image.repository=<acct>.dkr.ecr.us-east-1.amazonaws.com/datapond-frontend \
+  --set-string catalog.glueWarehouse='s3://<terraform-bucket-name>/warehouse' \
+  --set-string catalog.athenaOutputLocation='s3://<terraform-bucket-name>/athena-results/' \
   --set ingress.domain=datapond.example.com \
   --set postgres.auth.password='<the-aurora-master-password>'
 ```
@@ -336,7 +343,7 @@ helm upgrade --install datapond helm/datapond -n datapond \
 `values-prod-single.yaml` already sets: `imagePullSecrets: [regcred]` (the Secret cloud-
 init's `ecr-refresh` timer keeps current), `storage.provider=s3` with no static keys (node
 instance-profile IAM), `externalDatabase.enabled=true` / `postgres.enabled=false`
-(external Aurora, no in-cluster Postgres), the `foundation` workload set (backend/
+(external Aurora, no in-cluster Postgres), the Portable Core workload set (backend/
 frontend/valkey/litellm; Trino/Spark/Polaris/Airflow/MLflow/Jupyter/RisingWave/
 OpenMetadata/Ollama/vLLM/MinIO all `enabled: false`), litellm's Bedrock model list
 (Titan embed + Claude Haiku/Sonnet, `us-east-1`), and `ingress.tls.enabled=true` with the
