@@ -22,9 +22,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
+from app.api.auth import require_admin
 from app.api.connectors import get_db_pool
 from app.runtime import component_secret
 
@@ -234,7 +235,7 @@ async def gateway_status():
                 "egress_policy": policy, "detail": _short(str(e), 150)}
 
 
-@router.get("/settings/ai/backends")
+@router.get("/settings/ai/backends", dependencies=[Depends(require_admin)])
 async def list_backends():
     """List provider backends registered in the LiteLLM gateway."""
     url, key = _gateway()
@@ -265,7 +266,7 @@ async def list_backends():
     return {"backends": backends, "active": active}
 
 
-@router.post("/settings/ai/backends")
+@router.post("/settings/ai/backends", dependencies=[Depends(require_admin)])
 async def create_backend(body: BackendCreate):
     """Register a new provider backend in the gateway (optionally set it active)."""
     if not body.model_name.strip() or not body.model.strip():
@@ -293,7 +294,7 @@ async def create_backend(body: BackendCreate):
     return {"success": True, "active": body.set_active}
 
 
-@router.delete("/settings/ai/backends/{model_id}")
+@router.delete("/settings/ai/backends/{model_id}", dependencies=[Depends(require_admin)])
 async def delete_backend(model_id: str):
     """Remove a backend by its LiteLLM model id."""
     url, key = _gateway()
@@ -307,7 +308,7 @@ async def delete_backend(model_id: str):
     return {"success": True}
 
 
-@router.post("/settings/ai/active")
+@router.post("/settings/ai/active", dependencies=[Depends(require_admin)])
 async def set_active(body: ActivePatch):
     """Set the active default backend (model_name) used by AI SQL."""
     if not body.model_name.strip():
@@ -331,7 +332,7 @@ async def _provider_of_registered_model(url: str, key: str, model_name: str) -> 
     return None
 
 
-@router.post("/settings/ai/backends/{model_name}/test")
+@router.post("/settings/ai/backends/{model_name}/test", dependencies=[Depends(require_admin)])
 async def test_backend(model_name: str):
     """Send a tiny completion through the gateway to verify a backend works."""
     url, key = _gateway()
@@ -366,7 +367,7 @@ async def test_backend(model_name: str):
 
 # ── Virtual keys / budgets / spend (LiteLLM admin API) ──────────────────────────
 
-@router.get("/settings/ai/keys")
+@router.get("/settings/ai/keys", dependencies=[Depends(require_admin)])
 async def list_keys():
     """List virtual API keys with their budget/spend/limits."""
     url, key = _gateway()
@@ -404,7 +405,7 @@ async def list_keys():
     return {"keys": out}
 
 
-@router.post("/settings/ai/keys")
+@router.post("/settings/ai/keys", dependencies=[Depends(require_admin)])
 async def create_key(body: KeyCreate):
     """Generate a virtual API key (optionally scoped to models, with budget/limits)."""
     if not body.key_alias.strip():
@@ -428,7 +429,7 @@ async def create_key(body: KeyCreate):
     return {"key": d.get("key"), "key_alias": d.get("key_alias", body.key_alias.strip())}
 
 
-@router.delete("/settings/ai/keys/{token}")
+@router.delete("/settings/ai/keys/{token}", dependencies=[Depends(require_admin)])
 async def delete_key(token: str):
     """Revoke a virtual API key by its token."""
     url, key = _gateway()
@@ -442,7 +443,7 @@ async def delete_key(token: str):
     return {"success": True}
 
 
-@router.get("/settings/ai/spend")
+@router.get("/settings/ai/spend", dependencies=[Depends(require_admin)])
 async def spend_summary():
     """Aggregate spend across all virtual keys (USD)."""
     url, key = _gateway()
@@ -463,7 +464,7 @@ async def spend_summary():
     return {"total_spend": round(total, 4), "keys_with_spend": n}
 
 
-@router.get("/settings/ai/usage")
+@router.get("/settings/ai/usage", dependencies=[Depends(require_admin)])
 async def usage_summary():
     """Token + cost usage for the cost dashboard: total spend/budget, per-model spend
     and tokens, and per-key budget consumption. Aggregated from LiteLLM
@@ -538,7 +539,7 @@ async def usage_summary():
     return out
 
 
-@router.get("/settings/ai/spend/report")
+@router.get("/settings/ai/spend/report", dependencies=[Depends(require_admin)])
 async def spend_report(start_date: Optional[str] = None, end_date: Optional[str] = None):
     """Date-ranged spend breakdown (by model/key/team) from LiteLLM /global/spend/report.
     Defaults to the last 30 days."""
@@ -559,7 +560,7 @@ async def spend_report(start_date: Optional[str] = None, end_date: Optional[str]
         raise HTTPException(502, f"Cannot reach LiteLLM gateway: {_short(str(e), 200)}")
 
 
-@router.get("/settings/ai/budget-alerts")
+@router.get("/settings/ai/budget-alerts", dependencies=[Depends(require_admin)])
 async def budget_alerts(threshold: float = 80.0):
     """Virtual keys (and the global budget) at/over `threshold`% of their budget —
     for near-limit alerting on external-LLM spend."""

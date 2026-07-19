@@ -9,6 +9,8 @@ Endpoints:
 """
 
 import os
+import re
+import hmac
 import json
 import uuid
 import asyncio
@@ -242,30 +244,76 @@ async def require_user(
 
 
 def internal_api_key() -> str:
-    """Shared secret for trusted in-cluster automation (e.g. scheduled Airflow DAGs)."""
+    """Shared secret for trusted in-cluster automation."""
     return (os.getenv("INTERNAL_API_KEY") or "").strip()
 
 
+# Internal-key authentication is deliberately limited to the two callback shapes
+# used by unattended automation. ``fullmatch`` and a single non-slash path segment
+# prevent prefix/suffix confusion (for example, ``/sync/stream`` or trailing paths).
+_INTERNAL_AUTOMATION_ROUTES = (
+    ("POST", re.compile(r"/api/ai/collections/[^/]+/ingest-source")),
+    ("POST", re.compile(r"/api/connectors/[^/]+/sync")),
+)
+
+
+def is_internal_automation_path(method: str, path: str) -> bool:
+    method = (method or "").upper()
+    return any(
+        method == allowed_method and pattern.fullmatch(path or "") is not None
+        for allowed_method, pattern in _INTERNAL_AUTOMATION_ROUTES
+    )
+
+
 def _internal_request(request: Request) -> bool:
-    key = internal_api_key()
-    return bool(key) and request.headers.get("X-Internal-Key", "") == key
+    """Validate only the shared secret; route scoping is enforced separately."""
+    expected = internal_api_key()
+    headers = getattr(request, "headers", None)
+    if not expected or headers is None:
+        return False
+    presented = headers.get("X-Internal-Key", "")
+    return hmac.compare_digest(presented, expected)
+
+
+def is_internal_automation_request(request: Request) -> bool:
+    """Return true only for a valid key on an explicitly allowed callback route.
+
+    Method and URL metadata are mandatory. Missing metadata—including incomplete
+    request doubles—fails closed rather than weakening route scope.
+    """
+    method = getattr(request, "method", None)
+    url = getattr(request, "url", None)
+    path = getattr(url, "path", None) if url is not None else None
+    if not method or not path:
+        return False
+    return is_internal_automation_path(method, path) and _internal_request(request)
 
 
 async def require_user_or_internal(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> dict:
-    """Allow either a logged-in user (Bearer JWT) or trusted in-cluster automation
-    presenting the shared X-Internal-Key. The internal identity is an admin-scoped
-    service principal so it can ingest into any collection a schedule targets.
-    Used by endpoints that scheduled DAGs call back into (e.g. /ingest-source)."""
-    if _internal_request(request):
+    """Allow a user or the scoped internal automation principal.
+
+    The shared key is accepted only for the exact callback method/path allowlist and
+    is validated again here even after middleware admission.
+    """
+    if is_internal_automation_request(request):
         return {"id": None, "username": "system", "role": "admin", "internal": True}
     return await require_user(request, credentials)
 
 
 async def require_admin(user: dict = Depends(require_user)) -> dict:
     """Require admin role."""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
+    return user
+
+
+async def require_admin_or_internal(
+    user: dict = Depends(require_user_or_internal),
+) -> dict:
+    """Require an administrator or the scoped internal automation principal."""
     if user.get("role") != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
     return user

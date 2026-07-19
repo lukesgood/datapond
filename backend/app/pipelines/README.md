@@ -1,5 +1,9 @@
 # DataPond Declarative Pipeline Framework
 
+> **Optional add-on:** this framework compiles to Airflow and is available only when
+> the `pipelines` capability is enabled. Portable Core and Knowledge freshness do not
+> depend on Airflow; the backend RAG scheduler handles collection re-embedding.
+
 Delta Live Tables (DLT) equivalent for DataPond. Define data pipelines declaratively using Python decorators.
 
 ## Features

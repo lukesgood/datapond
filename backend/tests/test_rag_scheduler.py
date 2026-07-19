@@ -38,7 +38,7 @@ def test_tick_skips_when_lock_not_acquired():
     import app.rag_scheduler as s
     conn = _Conn(lock=False, rows=[{"id": "c1", "name": "kb", "refresh_source": "{}",
                                     "refresh_interval_minutes": 60, "last_refreshed_at": None}])
-    n = asyncio.get_event_loop().run_until_complete(s.tick(_Pool(conn)))
+    n = asyncio.run(s.tick(_Pool(conn)))
     assert n == 0
 
 
@@ -54,7 +54,7 @@ def test_tick_refreshes_due_and_records_status(monkeypatch):
            "refresh_source": '{"type": "s3", "bucket": "b", "prefix": "p/"}',
            "refresh_interval_minutes": 60, "last_refreshed_at": None}
     conn = _Conn(lock=True, rows=[row])
-    n = asyncio.get_event_loop().run_until_complete(s.tick(_Pool(conn)))
+    n = asyncio.run(s.tick(_Pool(conn)))
     assert n == 1 and calls == [("c1", "s3")]
     statuses = [a for (sql, a) in conn.sink if "last_refresh_status" in sql]
     assert statuses and "ok" in str(statuses[0])

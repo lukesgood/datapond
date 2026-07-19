@@ -2,7 +2,8 @@
 Services API - Real-time monitoring and management
 Provides comprehensive K8s service monitoring, logs, metrics, and control
 """
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from kubernetes import client, config, watch
@@ -13,6 +14,7 @@ import os
 import asyncio
 import json
 
+from app.api import auth
 from app.service_registry import service_registry
 from k8s_client import k8s_client as _k8s
 
@@ -147,6 +149,42 @@ def get_service_label_selector(service: str) -> str:
     # Most DataPond services use app=service-name
     return f"app={service}"
 
+
+def _pod_belongs_to_service(pod_obj, service: str) -> bool:
+    """Match a pod against the same equality selector used for service lookups."""
+    labels = getattr(getattr(pod_obj, "metadata", None), "labels", None) or {}
+    for requirement in get_service_label_selector(service).split(","):
+        key, separator, expected = requirement.partition("=")
+        if not separator or labels.get(key.strip()) != expected.strip():
+            return False
+    return True
+
+
+async def _safe_websocket_close(websocket: WebSocket, code: int) -> None:
+    """Close during handshake or streaming without masking disconnect races."""
+    try:
+        await websocket.close(code=code)
+    except (RuntimeError, WebSocketDisconnect):
+        pass
+
+
+async def _authorize_log_websocket(websocket: WebSocket) -> bool:
+    """Authenticate an admin from the same-origin session cookie before accept."""
+    token = websocket.cookies.get("datapond_token")
+    if not token:
+        await _safe_websocket_close(websocket, 4401)
+        return False
+
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+    user = await auth.get_current_user(credentials)
+    if not user:
+        await _safe_websocket_close(websocket, 4401)
+        return False
+    if user.get("role") != "admin":
+        await _safe_websocket_close(websocket, 4403)
+        return False
+    return True
+
 def _node_allocatable():
     """Best-effort cluster node allocatable (cpu_nanocores, memory_bytes).
 
@@ -170,7 +208,11 @@ def _node_allocatable():
 # Single-Service Detail Endpoint
 # ==========================================
 
-@router.get("/services/{service}", response_model=ServiceDetail)
+@router.get(
+    "/services/{service}",
+    response_model=ServiceDetail,
+    dependencies=[Depends(auth.require_user)],
+)
 async def get_service_detail(service: str):
     """
     Consolidated detail for a single service — backs the Services detail page.
@@ -180,8 +222,9 @@ async def get_service_detail(service: str):
     registry at all. For self-hosted ("pod") services this is enriched
     best-effort with live k8s data (replicas/cpu/memory/namespace/labels/
     ports/env/uptime), reusing the same pod + metrics-server lookups as
-    /pods and /metrics. AWS-managed services (S3/Aurora/Bedrock/Glue/Athena)
-    have no pods to inspect, so they return status="managed" with no pod data.
+    /pods and /metrics. External or managed adapters have no in-cluster pods to
+    inspect, so the compatibility status ``managed`` means configured only; it is
+    not a health check.
 
     Never 500s — any k8s error degrades to partial data, not a failure.
     """
@@ -194,7 +237,7 @@ async def get_service_detail(service: str):
             name=entry["name"],
             status="managed",
             kind="managed",
-            version="AWS managed",
+            version="Configured adapter",
             description=entry.get("desc"),
         )
 
@@ -282,7 +325,11 @@ async def get_service_detail(service: str):
 # Pod Management Endpoints
 # ==========================================
 
-@router.get("/services/{service}/pods", response_model=List[PodInfo])
+@router.get(
+    "/services/{service}/pods",
+    response_model=List[PodInfo],
+    dependencies=[Depends(auth.require_user)],
+)
 async def get_service_pods(service: str):
     """
     List all pods for a service
@@ -316,7 +363,10 @@ async def get_service_pods(service: str):
         logger.error(f"K8s API error: {e}")
         raise HTTPException(500, f"Failed to get pods: {str(e)}")
 
-@router.get("/services/{service}/pods/{pod}/describe")
+@router.get(
+    "/services/{service}/pods/{pod}/describe",
+    dependencies=[Depends(auth.require_user)],
+)
 async def describe_pod(service: str, pod: str):
     """
     Get detailed information about a specific pod
@@ -325,8 +375,10 @@ async def describe_pod(service: str, pod: str):
     """
     try:
         pod_obj = core_v1.read_namespaced_pod(name=pod, namespace=NAMESPACE)
+        if not _pod_belongs_to_service(pod_obj, service):
+            raise HTTPException(404, f"Pod not found: {pod}")
 
-        # Get pod events
+        # Get pod events only after service ownership has been verified.
         events = core_v1.list_namespaced_event(
             namespace=NAMESPACE,
             field_selector=f"involvedObject.name={pod}"
@@ -396,11 +448,36 @@ async def describe_pod(service: str, pod: str):
         logger.error(f"K8s API error: {e}")
         raise HTTPException(500, f"Failed to describe pod: {str(e)}")
 
+@router.delete(
+    "/services/{service}/pods/{pod}",
+    dependencies=[Depends(auth.require_admin)],
+)
+async def delete_service_pod(service: str, pod: str):
+    """Delete one pod only after its labels prove it belongs to the service."""
+    try:
+        pod_obj = core_v1.read_namespaced_pod(name=pod, namespace=NAMESPACE)
+        if not _pod_belongs_to_service(pod_obj, service):
+            raise HTTPException(404, f"Pod not found for service {service}: {pod}")
+        core_v1.delete_namespaced_pod(name=pod, namespace=NAMESPACE)
+        return {"status": "deleted", "service": service, "pod": pod}
+    except HTTPException:
+        raise
+    except ApiException as e:
+        if e.status == 404:
+            raise HTTPException(404, f"Pod not found: {pod}")
+        logger.error(f"K8s API error: {e}")
+        raise HTTPException(500, f"Failed to delete pod: {str(e)}")
+
+
 # ==========================================
 # Logs Endpoints
 # ==========================================
 
-@router.get("/services/{service}/logs", response_model=ServiceLogsResponse)
+@router.get(
+    "/services/{service}/logs",
+    response_model=ServiceLogsResponse,
+    dependencies=[Depends(auth.require_user)],
+)
 async def get_service_logs(
     service: str,
     lines: int = Query(100, ge=1, le=1000, description="Number of log lines to retrieve"),
@@ -412,8 +489,13 @@ async def get_service_logs(
     Returns the last N lines of logs from the first pod (or specified pod).
     """
     try:
-        # If pod not specified, get first pod
-        if not pod:
+        # An explicit pod name is untrusted input: read it and verify the same
+        # service selector before accessing its logs.
+        if pod:
+            pod_obj = core_v1.read_namespaced_pod(name=pod, namespace=NAMESPACE)
+            if not _pod_belongs_to_service(pod_obj, service):
+                raise HTTPException(404, f"Pod not found: {pod}")
+        else:
             pods = core_v1.list_namespaced_pod(
                 namespace=NAMESPACE,
                 label_selector=get_service_label_selector(service)
@@ -424,7 +506,7 @@ async def get_service_logs(
 
             pod = pods.items[0].metadata.name
 
-        # Get pod logs
+        # Get pod logs only after an explicit pod's ownership is verified.
         logs = core_v1.read_namespaced_pod_log(
             name=pod,
             namespace=NAMESPACE,
@@ -446,72 +528,66 @@ async def get_service_logs(
 
 @router.websocket("/services/{service}/logs/stream")
 async def stream_logs(websocket: WebSocket, service: str):
-    """
-    Stream real-time logs from a service's pod via WebSocket
-
-    Continuously streams new log lines as they are written.
-    """
+    """Stream pod logs to an authenticated administrator."""
+    if not await _authorize_log_websocket(websocket):
+        return
     await websocket.accept()
 
     try:
-        # Get first pod for service
         pods = core_v1.list_namespaced_pod(
             namespace=NAMESPACE,
             label_selector=get_service_label_selector(service)
         )
-
         if not pods.items:
-            await websocket.send_json({
-                "error": f"No pods found for service: {service}"
-            })
-            await websocket.close()
+            await websocket.send_json({"error": f"No pods found for service: {service}"})
+            await _safe_websocket_close(websocket, 1000)
             return
 
         pod_name = pods.items[0].metadata.name
-
-        # Send initial connection message
         await websocket.send_json({
             "status": "connected",
             "service": service,
-            "pod": pod_name
+            "pod": pod_name,
         })
 
-        # Stream logs in real-time
         w = watch.Watch()
         for line in w.stream(
             core_v1.read_namespaced_pod_log,
             name=pod_name,
             namespace=NAMESPACE,
             follow=True,
-            _request_timeout=3600  # 1 hour timeout
+            _request_timeout=3600,
         ):
-            try:
-                await websocket.send_json({
-                    "type": "log",
-                    "line": line,
-                    "timestamp": datetime.utcnow().isoformat()
-                })
-            except WebSocketDisconnect:
-                logger.info(f"WebSocket disconnected for {service}")
-                break
-
+            await websocket.send_json({
+                "type": "log",
+                "line": line,
+                "timestamp": datetime.utcnow().isoformat(),
+            })
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for {service}")
     except ApiException as e:
-        await websocket.send_json({
-            "error": f"K8s API error: {str(e)}"
-        })
-        await websocket.close()
+        try:
+            await websocket.send_json({"error": f"K8s API error: {str(e)}"})
+        except (RuntimeError, WebSocketDisconnect):
+            pass
+        await _safe_websocket_close(websocket, 1011)
     except Exception as e:
         logger.error(f"Error streaming logs: {e}")
-        await websocket.send_json({
-            "error": f"Failed to stream logs: {str(e)}"
-        })
-        await websocket.close()
+        try:
+            await websocket.send_json({"error": f"Failed to stream logs: {str(e)}"})
+        except (RuntimeError, WebSocketDisconnect):
+            pass
+        await _safe_websocket_close(websocket, 1011)
 
 # ==========================================
 # Metrics Endpoints
 # ==========================================
 
-@router.get("/services/{service}/metrics", response_model=ServiceMetrics)
+@router.get(
+    "/services/{service}/metrics",
+    response_model=ServiceMetrics,
+    dependencies=[Depends(auth.require_user)],
+)
 async def get_service_metrics(service: str):
     """
     Get current resource usage metrics for a service
@@ -593,7 +669,10 @@ async def get_service_metrics(service: str):
         logger.error(f"K8s API error: {e}")
         raise HTTPException(500, f"Failed to get metrics: {str(e)}")
 
-@router.get("/services/{service}/metrics/history")
+@router.get(
+    "/services/{service}/metrics/history",
+    dependencies=[Depends(auth.require_user)],
+)
 async def get_service_metrics_history(
     service: str,
     hours: int = Query(24, ge=1, le=168, description="Hours of history (max 7 days)")
@@ -614,7 +693,11 @@ async def get_service_metrics_history(
 # Health & Events Endpoints
 # ==========================================
 
-@router.get("/services/{service}/health", response_model=ServiceHealth)
+@router.get(
+    "/services/{service}/health",
+    response_model=ServiceHealth,
+    dependencies=[Depends(auth.require_user)],
+)
 async def get_service_health(service: str):
     """
     Get detailed health status for a service
@@ -675,7 +758,11 @@ async def get_service_health(service: str):
         logger.error(f"K8s API error: {e}")
         raise HTTPException(500, f"Failed to get health: {str(e)}")
 
-@router.get("/services/{service}/events", response_model=List[K8sEvent])
+@router.get(
+    "/services/{service}/events",
+    response_model=List[K8sEvent],
+    dependencies=[Depends(auth.require_user)],
+)
 async def get_service_events(
     service: str,
     limit: int = Query(50, ge=1, le=200, description="Number of events to retrieve")
@@ -724,7 +811,11 @@ async def get_service_events(
 # Control Endpoints
 # ==========================================
 
-@router.post("/services/{service}/restart", response_model=RestartResponse)
+@router.post(
+    "/services/{service}/restart",
+    response_model=RestartResponse,
+    dependencies=[Depends(auth.require_admin)],
+)
 async def restart_service(service: str):
     """
     Restart a service by deleting its pods
@@ -762,7 +853,11 @@ async def restart_service(service: str):
         logger.error(f"K8s API error: {e}")
         raise HTTPException(500, f"Failed to restart service: {str(e)}")
 
-@router.post("/services/{service}/scale", response_model=ScaleResponse)
+@router.post(
+    "/services/{service}/scale",
+    response_model=ScaleResponse,
+    dependencies=[Depends(auth.require_admin)],
+)
 async def scale_service(service: str, request: ScaleRequest):
     """
     Scale a service to specified number of replicas

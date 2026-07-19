@@ -252,8 +252,15 @@ async def drop_view(name: str):
 @router.get("/streaming/views/{name}/data")
 async def preview_view(name: str, limit: int = 50):
     try:
-        rows = _execute(f"SELECT * FROM {name} LIMIT {limit}")
-        return _serialize({"rows": rows, "count": len(rows)})
+        records = _execute(f"SELECT * FROM {name} LIMIT {limit}")
+        columns = list(records[0].keys()) if records else []
+        rows = [[record.get(column) for column in columns] for record in records]
+        return _serialize({
+            "columns": columns,
+            "rows": rows,
+            "row_count": len(rows),
+            "count": len(rows),  # compatibility for older clients
+        })
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

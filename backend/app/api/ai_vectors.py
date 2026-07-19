@@ -25,12 +25,13 @@ import logging
 import uuid
 from typing import Optional, List
 
+import asyncpg
 import httpx
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 
 from app.api.connectors import get_db_pool
-from app.api.auth import require_user, require_user_or_internal
+from app.api.auth import require_admin_or_internal, require_user
 from app.ai_context import set_actor, actor_payload
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
 from app.runtime import component_secret
@@ -260,12 +261,14 @@ async def create_collection(body: CollectionCreate, user: dict = Depends(require
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
     async with pool.acquire() as c:
-        await c.execute(
-            """INSERT INTO ai_collections (name, embed_model, dim, description, owner_id)
-               VALUES ($1, $2, $3, $4, $5)
-               ON CONFLICT (name) DO UPDATE SET description = EXCLUDED.description""",
-            body.name.strip(), _embed_model(), EMBED_DIM(), body.description, _uid(user),
-        )
+        try:
+            await c.execute(
+                """INSERT INTO ai_collections (name, embed_model, dim, description, owner_id)
+                   VALUES ($1, $2, $3, $4, $5)""",
+                body.name.strip(), _embed_model(), EMBED_DIM(), body.description, _uid(user),
+            )
+        except asyncpg.UniqueViolationError as exc:
+            raise HTTPException(409, f"Collection '{body.name.strip()}' already exists.") from exc
     return {"success": True, "name": body.name.strip(),
             "embed_model": _embed_model(), "dim": EMBED_DIM()}
 
@@ -279,18 +282,21 @@ async def delete_collection(name: str, user: dict = Depends(require_user)):
     return {"success": True, "deleted": res}
 
 
-async def _collection_id(c, name: str, user: dict, *, destroy: bool = False):
-    """Resolve a collection id, enforcing access.
+async def _collection_id(
+    c, name: str, user: dict, *, write: bool = False, destroy: bool = False
+):
+    """Resolve a collection id and enforce read/write ownership boundaries.
 
-    Read/ingest: owner, admin, or anyone for shared (owner_id IS NULL) collections.
-    Destroy: only the owner or an admin — shared collections are admin-only to delete.
+    Non-admins may read their own collections and legacy shared collections. Writes
+    and destructive operations require explicit ownership; ``owner_id IS NULL`` is
+    read-only unless the caller is an administrator (including scoped automation).
     """
     row = await c.fetchrow("SELECT id, owner_id FROM ai_collections WHERE name = $1", name)
     if not row:
         raise HTTPException(404, f"Collection '{name}' not found.")
     if user.get("role") != "admin":
         owner = row["owner_id"]
-        if destroy:
+        if write or destroy:
             allowed = owner is not None and owner == _uid(user)
         else:
             allowed = owner is None or owner == _uid(user)
@@ -340,7 +346,7 @@ async def ingest(name: str, req: IngestRequest, user: dict = Depends(require_use
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
     async with pool.acquire() as c:
-        coll_id = await _collection_id(c, name, user)
+        coll_id = await _collection_id(c, name, user, write=True)
     res = await _ingest_documents(
         coll_id, [(d.source, d.text, d.metadata) for d in req.documents],
         req.chunk_size, req.chunk_overlap)
@@ -463,18 +469,18 @@ async def _refresh_from_source(pool, coll_id, src: "SourceIngest") -> dict:
 
 
 @router.post("/ai/collections/{name}/ingest-source")
-async def ingest_source(name: str, req: SourceIngest, user: dict = Depends(require_user_or_internal)):
+async def ingest_source(name: str, req: SourceIngest, user: dict = Depends(require_admin_or_internal)):
     """Feed the vector store from a lakehouse/object-store source — the AI data
     pipeline over DataPond's own data (Iceberg table column, or S3 text files).
 
-    Accepts either a user JWT or the in-cluster X-Internal-Key so unattended
-    automation (e.g. the RAG freshness scheduler) can re-ingest on a schedule.
-    Re-embedding replaces the source's prior chunks (no duplication)."""
+    Accepts either an administrator JWT or the scoped in-cluster X-Internal-Key so
+    unattended automation can re-ingest an allowlisted source callback. Re-embedding
+    replaces the source's prior chunks (no duplication)."""
     set_actor(user)
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
     async with pool.acquire() as c:
-        coll_id = await _collection_id(c, name, user)
+        coll_id = await _collection_id(c, name, user, write=True)
     res = await _refresh_from_source(pool, coll_id, req)
     return {"success": True, **res}
 
@@ -506,14 +512,14 @@ class ScheduleRequest(BaseModel):
 
 
 @router.post("/ai/collections/{name}/schedule")
-async def schedule_ingest(name: str, body: ScheduleRequest, user: dict = Depends(require_user)):
+async def schedule_ingest(name: str, body: ScheduleRequest, user: dict = Depends(require_admin_or_internal)):
     """Save a recurring re-embed schedule for this collection. The backend
     in-process scheduler (rag_scheduler) runs due collections — no Airflow."""
     minutes = _preset_to_minutes(body.schedule, body.interval_minutes)
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
     async with pool.acquire() as c:
-        coll_id = await _collection_id(c, name, user)  # 404/403 gate
+        coll_id = await _collection_id(c, name, user, write=True)  # 404/403 gate
         source_json = json.dumps(body.source.model_dump(by_alias=True, exclude_none=True))
         await c.execute(
             """UPDATE ai_collections
@@ -547,7 +553,7 @@ async def delete_schedule(name: str, user: dict = Depends(require_user)):
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
     async with pool.acquire() as c:
-        coll_id = await _collection_id(c, name, user)
+        coll_id = await _collection_id(c, name, user, write=True)
         await c.execute("UPDATE ai_collections SET refresh_enabled = false WHERE id = $1", coll_id)
     return {"success": True, "enabled": False}
 

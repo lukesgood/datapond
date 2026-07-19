@@ -110,9 +110,7 @@ def test_state_store_single_use(monkeypatch):
     import asyncio
     from ee.sso import oidc
     monkeypatch.setattr(oidc, "_redis_client", lambda: None)  # force memory fallback
-    asyncio.get_event_loop().run_until_complete(
-        oidc.state_put("s1", {"nonce": "n", "verifier": "v"}))
-    loop = asyncio.get_event_loop()
-    assert loop.run_until_complete(oidc.state_pop("s1")) == {"nonce": "n", "verifier": "v"}
-    assert loop.run_until_complete(oidc.state_pop("s1")) is None      # single-use
-    assert loop.run_until_complete(oidc.state_pop("nope")) is None    # unknown
+    asyncio.run(oidc.state_put("s1", {"nonce": "n", "verifier": "v"}))
+    assert asyncio.run(oidc.state_pop("s1")) == {"nonce": "n", "verifier": "v"}
+    assert asyncio.run(oidc.state_pop("s1")) is None      # single-use
+    assert asyncio.run(oidc.state_pop("nope")) is None    # unknown

@@ -7,9 +7,10 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
+from app.api.auth import require_admin
 from app.api.connectors import get_db_pool
 from app.connectors.vault import CredentialVault
 
@@ -54,7 +55,7 @@ async def _ensure_table(conn) -> None:
     await conn.execute(_DDL)
 
 
-@router.get("/settings/system")
+@router.get("/settings/system", dependencies=[Depends(require_admin)])
 async def get_system_settings():
     """Return all stored system settings (sensitive values masked)."""
     pool = await get_db_pool()
@@ -79,7 +80,7 @@ async def get_system_settings():
     return {"settings": result}
 
 
-@router.patch("/settings/system")
+@router.patch("/settings/system", dependencies=[Depends(require_admin)])
 async def update_system_settings(body: SettingsPatch):
     """Save settings and apply to runtime env vars immediately."""
     pool = await get_db_pool()
@@ -110,7 +111,7 @@ async def update_system_settings(body: SettingsPatch):
     return {"success": True}
 
 
-@router.get("/settings/system/ai")
+@router.get("/settings/system/ai", dependencies=[Depends(require_admin)])
 async def get_ai_settings():
     """Return AI provider config with real values for testing (keys partially masked)."""
     pool = await get_db_pool()

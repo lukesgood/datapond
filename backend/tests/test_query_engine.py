@@ -49,5 +49,5 @@ def test_execute_query_uses_engine(monkeypatch):
 
     class _Req:
         query = "select 1"; save_history = False
-    res = asyncio.get_event_loop().run_until_complete(q.execute_query(_Req(), db=None, user={"id": "00000000-0000-0000-0000-0000000000aa"}))
+    res = asyncio.run(q.execute_query(_Req(), db=None, user={"id": "00000000-0000-0000-0000-0000000000aa"}))
     assert res.columns == ["id", "name"] and res.rows == [[1, "a"]] and res.row_count == 1

@@ -1,7 +1,7 @@
 """
 Object Storage API - SeaweedFS S3 usage statistics
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import os
@@ -10,6 +10,8 @@ import asyncio
 import boto3
 from concurrent.futures import ThreadPoolExecutor
 from botocore.exceptions import ClientError, EndpointConnectionError
+
+from app.api.auth import require_admin
 from datetime import datetime, timezone
 
 router = APIRouter()
@@ -94,8 +96,8 @@ def _scan_bucket(s3, b) -> BucketStat:
             for obj in page.get("Contents", []):
                 obj_count += 1
                 size += obj.get("Size", 0)
-    except Exception:
-        pass
+    except Exception as exc:
+        raise RuntimeError(f"Failed to scan bucket '{name}': {exc}") from exc
     return BucketStat(
         name=name,
         created_at=created.isoformat() if created else None,
@@ -126,7 +128,7 @@ def _collect_overview() -> "StorageOverview":
     """전체 수집(블로킹) — 버킷별 객체 나열을 스레드풀로 병렬화."""
     s3 = get_s3_client()
     if S3_ENDPOINT:
-        # Self-hosted S3 (SeaweedFS/MinIO): every bucket is ours — enumerate.
+        # Self-hosted S3-compatible storage enumerates all buckets.
         buckets_raw = s3.list_buckets().get("Buckets", [])
     else:
         # Native AWS: report only the configured bucket(s). Enumerating the whole
@@ -200,7 +202,7 @@ async def list_bucket_objects(bucket_name: str, limit: int = 50, prefix: str = "
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/storage/buckets/{bucket_name}")
+@router.post("/storage/buckets/{bucket_name}", dependencies=[Depends(require_admin)])
 async def create_bucket(bucket_name: str):
     """Create a new S3 bucket"""
     try:
@@ -214,7 +216,7 @@ async def create_bucket(bucket_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/storage/buckets/{bucket_name}")
+@router.delete("/storage/buckets/{bucket_name}", dependencies=[Depends(require_admin)])
 async def delete_bucket(bucket_name: str):
     """Delete an empty bucket"""
     try:

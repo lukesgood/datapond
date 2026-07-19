@@ -38,9 +38,7 @@ def test_cfg_derives_origin_from_rp_id(monkeypatch):
 def test_register_begin_returns_options_and_stores_challenge(monkeypatch):
     w = _fresh(monkeypatch, {"WEBAUTHN_RP_ID": "localhost", "WEBAUTHN_ORIGIN": "http://localhost:3000"})
     import asyncio
-    opts, nonce = asyncio.get_event_loop().run_until_complete(
-        w._build_registration_options(user_id="00000000-0000-0000-0000-000000000001", username="admin", existing=[])
-    )
+    opts, nonce = asyncio.run(w._build_registration_options(user_id="00000000-0000-0000-0000-000000000001", username="admin", existing=[]))
     assert "challenge" in opts and "rp" in opts
     assert w._challenge_pop(nonce) is not None      # stored
     assert w._challenge_pop(nonce) is None           # single-use consumed
@@ -49,8 +47,7 @@ def test_register_begin_returns_options_and_stores_challenge(monkeypatch):
 def test_registration_options_restrict_to_allowlist(monkeypatch):
     w = _fresh(monkeypatch, {"WEBAUTHN_RP_ID": "localhost", "WEBAUTHN_ORIGIN": "http://localhost:3000"})
     import asyncio
-    opts, _ = asyncio.get_event_loop().run_until_complete(
-        w._build_registration_options(user_id="00000000-0000-0000-0000-000000000001", username="admin", existing=[]))
+    opts, _ = asyncio.run(w._build_registration_options(user_id="00000000-0000-0000-0000-000000000001", username="admin", existing=[]))
     algs = {p["alg"] for p in opts["pubKeyCredParams"]}
     assert algs <= {-7, -257}          # only ES256/RS256 offered
     assert -7 in algs                   # ES256 present

@@ -27,7 +27,7 @@ def _r(table, ok, ns="default"):
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def test_invalidate_matches_only_successful_tables(monkeypatch):

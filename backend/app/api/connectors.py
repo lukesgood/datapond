@@ -1044,6 +1044,7 @@ def _generate_sync_dag(connection_id: str, connection_name: str, schedule: str) 
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+import os
 import requests
 
 default_args = {{
@@ -1053,8 +1054,12 @@ default_args = {{
 }}
 
 def run_sync(**kwargs):
+    internal_api_key = os.getenv("DATAPOND_INTERNAL_KEY", "").strip()
+    if not internal_api_key:
+        raise RuntimeError("DATAPOND_INTERNAL_KEY is required for scheduled connector sync")
     resp = requests.post(
         "http://backend.datapond.svc.cluster.local:8000/api/connectors/{connection_id}/sync",
+        headers={{"X-Internal-Key": internal_api_key}},
         json={{}}, timeout=600
     )
     resp.raise_for_status()

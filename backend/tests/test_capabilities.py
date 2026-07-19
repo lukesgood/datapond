@@ -78,3 +78,37 @@ def test_athena_off_keeps_query_off():
     """Slice-1-only (glue catalog, no athena): catalog on, query off."""
     caps = compute_capabilities(_env(TRINO="false", POLARIS="false", GLUE="true"))
     assert caps["query"] is False and caps["catalog"] is True
+
+
+def test_profile_and_adapter_metadata_is_additive():
+    """Deployment identity is exposed without changing legacy capability keys."""
+    caps = compute_capabilities({
+        "DATAPOND_PROFILE_ID": "aws-single-node",
+        "DATAPOND_PROFILE_LABEL": "AWS Single-Node Reference",
+        "DATAPOND_PROFILE_DESCRIPTION": "Portable Core with managed AWS adapters.",
+        "DATAPOND_PROFILE_MATURITY": "reference",
+        "DATAPOND_PROFILE_TOPOLOGY": "ec2-k3s",
+        "DATAPOND_NAMESPACE": "datapond-prod",
+        "STORAGE_PROVIDER": "s3",
+        "ICEBERG_CATALOG_BACKEND": "glue",
+        "QUERY_ENGINE": "athena",
+        "VECTOR_STORE": "aurora-pgvector",
+        "MODEL_GATEWAY": "litellm",
+        "FEATURE_GLUE": "true",
+        "FEATURE_ATHENA": "true",
+        "FEATURE_TRINO": "false",
+        "FEATURE_POLARIS": "false",
+        "FEATURE_RLS": "true",
+    })
+    assert caps["knowledge"] is True
+    assert caps["profile_id"] == "aws-single-node"
+    assert caps["profile_label"] == "AWS Single-Node Reference"
+    assert caps["profile_maturity"] == "reference"
+    assert caps["profile_topology"] == "ec2-k3s"
+    assert caps["deployment_namespace"] == "datapond-prod"
+    assert caps["rls"] is True
+    assert caps["storage_provider"] == "s3"
+    assert caps["catalog_backend"] == "glue"
+    assert caps["query_engine"] == "athena"
+    assert caps["vector_store"] == "aurora-pgvector"
+    assert caps["model_gateway"] == "litellm"

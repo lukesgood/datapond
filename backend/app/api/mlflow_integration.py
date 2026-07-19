@@ -317,6 +317,40 @@ async def get_experiment(experiment_id: str):
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 
+async def _archive_experiment(experiment_id: str):
+    """Archive an MLflow experiment using MLflow's delete lifecycle operation."""
+    try:
+        client = get_mlflow_client()
+        await asyncio.to_thread(client.delete_experiment, experiment_id)
+        return {
+            "experiment_id": experiment_id,
+            "lifecycle_stage": "deleted",
+            "archived": True,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        message = str(e)
+        if "does not exist" in message.lower() or "not found" in message.lower():
+            raise HTTPException(status_code=404, detail=f"Experiment {experiment_id} not found")
+        raise HTTPException(
+            status_code=502,
+            detail=f"MLflow failed to archive experiment {experiment_id}: {message}",
+        )
+
+
+@router.delete("/mlflow/experiments/{experiment_id}")
+async def delete_experiment(experiment_id: str):
+    """Archive an experiment; MLflow deletion is a reversible lifecycle change."""
+    return await _archive_experiment(experiment_id)
+
+
+@router.post("/mlflow/experiments/{experiment_id}/archive")
+async def archive_experiment(experiment_id: str):
+    """Explicit archive alias used by the DataPond frontend proxy."""
+    return await _archive_experiment(experiment_id)
+
+
 @router.get("/mlflow/experiments/{experiment_id}/runs", response_model=List[RunDetails])
 async def list_experiment_runs(
     experiment_id: str,
