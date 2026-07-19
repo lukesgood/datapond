@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label"
 import { getUser } from "@/lib/auth"
 import { useConfirm } from "@/lib/confirm"
 import { ErrorBox, EmptyState } from "@/components/ui/error-box"
+import { useCapability } from "@/lib/capabilities"
 
 interface Collection {
   name: string; embed_model: string; dim: number
@@ -34,9 +35,16 @@ function timeAgo(iso: string | null | undefined): string {
   return `${Math.floor(s / 86400)} d ago`
 }
 interface Hit { source: string | null; content: string; score: number }
+interface CollectionsResponse { collections?: Collection[] }
+interface AiStatusResponse { egress_policy?: string }
+interface CatalogColumn { name: string; type: string }
+interface CatalogResponse {
+  catalogs?: Array<{ name: string; schemas?: Array<{ name: string; tables?: Array<{ name: string }> }> }>
+}
 
 export default function KnowledgePage() {
   const { toast } = useToast()
+  const catalogEnabled = useCapability("catalog")
   const [cols, setCols] = useState<Collection[]>([])
   const [loading, setLoading] = useState(true)
   const [sel, setSel] = useState<string | null>(null)
@@ -49,8 +57,8 @@ export default function KnowledgePage() {
     setLoading(true)
     try {
       const r = await fetch("/api/ai/collections")
-      const d = await r.json()
-      const list: Collection[] = d.collections || []
+      const d: CollectionsResponse = await r.json()
+      const list = d.collections ?? []
       setCols(list)
       setSel(s => s && list.some(c => c.name === s) ? s : (list[0]?.name ?? null))
     } catch { setErr("Failed to load collections") }
@@ -58,8 +66,9 @@ export default function KnowledgePage() {
   }, [])
 
   useEffect(() => {
-    load()
-    fetch("/api/settings/ai/status").then(r => r.json()).then(d => setEgress(d.egress_policy || "")).catch(() => {})
+    const initial = window.setTimeout(() => void load(), 0)
+    fetch("/api/settings/ai/status").then(r => r.json() as Promise<AiStatusResponse>).then(d => setEgress(d.egress_policy ?? "")).catch(() => {})
+    return () => window.clearTimeout(initial)
   }, [load])
 
   return (
@@ -99,8 +108,12 @@ export default function KnowledgePage() {
                 <EmptyState
                   icon={Sparkles}
                   title="No collections yet"
-                  hint="Create one with New Collection above, or send data straight from a table's ✨ (Send to Knowledge) action in Catalog."
-                  action={<Button size="sm" variant="outline" render={<Link href="/catalog" />}>Send from Catalog</Button>}
+                  hint={catalogEnabled
+                    ? "Create one above, or send a table to Knowledge from the enabled Catalog module."
+                    : "Create a collection above, then ingest text or an S3 source directly."}
+                  action={catalogEnabled
+                    ? <Button size="sm" variant="outline" render={<Link href="/catalog" />}>Send from Catalog</Button>
+                    : undefined}
                 />
               </CardContent></Card>
             ) : cols.map(c => (
@@ -152,7 +165,7 @@ export default function KnowledgePage() {
   )
 }
 
-async function deleteCol(name: string, after: () => void, confirm: (o: any) => Promise<boolean>, notify?: (m: string, t?: any) => void) {
+async function deleteCol(name: string, after: () => void, confirm: ReturnType<typeof useConfirm>, notify?: ReturnType<typeof useToast>["toast"]) {
   if (!(await confirm({ title: "Delete collection", message: `This deletes "${name}" and all its chunks. This cannot be undone.`, destructive: true, confirmText: "Delete" }))) return
   await fetch(`/api/ai/collections/${encodeURIComponent(name)}`, { method: "DELETE" })
   notify?.(`Collection "${name}" deleted`, "success")
@@ -174,7 +187,7 @@ function CreateCollection({ onCreated }: { onCreated: () => void }) {
       })
       if (!r.ok) throw new Error((await r.json()).detail || "Create failed")
       setOpen(false); toast(`Collection "${name.trim()}" created`, "success"); setName(""); setDesc(""); onCreated()
-    } catch (err: any) { setE(err.message) }
+    } catch (error) { setE(error instanceof Error ? error.message : "Create failed") }
     setBusy(false)
   }
   return (
@@ -237,7 +250,7 @@ function SearchPanel({ name }: { name: string }) {
         if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
         const d = await r.json(); setHits(d.results || []); setPii(d.pii_masked || 0)
       }
-    } catch (err: any) { setE(err.message) }
+    } catch (error) { setE(error instanceof Error ? error.message : "Search failed") }
     setBusy(false)
   }
   return (
@@ -285,6 +298,7 @@ function SearchPanel({ name }: { name: string }) {
 }
 
 function IngestPanel({ name, onChange }: { name: string; onChange: () => void }) {
+  const catalogEnabled = useCapability("catalog")
   const [tab, setTab] = useState<"text" | "source">("text")
   const [text, setText] = useState(""); const [src, setSrc] = useState("")
   const [stype, setStype] = useState<"iceberg" | "s3">("iceberg")
@@ -294,24 +308,31 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
   const [sched, setSched] = useState("@daily"); const [schedBusy, setSchedBusy] = useState(false)
   // Lakehouse picker: iceberg catalog tree (schemas→tables) + columns of the chosen table.
   const [tree, setTree] = useState<{ schema: string; tables: string[] }[]>([])
-  const [cols, setCols] = useState<{ name: string; type: string }[]>([])
+  const [cols, setCols] = useState<CatalogColumn[]>([])
+  const sourceType = catalogEnabled ? stype : "s3"
 
   useEffect(() => {
-    fetch("/api/catalog/schemas").then(r => r.json()).then(d => {
-      const ice = (d.catalogs || []).find((c: any) => c.name === "iceberg") || (d.catalogs || [])[0]
-      const sc = (ice?.schemas || []).map((s: any) => ({ schema: s.name, tables: (s.tables || []).map((t: any) => t.name) }))
-      setTree(sc)
+    if (!catalogEnabled) return
+    fetch("/api/catalog/schemas").then(r => r.json() as Promise<CatalogResponse>).then(d => {
+      const catalogs = d.catalogs ?? []
+      const activeCatalog = catalogs.find(catalog => catalog.name === "iceberg") ?? catalogs[0]
+      const schemas = (activeCatalog?.schemas ?? []).map(item => ({ schema: item.name, tables: (item.tables ?? []).map(table => table.name) }))
+      setTree(schemas)
     }).catch(() => {})
-  }, [])
+  }, [catalogEnabled])
   // When a table is picked, lazily fetch its columns to populate the text-column select.
   useEffect(() => {
-    if (stype !== "iceberg" || !schema || !table) { setCols([]); return }
+    if (sourceType !== "iceberg" || !schema || !table) return
     const qs = new URLSearchParams({ catalog: "iceberg", schema, table })
-    fetch(`/api/catalog/columns?${qs}`).then(r => r.json())
-      .then((c) => { const list = Array.isArray(c) ? c : []; setCols(list); if (list.length && !list.find((x: any) => x.name === col)) setCol(list[0].name) })
+    fetch(`/api/catalog/columns?${qs}`).then(r => r.json() as Promise<CatalogColumn[]>)
+      .then((payload) => {
+        const columns = Array.isArray(payload) ? payload : []
+        setCols(columns)
+        setCol(current => columns.length > 0 && !columns.some(column => column.name === current) ? columns[0].name : current)
+      })
       .catch(() => setCols([]))
-  }, [schema, table, stype])  // eslint-disable-line react-hooks/exhaustive-deps
-  const sourceBody = () => stype === "iceberg"
+  }, [schema, sourceType, table])
+  const sourceBody = () => sourceType === "iceberg"
     ? { type: "iceberg", schema, table, text_column: col }
     : { type: "s3", bucket, prefix }
 
@@ -323,7 +344,7 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
         body: JSON.stringify({ documents: [{ source: src || "manual", text }] }) })
       if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
       const d = await r.json(); setMsg(`Ingested ${d.chunks} chunks (${d.pii_masked} PII masked)`); setText(""); onChange()
-    } catch (err: any) { setE(err.message) }
+    } catch (error) { setE(error instanceof Error ? error.message : "Ingestion failed") }
     setBusy(false)
   }
   const ingestSource = async () => {
@@ -333,7 +354,7 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sourceBody()) })
       if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
       const d = await r.json(); setMsg(`${d.documents} docs → ${d.chunks} chunks (${d.pii_masked} PII masked)`); onChange()
-    } catch (err: any) { setE(err.message) }
+    } catch (error) { setE(error instanceof Error ? error.message : "Source ingestion failed") }
     setBusy(false)
   }
   const scheduleSource = async () => {
@@ -344,7 +365,7 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
         body: JSON.stringify({ schedule: sched, source: sourceBody() }) })
       if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
       const d = await r.json(); setMsg(`Schedule created: auto re-embeds every ${d.interval_minutes} min`)
-    } catch (err: any) { setE(err.message) }
+    } catch (error) { setE(error instanceof Error ? error.message : "Schedule creation failed") }
     setSchedBusy(false)
   }
 
@@ -353,7 +374,7 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
       <div className="flex rounded-md border overflow-hidden w-fit text-xs">
         {(["text", "source"] as const).map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-1 ${tab === t ? "bg-primary text-primary-foreground" : "bg-background"}`}>
-            {t === "text" ? "Paste text" : "From catalog / S3"}</button>
+            {t === "text" ? "Paste text" : catalogEnabled ? "From catalog / S3" : "From S3"}</button>
         ))}
       </div>
       {tab === "text" ? (
@@ -364,13 +385,15 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
         </>
       ) : (
         <>
-          <div className="flex rounded-md border overflow-hidden w-fit text-xs">
-            {(["iceberg", "s3"] as const).map(t => (
-              <button key={t} onClick={() => setStype(t)}
-                className={`px-3 py-1 ${stype === t ? "bg-primary text-primary-foreground" : "bg-background"}`}>{t}</button>
-            ))}
-          </div>
-          {stype === "iceberg" ? (
+          {catalogEnabled && (
+            <div className="flex rounded-md border overflow-hidden w-fit text-xs">
+              {(["iceberg", "s3"] as const).map(t => (
+                <button key={t} onClick={() => setStype(t)}
+                  className={`px-3 py-1 ${stype === t ? "bg-primary text-primary-foreground" : "bg-background"}`}>{t}</button>
+              ))}
+            </div>
+          )}
+          {sourceType === "iceberg" ? (
             tree.length > 0 ? (
               <div className="grid grid-cols-3 gap-2">
                 <select value={schema} onChange={e => { setSchema(e.target.value); setTable("") }}
@@ -403,10 +426,10 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
               <Input value={prefix} onChange={e => setPrefix(e.target.value)} placeholder="prefix (optional)" className="text-sm" />
             </div>
           )}
-          {(() => { const ready = stype === "iceberg" ? !!(table && col) : !!bucket; return (
+          {(() => { const ready = sourceType === "iceberg" ? !!(table && col) : !!bucket; return (
             <div className="flex flex-wrap items-center gap-2">
               <Button onClick={ingestSource} disabled={busy || schedBusy || !ready}>
-                {busy && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}Ingest from {stype}</Button>
+                {busy && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}Ingest from {sourceType}</Button>
               <span className="text-xs text-muted-foreground ml-1">or schedule:</span>
               <select value={sched} onChange={e => setSched(e.target.value)}
                 className="h-9 rounded-md border bg-background px-2 text-xs">
@@ -419,7 +442,10 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
                 Schedule ingest</Button>
             </div>
           )})()}
-          <p className="text-[11px] text-muted-foreground">Scheduled ingest re-embeds the source on an interval — and automatically whenever a connector sync updates the source table, so retrieval stays fresh.</p>
+          <p className="text-[11px] text-muted-foreground">
+            Scheduled ingest re-embeds this source on the selected interval
+            {sourceType === "iceberg" ? " and when a linked connector sync marks it stale." : "."}
+          </p>
         </>
       )}
       {msg && <p className="text-xs text-[var(--dp-good)]">{msg}</p>}

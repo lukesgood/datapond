@@ -1,7 +1,7 @@
 "use client"
 import { CapabilityGate } from "@/lib/capabilities"
 
-import { useEffect, useState, useRef } from "react"
+import { useCallback, useEffect, useState, useRef } from "react"
 import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
@@ -54,7 +54,7 @@ interface DdlProgress {
 }
 
 interface SqlResult {
-  columns?: string[]; rows?: any[][]; row_count?: number
+  columns?: string[]; rows?: unknown[][]; row_count?: number
   execution_time_ms?: number; message?: string
 }
 
@@ -184,7 +184,7 @@ WITH (
   type           = 'append-only',
   catalog.type   = 'storage',
   warehouse.path = 's3a://iceberg/warehouse',
-  s3.endpoint    = 'http://seaweedfs-s3:8333',
+  s3.endpoint    = 'http://minio:9000',
   s3.access.key  = 'datapond',
   s3.secret.key  = 'datapond_dev',
   database.name  = 'default',
@@ -212,6 +212,15 @@ function fmtDate(s: string | null) {
   return new Intl.DateTimeFormat("en-US", {
     month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
   }).format(new Date(s))
+}
+
+async function responseError(response: Response, fallback: string) {
+  try {
+    const data = await response.json()
+    return typeof data?.detail === "string" ? data.detail : fallback
+  } catch {
+    return fallback
+  }
 }
 
 // ── Pipeline grouping helper ───────────────────────────────────────────────────
@@ -347,7 +356,7 @@ function StreamingPageInner() {
   const [sourceSearch, setSourceSearch] = useState("")
   const [sourceCat, setSourceCat] = useState("all")
 
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -368,9 +377,12 @@ function StreamingPageInner() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  useEffect(() => { fetchAll() }, [])
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void fetchAll() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [fetchAll])
 
   // Auto-refresh progress while DDL running
   useEffect(() => {
@@ -405,13 +417,6 @@ function StreamingPageInner() {
 
   const { toast } = useToast()
   const confirm = useConfirm()
-  const handleDrop = async (type: string, name: string) => {
-    if (!(await confirm({ title: `${type} 삭제`, message: `"${name}" 를 삭제할까요?`, destructive: true, confirmText: "삭제" }))) return
-    await fetch(`/api/streaming/${type}/${name}`, { method: "DELETE" })
-    toast(`${name} 삭제됨`, "success")
-    fetchAll()
-  }
-
   const handlePreview = async (mv: MV) => {
     setPreviewMv(mv)
     setPreviewLoading(true)
@@ -421,12 +426,36 @@ function StreamingPageInner() {
   }
 
   const handleDropPipeline = async (pipeline: PipelineGroup) => {
-    if (!(await confirm({ title: "파이프라인 삭제", message: `"${pipeline.name}" 와 연관 객체 ${pipeline.tables.length * 3}개를 삭제합니다.`, destructive: true, confirmText: "삭제" }))) return
-    for (const name of pipeline.sinks)   await fetch(`/api/streaming/sinks/${name}`,   { method: "DELETE" })
-    for (const name of pipeline.views)   await fetch(`/api/streaming/views/${name}`,   { method: "DELETE" })
-    for (const name of pipeline.sources) await fetch(`/api/streaming/sources/${name}`, { method: "DELETE" })
-    toast(`파이프라인 "${pipeline.name}" 삭제됨`, "success")
-    fetchAll()
+    const operations = [
+      ...pipeline.sinks.map(name => ({ type: "sinks", name })),
+      ...pipeline.views.map(name => ({ type: "views", name })),
+      ...pipeline.sources.map(name => ({ type: "sources", name })),
+    ]
+    if (!(await confirm({ title: "파이프라인 삭제", message: `"${pipeline.name}" 와 연관 객체 ${operations.length}개를 삭제합니다.`, destructive: true, confirmText: "삭제" }))) return
+
+    const deleted: string[] = []
+    try {
+      for (const operation of operations) {
+        const response = await fetch(
+          `/api/streaming/${operation.type}/${operation.name}`,
+          { method: "DELETE" },
+        )
+        if (!response.ok) {
+          const detail = await responseError(response, `${operation.name} deletion failed`)
+          throw new Error(`${operation.name}: ${detail}`)
+        }
+        deleted.push(operation.name)
+      }
+      toast(`파이프라인 "${pipeline.name}" 삭제됨`, "success")
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : "Deletion failed"
+      const outcome = deleted.length > 0
+        ? `Partial deletion: removed ${deleted.length}/${operations.length} objects before ${detail}`
+        : `Pipeline deletion failed: ${detail}`
+      toast(outcome, "error")
+    } finally {
+      void fetchAll()
+    }
   }
 
   const pipelines = groupPipelines(sources, views, sinks)

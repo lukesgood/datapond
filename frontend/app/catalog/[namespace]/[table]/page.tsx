@@ -5,6 +5,7 @@ import { useParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ErrorBox } from "@/components/ui/error-box"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Breadcrumb,
@@ -35,7 +36,7 @@ interface ColumnStat {
 
 interface PreviewData {
   columns: string[]
-  rows: Record<string, any>[]
+  rows: Record<string, unknown>[]
   total_returned: number
   column_stats: ColumnStat[]
 }
@@ -47,7 +48,7 @@ interface TableDetail {
   location: string
   columns: Column[]
   row_count?: number
-  properties?: Record<string, any>
+  properties?: Record<string, unknown>
   last_updated?: string
 }
 
@@ -62,6 +63,7 @@ export default function TableDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<PreviewData | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchTableDetail = async () => {
@@ -83,15 +85,21 @@ export default function TableDetailPage() {
   const loadPreview = async () => {
     if (preview) return
     setPreviewLoading(true)
+    setPreviewError(null)
     try {
       const res = await fetch(`/api/catalog/tables/${namespace}/${tableName}/preview?limit=100`)
-      if (res.ok) setPreview(await res.json())
-    } catch { /* non-critical */ }
-    finally { setPreviewLoading(false) }
+      if (!res.ok) throw new Error(`Preview request failed (HTTP ${res.status})`)
+      setPreview(await res.json())
+    } catch (requestError) {
+      setPreview(null)
+      setPreviewError(requestError instanceof Error ? requestError.message : "Failed to load table preview")
+    } finally {
+      setPreviewLoading(false)
+    }
   }
 
   const formatNumber = (num?: number) => {
-    if (!num) return "0"
+    if (num == null) return "—"
     return num.toLocaleString()
   }
 
@@ -123,11 +131,9 @@ export default function TableDetailPage() {
           </BreadcrumbList>
         </Breadcrumb>
 
-        <Card>
-          <CardContent className="py-8 text-center">
-            <p className="text-destructive">{error || "Table not found"}</p>
-          </CardContent>
-        </Card>
+        <div role="alert" aria-live="polite">
+          <ErrorBox msg={error || "Table not found"} />
+        </div>
       </div>
     )
   }
@@ -262,8 +268,15 @@ export default function TableDetailPage() {
                   <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin mr-2" />
                   Loading…
                 </div>
+              ) : previewError ? (
+                <div className="p-4" role="alert" aria-live="polite">
+                  <ErrorBox
+                    msg={previewError}
+                    action={<button onClick={loadPreview} className="text-xs font-medium underline">Retry preview</button>}
+                  />
+                </div>
               ) : !preview ? (
-                <div className="text-center py-12 text-sm text-muted-foreground">Click "Load preview" to fetch data</div>
+                <div className="text-center py-12 text-sm text-muted-foreground">Click &quot;Load preview&quot; to fetch data</div>
               ) : preview.rows.length === 0 ? (
                 <div className="text-center py-12 text-sm text-muted-foreground">Table is empty</div>
               ) : (

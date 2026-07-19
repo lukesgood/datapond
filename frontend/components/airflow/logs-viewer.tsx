@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useState, useEffect, useCallback, useMemo } from "react"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -14,7 +14,6 @@ import {
   Download,
   RefreshCw,
   Search,
-  X,
 } from "lucide-react"
 
 interface LogsViewerProps {
@@ -39,15 +38,14 @@ export function LogsViewer({
   const [logs, setLogs] = useState<string>("")
   const [loading, setLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
-  const [filteredLogs, setFilteredLogs] = useState<string>("")
 
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     setLoading(true)
     try {
       const response = await fetch(
         `/api/airflow/tasks/${taskId}/logs?dag_id=${dagId}&run_id=${runId}&try_number=${tryNumber}`
       )
-      const data = await response.json()
+      const data: { content?: string } = await response.json()
       setLogs(data.content || "No logs available")
     } catch (error) {
       console.error("Failed to fetch logs:", error)
@@ -55,31 +53,28 @@ export function LogsViewer({
     } finally {
       setLoading(false)
     }
-  }
+  }, [taskId, dagId, runId, tryNumber])
 
   useEffect(() => {
-    if (isOpen) {
-      fetchLogs()
-    }
-  }, [isOpen, taskId, dagId, runId, tryNumber])
+    if (!isOpen) return
+    const timer = setTimeout(() => { void fetchLogs() }, 0)
+    return () => clearTimeout(timer)
+  }, [isOpen, fetchLogs])
 
   useEffect(() => {
     if (autoRefresh && isOpen) {
-      const interval = setInterval(fetchLogs, 5000)
+      const interval = setInterval(() => { void fetchLogs() }, 5000)
       return () => clearInterval(interval)
     }
-  }, [autoRefresh, isOpen])
+  }, [autoRefresh, isOpen, fetchLogs])
 
-  useEffect(() => {
-    if (searchTerm) {
-      const lines = logs.split("\n")
-      const filtered = lines.filter((line) =>
-        line.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-      setFilteredLogs(filtered.join("\n"))
-    } else {
-      setFilteredLogs(logs)
-    }
+  const filteredLogs = useMemo(() => {
+    if (!searchTerm) return logs
+    const normalizedSearch = searchTerm.toLowerCase()
+    return logs
+      .split("\n")
+      .filter((line) => line.toLowerCase().includes(normalizedSearch))
+      .join("\n")
   }, [searchTerm, logs])
 
   const downloadLogs = () => {

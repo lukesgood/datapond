@@ -1,8 +1,8 @@
 export const FREQ_OPTIONS = [
-  { label: "Every 15 min", id: "15min",   buildCron: (_h: number) => "*/15 * * * *",  hasTime: false },
-  { label: "Every hour",   id: "hourly",  buildCron: (_h: number) => "0 * * * *",      hasTime: false },
-  { label: "Every 6 hours",id: "6h",      buildCron: (_h: number) => "0 */6 * * *",    hasTime: false },
-  { label: "Every 12 hours",id: "12h",    buildCron: (_h: number) => "0 */12 * * *",   hasTime: false },
+  { label: "Every 15 min", id: "15min",   buildCron: () => "*/15 * * * *",  hasTime: false },
+  { label: "Every hour",   id: "hourly",  buildCron: () => "0 * * * *",      hasTime: false },
+  { label: "Every 6 hours",id: "6h",      buildCron: () => "0 */6 * * *",    hasTime: false },
+  { label: "Every 12 hours",id: "12h",    buildCron: () => "0 */12 * * *",   hasTime: false },
   { label: "Once a day",   id: "daily",   buildCron: (h: number)  => `0 ${h} * * *`,   hasTime: true  },
   { label: "Once a week",  id: "weekly",  buildCron: (h: number)  => `0 ${h} * * 1`,   hasTime: true  },
   { label: "Once a month", id: "monthly", buildCron: (h: number)  => `0 ${h} 1 * *`,   hasTime: true  },

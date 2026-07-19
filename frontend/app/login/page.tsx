@@ -4,25 +4,25 @@ import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { login, isAuthenticated, clearAuth, saveAuth } from "@/lib/auth"
+import { login, isAuthenticated, clearAuth, responseErrorMessage, saveAuth, type AuthUser } from "@/lib/auth"
 import { Loader2, Eye, EyeOff, ShieldCheck, Layers, Zap, Lock, AlertTriangle, WifiOff, Fingerprint } from "lucide-react"
 import { startAuthentication } from "@simplewebauthn/browser"
 
 const FEATURES = [
   {
     icon: ShieldCheck,
-    title: "Governance-Complete RAG",
-    desc: "Ingestion, embeddings, and pgvector retrieval with per-collection RLS, PII masking, and cost attribution — governance built in.",
+    title: "Governed RAG Core",
+    desc: "Ingest, chunk, embed, retrieve, rerank, and answer with collection access controls, PII masking, citations, and spend attribution.",
   },
   {
     icon: Layers,
-    title: "AWS-Native Foundation",
-    desc: "S3 storage, Aurora pgvector, and Bedrock models — managed and serverless, with zero ops burden.",
+    title: "Open by Contract",
+    desc: "S3-compatible objects, PostgreSQL + pgvector, and LiteLLM keep storage, vectors, and model providers replaceable.",
   },
   {
     icon: Zap,
-    title: "Your AWS Account",
-    desc: "Runs entirely inside your own AWS account — data sovereignty preserved, differentiating layers open source.",
+    title: "AWS-Ready, Not AWS-Locked",
+    desc: "Use the AWS reference adapters or run the Portable Core with self-hosted OSS add-ons in infrastructure you control.",
   },
 ]
 
@@ -42,7 +42,6 @@ export default function LoginPage() {
 
   // Password change modal state
   const [showChangePw, setShowChangePw]     = useState(false)
-  const [pendingUserId, setPendingUserId]   = useState<string | null>(null)
   const [newPw, setNewPw]                   = useState("")
   const [confirmPw, setConfirmPw]           = useState("")
   const [showNewPw, setShowNewPw]           = useState(false)
@@ -67,7 +66,7 @@ export default function LoginPage() {
     }
     if (params.get("error") === "sso_failed") {
       const reason = params.get("reason") ?? "unknown"
-      setError(`SSO sign-in failed (${reason}). Contact your administrator or sign in with a local account.`)
+      queueMicrotask(() => setError(`SSO sign-in failed (${reason}). Contact your administrator or sign in with a local account.`))
     }
     // Feature flag: show the SSO button only when the backend (enterprise image +
     // OIDC_ENABLED) reports it. Fail-quiet: button simply doesn't render.
@@ -102,7 +101,7 @@ export default function LoginPage() {
     const handleOnline  = () => setNetworkError(false)
     window.addEventListener("offline", handleOffline)
     window.addEventListener("online",  handleOnline)
-    if (!navigator.onLine) setNetworkError(true)
+    if (!navigator.onLine) queueMicrotask(() => setNetworkError(true))
     return () => {
       window.removeEventListener("offline", handleOffline)
       window.removeEventListener("online",  handleOnline)
@@ -118,7 +117,6 @@ export default function LoginPage() {
       const user = await login(username, password)
       if (user.require_password_change) {
         // Store token but require password change before entering app
-        setPendingUserId(user.id)
         setPendingToken(localStorage.getItem("datapond_token"))
         setShowChangePw(true)
         setLoading(false)
@@ -139,25 +137,39 @@ export default function LoginPage() {
     setPasskeyLoading(true)
     setError(null)
     try {
-      const begin = await fetch("/api/auth/webauthn/authenticate/begin", { method: "POST" })
-        .then(r => { if (!r.ok) throw new Error("Passkey sign-in is unavailable"); return r.json() })
-      const credential = await startAuthentication({ optionsJSON: begin.options })
+      const beginResponse = await fetch("/api/auth/webauthn/authenticate/begin", { method: "POST" })
+      if (!beginResponse.ok) {
+        throw new Error(await responseErrorMessage(beginResponse, "Passkey sign-in failed"))
+      }
+      let begin: { options?: unknown; nonce?: unknown }
+      try {
+        begin = await beginResponse.json()
+      } catch {
+        throw new Error("Passkey sign-in could not start because the server returned an invalid response.")
+      }
+      const credential = await startAuthentication({ optionsJSON: begin.options as Parameters<typeof startAuthentication>[0]["optionsJSON"] })
       const res = await fetch("/api/auth/webauthn/authenticate/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nonce: begin.nonce, credential }),
       })
       if (!res.ok) {
-        const d = await res.json().catch(() => null)
-        throw new Error(d?.detail ?? "Passkey sign-in failed")
+        throw new Error(await responseErrorMessage(res, "Passkey sign-in failed"))
       }
-      const data = await res.json()
+      let data: { access_token?: unknown; user?: AuthUser }
+      try {
+        data = await res.json()
+      } catch {
+        throw new Error("Passkey sign-in succeeded, but the server returned an invalid response.")
+      }
+      if (typeof data.access_token !== "string" || !data.user) {
+        throw new Error("Passkey sign-in succeeded, but the server returned an invalid response.")
+      }
       // Same success path as password login: persist the token/user first...
       saveAuth(data.access_token, data.user)
       if (data.user?.require_password_change) {
         // ...but honor a pending forced password change exactly like the password
         // path does: gate on the modal instead of entering the app.
-        setPendingUserId(data.user.id)
         setPendingToken(data.access_token)
         setShowChangePw(true)
         setPasskeyLoading(false)
@@ -165,7 +177,11 @@ export default function LoginPage() {
       }
       window.location.replace("/dashboard")
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Passkey sign-in failed"
+      const msg = err instanceof TypeError
+        ? "Unable to reach the passkey sign-in service. Check your connection and try again."
+        : err instanceof Error
+          ? err.message
+          : "Passkey sign-in failed"
       setError(msg)
       setPasskeyLoading(false)
     }
@@ -183,13 +199,16 @@ export default function LoginPage() {
         body: JSON.stringify({ new_password: newPw }),
       })
       if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.detail ?? "Failed to change password")
+        throw new Error(await responseErrorMessage(res, "Password change failed"))
       }
       setShowChangePw(false)
       window.location.replace("/dashboard")
     } catch (e) {
-      setChangeError(e instanceof Error ? e.message : "Failed")
+      setChangeError(e instanceof TypeError
+        ? "Unable to reach the password service. Check your connection and try again."
+        : e instanceof Error
+          ? e.message
+          : "Password change failed. Please try again.")
     } finally {
       setChangingPw(false)
     }
@@ -199,7 +218,7 @@ export default function LoginPage() {
     <>
     {/* Network error banner */}
     {networkError && (
-      <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-2 bg-destructive px-4 py-2 text-sm text-white">
+      <div role="alert" aria-live="assertive" className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-2 bg-destructive px-4 py-2 text-sm text-white">
         <WifiOff className="h-4 w-4 shrink-0" />
         <span>Cannot connect to server. Please check your network connection.</span>
         <button
@@ -239,20 +258,20 @@ export default function LoginPage() {
               </div>
               <span className="text-2xl font-bold tracking-tight text-white">DataPond</span>
             </div>
-            <p className="text-sm ml-12" style={{ color: "#7c93a3" }}>AWS-Native AI Data Foundation</p>
+            <p className="text-sm ml-12" style={{ color: "#7c93a3" }}>Portable AI Data Foundation</p>
           </div>
 
           {/* Hero */}
           <div className="space-y-6">
             <div>
               <h2 className="text-4xl font-bold text-white leading-tight mb-3">
-                Your Data.<br />
+                Governed AI.<br />
                 <span style={{ background: "linear-gradient(90deg, #22d3ee, #818cf8)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-                  Your AI Foundation.
+                  Without the lock-in.
                 </span>
               </h2>
               <p style={{ color: "#9fb3bf" }} className="text-base leading-relaxed max-w-sm">
-                The S3 + Bedrock native data foundation that fuels production RAG and agent applications on AWS — with governance built in.
+                Build production-oriented RAG and agent data flows on infrastructure you control — with portable storage, vector, and model contracts.
               </p>
             </div>
             <div className="space-y-4">
@@ -272,7 +291,7 @@ export default function LoginPage() {
           </div>
 
           <p className="text-xs" style={{ color: "#3f5561" }}>
-            © 2026 DataPond · AWS-Native AI Data Foundation
+            © 2026 DataPond · Portable AI Data Foundation
           </p>
         </div>
       </div>
@@ -288,7 +307,7 @@ export default function LoginPage() {
               <Layers className="h-6 w-6 text-white" />
             </div>
             <h1 className="text-2xl font-bold">DataPond</h1>
-            <p className="text-sm text-muted-foreground">AI Data Foundation</p>
+            <p className="text-sm text-muted-foreground">Portable AI Data Foundation</p>
           </div>
 
           <div className="space-y-1">
@@ -325,15 +344,20 @@ export default function LoginPage() {
                   disabled={loading}
                   className={`h-10 pr-10 ${error ? "border-destructive" : ""}`}
                 />
-                <button type="button" onClick={() => setShowPw(v => !v)} tabIndex={-1}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                <button
+                  type="button"
+                  onClick={() => setShowPw(v => !v)}
+                  aria-label={showPw ? "Hide password" : "Show password"}
+                  title={showPw ? "Hide password" : "Show password"}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
                   {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
 
             {error && (
-              <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5">
+              <div role="alert" aria-live="assertive" className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5">
                 <Lock className="h-4 w-4 text-destructive shrink-0" />
                 <p className="text-sm text-destructive">{error}</p>
               </div>
@@ -388,36 +412,45 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-sm font-medium">New Password</Label>
+              <Label htmlFor="new-password" className="text-sm font-medium">New Password</Label>
               <div className="relative">
                 <Input
+                  id="new-password"
                   type={showNewPw ? "text" : "password"}
                   value={newPw}
                   onChange={e => { setNewPw(e.target.value); setChangeError(null) }}
                   placeholder="Minimum 6 characters"
                   className="pr-10"
+                  autoComplete="new-password"
                   autoFocus
                 />
-                <button type="button" onClick={() => setShowNewPw(v => !v)} tabIndex={-1}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                <button
+                  type="button"
+                  onClick={() => setShowNewPw(v => !v)}
+                  aria-label={showNewPw ? "Hide new password" : "Show new password"}
+                  title={showNewPw ? "Hide new password" : "Show new password"}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
                   {showNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Confirm New Password</Label>
+              <Label htmlFor="confirm-new-password" className="text-sm font-medium">Confirm New Password</Label>
               <Input
+                id="confirm-new-password"
                 type="password"
                 value={confirmPw}
                 onChange={e => { setConfirmPw(e.target.value); setChangeError(null) }}
                 placeholder="Repeat new password"
+                autoComplete="new-password"
                 onKeyDown={e => e.key === "Enter" && handleChangePassword()}
               />
             </div>
 
             {changeError && (
-              <div className="flex items-center gap-2 rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2 text-sm text-destructive">
+              <div role="alert" aria-live="assertive" className="flex items-center gap-2 rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2 text-sm text-destructive">
                 <Lock className="h-4 w-4 shrink-0" />
                 {changeError}
               </div>

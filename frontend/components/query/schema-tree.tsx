@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useMemo } from "react"
+import { useEffect, useState, useMemo, useCallback } from "react"
 import {
   ChevronRight, Database, Table2, Columns3,
   RefreshCw, Search, X, AlertCircle, Eye, EyeOff
@@ -61,7 +61,7 @@ export function SchemaTree({ onTableSelect }: Props) {
   const [colCache, setColCache]     = useState<Record<string, Column[]>>({})
   const [colLoading, setColLoading] = useState<Set<string>>(new Set())
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -88,14 +88,18 @@ export function SchemaTree({ onTableSelect }: Props) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    const timer = setTimeout(() => { void load() }, 0)
+    return () => clearTimeout(timer)
+  }, [load])
 
   const toggle = (key: string) =>
     setOpenNodes(prev => {
       const n = new Set(prev)
-      n.has(key) ? n.delete(key) : n.add(key)
+      if (n.has(key)) n.delete(key)
+      else n.add(key)
       return n
     })
 
@@ -140,21 +144,7 @@ export function SchemaTree({ onTableSelect }: Props) {
       .filter(cat => cat.schemas.length > 0 || !q)
   }, [catalogs, search, showSystem])
 
-  // Auto-expand matching nodes when searching
-  useEffect(() => {
-    if (!search) return
-    const q = search.toLowerCase()
-    const toOpen = new Set<string>()
-    for (const cat of filtered) {
-      for (const schema of cat.schemas) {
-        if (schema.tables.some(t => t.name.toLowerCase().includes(q))) {
-          toOpen.add(cat.name)
-          toOpen.add(`${cat.name}.${schema.name}`)
-        }
-      }
-    }
-    if (toOpen.size > 0) setOpenNodes(prev => new Set([...prev, ...toOpen]))
-  }, [search, filtered])
+  const searching = search.trim().length > 0
 
   // ── Loading ────────────────────────────────────────────────────────────────
   if (loading) return (
@@ -238,7 +228,7 @@ export function SchemaTree({ onTableSelect }: Props) {
           </div>
         ) : (
           filtered.map(cat => {
-            const catOpen = openNodes.has(cat.name)
+            const catOpen = openNodes.has(cat.name) || (searching && cat.schemas.length > 0)
             return (
               <div key={cat.name}>
                 {/* Catalog row */}
@@ -262,7 +252,7 @@ export function SchemaTree({ onTableSelect }: Props) {
 
                 {catOpen && cat.schemas.map(schema => {
                   const schemaKey = `${cat.name}.${schema.name}`
-                  const schemaOpen = openNodes.has(schemaKey)
+                  const schemaOpen = openNodes.has(schemaKey) || (searching && schema.tables.length > 0)
                   return (
                     <div key={schemaKey}>
                       {/* Schema row */}

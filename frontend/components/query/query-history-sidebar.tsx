@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Search, Star, Database, X } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -17,18 +17,14 @@ interface Props {
 
 type FilterType = "all" | "favorites"
 
-export function QueryHistorySidebar({ onQuerySelect, isOpen, onToggle }: Props) {
+export function QueryHistorySidebar({ onQuerySelect, onToggle }: Props) {
   const [queries, setQueries] = useState<QueryHistoryItemType[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [filter, setFilter] = useState<FilterType>("all")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    loadHistory()
-  }, [])
-
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
@@ -40,7 +36,12 @@ export function QueryHistorySidebar({ onQuerySelect, isOpen, onToggle }: Props) 
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    const timer = setTimeout(() => { void loadHistory() }, 0)
+    return () => clearTimeout(timer)
+  }, [loadHistory])
 
   const handleQuerySelect = (queryText: string) => {
     onQuerySelect(queryText)

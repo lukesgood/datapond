@@ -64,6 +64,7 @@ interface PipelineState {
 
 interface BronzeData {
   layer: "bronze"
+  _hasError?: boolean
   name: string
   connectionName: string
   connectionType: string
@@ -77,6 +78,7 @@ interface BronzeData {
 
 interface SilverData {
   layer: "silver"
+  _hasError?: boolean
   name: string
   sql: string
   mode: "full_refresh" | "incremental"
@@ -88,6 +90,7 @@ interface SilverData {
 
 interface GoldData {
   layer: "gold"
+  _hasError?: boolean
   name: string
   sql: string
   aggregation: string
@@ -107,6 +110,10 @@ interface PipelineAdvanced {
 }
 
 type NodeData = BronzeData | SilverData | GoldData
+
+interface FlowCoordinateAdapter {
+  screenToFlowPosition(position: { x: number; y: number }): { x: number; y: number }
+}
 
 // ── Layer Styles ──────────────────────────────────────────────────────────────
 
@@ -183,7 +190,7 @@ const elk = new ELK()
 const NODE_W = 224
 const NODE_H = 120
 
-async function getLayoutedElements(nodes: Node[], edges: Edge[]) {
+async function getLayoutedElements(nodes: Node<NodeData>[], edges: Edge[]) {
   const dataNodes = nodes.filter(n => n.type !== "layerHeader")
 
   const graph = {
@@ -217,11 +224,11 @@ async function getLayoutedElements(nodes: Node[], edges: Edge[]) {
 
   // Compute column x-center per layer and insert header nodes
   const headerNodes: Node[] = []
-  const presentLayers = new Set(layoutedData.map(n => (n.data as any).layer as string))
+  const presentLayers = new Set(layoutedData.map((node) => node.data.layer))
 
-  for (const layer of ["bronze", "silver", "gold"]) {
+  for (const layer of ["bronze", "silver", "gold"] as const) {
     if (!presentLayers.has(layer)) continue
-    const layerNds = layoutedData.filter(n => (n.data as any).layer === layer)
+    const layerNds = layoutedData.filter((node) => node.data.layer === layer)
     const xs = layerNds.map(n => n.position.x)
     const centerX = (Math.min(...xs) + Math.max(...xs) + NODE_W) / 2
     const topY = Math.min(...layerNds.map(n => n.position.y))
@@ -409,7 +416,7 @@ function FocusNode({ nodeId, nodes }: { nodeId: string | null; nodes: Node[] }) 
 
 function BronzeNode({ data, selected }: NodeProps<BronzeData>) {
   const style = LAYER_STYLES.bronze
-  const hasError = (data as any)._hasError
+  const hasError = data._hasError
   return (
     <div
       className={`relative w-56 rounded-xl border-2 bg-white shadow-sm transition-all
@@ -470,7 +477,7 @@ function BronzeNode({ data, selected }: NodeProps<BronzeData>) {
 
 function SilverNode({ data, selected }: NodeProps<SilverData>) {
   const style = LAYER_STYLES.silver
-  const hasError = (data as any)._hasError
+  const hasError = data._hasError
   const sqlPreview = data.sql
     ? data.sql.split("\n").slice(0, 3).join("\n")
     : "No SQL"
@@ -536,7 +543,7 @@ function SilverNode({ data, selected }: NodeProps<SilverData>) {
 
 function GoldNode({ data, selected }: NodeProps<GoldData>) {
   const style = LAYER_STYLES.gold
-  const hasError = (data as any)._hasError
+  const hasError = data._hasError
   const sqlPreview = data.sql
     ? data.sql.split("\n").slice(0, 3).join("\n")
     : "No SQL"
@@ -609,93 +616,6 @@ const nodeTypes = {
 }
 
 // ── Initial State ─────────────────────────────────────────────────────────────
-
-const EXAMPLE_NODES: Node<NodeData>[] = [
-  {
-    id: "bronze-1",
-    type: "bronzeNode",
-    position: { x: 50, y: 100 },
-    data: {
-      layer: "bronze",
-      name: "raw_orders",
-      connectionName: "",
-      connectionType: "postgresql",
-      table: "public.orders",
-      mode: "incremental",
-      watermarkColumn: "updated_at",
-      primaryKey: "id",
-      filterSql: "",
-      batchSize: "",
-    },
-  },
-  {
-    id: "bronze-2",
-    type: "bronzeNode",
-    position: { x: 50, y: 280 },
-    data: {
-      layer: "bronze",
-      name: "raw_customers",
-      connectionName: "",
-      connectionType: "postgresql",
-      table: "public.customers",
-      mode: "incremental",
-      watermarkColumn: "modified_at",
-      primaryKey: "id",
-      filterSql: "",
-      batchSize: "",
-    },
-  },
-  {
-    id: "silver-1",
-    type: "silverNode",
-    position: { x: 350, y: 100 },
-    data: {
-      layer: "silver",
-      name: "clean_orders",
-      sql: "SELECT id, customer_id, amount, status\nFROM {{ source('raw_orders') }}\nWHERE amount > 0\n{{ incremental_filter('updated_at') }}",
-      mode: "incremental",
-      qualityCheck: "amount > 0",
-      partitionBy: "DATE(updated_at)",
-      primaryKey: "id",
-      description: "정제된 주문 데이터",
-    },
-  },
-  {
-    id: "silver-2",
-    type: "silverNode",
-    position: { x: 350, y: 280 },
-    data: {
-      layer: "silver",
-      name: "clean_customers",
-      sql: "SELECT id, name, email\nFROM {{ source('raw_customers') }}\nWHERE email IS NOT NULL",
-      mode: "incremental",
-      qualityCheck: "email IS NOT NULL",
-      partitionBy: "",
-      primaryKey: "id",
-      description: "정제된 고객 데이터",
-    },
-  },
-  {
-    id: "gold-1",
-    type: "goldNode",
-    position: { x: 650, y: 190 },
-    data: {
-      layer: "gold",
-      name: "daily_revenue",
-      aggregation: "daily",
-      sql: "SELECT DATE(o.created_at) as date,\n  SUM(o.amount) as revenue,\n  COUNT(DISTINCT o.customer_id) as customers\nFROM {{ ref('clean_orders') }} o\nGROUP BY 1\nORDER BY 1 DESC",
-      partitionBy: "date",
-      description: "일별 매출 집계",
-    },
-  },
-]
-
-const EXAMPLE_EDGES: Edge[] = [
-  { id: "e1", source: "bronze-1", target: "silver-1", ...DEFAULT_EDGE_OPTIONS },
-  { id: "e2", source: "bronze-2", target: "silver-2", ...DEFAULT_EDGE_OPTIONS },
-  { id: "e3", source: "silver-1", target: "gold-1", ...DEFAULT_EDGE_OPTIONS },
-  { id: "e4", source: "silver-2", target: "gold-1", ...DEFAULT_EDGE_OPTIONS },
-]
 
 // ── Properties Panel Sub-Forms ────────────────────────────────────────────────
 
@@ -1414,10 +1334,9 @@ export default function NewPipelinePage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [templateOpen, setTemplateOpen] = useState(false)
   const [errorNodeIds, setErrorNodeIds] = useState<Set<string>>(new Set())
-  const [drawerOpen, setDrawerOpen] = useState(false)
   const [canvasHeight, setCanvasHeight] = useState(320)  // px, draggable
   const isResizingPanel = useRef(false)
-  const reactFlowInstance = useRef<any>(null)
+  const reactFlowInstance = useRef<FlowCoordinateAdapter | null>(null)
   const [deployed, setDeployed] = useState(false)
 
   const [pipeline, setPipeline] = useState<PipelineState>(() => {
@@ -1552,7 +1471,7 @@ export default function NewPipelinePage() {
         })
         .catch(() => {})
     }
-  }, [])
+  }, [setEdges, setNodes])
 
   // ── Keyboard shortcuts (Ctrl+Z / Ctrl+Y / Ctrl+K / Ctrl+S) ──────────────
   const handleSaveRef = useRef<() => void>(() => {})
@@ -1609,12 +1528,10 @@ export default function NewPipelinePage() {
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node<NodeData>) => {
     if (node.type === "layerHeader") return   // header nodes are non-interactive
     setSelectedNodeId(node.id)
-    setDrawerOpen(true)
   }, [])
 
   const onPaneClick = useCallback(() => {
     setSelectedNodeId(null)
-    setDrawerOpen(false)
   }, [])
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null
@@ -1742,21 +1659,14 @@ export default function NewPipelinePage() {
     setSelectedNodeId(id)
   }, [nodes, edges, setNodes, saveHistoryWith])
 
-  // ── Propagate error highlight to node data ──────────────────────────────────
-  useEffect(() => {
-    if (errorNodeIds.size === 0) {
-      // Clear any existing error flags
-      const hasFlags = nodes.some(n => (n.data as any)._hasError)
-      if (hasFlags) {
-        setNodes(ns => ns.map(n => (n.data as any)._hasError ? { ...n, data: { ...n.data, _hasError: false } } : n))
-      }
-      return
-    }
-    setNodes(ns => ns.map(n => ({
-      ...n,
-      data: { ...n.data, _hasError: errorNodeIds.has(n.id) },
-    })))
-  }, [errorNodeIds, setNodes])
+  // Error highlighting is derived for rendering so validation state does not mutate the graph.
+  const renderedNodes = useMemo(
+    () => nodes.map((node) => ({
+      ...node,
+      data: { ...node.data, _hasError: errorNodeIds.has(node.id) },
+    })),
+    [errorNodeIds, nodes],
+  )
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -1837,7 +1747,7 @@ export default function NewPipelinePage() {
   }
 
   // ── Validation ────────────────────────────────────────────────────────────────
-  const validatePipeline = (): string[] => {
+  const validatePipeline = useCallback((): string[] => {
     const errors: string[] = []
     const dataNodes = nodes.filter(n => n.type !== "layerHeader")
 
@@ -1920,11 +1830,11 @@ export default function NewPipelinePage() {
     }
 
     return errors
-  }
+  }, [edges, nodes, pipeline.pipelineName])
 
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     const localErrors = validatePipeline()
     if (localErrors.length > 0) {
       setError(localErrors.join("\n"))
@@ -1953,8 +1863,11 @@ export default function NewPipelinePage() {
       setError(e instanceof Error ? e.message : "저장 실패")
       setSaveStatus("idle")
     }
-  }
-  handleSaveRef.current = handleSave
+  }, [currentCode, edges, effectiveSchedule, nodes, pipeline, validatePipeline])
+
+  useEffect(() => {
+    handleSaveRef.current = handleSave
+  }, [handleSave])
 
   const handleDeploy = async () => {
     // Run validation first
@@ -2212,7 +2125,7 @@ export default function NewPipelinePage() {
         {/* ── Canvas — resizable top section ── */}
         <div className="relative overflow-hidden" style={{ height: canvasHeight }}>
           <ReactFlow
-            nodes={nodes}
+            nodes={renderedNodes}
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
@@ -2227,7 +2140,7 @@ export default function NewPipelinePage() {
             fitViewOptions={{ padding: 0.3, maxZoom: 1 }}
             className="bg-background"
           >
-            <FocusNode nodeId={selectedNodeId} nodes={nodes} />
+            <FocusNode nodeId={selectedNodeId} nodes={renderedNodes} />
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#e2e8f0" />
             <Controls />
             <MiniMap

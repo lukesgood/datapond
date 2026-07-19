@@ -29,7 +29,6 @@ function buildNotebookCells(
   rowCount: number,
   executionTimeMs: number
 ): object[] {
-  const colPreview = columns.slice(0, 6).map(c => `"${c}"`).join(", ")
   const hasNumeric = columns.some(c =>
     /id$|count|num|amount|price|rate|score|total|sum|avg/i.test(c)
   )
@@ -220,31 +219,35 @@ export function OpenInNotebookModal({
 
     try {
       const cells = buildNotebookCells(queryText, columns, rowCount, executionTimeMs)
-      const res = await fetch(
-        `/jupyter/api/contents/${encodeURIComponent(name)}?token=jupyter`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: "notebook",
-            content: {
-              metadata: {
-                kernelspec: {
-                  display_name: "Python 3 (ipykernel)",
-                  language: "python",
-                  name: "python3",
-                },
-                language_info: { name: "python" },
-              },
-              nbformat: 4,
-              nbformat_minor: 5,
-              cells,
-            },
-          }),
-        }
-      )
-      if (!res.ok) throw new Error(`JupyterLab API error: ${res.status}`)
-      const data = await res.json()
+      const notebook = {
+        metadata: {
+          kernelspec: {
+            display_name: "Python 3 (ipykernel)",
+            language: "python",
+            name: "python3",
+          },
+          language_info: { name: "python" },
+        },
+        nbformat: 4,
+        nbformat_minor: 5,
+        cells,
+      }
+      const file = new File([JSON.stringify(notebook)], name, {
+        type: "application/x-ipynb+json",
+      })
+      const form = new FormData()
+      form.append("file", file)
+      form.append("path", name)
+
+      const res = await fetch("/api/notebooks/upload", {
+        method: "POST",
+        body: form,
+      })
+      const data = await res.json().catch(() => null) as { path?: string; detail?: string } | null
+      if (!res.ok) {
+        throw new Error(data?.detail || `Could not create notebook (${res.status})`)
+      }
+      if (!data?.path) throw new Error("Notebook service returned an invalid response")
       setCreatedPath(data.path)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create notebook")
@@ -255,10 +258,8 @@ export function OpenInNotebookModal({
 
   const handleOpen = () => {
     if (createdPath) {
-      window.open(
-        `${serviceUrls.jupyter()}/lab/tree/${encodeURIComponent(createdPath)}`,
-        "_blank"
-      )
+      const encodedPath = createdPath.split("/").map(encodeURIComponent).join("/")
+      window.open(`${serviceUrls.jupyter()}/lab/tree/${encodedPath}`, "_blank", "noopener,noreferrer")
     }
   }
 
@@ -335,7 +336,7 @@ export function OpenInNotebookModal({
             </div>
 
             {error && (
-              <p className="text-xs text-destructive bg-destructive/5 rounded p-2">{error}</p>
+              <p role="alert" aria-live="polite" className="text-xs text-destructive bg-destructive/5 rounded p-2">{error}</p>
             )}
 
             <DialogFooter>

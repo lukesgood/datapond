@@ -75,7 +75,7 @@ export default function SqlLabHelpPage() {
             <div>
               <h3 className="font-semibold">Navigate to SQL Lab</h3>
               <p className="text-sm text-muted-foreground">
-                Click "Query Lab" in the sidebar or visit{" "}
+                Click &quot;Query Lab&quot; in the sidebar or visit{" "}
                 <Link href="/query" className="text-primary hover:underline">
                   /query
                 </Link>
@@ -272,16 +272,16 @@ FROM catalog.users.profiles;`}</code>
           </div>
 
           <div className="space-y-2">
-            <h3 className="font-semibold">What's the maximum query timeout?</h3>
+            <h3 className="font-semibold">What&rsquo;s the maximum query timeout?</h3>
             <p className="text-sm text-muted-foreground">
-              Queries timeout after 5 minutes by default. For long-running queries, consider a batch job (Amazon MWAA / EMR, or Airflow / Spark on the full profile) instead.
+              Queries timeout after 5 minutes by default. For long-running work, use the Transforms/Airflow add-on when it is enabled for your profile.
             </p>
           </div>
 
           <div className="space-y-2">
             <h3 className="font-semibold">How do I access query history?</h3>
             <p className="text-sm text-muted-foreground">
-              Query history is shown in the right sidebar. It's stored locally in your browser and persists across sessions. Click <History className="inline h-3 w-3" /> to expand full details.
+              Query history is shown in the right sidebar. It&rsquo;s stored locally in your browser and persists across sessions. Click <History className="inline h-3 w-3" /> to expand full details.
             </p>
           </div>
         </CardContent>
@@ -298,9 +298,9 @@ FROM catalog.users.profiles;`}</code>
         <CardContent className="space-y-4">
           <Alert>
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Query fails with "Table not found"</AlertTitle>
+            <AlertTitle>Query fails with &quot;Table not found&quot;</AlertTitle>
             <AlertDescription>
-              Ensure you're using the full path: <code className="bg-muted px-1 py-0.5 rounded">catalog.namespace.table</code>.
+              Ensure you&rsquo;re using the full path: <code className="bg-muted px-1 py-0.5 rounded">catalog.namespace.table</code>.
               Check the schema tree to verify the table exists and you have access.
             </AlertDescription>
           </Alert>

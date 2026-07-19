@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { formatDistanceToNow } from "date-fns"
 import {
   FileCode,
   MoreVertical,
@@ -24,19 +23,23 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
 
+interface Notebook {
+  name: string
+  path: string
+  last_modified: string
+  size?: string
+  type: string
+  kernel?: string
+}
+
 interface NotebookCardProps {
-  notebook: {
-    name: string
-    path: string
-    last_modified: string
-    size?: string
-    type: string
-    kernel?: string
-  }
-  onOpen: (notebook: any) => void
-  onRename?: (notebook: any) => void
-  onDelete?: (notebook: any) => void
-  onDuplicate?: (notebook: any) => void
+  notebook: Notebook
+  onOpen: (notebook: Notebook) => void
+  onRename?: (notebook: Notebook) => void
+  onDelete?: (notebook: Notebook) => void | Promise<void>
+  onDuplicate?: (notebook: Notebook) => void | Promise<void>
+  onDownload?: (notebook: Notebook) => void | Promise<void>
+  busy?: boolean
 }
 
 export function NotebookCard({
@@ -45,16 +48,10 @@ export function NotebookCard({
   onRename,
   onDelete,
   onDuplicate,
+  onDownload,
+  busy = false,
 }: NotebookCardProps) {
   const [isHovered, setIsHovered] = useState(false)
-
-  const handleDownload = () => {
-    // In production, this would download the notebook file
-    const link = document.createElement("a")
-    link.href = `/api/notebooks/download?path=${encodeURIComponent(notebook.path)}`
-    link.download = notebook.name
-    link.click()
-  }
 
   return (
     <Card
@@ -114,13 +111,15 @@ export function NotebookCard({
                   Duplicate
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem onClick={(e) => {
-                e.stopPropagation()
-                handleDownload()
-              }}>
-                <Download className="mr-2 h-4 w-4" />
-                Download
-              </DropdownMenuItem>
+              {onDownload && (
+                <DropdownMenuItem onClick={(e) => {
+                  e.stopPropagation()
+                  void onDownload(notebook)
+                }} disabled={busy}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Download
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               {onDelete && (
                 <DropdownMenuItem

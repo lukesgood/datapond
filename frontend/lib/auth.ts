@@ -1,5 +1,11 @@
 "use client"
 
+declare global {
+  interface Window {
+    __datapond_auth_interceptor?: boolean
+  }
+}
+
 export interface AuthUser {
   id: string
   username: string
@@ -42,19 +48,86 @@ export function isAuthenticated(): boolean {
   return !!getToken()
 }
 
-export async function login(username: string, password: string): Promise<AuthUser> {
-  const res = await fetch("/api/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
-  })
-  if (!res.ok) {
-    const e = await res.json()
-    throw new Error(e.detail ?? "Login failed")
+function errorField(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null
+  const body = value as Record<string, unknown>
+  for (const key of ["detail", "error", "message"]) {
+    const candidate = body[key]
+    if (
+      typeof candidate === "string" &&
+      candidate.trim().length > 0 &&
+      candidate.trim().length <= 200 &&
+      !/[<>\r\n]/.test(candidate) &&
+      !/(traceback|stack trace|syntaxerror|jsondecode|unexpected token|expecting value|at position|internal server error)/i.test(candidate)
+    ) {
+      return candidate.trim()
+    }
   }
-  const data = await res.json()
-  saveAuth(data.access_token, data.user)
-  return data.user
+  return null
+}
+
+function statusErrorMessage(status: number, fallback: string): string {
+  const signingIn = fallback === "Sign-in failed"
+  if (status === 400 || status === 422) return `${fallback}. Check the information you entered and try again.`
+  if (status === 401) {
+    return signingIn
+      ? "The username or password is incorrect."
+      : `${fallback}. Your session may have expired; sign in again and retry.`
+  }
+  if (status === 403) {
+    return signingIn
+      ? "This account is not permitted to sign in. Contact your administrator."
+      : `${fallback}. You do not have permission to perform this action.`
+  }
+  if (status === 408 || status === 504) return `${fallback} because the request timed out. Please try again.`
+  if (status === 429) return `${fallback} because there were too many attempts. Wait a moment and try again.`
+  if (status >= 500) return `${fallback} because the service is temporarily unavailable. Please try again later.`
+  return `${fallback}. Please try again.`
+}
+
+/** Read a JSON API error when safe, without exposing text/HTML proxy bodies. */
+export async function responseErrorMessage(response: Response, fallback: string): Promise<string> {
+  const statusMessage = statusErrorMessage(response.status, fallback)
+  if (response.status >= 500 || response.status === 401 || response.status === 403 || response.status === 429) {
+    return statusMessage
+  }
+
+  try {
+    const text = (await response.text()).trim()
+    if (!text) return statusMessage
+    const parsed: unknown = JSON.parse(text)
+    return errorField(parsed) ?? statusMessage
+  } catch {
+    return statusMessage
+  }
+}
+
+export async function login(username: string, password: string): Promise<AuthUser> {
+  let res: Response
+  try {
+    res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    })
+  } catch {
+    throw new Error("Unable to reach the sign-in service. Check your connection and try again.")
+  }
+  if (!res.ok) {
+    throw new Error(await responseErrorMessage(res, "Sign-in failed"))
+  }
+
+  try {
+    const data: { access_token?: unknown; user?: unknown } = await res.json()
+    if (typeof data.access_token !== "string" || !data.user || typeof data.user !== "object") {
+      throw new Error("invalid authentication response")
+    }
+    const user = data.user as AuthUser
+    saveAuth(data.access_token, user)
+    return user
+  } catch {
+    throw new Error("Sign-in succeeded, but the server returned an invalid response. Please try again.")
+  }
 }
 
 export async function logout() {
@@ -74,8 +147,8 @@ export function authHeaders(): Record<string, string> {
  */
 export function installAuthInterceptor() {
   if (typeof window === "undefined") return
-  if ((window as any).__datapond_auth_interceptor) return
-  ;(window as any).__datapond_auth_interceptor = true
+  if (window.__datapond_auth_interceptor) return
+  window.__datapond_auth_interceptor = true
 
   const original = window.fetch.bind(window)
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {

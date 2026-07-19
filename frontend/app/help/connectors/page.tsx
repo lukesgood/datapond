@@ -116,7 +116,7 @@ export default function ConnectorsHelpPage() {
             <div>
               <h3 className="font-semibold">Start syncing data</h3>
               <p className="text-sm text-muted-foreground">
-                Configure sync schedule (real-time, hourly, daily). Select tables to sync. Monitor sync status in the dashboard.
+                Choose full or incremental batch mode, select the source tables, and run the initial sync. Scheduling controls appear only when the required pipeline capability is enabled.
               </p>
             </div>
           </div>
@@ -140,12 +140,12 @@ export default function ConnectorsHelpPage() {
               <div>
                 <h3 className="font-semibold">Database Connectors</h3>
                 <p className="text-sm text-muted-foreground">
-                  Connect to relational databases: PostgreSQL, MySQL, Oracle, SQL Server, Snowflake.
-                  Supports CDC (Change Data Capture) for real-time sync.
+                  Shipped source paths include PostgreSQL, MySQL, REST APIs, custom Python, and SQLAlchemy URLs for installed database drivers.
+                  Table ingestion supports full and incremental batch sync; real-time PostgreSQL CDC belongs to the optional RisingWave Streaming path.
                 </p>
                 <div className="flex gap-2 mt-2">
-                  <Badge variant="secondary">CDC</Badge>
                   <Badge variant="secondary">Batch Sync</Badge>
+                  <Badge variant="secondary">Incremental</Badge>
                   <Badge variant="secondary">Schema Detection</Badge>
                 </div>
               </div>
@@ -158,13 +158,13 @@ export default function ConnectorsHelpPage() {
               <div>
                 <h3 className="font-semibold">Storage Connectors</h3>
                 <p className="text-sm text-muted-foreground">
-                  Connect to object storage: S3, Azure Blob, GCS, HDFS, MinIO.
-                  Read files in formats: Parquet, ORC, Avro, JSON, CSV.
+                  Connect to Amazon S3 or an S3-compatible endpoint such as MinIO.
+                  The current structured-file path reads CSV, JSON/JSONL, and Parquet objects.
                 </p>
                 <div className="flex gap-2 mt-2">
-                  <Badge variant="secondary">S3 Compatible</Badge>
-                  <Badge variant="secondary">Multi-format</Badge>
-                  <Badge variant="secondary">Partitioning</Badge>
+                  <Badge variant="secondary">S3 API</Badge>
+                  <Badge variant="secondary">CSV / JSON / Parquet</Badge>
+                  <Badge variant="secondary">Prefix Discovery</Badge>
                 </div>
               </div>
             </div>
@@ -176,13 +176,12 @@ export default function ConnectorsHelpPage() {
               <div>
                 <h3 className="font-semibold">Streaming Connectors</h3>
                 <p className="text-sm text-muted-foreground">
-                  Connect to streaming platforms: Kafka, Kinesis, Pulsar, RabbitMQ.
-                  Process events in real-time with Amazon MSK / Managed Flink (full profile: RisingWave streaming SQL).
+                  Connect to Kafka and supported CDC sources when the Streaming add-on is enabled. RisingWave provides the current self-hosted streaming SQL path.
                 </p>
                 <div className="flex gap-2 mt-2">
-                  <Badge variant="secondary">Real-time</Badge>
-                  <Badge variant="secondary">Schema Registry</Badge>
-                  <Badge variant="secondary">Exactly-Once</Badge>
+                  <Badge variant="secondary">Optional add-on</Badge>
+                  <Badge variant="secondary">PostgreSQL CDC</Badge>
+                  <Badge variant="secondary">Kafka sources</Badge>
                 </div>
               </div>
             </div>
@@ -206,9 +205,9 @@ export default function ConnectorsHelpPage() {
             </div>
             <ul className="text-sm text-muted-foreground space-y-1 ml-6 list-disc">
               <li>Use read-only database users for connectors when possible</li>
-              <li>Store credentials in secrets manager (Vault/AWS Secrets Manager)</li>
+              <li>Keep credentials out of exported configs; DataPond encrypts persisted connector secrets</li>
               <li>Enable SSL/TLS for database connections</li>
-              <li>Use IAM roles instead of access keys for cloud storage</li>
+              <li>Prefer the runtime credential chain for S3, or use narrowly scoped keys</li>
               <li>Rotate credentials regularly and update connector configs</li>
             </ul>
           </div>
@@ -219,11 +218,11 @@ export default function ConnectorsHelpPage() {
               <h3 className="font-semibold">Performance</h3>
             </div>
             <ul className="text-sm text-muted-foreground space-y-1 ml-6 list-disc">
-              <li>Use incremental sync mode for large tables (timestamp/ID column)</li>
-              <li>Schedule heavy syncs during off-peak hours</li>
-              <li>Enable parallel sync for multi-table connectors</li>
-              <li>Use CDC (Change Data Capture) for real-time databases</li>
-              <li>Set appropriate batch sizes (default: 10,000 rows)</li>
+              <li>Use incremental batch mode for large tables with a stable timestamp or ID column</li>
+              <li>Run heavy manual syncs during off-peak source-database hours</li>
+              <li>Select only the tables needed at the destination</li>
+              <li>Index the source column used as the incremental watermark</li>
+              <li>Use the optional PostgreSQL CDC path only when batch freshness is insufficient</li>
             </ul>
           </div>
 
@@ -233,11 +232,11 @@ export default function ConnectorsHelpPage() {
               <h3 className="font-semibold">Data Quality</h3>
             </div>
             <ul className="text-sm text-muted-foreground space-y-1 ml-6 list-disc">
-              <li>Enable schema validation to catch type mismatches</li>
-              <li>Configure error handling (skip vs. fail on errors)</li>
-              <li>Set up data quality checks in destination tables</li>
-              <li>Monitor null percentages and cardinality changes</li>
-              <li>Test with a subset of data before full sync</li>
+              <li>Review the detected source schema before the first full sync</li>
+              <li>Normalize ambiguous types and required-column NULL values at the source</li>
+              <li>Compare source and destination row counts after the initial load</li>
+              <li>Inspect run errors before retrying a failed table</li>
+              <li>Validate a small, non-production source first when possible</li>
             </ul>
           </div>
         </CardContent>
@@ -253,46 +252,45 @@ export default function ConnectorsHelpPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <h3 className="font-semibold">Database Replication</h3>
+            <h3 className="font-semibold">Database Analytics Copy</h3>
             <p className="text-sm text-muted-foreground">
-              Replicate production databases (PostgreSQL, MySQL) to DataPond for analytics without impacting transactional workloads.
-              Use CDC for real-time replication with minimal lag.
+              Copy PostgreSQL or MySQL tables for analytics without running queries against transactional workloads.
+              Use full or incremental batch sync here; enable the separate RisingWave Streaming add-on when real-time CDC is required.
             </p>
             <pre className="bg-muted p-3 rounded-lg text-xs">
-              <code>PostgreSQL → CDC Connector → MSK / Managed Flink → Iceberg Table</code>
+              <code>PostgreSQL / MySQL → Batch Connector → Iceberg Table</code>
             </pre>
           </div>
 
           <div className="space-y-2">
-            <h3 className="font-semibold">Cloud Storage Ingestion</h3>
+            <h3 className="font-semibold">Object Storage Ingestion</h3>
             <p className="text-sm text-muted-foreground">
-              Ingest files from S3/GCS/Azure Blob Storage into Iceberg tables. Supports automatic schema detection for JSON/CSV.
-              Ideal for batch data from data vendors or logs.
+              Ingest CSV, JSON/JSONL, or Parquet files from Amazon S3 or an S3-compatible endpoint into Iceberg tables.
+              This path supports prefix discovery and structured-file schema inference.
             </p>
             <pre className="bg-muted p-3 rounded-lg text-xs">
-              <code>S3 Bucket → File Connector → Spark Job → Iceberg Table</code>
+              <code>S3-compatible bucket → Storage Connector → Iceberg Table</code>
             </pre>
           </div>
 
           <div className="space-y-2">
             <h3 className="font-semibold">Streaming Analytics</h3>
             <p className="text-sm text-muted-foreground">
-              Process events from Kafka/Kinesis in real-time using Amazon MSK / Managed Flink (RisingWave streaming SQL on the full profile).
-              Write results to Iceberg for historical analysis and dashboards.
+              Process supported Kafka/CDC events with the optional RisingWave streaming add-on, then write selected results to Iceberg.
             </p>
             <pre className="bg-muted p-3 rounded-lg text-xs">
-              <code>Kafka Topic → MSK / Managed Flink → Streaming SQL → Iceberg Sink</code>
+              <code>Kafka / CDC → RisingWave add-on → Streaming SQL → Iceberg Sink</code>
             </pre>
           </div>
 
           <div className="space-y-2">
-            <h3 className="font-semibold">Data Migration</h3>
+            <h3 className="font-semibold">Backfill and Incremental Refresh</h3>
             <p className="text-sm text-muted-foreground">
-              Migrate from legacy data warehouses (Oracle, Teradata) to DataPond.
-              Use full sync for initial load, then switch to incremental sync.
+              Start a supported database source with a full load, validate the Iceberg destination, then configure an incremental column for recurring batch refreshes.
+              Additional SQLAlchemy databases depend on the required dialect and driver being installed.
             </p>
             <pre className="bg-muted p-3 rounded-lg text-xs">
-              <code>Oracle DB → Full Sync → Iceberg Table → Validate → Switch to CDC</code>
+              <code>Supported DB → Full Sync → Validate → Incremental Batch Sync</code>
             </pre>
           </div>
         </CardContent>
@@ -310,47 +308,43 @@ export default function ConnectorsHelpPage() {
           <div className="space-y-2">
             <h3 className="font-semibold">How do I test a connector before full sync?</h3>
             <p className="text-sm text-muted-foreground">
-              Use the "Test Connection" button in the setup wizard. For data sync, create a test connection with filters (e.g., <code className="bg-muted px-1 py-0.5 rounded">LIMIT 1000</code>)
+              Use the &quot;Test Connection&quot; button in the setup wizard. For data sync, create a test connection with filters (e.g., <code className="bg-muted px-1 py-0.5 rounded">LIMIT 1000</code>)
               to verify schema and data quality before full sync.
             </p>
           </div>
 
           <div className="space-y-2">
-            <h3 className="font-semibold">Can I pause or stop a running sync?</h3>
+            <h3 className="font-semibold">Can I pause or resume a running sync?</h3>
             <p className="text-sm text-muted-foreground">
-              Yes! Go to Connectors → Active Connections → click the connector → click "Pause Sync". Resume anytime without losing progress.
+              Not currently. The connector UI does not expose pause/resume for an in-flight run. Inspect the run result, change its configuration if needed, and trigger the next sync manually.
             </p>
           </div>
 
           <div className="space-y-2">
             <h3 className="font-semibold">How do I monitor connector health?</h3>
             <p className="text-sm text-muted-foreground">
-              Check the status badge on the connector card (Healthy / Warning / Error). Click the connector to see detailed metrics:
-              sync latency, error rate, rows synced, last successful sync.
+              Check the connection status and last-sync time in Active Connections. Open a connection to inspect recent runs, rows processed, and any returned error details.
             </p>
           </div>
 
           <div className="space-y-2">
             <h3 className="font-semibold">What happens if a sync fails?</h3>
             <p className="text-sm text-muted-foreground">
-              Connectors auto-retry with exponential backoff (3 retries). If all retries fail, sync pauses and sends an alert.
-              Check logs for error details. Fix the issue (e.g., credentials, network) and resume.
+              A failed run remains visible with its error status. Inspect the error and backend logs, correct credentials, networking, mapping, or source data, then trigger Sync now again. Automatic pause/resume and alert delivery are not part of the current connector workflow.
             </p>
           </div>
 
           <div className="space-y-2">
             <h3 className="font-semibold">Can I sync only specific tables?</h3>
             <p className="text-sm text-muted-foreground">
-              Yes! In the connector setup, you can select specific tables/schemas to sync. Use regex patterns for bulk selection.
-              Example: <code className="bg-muted px-1 py-0.5 rounded">sales_.*</code> syncs all tables starting with "sales_".
+              Yes. Use the setup wizard table picker to enable only the tables that should be copied, and review the selected-table count before saving the connection.
             </p>
           </div>
 
           <div className="space-y-2">
             <h3 className="font-semibold">How do I handle schema changes?</h3>
             <p className="text-sm text-muted-foreground">
-              Enable "Auto-detect schema changes" in connector settings. Iceberg supports schema evolution (add/rename columns).
-              Breaking changes (delete column, change type) require manual migration.
+              Compare the detected source schema with the destination before syncing a changed table. Additive Iceberg changes may be compatible, but destructive or type-changing migrations should be planned and validated explicitly; there is no universal auto-migrate switch.
             </p>
           </div>
         </CardContent>
@@ -387,8 +381,8 @@ export default function ConnectorsHelpPage() {
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Data type mismatch errors</AlertTitle>
             <AlertDescription>
-              Enable schema validation to catch type issues early. Check for NULL values in non-nullable columns.
-              For JSON/CSV files, review auto-detected schema and adjust mappings manually if needed.
+              Compare detected source types with the destination schema and check for NULL values in required columns.
+              For CSV or JSON files, inspect the inferred schema and normalize ambiguous values before retrying.
             </AlertDescription>
           </Alert>
 
@@ -396,8 +390,7 @@ export default function ConnectorsHelpPage() {
             <CheckCircle2 className="h-4 w-4" />
             <AlertTitle>CDC connector not capturing changes</AlertTitle>
             <AlertDescription>
-              Ensure database has CDC/replication enabled (PostgreSQL: logical replication, MySQL: binlog).
-              Check that the connector user has REPLICATION permissions. Review CDC slot lag in database.
+              For the optional PostgreSQL CDC path, enable logical replication and grant the connector user the required replication permissions. Then inspect the PostgreSQL replication slot and the RisingWave workload logs.
             </AlertDescription>
           </Alert>
         </CardContent>

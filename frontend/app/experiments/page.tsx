@@ -7,7 +7,6 @@ import { ErrorBox } from "@/components/ui/error-box"
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts"
-import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -75,14 +74,11 @@ interface Run {
 }
 
 interface CompareResult {
-  runs: Array<{
-    run_id: string
-    run_name?: string
-    metrics: Record<string, number>
-    params: Record<string, string>
-  }>
-  metrics: string[]
-  params: string[]
+  runs: Run[]
+  common_metrics: string[]
+  common_params: string[]
+  diff_metrics: string[]
+  diff_params: string[]
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -329,12 +325,14 @@ function CompareView({
   result: CompareResult
   onClose: () => void
 }) {
+  const metricNames = Array.from(new Set([...result.common_metrics, ...result.diff_metrics]))
+  const paramNames = Array.from(new Set([...result.common_params, ...result.diff_params]))
   // Find best (min or max?) — for now highlight lowest value per metric row as "best"
   // In practice, "best" is ambiguous; we highlight min for loss-like and max for acc-like metrics
   const getBest = (metric: string): string | null => {
     const vals = result.runs.map((r) => ({
-      id: r.run_id,
-      v: r.metrics[metric] ?? null,
+      id: r.info.run_id,
+      v: r.data.metrics.find((value) => value.key === metric)?.value ?? null,
     })).filter((x) => x.v !== null) as Array<{ id: string; v: number }>
     if (vals.length === 0) return null
     const maxV = Math.max(...vals.map((x) => x.v))
@@ -361,7 +359,7 @@ function CompareView({
 
       <div className="flex-1 overflow-auto p-3 space-y-4">
         {/* Metrics comparison */}
-        {result.metrics.length > 0 && (
+        {metricNames.length > 0 && (
           <div>
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
               Metrics
@@ -372,24 +370,24 @@ function CompareView({
                   <tr className="border-b">
                     <th className="text-left p-1.5 font-medium text-muted-foreground w-32">Metric</th>
                     {result.runs.map((r) => (
-                      <th key={r.run_id} className="text-left p-1.5 font-medium min-w-[100px]">
-                        {r.run_name || r.run_id.slice(0, 8)}
+                      <th key={r.info.run_id} className="text-left p-1.5 font-medium min-w-[100px]">
+                        {r.info.run_name || r.info.run_id.slice(0, 8)}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {result.metrics.map((metric) => {
+                  {metricNames.map((metric) => {
                     const bestId = getBest(metric)
                     return (
                       <tr key={metric} className="border-b last:border-0 hover:bg-muted/30">
                         <td className="p-1.5 font-mono text-muted-foreground">{metric}</td>
                         {result.runs.map((r) => {
-                          const v = r.metrics[metric]
-                          const isBest = bestId === r.run_id && v !== undefined
+                          const v = r.data.metrics.find((value) => value.key === metric)?.value
+                          const isBest = bestId === r.info.run_id && v !== undefined
                           return (
                             <td
-                              key={r.run_id}
+                              key={r.info.run_id}
                               className={cn(
                                 "p-1.5 font-mono",
                                 isBest && "text-emerald-600 dark:text-emerald-400 font-semibold"
@@ -409,7 +407,7 @@ function CompareView({
         )}
 
         {/* Params comparison */}
-        {result.params.length > 0 && (
+        {paramNames.length > 0 && (
           <div>
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
               Parameters
@@ -420,19 +418,19 @@ function CompareView({
                   <tr className="border-b">
                     <th className="text-left p-1.5 font-medium text-muted-foreground w-32">Param</th>
                     {result.runs.map((r) => (
-                      <th key={r.run_id} className="text-left p-1.5 font-medium min-w-[100px]">
-                        {r.run_name || r.run_id.slice(0, 8)}
+                      <th key={r.info.run_id} className="text-left p-1.5 font-medium min-w-[100px]">
+                        {r.info.run_name || r.info.run_id.slice(0, 8)}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {result.params.map((param) => (
+                  {paramNames.map((param) => (
                     <tr key={param} className="border-b last:border-0 hover:bg-muted/30">
                       <td className="p-1.5 font-mono text-muted-foreground">{param}</td>
                       {result.runs.map((r) => (
-                        <td key={r.run_id} className="p-1.5 font-mono">
-                          {r.params[param] ?? <span className="text-muted-foreground/40">—</span>}
+                        <td key={r.info.run_id} className="p-1.5 font-mono">
+                          {r.data.params.find((value) => value.key === param)?.value ?? <span className="text-muted-foreground/40">—</span>}
                         </td>
                       ))}
                     </tr>
@@ -561,7 +559,6 @@ function ExperimentsPageInner() {
   const [selectedRun, setSelectedRun] = useState<Run | null>(null)
 
   // Compare mode
-  const [compareMode, setCompareMode] = useState(false)
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set())
   const [compareResult, setCompareResult] = useState<CompareResult | null>(null)
   const [comparePending, setComparePending] = useState(false)
@@ -584,9 +581,9 @@ function ExperimentsPageInner() {
     try {
       const res = await fetch("/api/mlflow/experiments")
       if (!res.ok) throw new Error(String(res.status))
-      const data = await res.json()
-      const exps: Experiment[] = Array.isArray(data) ? data : (data.experiments ?? [])
-      const active = exps.filter((e) => e.lifecycle_stage !== "deleted")
+      const data = await res.json() as Experiment[]
+      if (!Array.isArray(data)) throw new Error("Invalid experiment response")
+      const active = data.filter((e) => e.lifecycle_stage !== "deleted")
       setExperiments(active)
 
       // Fetch run counts in parallel (best-effort)
@@ -595,8 +592,10 @@ function ExperimentsPageInner() {
         active.map(async (exp) => {
           try {
             const r = await fetch(`/api/mlflow/experiments/${exp.experiment_id}/runs`)
-            const d = await r.json()
-            counts[exp.experiment_id] = Array.isArray(d) ? d.length : (d.runs?.length ?? 0)
+            if (!r.ok) throw new Error(String(r.status))
+            const runs = await r.json() as Run[]
+            if (!Array.isArray(runs)) throw new Error("Invalid runs response")
+            counts[exp.experiment_id] = runs.length
           } catch {
             counts[exp.experiment_id] = 0
           }
@@ -620,11 +619,11 @@ function ExperimentsPageInner() {
     try {
       const res = await fetch(`/api/mlflow/experiments/${exp.experiment_id}/runs`)
       if (!res.ok) throw new Error(String(res.status))
-      const data = await res.json()
-      const runList: Run[] = Array.isArray(data) ? data : (data.runs ?? [])
-      setRuns(runList)
+      const data = await res.json() as Run[]
+      if (!Array.isArray(data)) throw new Error("Invalid runs response")
+      setRuns(data)
       // Update run count for this experiment
-      setRunCounts((prev) => ({ ...prev, [exp.experiment_id]: runList.length }))
+      setRunCounts((prev) => ({ ...prev, [exp.experiment_id]: data.length }))
     } catch (err) {
       setRunsError(err instanceof Error ? err.message : "Failed to load runs")
     } finally {
@@ -677,7 +676,8 @@ function ExperimentsPageInner() {
 
   // Initial load
   useEffect(() => {
-    loadExperiments()
+    const timer = window.setTimeout(() => { void loadExperiments() }, 0)
+    return () => window.clearTimeout(timer)
   }, [loadExperiments])
 
   // ── Derived ────────────────────────────────────────────────────────────────

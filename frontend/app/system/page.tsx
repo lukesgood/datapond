@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState, type ComponentType } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ErrorBox } from "@/components/ui/error-box"
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
@@ -39,7 +40,7 @@ const CMP_STATUS: Record<string, { label: string; cls: string }> = {
   unknown:      { label: "Unknown", cls: "bg-muted text-muted-foreground border-transparent" },
 }
 
-function Meter({ label, pct, Icon }: { label: string; pct?: number | null; Icon: any }) {
+function Meter({ label, pct, Icon }: { label: string; pct?: number | null; Icon: ComponentType<{ className?: string }> }) {
   const v = typeof pct === "number" ? pct : null
   const color = v == null ? "bg-muted-foreground/30" : v > 85 ? "bg-destructive" : v > 60 ? "bg-[var(--dp-warn)]" : "bg-[var(--dp-good)]"
   return (
@@ -67,19 +68,26 @@ function Spec({ label, value }: { label: string; value?: string | number }) {
 export default function SystemPage() {
   const [info, setInfo] = useState<SystemInfo | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const load = async () => {
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
     try {
       const res = await fetch("/api/system/info")
-      if (res.ok) setInfo(await res.json())
-    } catch {} finally { setLoading(false) }
-  }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setInfo(await res.json())
+    } catch (requestError) {
+      setInfo(null)
+      setError(requestError instanceof Error ? `Failed to load system information (${requestError.message})` : "Failed to load system information")
+    } finally { setLoading(false) }
+  }, [])
 
   useEffect(() => {
-    load()
-    const t = setInterval(load, 15000)  // refresh every 15s
-    return () => clearInterval(t)
-  }, [])
+    const initial = window.setTimeout(() => void load(), 0)
+    const interval = window.setInterval(() => void load(), 15000)
+    return () => { window.clearTimeout(initial); window.clearInterval(interval) }
+  }, [load])
 
   const n = info?.node ?? {}
   const c = info?.cluster ?? {}
@@ -99,12 +107,17 @@ export default function SystemPage() {
           <h1 className="text-2xl font-bold flex items-center gap-2"><Server className="h-6 w-6" />System</h1>
           <p className="text-muted-foreground text-sm">Server system information · configuration specs</p>
         </div>
-        <Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-4 w-4 mr-1.5" />Refresh</Button>
+        <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+          <RefreshCw className={`mr-1.5 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          {loading ? "Refreshing" : "Refresh"}
+        </Button>
       </div>
 
-      {loading && !info ? (
-        <div className="grid gap-4 md:grid-cols-2"><Skeleton className="h-48" /><Skeleton className="h-48" /></div>
-      ) : (
+      {error ? (
+        <div role="alert" aria-live="polite"><ErrorBox msg={error} action={<Button size="sm" variant="outline" onClick={load}>Retry</Button>} /></div>
+      ) : loading && !info ? (
+        <div className="grid gap-4 md:grid-cols-2" aria-busy="true"><Skeleton className="h-48" /><Skeleton className="h-48" /></div>
+      ) : info ? (
       <>
         <div className="grid gap-4 md:grid-cols-2">
           {/* Node specs */}
@@ -127,7 +140,7 @@ export default function SystemPage() {
               <div className="flex justify-between gap-3 py-1.5 text-sm">
                 <span className="text-muted-foreground">Node Status</span>
                 <span className="flex gap-1.5">
-                  <Badge variant="outline" className={`text-[10px] ${n.ready ? "text-[var(--dp-good)] border-[var(--dp-good)]/30" : "text-destructive border-destructive/30"}`}>{n.ready ? "Ready" : "NotReady"}</Badge>
+                  <Badge variant="outline" className={`text-[10px] ${n.ready === true ? "text-[var(--dp-good)] border-[var(--dp-good)]/30" : n.ready === false ? "text-destructive border-destructive/30" : "text-muted-foreground"}`}>{n.ready === true ? "Ready" : n.ready === false ? "NotReady" : "Unknown"}</Badge>
                   {n.memory_pressure && <Badge variant="outline" className="text-[10px] text-[var(--dp-warn)] border-[var(--dp-warn)]/30">MemPressure</Badge>}
                   {n.disk_pressure && <Badge variant="outline" className="text-[10px] text-[var(--dp-warn)] border-[var(--dp-warn)]/30">DiskPressure</Badge>}
                 </span>
@@ -233,7 +246,7 @@ export default function SystemPage() {
           </CardContent>
         </Card>
       </>
-      )}
+      ) : null}
     </div>
   )
 }

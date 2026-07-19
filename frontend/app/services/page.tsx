@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -39,7 +39,7 @@ const EXTERNAL_URLS: Record<string, string> = {
   mlflow:        "/mlflow",
   trino:         "/api/trino",
   openmetadata:  "/openmetadata",
-  seaweedfs:     "/storage",
+  minio:         "/storage",
   airflow:       "/airflow",
 }
 
@@ -53,7 +53,7 @@ export default function ServicesPage() {
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
 
-  const fetchServices = async () => {
+  const fetchServices = useCallback(async () => {
     try {
       setLoading(true)
       const response = await fetch("/api/services")
@@ -64,20 +64,19 @@ export default function ServicesPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
-    fetchServices()
-
-    const interval = setInterval(fetchServices, 30000)
-    return () => clearInterval(interval)
-  }, [])
+    const initial = window.setTimeout(() => void fetchServices(), 0)
+    const interval = window.setInterval(() => void fetchServices(), 30000)
+    return () => { window.clearTimeout(initial); window.clearInterval(interval) }
+  }, [fetchServices])
 
   // Fallback descriptions only — the backend now supplies `description`.
   const serviceDescriptions: Record<string, string> = {
     backend: "DataPond API (FastAPI)",
     frontend: "Management UI (Next.js)",
-    litellm: "AI model gateway (→ Bedrock)",
+    litellm: "Portable AI model gateway",
     valkey: "Redis-compatible cache / sessions",
     "Amazon S3": "Object storage (Iceberg data)",
     "Amazon Aurora": "PostgreSQL + pgvector (managed)",
@@ -86,17 +85,20 @@ export default function ServicesPage() {
     "Amazon Athena": "Serverless SQL query engine",
     // Full-profile (self-hosted) services
     postgres: "PostgreSQL database - metadata storage",
-    seaweedfs: "S3-compatible object storage",
+    minio: "S3-compatible object storage",
     trino: "Distributed SQL query engine",
     polaris: "Apache Iceberg REST catalog",
+    spark: "Distributed batch compute add-on",
+    ollama: "Local model and embedding runtime",
   }
 
   const filteredServices = services.filter((service) =>
     service.name.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
-  const healthyCount = services.filter((s) => s.status === "healthy" || s.status === "managed").length
+  const healthyCount = services.filter((s) => s.status === "healthy").length
   const unhealthyCount = services.filter((s) => s.status === "unhealthy" || s.status === "unknown").length
+  const configuredCount = services.filter((s) => s.status === "managed").length
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -117,8 +119,8 @@ export default function ServicesPage() {
       case "managed":
         return (
           <Badge variant="outline">
-            <CheckCircle2 className="mr-1 h-3 w-3" />
-            AWS managed
+            <ExternalLink className="mr-1 h-3 w-3" />
+            Configured adapter
           </Badge>
         )
       default:
@@ -139,8 +141,8 @@ export default function ServicesPage() {
           <Skeleton className="h-8 w-[150px]" />
           <Skeleton className="h-4 w-[300px]" />
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          {[...Array(3)].map((_, i) => (
+        <div className="grid gap-4 md:grid-cols-4">
+          {[...Array(4)].map((_, i) => (
             <Skeleton key={i} className="h-[120px]" />
           ))}
         </div>
@@ -169,7 +171,7 @@ export default function ServicesPage() {
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Platform Services</h2>
           <p className="text-muted-foreground">
-            Monitor and manage all DataPond infrastructure services
+            Monitor configured DataPond workloads and external adapters
           </p>
         </div>
 
@@ -191,7 +193,7 @@ export default function ServicesPage() {
       </div>
 
       {/* Statistics Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -227,6 +229,18 @@ export default function ServicesPage() {
             <div className="text-2xl font-bold text-destructive dp-num">{unhealthyCount}</div>
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">Configured adapters</CardTitle>
+              <ExternalLink className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold dp-num">{configuredCount}</div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Services Grid */}
@@ -234,8 +248,8 @@ export default function ServicesPage() {
         {filteredServices.map((service) => (
           <Card
             key={service.name}
-            className="hover:shadow-md transition-shadow cursor-pointer"
-            onClick={() => router.push(`/services/${service.name}`)}
+            className={service.status === "managed" ? "transition-shadow" : "hover:shadow-md transition-shadow cursor-pointer"}
+            onClick={() => { if (service.status !== "managed") router.push(`/services/${service.name}`) }}
           >
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
@@ -255,17 +269,19 @@ export default function ServicesPage() {
               )}
 
               <div className="flex gap-2 pt-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    router.push(`/services/${service.name}`)
-                  }}
-                >
-                  Details
-                </Button>
+                {service.status !== "managed" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      router.push(`/services/${service.name}`)
+                    }}
+                  >
+                    Details
+                  </Button>
+                )}
                 {getExternalUrl(service.name) && (
                   <Button
                     variant="outline"

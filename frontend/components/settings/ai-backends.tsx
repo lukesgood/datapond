@@ -111,7 +111,10 @@ export function AiBackends() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const timer = setTimeout(() => { void load() }, 0)
+    return () => clearTimeout(timer)
+  }, [load])
 
   const addBackend = async () => {
     setAdding(true); setAddErr(null)
@@ -475,7 +478,10 @@ function UsagePanel() {
     setLoading(true)
     fetch("/api/settings/ai/usage").then(r => r.json()).then(setU).catch(() => {}).finally(() => setLoading(false))
   }, [])
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const timer = setTimeout(() => { void load() }, 0)
+    return () => clearTimeout(timer)
+  }, [load])
 
   if (loading) return <Skeleton className="h-32 rounded-lg" />
   if (!u) return null
@@ -576,16 +582,26 @@ function UsagePanel() {
 
 // ── Date-ranged spend report ──────────────────────────────────────────────────────
 
-interface SpendReport { start_date: string; end_date: string; report: any[]; detail?: string }
+interface SpendReport { start_date: string; end_date: string; report: unknown[]; detail?: string }
 
-function reportRows(report: any[]): { label: string; spend: number }[] {
+type JsonRecord = Record<string, unknown>
+
+function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === "object" && value !== null
+}
+
+function reportRows(report: unknown[]): { label: string; spend: number }[] {
   if (!Array.isArray(report)) return []
-  return report.map((e) => {
-    const label = e.group_by_day || e.api_key || e.model || e.team_id || e.date || "—"
-    let spend = e.total_spend ?? e.spend ?? 0
-    if (!spend && Array.isArray(e.teams)) spend = e.teams.reduce((s: number, t: any) => s + (t.total_spend || 0), 0)
-    return { label: String(label).slice(0, 10), spend: Number(spend) || 0 }
-  }).filter(r => r.spend > 0 || r.label !== "—")
+  return report.flatMap((entry) => {
+    if (!isRecord(entry)) return []
+    const label = entry.group_by_day || entry.api_key || entry.model || entry.team_id || entry.date || "—"
+    let spend = Number(entry.total_spend ?? entry.spend ?? 0) || 0
+    if (!spend && Array.isArray(entry.teams)) {
+      spend = entry.teams.reduce<number>((sum, team) =>
+        sum + (isRecord(team) ? Number(team.total_spend) || 0 : 0), 0)
+    }
+    return [{ label: String(label).slice(0, 10), spend }]
+  }).filter(row => row.spend > 0 || row.label !== "—")
 }
 
 function SpendReportSection() {
@@ -753,7 +769,10 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
     } finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const timer = setTimeout(() => { void load() }, 0)
+    return () => clearTimeout(timer)
+  }, [load])
 
   const generate = async () => {
     setGenerating(true); setGenErr(null); setNewKey(null)

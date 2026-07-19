@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, use, useEffect } from "react"
+import { useState, use } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -49,6 +49,10 @@ interface TableConfig {
   incremental_column: string   // "" = none
 }
 
+type ConfigValue = string | number | boolean | null | undefined
+interface TablesResponse { tables?: Array<string | { name: string }> }
+interface CreatedConnection { id: string }
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function ConnectorSetupPage({ params }: { params: Promise<{ id: string }> }) {
@@ -64,8 +68,8 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
 
   // Step 1
   const [connectionName, setConnectionName] = useState(`${connector?.name || ""} Connection`)
-  const [config, setConfig] = useState<Record<string, any>>(() => {
-    const d: Record<string, any> = {}
+  const [config, setConfig] = useState<Record<string, ConfigValue>>(() => {
+    const d: Record<string, ConfigValue> = {}
     connector?.fields.forEach(f => { if (f.default !== undefined) d[f.name] = f.default })
     return d
   })
@@ -84,12 +88,9 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
   const [syncFrequency, setSyncFrequency] = useState("manual")
   const [syncImmediately, setSyncImmediately] = useState(true)  // Fix #6: opt-in
 
-  // If capabilities load after the user picked a recurring frequency (or this
-  // profile has no Airflow), force back to Manual so we never submit a
-  // schedule that can't actually run.
-  useEffect(() => {
-    if (!pipelinesEnabled && syncFrequency !== "manual") setSyncFrequency("manual")
-  }, [pipelinesEnabled, syncFrequency])
+  // A profile without pipelines always behaves as Manual, even if capabilities
+  // finish loading after a recurring option was selected.
+  const effectiveSyncFrequency = pipelinesEnabled ? syncFrequency : "manual"
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
@@ -129,7 +130,9 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
     setCreateError(null)
     try {
       // Create connection — store only pure DB connection config (no ingestion metadata)
-      const { sync_frequency: _, sync_mode: __, selected_tables: ___, ...pureConfig } = config as any
+      const pureConfig = Object.fromEntries(
+        Object.entries(config).filter(([key]) => !["sync_frequency", "sync_mode", "selected_tables"].includes(key))
+      )
       const res = await fetch("/api/connectors/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -139,16 +142,16 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
         const d = await res.json()
         throw new Error(d.detail || "Failed to create connection")
       }
-      const created = await res.json()
+      const created: CreatedConnection = await res.json()
       setCreatedId(created.id)
 
       // Fetch actual tables from the connection
       setLoadingTables(true)
       const tablesRes = await fetch(`/api/connectors/${created.id}/tables`)
       if (tablesRes.ok) {
-        const data = await tablesRes.json()
-        const rawTables: RemoteTable[] = (data.tables ?? []).map((t: any) =>
-          typeof t === "string" ? { name: t } : { name: t.name }
+        const data: TablesResponse = await tablesRes.json()
+        const rawTables: RemoteTable[] = (data.tables ?? []).map((table) =>
+          typeof table === "string" ? { name: table } : { name: table.name }
         )
         setTables(rawTables)
 
@@ -218,7 +221,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
       })
 
       // 3. Apply schedule
-      const cron = FREQUENCY_TO_CRON[syncFrequency]
+      const cron = FREQUENCY_TO_CRON[effectiveSyncFrequency]
       if (cron) {
         await fetch(`/api/connectors/${createdId}/schedule`, {
           method: "PATCH",
@@ -575,7 +578,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                       key={opt.value}
                       onClick={() => setSyncFrequency(opt.value)}
                       className={`text-left px-3 py-2.5 rounded-lg border transition-colors ${
-                        syncFrequency === opt.value
+                        effectiveSyncFrequency === opt.value
                           ? "border-primary bg-primary/5 text-primary"
                           : "border-border hover:border-muted-foreground/40"
                       }`}
@@ -594,7 +597,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                     Scheduled sync requires the Airflow pipelines component (not enabled
                     on this profile). Trigger syncs manually with Sync Now.
                   </p>
-                ) : syncFrequency !== "manual" && (
+                ) : effectiveSyncFrequency !== "manual" && (
                   <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                     <CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good)]" />
                     Airflow DAG will be created automatically
@@ -613,7 +616,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                   ["Tables",      `${enabledTables.length} of ${tables.length} selected`],
                   ["With watermark", `${Object.values(tableConfigs).filter(c => c.enabled && c.incremental_column).length} tables`],
                   ["Sync Mode",   syncMode === "full" ? "Full Refresh" : "Incremental"],
-                  ["Schedule",    syncFrequency === "manual" ? "Manual" : `${syncFrequency} (${FREQUENCY_TO_CRON[syncFrequency]})`],
+                  ["Schedule",    effectiveSyncFrequency === "manual" ? "Manual" : `${effectiveSyncFrequency} (${FREQUENCY_TO_CRON[effectiveSyncFrequency]})`],
                 ].map(([label, value]) => (
                   <div key={label} className="flex items-center justify-between">
                     <span className="text-muted-foreground">{label}</span>

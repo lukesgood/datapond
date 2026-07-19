@@ -21,7 +21,7 @@ import {
 export type ChartType = "line" | "bar" | "area" | "pie" | "table"
 
 interface ChartRendererProps {
-  data: any[]
+  data: Record<string, unknown>[]
   chartType: ChartType
   xAxis: string
   yAxis: string

@@ -12,8 +12,30 @@ import {
 } from "@/components/ui/breadcrumb"
 import { RunDetails } from "@/components/mlflow/run-details"
 import { ArrowLeft } from "lucide-react"
-import { useState, useEffect } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+
+interface Experiment {
+  name: string
+}
+
+interface MlflowRun {
+  info: {
+    run_id: string
+    run_name?: string
+    experiment_id: string
+    status: string
+    start_time: number
+    end_time?: number
+    lifecycle_stage: string
+    user_id?: string
+  }
+  data: {
+    metrics?: Array<{ key: string; value: number; timestamp: number; step: number }>
+    params?: Array<{ key: string; value: string }>
+    tags?: Array<{ key: string; value: string }>
+  }
+}
 
 export default function RunDetailPage({
   params,
@@ -21,32 +43,34 @@ export default function RunDetailPage({
   params: { id: string; runId: string }
 }) {
   const router = useRouter()
-  const [run, setRun] = useState<any>(null)
-  const [experiment, setExperiment] = useState<any>(null)
+  const [run, setRun] = useState<MlflowRun | null>(null)
+  const [experiment, setExperiment] = useState<Experiment | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    fetchRunDetails()
-  }, [params.runId])
-
-  const fetchRunDetails = async () => {
+  const fetchRunDetails = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
-      // Fetch run info
       const runRes = await fetch(`/api/mlflow/runs/${params.runId}`)
-      const runData = await runRes.json()
-      setRun(runData.run)
+      if (!runRes.ok) throw new Error(await runRes.text() || `HTTP ${runRes.status}`)
+      setRun(await runRes.json() as MlflowRun)
 
-      // Fetch experiment info for breadcrumb
       const expRes = await fetch(`/api/mlflow/experiments/${params.id}`)
-      const expData = await expRes.json()
-      setExperiment(expData.experiment)
-    } catch (error) {
-      console.error("Error fetching run details:", error)
+      if (!expRes.ok) throw new Error(await expRes.text() || `HTTP ${expRes.status}`)
+      setExperiment(await expRes.json() as Experiment)
+    } catch (caught) {
+      setRun(null)
+      setError(caught instanceof Error ? caught.message : "Failed to load run")
     } finally {
       setLoading(false)
     }
-  }
+  }, [params.id, params.runId])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void fetchRunDetails() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [fetchRunDetails])
 
   if (loading) {
     return (
@@ -65,7 +89,7 @@ export default function RunDetailPage({
       <div className="flex-1 space-y-4 p-8 pt-6">
         <Card>
           <CardContent className="py-8 text-center">
-            <p className="text-muted-foreground">Run not found</p>
+            <p className="text-muted-foreground">{error || "Run not found"}</p>
           </CardContent>
         </Card>
       </div>

@@ -1,21 +1,11 @@
 "use client"
 import { CapabilityGate } from "@/lib/capabilities"
 
-import { useEffect, useState, Suspense } from "react"
+import { Suspense, useCallback, useEffect, useState } from "react"
 import { useToast } from "@/lib/toast"
-import { useSearchParams } from "next/navigation"
 import Link from "next/link"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DagCard } from "@/components/airflow/dag-card"
 import { useRouter } from "next/navigation"
@@ -95,8 +85,6 @@ interface Transform {
 
 function PipelinesPageInner() {
   const { toast } = useToast()
-  const searchParams = useSearchParams()
-  const defaultTab = searchParams.get("tab") === "history" ? "history" : "pipelines"
   const [dags, setDags] = useState<DAG[]>([])
   const [dagStats, setDagStats] = useState<Map<string, DagStats>>(new Map())
   const [recentRuns, setRecentRuns] = useState<DagRun[]>([])
@@ -110,7 +98,7 @@ function PipelinesPageInner() {
   const [savedStatuses, setSavedStatuses] = useState<Map<string, string>>(new Map())
   const router = useRouter()
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true)
     setError(null)
 
@@ -201,7 +189,7 @@ function PipelinesPageInner() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   const handleEditTransform = async (id: string) => {
     try {
@@ -231,12 +219,13 @@ function PipelinesPageInner() {
   }
 
   useEffect(() => {
-    fetchData()
-
-    // Refresh every 30 seconds
-    const interval = setInterval(fetchData, 30000)
-    return () => clearInterval(interval)
-  }, [])
+    const initial = window.setTimeout(() => { void fetchData() }, 0)
+    const interval = window.setInterval(() => { void fetchData() }, 30000)
+    return () => {
+      window.clearTimeout(initial)
+      window.clearInterval(interval)
+    }
+  }, [fetchData])
 
   const handleTriggerDag = async (dag_id: string) => {
     try {

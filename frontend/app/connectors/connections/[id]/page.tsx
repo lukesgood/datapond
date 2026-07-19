@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useEffect, useState, useRef } from "react"
+import { use, useCallback, useEffect, useState, useRef } from "react"
 import { useToast } from "@/lib/toast"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,8 +13,8 @@ import { Label } from "@/components/ui/label"
 import { SyncHistory, SyncSession } from "@/components/connectors/sync-history"
 import {
   ChevronLeft, RefreshCw, Database, Rows3, Trash2,
-  AlertTriangle, Pencil, X, Check, Wifi, BarChart2, Calendar,
-  Clock, Zap, Power, PowerOff, Search,
+  AlertTriangle, Pencil, X, Check, BarChart2, Calendar,
+  Clock, Zap, Search,
 } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
@@ -24,11 +24,52 @@ import { getConnector } from "@/lib/connectors"
 import { FREQ_OPTIONS, HOUR_OPTIONS, parseCron, cronToFreqHour, nextRun } from "@/lib/schedule"
 import { useCapability } from "@/lib/capabilities"
 
+type ConfigValue = string | number | boolean | null | undefined
+interface SchemaColumn { name: string; type: string }
+interface ConnectorTable {
+  name: string
+  enabled: boolean
+  sync_mode?: string
+  incremental_column?: string | null
+  last_value?: string | null
+  effective_mode?: string
+  partition_spec?: { column: string; transform: string }[] | null
+  key_columns?: string[] | null
+  pii_columns?: string[] | null
+}
+interface RawTableConfig extends Partial<ConnectorTable> { name: string }
+interface JobsResponse { jobs?: Array<{ rows_synced?: number }> }
+interface RawSyncSession {
+  id: string
+  status: SyncSession["status"]
+  started_at: string
+  completed_at?: string
+  rows_processed: number
+  rows_failed: number
+  duration_ms?: number
+  sync_mode?: string
+  error_message?: string
+  error?: string
+  tables?: Array<{ table: string; status: "pending" | "running" | "success" | "failed"; rows?: number; error?: string }>
+}
+interface QualityWarning { severity: string; message: string }
+interface NullCheck { null_rate: number; status: string }
+interface QualityCheck {
+  source_table: string
+  overall_status: string
+  checked_at: string
+  rows_current?: number
+  row_change_pct?: number | null
+  row_change_status?: string
+  warnings?: QualityWarning[]
+  null_checks?: Record<string, NullCheck>
+}
+
 // ── Tables Card (full-width, searchable) ──────────────────────────────────────
 function TablesCard({
   tables, latestTableRows, togglingTable, onToggle, connId, onSaved, streamingEnabled,
 }: {
-  tables: { name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null; last_value?: string | null; effective_mode?: string; partition_spec?: {column:string;transform:string}[] | null; key_columns?: string[] | null; pii_columns?: string[] | null }[]
+  tables: ConnectorTable[]
   latestTableRows: Map<string, number>
   togglingTable: string | null
   onToggle: (name: string, enabled: boolean) => void
@@ -46,7 +87,7 @@ function TablesCard({
   const [editPartCol, setEditPartCol]   = useState("")
   const [editPartTransform, setEditPartTransform] = useState("day")
   const [saving, setSaving]             = useState(false)
-  const [schemaColumns, setSchemaColumns] = useState<{name:string;type:string}[]>([])
+  const [schemaColumns, setSchemaColumns] = useState<SchemaColumn[]>([])
   const [loadingSchema, setLoadingSchema] = useState(false)
 
   const filtered = tables.filter(t =>
@@ -71,8 +112,8 @@ function TablesCard({
     try {
       const res = await fetch(`/api/connectors/${connId}/schema/${t.name}`)
       if (res.ok) {
-        const d = await res.json()
-        setSchemaColumns((d.columns || []).map((c: any) => ({ name: c.name, type: c.type })))
+        const data: { columns?: SchemaColumn[] } = await res.json()
+        setSchemaColumns(data.columns ?? [])
       }
     } catch {}
     finally { setLoadingSchema(false) }
@@ -164,13 +205,12 @@ function TablesCard({
             {/* Table rows */}
             <div className="divide-y">
               {filtered.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-4">No tables match "{search}"</p>
+                <p className="text-xs text-muted-foreground text-center py-4">No tables match &quot;{search}&quot;</p>
               ) : filtered.map(table => {
                 const rows = latestTableRows.get(table.name)
                 const mode = table.sync_mode || "full"
                 const incCol = table.incremental_column
-                const lastVal = (table as any).last_value
-                const effectiveMode = (table as any).effective_mode || mode
+                const lastVal = table.last_value
                 const isEditing = editingTable === table.name
                 // Fix #1: incremental set but no column → warn
                 const incMisconfigured = mode === "incremental" && !incCol
@@ -439,14 +479,6 @@ function ScheduleCard({
   const builtCron = freq.buildCron(hour)
   const isDirty = builtCron !== schedule
 
-  // Sync local state when schedule changes externally
-  useEffect(() => {
-    if (schedule) {
-      const { freqId: f, hour: h } = cronToFreqHour(schedule)
-      setFreqId(f); setHour(h)
-    }
-  }, [schedule])
-
   // Foundation profile: no in-process/Airflow executor runs schedules, so the
   // schedule UI would promise recurring syncs that never happen. Gate it off
   // and point users at manual "Sync Now" instead of showing a false "Next run".
@@ -572,9 +604,9 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const streamingEnabled = useCapability("streaming")
 
   const [connector, setConnector]         = useState<Connector | null>(null)
-  const [tables, setTables]               = useState<{name: string; enabled: boolean; sync_mode?: string; incremental_column?: string | null; last_value?: string | null; effective_mode?: string; partition_spec?: {column:string;transform:string}[] | null; key_columns?: string[] | null; pii_columns?: string[] | null}[]>([])
+  const [tables, setTables]               = useState<ConnectorTable[]>([])
   const [togglingTable, setTogglingTable] = useState<string | null>(null)
-  const [configPreview, setConfigPreview] = useState<Record<string, any>>({})
+  const [configPreview, setConfigPreview] = useState<Record<string, ConfigValue>>({})
   const [loading, setLoading]             = useState(true)
   const [error, setError]                 = useState<string | null>(null)
   const [syncing, setSyncing]             = useState(false)
@@ -590,7 +622,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
 
   // Edit
   const [editing, setEditing]             = useState(false)
-  const [editConfig, setEditConfig]       = useState<Record<string, any>>({})
+  const [editConfig, setEditConfig]       = useState<Record<string, ConfigValue>>({})
   const [editName, setEditName]           = useState("")
   const [editConnectorType, setEditConnectorType] = useState("")
   const [saving, setSaving]               = useState(false)
@@ -605,22 +637,22 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const [scheduleMsg, setScheduleMsg]     = useState<string | null>(null)
 
   // Quality
-  const [qualityChecks, setQualityChecks] = useState<any[]>([])
+  const [qualityChecks, setQualityChecks] = useState<QualityCheck[]>([])
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
-  const fetchHistory = async () => {
+  const fetchHistory = useCallback(async () => {
     // Fetch jobs for fallback row count
     const jobsRes = await fetch(`/api/connectors/${id}/status`)
     if (jobsRes.ok) {
-      const j = await jobsRes.json()
-      const total = (j.jobs ?? []).reduce((sum: number, r: any) => sum + (r.rows_synced ?? 0), 0)
+      const jobs: JobsResponse = await jobsRes.json()
+      const total = (jobs.jobs ?? []).reduce((sum, job) => sum + (job.rows_synced ?? 0), 0)
       if (total > 0) setJobsRows(total)
     }
 
     const res = await fetch(`/api/connectors/${id}/history`)
     if (!res.ok) return
-    const data: any[] = await res.json()
+    const data: RawSyncSession[] = await res.json()
     setSessions(data.map(s => ({
       id: s.id,
       status: s.status,
@@ -631,17 +663,17 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
       duration_ms: s.duration_ms,
       sync_mode: s.sync_mode,
       error: s.error_message ?? s.error,
-      tables: (s.tables ?? []).map((t: any) => ({
-        table: t.table,
-        status: t.status,
-        rows: t.rows,
-        error: t.error,
+      tables: (s.tables ?? []).map((table) => ({
+        table: table.table,
+        status: table.status,
+        rows: table.rows,
+        error: table.error,
       })),
       isLive: false,
     })))
-  }
+  }, [id])
 
-  const fetchConnector = async () => {
+  const fetchConnector = useCallback(async () => {
     setLoading(true); setError(null)
     try {
       const [connRes, tablesRes, cfgRes] = await Promise.all([
@@ -660,19 +692,19 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
       if (tablesRes.ok) {
         const t = await tablesRes.json()
         const raw = Array.isArray(t.tables) ? t.tables : []
-        setTables(raw.map((tb: any) =>
-          typeof tb === "string"
-            ? { name: tb, enabled: true }
+        setTables((raw as Array<string | RawTableConfig>).map((table) =>
+          typeof table === "string"
+            ? { name: table, enabled: true }
             : {
-                name: tb.name ?? String(tb),
-                enabled: tb.enabled !== false,
-                sync_mode: tb.sync_mode ?? "full",
-                incremental_column: tb.incremental_column ?? null,
-                last_value: tb.last_value ?? null,
-                effective_mode: tb.effective_mode ?? tb.sync_mode ?? "full",
-                partition_spec: tb.partition_spec ?? null,
-                key_columns: tb.key_columns ?? null,
-                pii_columns: tb.pii_columns ?? null,
+                name: table.name,
+                enabled: table.enabled !== false,
+                sync_mode: table.sync_mode ?? "full",
+                incremental_column: table.incremental_column ?? null,
+                last_value: table.last_value ?? null,
+                effective_mode: table.effective_mode ?? table.sync_mode ?? "full",
+                partition_spec: table.partition_spec ?? null,
+                key_columns: table.key_columns ?? null,
+                pii_columns: table.pii_columns ?? null,
               }
         ))
       }
@@ -685,16 +717,16 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
     } finally {
       setLoading(false)
     }
-  }
+  }, [id])
 
-  const fetchSchedule = async () => {
+  const fetchSchedule = useCallback(async () => {
     const res = await fetch(`/api/connectors/${id}/schedule`)
     if (res.ok) {
       const d = await res.json()
       setSchedule(d.schedule ?? null)
       setScheduleInput(d.schedule ?? "")
     }
-  }
+  }, [id])
 
   const handleSaveSchedule = async (overrideSchedule?: string | null) => {
     const value = overrideSchedule !== undefined ? overrideSchedule : (scheduleInput || null)
@@ -714,22 +746,25 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
     } finally { setSavingSchedule(false) }
   }
 
-  const fetchQuality = async () => {
+  const fetchQuality = useCallback(async () => {
     try {
       const res = await fetch(`/api/connectors/${id}/quality?limit=30`)
       if (res.ok) {
-        const data = await res.json()
-        setQualityChecks(data.checks || [])
+        const data: { checks?: QualityCheck[] } = await res.json()
+        setQualityChecks(data.checks ?? [])
       }
     } catch { /* non-critical */ }
-  }
+  }, [id])
 
   useEffect(() => {
-    fetchConnector()
-    fetchHistory()
-    fetchSchedule()
-    fetchQuality()
-  }, [id])
+    const initial = window.setTimeout(() => {
+      void fetchConnector()
+      void fetchHistory()
+      void fetchSchedule()
+      void fetchQuality()
+    }, 0)
+    return () => window.clearTimeout(initial)
+  }, [fetchConnector, fetchHistory, fetchQuality, fetchSchedule])
 
   // ── Sync Now (SSE → live session in history) ───────────────────────────────
 
@@ -1065,7 +1100,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
       {confirmDelete && !deleting && (
         <div className="text-sm text-destructive px-1 flex items-center gap-1">
           <AlertTriangle className="h-4 w-4" />
-          Click "Confirm Delete" to permanently remove this connector.
+          Click &quot;Confirm Delete&quot; to permanently remove this connector.
           <Button variant="ghost" size="sm" className="ml-2 h-6 px-2 text-xs" onClick={() => setConfirmDelete(false)}>Cancel</Button>
         </div>
       )}
@@ -1196,6 +1231,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
 
         {/* Schedule */}
         <ScheduleCard
+          key={schedule ?? "off"}
           schedule={schedule}
           savingSchedule={savingSchedule}
           scheduleMsg={scheduleMsg}
@@ -1241,7 +1277,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           <CardContent className="p-0">
             {/* Group by table, show latest check per table */}
             {(() => {
-              const byTable: Record<string, any> = {}
+              const byTable: Record<string, QualityCheck> = {}
               for (const c of qualityChecks) {
                 if (!byTable[c.source_table]) byTable[c.source_table] = c
               }
@@ -1277,14 +1313,14 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                   </div>
 
                   {/* Warnings */}
-                  {check.warnings?.length > 0 && (
+                  {(check.warnings ?? []).length > 0 && (
                     <div className="space-y-1 mb-2">
-                      {check.warnings.map((w: any, i: number) => (
+                      {(check.warnings ?? []).map((warning, i) => (
                         <div key={i} className={`text-[10px] px-2 py-1 rounded flex items-start gap-1.5 ${
-                          w.severity === "alert" ? "bg-destructive/10 text-destructive" : "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]"
+                          warning.severity === "alert" ? "bg-destructive/10 text-destructive" : "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]"
                         }`}>
-                          <span>{w.severity === "alert" ? "⚠" : "○"}</span>
-                          <span>{w.message}</span>
+                          <span>{warning.severity === "alert" ? "⚠" : "○"}</span>
+                          <span>{warning.message}</span>
                         </div>
                       ))}
                     </div>
@@ -1292,27 +1328,27 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
 
                   {/* Null rates — only show problematic columns */}
                   {Object.entries(check.null_checks || {})
-                    .filter(([, v]: [string, any]) => v.null_rate > 0)
-                    .sort(([, a]: [string, any], [, b]: [string, any]) => b.null_rate - a.null_rate)
+                    .filter(([, value]) => value.null_rate > 0)
+                    .sort(([, left], [, right]) => right.null_rate - left.null_rate)
                     .slice(0, 5)
-                    .map(([col, v]: [string, any]) => (
+                    .map(([col, value]) => (
                       <div key={col} className="flex items-center gap-2 mt-1">
                         <span className="font-mono text-[10px] text-muted-foreground w-32 truncate">{col}</span>
                         <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
                           <div
                             className={`h-full rounded-full ${
-                              v.status === "alert" ? "bg-destructive" :
-                              v.status === "warning" ? "bg-[var(--dp-warn)]" :
+                              value.status === "alert" ? "bg-destructive" :
+                              value.status === "warning" ? "bg-[var(--dp-warn)]" :
                               "bg-primary/40"
                             }`}
-                            style={{ width: `${Math.min(v.null_rate, 100)}%` }}
+                            style={{ width: `${Math.min(value.null_rate, 100)}%` }}
                           />
                         </div>
                         <span className={`text-[10px] font-mono w-10 text-right ${
-                          v.status === "alert" ? "text-destructive" :
-                          v.status === "warning" ? "text-[var(--dp-warn)]" :
+                          value.status === "alert" ? "text-destructive" :
+                          value.status === "warning" ? "text-[var(--dp-warn)]" :
                           "text-muted-foreground"
-                        }`}>{v.null_rate}%</span>
+                        }`}>{value.null_rate}%</span>
                       </div>
                     ))}
                 </div>

@@ -2,7 +2,7 @@
 
 import {
   Home, Database, FlaskConical, Code2, Settings, Activity,
-  Workflow, BarChart3, BookOpen, HelpCircle, FileCode,
+  BarChart3, BookOpen, HelpCircle, FileCode,
   HardDrive, Radio, ArrowDownToLine, ShieldCheck, LogOut, User, GitBranch, Server,
   Sparkles, Bot,
 } from "lucide-react"
@@ -11,6 +11,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { getUser, logout, type AuthUser } from "@/lib/auth"
 import { useCapabilities } from "@/lib/capabilities"
+import { getProductProfile } from "@/lib/product-profile"
 
 import {
   Sidebar,
@@ -38,43 +39,47 @@ type NavSection = {
   items: NavItem[]
 }
 
-// Grouped by the data workflow (mirrors the design direction): Build gets data
-// in, organizes, and queries it; Analyze puts it to work; Manage is operations.
-// Capability-gated items hide themselves on the foundation profile, so live this
-// renders lean (Build: Connectors·Catalog·SQL Lab / Analyze: Knowledge·Governance·Dashboards).
+// Core product workflows stay visible in every profile. Optional data and
+// workload modules fail closed until /api/capabilities explicitly enables them.
 const mainSections: NavSection[] = [
   {
-    label: "Build",
-    hint: "Bring data in, organize it, query it",
+    label: "Build AI",
+    hint: "Ground and serve AI applications",
     items: [
-      { title: "Connectors",  url: "/connectors", icon: ArrowDownToLine, capability: "connectors" },
-      { title: "Streaming",   url: "/streaming",  icon: Radio,           capability: "streaming" },
-      { title: "Transforms",  url: "/pipelines",  icon: GitBranch,       capability: "pipelines" },
-      { title: "Catalog",     url: "/catalog",    icon: Database,        capability: "catalog" },
-      { title: "SQL Lab",     url: "/query",      icon: Code2,           capability: "query" },
-    ]
+      { title: "Knowledge",  url: "/knowledge", icon: Sparkles },
+      { title: "AI Gateway", url: "/ai",        icon: Bot },
+    ],
   },
   {
-    label: "Analyze",
-    hint: "Knowledge, BI, and governance",
+    label: "Data",
+    hint: "Optional ingestion, catalog, and query adapters",
     items: [
-      { title: "Knowledge",    url: "/knowledge",   icon: Sparkles },
-      { title: "AI Gateway",   url: "/ai",          icon: Bot },
-      { title: "Governance",   url: "/governance",  icon: ShieldCheck },
-      { title: "Dashboards",   url: "/dashboards",  icon: BarChart3,    capability: "dashboards" },
-      { title: "Notebooks",    url: "/notebooks",   icon: FileCode,     capability: "notebooks" },
-      { title: "Experiments",  url: "/experiments", icon: FlaskConical, capability: "experiments" },
-    ]
+      { title: "Sources", url: "/connectors", icon: ArrowDownToLine, capability: "connectors" },
+      { title: "Catalog", url: "/catalog",    icon: Database,        capability: "catalog" },
+      { title: "SQL Lab", url: "/query",      icon: Code2,           capability: "query" },
+    ],
   },
   {
-    label: "Manage",
-    hint: "",
+    label: "Add-ons",
+    hint: "Capability-gated data and ML workloads",
     items: [
-      { title: "Storage",      url: "/storage",     icon: HardDrive },
-      { title: "Services",     url: "/services",    icon: Activity },
-      { title: "System",       url: "/system",      icon: Server },
-      { title: "Settings",     url: "/settings",    icon: Settings },
-    ]
+      { title: "Transforms",  url: "/pipelines",   icon: GitBranch,      capability: "pipelines" },
+      { title: "Streaming",   url: "/streaming",   icon: Radio,          capability: "streaming" },
+      { title: "Dashboards",  url: "/dashboards",  icon: BarChart3,      capability: "dashboards" },
+      { title: "Notebooks",   url: "/notebooks",   icon: FileCode,       capability: "notebooks" },
+      { title: "Experiments", url: "/experiments", icon: FlaskConical,   capability: "experiments" },
+    ],
+  },
+  {
+    label: "Operate",
+    hint: "Govern and run the foundation",
+    items: [
+      { title: "Governance", url: "/governance", icon: ShieldCheck },
+      { title: "Storage",    url: "/storage",    icon: HardDrive },
+      { title: "Services",   url: "/services",   icon: Activity },
+      { title: "System",     url: "/system",     icon: Server },
+      { title: "Settings",   url: "/settings",   icon: Settings },
+    ],
   },
 ]
 
@@ -86,17 +91,16 @@ const bottomItems = [
 export function AppSidebar() {
   const pathname  = usePathname()
   const router    = useRouter()
-  const [user, setUser] = useState<AuthUser | null>(null)
+  const [user] = useState<AuthUser | null>(() => getUser())
   const { setOpenMobile } = useSidebar()
   const caps = useCapabilities()
-
-  useEffect(() => { setUser(getUser()) }, [])
+  const profile = getProductProfile(caps)
 
   // Mobile: close the offcanvas sheet after navigating — otherwise the open
   // sheet hides the page the user just tapped to.
   useEffect(() => { setOpenMobile(false) }, [pathname, setOpenMobile])
 
-  const isActive = (url: string) => pathname === url
+  const isActive = (url: string) => pathname === url || pathname.startsWith(`${url}/`)
 
   const handleLogout = async () => {
     await logout()
@@ -114,13 +118,24 @@ export function AppSidebar() {
           </div>
           <div className="min-w-0 leading-tight">
             <h1 className="text-[15px] font-bold tracking-tight">DataPond</h1>
-            <p className="text-[10.5px] font-medium text-muted-foreground">AI Data Foundation</p>
+            <p className="text-[10.5px] font-medium text-muted-foreground">Portable AI Data Foundation</p>
           </div>
+        </div>
+
+        {/* Active deployment identity — metadata only; capabilities remain authoritative. */}
+        <div className="mx-3 mb-3 rounded-lg border bg-muted/40 px-3 py-2" title={profile.description}>
+          <div className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            <p className="truncate text-[11px] font-semibold">{profile.label}</p>
+          </div>
+          <p className="mt-0.5 truncate pl-3.5 text-[9.5px] capitalize text-muted-foreground">
+            {profile.maturity.replaceAll("-", " ")} · {profile.topology.replaceAll("-", " ")}
+          </p>
         </div>
 
         {/* Dashboard — top-level, no section label */}
         <div className="px-2 pb-1 shrink-0">
-          <Link href="/dashboard">
+          <Link href="/dashboard" aria-current={isActive("/dashboard") ? "page" : undefined}>
             <SidebarMenuButton isActive={isActive("/dashboard")}>
               <Home />
               <span>Dashboard</span>
@@ -132,7 +147,7 @@ export function AppSidebar() {
         <div className="flex-1 overflow-y-auto">
           {mainSections.map((section) => {
             const visibleItems = section.items.filter(
-              (item) => item.capability === undefined || caps[item.capability] !== false
+              (item) => item.capability === undefined || caps[item.capability] === true
             )
             if (visibleItems.length === 0) return null
             return (
@@ -150,7 +165,7 @@ export function AppSidebar() {
                             </SidebarMenuButton>
                           </a>
                         ) : (
-                          <Link href={item.url}>
+                          <Link href={item.url} aria-current={isActive(item.url) ? "page" : undefined}>
                             <SidebarMenuButton isActive={isActive(item.url)}>
                               <item.icon />
                               <span>{item.title}</span>
@@ -171,7 +186,7 @@ export function AppSidebar() {
           <SidebarMenu>
             {bottomItems.map((item) => (
               <SidebarMenuItem key={item.title}>
-                <Link href={item.url}>
+                <Link href={item.url} aria-current={isActive(item.url) ? "page" : undefined}>
                   <SidebarMenuButton isActive={isActive(item.url)}>
                     <item.icon />
                     <span>{item.title}</span>
@@ -184,7 +199,7 @@ export function AppSidebar() {
           {/* User info + logout */}
           {user && (
             <div className="mt-2 pt-2 border-t">
-              <div className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 group">
+              <div className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50 focus-within:bg-muted/50">
                 <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                   <User className="h-3.5 w-3.5 text-primary" />
                 </div>
@@ -195,7 +210,7 @@ export function AppSidebar() {
                 <button
                   onClick={handleLogout}
                   aria-label="Sign out" title="Sign out"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/10 hover:text-destructive"
+                  className="rounded p-1 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
                   <LogOut className="h-3.5 w-3.5" />
                 </button>

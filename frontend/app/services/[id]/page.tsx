@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
+import { useCallback, useEffect, useState, useRef } from "react"
 import { useConfirm } from "@/lib/confirm"
 import { useParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -42,8 +42,9 @@ import {
 import { LogsViewer } from "@/components/services/logs-viewer"
 import { MetricsChart, type ServiceMetricsData } from "@/components/services/metrics-chart"
 import { PodList } from "@/components/services/pod-list"
+import { getUser } from "@/lib/auth"
 
-// Only services that actually expose a sub-path console. Trino / SeaweedFS UIs
+// Only services that actually expose a sub-path console. Trino / MinIO UIs
 // don't support sub-path hosting and AWS-managed services have no in-cluster UI.
 const EXTERNAL_URLS: Record<string, string> = {
   jupyterlab:   "/jupyter",
@@ -94,6 +95,7 @@ export default function ServiceDetailPage() {
   const params = useParams()
   const router = useRouter()
   const serviceId = params.id as string
+  const [isAdmin] = useState(() => getUser()?.role === "admin")
 
   const [service, setService] = useState<ServiceDetail | null>(null)
   const [logs, setLogs] = useState<string[]>([])
@@ -105,12 +107,12 @@ export default function ServiceDetailPage() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [showScaleDialog, setShowScaleDialog] = useState(false)
   const [scaleValue, setScaleValue] = useState(1)
-  const [activeTab, setActiveTab] = useState("overview")
+  const [activeTab, setActiveTab] = useState("logs")
   const [selectedPod, setSelectedPod] = useState<string | null>(null)
   const [logsLoading, setLogsLoading] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
 
-  const fetchServiceDetail = async () => {
+  const fetchServiceDetail = useCallback(async () => {
     try {
       setLoading(true)
       const response = await fetch(`/api/services/${serviceId}`)
@@ -129,9 +131,9 @@ export default function ServiceDetailPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [serviceId])
 
-  const fetchLogs = async (podName?: string | null) => {
+  const fetchLogs = useCallback(async (podName?: string | null) => {
     try {
       setLogsLoading(true)
       const params = new URLSearchParams({ lines: "200" })
@@ -146,9 +148,9 @@ export default function ServiceDetailPage() {
     } finally {
       setLogsLoading(false)
     }
-  }
+  }, [serviceId])
 
-  const fetchPods = async () => {
+  const fetchPods = useCallback(async () => {
     try {
       const response = await fetch(`/api/services/${serviceId}/pods`)
       if (!response.ok) {
@@ -171,9 +173,9 @@ export default function ServiceDetailPage() {
     } catch (error) {
       console.error("Failed to fetch pods:", error)
     }
-  }
+  }, [serviceId])
 
-  const fetchMetrics = async () => {
+  const fetchMetrics = useCallback(async () => {
     try {
       setMetricsLoading(true)
       const response = await fetch(`/api/services/${serviceId}/metrics`)
@@ -184,7 +186,7 @@ export default function ServiceDetailPage() {
     } finally {
       setMetricsLoading(false)
     }
-  }
+  }, [serviceId])
 
   const confirm = useConfirm()
   const handleRestart = async () => {
@@ -239,6 +241,7 @@ export default function ServiceDetailPage() {
   }
 
   const toggleLogStreaming = (streaming: boolean) => {
+    if (!isAdmin) return
     setIsStreaming(streaming)
 
     if (streaming) {
@@ -278,30 +281,33 @@ export default function ServiceDetailPage() {
   }
 
   useEffect(() => {
-    fetchServiceDetail()
-    fetchLogs()
-    fetchPods()
-    fetchMetrics()
-
-    const serviceInterval = setInterval(fetchServiceDetail, 30000)
-    const podsInterval = setInterval(fetchPods, 5000)
-    const metricsInterval = setInterval(fetchMetrics, 10000)
+    const initial = window.setTimeout(() => {
+      void fetchServiceDetail()
+      void fetchLogs()
+      void fetchPods()
+      void fetchMetrics()
+    }, 0)
+    const serviceInterval = window.setInterval(() => void fetchServiceDetail(), 30000)
+    const podsInterval = window.setInterval(() => void fetchPods(), 5000)
+    const metricsInterval = window.setInterval(() => void fetchMetrics(), 10000)
 
     return () => {
-      clearInterval(serviceInterval)
-      clearInterval(podsInterval)
-      clearInterval(metricsInterval)
+      window.clearTimeout(initial)
+      window.clearInterval(serviceInterval)
+      window.clearInterval(podsInterval)
+      window.clearInterval(metricsInterval)
       if (wsRef.current) {
         wsRef.current.close()
       }
     }
-  }, [serviceId])
+  }, [fetchLogs, fetchMetrics, fetchPods, fetchServiceDetail])
 
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "healthy":
-      case "managed":
         return <CheckCircle2 className="h-4 w-4 text-[var(--dp-good)]" />
+      case "managed":
+        return <ExternalLink className="h-4 w-4 text-muted-foreground" />
       case "unhealthy":
         return <AlertCircle className="h-4 w-4 text-destructive" />
       default:
@@ -317,9 +323,9 @@ export default function ServiceDetailPage() {
         return <Badge variant="destructive">Unhealthy</Badge>
       case "managed":
         return (
-          <Badge variant="outline" className="border-[var(--dp-good)] text-[var(--dp-good)]">
-            <CheckCircle2 className="mr-1 h-3 w-3" />
-            AWS managed
+          <Badge variant="outline">
+            <ExternalLink className="mr-1 h-3 w-3" />
+            Configured adapter
           </Badge>
         )
       default:
@@ -354,7 +360,7 @@ export default function ServiceDetailPage() {
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Service not found</AlertTitle>
           <AlertDescription>
-            The service "{serviceId}" could not be found.
+            The service &ldquo;{serviceId}&rdquo; could not be found.
           </AlertDescription>
         </Alert>
         <Button className="mt-4" onClick={() => router.push("/dashboard")}>
@@ -410,7 +416,7 @@ export default function ServiceDetailPage() {
             <RefreshCw className="mr-2 h-4 w-4" />
             Refresh
           </Button>
-          {!isManaged && (
+          {isAdmin && !isManaged && (
             <>
               <Button
                 variant="outline"
@@ -458,63 +464,65 @@ export default function ServiceDetailPage() {
           <CardContent>
             <div className="flex items-center gap-2">
               {getStatusIcon(service.status)}
-              <span className="text-2xl font-bold capitalize">{service.status}</span>
+              <span className="text-2xl font-bold capitalize">{isManaged ? "Configured" : service.status}</span>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">CPU Usage</CardTitle>
-              <Cpu className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {service.cpu_usage ? `${service.cpu_usage.toFixed(1)}%` : "N/A"}
-            </div>
-          </CardContent>
-        </Card>
+        {!isManaged && (
+          <>
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium">CPU Usage</CardTitle>
+                  <Cpu className="h-4 w-4 text-muted-foreground" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {service.cpu_usage != null ? `${service.cpu_usage.toFixed(1)}%` : "N/A"}
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Memory</CardTitle>
-              <MemoryStick className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {service.memory_usage ? `${service.memory_usage.toFixed(1)}%` : "N/A"}
-            </div>
-          </CardContent>
-        </Card>
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium">Memory</CardTitle>
+                  <MemoryStick className="h-4 w-4 text-muted-foreground" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {service.memory_usage != null ? `${service.memory_usage.toFixed(1)}%` : "N/A"}
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Replicas</CardTitle>
-              <HardDrive className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{service.replicas || 1}</div>
-          </CardContent>
-        </Card>
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium">Replicas</CardTitle>
+                  <HardDrive className="h-4 w-4 text-muted-foreground" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{service.replicas ?? "N/A"}</div>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
 
-      {/* Managed services have no in-cluster pods to inspect or control */}
+      {/* Configured external adapters have no in-cluster pods to inspect or control. */}
       {isManaged ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Managed by AWS</CardTitle>
+            <CardTitle className="text-base">Configured external adapter</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              Managed by AWS — no pod controls. This service runs as an AWS-managed
-              resource, so scaling, restarts, pod inspection, and log streaming are
-              handled by AWS and are not available here.
+              This adapter is configured in the active deployment profile, but DataPond has not performed a live provider health check here. Verify availability with the provider console or service-specific diagnostics. Pod scaling, restarts, logs, and replica metrics do not apply to this view.
             </p>
           </CardContent>
         </Card>
@@ -552,6 +560,7 @@ export default function ServiceDetailPage() {
               logs={logs}
               isStreaming={isStreaming}
               onToggleStream={toggleLogStreaming}
+              canStream={isAdmin}
             />
           )}
         </TabsContent>
@@ -568,7 +577,7 @@ export default function ServiceDetailPage() {
               fetchLogs(podName)
               setActiveTab("logs")
             }}
-            onDeletePod={handleDeletePod}
+            onDeletePod={isAdmin ? handleDeletePod : undefined}
             onRefresh={fetchPods}
           />
         </TabsContent>
@@ -694,7 +703,7 @@ export default function ServiceDetailPage() {
               onChange={(e) => setScaleValue(parseInt(e.target.value) || 1)}
             />
             <p className="text-xs text-muted-foreground mt-2">
-              Current replicas: {service.replicas || 1}
+              Current replicas: {service.replicas ?? "unknown"}
             </p>
           </div>
           <DialogFooter>

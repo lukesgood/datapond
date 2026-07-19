@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
@@ -65,11 +65,12 @@ export default function StoragePage() {
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null)
   const [objects, setObjects] = useState<S3Object[]>([])
   const [objectsLoading, setObjectsLoading] = useState(false)
+  const [objectsError, setObjectsError] = useState<string | null>(null)
   const [newBucketName, setNewBucketName] = useState("")
   const [creating, setCreating] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
 
-  const loadOverview = async () => {
+  const loadOverview = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -77,21 +78,24 @@ export default function StoragePage() {
       if (!res.ok) throw new Error(`${res.status}`)
       setOverview(await res.json())
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load storage")
+      setOverview(null)
+      setError(e instanceof Error ? `Failed to load storage overview (HTTP ${e.message})` : "Failed to load storage overview")
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   const loadObjects = async (bucket: string) => {
     setObjectsLoading(true)
     setObjects([])
+    setObjectsError(null)
     try {
       const res = await fetch(`/api/storage/buckets/${encodeURIComponent(bucket)}/objects?limit=100`)
       if (!res.ok) throw new Error(`${res.status}`)
       setObjects(await res.json())
-    } catch {
+    } catch (requestError) {
       setObjects([])
+      setObjectsError(requestError instanceof Error ? `Failed to load objects (HTTP ${requestError.message})` : "Failed to load objects")
     } finally {
       setObjectsLoading(false)
     }
@@ -143,20 +147,19 @@ export default function StoragePage() {
     }
   }
 
-  useEffect(() => { loadOverview() }, [])
+  useEffect(() => {
+    const initial = window.setTimeout(() => void loadOverview(), 0)
+    return () => window.clearTimeout(initial)
+  }, [loadOverview])
 
-  // On native AWS (S3 via node instance profile / IRSA), bucket lifecycle is managed
-  // by the account/Terraform — the overview only lists the one configured bucket, so
-  // a newly-created bucket would never appear (dead-end), and deleting the sole
-  // warehouse bucket (e.g. datapond-iceberg) would break the platform. Hide the
-  // create/delete actions in that case; browsing stays read-only and available.
-  // Native AWS: buckets are provisioned by the AWS account / Terraform, and the
-  // overview only lists the configured bucket(s) — so hide create/delete here.
-  // Self-hosted S3 (SeaweedFS/MinIO) enumerates all buckets and manages lifecycle
-  // in-app, so it keeps create/delete regardless of count.
-  // Unknown (loading) → treat as managed (fail-closed on mutations) so the
-  // controls don't flash then vanish on the foundation profile.
+  // Native S3 buckets are provisioned by the cloud account/Terraform, so lifecycle
+  // mutations fail closed. S3-compatible profiles retain in-app bucket management.
   const bucketLifecycleManaged = !overview || overview.endpoint === "aws-native"
+  const storageLabel = !overview
+    ? "Object storage"
+    : overview.endpoint === "aws-native"
+      ? "Amazon S3"
+      : "S3-compatible storage"
 
   return (
     <div className="flex-1 space-y-5 px-6 py-5">
@@ -166,7 +169,7 @@ export default function StoragePage() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Object Storage</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Amazon S3 object storage
+            {storageLabel} through the S3 API
           </p>
         </div>
         <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs"
@@ -177,12 +180,12 @@ export default function StoragePage() {
       </div>
 
       {/* Error */}
-      {error && <ErrorBox msg={error} />}
+      {error && <div role="alert" aria-live="polite"><ErrorBox msg={error} /></div>}
 
-      {/* Stats strip */}
-      <div className="grid grid-cols-4 gap-3">
+      {/* Stats strip: failed requests never fall through to fabricated zero values. */}
+      {(loading || overview) && <div className="grid grid-cols-4 gap-3">
         {[
-          { label: "Endpoint",       value: loading ? null : "Amazon S3",        sub: overview?.endpoint ?? "", icon: HardDrive },
+          { label: "Endpoint",       value: loading ? null : storageLabel,       sub: overview?.endpoint ?? "", icon: HardDrive },
           { label: "Buckets",        value: loading ? null : overview?.bucket_count ?? 0, sub: "Total buckets", icon: Database },
           { label: "Total Objects",  value: loading ? null : (overview?.total_object_count ?? 0).toLocaleString(), sub: "Objects stored", icon: FileText },
           { label: "Total Size",     value: loading ? null : (overview?.total_size_human ?? "0 B"), sub: "Storage used", icon: Package },
@@ -201,10 +204,10 @@ export default function StoragePage() {
             </CardContent>
           </Card>
         ))}
-      </div>
+      </div>}
 
-      {/* Main content */}
-      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-5">
+      {/* Main content is rendered only after a successful overview response. */}
+      {overview && <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-5">
 
         {/* Left: Bucket list */}
         <div className="space-y-3">
@@ -240,7 +243,7 @@ export default function StoragePage() {
                     {creating ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                   </Button>
                 </div>
-                {actionError && <ErrorBox msg={actionError} />}
+                {actionError && <div role="alert" aria-live="polite"><ErrorBox msg={actionError} /></div>}
                 <p className="text-[11px] text-muted-foreground">
                   Lowercase letters, numbers, and hyphens only
                 </p>
@@ -270,56 +273,60 @@ export default function StoragePage() {
                   <Database className="h-8 w-8 text-muted-foreground/30 mb-2" />
                   <p className="text-sm text-muted-foreground">No buckets yet</p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
-                    Create your first bucket above
+                    {bucketLifecycleManaged
+                      ? "Create a bucket in your AWS account/Terraform, then refresh"
+                      : "Create your first bucket above"}
                   </p>
                 </div>
               ) : (
                 <div className="divide-y">
                   {overview.buckets.map(b => (
-                    <button
+                    <div
                       key={b.name}
-                      onClick={() => handleSelectBucket(b.name)}
-                      className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50
-                        transition-colors text-left group
+                      className={`group flex items-stretch transition-colors hover:bg-muted/50
                         ${selectedBucket === b.name ? "bg-muted/60" : ""}`}
                     >
-                      <FolderOpen className={`h-4 w-4 shrink-0 ${
-                        selectedBucket === b.name ? "text-primary" : "text-muted-foreground"
-                      }`} />
-                      <div className="flex-1 min-w-0 space-y-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-medium truncate">{b.name}</span>
-                          <span className="text-[11px] text-muted-foreground shrink-0">
-                            {b.total_size_human}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                          <span>{b.object_count.toLocaleString()} objects</span>
-                          {b.created_at && (
-                            <span>
-                              {formatDistanceToNow(new Date(b.created_at), { addSuffix: true })}
+                      <button
+                        type="button"
+                        onClick={() => handleSelectBucket(b.name)}
+                        className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"
+                        aria-pressed={selectedBucket === b.name}
+                      >
+                        <FolderOpen className={`h-4 w-4 shrink-0 ${
+                          selectedBucket === b.name ? "text-primary" : "text-muted-foreground"
+                        }`} />
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-sm font-medium">{b.name}</span>
+                            <span className="shrink-0 text-[11px] text-muted-foreground">
+                              {b.total_size_human}
                             </span>
-                          )}
+                          </div>
+                          <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                            <span>{b.object_count.toLocaleString()} objects</span>
+                            {b.created_at && (
+                              <span>
+                                {formatDistanceToNow(new Date(b.created_at), { addSuffix: true })}
+                              </span>
+                            )}
+                          </div>
+                          {overview.total_size_bytes > 0 && sizeBar(b.total_size_bytes, overview.total_size_bytes)}
                         </div>
-                        {overview && overview.total_size_bytes > 0 && (
-                          sizeBar(b.total_size_bytes, overview.total_size_bytes)
-                        )}
-                      </div>
-                      <div className="flex flex-col items-center gap-1 shrink-0">
-                        <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground/50
+                        <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-muted-foreground/50
                           ${selectedBucket === b.name ? "text-primary" : ""}`} />
-                        {!bucketLifecycleManaged && (
-                          <button
-                            onClick={e => { e.stopPropagation(); handleDeleteBucket(b.name) }}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity
-                              text-muted-foreground hover:text-destructive"
-                            aria-label="Delete bucket" title="Delete bucket"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        )}
-                      </div>
-                    </button>
+                      </button>
+                      {!bucketLifecycleManaged && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteBucket(b.name)}
+                          className="mr-2 self-center rounded p-2 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus:opacity-100 group-hover:opacity-100"
+                          aria-label={`Delete bucket ${b.name}`}
+                          title={`Delete bucket ${b.name}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}
@@ -365,6 +372,13 @@ export default function StoragePage() {
               <div className="p-4 space-y-2">
                 {Array(5).fill(0).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}
               </div>
+            ) : objectsError ? (
+              <div className="p-4" role="alert" aria-live="polite">
+                <ErrorBox
+                  msg={objectsError}
+                  action={<Button size="sm" variant="outline" onClick={() => loadObjects(selectedBucket)}>Retry</Button>}
+                />
+              </div>
             ) : objects.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-48 text-center px-4">
                 <FileText className="h-8 w-8 text-muted-foreground/20 mb-2" />
@@ -401,7 +415,7 @@ export default function StoragePage() {
             )}
           </CardContent>
         </Card>
-      </div>
+      </div>}
     </div>
   )
 }

@@ -15,7 +15,7 @@ interface ChartSelectorProps {
   onTypeChange: (type: ChartType) => void
 }
 
-const chartTypes: { type: ChartType; icon: any; label: string }[] = [
+const chartTypes: { type: ChartType; icon: React.ComponentType<{ className?: string }>; label: string }[] = [
   { type: "table", icon: TableIcon, label: "Table" },
   { type: "line", icon: LineChartIcon, label: "Line" },
   { type: "bar", icon: BarChart3, label: "Bar" },

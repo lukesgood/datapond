@@ -1,6 +1,5 @@
 "use client"
 
-import { useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
@@ -11,10 +10,24 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ConnectorField } from "@/lib/connectors"
 import { Loader2, CheckCircle2, XCircle } from "lucide-react"
 
+type ConnectionValue = string | number | boolean | null | undefined
+
+function toInputValue(value: ConnectionValue): string | number {
+  return typeof value === "string" || typeof value === "number" ? value : ""
+}
+
+function toChecked(value: ConnectionValue): boolean {
+  return typeof value === "boolean" ? value : false
+}
+
+function toSelectValue(value: ConnectionValue): string | undefined {
+  return typeof value === "string" ? value : undefined
+}
+
 interface ConnectionFormProps {
   fields: ConnectorField[]
-  values: Record<string, any>
-  onChange: (name: string, value: any) => void
+  values: Record<string, ConnectionValue>
+  onChange: (name: string, value: ConnectionValue) => void
   onTest?: () => Promise<void>
   testStatus?: "idle" | "testing" | "success" | "error"
   testMessage?: string
@@ -42,7 +55,7 @@ export function ConnectionForm({
               <Textarea
                 id={field.name}
                 placeholder={field.placeholder}
-                value={values[field.name] || ""}
+                value={toInputValue(values[field.name] || "")}
                 onChange={(e) => onChange(field.name, e.target.value)}
                 required={field.required}
                 className="font-mono text-sm min-h-[180px]"
@@ -52,7 +65,7 @@ export function ConnectionForm({
                 id={field.name}
                 type={field.type}
                 placeholder={field.placeholder}
-                value={values[field.name] || ""}
+                value={toInputValue(values[field.name] || "")}
                 onChange={(e) => onChange(field.name, e.target.value)}
                 required={field.required}
               />
@@ -61,7 +74,7 @@ export function ConnectionForm({
                 id={field.name}
                 type="number"
                 placeholder={field.placeholder}
-                value={values[field.name] || field.default || ""}
+                value={toInputValue(values[field.name] || field.default || "")}
                 onChange={(e) => {
                   const v = parseInt(e.target.value)
                   onChange(field.name, isNaN(v) ? (field.default ?? "") : v)
@@ -72,7 +85,7 @@ export function ConnectionForm({
               <div className="flex items-center space-x-2">
                 <Switch
                   id={field.name}
-                  checked={values[field.name] || field.default || false}
+                  checked={toChecked(values[field.name] || field.default || false)}
                   onCheckedChange={(checked) => onChange(field.name, checked)}
                 />
                 <Label htmlFor={field.name} className="cursor-pointer">
@@ -81,7 +94,7 @@ export function ConnectionForm({
               </div>
             ) : field.type === "select" ? (
               <Select
-                value={values[field.name] || field.default}
+                value={toSelectValue(values[field.name] || field.default)}
                 onValueChange={(value) => onChange(field.name, value)}
               >
                 <SelectTrigger>

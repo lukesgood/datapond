@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, Suspense } from "react"
+import { useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -57,6 +57,53 @@ const SOURCES = [
 
 type SourceId = typeof SOURCES[number]["id"]
 type SourceType = "cdc" | "event" | "custom"
+type StreamingResourceType = "sources" | "views" | "sinks"
+
+interface CreatedResource {
+  type: StreamingResourceType
+  name: string
+}
+
+interface CdcPipelineResult {
+  tables_total: number
+  tables_success: number
+  tables_failed: number
+  results: Array<{ table: string; status: string; error?: string | null }>
+}
+
+async function responseError(response: Response, fallback: string) {
+  try {
+    const data = await response.json()
+    return typeof data?.detail === "string" ? data.detail : fallback
+  } catch {
+    return fallback
+  }
+}
+
+async function rollbackCreatedResources(created: CreatedResource[]) {
+  const failures: string[] = []
+  let removed = 0
+  for (const resource of [...created].reverse()) {
+    try {
+      const response = await fetch(
+        `/api/streaming/${resource.type}/${encodeURIComponent(resource.name)}`,
+        { method: "DELETE" },
+      )
+      if (!response.ok) {
+        failures.push(
+          `${resource.name}: ${await responseError(response, "rollback failed")}`,
+        )
+      } else {
+        removed += 1
+      }
+    } catch (error) {
+      failures.push(
+        `${resource.name}: ${error instanceof Error ? error.message : "rollback failed"}`,
+      )
+    }
+  }
+  return { removed, failures }
+}
 
 // ── CDC Prerequisites Sidebar ─────────────────────────────────────────────────
 
@@ -204,11 +251,6 @@ function NewStreamingPipelineInner() {
   const [step, setStep] = useState<number | "confirm" | "done">(initialSource ? 2 : 1)
   const [selectedSource, setSelectedSource] = useState<SourceId | null>(initialSource)
 
-  // Preset event form source_type from query param
-  useEffect(() => {
-    if (sourceParam === "kinesis") setEventForm(p => ({ ...p, source_type: "kinesis" }))
-  }, [sourceParam])
-
   const sourceType: SourceType | null = selectedSource
     ? (SOURCES.find(s => s.id === selectedSource)?.type as SourceType) ?? null
     : null
@@ -262,7 +304,7 @@ function NewStreamingPipelineInner() {
   // ── Event form ────────────────────────────────────────────────────────────────
   const [eventForm, setEventForm] = useState({
     pipeline_name: "",
-    source_type: "kafka" as "kafka" | "kinesis",
+    source_type: (sourceParam === "kinesis" ? "kinesis" : "kafka") as "kafka" | "kinesis",
     topic: "",
     bootstrap_servers: "",
     stream_name: "",
@@ -275,7 +317,7 @@ function NewStreamingPipelineInner() {
   // ── Create state ──────────────────────────────────────────────────────────────
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
-  const [createResult, setCreateResult] = useState<any>(null)
+  const [createResult, setCreateResult] = useState<{ success: boolean; error?: string } | null>(null)
 
   // ── Derived step list ─────────────────────────────────────────────────────────
   const stepLabels =
@@ -321,9 +363,10 @@ function NewStreamingPipelineInner() {
   const handleCreate = async () => {
     setCreating(true)
     setCreateError(null)
+    setCreateResult(null)
     try {
       if (sourceType === "cdc") {
-        const res = await fetch("/api/streaming/cdc-pipeline", {
+        const response = await fetch("/api/streaming/cdc-pipeline", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -338,55 +381,94 @@ function NewStreamingPipelineInner() {
             iceberg_schema: cdcForm.iceberg_schema,
           }),
         })
-        const d = await res.json()
-        setCreateResult(d)
+        if (!response.ok) {
+          throw new Error(await responseError(response, "CDC pipeline creation failed"))
+        }
+        const result: CdcPipelineResult = await response.json()
+        if (result.tables_failed > 0) {
+          const failed = result.results
+            .filter(item => item.status !== "success")
+            .map(item => `${item.table}: ${item.error || "creation failed"}`)
+            .join("; ")
+          const partial = result.tables_success > 0
+            ? `Partial creation: ${result.tables_success}/${result.tables_total} tables succeeded; created objects were retained. `
+            : "No tables were created. "
+          throw new Error(`${partial}${failed}`)
+        }
+        setCreateResult({ success: true })
       } else {
-        // Event (Kafka / Kinesis): source → view → sink
-        const isKafka = eventForm.source_type === "kafka"
-        const srcRes = await fetch("/api/streaming/sources", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: `${eventForm.pipeline_name}_src`,
-            connector: eventForm.source_type,
-            topic: isKafka ? eventForm.topic : eventForm.stream_name,
-            bootstrap_servers: isKafka ? eventForm.bootstrap_servers : "",
-            format: "plain",
-            row_encode: eventForm.format,
-            extra_props: isKafka
-              ? {}
-              : { stream: eventForm.stream_name, "aws.region": eventForm.aws_region },
-            columns_sql: eventForm.columns_sql,
-          }),
-        })
-        if (!srcRes.ok) {
-          const d = await srcRes.json()
-          throw new Error(d.detail ?? "Source creation failed")
+        // Event (Kafka / Kinesis): source → view → sink. Track only successful
+        // creates so rollback never removes an object this attempt did not create.
+        const created: CreatedResource[] = []
+        const sourceName = `${eventForm.pipeline_name}_src`
+        const viewName = `${eventForm.pipeline_name}_mv`
+        const sinkName = `${eventForm.pipeline_name}_sink`
+        try {
+          const isKafka = eventForm.source_type === "kafka"
+          const sourceResponse = await fetch("/api/streaming/sources", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: sourceName,
+              connector: eventForm.source_type,
+              topic: isKafka ? eventForm.topic : eventForm.stream_name,
+              bootstrap_servers: isKafka ? eventForm.bootstrap_servers : "",
+              format: "plain",
+              row_encode: eventForm.format,
+              extra_props: isKafka
+                ? {}
+                : { stream: eventForm.stream_name, "aws.region": eventForm.aws_region },
+              columns_sql: eventForm.columns_sql,
+            }),
+          })
+          if (!sourceResponse.ok) {
+            throw new Error(await responseError(sourceResponse, "Source creation failed"))
+          }
+          created.push({ type: "sources", name: sourceName })
+
+          const viewResponse = await fetch("/api/streaming/views", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: viewName,
+              definition: `SELECT * FROM ${sourceName}`,
+            }),
+          })
+          if (!viewResponse.ok) {
+            throw new Error(await responseError(viewResponse, "View creation failed"))
+          }
+          created.push({ type: "views", name: viewName })
+
+          const sinkResponse = await fetch("/api/streaming/sinks", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: sinkName,
+              from_mv: viewName,
+              connector: "iceberg",
+              sink_type: "append-only",
+              iceberg_schema: eventForm.iceberg_schema,
+              iceberg_table: eventForm.pipeline_name,
+            }),
+          })
+          if (!sinkResponse.ok) {
+            throw new Error(await responseError(sinkResponse, "Sink creation failed"))
+          }
+          created.push({ type: "sinks", name: sinkName })
+        } catch (error) {
+          const cause = error instanceof Error ? error.message : "Pipeline creation failed"
+          if (created.length === 0) {
+            throw new Error(`${cause}. No resources were created.`)
+          }
+          const rollback = await rollbackCreatedResources(created)
+          if (rollback.failures.length === 0) {
+            throw new Error(`${cause}. Rollback removed all ${rollback.removed} created resources.`)
+          }
+          throw new Error(
+            `${cause}. Rollback incomplete: removed ${rollback.removed}/${created.length}; ` +
+            `failed to remove ${rollback.failures.join("; ")}`,
+          )
         }
-        const mvRes = await fetch("/api/streaming/views", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: `${eventForm.pipeline_name}_mv`,
-            definition: `SELECT * FROM ${eventForm.pipeline_name}_src`,
-          }),
-        })
-        if (!mvRes.ok) {
-          const d = await mvRes.json()
-          throw new Error(d.detail ?? "View creation failed")
-        }
-        await fetch("/api/streaming/sinks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: `${eventForm.pipeline_name}_sink`,
-            from_mv: `${eventForm.pipeline_name}_mv`,
-            connector: "iceberg",
-            sink_type: "append-only",
-            iceberg_schema: eventForm.iceberg_schema,
-            iceberg_table: eventForm.pipeline_name,
-          }),
-        })
         setCreateResult({ success: true })
       }
       setStep("done")
@@ -928,7 +1010,7 @@ function NewStreamingPipelineInner() {
 
     // ── Done ───────────────────────────────────────────────────────────────────
     if (step === "done") {
-      const success = !createResult?.error
+      const success = createResult?.success === true
       return (
         <div className="flex flex-col items-center py-10 space-y-5 text-center">
           {success ? (
@@ -1058,11 +1140,6 @@ function NewStreamingPipelineInner() {
   }
 
   // ── Page ───────────────────────────────────────────────────────────────────────
-
-  const currentStepNum =
-    step === "done" || step === "confirm"
-      ? stepLabels.length
-      : (step as number)
 
   return (
     <div className="flex-1 px-6 py-5">

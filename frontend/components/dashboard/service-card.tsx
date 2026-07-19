@@ -2,12 +2,14 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { CheckCircle2, XCircle, Loader2, ExternalLink, TrendingUp } from "lucide-react"
+import { CheckCircle2, XCircle, Loader2, ExternalLink } from "lucide-react"
+
+type ServiceStatus = "healthy" | "unhealthy" | "unknown" | "managed"
+type BadgeVariant = React.ComponentProps<typeof Badge>["variant"]
 
 interface ServiceCardProps {
   name: string
-  status: "healthy" | "unhealthy" | "unknown" | "managed"
+  status: ServiceStatus
   description?: string
   url?: string
   version?: string
@@ -19,12 +21,13 @@ export function ServiceCard({
   name,
   status,
   description,
-  url,
   version,
-  uptime,
-  responseTime
 }: ServiceCardProps) {
-  const statusConfig = {
+  const statusConfig: Record<ServiceStatus, {
+    icon: React.ComponentType<{ className?: string }>
+    badge: BadgeVariant
+    label: string
+  }> = {
     healthy: {
       icon: CheckCircle2,
       badge: "default",
@@ -41,9 +44,9 @@ export function ServiceCard({
       label: "Unknown"
     },
     managed: {
-      icon: CheckCircle2,
+      icon: ExternalLink,
       badge: "outline",
-      label: "AWS managed"
+      label: "Configured"
     }
   }
 
@@ -69,7 +72,7 @@ export function ServiceCard({
       </CardHeader>
 
       <CardContent>
-        <Badge variant={config.badge as any}>
+        <Badge variant={config.badge}>
           {config.label}
         </Badge>
         {version && (

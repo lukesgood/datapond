@@ -2,7 +2,6 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { serviceUrls } from "@/lib/urls"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -76,7 +75,7 @@ export default function CatalogHelpPage() {
             <div>
               <h3 className="font-semibold">Navigate to Data Catalog</h3>
               <p className="text-sm text-muted-foreground">
-                Click "Data Catalog" in the sidebar or visit{" "}
+                Click &quot;Data Catalog&quot; in the sidebar or visit{" "}
                 <Link href="/catalog" className="text-primary hover:underline">
                   /catalog
                 </Link>
@@ -122,17 +121,17 @@ export default function CatalogHelpPage() {
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <Badge variant="outline">Catalog</Badge>
-              <span className="text-sm text-muted-foreground">Top-level container (e.g., "polaris")</span>
+              <span className="text-sm text-muted-foreground">Top-level provider selected by the active profile</span>
             </div>
             <p className="text-sm text-muted-foreground ml-20">
-              A catalog is the root namespace that contains all your data. DataPond uses Apache Polaris as the Iceberg REST catalog, which manages metadata and access control.
+              A catalog is the root namespace for table metadata. DataPond uses the adapter enabled by the deployment profile: AWS Glue or Apache Polaris/Iceberg REST.
             </p>
           </div>
 
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <Badge variant="outline">Namespace</Badge>
-              <span className="text-sm text-muted-foreground">Logical grouping (e.g., "sales", "analytics")</span>
+              <span className="text-sm text-muted-foreground">Logical grouping (e.g., &quot;sales&quot;, &quot;analytics&quot;)</span>
             </div>
             <p className="text-sm text-muted-foreground ml-20">
               Namespaces are like schemas or databases - they organize tables by domain, team, or use case. You can nest namespaces for hierarchical organization.
@@ -142,10 +141,10 @@ export default function CatalogHelpPage() {
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <Badge variant="outline">Table</Badge>
-              <span className="text-sm text-muted-foreground">Iceberg table (e.g., "orders", "customers")</span>
+              <span className="text-sm text-muted-foreground">Iceberg table (e.g., &quot;orders&quot;, &quot;customers&quot;)</span>
             </div>
             <p className="text-sm text-muted-foreground ml-20">
-              Tables are Apache Iceberg tables stored in Amazon S3. They support ACID transactions, time travel, schema evolution, and hidden partitioning.
+              Tables are Apache Iceberg tables stored in the configured object store. They support ACID transactions, time travel, schema evolution, and hidden partitioning.
             </p>
           </div>
 
@@ -154,7 +153,7 @@ export default function CatalogHelpPage() {
             <AlertTitle>Full Table Path</AlertTitle>
             <AlertDescription>
               Tables are referenced by their full path: <code className="bg-muted px-1 py-0.5 rounded">catalog.namespace.table</code><br/>
-              Example: <code className="bg-muted px-1 py-0.5 rounded">polaris.sales.orders</code>
+              Example: <code className="bg-muted px-1 py-0.5 rounded">catalog.sales.orders</code>
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -246,7 +245,7 @@ export default function CatalogHelpPage() {
           <div className="space-y-2">
             <h3 className="font-semibold">Schema Evolution Tracking</h3>
             <p className="text-sm text-muted-foreground">
-              View schema history to see when columns were added, renamed, or removed. Iceberg's schema evolution is backward-compatible and tracked in metadata.
+              View schema history to see when columns were added, renamed, or removed. Iceberg&rsquo;s schema evolution is backward-compatible and tracked in metadata.
             </p>
           </div>
         </CardContent>
@@ -265,7 +264,7 @@ export default function CatalogHelpPage() {
             <h3 className="font-semibold">How do I create a new table?</h3>
             <p className="text-sm text-muted-foreground">
               Tables are created by connectors (ingestion → Glue/Iceberg) or via SQL (Athena/Trino, Spark). Use <code className="bg-muted px-1 py-0.5 rounded">CREATE TABLE</code> statements.
-              Example: <code className="bg-muted px-1 py-0.5 rounded">CREATE TABLE polaris.sales.orders (id INT, amount DOUBLE)</code>
+              Example: <code className="bg-muted px-1 py-0.5 rounded">CREATE TABLE catalog.sales.orders (id INT, amount DOUBLE)</code>
             </p>
           </div>
 
@@ -287,7 +286,7 @@ export default function CatalogHelpPage() {
           <div className="space-y-2">
             <h3 className="font-semibold">How is lineage captured?</h3>
             <p className="text-sm text-muted-foreground">
-              When OpenMetadata is enabled (full profile), lineage is captured automatically by parsing SQL queries from the analytics engines. Manual lineage can be added via the OpenMetadata API.
+              When the OpenMetadata add-on is enabled, connector sync can register source-to-target lineage on a best-effort basis. Portable Core does not provision a lineage service automatically.
             </p>
           </div>
 
@@ -295,7 +294,7 @@ export default function CatalogHelpPage() {
             <h3 className="font-semibold">Can I see historical table versions?</h3>
             <p className="text-sm text-muted-foreground">
               Yes! Iceberg supports time travel. In SQL Lab, use <code className="bg-muted px-1 py-0.5 rounded">FOR SYSTEM_TIME AS OF</code> to query past snapshots.
-              Example: <code className="bg-muted px-1 py-0.5 rounded">SELECT * FROM orders FOR SYSTEM_TIME AS OF TIMESTAMP '2024-01-01 00:00:00'</code>
+              Example: <code className="bg-muted px-1 py-0.5 rounded">SELECT * FROM orders FOR SYSTEM_TIME AS OF TIMESTAMP &apos;2024-01-01 00:00:00&apos;</code>
             </p>
           </div>
         </CardContent>
@@ -314,16 +313,15 @@ export default function CatalogHelpPage() {
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>No tables showing</AlertTitle>
             <AlertDescription>
-              Check that Polaris catalog is healthy (Dashboard → Services → polaris). Ensure you have access permissions to the namespaces.
-              Try refreshing the page or clearing browser cache.
+              Check the active catalog adapter in Services and confirm its credentials and namespace permissions. Try refreshing after the adapter reports healthy.
             </AlertDescription>
           </Alert>
 
           <Alert>
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Table details won't load</AlertTitle>
+            <AlertTitle>Table details won&rsquo;t load</AlertTitle>
             <AlertDescription>
-              The table may have corrupted metadata. Check Polaris logs for errors. Try re-registering the table with <code className="bg-muted px-1 py-0.5 rounded">CALL system.register_table()</code>.
+              The table may have invalid or unreachable Iceberg metadata. Check the active Glue/Athena or Polaris/Trino adapter logs and verify the table metadata location before re-registering it.
             </AlertDescription>
           </Alert>
 
@@ -331,7 +329,7 @@ export default function CatalogHelpPage() {
             <CheckCircle2 className="h-4 w-4" />
             <AlertTitle>Lineage not showing</AlertTitle>
             <AlertDescription>
-              Lineage is available when OpenMetadata is enabled (full profile). Ensure OpenMetadata ingestion is running; collection may be delayed (up to 15 minutes). Check the OpenMetadata UI at <code className="bg-muted px-1 py-0.5 rounded">{serviceUrls.openmetadata()}</code>.
+              Lineage appears only when the OpenMetadata add-on is enabled and its best-effort registration succeeds. Check the OpenMetadata service and ingestion status in Services.
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -355,12 +353,12 @@ export default function CatalogHelpPage() {
                 SQL Lab Guide
               </Badge>
             </Link>
-            <Link href="/docs/polaris">
+            <Link href="/docs/catalog-query">
               <Badge variant="outline" className="cursor-pointer hover:bg-background">
-                Iceberg REST Catalog
+                Catalog & Query Adapters
               </Badge>
             </Link>
-            <Link href="/docs/lineage">
+            <Link href="/docs/governance">
               <Badge variant="outline" className="cursor-pointer hover:bg-background">
                 Data Lineage
               </Badge>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -37,7 +37,7 @@ interface DagRun {
   end_date?: string
   state: string
   run_type: string
-  conf?: any
+  conf?: Record<string, unknown>
 }
 
 interface TaskInstance {
@@ -67,7 +67,7 @@ export default function RunDetailPage() {
   const [selectedTask, setSelectedTask] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState(false)
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     if (!dag_id) {
       setError("DAG ID is required")
       setLoading(false)
@@ -97,22 +97,20 @@ export default function RunDetailPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [dag_id, run_id])
 
   useEffect(() => {
-    if (run_id && dag_id) {
-      fetchData()
+    if (!run_id || !dag_id) return
+    const initial = window.setTimeout(() => { void fetchData() }, 0)
+    const interval = window.setInterval(() => {
+      if (run?.state === "running") void fetchData()
+    }, 5000)
 
-      // Refresh every 5 seconds if running
-      const interval = setInterval(() => {
-        if (run?.state === "running") {
-          fetchData()
-        }
-      }, 5000)
-
-      return () => clearInterval(interval)
+    return () => {
+      window.clearTimeout(initial)
+      window.clearInterval(interval)
     }
-  }, [run_id, dag_id, run?.state])
+  }, [run_id, dag_id, run?.state, fetchData])
 
   const handleViewLogs = (taskId: string) => {
     setSelectedTask(taskId)
