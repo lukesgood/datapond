@@ -1,69 +1,141 @@
-# DataPond AWS MVP — Terraform
+# DataPond AWS Single-Node Reference — Terraform
 
-Provisions S3, IAM (Bedrock + S3), and Aurora pgvector for the DataPond AWS MVP.
+This stack provisions the infrastructure used by the current **AWS Single-Node Reference**. It is an EC2/K3s reference connected to managed AWS adapters; it does not create EKS.
 
-## State backend (one-time)
-Terraform state lives in S3 (versioned, encrypted). S3 bucket names are GLOBALLY unique,
-so the state bucket is named `datapond-terraform-state-<account-id>` (a bare
-`datapond-terraform-state` collides — it is already taken by another account). Bootstrap
-it once, then point the main stack's partial backend at it:
+## Resources created
 
-    cd bootstrap && terraform init && terraform apply -var aws_region=us-east-1
-    STATE_BUCKET=$(terraform output -raw state_bucket_name)
-    cd ..
-    terraform init \
-      -backend-config="bucket=$STATE_BUCKET" \
-      -backend-config="region=us-east-1"
+- EC2 application node with K3s bootstrap, Elastic IP, and SSM-only administration
+- Aurora PostgreSQL Serverless v2 with pgvector-compatible application schema
+- versioned S3 data bucket and S3 Terraform-state bootstrap bucket
+- ECR backend/frontend repositories
+- IAM instance profile and optional IRSA roles when an external EKS OIDC provider is supplied
+- Route53 record and certificate bootstrap support
+- Secrets Manager critical-secret recovery vault
+- CloudWatch/SNS alarms and optional start/stop scheduler
+- security groups and related networking attachments
 
-Migrating an existing local state adds `-migrate-state` to that init. See bootstrap/README.md.
+## Not created
+
+- EKS cluster or node groups
+- EMR Serverless
+- S3 Tables
+- Lake Formation
+- OpenSearch Serverless/AOSS
+- MWAA
+- MSK/Managed Flink
+- DataZone
+- AWS Marketplace packaging/billing
+- CDK deployment
+
+These remain future adapters/profiles. `values-aws.yaml` also does not create them.
+
+## State backend
+
+The one-time bootstrap stack creates a versioned/encrypted state bucket named with the AWS account ID.
+
+```bash
+cd terraform/bootstrap
+terraform init
+terraform apply -var aws_region=us-east-1
+STATE_BUCKET=$(terraform output -raw state_bucket_name)
+
+cd ..
+terraform init \
+  -backend-config="bucket=$STATE_BUCKET" \
+  -backend-config="region=us-east-1"
+```
+
+For an existing local state, add `-migrate-state` after reviewing the target bucket.
+
+## Deployment inputs
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `domain` | yes | application hostname and Route53 record |
+| `route53_zone_id` | yes | hosted zone for DNS and certificate validation |
+| `acme_email` | yes | Let's Encrypt account contact |
+| `db_subnet_ids` | conditional | defaults to the first two discovered subnets; override for a custom VPC, deterministic placement, or when discovery cannot provide two subnets in different AZs |
+| `db_master_password` | yes | Aurora master password; pass securely |
+
+`vpc_id`, `subnet_id`, and `db_subnet_ids` may be omitted to use the selected/default
+VPC behavior. Aurora still requires two subnets in different Availability Zones, so
+inspect the discovered network and provide `db_subnet_ids` explicitly when that
+constraint is not met. Review `allowed_cidrs`; its permissive default is unsuitable for
+every environment. The plan example below pins database subnets for deterministic
+placement; they are not universally required inputs.
 
 ## Apply
-    terraform init
-    terraform validate
-    terraform plan  -var 'db_subnet_ids=["subnet-a","subnet-b"]' -var db_master_password=... \
-                    -var domain=... -var route53_zone_id=... -var acme_email=...
-    terraform apply <same vars>
 
-`vpc_id`/`subnet_id` are optional — omit them to use the account default VPC (see
-`data.aws_vpc.selected` in ec2.tf); the node's security group is wired automatically as
-Aurora's DB-ingress source, so no separate app-SG variable is needed.
+```bash
+cd terraform
+terraform fmt -check -recursive
+terraform validate
 
-> **Teardown:** `deletion_protection=true` (default) blocks `terraform destroy` — run
-> `terraform apply -var db_deletion_protection=false` first. A second destroy also collides
-> on the fixed `final_snapshot_identifier` (`datapond-pg-final-snapshot`) — rename/remove the
-> prior snapshot or set `-var db_skip_final_snapshot=true` for a throwaway env.
+terraform plan \
+  -var domain=datapond.example.com \
+  -var route53_zone_id=Z0123456789ABCDEF \
+  -var acme_email=ops@example.com \
+  -var 'db_subnet_ids=["subnet-a","subnet-b"]' \
+  -var db_master_password='<strong-random-password>'
 
-## Manual prerequisite — enable Bedrock model access (one-time, per region)
-In the AWS console → Bedrock → Model access, enable:
-- Amazon Titan Text Embeddings V2 (amazon.titan-embed-text-v2:0)
-- Anthropic Claude (Haiku + Sonnet) — the model ids in values-aws.yaml
+terraform apply <the-same-vars>
+```
 
-## After apply
-- Attach output `bedrock_s3_instance_profile` to the K3s EC2 instance.
-- Set Helm `externalDatabase.host` to the `aurora_endpoint` output (Task 5).
+Review the plan before applying. This creates billable resources and modifies networking, IAM, DNS, storage, and databases.
 
-## Single-node production
+## Bedrock prerequisite
 
-This stack also provisions a full single-node K3s production topology: the EC2 node
-(`ec2.tf`) + Elastic IP, ECR repos (`ecr.tf`) for CI-built images, a Route53 A record
-(`route53.tf`), and the Secrets Manager DR vault (`secrets.tf`) — on top of the Aurora/S3/
-IAM already described above. The end-to-end operator flow (build images via CI, apply
-this stack, seed the critical-secrets vault, install the Helm `foundation` profile from
-ECR, verify, and tear down) is documented in full in
-**[`docs/DEPLOY_SINGLE_NODE.md`](../docs/DEPLOY_SINGLE_NODE.md)** — read that before
-running `terraform apply` for a production bring-up.
+Terraform grants IAM permission but cannot grant account/region model access. Enable the configured Titan, Claude, and optional rerank models in Bedrock before acceptance testing. See [AWS_BEDROCK_SETUP.md](../docs/AWS_BEDROCK_SETUP.md).
 
-New vars this topology adds (beyond `db_subnet_ids`/`db_master_password` above):
+## Deploy the application
 
-| Var | Default | Purpose |
-|---|---|---|
-| `domain` | `""` (required at deploy time) | App hostname, e.g. `datapond.example.com` — Route53 A record + cert-manager cert + ingress. |
-| `route53_zone_id` | `""` (required at deploy time) | Hosted zone ID for `var.domain` — the A record and the cert-manager Route53 DNS-01 solver. |
-| `acme_email` | `""` (required at deploy time) | Let's Encrypt account contact email (cert-manager `ClusterIssuer`). |
-| `instance_type` | `m6i.xlarge` | EC2 instance size for the K3s node (4 vCPU / 16 GB). |
-| `allowed_cidrs` | `["0.0.0.0/0"]` | CIDRs allowed to reach the node on 80/443. Narrow to a customer allowlist for a locked-down deploy; port 22 is never opened (SSM-only admin). |
-| `app_version` | `2.3.0` | Image tag pulled from ECR; matches `helm/datapond/Chart.yaml` `appVersion` and whatever CI tag `.github/workflows/ecr-push.yml` pushed. |
+Use `helm/datapond/values-prod-single.yaml`, not `values-aws.yaml`:
 
-`domain`/`route53_zone_id`/`acme_email` have empty-string defaults so `terraform plan`/
-`validate` work without them, but the Route53 A record (`route53.tf`) and a usable
-cert-manager `ClusterIssuer` require all three to be set for a real deploy.
+```bash
+BUCKET=$(terraform output -raw bucket_name)
+helm upgrade --install datapond helm/datapond -n datapond \
+  --values helm/datapond/values-prod-single.yaml \
+  --set externalDatabase.host=$(terraform output -raw aurora_endpoint) \
+  --set backend.image.repository=$(terraform output -raw ecr_backend_repo_url) \
+  --set frontend.image.repository=$(terraform output -raw ecr_frontend_repo_url) \
+  --set-string catalog.glueWarehouse="s3://$BUCKET/warehouse" \
+  --set-string catalog.athenaOutputLocation="s3://$BUCKET/athena-results/" \
+  --set ingress.domain=datapond.example.com \
+  --set postgres.auth.password='<same Aurora master password>'
+```
+
+The database password supplied to Helm must match Aurora. Follow the full secret ordering, ECR, TLS, and verification procedure in [DEPLOY_SINGLE_NODE.md](../docs/DEPLOY_SINGLE_NODE.md).
+
+## Availability and recovery
+
+This reference intentionally uses one EC2/K3s application node. Aurora and S3 are managed/durable, but the application node is not HA. The operating model is fast rebuild:
+
+1. restore/reconcile Aurora if needed;
+2. restore `ENCRYPTION_KEY`, JWT, and internal API key from Secrets Manager before backend startup;
+3. redeploy Helm with the restored database endpoint;
+4. run the AWS RAG acceptance test.
+
+See [DISASTER_RECOVERY.md](../docs/DISASTER_RECOVERY.md).
+
+## Validation
+
+```bash
+terraform fmt -check -recursive
+terraform validate
+terraform -chdir=bootstrap validate
+```
+
+After apply, validate the full S3 → Bedrock → pgvector → cited RAG path with [AWS_MVP_RUNBOOK.md](../docs/AWS_MVP_RUNBOOK.md). Glue/Athena claims require their optional acceptance section.
+
+## Teardown
+
+Aurora deletion protection is enabled by default. A planned teardown requires:
+
+1. apply with `db_deletion_protection=false`;
+2. decide whether to retain or empty versioned S3 data;
+3. preserve required snapshots and critical secrets;
+4. run `terraform destroy` with the same required variables.
+
+A fixed final snapshot identifier can conflict with a previous destroy. Rename/remove the previous snapshot or use `db_skip_final_snapshot=true` only for disposable environments where data loss is acceptable.
+
+Do not treat teardown as routine cleanup for a production environment; confirm retention and recovery requirements first.

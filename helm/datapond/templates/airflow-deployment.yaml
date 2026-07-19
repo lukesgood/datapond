@@ -163,7 +163,9 @@ spec:
           value: "postgresql+psycopg2://{{ .Values.postgres.auth.username | default "datapond" }}:$(POSTGRES_PASSWORD)@postgres:5432/airflow"
         - name: AIRFLOW__CORE__EXECUTOR
           value: {{ .Values.airflow.executor }}
-        # Lets scheduled RAG-ingest DAGs authenticate to the backend (X-Internal-Key).
+        # Lets generated connector and RAG-ingest DAGs authenticate to the backend.
+        # The credential remains in the Kubernetes Secret; generated DAG source only
+        # reads this environment variable and never contains the secret value.
         {{- if .Values.backend.enabled }}
         - name: DATAPOND_INTERNAL_KEY
           valueFrom:

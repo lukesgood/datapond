@@ -1,19 +1,18 @@
 apiVersion: v2
 name: datapond
-description: A comprehensive data lakehouse platform with Apache Iceberg, Trino, RisingWave, OpenMetadata, ML, and workflow orchestration
+description: A portable AI data foundation for governed RAG, with replaceable infrastructure adapters and optional OSS data add-ons
 type: application
 version: 2.3.0
 appVersion: "2.3.0"
 
 keywords:
-  - data-platform
-  - lakehouse
+  - ai-data-foundation
+  - rag
+  - pgvector
+  - portable
   - apache-iceberg
-  - trino
-  - jupyter
-  - mlflow
-  - airflow
-  - spark
+  - litellm
+  - data-governance
 
 maintainers:
   - name: DataPond Team

@@ -1,6 +1,14 @@
 # Production Environment Configuration
 # Requires 32GB+ RAM, 16+ CPU cores
 
+product:
+  profile:
+    id: self-hosted-extended
+    label: Self-Hosted Extended
+    description: High-resource self-hosted profile for the full optional OSS data stack.
+    maturity: compatibility
+    topology: self-hosted-kubernetes
+
 # Global settings
 global:
   domain: datapond.yourdomain.com  # CHANGE THIS

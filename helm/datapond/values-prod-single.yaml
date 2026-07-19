@@ -1,6 +1,9 @@
-# Single-node K3s PRODUCTION profile. Foundation workloads + ECR images + real-domain TLS +
-# external Aurora/S3/Bedrock. Set ecr repo URLs + domain + externalDatabase.host at deploy
-# time from `terraform output` (they are account/deploy specific).
+# AWS Single-Node Reference — Portable Core with managed adapters
+# ---------------------------------------------------------------
+# Current documented AWS reference: EC2 Spot/K3s application node plus external
+# Aurora PostgreSQL/pgvector, S3, Glue/Athena, and Bedrock. This is production-
+# oriented but intentionally single-node and is not an EKS or HA deployment.
+# Set ECR repositories, domain, and externalDatabase.host from Terraform outputs.
 #
 # Deploy:
 #   helm upgrade --install datapond helm/datapond -n datapond \
@@ -9,6 +12,14 @@
 #     --set backend.image.repository=$(terraform output -raw ecr_backend_repo_url) \
 #     --set frontend.image.repository=$(terraform output -raw ecr_frontend_repo_url) \
 #     --set ingress.domain=<your-domain>
+
+product:
+  profile:
+    id: aws-single-node
+    label: AWS Single-Node Reference
+    description: Portable Core on EC2/K3s with Aurora, S3, Glue/Athena, and Bedrock adapters.
+    maturity: reference
+    topology: ec2-k3s-single-node
 
 namespace: datapond
 
@@ -25,8 +36,9 @@ storage:
   endpoint: ""
   region: us-east-1
 
-# --- Catalog: AWS Glue Data Catalog (serverless) — enables Connectors + Catalog.
-# Sets FEATURE_GLUE + ICEBERG_CATALOG_BACKEND=glue. Query (Athena) is a later slice. ---
+# --- Catalog/query: AWS Glue + Athena adapters.
+# The defaults match Terraform's default bucket only. If var.bucket_name changes,
+# override BOTH paths from `terraform output -raw bucket_name` as shown in the runbook. ---
 catalog:
   backend: glue
   glueWarehouse: "s3://datapond-iceberg/warehouse"
@@ -41,6 +53,7 @@ postgres:
   enabled: false
 externalDatabase:
   enabled: true
+  adapter: aurora
   host: ""          # deploy time: terraform output -raw aurora_endpoint
   port: 5432
   name: datapond
@@ -99,6 +112,7 @@ litellm:
 # isn't granted, the backend's _rerank() catches the failure and falls back to plain
 # vector-similarity order (retrieval never hard-fails on rerank being unavailable).
 ai:
+  provider: bedrock
   rerankModel: "rerank"
 
 # --- Heavy analytics: AWS-managed (Athena/EMR), not on the node ---

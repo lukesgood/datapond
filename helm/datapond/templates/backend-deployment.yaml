@@ -36,6 +36,26 @@ spec:
         env:
         - name: ENVIRONMENT
           value: "production"
+        # Product/profile metadata is informational and non-secret. It powers
+        # truthful runtime labels without changing any feature toggle.
+        - name: DATAPOND_PROFILE_ID
+          value: {{ .Values.product.profile.id | quote }}
+        - name: DATAPOND_PROFILE_LABEL
+          value: {{ .Values.product.profile.label | quote }}
+        - name: DATAPOND_PROFILE_DESCRIPTION
+          value: {{ .Values.product.profile.description | quote }}
+        - name: DATAPOND_PROFILE_MATURITY
+          value: {{ .Values.product.profile.maturity | quote }}
+        - name: DATAPOND_PROFILE_TOPOLOGY
+          value: {{ .Values.product.profile.topology | quote }}
+        - name: DATAPOND_NAMESPACE
+          value: {{ .Values.namespace | quote }}
+        - name: STORAGE_PROVIDER
+          value: {{ (.Values.storage.provider | default "s3") | quote }}
+        - name: VECTOR_STORE
+          value: {{ if .Values.externalDatabase.enabled }}{{ if eq (.Values.externalDatabase.adapter | default "postgresql") "aurora" }}"aurora-pgvector"{{ else }}"external-postgres-pgvector"{{ end }}{{ else }}"postgres-pgvector"{{ end }}
+        - name: MODEL_GATEWAY
+          value: {{ if .Values.litellm.enabled }}"litellm"{{ else }}"external-openai-compatible"{{ end }}
         - name: POSTGRES_USER
           valueFrom:
             secretKeyRef:
@@ -124,8 +144,11 @@ spec:
         # Iceberg catalog connection
         - name: ICEBERG_CATALOG_URI
           value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/iceberg_catalog"
+        # Only advertise a warehouse that the active catalog actually owns. Portable
+        # Core has neither Polaris nor Glue, so this stays empty instead of inventing
+        # an `iceberg` bucket and reporting IAM failures as storage data.
         - name: ICEBERG_WAREHOUSE
-          value: "s3a://iceberg/warehouse"
+          value: "{{ if .Values.polaris.enabled }}s3a://{{ .Values.polaris.warehouseBucket | default "iceberg" }}/warehouse{{ else }}{{ (.Values.catalog | default dict).glueWarehouse | default "" }}{{ end }}"
         {{- if .Values.polaris.enabled }}
         # Polaris REST catalog — PyIceberg 직접 쓰기용 (Trino iceberg.properties와 동일 자격)
         - name: POLARIS_URI
@@ -193,8 +216,18 @@ spec:
         - name: AI_RERANK_MODEL
           value: {{ . | quote }}
         {{- end }}
-        # Feature flags for UI capability-gating — the frontend hides nav items
-        # whose backend component is disabled. Default true (unset ⇒ shown).
+        # Feature flags for UI capability-gating and truthful service inventory.
+        - name: FEATURE_POSTGRES
+          value: {{ dig "enabled" true .Values.postgres | quote }}
+        - name: FEATURE_VALKEY
+          value: {{ dig "enabled" true .Values.valkey | quote }}
+        - name: FEATURE_LITELLM
+          value: {{ dig "enabled" true .Values.litellm | quote }}
+        - name: FEATURE_MINIO
+          value: {{ dig "enabled" false .Values.minio | quote }}
+        - name: MODEL_PROVIDER
+          value: {{ (.Values.ai.provider | default "configurable") | quote }}
+        # Optional pages appear only when their backend component is enabled.
         - name: FEATURE_TRINO
           value: "{{ dig "enabled" true .Values.trino }}"
         - name: FEATURE_POLARIS
@@ -209,6 +242,10 @@ spec:
           value: "{{ dig "enabled" true .Values.openmetadata }}"
         - name: FEATURE_JUPYTER
           value: "{{ dig "enabled" true .Values.jupyter }}"
+        - name: FEATURE_SPARK
+          value: "{{ dig "enabled" true .Values.spark }}"
+        - name: FEATURE_OLLAMA
+          value: "{{ dig "enabled" false .Values.ollama }}"
         # Glue is the AWS-native catalog backend — capability derives from catalog.backend
         # (single source of truth) so the flag can't drift from the actual backend.
         - name: FEATURE_GLUE
@@ -227,6 +264,8 @@ spec:
         # RLS (Layer 1) policy enforcement gate — off by default (dark) until governance.rls.enabled
         # is set. See docs/RLS_DESIGN.md. Use `dig` (bool-false safe — see RAG_SCHEDULER note above).
         - name: RLS_ENABLED
+          value: {{ dig "enabled" false ((.Values.governance | default dict).rls | default dict) | quote }}
+        - name: FEATURE_RLS
           value: {{ dig "enabled" false ((.Values.governance | default dict).rls | default dict) | quote }}
         # Opt-in strict mode: when false (default), a referenced table with no RLS policy
         # passes through unfiltered (no-op on a policy-empty DB); true restores strict

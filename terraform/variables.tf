@@ -8,7 +8,8 @@ variable "bucket_name" {
   # S3 bucket names are GLOBALLY unique. "datapond-iceberg" is free today but generic —
   # if it collides, override with an account-scoped name, e.g.
   #   -var bucket_name=datapond-iceberg-<account-id>
-  # Keep the Helm `storage.bucket` (values-aws.yaml) in sync with whatever you set here.
+  # Keep Helm `catalog.glueWarehouse` and `catalog.athenaOutputLocation` in sync
+  # with this output; the deployment runbook wires them explicitly.
   default = "datapond-iceberg"
 }
 

@@ -1,6 +1,16 @@
 # Default values for DataPond
 # This is a YAML-formatted file.
 
+# Product identity exposed through /api/capabilities and the management UI.
+# This metadata describes the rendered profile; component flags remain authoritative.
+product:
+  profile:
+    id: oss-extended
+    label: OSS Extended
+    description: Portable Core with the full set of optional self-hosted data add-ons.
+    maturity: community
+    topology: kubernetes
+
 # Global settings
 global:
   domain: datapond.local
@@ -108,7 +118,7 @@ backend:
 
   # AWS-native observability — emit ops + cost metrics to CloudWatch. Off by
   # default (needs cloudwatch:PutMetricData on the node/IRSA role). The AWS
-  # foundation profile enables it; keeps monitoring off the node (no extra pods).
+  # single-node AWS profile enables it; keeps monitoring off the node (no extra pods).
   # NOTE: if you change `namespace`, update the matching cloudwatch:namespace
   # condition in terraform/iam.tf too, or PutMetricData is silently denied.
   cloudwatchMetrics:
@@ -416,17 +426,18 @@ minio:
     requests: { cpu: 200m, memory: 512Mi }
     limits: { cpu: "1", memory: 1Gi }
 
-# Object storage. Default = AWS-native S3 (endpoint empty → AWS regional
-# endpoint + IAM role). Non-AWS profiles set endpoint to their MinIO service.
+# Object storage. Empty endpoint uses native regional S3 with the AWS credential
+# chain; self-hosted profiles set an S3-compatible endpoint such as MinIO.
 storage:
   provider: s3
   endpoint: ""
   region: us-east-1
 
-# External managed database (AWS RDS/Aurora). Disabled by default; the AWS
-# profile (values-aws.yaml) enables it. Base skeleton keeps --strict renders safe.
+# External PostgreSQL-compatible database. Disabled by default; AWS reference and
+# hybrid profiles enable it. Base defaults keep strict renders safe.
 externalDatabase:
   enabled: false
+  adapter: postgresql  # postgresql | aurora; identity only, connection remains PostgreSQL-compatible
   port: 5432
 
 # Trino (SQL Analytics with Iceberg)
@@ -732,6 +743,9 @@ auth:
 # ai.llmEndpoint를 고객 사내 OpenAI 호환 LLM(vLLM/Ollama/LiteLLM 등)으로 설정.
 # 비우면 AI(자연어 SQL)는 비활성(템플릿 폴백)되며 나머지 기능엔 영향 없음.
 ai:
+  # Informational provider identity for service inventory; LiteLLM model mappings
+  # remain authoritative for request routing.
+  provider: configurable
   llmEndpoint: ""        # OpenAI 호환 base URL. 예: http://my-llm.internal:8000  (co-located litellm 사용 시 자동 설정)
   llmModel: "default"
   # Korean PII guardrail (local regex, runs before prompts reach the LLM gateway).

@@ -1,6 +1,14 @@
 # Development Environment Configuration
 # Optimized for 8-16GB RAM systems
 
+product:
+  profile:
+    id: development
+    label: Development
+    description: Local development profile with optional OSS data services.
+    maturity: development
+    topology: local-kubernetes
+
 # Global settings
 global:
   domain: datapond.local

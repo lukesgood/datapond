@@ -1,13 +1,21 @@
-# On-Premises deployment profile — complete production-ready configuration
-# Based on values-quicktest.yaml, expanded for on-prem environments with:
-#   - All services enabled (MinIO, Ollama, LiteLLM, Polaris, etc.)
-#   - Reasonable resource allocations for a 32GB+ RAM node
-#   - Air-gap friendly (no external dependencies required)
+# Sovereign OSS Extended profile
+# ------------------------------
+# Self-hosted Portable Core plus optional OSS data services. This profile favors
+# local control and provider independence over the smallest operational footprint;
+# disable add-ons you do not need. Recommended capacity starts at 32 GB RAM.
 #
 # Usage:
 #   helm upgrade datapond helm/datapond \
 #     --namespace datapond \
 #     --values helm/datapond/values-onprem.yaml
+
+product:
+  profile:
+    id: sovereign-oss-extended
+    label: Sovereign OSS Extended
+    description: Self-hosted Portable Core with local model, storage, catalog, and data add-ons.
+    maturity: community
+    topology: self-hosted-kubernetes
 
 # ── Global ────────────────────────────────────────────────────────────────────
 global:
@@ -297,6 +305,7 @@ openmetadata:
 # 단일/소형 노드에 7B 모델을 co-locate하지 않는다(4~8GB RAM + CPU 추론 부담).
 # 아래 llmEndpoint를 사내 vLLM/Ollama/LiteLLM URL로 설정하면 AI(자연어 SQL) 활성화.
 ai:
+  provider: ollama
   llmEndpoint: ""        # 예: http://my-llm.internal:8000  (비우면 AI 비활성)
   llmModel: "default"
   # 주권/온프렘 기본: 로컬 LLM(Ollama/vLLM)만 허용, 외부 클라우드 LLM 차단(무유출).
