@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db, engine, Base
@@ -94,6 +94,18 @@ class TransformCreateRequest(BaseModel):
     schedule: Optional[str] = None   # cron or None
     overwrite: bool = True
 
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        # name is interpolated into the generated DAG source; restrict it to a
+        # safe charset so it cannot break out of the docstring / inject Python.
+        v = (v or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9 _-]{1,64}", v):
+            raise ValueError(
+                "name may contain only letters, digits, spaces, underscore or hyphen (1–64 chars)"
+            )
+        return v
+
 
 class TransformUpdateRequest(BaseModel):
     description: Optional[str] = None
@@ -144,7 +156,9 @@ def _generate_dag(transform: "SavedTransform") -> str:
     # T1: CREATE OR REPLACE TABLE … AS — 원자적 교체(Trino 481 Iceberg 검증).
     #     실패 시 기존 테이블이 보존되고, drop~create 사이 조회 공백도 없다.
     # T8: SQL은 base64로 삽입 — 따옴표/백슬래시가 생성된 DAG 소스를 깨지 못함.
-    # description/name이 따옴표·개행을 포함해도 생성된 Python 소스가 깨지지 않도록 정제
+    # description/name이 따옴표·개행을 포함해도 생성된 Python 소스가 깨지지 않도록 정제.
+    # name은 request 검증에서 이미 제한되지만, DAG docstring 삽입 전 한 번 더 정제(심층 방어).
+    name_safe = re.sub(r'["\\\n\r]+', " ", (transform.name or "")).strip()
     desc_safe = re.sub(r'["\\\n\r]+', " ", (transform.description or transform.name)).strip()
     replace_sql = (
         f"CREATE OR REPLACE TABLE {fqtn}\n"
@@ -154,7 +168,7 @@ def _generate_dag(transform: "SavedTransform") -> str:
     sql_b64 = base64.b64encode(replace_sql.encode("utf-8")).decode("ascii")
 
     return f'''"""
-Auto-generated ELT transform DAG: {transform.name}
+Auto-generated ELT transform DAG: {name_safe}
 {desc_safe}
 Source: iceberg.{transform.source_namespace}  →  Target: {fqtn}
 Generated: {datetime.utcnow().isoformat()}
@@ -343,6 +357,12 @@ async def create_transform(req: TransformCreateRequest, db: Session = Depends(ge
         db.refresh(row)
     except Exception:
         db.rollback()
+        # DAG was already activated in Airflow above; without a DB row it would be
+        # an orphan running against nothing — best-effort remove it so state stays consistent.
+        try:
+            await _remove_remote_dag(dag_id)
+        except Exception:
+            pass
         raise
 
     return {

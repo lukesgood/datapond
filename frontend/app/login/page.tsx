@@ -57,11 +57,13 @@ export default function LoginPage() {
       const m = document.cookie.match(/(?:^|;\s*)datapond_token=([^;]+)/)
       const ssoToken = m?.[1]
       if (ssoToken) {
+        // Validate async. On success we navigate to /dashboard; on failure we must
+        // fall through to the normal login setup (capabilities, network listeners,
+        // focus) below so the form is fully functional — do NOT early-return here.
         fetch("/api/auth/me", { headers: { Authorization: `Bearer ${ssoToken}` } })
           .then(r => { if (!r.ok) throw new Error("sso session invalid"); return r.json() })
           .then(me => { saveAuth(ssoToken, me); window.location.replace("/dashboard") })
           .catch(() => { clearAuth(); setError("SSO sign-in failed. Please try again.") })
-        return
       }
     }
     if (params.get("error") === "sso_failed") {

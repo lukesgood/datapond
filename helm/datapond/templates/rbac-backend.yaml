@@ -38,12 +38,12 @@ metadata:
   labels:
     app: {{ .Values.backend.name }}
 subjects:
-  # backend 배포가 명시 SA를 안 쓰면 default SA로 실행되므로 둘 다 바인딩(환경별 차이 대응)
+  # Bind ONLY the SA the backend pod actually runs as (same default as the
+  # Deployment's serviceAccountName). Do NOT bind the namespace `default` SA —
+  # these escalated verbs (pods/delete, deployments/patch) must not leak to
+  # every add-on pod that runs without an explicit SA.
   - kind: ServiceAccount
-    name: {{ .Values.backend.serviceAccountName | default "default" }}
-    namespace: {{ .Values.namespace }}
-  - kind: ServiceAccount
-    name: backend
+    name: {{ .Values.backend.serviceAccountName | default "datapond-backend" }}
     namespace: {{ .Values.namespace }}
 roleRef:
   kind: Role

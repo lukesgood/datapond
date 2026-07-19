@@ -168,8 +168,31 @@ async def _safe_websocket_close(websocket: WebSocket, code: int) -> None:
         pass
 
 
+def _ws_origin_allowed(websocket: WebSocket) -> bool:
+    """Defense-in-depth against cross-site WebSocket hijacking: require the browser
+    Origin to be same-origin (Origin host == request Host) or explicitly allowlisted
+    via ALLOWED_WS_ORIGINS. Non-browser clients (no Origin header) still pass here but
+    must satisfy the cookie + admin check below."""
+    origin = websocket.headers.get("origin")
+    if not origin:
+        return True
+    allow = [o.strip() for o in os.getenv("ALLOWED_WS_ORIGINS", "").split(",") if o.strip()]
+    if origin in allow:
+        return True
+    from urllib.parse import urlparse
+    host = websocket.headers.get("host")
+    try:
+        return bool(host) and urlparse(origin).netloc == host
+    except Exception:
+        return False
+
+
 async def _authorize_log_websocket(websocket: WebSocket) -> bool:
     """Authenticate an admin from the same-origin session cookie before accept."""
+    if not _ws_origin_allowed(websocket):
+        await _safe_websocket_close(websocket, 4403)
+        return False
+
     token = websocket.cookies.get("datapond_token")
     if not token:
         await _safe_websocket_close(websocket, 4401)

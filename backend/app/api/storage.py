@@ -7,12 +7,15 @@ from typing import List, Optional, Dict, Any
 import os
 import time
 import asyncio
+import logging
 import boto3
 from concurrent.futures import ThreadPoolExecutor
 from botocore.exceptions import ClientError, EndpointConnectionError
 
 from app.api.auth import require_admin
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -52,6 +55,7 @@ class BucketStat(BaseModel):
     object_count: int = 0
     total_size_bytes: int = 0
     total_size_human: str = "0 B"
+    error: Optional[str] = None   # set when this bucket could not be scanned
 
 
 class StorageOverview(BaseModel):
@@ -97,7 +101,14 @@ def _scan_bucket(s3, b) -> BucketStat:
                 obj_count += 1
                 size += obj.get("Size", 0)
     except Exception as exc:
-        raise RuntimeError(f"Failed to scan bucket '{name}': {exc}") from exc
+        # One unlistable bucket (access-denied / transient) must not 500 the whole
+        # overview — degrade to a per-bucket error marker and keep partial stats.
+        logger.warning("storage overview: failed to scan bucket '%s': %s", name, exc)
+        return BucketStat(
+            name=name,
+            created_at=created.isoformat() if created else None,
+            error=str(exc),
+        )
     return BucketStat(
         name=name,
         created_at=created.isoformat() if created else None,

@@ -31,7 +31,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 
 from app.api.connectors import get_db_pool
-from app.api.auth import require_admin_or_internal, require_user
+from app.api.auth import require_admin_or_internal, require_admin, require_user
 from app.ai_context import set_actor, actor_payload
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
 from app.runtime import component_secret
@@ -512,9 +512,11 @@ class ScheduleRequest(BaseModel):
 
 
 @router.post("/ai/collections/{name}/schedule")
-async def schedule_ingest(name: str, body: ScheduleRequest, user: dict = Depends(require_admin_or_internal)):
-    """Save a recurring re-embed schedule for this collection. The backend
-    in-process scheduler (rag_scheduler) runs due collections — no Airflow."""
+async def schedule_ingest(name: str, body: ScheduleRequest, user: dict = Depends(require_admin)):
+    """Save a recurring re-embed schedule for this collection. Admin only — this
+    path is not in the internal-automation allowlist, so require_admin (not
+    require_admin_or_internal, whose internal branch would be unreachable here).
+    The backend in-process scheduler (rag_scheduler) runs due collections — no Airflow."""
     minutes = _preset_to_minutes(body.schedule, body.interval_minutes)
     pool = await get_db_pool()
     await ensure_vector_schema(pool)

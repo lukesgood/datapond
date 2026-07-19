@@ -1,12 +1,17 @@
 """
 MLflow API Integration - Complete experiment tracking and model registry API
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import os
 import asyncio
+import logging
 from datetime import datetime
+
+from app.api.auth import require_admin
+
+logger = logging.getLogger(__name__)
 
 # MLflow client (lazy import to handle missing dependency gracefully)
 try:
@@ -333,21 +338,23 @@ async def _archive_experiment(experiment_id: str):
         message = str(e)
         if "does not exist" in message.lower() or "not found" in message.lower():
             raise HTTPException(status_code=404, detail=f"Experiment {experiment_id} not found")
+        # Don't echo raw upstream MLflow error text to the client.
+        logger.warning("MLflow failed to archive experiment %s: %s", experiment_id, message)
         raise HTTPException(
             status_code=502,
-            detail=f"MLflow failed to archive experiment {experiment_id}: {message}",
+            detail=f"MLflow failed to archive experiment {experiment_id}",
         )
 
 
-@router.delete("/mlflow/experiments/{experiment_id}")
+@router.delete("/mlflow/experiments/{experiment_id}", dependencies=[Depends(require_admin)])
 async def delete_experiment(experiment_id: str):
-    """Archive an experiment; MLflow deletion is a reversible lifecycle change."""
+    """Archive an experiment; MLflow deletion is a reversible lifecycle change. Admin only."""
     return await _archive_experiment(experiment_id)
 
 
-@router.post("/mlflow/experiments/{experiment_id}/archive")
+@router.post("/mlflow/experiments/{experiment_id}/archive", dependencies=[Depends(require_admin)])
 async def archive_experiment(experiment_id: str):
-    """Explicit archive alias used by the DataPond frontend proxy."""
+    """Explicit archive alias used by the DataPond frontend proxy. Admin only."""
     return await _archive_experiment(experiment_id)
 
 
