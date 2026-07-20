@@ -134,12 +134,14 @@ export function AppSidebar() {
           </p>
         </div>
 
-        {/* Dashboard — top-level, no section label */}
+        {/* Overview (home) — top-level, no section label. Labeled "Overview" to match
+            the page ("Overview / Foundation health") and avoid clashing with the
+            "Dashboards" add-on (user-built custom dashboards). */}
         <div className="px-2 pb-1 shrink-0">
           <Link href="/dashboard" aria-current={isActive("/dashboard") ? "page" : undefined}>
             <SidebarMenuButton isActive={isActive("/dashboard")}>
               <Home />
-              <span>Dashboard</span>
+              <span>Overview</span>
             </SidebarMenuButton>
           </Link>
         </div>

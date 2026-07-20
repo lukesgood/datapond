@@ -96,7 +96,7 @@ export default function SystemPage() {
     <div className="p-6 space-y-6">
       <Breadcrumb>
         <BreadcrumbList>
-          <BreadcrumbItem><BreadcrumbLink href="/dashboard">Dashboard</BreadcrumbLink></BreadcrumbItem>
+          <BreadcrumbItem><BreadcrumbLink href="/dashboard">Overview</BreadcrumbLink></BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem><BreadcrumbPage>System</BreadcrumbPage></BreadcrumbItem>
         </BreadcrumbList>
