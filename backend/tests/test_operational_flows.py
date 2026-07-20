@@ -199,8 +199,9 @@ class _Disconnect(Exception):
 
 
 class _FakeWebSocket:
-    def __init__(self, cookies):
+    def __init__(self, cookies, headers=None):
         self.cookies = cookies
+        self.headers = headers or {}
         self.closed = []
 
     async def close(self, code):
@@ -208,15 +209,17 @@ class _FakeWebSocket:
 
 
 def _websocket_functions(get_current_user):
+    import os as _os
     auth = SimpleNamespace(get_current_user=get_current_user)
     return _load_functions(
         "services.py",
-        ("_safe_websocket_close", "_authorize_log_websocket"),
+        ("_safe_websocket_close", "_ws_origin_allowed", "_authorize_log_websocket"),
         {
             "WebSocket": object,
             "WebSocketDisconnect": _Disconnect,
             "HTTPAuthorizationCredentials": _Credentials,
             "auth": auth,
+            "os": _os,
         },
     )
 
@@ -265,6 +268,29 @@ def test_websocket_auth_requires_admin_and_never_uses_query_token():
     )
     assert "query_params" not in source
     assert source.index("_authorize_log_websocket") < source.index("websocket.accept")
+
+
+def test_websocket_rejects_cross_site_origin_before_auth():
+    async def admin(credentials):
+        return {"id": "admin-id", "role": "admin"}
+
+    functions = _websocket_functions(admin)
+    # Cross-site Origin (host != request Host) is rejected before the cookie/admin
+    # check even for a would-be admin — defense in depth against CSWSH.
+    cross = _FakeWebSocket(
+        {"datapond_token": "admin-token"},
+        headers={"origin": "https://evil.example", "host": "datapond.example"},
+    )
+    assert _run(functions["_authorize_log_websocket"](cross)) is False
+    assert cross.closed == [4403]
+
+    # Same-origin (Origin host == Host) passes the origin gate and proceeds to admin.
+    same = _FakeWebSocket(
+        {"datapond_token": "admin-token"},
+        headers={"origin": "https://datapond.example", "host": "datapond.example"},
+    )
+    assert _run(functions["_authorize_log_websocket"](same)) is True
+    assert same.closed == []
 
 
 def test_streaming_preview_returns_columns_and_array_rows():

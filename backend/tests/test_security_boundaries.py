@@ -170,7 +170,13 @@ def test_knowledge_write_routes_have_intended_dependencies():
     assert auth.require_admin_or_internal in _route_dependencies(
         ai_vectors.router, "/ai/collections/{name}/ingest-source", "POST"
     )
-    assert auth.require_admin_or_internal in _route_dependencies(
+    # /schedule is NOT in the internal-automation allowlist, so it uses plain
+    # require_admin (not require_admin_or_internal, whose internal branch would be
+    # unreachable here).
+    assert auth.require_admin in _route_dependencies(
+        ai_vectors.router, "/ai/collections/{name}/schedule", "POST"
+    )
+    assert auth.require_admin_or_internal not in _route_dependencies(
         ai_vectors.router, "/ai/collections/{name}/schedule", "POST"
     )
     assert auth.require_user in _route_dependencies(
@@ -284,7 +290,9 @@ def test_create_collection_never_updates_existing_name_and_returns_409(monkeypat
     assert all("ON CONFLICT" not in query.upper() for query in conn.queries)
 
 
-def test_scan_bucket_rethrows_with_bucket_context():
+def test_scan_bucket_tolerates_error_instead_of_raising():
+    """One unlistable bucket must degrade to a per-bucket error marker, not raise —
+    otherwise a single restricted bucket 500s the whole /storage/overview."""
     class _Paginator:
         def paginate(self, **kwargs):
             raise RuntimeError("access denied")
@@ -293,5 +301,65 @@ def test_scan_bucket_rethrows_with_bucket_context():
         def get_paginator(self, name):
             return _Paginator()
 
-    with pytest.raises(RuntimeError, match="Failed to scan bucket 'private'.*access denied"):
-        storage._scan_bucket(_S3(), {"Name": "private"})
+    stat = storage._scan_bucket(_S3(), {"Name": "private"})
+    assert stat.name == "private"
+    assert stat.error is not None and "access denied" in stat.error
+    assert stat.object_count == 0 and stat.total_size_bytes == 0
+
+
+def test_collect_overview_survives_one_bad_bucket(monkeypatch):
+    """A mix of a readable and an unlistable bucket yields partial stats + an error
+    marker, never an exception."""
+    class _Paginator:
+        def paginate(self, **kwargs):
+            if kwargs.get("Bucket") == "bad":
+                raise RuntimeError("denied")
+            return [{"Contents": [{"Size": 10}, {"Size": 5}]}]
+
+    class _S3:
+        def get_paginator(self, name):
+            return _Paginator()
+        def list_buckets(self):
+            return {"Buckets": [{"Name": "ok"}, {"Name": "bad"}]}
+
+    monkeypatch.setattr(storage, "S3_ENDPOINT", "http://seaweed", raising=False)
+    monkeypatch.setattr(storage, "get_s3_client", lambda: _S3())
+    overview = storage._collect_overview()
+    by_name = {b.name: b for b in overview.buckets}
+    assert by_name["ok"].total_size_bytes == 15
+    assert by_name["bad"].error is not None
+    assert overview.total_object_count == 2  # only the readable bucket contributes
+
+
+def test_storage_object_upload_is_admin_gated():
+    assert auth.require_admin in _route_dependencies(
+        storage.router, "/storage/objects/{bucket}/{key:path}", "PUT"
+    )
+
+
+def test_collection_name_validation_rejects_injection_and_junk():
+    """create_collection must 400 on names that aren't a tidy URL-safe token,
+    before any DB access."""
+    # NB: leading/trailing spaces are trimmed (valid), so these are genuinely-invalid
+    # tokens: control chars/quotes, slash, glob char, empty, over-length, non-ASCII.
+    bad_names = [
+        'x\n"""', "a/b", "bad*char", "semi;colon", "", "x" * 65, "드롭",
+    ]
+    for name in bad_names:
+        with pytest.raises(HTTPException) as exc:
+            _run(ai_vectors.create_collection(
+                ai_vectors.CollectionCreate(name=name, description=None),
+                {"id": USER_ID, "role": "admin"},
+            ))
+        assert exc.value.status_code == 400, name
+
+
+def test_mlflow_experiment_mutations_are_admin_gated():
+    pytest.importorskip("mlflow")
+    from app.api import mlflow_integration
+    assert auth.require_admin in _route_dependencies(
+        mlflow_integration.router, "/mlflow/experiments/{experiment_id}", "DELETE"
+    )
+    assert auth.require_admin in _route_dependencies(
+        mlflow_integration.router, "/mlflow/experiments/{experiment_id}/archive", "POST"
+    )

@@ -421,6 +421,7 @@ def _load_mlflow_archive_functions(client):
         "asyncio": asyncio,
         "HTTPException": HTTPException,
         "get_mlflow_client": lambda: client,
+        "logger": SimpleNamespace(warning=lambda *a, **k: None),
     }
     exec(compile(module, str(MLFLOW_BACKEND_PATH), "exec"), scope)
     return scope
@@ -449,8 +450,9 @@ def test_mlflow_experiment_archive_routes_call_delete_experiment():
     assert archived["archived"] is True
 
     source = MLFLOW_BACKEND_PATH.read_text()
-    assert '@router.delete("/mlflow/experiments/{experiment_id}")' in source
-    assert '@router.post("/mlflow/experiments/{experiment_id}/archive")' in source
+    # Mutating experiment routes are admin-gated (dependency in the decorator).
+    assert '@router.delete("/mlflow/experiments/{experiment_id}", dependencies=[Depends(require_admin)])' in source
+    assert '@router.post("/mlflow/experiments/{experiment_id}/archive", dependencies=[Depends(require_admin)])' in source
 
 
 def test_mlflow_experiment_archive_maps_upstream_failures():
@@ -465,7 +467,9 @@ def test_mlflow_experiment_archive_maps_upstream_failures():
     with pytest.raises(HTTPException) as exc:
         _run(unavailable["archive_experiment"]("exp-1"))
     assert exc.value.status_code == 502
-    assert "upstream timed out" in exc.value.detail
+    # Raw upstream error text must NOT be echoed to the client.
+    assert "upstream timed out" not in exc.value.detail
+    assert "exp-1" in exc.value.detail
 
     missing = _load_mlflow_archive_functions(FailingClient("experiment does not exist"))
     with pytest.raises(HTTPException) as exc:
