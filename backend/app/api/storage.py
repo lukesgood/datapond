@@ -1,7 +1,8 @@
 """
 Object Storage API - SeaweedFS S3 usage statistics
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import os
@@ -241,3 +242,58 @@ async def delete_bucket(bucket_name: str):
         if code == "BucketNotEmpty":
             raise HTTPException(status_code=409, detail=f"Bucket '{bucket_name}' is not empty")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/storage/objects/{bucket}/{key:path}", dependencies=[Depends(require_admin)])
+async def put_object(bucket: str, key: str, request: Request):
+    """Upload an object into a bucket. Admin only. The raw request body is stored
+    as-is; the request Content-Type is preserved on the object when provided."""
+    if not bucket or not key:
+        raise HTTPException(status_code=400, detail="bucket and key are required")
+    body = await request.body()
+    content_type = request.headers.get("content-type") or "application/octet-stream"
+    try:
+        s3 = get_s3_client()
+        s3.put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type)
+        return {"message": f"Uploaded '{key}' to '{bucket}'", "bucket": bucket, "key": key, "size_bytes": len(body)}
+    except ClientError as e:
+        code = e.response["Error"]["Code"]
+        if code in ("NoSuchBucket",):
+            raise HTTPException(status_code=404, detail=f"Bucket '{bucket}' not found")
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/storage/objects/{bucket}/{key:path}")
+async def get_object(bucket: str, key: str):
+    """Download an object, streaming its body back with the stored content-type."""
+    if not bucket or not key:
+        raise HTTPException(status_code=400, detail="bucket and key are required")
+    try:
+        s3 = get_s3_client()
+        obj = s3.get_object(Bucket=bucket, Key=key)
+    except ClientError as e:
+        code = e.response["Error"]["Code"]
+        if code in ("NoSuchBucket", "NoSuchKey", "404"):
+            raise HTTPException(status_code=404, detail=f"Object '{key}' not found in '{bucket}'")
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    body = obj["Body"]
+    content_type = obj.get("ContentType") or "application/octet-stream"
+    filename = key.rsplit("/", 1)[-1] or "download"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    length = obj.get("ContentLength")
+    if length is not None:
+        headers["Content-Length"] = str(length)
+
+    def _iter():
+        try:
+            for chunk in body.iter_chunks(chunk_size=64 * 1024):
+                yield chunk
+        finally:
+            body.close()
+
+    return StreamingResponse(_iter(), media_type=content_type, headers=headers)

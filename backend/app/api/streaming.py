@@ -15,6 +15,8 @@ Endpoints:
 - GET  /streaming/views/{name}/data — preview MV data
 - GET  /streaming/progress      — DDL progress
 - POST /streaming/sql           — execute arbitrary SQL
+- POST /streaming/cdc-pipeline  — atomic CDC pipeline (source→mv→sink per table)
+- POST /streaming/event-pipeline — atomic event pipeline (source→mv→sink), rollback on failure
 """
 
 import os
@@ -487,6 +489,126 @@ async def list_cdc_pipelines():
         return _serialize(rows)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Event Pipeline ────────────────────────────────────────────────────────────
+
+class EventPipelineRequest(BaseModel):
+    """Create a full event-stream pipeline: RisingWave source → MV → Iceberg sink."""
+    pipeline_name: str              # unique name prefix for source/mv/sink
+    source_type: str = "kafka"      # kafka | kinesis
+    topic: str = ""                 # kafka topic
+    bootstrap_servers: str = ""     # kafka bootstrap servers
+    stream_name: str = ""           # kinesis stream name
+    aws_region: str = "us-east-1"   # kinesis region
+    format: str = "json"            # message encoding: json | avro | csv
+    iceberg_schema: str = "raw"     # Iceberg target namespace
+    columns_sql: str = "data JSONB" # raw column definitions
+
+
+@router.post("/streaming/event-pipeline")
+async def create_event_pipeline(req: EventPipelineRequest):
+    """
+    Atomically create an event-stream pipeline (Kafka/Kinesis):
+      1. CREATE SOURCE <name>_src
+      2. CREATE MATERIALIZED VIEW <name>_mv  AS SELECT * FROM source
+      3. CREATE SINK <name>_sink  (Iceberg sink)
+
+    RisingWave DDL is auto-commit, so a real transaction is not possible. Instead,
+    on any failure the objects already created by this call are dropped in reverse
+    order (best-effort rollback) and a 400 is returned — nothing is left partially
+    created. Mirrors the /streaming/cdc-pipeline error shape.
+    """
+    name      = req.pipeline_name
+    src_name  = f"{name}_src"
+    mv_name   = f"{name}_mv"
+    sink_name = f"{name}_sink"
+    is_kafka  = req.source_type == "kafka"
+    warehouse = os.getenv("ICEBERG_WAREHOUSE", "s3a://iceberg/warehouse")
+
+    # Track objects successfully created so rollback never drops one we did not create.
+    created: List[tuple] = []
+
+    def _rollback():
+        removed = 0
+        failures: List[str] = []
+        for kind, obj in reversed(created):
+            try:
+                _execute(f"DROP {kind} {obj}", fetch=False)
+                removed += 1
+            except Exception as drop_err:
+                failures.append(f"{obj}: {drop_err}")
+        return removed, failures
+
+    try:
+        # 1. Source
+        col_defs = req.columns_sql or "data JSONB"
+        props = {"connector": f"'{req.source_type}'"}
+        if is_kafka:
+            props["topic"] = f"'{req.topic}'"
+            props["properties.bootstrap.server"] = f"'{req.bootstrap_servers}'"
+            props["scan.startup.mode"] = "'latest'"
+        else:
+            props["stream"] = f"'{req.stream_name}'"
+            props["aws.region"] = f"'{req.aws_region}'"
+        props_sql = ",\n  ".join(f"{k} = {v}" for k, v in props.items())
+        src_sql = f"""CREATE SOURCE {src_name} ({col_defs})
+WITH (
+  {props_sql}
+)
+FORMAT PLAIN ENCODE {req.format.upper()}"""
+        _execute(src_sql, fetch=False)
+        created.append(("SOURCE", src_name))
+
+        # 2. Materialized view (captures all columns)
+        mv_sql = f"CREATE MATERIALIZED VIEW {mv_name} AS SELECT * FROM {src_name}"
+        _execute(mv_sql, fetch=False)
+        created.append(("MATERIALIZED VIEW", mv_name))
+
+        # 3. Iceberg sink — S3 creds injected on MinIO, omitted on AWS (credential
+        # chain) via _iceberg_sink_s3_props().
+        sink_props = {
+            "connector":      "iceberg",
+            "type":           "append-only",
+            "catalog.type":   "storage",
+            "warehouse.path": warehouse,
+            **_iceberg_sink_s3_props(),
+            "database.name":  req.iceberg_schema,
+            "table.name":     name,
+        }
+        sink_props_sql = ",\n  ".join(f"{k} = '{v}'" for k, v in sink_props.items())
+        sink_sql = f"""CREATE SINK {sink_name}
+FROM {mv_name}
+WITH (
+  {sink_props_sql}
+)"""
+        _execute(sink_sql, fetch=False)
+        created.append(("SINK", sink_name))
+    except Exception as e:
+        cause = str(e)
+        if not created:
+            raise HTTPException(status_code=400, detail=f"{cause}. No resources were created.")
+        removed, failures = _rollback()
+        if not failures:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{cause}. Rollback removed all {removed} created resources.",
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{cause}. Rollback incomplete: removed {removed}/{len(created)}; "
+                f"failed to remove {'; '.join(failures)}"
+            ),
+        )
+
+    return {
+        "pipeline_name": name,
+        "source": src_name,
+        "view":   mv_name,
+        "sink":   sink_name,
+        "status": "success",
+    }
 
 
 # ── Sample Streams ────────────────────────────────────────────────────────────
