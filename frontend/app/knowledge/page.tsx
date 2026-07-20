@@ -34,7 +34,7 @@ function timeAgo(iso: string | null | undefined): string {
   if (s < 86400) return `${Math.floor(s / 3600)} hr ago`
   return `${Math.floor(s / 86400)} d ago`
 }
-interface Hit { source: string | null; content: string; score: number }
+interface Hit { source: string | null; content: string; score: number; rerank_score?: number }
 interface CollectionsResponse { collections?: Collection[] }
 interface AiStatusResponse { egress_policy?: string }
 interface CatalogColumn { name: string; type: string }
@@ -294,7 +294,12 @@ function SearchPanel({ name }: { name: string }) {
             <div key={i} className="rounded-md border px-3 py-2 text-xs">
               <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
                 <span className="flex items-center gap-1"><FileText className="h-3 w-3" />{h.source || "n/a"}</span>
-                <Badge variant="outline" className="dp-num text-[10px]">{h.score?.toFixed(3)}</Badge>
+                <span className="flex items-center gap-1">
+                  {typeof h.rerank_score === "number" && (
+                    <Badge variant="outline" className="dp-num text-[10px] border-primary/40 text-primary" title="Reranked relevance score">rerank {h.rerank_score.toFixed(3)}</Badge>
+                  )}
+                  <Badge variant="outline" className="dp-num text-[10px]">{h.score?.toFixed(3)}</Badge>
+                </span>
               </div>
               <div className="line-clamp-3">{h.content}</div>
             </div>

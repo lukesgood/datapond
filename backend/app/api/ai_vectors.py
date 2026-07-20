@@ -256,8 +256,12 @@ async def list_collections(user: dict = Depends(require_user)):
 
 @router.post("/ai/collections")
 async def create_collection(body: CollectionCreate, user: dict = Depends(require_user)):
-    if not body.name.strip():
+    name = body.name.strip()
+    if not name:
         raise HTTPException(400, "name is required.")
+    # Names are used as URL path segments; keep them to a tidy, unambiguous charset.
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,62}[A-Za-z0-9]|[A-Za-z0-9]", name):
+        raise HTTPException(400, "name may contain only letters, digits, spaces, underscore or hyphen (1–64 chars, no leading/trailing space).")
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
     async with pool.acquire() as c:

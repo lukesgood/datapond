@@ -288,13 +288,23 @@ function AccessControlTab() {
     else setErr((await r.json().catch(() => ({})))?.detail ?? "Failed to create")
   }
 
+  const confirm = useConfirm()
+  const { toast } = useToast()
   const togglePolicy = async (p: RlsPolicy) => {
-    await fetch(`/api/governance/rls/policies/${p.id}`, {
+    // Disabling a row-level security policy is a security-relevant action — confirm it.
+    if (p.enabled && !(await confirm({
+      title: "Disable policy",
+      message: `Disable RLS policy on ${p.schema_name}.${p.table_name}? Rows it currently restricts will become visible.`,
+      confirmText: "Disable", destructive: true,
+    }))) return
+    const r = await fetch(`/api/governance/rls/policies/${p.id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: !p.enabled }),
-    }); load()
+    })
+    if (r.ok) toast(`Policy ${p.enabled ? "disabled" : "enabled"}`, "success")
+    else toast(`Failed to update policy (HTTP ${r.status})`, "error")
+    load()
   }
-  const confirm = useConfirm()
   const deletePolicy = async (id: string) => {
     if (!(await confirm({ title: "Delete policy", message: "Delete this RLS policy?", destructive: true, confirmText: "Delete" }))) return
     await fetch(`/api/governance/rls/policies/${id}`, { method: "DELETE" }); load()

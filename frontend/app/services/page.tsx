@@ -51,16 +51,21 @@ export default function ServicesPage() {
   const router = useRouter()
   const [services, setServices] = useState<Service[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
 
   const fetchServices = useCallback(async () => {
     try {
       setLoading(true)
       const response = await fetch("/api/services")
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const data = await response.json()
-      setServices(data)
+      setServices(Array.isArray(data) ? data : [])
+      setError(null)
     } catch (error) {
       console.error("Failed to fetch services:", error)
+      // Don't render a stale/empty grid as if everything is fine — surface it.
+      setError(error instanceof Error ? error.message : "Failed to load services")
     } finally {
       setLoading(false)
     }
@@ -244,6 +249,18 @@ export default function ServicesPage() {
       </div>
 
       {/* Services Grid */}
+      {error && services.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-2 rounded-lg border bg-muted/30 p-12 text-center">
+          <XCircle className="h-6 w-6 text-[var(--dp-bad)]" />
+          <p className="text-sm font-medium">Could not load services</p>
+          <p className="text-xs text-muted-foreground">{error}</p>
+        </div>
+      ) : !loading && filteredServices.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-2 rounded-lg border bg-muted/30 p-12 text-center">
+          <p className="text-sm font-medium">{searchQuery ? "No services match your search" : "No services found"}</p>
+          <p className="text-xs text-muted-foreground">{searchQuery ? "Try a different name." : "No platform services are reporting yet."}</p>
+        </div>
+      ) : (
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {filteredServices.map((service) => (
           <Card
@@ -299,6 +316,7 @@ export default function ServicesPage() {
           </Card>
         ))}
       </div>
+      )}
     </div>
   )
 }
