@@ -24,9 +24,11 @@ import { Checkbox } from "@/components/ui/checkbox"
 import {
   FlaskConical, Plus, RefreshCw, GitBranch, ChevronRight, X,
   BarChart3, Clock, CheckCircle2, XCircle, AlertCircle, Loader2,
-  GitCompare,
+  GitCompare, Trash2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { getUser } from "@/lib/auth"
+import { useConfirm } from "@/lib/confirm"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -481,7 +483,7 @@ function NewExperimentDialog({
         throw new Error(msg || String(res.status))
       }
       const created = await res.json()
-      toast(`실험 "${name.trim()}" 생성됨`, "success")
+      toast(`Experiment "${name.trim()}" created`, "success")
       onCreate(created)
       setName("")
       setArtifactLocation("")
@@ -572,6 +574,11 @@ function ExperimentsPageInner() {
 
   // Dialog
   const [createExpOpen, setCreateExpOpen] = useState(false)
+
+  // Admin-gated actions
+  const { toast } = useToast()
+  const confirm = useConfirm()
+  const isAdmin = getUser()?.role === "admin"
 
   // ── Loaders ────────────────────────────────────────────────────────────────
 
@@ -673,6 +680,31 @@ function ExperimentsPageInner() {
     })
     setCompareResult(null)
   }, [])
+
+  const handleDeleteExp = useCallback(async (exp: Experiment) => {
+    const ok = await confirm({
+      title: "Delete experiment",
+      message: `Delete experiment "${exp.name}"? This moves it to MLflow's deleted stage and removes it from this list.`,
+      confirmText: "Delete",
+      destructive: true,
+    })
+    if (!ok) return
+    try {
+      const res = await fetch(`/api/mlflow/experiments/${exp.experiment_id}`, { method: "DELETE" })
+      if (!res.ok) throw new Error(String(res.status))
+      toast(`Experiment "${exp.name}" deleted`, "success")
+      if (selectedExp?.experiment_id === exp.experiment_id) {
+        setSelectedExp(null)
+        setRuns([])
+        setSelectedRun(null)
+        setCompareResult(null)
+        setCompareIds(new Set())
+      }
+      void loadExperiments()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to delete experiment", "error")
+    }
+  }, [confirm, toast, selectedExp, loadExperiments])
 
   // Initial load
   useEffect(() => {
@@ -803,45 +835,57 @@ function ExperimentsPageInner() {
                   const isSelected = selectedExp?.experiment_id === exp.experiment_id
                   const isDefault = exp.experiment_id === "0"
                   return (
-                    <button
-                      key={exp.experiment_id}
-                      onClick={() => handleSelectExp(exp)}
-                      className={cn(
-                        "w-full text-left px-2.5 py-2 rounded-md transition-colors group",
-                        "hover:bg-muted/60",
-                        isSelected
-                          ? "bg-background border-l-2 border-l-blue-500 pl-[calc(0.625rem-2px)] shadow-sm"
-                          : "border-l-2 border-l-transparent"
-                      )}
-                    >
-                      <div className="flex items-center justify-between gap-1.5">
-                        <span
-                          className={cn(
-                            "text-xs font-medium truncate leading-tight",
-                            isSelected ? "text-foreground" : "text-foreground/80"
-                          )}
-                        >
-                          {exp.name}
-                        </span>
-                        <div className="flex items-center gap-1 shrink-0">
-                          {isDefault && (
-                            <Badge variant="secondary" className="text-[9px] h-3.5 px-1">
-                              default
-                            </Badge>
-                          )}
+                    <div key={exp.experiment_id} className="relative group">
+                      <button
+                        onClick={() => handleSelectExp(exp)}
+                        className={cn(
+                          "w-full text-left px-2.5 py-2 rounded-md transition-colors",
+                          "hover:bg-muted/60",
+                          isSelected
+                            ? "bg-background border-l-2 border-l-blue-500 pl-[calc(0.625rem-2px)] shadow-sm"
+                            : "border-l-2 border-l-transparent"
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-1.5">
                           <span
                             className={cn(
-                              "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
-                              count > 0
-                                ? "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400"
-                                : "bg-muted text-muted-foreground"
+                              "text-xs font-medium truncate leading-tight",
+                              isSelected ? "text-foreground" : "text-foreground/80"
                             )}
                           >
-                            {count}
+                            {exp.name}
                           </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {isDefault && (
+                              <Badge variant="secondary" className="text-[9px] h-3.5 px-1">
+                                default
+                              </Badge>
+                            )}
+                            <span
+                              className={cn(
+                                "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
+                                count > 0
+                                  ? "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400"
+                                  : "bg-muted text-muted-foreground"
+                              )}
+                            >
+                              {count}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    </button>
+                      </button>
+                      {isAdmin && !isDefault && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); void handleDeleteExp(exp) }}
+                          aria-label={`Delete experiment ${exp.name}`}
+                          title="Delete experiment"
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded-md border bg-background text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:border-destructive/40 transition-opacity"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
                   )
                 })}
               </div>

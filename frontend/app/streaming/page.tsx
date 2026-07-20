@@ -133,20 +133,20 @@ function CdcPrereqPanel({ dbName, dbUser }: { dbName?: string; dbUser?: string }
 
 const STREAMING_SOURCES = [
   { id: "postgres-cdc", type: "cdc",   name: "PostgreSQL CDC",   icon: "🐘",
-    description: "WAL 기반 실시간 변경 캡처 (INSERT / UPDATE / DELETE)",
-    features: ["Zero latency", "No source load", "DELETE 반영"], available: true },
+    description: "WAL-based real-time change capture (INSERT / UPDATE / DELETE)",
+    features: ["Zero latency", "No source load", "DELETE support"], available: true },
   { id: "mysql-cdc",    type: "cdc",   name: "MySQL CDC",         icon: "🐬",
-    description: "binlog 기반 MySQL / MariaDB 실시간 변경 캡처",
-    features: ["binlog 기반", "MariaDB 지원"], available: false },
+    description: "binlog-based real-time change capture for MySQL / MariaDB",
+    features: ["binlog-based", "MariaDB support"], available: false },
   { id: "kafka",        type: "event", name: "Apache Kafka",      icon: "📨",
-    description: "Kafka 토픽을 Iceberg 테이블로 실시간 수집",
+    description: "Real-time ingestion of Kafka topics into Iceberg tables",
     features: ["JSON / Avro / CSV", "Schema Registry"], available: true },
   { id: "kinesis",      type: "event", name: "Amazon Kinesis",    icon: "☁️",
     description: "AWS Kinesis Data Streams → Iceberg",
-    features: ["AWS 네이티브", "at-least-once"], available: true },
+    features: ["AWS native", "at-least-once"], available: true },
   { id: "pulsar",       type: "event", name: "Apache Pulsar",     icon: "⚡",
-    description: "Pulsar 토픽 스트리밍",
-    features: ["멀티테넌시"], available: false },
+    description: "Pulsar topic streaming",
+    features: ["Multi-tenancy"], available: false },
 ] as const
 
 // ── SQL Templates ──────────────────────────────────────────────────────────────
@@ -356,6 +356,9 @@ function StreamingPageInner() {
   const [sourceSearch, setSourceSearch] = useState("")
   const [sourceCat, setSourceCat] = useState("all")
 
+  // Sample streams creation state
+  const [makingSamples, setMakingSamples] = useState(false)
+
   const fetchAll = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -417,6 +420,25 @@ function StreamingPageInner() {
 
   const { toast } = useToast()
   const confirm = useConfirm()
+
+  const handleMakeSamples = async () => {
+    setMakingSamples(true)
+    try {
+      const res = await fetch("/api/streaming/sample-streams", { method: "POST" })
+      if (!res.ok) {
+        toast(await responseError(res, "Failed to create sample streams"), "error")
+        return
+      }
+      const data = await res.json()
+      toast(`Created ${data.created}/${data.total} sample streams`, "success")
+      fetchAll()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Failed to create sample streams", "error")
+    } finally {
+      setMakingSamples(false)
+    }
+  }
+
   const handlePreview = async (mv: MV) => {
     setPreviewMv(mv)
     setPreviewLoading(true)
@@ -431,7 +453,7 @@ function StreamingPageInner() {
       ...pipeline.views.map(name => ({ type: "views", name })),
       ...pipeline.sources.map(name => ({ type: "sources", name })),
     ]
-    if (!(await confirm({ title: "파이프라인 삭제", message: `"${pipeline.name}" 와 연관 객체 ${operations.length}개를 삭제합니다.`, destructive: true, confirmText: "삭제" }))) return
+    if (!(await confirm({ title: "Delete Pipeline", message: `Delete "${pipeline.name}" and its ${operations.length} associated objects.`, destructive: true, confirmText: "Delete" }))) return
 
     const deleted: string[] = []
     try {
@@ -446,7 +468,7 @@ function StreamingPageInner() {
         }
         deleted.push(operation.name)
       }
-      toast(`파이프라인 "${pipeline.name}" 삭제됨`, "success")
+      toast(`Pipeline "${pipeline.name}" deleted`, "success")
     } catch (e) {
       const detail = e instanceof Error ? e.message : "Deletion failed"
       const outcome = deleted.length > 0
@@ -573,11 +595,11 @@ function StreamingPageInner() {
                 <Button onClick={() => setActiveTab("add-source")} className="gap-1.5">
                   <Plus className="h-4 w-4" />Add Source
                 </Button>
-                <Button variant="outline" className="gap-1.5" onClick={async () => {
-                  const res = await fetch("/api/streaming/sample-streams", { method: "POST" })
-                  if (res.ok) fetchAll()
-                }}>
-                  <Play className="h-4 w-4" />Make Sample Streams
+                <Button variant="outline" className="gap-1.5"
+                  onClick={handleMakeSamples} disabled={makingSamples}>
+                  {makingSamples
+                    ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</>
+                    : <><Play className="h-4 w-4" />Make Sample Streams</>}
                 </Button>
               </div>
               <div className="flex items-center gap-6 text-xs text-muted-foreground">

@@ -21,21 +21,21 @@ const SOURCES = [
   {
     id: "postgres-cdc", type: "cdc", name: "PostgreSQL CDC",
     icon: "🐘", color: "blue",
-    description: "WAL 기반 실시간 변경 캡처 (INSERT / UPDATE / DELETE)",
-    features: ["Zero latency", "No source load", "DELETE 반영"],
+    description: "WAL-based real-time change capture (INSERT / UPDATE / DELETE)",
+    features: ["Zero latency", "No source load", "DELETE support"],
     available: true,
   },
   {
     id: "mysql-cdc", type: "cdc", name: "MySQL CDC",
     icon: "🐬", color: "orange",
-    description: "binlog 기반 MySQL / MariaDB 실시간 변경 캡처",
-    features: ["binlog 기반", "MariaDB 지원"],
+    description: "binlog-based real-time change capture for MySQL / MariaDB",
+    features: ["binlog-based", "MariaDB support"],
     available: false,
   },
   {
     id: "kafka", type: "event", name: "Apache Kafka",
     icon: "📨", color: "purple",
-    description: "Kafka 토픽을 Iceberg 테이블로 실시간 수집",
+    description: "Real-time ingestion of Kafka topics into Iceberg tables",
     features: ["JSON / Avro / CSV", "Schema Registry"],
     available: true,
   },
@@ -43,26 +43,20 @@ const SOURCES = [
     id: "kinesis", type: "event", name: "Amazon Kinesis",
     icon: "☁️", color: "purple",
     description: "AWS Kinesis Data Streams → Iceberg",
-    features: ["AWS 네이티브", "at-least-once"],
+    features: ["AWS native", "at-least-once"],
     available: true,
   },
   {
     id: "pulsar", type: "event", name: "Apache Pulsar",
     icon: "⚡", color: "purple",
-    description: "Pulsar 토픽 스트리밍",
-    features: ["멀티테넌시"],
+    description: "Pulsar topic streaming",
+    features: ["Multi-tenancy"],
     available: false,
   },
 ] as const
 
 type SourceId = typeof SOURCES[number]["id"]
 type SourceType = "cdc" | "event" | "custom"
-type StreamingResourceType = "sources" | "views" | "sinks"
-
-interface CreatedResource {
-  type: StreamingResourceType
-  name: string
-}
 
 interface CdcPipelineResult {
   tables_total: number
@@ -78,31 +72,6 @@ async function responseError(response: Response, fallback: string) {
   } catch {
     return fallback
   }
-}
-
-async function rollbackCreatedResources(created: CreatedResource[]) {
-  const failures: string[] = []
-  let removed = 0
-  for (const resource of [...created].reverse()) {
-    try {
-      const response = await fetch(
-        `/api/streaming/${resource.type}/${encodeURIComponent(resource.name)}`,
-        { method: "DELETE" },
-      )
-      if (!response.ok) {
-        failures.push(
-          `${resource.name}: ${await responseError(response, "rollback failed")}`,
-        )
-      } else {
-        removed += 1
-      }
-    } catch (error) {
-      failures.push(
-        `${resource.name}: ${error instanceof Error ? error.message : "rollback failed"}`,
-      )
-    }
-  }
-  return { removed, failures }
 }
 
 // ── CDC Prerequisites Sidebar ─────────────────────────────────────────────────
@@ -397,77 +366,27 @@ function NewStreamingPipelineInner() {
         }
         setCreateResult({ success: true })
       } else {
-        // Event (Kafka / Kinesis): source → view → sink. Track only successful
-        // creates so rollback never removes an object this attempt did not create.
-        const created: CreatedResource[] = []
-        const sourceName = `${eventForm.pipeline_name}_src`
-        const viewName = `${eventForm.pipeline_name}_mv`
-        const sinkName = `${eventForm.pipeline_name}_sink`
-        try {
-          const isKafka = eventForm.source_type === "kafka"
-          const sourceResponse = await fetch("/api/streaming/sources", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: sourceName,
-              connector: eventForm.source_type,
-              topic: isKafka ? eventForm.topic : eventForm.stream_name,
-              bootstrap_servers: isKafka ? eventForm.bootstrap_servers : "",
-              format: "plain",
-              row_encode: eventForm.format,
-              extra_props: isKafka
-                ? {}
-                : { stream: eventForm.stream_name, "aws.region": eventForm.aws_region },
-              columns_sql: eventForm.columns_sql,
-            }),
-          })
-          if (!sourceResponse.ok) {
-            throw new Error(await responseError(sourceResponse, "Source creation failed"))
-          }
-          created.push({ type: "sources", name: sourceName })
-
-          const viewResponse = await fetch("/api/streaming/views", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: viewName,
-              definition: `SELECT * FROM ${sourceName}`,
-            }),
-          })
-          if (!viewResponse.ok) {
-            throw new Error(await responseError(viewResponse, "View creation failed"))
-          }
-          created.push({ type: "views", name: viewName })
-
-          const sinkResponse = await fetch("/api/streaming/sinks", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: sinkName,
-              from_mv: viewName,
-              connector: "iceberg",
-              sink_type: "append-only",
-              iceberg_schema: eventForm.iceberg_schema,
-              iceberg_table: eventForm.pipeline_name,
-            }),
-          })
-          if (!sinkResponse.ok) {
-            throw new Error(await responseError(sinkResponse, "Sink creation failed"))
-          }
-          created.push({ type: "sinks", name: sinkName })
-        } catch (error) {
-          const cause = error instanceof Error ? error.message : "Pipeline creation failed"
-          if (created.length === 0) {
-            throw new Error(`${cause}. No resources were created.`)
-          }
-          const rollback = await rollbackCreatedResources(created)
-          if (rollback.failures.length === 0) {
-            throw new Error(`${cause}. Rollback removed all ${rollback.removed} created resources.`)
-          }
-          throw new Error(
-            `${cause}. Rollback incomplete: removed ${rollback.removed}/${created.length}; ` +
-            `failed to remove ${rollback.failures.join("; ")}`,
-          )
+        // Event (Kafka / Kinesis): one atomic server-side call creates
+        // source → view → sink and rolls back on any partial failure, so a
+        // tab-close mid-create can no longer leak a partial pipeline.
+        const isKafka = eventForm.source_type === "kafka"
+        const response = await fetch("/api/streaming/event-pipeline", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pipeline_name: eventForm.pipeline_name,
+            source_type: eventForm.source_type,
+            topic: isKafka ? eventForm.topic : "",
+            bootstrap_servers: isKafka ? eventForm.bootstrap_servers : "",
+            stream_name: isKafka ? "" : eventForm.stream_name,
+            aws_region: eventForm.aws_region,
+            format: eventForm.format,
+            iceberg_schema: eventForm.iceberg_schema,
+            columns_sql: eventForm.columns_sql,
+          }),
+        })
+        if (!response.ok) {
+          throw new Error(await responseError(response, "Pipeline creation failed"))
         }
         setCreateResult({ success: true })
       }
@@ -493,7 +412,7 @@ function NewStreamingPipelineInner() {
       return (
         <div className="space-y-6">
           <p className="text-sm text-muted-foreground">
-            어떤 소스에서 실시간으로 데이터를 가져오시겠습니까?
+            Which source would you like to stream data from in real time?
           </p>
 
           {/* DB Change Capture */}
@@ -503,7 +422,7 @@ function NewStreamingPipelineInner() {
                 <RefreshCw className="h-3 w-3 text-primary" />
               </div>
               <p className="text-sm font-semibold">DB Change Capture</p>
-              <span className="text-xs text-muted-foreground">— INSERT / UPDATE / DELETE 실시간 캡처</span>
+              <span className="text-xs text-muted-foreground">— Real-time INSERT / UPDATE / DELETE capture</span>
             </div>
             <div className="grid grid-cols-2 gap-3">
               {cdcSources.map(src => (
@@ -557,7 +476,7 @@ function NewStreamingPipelineInner() {
                 <Radio className="h-3 w-3 text-purple-600" />
               </div>
               <p className="text-sm font-semibold">Event Stream</p>
-              <span className="text-xs text-muted-foreground">— Kafka · Kinesis 실시간 이벤트</span>
+              <span className="text-xs text-muted-foreground">— Kafka · Kinesis real-time events</span>
             </div>
             <div className="grid grid-cols-3 gap-3">
               {eventSources.map(src => (
@@ -835,7 +754,7 @@ function NewStreamingPipelineInner() {
             <Label className="text-xs">Source Type</Label>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { id: "kafka",   name: "Apache Kafka",   icon: "📨", desc: "Kafka 토픽" },
+                { id: "kafka",   name: "Apache Kafka",   icon: "📨", desc: "Kafka topic" },
                 { id: "kinesis", name: "Amazon Kinesis", icon: "☁️", desc: "AWS Kinesis" },
               ].map(t => (
                 <button

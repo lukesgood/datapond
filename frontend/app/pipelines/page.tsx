@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DagCard } from "@/components/airflow/dag-card"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   Workflow,
   Plus,
@@ -97,6 +97,20 @@ function PipelinesPageInner() {
   const [triggeringTransform, setTriggeringTransform] = useState<string | null>(null)
   const [savedStatuses, setSavedStatuses] = useState<Map<string, string>>(new Map())
   const router = useRouter()
+
+  // Top-level tab is controlled by the ?tab= query param so deep links such as
+  // /jobs → /pipelines?tab=history land on the right tab (defaults to transforms).
+  const searchParams = useSearchParams()
+  const VALID_TABS = ["transforms", "pipelines", "history"]
+  const tabParam = searchParams.get("tab")
+  // URL is the source of truth: derive the tab from ?tab= (so deep links like
+  // /jobs → /pipelines?tab=history land right) and push tab clicks back to the URL.
+  const activeTab = tabParam && VALID_TABS.includes(tabParam) ? tabParam : "transforms"
+  const setActiveTab = (v: string) => {
+    const sp = new URLSearchParams(searchParams.toString())
+    sp.set("tab", v)
+    router.replace(`/pipelines?${sp.toString()}`)
+  }
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -197,24 +211,24 @@ function PipelinesPageInner() {
       if (!r.ok) throw new Error()
       setEditTransform(await r.json())
       setShowNewTransform(true)
-    } catch { toast("Transform 정보를 불러오지 못했습니다", "error") }
+    } catch { toast("Failed to load transform details", "error") }
   }
 
   const handleTriggerTransform = async (id: string, dagId: string) => {
     setTriggeringTransform(id)
     try {
       const r = await fetch(`/api/transforms/${id}/trigger`, { method: "POST" })
-      if (r.ok) toast(`실행 시작됨 — Airflow DAG ${dagId}`, "info")
-      else toast("실행 트리거 실패", "error")
+      if (r.ok) toast(`Run started — Airflow DAG ${dagId}`, "info")
+      else toast("Failed to trigger run", "error")
     } catch { /* best effort */ }
     finally { setTriggeringTransform(null) }
   }
 
   const confirmDialog = useConfirm()
   const handleDeleteTransform = async (id: string, name: string) => {
-    if (!(await confirmDialog({ title: "Transform 삭제", message: `'${name}' 와 Airflow DAG를 삭제합니다.`, destructive: true, confirmText: "삭제" }))) return
+    if (!(await confirmDialog({ title: "Delete Transform", message: `Delete '${name}' and its Airflow DAG.`, destructive: true, confirmText: "Delete" }))) return
     await fetch(`/api/transforms/${id}`, { method: "DELETE" })
-    toast(`Transform '${name}' 삭제됨`, "success")
+    toast(`Transform '${name}' deleted`, "success")
     setTransforms(prev => prev.filter(t => t.id !== id))
   }
 
@@ -242,7 +256,7 @@ function PipelinesPageInner() {
       }
     } catch (err) {
       console.error("Failed to trigger DAG:", err)
-      toast("DAG 트리거 실패", "error")
+      toast("Failed to trigger DAG", "error")
     }
   }
 
@@ -265,7 +279,7 @@ function PipelinesPageInner() {
       }
     } catch (err) {
       console.error("Failed to toggle pause:", err)
-      toast("DAG 업데이트 실패", "error")
+      toast("Failed to update DAG", "error")
     }
   }
 
@@ -280,7 +294,7 @@ function PipelinesPageInner() {
       }
     } catch (err) {
       console.error("Failed to delete:", err)
-      toast("파이프라인 삭제에 실패했습니다.", "error")
+      toast("Failed to delete pipeline", "error")
     } finally {
       setDeleteTarget(null)
     }
@@ -298,7 +312,7 @@ function PipelinesPageInner() {
       ? Array.from(dagStats.values()).reduce((acc, s) => acc + s.success_rate, 0) / dagStats.size
       : 0
 
-  // DAG 카드 공통 렌더 함수
+  // Shared DAG card render helper
   const renderDagCards = (list: DAG[]) => {
     if (loading) return (
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -322,7 +336,7 @@ function PipelinesPageInner() {
         <Workflow className="h-10 w-10 text-muted-foreground/30" />
         <div>
           <p className="text-sm text-muted-foreground">No pipelines found</p>
-          <p className="text-xs text-muted-foreground/70 mt-1">SQL Transform을 만들면 Airflow DAG로 배포됩니다</p>
+          <p className="text-xs text-muted-foreground/70 mt-1">Create a SQL Transform to deploy it as an Airflow DAG</p>
         </div>
         <Button size="sm" onClick={() => setShowNewTransform(true)}>New Transform</Button>
       </div>
@@ -416,7 +430,7 @@ function PipelinesPageInner() {
       </div>
 
       {/* Main tabs: Transforms / Pipelines / History */}
-      <Tabs defaultValue="transforms">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="h-8">
           <TabsTrigger value="transforms" className="text-xs h-7">
             <Layers className="h-3 w-3 mr-1" />Transforms ({transforms.length})
@@ -601,7 +615,14 @@ function PipelinesPageInner() {
                           {run.dag_id}
                         </Link>
                       </td>
-                      <td className="px-4 py-2 font-mono text-xs text-muted-foreground truncate max-w-[160px]">{run.dag_run_id}</td>
+                      <td className="px-4 py-2 font-mono text-xs truncate max-w-[160px]">
+                        <Link
+                          href={`/jobs/${encodeURIComponent(run.dag_run_id)}?dag_id=${encodeURIComponent(run.dag_id)}`}
+                          className="text-muted-foreground hover:text-foreground hover:underline underline-offset-2"
+                        >
+                          {run.dag_run_id}
+                        </Link>
+                      </td>
                       <td className="px-4 py-2">
                         <span className={`flex items-center gap-1 ${stateColor}`}>
                           <StateIcon className="h-3.5 w-3.5" />
@@ -636,16 +657,16 @@ function PipelinesPageInner() {
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>파이프라인 삭제</AlertDialogTitle>
+            <AlertDialogTitle>Delete Pipeline</AlertDialogTitle>
             <AlertDialogDescription>
-              <strong>{deleteTarget}</strong> 파이프라인을 삭제하시겠습니까?
-              DAG 파일이 제거되고 실행 기록은 보존됩니다. 이 작업은 되돌릴 수 없습니다.
+              Delete the <strong>{deleteTarget}</strong> pipeline?
+              The DAG file will be removed and run history preserved. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteConfirm} className="bg-red-600 hover:bg-red-700">
-              삭제
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

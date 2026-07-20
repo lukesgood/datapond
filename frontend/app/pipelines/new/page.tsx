@@ -71,9 +71,9 @@ interface BronzeData {
   table: string
   mode: "full_refresh" | "incremental" | "merge"
   watermarkColumn: string
-  primaryKey: string       // Merge/Upsert 기준 키
-  filterSql: string        // 추출 조건 (WHERE 절)
-  batchSize: string        // 대용량 배치 크기
+  primaryKey: string       // Merge/Upsert key
+  filterSql: string        // Extraction condition (WHERE clause)
+  batchSize: string        // Batch size for large loads
 }
 
 interface SilverData {
@@ -83,9 +83,9 @@ interface SilverData {
   sql: string
   mode: "full_refresh" | "incremental"
   qualityCheck: string
-  partitionBy: string      // Iceberg 파티션 컬럼
-  primaryKey: string       // Dedup 기준 키
-  description: string      // 카탈로그 등록용
+  partitionBy: string      // Iceberg partition column
+  primaryKey: string       // Dedup key
+  description: string      // For catalog registration
 }
 
 interface GoldData {
@@ -99,12 +99,12 @@ interface GoldData {
 }
 
 interface PipelineAdvanced {
-  retries: string        // → max_retries (백엔드 PipelineDefinition)
+  retries: string        // → max_retries (backend PipelineDefinition)
   retryDelay: string     // → retry_delay_minutes
   owner: string          // → owner
   alertOnFailure: boolean // → alert_on_failure
   alertEmail: string     // → alert_email (comma-separated addresses)
-  tags: string           // → tags (쉼표 구분 문자열)
+  tags: string           // → tags (comma-separated string)
   catchup: boolean       // → Airflow DAG catchup
   maxActiveRuns: string  // → Airflow DAG max_active_runs
 }
@@ -159,12 +159,12 @@ const LAYER_STYLES = {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const SCHEDULE_OPTIONS = [
-  { value: "@hourly",  label: "Hourly",          cron: "0 * * * *",   desc: "매 정각" },
-  { value: "@daily",   label: "Daily",            cron: "0 0 * * *",   desc: "매일 자정 (UTC)" },
-  { value: "@weekly",  label: "Weekly",           cron: "0 0 * * 0",   desc: "매주 일요일 자정" },
-  { value: "@monthly", label: "Monthly",          cron: "0 0 1 * *",   desc: "매월 1일 자정" },
-  { value: "None",     label: "Manual",           cron: "",            desc: "수동 트리거만" },
-  { value: "custom",   label: "Custom cron...",   cron: "",            desc: "직접 입력" },
+  { value: "@hourly",  label: "Hourly",          cron: "0 * * * *",   desc: "On the hour" },
+  { value: "@daily",   label: "Daily",            cron: "0 0 * * *",   desc: "Every day at midnight (UTC)" },
+  { value: "@weekly",  label: "Weekly",           cron: "0 0 * * 0",   desc: "Every Sunday at midnight" },
+  { value: "@monthly", label: "Monthly",          cron: "0 0 1 * *",   desc: "First of every month at midnight" },
+  { value: "None",     label: "Manual",           cron: "",            desc: "Manual trigger only" },
+  { value: "custom",   label: "Custom cron...",   cron: "",            desc: "Enter manually" },
 ]
 
 const AGGREGATION_OPTIONS = [
@@ -701,12 +701,12 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
           }}
         >
           <SelectTrigger className="h-9 text-sm">
-            <SelectValue placeholder="커넥션 선택..." />
+            <SelectValue placeholder="Select connection..." />
           </SelectTrigger>
           <SelectContent>
             {connections.length === 0 ? (
               <SelectItem value="__none" disabled>
-                커넥션 없음 — 먼저 커넥터를 설정하세요
+                No connections — set up a connector first
               </SelectItem>
             ) : (
               connections.map((c) => (
@@ -719,7 +719,7 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
           </SelectContent>
         </Select>
         {data.connectionType && (
-          <p className="text-[11px] text-muted-foreground">타입: {data.connectionType}</p>
+          <p className="text-[11px] text-muted-foreground">Type: {data.connectionType}</p>
         )}
       </div>
 
@@ -737,7 +737,7 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
             }}
           >
             <SelectTrigger className="h-9 text-sm font-mono">
-              <SelectValue placeholder={loadingTables ? "로딩중..." : "테이블 선택..."} />
+              <SelectValue placeholder={loadingTables ? "Loading..." : "Select table..."} />
             </SelectTrigger>
             <SelectContent>
               {tables.map((t) => (
@@ -755,12 +755,12 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
             className="font-mono text-sm h-9" placeholder="public.orders" />
         )}
         <p className="text-[11px] text-muted-foreground">
-          {tables.length > 0 ? "조회된 테이블에서 선택" : "커넥션 선택 시 자동 조회"}
+          {tables.length > 0 ? "Select from fetched tables" : "Auto-fetched when a connection is selected"}
         </p>
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-xs">Name <span className="text-muted-foreground">(자동생성)</span></Label>
+        <Label className="text-xs">Name <span className="text-muted-foreground">(auto-generated)</span></Label>
         <Input
           value={data.name}
           onChange={(e) => onChange({ name: e.target.value.replace(/\s/g, "_") })}
@@ -774,8 +774,8 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
         <Select value={data.mode} onValueChange={(v) => { if (v) onChange({ mode: v as BronzeData["mode"] }) }}>
           <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="incremental">Incremental — 증분 (권장)</SelectItem>
-            <SelectItem value="full_refresh">Full Refresh — 전체</SelectItem>
+            <SelectItem value="incremental">Incremental — changed rows only (recommended)</SelectItem>
+            <SelectItem value="full_refresh">Full Refresh — entire table</SelectItem>
             <SelectItem value="merge">Merge (Upsert)</SelectItem>
           </SelectContent>
         </Select>
@@ -787,7 +787,7 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
           {columns.length > 0 ? (
             <Select value={data.watermarkColumn} onValueChange={(v) => { if (v) onChange({ watermarkColumn: v }) }}>
               <SelectTrigger className="h-9 text-sm font-mono">
-                <SelectValue placeholder={loadingColumns ? "로딩중..." : "컬럼 선택..."} />
+                <SelectValue placeholder={loadingColumns ? "Loading..." : "Select column..."} />
               </SelectTrigger>
               <SelectContent>
                 {columns.map((c) => (
@@ -802,7 +802,7 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
               onChange={(e) => onChange({ watermarkColumn: e.target.value })}
               className="font-mono text-sm h-9" placeholder="updated_at" />
           )}
-          <p className="text-[11px] text-muted-foreground">마지막 실행 이후 변경된 행만 추출</p>
+          <p className="text-[11px] text-muted-foreground">Extract only rows changed since the last run</p>
         </div>
       )}
 
@@ -812,7 +812,7 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
           {columns.length > 0 ? (
             <Select value={data.primaryKey} onValueChange={(v) => { if (v) onChange({ primaryKey: v }) }}>
               <SelectTrigger className="h-9 text-sm font-mono">
-                <SelectValue placeholder="키 컬럼 선택..." />
+                <SelectValue placeholder="Select key column..." />
               </SelectTrigger>
               <SelectContent>
                 {columns.map((c) => (
@@ -827,19 +827,19 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
               onChange={(e) => onChange({ primaryKey: e.target.value })}
               className="font-mono text-sm h-9" placeholder="id" />
           )}
-          <p className="text-[11px] text-muted-foreground">복합키: id,tenant_id</p>
+          <p className="text-[11px] text-muted-foreground">Composite key: id,tenant_id</p>
         </div>
       )}
 
       <div className="space-y-1.5">
-        <Label className="text-xs">Filter SQL <span className="text-muted-foreground">(선택)</span></Label>
+        <Label className="text-xs">Filter SQL <span className="text-muted-foreground">(optional)</span></Label>
         <Input value={data.filterSql}
           onChange={(e) => onChange({ filterSql: e.target.value })}
           className="font-mono text-sm h-9" placeholder="status != 'deleted'" />
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-xs">Batch Size <span className="text-muted-foreground">(선택)</span></Label>
+        <Label className="text-xs">Batch Size <span className="text-muted-foreground">(optional)</span></Label>
         <Input value={data.batchSize}
           onChange={(e) => onChange({ batchSize: e.target.value })}
           className="font-mono text-sm h-9" type="number" placeholder="10000" />
@@ -849,7 +849,7 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
       {columns.length > 0 && (
         <div className="mt-4 p-3 bg-muted/50 rounded-lg">
           <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase mb-2">
-            테이블 스키마 ({columns.length}개 컬럼)
+            Table Schema ({columns.length} columns)
           </p>
           <div className="flex flex-wrap gap-1.5">
             {columns.map((c) => (
@@ -913,7 +913,7 @@ function SilverForm({ data, onChange, onDelete }: SilverFormProps) {
           <Input value={data.primaryKey}
             onChange={(e) => onChange({ primaryKey: e.target.value })}
             className="font-mono text-sm h-9" placeholder="id" />
-          <p className="text-[11px] text-muted-foreground">Dedup · Merge 기준 키</p>
+          <p className="text-[11px] text-muted-foreground">Dedup / Merge key</p>
         </div>
 
         <div className="space-y-1.5">
@@ -921,7 +921,7 @@ function SilverForm({ data, onChange, onDelete }: SilverFormProps) {
           <Input value={data.partitionBy}
             onChange={(e) => onChange({ partitionBy: e.target.value })}
             className="font-mono text-sm h-9" placeholder="DATE(updated_at)" />
-          <p className="text-[11px] text-muted-foreground">Iceberg 파티션 표현식</p>
+          <p className="text-[11px] text-muted-foreground">Iceberg partition expression</p>
         </div>
 
         <div className="space-y-1.5">
@@ -929,14 +929,14 @@ function SilverForm({ data, onChange, onDelete }: SilverFormProps) {
           <Input value={data.qualityCheck}
             onChange={(e) => onChange({ qualityCheck: e.target.value })}
             className="font-mono text-sm h-9" placeholder="amount > 0" />
-          <p className="text-[11px] text-muted-foreground">WHERE 조건 — 실패시 중단</p>
+          <p className="text-[11px] text-muted-foreground">WHERE condition — halts on failure</p>
         </div>
 
         <div className="space-y-1.5 col-span-2">
           <Label className="text-xs">Description</Label>
           <Input value={data.description}
             onChange={(e) => onChange({ description: e.target.value })}
-            className="text-sm h-9" placeholder="OpenMetadata 카탈로그 설명" />
+            className="text-sm h-9" placeholder="OpenMetadata catalog description" />
         </div>
       </div>{/* end grid */}
 
@@ -1017,7 +1017,7 @@ function GoldForm({ data, onChange, onDelete }: GoldFormProps) {
         <Label className="text-xs">Description</Label>
         <Input value={data.description}
           onChange={(e) => onChange({ description: e.target.value })}
-          className="text-sm h-9" placeholder="일별 매출 집계 테이블" />
+          className="text-sm h-9" placeholder="Daily revenue aggregation table" />
       </div>
       </div>{/* end grid */}
 
@@ -1084,7 +1084,7 @@ function PipelineForm({
             placeholder="my_pipeline"
           />
           <p className="text-[11px] text-muted-foreground">
-            영문·숫자·언더스코어만 허용 (Airflow DAG ID로 사용)
+            Letters, numbers, and underscores only (used as the Airflow DAG ID)
           </p>
         </div>
 
@@ -1095,7 +1095,7 @@ function PipelineForm({
             onChange={(e) => onChange({ description: e.target.value })}
             className="text-xs resize-none"
             rows={2}
-            placeholder="이 파이프라인이 하는 일을 설명하세요"
+            placeholder="Describe what this pipeline does"
           />
         </div>
 
@@ -1107,7 +1107,7 @@ function PipelineForm({
             className="text-xs h-8"
             placeholder="data-engineering-team"
           />
-          <p className="text-[11px] text-muted-foreground">담당자 또는 팀 (Airflow DAG owner)</p>
+          <p className="text-[11px] text-muted-foreground">Person or team responsible (Airflow DAG owner)</p>
         </div>
         </div>
       </div>
@@ -1138,7 +1138,7 @@ function PipelineForm({
             </SelectContent>
           </Select>
 
-          {/* 선택된 스케줄 설명 */}
+          {/* Selected schedule description */}
           {selectedSchedule && (
             <div className="flex items-center gap-2 rounded-md bg-muted/40 border px-3 py-2">
               {selectedSchedule.cron ? (
@@ -1161,11 +1161,11 @@ function PipelineForm({
               placeholder="0 6 * * 1-5"
             />
             <div className="rounded-md bg-muted/40 border px-3 py-2 text-[11px] text-muted-foreground space-y-0.5">
-              <p className="font-medium text-foreground text-xs mb-1">Cron 형식: 분 시 일 월 요일</p>
-              <p><code className="font-mono">0 6 * * *</code> — 매일 오전 6시</p>
-              <p><code className="font-mono">0 */4 * * *</code> — 4시간마다</p>
-              <p><code className="font-mono">0 9 * * 1-5</code> — 평일 오전 9시</p>
-              <p><code className="font-mono">30 23 * * 0</code> — 매주 일요일 23:30</p>
+              <p className="font-medium text-foreground text-xs mb-1">Cron format: minute hour day month weekday</p>
+              <p><code className="font-mono">0 6 * * *</code> — Every day at 6:00 AM</p>
+              <p><code className="font-mono">0 */4 * * *</code> — Every 4 hours</p>
+              <p><code className="font-mono">0 9 * * 1-5</code> — Weekdays at 9:00 AM</p>
+              <p><code className="font-mono">30 23 * * 0</code> — Every Sunday at 23:30</p>
             </div>
           </div>
         )}
@@ -1174,7 +1174,7 @@ function PipelineForm({
           <div>
             <p className="text-xs font-medium">Catchup</p>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              과거 누락된 실행 자동 보완 (주의: 대량 실행 발생 가능)
+              Automatically backfill missed past runs (warning: may trigger many runs)
             </p>
           </div>
           <Switch
@@ -1199,8 +1199,8 @@ function PipelineForm({
             placeholder="sales, daily, production"
           />
           <p className="text-[11px] text-muted-foreground">
-            쉼표로 구분 — Airflow UI 검색·필터링에 사용됩니다.{" "}
-            <code className="bg-muted px-1 rounded">datapond-pipeline</code>은 자동 포함
+            Comma-separated — used for search and filtering in the Airflow UI.{" "}
+            <code className="bg-muted px-1 rounded">datapond-pipeline</code> is included automatically
           </p>
         </div>
       </div>
@@ -1223,7 +1223,7 @@ function PipelineForm({
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium">Retry Delay (분)</Label>
+            <Label className="text-xs font-medium">Retry Delay (min)</Label>
             <Input
               value={pipeline.advanced.retryDelay}
               onChange={(e) => onChange({ advanced: { ...pipeline.advanced, retryDelay: e.target.value } })}
@@ -1244,7 +1244,7 @@ function PipelineForm({
             placeholder="1"
           />
           <p className="text-[11px] text-muted-foreground">
-            동시 실행 허용 DAG Run 수. 1 권장 (데이터 중복 방지)
+            Number of concurrent DAG runs allowed. 1 recommended (prevents data duplication)
           </p>
         </div>
       </div>
@@ -1257,9 +1257,9 @@ function PipelineForm({
 
         <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
           <div>
-            <p className="text-xs font-medium">이메일 알림</p>
+            <p className="text-xs font-medium">Email alerts</p>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              파이프라인 실패·재시도 시 이메일 발송
+              Send email on pipeline failure or retry
             </p>
           </div>
           <Switch
@@ -1270,7 +1270,7 @@ function PipelineForm({
 
         {pipeline.advanced.alertOnFailure && (
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium">수신 이메일</Label>
+            <Label className="text-xs font-medium">Recipient email</Label>
             <Input
               value={pipeline.advanced.alertEmail}
               onChange={(e) => onChange({ advanced: { ...pipeline.advanced, alertEmail: e.target.value } })}
@@ -1279,16 +1279,16 @@ function PipelineForm({
               placeholder="oncall@company.com, data-team@company.com"
             />
             <p className="text-[11px] text-muted-foreground">
-              콤마로 여러 주소 입력 가능 —
-              실제 발송을 위해 Airflow SMTP 설정이 필요합니다
-              (<a href="/settings" className="underline hover:text-foreground">Settings 참고</a>)
+              Enter multiple addresses separated by commas —
+              Airflow SMTP must be configured for delivery
+              (<a href="/settings" className="underline hover:text-foreground">see Settings</a>)
             </p>
           </div>
         )}
 
         {pipeline.advanced.alertOnFailure && !pipeline.advanced.alertEmail && (
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
-            수신 이메일을 입력하지 않으면 알림이 전송되지 않습니다.
+            No alerts will be sent unless you enter a recipient email.
           </div>
         )}
       </div>
@@ -1511,13 +1511,13 @@ export default function NewPipelinePage() {
     (params: Connection) => {
       const sourceNode = nodes.find((n) => n.id === params.source)
       const targetNode = nodes.find((n) => n.id === params.target)
-      // 역방향(하위→상위 레이어)만 차단, 동일 레이어간 + 건너뛰기 모두 허용
+      // Only block reverse direction (lower→upper layer); same-layer and skip-ahead are allowed
       const layerOrder: Record<string, number> = { bronze: 0, silver: 1, gold: 2 }
       const srcLayer = sourceNode?.data.layer ?? ""
       const tgtLayer = targetNode?.data.layer ?? ""
       if (layerOrder[srcLayer] === undefined || layerOrder[tgtLayer] === undefined) return
-      if (layerOrder[srcLayer] > layerOrder[tgtLayer]) return  // 역방향 차단
-      if (params.source === params.target) return              // 자기 자신 연결 차단
+      if (layerOrder[srcLayer] > layerOrder[tgtLayer]) return  // block reverse direction
+      if (params.source === params.target) return              // block self-connection
       const newEdges = addEdge({ ...params, ...DEFAULT_EDGE_OPTIONS } as Edge, edges)
       setEdges(newEdges)
       saveHistoryWith(nodes, newEdges)
@@ -1753,26 +1753,26 @@ export default function NewPipelinePage() {
 
     // 1. Pipeline name required
     if (!pipeline.pipelineName || pipeline.pipelineName.trim() === "") {
-      errors.push("Pipeline Name은 필수입니다.")
+      errors.push("Pipeline Name is required.")
     }
 
     // 2. At least one node required
     if (dataNodes.length === 0) {
-      errors.push("최소 1개 이상의 노드가 필요합니다.")
+      errors.push("At least one node is required.")
     }
 
     // 3. Validate bronze nodes
     const bronzeNodes = dataNodes.filter(n => n.type === "bronzeNode")
     for (const n of bronzeNodes) {
       const d = n.data as BronzeData
-      if (!d.connectionName) errors.push(`[${d.name || "Bronze"}] Connection은 필수입니다.`)
-      if (!d.table) errors.push(`[${d.name || "Bronze"}] Table은 필수입니다.`)
-      if (!d.name) errors.push(`[${d.name || "Bronze"}] Name은 필수입니다.`)
+      if (!d.connectionName) errors.push(`[${d.name || "Bronze"}] Connection is required.`)
+      if (!d.table) errors.push(`[${d.name || "Bronze"}] Table is required.`)
+      if (!d.name) errors.push(`[${d.name || "Bronze"}] Name is required.`)
       if (d.mode === "incremental" && !d.watermarkColumn) {
-        errors.push(`[${d.name}] Incremental 모드에서는 Watermark Column이 필수입니다.`)
+        errors.push(`[${d.name}] Watermark Column is required in incremental mode.`)
       }
       if ((d.mode === "incremental" || d.mode === "merge") && !d.primaryKey) {
-        errors.push(`[${d.name}] ${d.mode} 모드에서는 Primary Key가 필수입니다.`)
+        errors.push(`[${d.name}] Primary Key is required in ${d.mode} mode.`)
       }
     }
 
@@ -1780,23 +1780,23 @@ export default function NewPipelinePage() {
     const silverNodes = dataNodes.filter(n => n.type === "silverNode")
     for (const n of silverNodes) {
       const d = n.data as SilverData
-      if (!d.name) errors.push(`[Silver] Name은 필수입니다.`)
-      if (!d.sql) errors.push(`[${d.name || "Silver"}] SQL은 필수입니다.`)
+      if (!d.name) errors.push(`[Silver] Name is required.`)
+      if (!d.sql) errors.push(`[${d.name || "Silver"}] SQL is required.`)
     }
 
     // 5. Validate gold nodes
     const goldNodes = dataNodes.filter(n => n.type === "goldNode")
     for (const n of goldNodes) {
       const d = n.data as GoldData
-      if (!d.name) errors.push(`[Gold] Name은 필수입니다.`)
-      if (!d.sql) errors.push(`[${d.name || "Gold"}] SQL은 필수입니다.`)
+      if (!d.name) errors.push(`[Gold] Name is required.`)
+      if (!d.sql) errors.push(`[${d.name || "Gold"}] SQL is required.`)
     }
 
     // 6. Check for isolated nodes (no edges)
     for (const n of dataNodes) {
       const hasEdge = edges.some(e => e.source === n.id || e.target === n.id)
       if (!hasEdge && dataNodes.length > 1) {
-        errors.push(`[${(n.data as NodeData).name || n.id}] 다른 노드와 연결되지 않았습니다.`)
+        errors.push(`[${(n.data as NodeData).name || n.id}] is not connected to any other node.`)
       }
     }
 
@@ -1826,7 +1826,7 @@ export default function NewPipelinePage() {
       return false
     }
     if (hasCycle()) {
-      errors.push("순환 참조가 감지되었습니다. 노드 간 의존성에 순환이 없어야 합니다.")
+      errors.push("A circular reference was detected. Node dependencies must not contain cycles.")
     }
 
     return errors
@@ -1860,7 +1860,7 @@ export default function NewPipelinePage() {
       setTimeout(() => setSaveStatus("idle"), 2000)
       localStorage.removeItem("datapond_pipeline_draft")
     } catch (e) {
-      setError(e instanceof Error ? e.message : "저장 실패")
+      setError(e instanceof Error ? e.message : "Save failed")
       setSaveStatus("idle")
     }
   }, [currentCode, edges, effectiveSchedule, nodes, pipeline, validatePipeline])
@@ -1900,16 +1900,16 @@ export default function NewPipelinePage() {
       })
       if (!compRes.ok) {
         const errText = await compRes.text()
-        throw new Error(`컴파일 서버 오류 (${compRes.status}): ${errText}`)
+        throw new Error(`Compile server error (${compRes.status}): ${errText}`)
       }
       const compData = await compRes.json()
       if (!compData.success)
-        throw new Error(compData.errors?.join("\n") || "컴파일 실패")
+        throw new Error(compData.errors?.join("\n") || "Compilation failed")
 
       const dagArtifact = compData.artifacts?.find(
         (a: { type: string; content: string }) => a.type === "airflow_dag",
       )
-      if (!dagArtifact?.content) throw new Error("DAG 코드가 생성되지 않았습니다.")
+      if (!dagArtifact?.content) throw new Error("No DAG code was generated.")
 
       const deployRes = await fetch("/api/pipelines/deploy", {
         method: "POST",
@@ -1922,21 +1922,21 @@ export default function NewPipelinePage() {
       })
       if (!deployRes.ok && deployRes.status !== 409) {
         const errText = await deployRes.text()
-        throw new Error(`배포 서버 오류 (${deployRes.status}): ${errText}`)
+        throw new Error(`Deploy server error (${deployRes.status}): ${errText}`)
       }
       const deployData = await deployRes.json()
       if (deployRes.status === 409) {
-        setError(`파이프라인 '${compData.pipeline_name}'이(가) 이미 존재합니다. 덮어쓰기를 활성화하세요.`)
+        setError(`Pipeline '${compData.pipeline_name}' already exists. Enable overwrite.`)
         setOverwrite(true)
         return
       }
-      if (!deployData.success) throw new Error(deployData.message || "배포 실패")
+      if (!deployData.success) throw new Error(deployData.message || "Deployment failed")
       setDeployResult(deployData)
       setDeployed(true)
       // Clear draft after successful deploy
       localStorage.removeItem("datapond_pipeline_draft")
     } catch (e) {
-      setError(e instanceof Error ? e.message : "배포 중 알 수 없는 오류가 발생했습니다.")
+      setError(e instanceof Error ? e.message : "An unknown error occurred during deployment.")
     } finally {
       setLoading(false)
     }
@@ -2042,8 +2042,8 @@ export default function NewPipelinePage() {
         <div className="flex items-center gap-2 shrink-0">
           {draftRestored && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span>초안 복원됨</span>
-              <button onClick={clearDraft} className="text-destructive hover:underline text-[11px]">초기화</button>
+              <span>Draft restored</span>
+              <button onClick={clearDraft} className="text-destructive hover:underline text-[11px]">Reset</button>
             </div>
           )}
           {error && (
@@ -2054,7 +2054,7 @@ export default function NewPipelinePage() {
               </div>
               {error.includes("\n") && (
                 <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block w-80 p-3 bg-background border rounded-lg shadow-lg">
-                  <p className="text-[10px] font-bold text-destructive mb-1.5">검증 오류 ({error.split("\n").length}건)</p>
+                  <p className="text-[10px] font-bold text-destructive mb-1.5">Validation errors ({error.split("\n").length})</p>
                   <ul className="space-y-1">
                     {error.split("\n").map((e, i) => (
                       <li key={i} className="text-[11px] text-destructive/80 flex items-start gap-1">
@@ -2158,9 +2158,9 @@ export default function NewPipelinePage() {
               <Panel position="top-center">
                 <div className="mt-16 flex flex-col items-center gap-4 text-center pointer-events-auto">
                   <div className="rounded-2xl border-2 border-dashed border-muted-foreground/20 bg-background/80 backdrop-blur px-10 py-8 space-y-3">
-                    <p className="text-base font-semibold">빈 파이프라인</p>
+                    <p className="text-base font-semibold">Empty pipeline</p>
                     <p className="text-sm text-muted-foreground max-w-xs">
-                      템플릿으로 시작하거나 하단 팔레트에서 노드를 추가하세요
+                      Start from a template or add nodes from the palette below
                     </p>
                     <div className="grid grid-cols-2 gap-2 pt-2">
                       {PIPELINE_TEMPLATES.map((t) => (
@@ -2183,7 +2183,7 @@ export default function NewPipelinePage() {
                       className="px-3 py-1.5 rounded-lg border-2 border-amber-200 bg-amber-50
                         hover:bg-amber-100 text-xs font-medium text-amber-800 transition-colors mt-2"
                     >
-                      + 빈 Bronze Source로 시작
+                      + Start with an empty Bronze Source
                     </button>
                   </div>
                 </div>
@@ -2197,7 +2197,7 @@ export default function NewPipelinePage() {
           onMouseDown={startPanelResize}
           className="h-1.5 shrink-0 cursor-row-resize bg-border/40
                      hover:bg-primary/50 active:bg-primary/70 transition-colors"
-          aria-label="드래그해서 캔버스 / 패널 비율 조절" title="드래그해서 캔버스 / 패널 비율 조절"
+          aria-label="Drag to resize canvas / panel" title="Drag to resize canvas / panel"
         />
 
         {/* ── Bottom: Tabbed Properties Panel ── */}
@@ -2447,8 +2447,8 @@ export default function NewPipelinePage() {
           >
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <div>
-                <h3 className="text-sm font-semibold">파이프라인 템플릿</h3>
-                <p className="text-xs text-muted-foreground">패턴을 선택하면 현재 캔버스를 대체합니다</p>
+                <h3 className="text-sm font-semibold">Pipeline Templates</h3>
+                <p className="text-xs text-muted-foreground">Selecting a pattern replaces the current canvas</p>
               </div>
               <button onClick={() => setTemplateOpen(false)} className="p-1 rounded hover:bg-muted">
                 <X className="h-4 w-4" />

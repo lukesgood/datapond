@@ -393,7 +393,7 @@ export default function DagDetailPage() {
           <div className="space-y-3 py-2">
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">
-                Config JSON <span className="text-muted-foreground font-normal">(선택)</span>
+                Config JSON <span className="text-muted-foreground font-normal">(optional)</span>
               </Label>
               <Textarea
                 value={triggerConf}
@@ -403,7 +403,7 @@ export default function DagDetailPage() {
                 rows={5}
               />
               <p className="text-[11px] text-muted-foreground">
-                DAG에 전달할 파라미터를 JSON으로 입력하세요
+                Enter parameters to pass to the DAG as JSON
               </p>
             </div>
           </div>

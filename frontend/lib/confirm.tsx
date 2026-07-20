@@ -45,7 +45,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               {opts.destructive && <AlertTriangle className="h-4 w-4 text-destructive" />}
-              {opts.title || "확인"}
+              {opts.title || "Confirm"}
             </DialogTitle>
           </DialogHeader>
           {opts.message && (
@@ -53,10 +53,10 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           )}
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => done(false)}>
-              {opts.cancelText || "취소"}
+              {opts.cancelText || "Cancel"}
             </Button>
             <Button size="sm" variant={opts.destructive ? "destructive" : "default"} onClick={() => done(true)}>
-              {opts.confirmText || "확인"}
+              {opts.confirmText || "Confirm"}
             </Button>
           </DialogFooter>
         </DialogContent>

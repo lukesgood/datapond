@@ -30,7 +30,6 @@ import {
 import {
   FlaskConical,
   ArrowLeft,
-  Plus,
   PlayCircle,
   CheckCircle,
   XCircle,
@@ -242,10 +241,6 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" disabled>
-            <Plus className="mr-2 h-4 w-4" />
-            New Run
-          </Button>
           {selectedRuns.length > 0 && (
             <Button variant="default" size="sm" onClick={handleCompare} disabled={comparing}>
               <BarChart3 className="mr-2 h-4 w-4" />

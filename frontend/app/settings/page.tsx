@@ -72,8 +72,8 @@ const SERVICE_META: Record<string, { label: string; desc: string; color: string;
 const ACCESS_URL_DEFS = [
   { service: "Management UI",  path: "",                  cred: undefined },
   { service: "Backend API",    path: "/api/health",       cred: undefined },
-  { service: "JupyterLab",     path: "/jupyter",          cred: "token: jupyter",   cap: "notebooks" },
-  { service: "Airflow",        path: "/airflow/",         cred: "airflow / airflow", cap: "pipelines" },
+  { service: "JupyterLab",     path: "/jupyter",          cred: undefined,          cap: "notebooks" },
+  { service: "Airflow",        path: "/airflow/",         cred: undefined,          cap: "pipelines" },
   { service: "MLflow",         path: "/mlflow/",          cred: undefined,          cap: "experiments" },
 ]
 
