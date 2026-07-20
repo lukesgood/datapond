@@ -69,6 +69,9 @@ AUTH_EXEMPT = {
     # bearer gate. (register/* stays protected: you enroll a passkey while logged in.)
     "/api/auth/webauthn/authenticate/begin",
     "/api/auth/webauthn/authenticate/complete",
+    # Password reset is pre-auth by definition (you're locked out of your account).
+    "/api/auth/forgot-password",
+    "/api/auth/reset-password",
 }
 
 class AuthMiddleware(BaseHTTPMiddleware):

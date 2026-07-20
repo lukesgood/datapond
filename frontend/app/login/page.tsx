@@ -36,6 +36,7 @@ export default function LoginPage() {
   const [error, setError]         = useState<string | null>(null)
   const [shake, setShake]         = useState(false)
   const [networkError, setNetworkError] = useState(false)
+  const [notice, setNotice]       = useState<string | null>(null)
   const [ssoEnabled, setSsoEnabled] = useState(false)
   const [webauthnEnabled, setWebauthnEnabled] = useState(false)
   const [passkeyLoading, setPasskeyLoading] = useState(false)
@@ -65,6 +66,10 @@ export default function LoginPage() {
           .then(me => { saveAuth(ssoToken, me); window.location.replace("/dashboard") })
           .catch(() => { clearAuth(); setError("SSO sign-in failed. Please try again.") })
       }
+    }
+    // Password reset just completed → confirm success above the form.
+    if (params.get("reset") === "1") {
+      queueMicrotask(() => setNotice("Your password has been reset. Please sign in with your new password."))
     }
     if (params.get("error") === "sso_failed") {
       const reason = params.get("reason") ?? "unknown"
@@ -317,6 +322,13 @@ export default function LoginPage() {
             <p className="text-sm text-muted-foreground">Enter your credentials to access the platform</p>
           </div>
 
+          {notice && (
+            <div role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
+              <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" />
+              <p className="text-sm text-emerald-700 dark:text-emerald-400">{notice}</p>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit}
             className={`space-y-5 ${shake ? "[animation:shake_0.5s_ease-in-out]" : ""}`}>
             <div className="space-y-2">
@@ -334,7 +346,12 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-sm font-medium">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password" className="text-sm font-medium">Password</Label>
+                <a href="/forgot" className="text-xs font-medium text-primary hover:underline underline-offset-2">
+                  Forgot password?
+                </a>
+              </div>
               <div className="relative">
                 <Input
                   id="password"

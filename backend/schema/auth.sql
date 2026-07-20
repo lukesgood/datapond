@@ -99,6 +99,21 @@ CREATE TABLE IF NOT EXISTS password_history (
 
 CREATE INDEX idx_password_history_user ON password_history(user_id, created_at DESC);
 
+-- Password reset tokens (email-based "forgot password" flow).
+-- Only a SHA-256 hash of the URL-safe token is stored — the raw token lives only
+-- in the emailed reset link. Tokens are single-use (used_at) and time-limited
+-- (expires_at, 30 min). Idempotent so startup re-application is safe.
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL,                  -- SHA-256 hex of the raw token (never the raw token)
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ,                        -- NULL = unused
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_hash ON password_reset_tokens(token_hash);
+
 -- ============================================================================
 -- ROLES & PERMISSIONS
 -- ============================================================================
