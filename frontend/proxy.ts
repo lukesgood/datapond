@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/oidc", "/api/capabilities"]
+const PUBLIC_PATHS = [
+  "/login", "/forgot", "/reset",   // pre-auth pages (you're locked out of your account)
+  "/api/auth/login", "/api/auth/forgot-password", "/api/auth/reset-password",
+  "/api/auth/oidc", "/api/capabilities",
+]
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
