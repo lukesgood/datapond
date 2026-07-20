@@ -79,7 +79,7 @@ const mainSections: NavSection[] = [
       { title: "Storage",    url: "/storage",    icon: HardDrive },
       { title: "Services",   url: "/services",   icon: Activity },
       { title: "System",     url: "/system",     icon: Server },
-      { title: "Settings",   url: "/settings",   icon: Settings },
+      { title: "Settings",   url: "/settings",   icon: Settings, adminOnly: true },
     ],
   },
 ]
@@ -199,21 +199,27 @@ export function AppSidebar() {
             ))}
           </SidebarMenu>
 
-          {/* User info + logout */}
+          {/* User: link to personal Account page + logout */}
           {user && (
             <div className="mt-2 pt-2 border-t">
-              <div className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50 focus-within:bg-muted/50">
-                <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <User className="h-3.5 w-3.5 text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium truncate">{user.display_name}</p>
-                  <p className="text-[10px] text-muted-foreground capitalize">{user.role}</p>
-                </div>
+              <div className="group flex items-center gap-1 rounded-md px-1 py-1.5">
+                <Link
+                  href="/account"
+                  aria-current={isActive("/account") ? "page" : undefined}
+                  className="flex flex-1 items-center gap-2 min-w-0 rounded-md px-1.5 py-1 hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none"
+                >
+                  <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <User className="h-3.5 w-3.5 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0 text-left">
+                    <p className="text-xs font-medium truncate">{user.display_name}</p>
+                    <p className="text-[10px] text-muted-foreground capitalize">{user.role}</p>
+                  </div>
+                </Link>
                 <button
                   onClick={handleLogout}
                   aria-label="Sign out" title="Sign out"
-                  className="rounded p-1 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  className="rounded p-1 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
                   <LogOut className="h-3.5 w-3.5" />
                 </button>

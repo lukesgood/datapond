@@ -22,7 +22,6 @@ import {
   Link, Terminal,
 } from "lucide-react"
 import { getUser } from "@/lib/auth"
-import { PasskeyManager } from "@/components/passkey-manager"
 import { useCapabilityStrict, useCapability, useCapabilities } from "@/lib/capabilities"
 import { getProductProfile } from "@/lib/product-profile"
 
@@ -187,8 +186,24 @@ export default function SettingsPage() {
     return () => window.clearTimeout(initial)
   }, [load])
 
+  const [isAdmin] = useState(() => getUser()?.role === "admin")
   const healthCheckedServices = services.filter(s => s.status !== "managed")
   const healthy = healthCheckedServices.filter(s => s.status === "healthy").length
+
+  // Settings is platform administration — admin only. Personal credentials
+  // (password, passkeys) live on /account, available to every user.
+  if (!isAdmin) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-3 p-16 text-center">
+        <ShieldCheck className="h-6 w-6 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">Admin permission required</h2>
+        <p className="max-w-md text-sm text-muted-foreground">
+          Settings is for platform administration. Manage your own password and passkeys in{" "}
+          <a className="font-medium text-primary hover:underline" href="/account">Account</a>.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -394,8 +409,8 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
-            {/* Passkeys / WebAuthn */}
-            {webauthnEnabled && <PasskeyManager />}
+            {/* Per-user passkeys moved to the /account page (personal credential,
+                not platform administration). */}
 
             {/* Network isolation */}
             <Card>
