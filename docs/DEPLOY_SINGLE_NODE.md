@@ -397,6 +397,38 @@ IAM role.
 
 ---
 
+## 6b. Reproducible deploys (CD)
+
+Deploys must build images and push them to **ECR** (never only `ctr import` into the
+node's containerd — a replaced/spot node then can't pull the running image and comes
+up `ImagePullBackOff`). Two supported paths, both landing images in ECR and rolling
+the node from ECR:
+
+**CI (recommended):** `.github/workflows/deploy-aws.yml` (manual `workflow_dispatch`)
+builds backend+frontend, pushes an immutable `2.3.0-<shortsha>` tag to ECR, bundles the
+chart to S3, then rolls the node via SSM → `scripts/deploy-node-helm.sh`. One-time
+activation (repo Secrets/Variables) is documented in the workflow header:
+`AWS_CD_ROLE_ARN` (OIDC role with ECR push + `s3` on the deploy prefix + `ssm:SendCommand`
+on the node), `NODE_INSTANCE_ID`, and `DEPLOY_BUCKET`.
+
+**Manual (no CI):** from a workstation with Docker + push-capable AWS creds:
+```bash
+REG=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.us-east-1.amazonaws.com
+TAG=2.3.0-$(git rev-parse --short=7 HEAD)
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin "$REG"
+docker build -f backend/Dockerfile --target enterprise -t $REG/datapond-backend:$TAG . && docker push $REG/datapond-backend:$TAG
+docker build -f frontend/Dockerfile               -t $REG/datapond-frontend:$TAG frontend/ && docker push $REG/datapond-frontend:$TAG
+# then roll the node (chart from a synced checkout or an S3 bundle):
+aws ssm start-session --region us-east-1 --target "$(terraform -chdir=terraform output -raw node_instance_id)"
+#   on the node:  sudo bash scripts/deploy-node-helm.sh 2.3.0-<shortsha>
+```
+
+`scripts/deploy-node-helm.sh` is the single deploy primitive (helm upgrade to an ECR
+tag with `--reset-then-reuse-values`, `pullPolicy: IfNotPresent`, rollout wait). It does
+NOT build or push — images must already be in ECR.
+
+---
+
 ## 7. Disaster recovery
 
 This deployment's availability posture is **"no HA, fast restore"** — a deliberate
