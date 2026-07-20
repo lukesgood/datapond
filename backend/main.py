@@ -13,6 +13,7 @@ import asyncio
 import time
 import logging
 from k8s_client import k8s_client
+from app.cloud_info import cloud_info
 
 _log = logging.getLogger(__name__)
 from app.api.queries import router as queries_router
@@ -434,6 +435,8 @@ async def get_system_info():
         return _sysinfo_cache["data"]
     try:
         data = await asyncio.wait_for(asyncio.to_thread(k8s_client.get_system_info), timeout=_K8S_TIMEOUT)
+        # AWS EC2 instance details (IMDS) when running on AWS; None otherwise. Cached.
+        data["cloud"] = await asyncio.to_thread(cloud_info)
         _sysinfo_cache.update(data=data, ts=now)
         return data
     except Exception as e:

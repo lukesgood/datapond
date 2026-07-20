@@ -9,7 +9,7 @@ import { ErrorBox } from "@/components/ui/error-box"
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { Server, Cpu, MemoryStick, HardDrive, Boxes, RefreshCw, Layers, Gauge } from "lucide-react"
+import { Server, Cpu, MemoryStick, HardDrive, Boxes, RefreshCw, Layers, Gauge, Cloud } from "lucide-react"
 
 interface CompareRow {
   resource: string; unit: string; required: number; recommended: number
@@ -31,6 +31,12 @@ interface SystemInfo {
   requirements: { cpu_cores?: number; memory_gb?: number; disk_gb?: number }
   recommended: { cpu_cores?: number; memory_gb?: number; disk_gb?: number }
   comparison: CompareRow[]
+  cloud?: {
+    provider?: string; name?: string | null; instance_id?: string; instance_type?: string
+    lifecycle?: string | null; ami_id?: string; region?: string; availability_zone?: string
+    private_ip?: string | null; public_ip?: string | null; private_hostname?: string | null
+    security_groups?: string[]
+  } | null
 }
 
 const CMP_STATUS: Record<string, { label: string; cls: string }> = {
@@ -164,6 +170,32 @@ export default function SystemPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* AWS EC2 instance details — shown only when running on AWS (IMDS reachable) */}
+        {info.cloud?.provider === "aws" && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2"><Cloud className="h-4 w-4" />AWS EC2 Instance</CardTitle>
+              <CardDescription>Underlying cloud compute resource · live EC2 instance metadata</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-x-10 md:grid-cols-2">
+              <div>
+                {info.cloud.name && <Spec label="Name" value={info.cloud.name} />}
+                <Spec label="Instance ID" value={info.cloud.instance_id} />
+                <Spec label="Instance Type" value={info.cloud.instance_type} />
+                <Spec label="Lifecycle" value={info.cloud.lifecycle ?? "on-demand"} />
+                <Spec label="AMI" value={info.cloud.ami_id} />
+              </div>
+              <div>
+                <Spec label="Region" value={info.cloud.region} />
+                <Spec label="Availability Zone" value={info.cloud.availability_zone} />
+                <Spec label="Private IP" value={info.cloud.private_ip ?? undefined} />
+                <Spec label="Public IP" value={info.cloud.public_ip ?? undefined} />
+                <Spec label="Security Groups" value={info.cloud.security_groups?.length ? info.cloud.security_groups.join(", ") : undefined} />
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Spec comparison: required (sum of requests) vs recommended vs actual */}
         <Card>
