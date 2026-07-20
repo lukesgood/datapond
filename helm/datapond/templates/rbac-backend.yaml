@@ -49,4 +49,38 @@ roleRef:
   kind: Role
   name: datapond-backend-reader
   apiGroup: rbac.authorization.k8s.io
+---
+# Nodes are cluster-scoped, so the System page's node specs (CPU/memory/disk) and
+# the real usage-% (used ÷ node allocatable) need a ClusterRole. Read-only get/list.
+# Without it, list_node() 403s → specs are blank and memory-% falls back to raw MiB
+# (rendered as an absurd "1747%").
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.namespace }}-backend-node-reader
+  labels:
+    app: {{ .Values.backend.name }}
+    app.kubernetes.io/component: backend
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.namespace }}-backend-node-reader-binding
+  labels:
+    app: {{ .Values.backend.name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.backend.serviceAccountName | default "datapond-backend" }}
+    namespace: {{ .Values.namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ .Values.namespace }}-backend-node-reader
+  apiGroup: rbac.authorization.k8s.io
 {{- end }}
