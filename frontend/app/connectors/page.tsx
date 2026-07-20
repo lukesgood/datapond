@@ -25,6 +25,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { parseCron, nextRun } from "@/lib/schedule"
+import { CapabilityGate } from "@/lib/capabilities"
 
 interface Connection {
   id: string
@@ -217,7 +218,7 @@ function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated }: {
   )
 }
 
-export default function ConnectorsPage() {
+function ConnectorsPageInner() {
   // ── Connections state ──────────────────────────────────────────────────────
   const [connections, setConnections] = useState<Connection[]>([])
   const [connStats, setConnStats] = useState<Map<string, ConnStats>>(new Map())
@@ -650,5 +651,13 @@ export default function ConnectorsPage() {
         </TabsContent>
       </Tabs>
     </div>
+  )
+}
+
+export default function ConnectorsPage() {
+  return (
+    <CapabilityGate capability="connectors">
+      <ConnectorsPageInner />
+    </CapabilityGate>
   )
 }

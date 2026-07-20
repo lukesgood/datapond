@@ -41,6 +41,14 @@ export function ConnectionForm({
   testStatus = "idle",
   testMessage
 }: ConnectionFormProps) {
+  // Mirror the CDC wizard's `canTest` guard: every required field must have a
+  // non-empty value before the connection can be tested.
+  const canTest = fields.every((field) => {
+    if (!field.required) return true
+    const value = values[field.name]
+    if (typeof value === "boolean" || typeof value === "number") return true
+    return typeof value === "string" && value.trim() !== ""
+  })
   return (
     <div className="space-y-6">
       <div className="grid gap-4">
@@ -124,7 +132,7 @@ export function ConnectionForm({
             type="button"
             variant="outline"
             onClick={onTest}
-            disabled={testStatus === "testing"}
+            disabled={testStatus === "testing" || !canTest}
             className="w-full"
           >
             {testStatus === "testing" && (

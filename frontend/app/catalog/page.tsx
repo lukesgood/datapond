@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import NextLink from "next/link"
+import { CapabilityGate } from "@/lib/capabilities"
 import { ErrorBox, EmptyState } from "@/components/ui/error-box"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -44,7 +45,7 @@ interface CollectionOption { name: string }
 interface CollectionsResponse { collections?: CollectionOption[] }
 interface CatalogColumn { name: string; type: string }
 
-export default function CatalogPage() {
+function CatalogPageInner() {
   const [data, setData] = useState<CatalogData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -288,6 +289,14 @@ export default function CatalogPage() {
 
       {sendTable && <SendToKnowledgeDialog key={`${sendTable.namespace}.${sendTable.name}`} table={sendTable} onClose={() => setSendTable(null)} />}
     </div>
+  )
+}
+
+export default function CatalogPage() {
+  return (
+    <CapabilityGate capability="catalog">
+      <CatalogPageInner />
+    </CapabilityGate>
   )
 }
 

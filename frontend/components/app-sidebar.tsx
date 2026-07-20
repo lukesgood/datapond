@@ -31,6 +31,7 @@ type NavItem = {
   icon: React.ComponentType<{ className?: string }>
   capability?: string
   external?: boolean
+  adminOnly?: boolean
 }
 
 type NavSection = {
@@ -47,7 +48,7 @@ const mainSections: NavSection[] = [
     hint: "Ground and serve AI applications",
     items: [
       { title: "Knowledge",  url: "/knowledge", icon: Sparkles },
-      { title: "AI Gateway", url: "/ai",        icon: Bot },
+      { title: "AI Gateway", url: "/ai",        icon: Bot, adminOnly: true },
     ],
   },
   {
@@ -147,7 +148,9 @@ export function AppSidebar() {
         <div className="flex-1 overflow-y-auto">
           {mainSections.map((section) => {
             const visibleItems = section.items.filter(
-              (item) => item.capability === undefined || caps[item.capability] === true
+              (item) =>
+                (item.capability === undefined || caps[item.capability] === true) &&
+                (!item.adminOnly || user?.role === "admin")
             )
             if (visibleItems.length === 0) return null
             return (

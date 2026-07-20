@@ -234,16 +234,18 @@ function SearchPanel({ name }: { name: string }) {
   const [q, setQ] = useState(""); const [mode, setMode] = useState<"search" | "rag">("rag")
   const [busy, setBusy] = useState(false); const [ans, setAns] = useState<string | null>(null)
   const [hits, setHits] = useState<Hit[]>([]); const [e, setE] = useState<string | null>(null)
-  const [pii, setPii] = useState(0)
+  const [pii, setPii] = useState(0); const [hasAi, setHasAi] = useState(true)
   const run = async () => {
     if (!q.trim()) return
-    setBusy(true); setE(null); setAns(null); setHits([]); setPii(0)
+    setBusy(true); setE(null); setAns(null); setHits([]); setPii(0); setHasAi(true)
     try {
       if (mode === "rag") {
         const r = await fetch("/api/ai/rag", { method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ collection: name, question: q, k: 5 }) })
         if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-        const d = await r.json(); setAns(d.answer); setHits(d.citations || []); setPii(d.pii_masked || 0)
+        // has_ai=false ⇒ no model configured or the LLM call failed; the backend
+        // returns search results only. Don't present that as a real answer.
+        const d = await r.json(); setAns(d.answer); setHits(d.citations || []); setPii(d.pii_masked || 0); setHasAi(d.has_ai !== false)
       } else {
         const r = await fetch("/api/ai/search", { method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ collection: name, query: q, k: 8 }) })
@@ -269,7 +271,7 @@ function SearchPanel({ name }: { name: string }) {
       </div>
       {pii > 0 && <div className="text-[11px] text-[var(--dp-good)] flex items-center gap-1"><ShieldCheck className="h-3 w-3" />{pii} PII item(s) masked before processing (guardrail)</div>}
       {e && <ErrorBox msg={e} />}
-      {ans && (
+      {ans && hasAi && (
         <Card className="dp-surface">
           <CardContent className="py-3">
             <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
@@ -278,6 +280,12 @@ function SearchPanel({ name }: { name: string }) {
             <div className="text-sm leading-relaxed whitespace-pre-wrap">{ans}</div>
           </CardContent>
         </Card>
+      )}
+      {ans && !hasAi && (
+        <div className="rounded-md border border-[var(--dp-warn)]/40 bg-[var(--dp-warn)]/5 px-3 py-2 text-xs text-muted-foreground flex items-start gap-1.5">
+          <AlertCircle className="h-3.5 w-3.5 text-[var(--dp-warn)] mt-0.5 shrink-0" />
+          <span>No answer generated — the AI model is not configured or the call failed. Showing retrieved results below only. Configure a model in the AI Gateway to get cited answers.</span>
+        </div>
       )}
       {hits.length > 0 && (
         <div className="space-y-2">
@@ -299,6 +307,9 @@ function SearchPanel({ name }: { name: string }) {
 
 function IngestPanel({ name, onChange }: { name: string; onChange: () => void }) {
   const catalogEnabled = useCapability("catalog")
+  // Source ingest + schedule are admin-only on the backend (require_admin);
+  // don't offer them to non-admins, who would only hit a 403.
+  const isAdmin = getUser()?.role === "admin"
   const [tab, setTab] = useState<"text" | "source">("text")
   const [text, setText] = useState(""); const [src, setSrc] = useState("")
   const [stype, setStype] = useState<"iceberg" | "s3">("iceberg")
@@ -373,11 +384,13 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
     <div className="space-y-3 pt-3">
       <div className="flex rounded-md border overflow-hidden w-fit text-xs">
         {(["text", "source"] as const).map(t => (
+          (t === "source" && !isAdmin) ? null : (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-1 ${tab === t ? "bg-primary text-primary-foreground" : "bg-background"}`}>
             {t === "text" ? "Paste text" : catalogEnabled ? "From catalog / S3" : "From S3"}</button>
+          )
         ))}
       </div>
-      {tab === "text" ? (
+      {(tab === "text" || !isAdmin) ? (
         <>
           <Input value={src} onChange={e => setSrc(e.target.value)} placeholder="source label (optional)" className="text-sm" />
           <Textarea value={text} onChange={e => setText(e.target.value)} placeholder="Paste documents to embed…" className="min-h-[160px] text-sm" />

@@ -28,7 +28,7 @@ const SaveDashboardModal = dynamic(() => import("@/components/query/save-dashboa
 const LogToMlflowModal = dynamic(() => import("@/components/query/log-to-mlflow-modal").then(m => ({ default: m.LogToMlflowModal })), { ssr: false })
 const OpenInNotebookModal = dynamic(() => import("@/components/query/open-in-notebook-modal").then(m => ({ default: m.OpenInNotebookModal })), { ssr: false })
 import { useToast } from "@/lib/toast"
-import { useCapability } from "@/lib/capabilities"
+import { useCapability, CapabilityGate } from "@/lib/capabilities"
 
 interface QueryResult {
   columns: string[]
@@ -42,7 +42,7 @@ type RightPanel = "history" | "chart-config" | null
 
 const DEFAULT_QUERY = "-- Write your SQL here\nSELECT 1 AS hello;"
 
-export default function QueryPage() {
+function QueryPageInner() {
   const [query, setQuery]                   = useState(() => {
     if (typeof window === "undefined") return DEFAULT_QUERY
     const linkedSql = new URLSearchParams(window.location.search).get("sql")
@@ -654,5 +654,13 @@ export default function QueryPage() {
         onSuccess={() => toast("Dashboard saved!", "success")}
       />
     </div>
+  )
+}
+
+export default function QueryPage() {
+  return (
+    <CapabilityGate capability="query">
+      <QueryPageInner />
+    </CapabilityGate>
   )
 }

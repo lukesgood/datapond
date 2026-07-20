@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, useRef } from "react"
 import { useConfirm } from "@/lib/confirm"
+import { useToast } from "@/lib/toast"
 import { useParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -189,54 +190,84 @@ export default function ServiceDetailPage() {
   }, [serviceId])
 
   const confirm = useConfirm()
+  const { toast } = useToast()
   const handleRestart = async () => {
-    if (!(await confirm({ title: "Restart service", message: "Restart this service?", confirmText: "Restart" }))) return
+    if (!(await confirm({ title: "Restart service", message: "Restart this service?", confirmText: "Restart", destructive: true }))) return
 
     setIsRestarting(true)
     try {
       const response = await fetch(`/api/services/${serviceId}/restart`, {
         method: "POST",
       })
-      if (response.ok) {
-        setTimeout(() => {
-          fetchServiceDetail()
-          fetchPods()
-          setIsRestarting(false)
-        }, 2000)
+      if (!response.ok) {
+        toast(`Restart failed (HTTP ${response.status})`, "error")
+        setIsRestarting(false)
+        return
       }
+      toast("Restart requested", "success")
+      // Give the rollout a moment, then refresh and clear the spinner.
+      setTimeout(() => {
+        fetchServiceDetail()
+        fetchPods()
+        setIsRestarting(false)
+      }, 2000)
     } catch (error) {
       console.error("Failed to restart service:", error)
+      toast("Restart failed — network error", "error")
       setIsRestarting(false)
     }
   }
 
   const handleScale = async () => {
+    const scalingToZero = scaleValue === 0
+    if (!(await confirm({
+      title: "Scale service",
+      message: scalingToZero
+        ? "Set replicas to 0? This takes the service offline."
+        : `Scale this service to ${scaleValue} replica(s)?`,
+      confirmText: "Scale",
+      destructive: scalingToZero,
+    }))) return
     try {
       const response = await fetch(`/api/services/${serviceId}/scale`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ replicas: scaleValue }),
       })
-      if (response.ok) {
-        setShowScaleDialog(false)
-        fetchServiceDetail()
-        fetchPods()
+      if (!response.ok) {
+        toast(`Scale failed (HTTP ${response.status})`, "error")
+        return
       }
+      toast(`Scaled to ${scaleValue} replica(s)`, "success")
+      setShowScaleDialog(false)
+      fetchServiceDetail()
+      fetchPods()
     } catch (error) {
       console.error("Failed to scale service:", error)
+      toast("Scale failed — network error", "error")
     }
   }
 
   const handleDeletePod = async (podName: string) => {
+    if (!(await confirm({
+      title: "Delete pod",
+      message: `Delete pod "${podName}"? Kubernetes will recreate it from the deployment.`,
+      confirmText: "Delete",
+      destructive: true,
+    }))) return
     try {
       const response = await fetch(`/api/services/${serviceId}/pods/${podName}`, {
         method: "DELETE",
       })
-      if (response.ok) {
-        fetchPods()
+      if (!response.ok) {
+        toast(`Pod delete failed (HTTP ${response.status})`, "error")
+        return
       }
+      toast(`Pod "${podName}" deleted`, "success")
+      fetchPods()
     } catch (error) {
       console.error("Failed to delete pod:", error)
+      toast("Pod delete failed — network error", "error")
     }
   }
 

@@ -1,9 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
+import { getUser } from "@/lib/auth"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -14,7 +15,7 @@ import {
 } from "@/components/ui/table"
 import {
   HardDrive, Database, RefreshCw, Plus, Trash2, FolderOpen,
-  FileText, ChevronRight, ChevronLeft, Package,
+  FileText, ChevronRight, ChevronLeft, Package, Upload, Download,
 } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 
@@ -69,6 +70,9 @@ export default function StoragePage() {
   const [newBucketName, setNewBucketName] = useState("")
   const [creating, setCreating] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [isAdmin] = useState(() => getUser()?.role === "admin")
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const loadOverview = useCallback(async () => {
     setLoading(true)
@@ -147,6 +151,55 @@ export default function StoragePage() {
     }
   }
 
+  const handleUpload = async (bucket: string, file: File) => {
+    setUploading(true)
+    setObjectsError(null)
+    try {
+      const res = await fetch(
+        `/api/storage/objects/${encodeURIComponent(bucket)}/${encodeURIComponent(file.name)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": file.type || "application/octet-stream" },
+          body: file,
+        },
+      )
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.detail || "Failed to upload object")
+      }
+      toast(`Uploaded "${file.name}" to "${bucket}"`, "success")
+      await loadObjects(bucket)
+      await loadOverview()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Failed to upload object", "error")
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const handleDownload = async (bucket: string, key: string) => {
+    try {
+      const res = await fetch(
+        `/api/storage/objects/${encodeURIComponent(bucket)}/${encodeURIComponent(key)}`,
+      )
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.detail || "Failed to download object")
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = key.split("/").pop() || key
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Failed to download object", "error")
+    }
+  }
+
   useEffect(() => {
     const initial = window.setTimeout(() => void loadOverview(), 0)
     return () => window.clearTimeout(initial)
@@ -211,8 +264,8 @@ export default function StoragePage() {
 
         {/* Left: Bucket list */}
         <div className="space-y-3">
-          {/* Create bucket — hidden when bucket lifecycle is managed by the AWS account/Terraform */}
-          {bucketLifecycleManaged ? (
+          {/* Create bucket — admin only; also hidden when bucket lifecycle is managed by the AWS account/Terraform */}
+          {!isAdmin ? null : bucketLifecycleManaged ? (
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm">New Bucket</CardTitle>
@@ -315,7 +368,7 @@ export default function StoragePage() {
                         <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-muted-foreground/50
                           ${selectedBucket === b.name ? "text-primary" : ""}`} />
                       </button>
-                      {!bucketLifecycleManaged && (
+                      {isAdmin && !bucketLifecycleManaged && (
                         <button
                           type="button"
                           onClick={() => handleDeleteBucket(b.name)}
@@ -337,28 +390,55 @@ export default function StoragePage() {
         {/* Right: Object browser */}
         <Card className="flex flex-col overflow-hidden">
           <CardHeader className="pb-3 shrink-0">
-            <div className="flex items-center gap-2">
-              {selectedBucket && (
-                <Button variant="ghost" size="icon" className="h-7 w-7"
-                  onClick={() => setSelectedBucket(null)}>
-                  <ChevronLeft className="h-3.5 w-3.5" />
-                </Button>
-              )}
-              <div>
-                <CardTitle className="text-sm">
-                  {selectedBucket ? (
-                    <span className="flex items-center gap-1.5">
-                      <FolderOpen className="h-4 w-4 text-primary" />
-                      {selectedBucket}
-                    </span>
-                  ) : "Object Browser"}
-                </CardTitle>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 {selectedBucket && (
-                  <CardDescription className="text-[11px] mt-0.5">
-                    {objectsLoading ? "Loading..." : `${objects.length} objects`}
-                  </CardDescription>
+                  <Button variant="ghost" size="icon" className="h-7 w-7"
+                    onClick={() => setSelectedBucket(null)}>
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </Button>
                 )}
+                <div className="min-w-0">
+                  <CardTitle className="text-sm">
+                    {selectedBucket ? (
+                      <span className="flex items-center gap-1.5">
+                        <FolderOpen className="h-4 w-4 text-primary" />
+                        {selectedBucket}
+                      </span>
+                    ) : "Object Browser"}
+                  </CardTitle>
+                  {selectedBucket && (
+                    <CardDescription className="text-[11px] mt-0.5">
+                      {objectsLoading ? "Loading..." : `${objects.length} objects`}
+                    </CardDescription>
+                  )}
+                </div>
               </div>
+              {selectedBucket && isAdmin && (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={e => {
+                      const file = e.target.files?.[0]
+                      if (file && selectedBucket) void handleUpload(selectedBucket, file)
+                      e.target.value = ""
+                    }}
+                  />
+                  <Button
+                    size="sm"
+                    className="h-8 shrink-0 gap-1.5 text-xs"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                  >
+                    {uploading
+                      ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      : <Upload className="h-3.5 w-3.5" />}
+                    Upload
+                  </Button>
+                </>
+              )}
             </div>
           </CardHeader>
 
@@ -391,6 +471,7 @@ export default function StoragePage() {
                     <TableHead className="text-xs">Key</TableHead>
                     <TableHead className="text-xs text-right w-24">Size</TableHead>
                     <TableHead className="text-xs w-40">Last Modified</TableHead>
+                    <TableHead className="text-xs w-12 text-right"><span className="sr-only">Actions</span></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -407,6 +488,17 @@ export default function StoragePage() {
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {formatDistanceToNow(new Date(obj.last_modified), { addSuffix: true })}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <button
+                          type="button"
+                          onClick={() => selectedBucket && handleDownload(selectedBucket, obj.key)}
+                          className="rounded p-1.5 text-muted-foreground transition-colors hover:text-primary"
+                          aria-label={`Download ${obj.key}`}
+                          title={`Download ${obj.key}`}
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </button>
                       </TableCell>
                     </TableRow>
                   ))}

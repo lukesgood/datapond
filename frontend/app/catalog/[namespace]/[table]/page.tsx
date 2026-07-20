@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams } from "next/navigation"
+import { CapabilityGate } from "@/lib/capabilities"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -52,7 +53,7 @@ interface TableDetail {
   last_updated?: string
 }
 
-export default function TableDetailPage() {
+function TableDetailPageInner() {
   const params = useParams()
   const router = useRouter()
   const namespace = params.namespace as string
@@ -64,6 +65,7 @@ export default function TableDetailPage() {
   const [preview, setPreview] = useState<PreviewData | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
+  const previewRequested = useRef(false)
 
   useEffect(() => {
     const fetchTableDetail = async () => {
@@ -97,6 +99,16 @@ export default function TableDetailPage() {
       setPreviewLoading(false)
     }
   }
+
+  // The preview tab is the default, but Tabs only fires onValueChange on a
+  // change — never for the initial value — so trigger the initial load here.
+  // The ref guards against a double-invocation (e.g. React strict mode).
+  useEffect(() => {
+    if (previewRequested.current) return
+    previewRequested.current = true
+    void loadPreview()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [namespace, tableName])
 
   const formatNumber = (num?: number) => {
     if (num == null) return "—"
@@ -390,5 +402,13 @@ export default function TableDetailPage() {
         </TabsContent>
       </Tabs>
     </div>
+  )
+}
+
+export default function TableDetailPage() {
+  return (
+    <CapabilityGate capability="catalog">
+      <TableDetailPageInner />
+    </CapabilityGate>
   )
 }

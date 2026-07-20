@@ -602,6 +602,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const router = useRouter()
   const pipelinesEnabled = useCapability("pipelines")
   const streamingEnabled = useCapability("streaming")
+  const catalogEnabled = useCapability("catalog")
 
   const [connector, setConnector]         = useState<Connector | null>(null)
   const [tables, setTables]               = useState<ConnectorTable[]>([])
@@ -1074,9 +1075,11 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" render={<Link href="/catalog" />}>
-            <Database className="h-4 w-4 mr-2" />Catalog
-          </Button>
+          {catalogEnabled && (
+            <Button variant="outline" render={<Link href="/catalog" />}>
+              <Database className="h-4 w-4 mr-2" />Catalog
+            </Button>
+          )}
           <Button variant="outline" onClick={startEdit} disabled={editing}>
             <Pencil className="h-4 w-4 mr-2" />Edit
           </Button>

@@ -542,7 +542,7 @@ function CostTab() {
     fetch("/api/settings/ai/usage")
       .then((r) => r.ok ? r.json() : Promise.reject(r.status))
       .then(setUsage)
-      .catch((e) => setErr(`Failed to load AI usage (${e})`))
+      .catch((e) => setErr(e === 403 || e === 401 ? "Admin permission required" : `Failed to load AI usage (${e})`))
       .finally(() => setLoading(false))
   }, [])
 
