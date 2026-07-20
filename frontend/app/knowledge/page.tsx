@@ -221,12 +221,80 @@ function Workspace({ name, onChange, empty }: { name: string; onChange: () => vo
         {/* An empty collection has nothing to search — open on Ingest so the first step is obvious. */}
         <Tabs defaultValue={empty ? "ingest" : "search"}>
           <TabsList><TabsTrigger value="search"><Search className="h-3.5 w-3.5 mr-1" />Search / RAG</TabsTrigger>
-            <TabsTrigger value="ingest"><Upload className="h-3.5 w-3.5 mr-1" />Ingest</TabsTrigger></TabsList>
+            <TabsTrigger value="ingest"><Upload className="h-3.5 w-3.5 mr-1" />Ingest</TabsTrigger>
+            <TabsTrigger value="schedule"><Clock className="h-3.5 w-3.5 mr-1" />Schedule</TabsTrigger></TabsList>
           <TabsContent value="search"><SearchPanel name={name} /></TabsContent>
           <TabsContent value="ingest"><IngestPanel name={name} onChange={onChange} /></TabsContent>
+          <TabsContent value="schedule"><SchedulePanel name={name} /></TabsContent>
         </Tabs>
       </CardContent>
     </Card>
+  )
+}
+
+interface ScheduleState {
+  enabled: boolean
+  interval_minutes: number | null
+  last_refreshed_at: string | null
+  last_refresh_status: string | null
+}
+
+function SchedulePanel({ name }: { name: string }) {
+  const isAdmin = getUser()?.role === "admin"
+  const { toast } = useToast()
+  const confirm = useConfirm()
+  const [state, setState] = useState<ScheduleState | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const load = useCallback(async () => {
+    setLoading(true); setErr(null)
+    try {
+      const r = await fetch(`/api/ai/collections/${encodeURIComponent(name)}/schedule`)
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      setState(await r.json())
+    } catch (error) { setErr(error instanceof Error ? error.message : "Failed to load schedule") }
+    setLoading(false)
+  }, [name])
+  useEffect(() => { const t = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(t) }, [load])
+  const cancel = async () => {
+    if (!(await confirm({ title: "Cancel schedule", message: "Stop the recurring re-embed for this collection?", confirmText: "Cancel schedule", destructive: true }))) return
+    setBusy(true)
+    try {
+      const r = await fetch(`/api/ai/collections/${encodeURIComponent(name)}/schedule`, { method: "DELETE" })
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      toast("Schedule cancelled", "success"); load()
+    } catch (error) { toast(error instanceof Error ? error.message : "Failed to cancel", "error") }
+    setBusy(false)
+  }
+  if (loading) return <div className="pt-3 text-xs text-muted-foreground flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Loading schedule…</div>
+  if (err) return <div className="pt-3"><ErrorBox msg={err} /></div>
+  if (!state?.enabled) return (
+    <div className="pt-3 text-sm text-muted-foreground">
+      No recurring re-embed is scheduled for this collection.
+      {isAdmin ? " Set one up from the Ingest tab (choose a source, then “Schedule ingest”)." : " An administrator can set one up."}
+    </div>
+  )
+  const okStatus = (state.last_refresh_status ?? "").toLowerCase().includes("ok") || (state.last_refresh_status ?? "").toLowerCase().includes("success")
+  return (
+    <div className="space-y-3 pt-3 text-sm">
+      <div className="flex items-center gap-2">
+        <Badge className="bg-[var(--dp-good)] text-white">Active</Badge>
+        <span className="text-muted-foreground">re-embeds every <span className="dp-num">{state.interval_minutes}</span> min</span>
+      </div>
+      <div className="grid grid-cols-1 gap-1 text-xs text-muted-foreground">
+        <div>Last run: {state.last_refreshed_at ? new Date(state.last_refreshed_at).toLocaleString() : "not yet"}</div>
+        {state.last_refresh_status && (
+          <div className="flex items-center gap-1">Status:
+            <span className={okStatus ? "text-[var(--dp-good)]" : "text-[var(--dp-warn)]"}>{state.last_refresh_status}</span>
+          </div>
+        )}
+      </div>
+      {isAdmin && (
+        <Button variant="outline" size="sm" onClick={cancel} disabled={busy}>
+          {busy ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5 mr-1.5" />}Cancel schedule</Button>
+      )}
+    </div>
   )
 }
 
@@ -315,12 +383,13 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
   // Source ingest + schedule are admin-only on the backend (require_admin);
   // don't offer them to non-admins, who would only hit a 403.
   const isAdmin = getUser()?.role === "admin"
+  const { toast } = useToast()
   const [tab, setTab] = useState<"text" | "source">("text")
   const [text, setText] = useState(""); const [src, setSrc] = useState("")
   const [stype, setStype] = useState<"iceberg" | "s3">("iceberg")
   const [schema, setSchema] = useState("default"); const [table, setTable] = useState(""); const [col, setCol] = useState("")
   const [bucket, setBucket] = useState(""); const [prefix, setPrefix] = useState("")
-  const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<string | null>(null); const [e, setE] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false); const [e, setE] = useState<string | null>(null)
   const [sched, setSched] = useState("@daily"); const [schedBusy, setSchedBusy] = useState(false)
   // Lakehouse picker: iceberg catalog tree (schemas→tables) + columns of the chosen table.
   const [tree, setTree] = useState<{ schema: string; tables: string[] }[]>([])
@@ -353,34 +422,34 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
     : { type: "s3", bucket, prefix }
 
   const ingestText = async () => {
-    setBusy(true); setE(null); setMsg(null)
+    setBusy(true); setE(null)
     try {
       const r = await fetch(`/api/ai/collections/${encodeURIComponent(name)}/ingest`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ documents: [{ source: src || "manual", text }] }) })
       if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-      const d = await r.json(); setMsg(`Ingested ${d.chunks} chunks (${d.pii_masked} PII masked)`); setText(""); onChange()
+      const d = await r.json(); toast(`Ingested ${d.chunks} chunks (${d.pii_masked} PII masked)`, "success"); setText(""); onChange()
     } catch (error) { setE(error instanceof Error ? error.message : "Ingestion failed") }
     setBusy(false)
   }
   const ingestSource = async () => {
-    setBusy(true); setE(null); setMsg(null)
+    setBusy(true); setE(null)
     try {
       const r = await fetch(`/api/ai/collections/${encodeURIComponent(name)}/ingest-source`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sourceBody()) })
       if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-      const d = await r.json(); setMsg(`${d.documents} docs → ${d.chunks} chunks (${d.pii_masked} PII masked)`); onChange()
+      const d = await r.json(); toast(`${d.documents} docs → ${d.chunks} chunks (${d.pii_masked} PII masked)`, "success"); onChange()
     } catch (error) { setE(error instanceof Error ? error.message : "Source ingestion failed") }
     setBusy(false)
   }
   const scheduleSource = async () => {
-    setSchedBusy(true); setE(null); setMsg(null)
+    setSchedBusy(true); setE(null)
     try {
       const r = await fetch(`/api/ai/collections/${encodeURIComponent(name)}/schedule`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ schedule: sched, source: sourceBody() }) })
       if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-      const d = await r.json(); setMsg(`Schedule created: auto re-embeds every ${d.interval_minutes} min`)
+      const d = await r.json(); toast(`Schedule created — auto re-embeds every ${d.interval_minutes} min`, "success")
     } catch (error) { setE(error instanceof Error ? error.message : "Schedule creation failed") }
     setSchedBusy(false)
   }
@@ -466,7 +535,6 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
           </p>
         </>
       )}
-      {msg && <p className="text-xs text-[var(--dp-good)]">{msg}</p>}
       {e && <ErrorBox msg={e} />}
     </div>
   )

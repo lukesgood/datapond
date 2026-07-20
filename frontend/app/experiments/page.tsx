@@ -29,6 +29,7 @@ import {
 import { cn } from "@/lib/utils"
 import { getUser } from "@/lib/auth"
 import { useConfirm } from "@/lib/confirm"
+import { bestMetricValue } from "@/components/experiments/compare-runs"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -329,19 +330,16 @@ function CompareView({
 }) {
   const metricNames = Array.from(new Set([...result.common_metrics, ...result.diff_metrics]))
   const paramNames = Array.from(new Set([...result.common_params, ...result.diff_params]))
-  // Find best (min or max?) — for now highlight lowest value per metric row as "best"
-  // In practice, "best" is ambiguous; we highlight min for loss-like and max for acc-like metrics
+  // Highlight the best run per metric using the shared best-value rule
+  // (lower is better for loss/error-like metrics, otherwise higher is better).
   const getBest = (metric: string): string | null => {
     const vals = result.runs.map((r) => ({
       id: r.info.run_id,
       v: r.data.metrics.find((value) => value.key === metric)?.value ?? null,
     })).filter((x) => x.v !== null) as Array<{ id: string; v: number }>
     if (vals.length === 0) return null
-    const maxV = Math.max(...vals.map((x) => x.v))
-    const minV = Math.min(...vals.map((x) => x.v))
-    // Heuristic: if metric name suggests accuracy/score/r2 → higher is better
-    const higherIsBetter = /acc|score|r2|auc|f1|precision|recall/i.test(metric)
-    const best = higherIsBetter ? maxV : minV
+    const best = bestMetricValue(vals.map((x) => x.v), metric)
+    if (best === null) return null
     return vals.find((x) => x.v === best)?.id ?? null
   }
 

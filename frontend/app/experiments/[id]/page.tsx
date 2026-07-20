@@ -41,6 +41,7 @@ import {
 import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { serviceUrls } from "@/lib/urls"
+import { bestMetricValue } from "@/components/experiments/compare-runs"
 
 interface Experiment {
   experiment_id: string
@@ -449,7 +450,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                           r.data.metrics?.find((m) => m.key === metric)?.value
                         )
                         const numVals = vals.filter((v): v is number => v != null)
-                        const best = numVals.length ? Math.max(...numVals) : null
+                        const best = bestMetricValue(vals, metric)
                         return (
                           <tr key={metric} className="border-b hover:bg-muted/20">
                             <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{metric}</td>
