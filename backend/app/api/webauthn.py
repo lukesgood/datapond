@@ -41,11 +41,20 @@ def webauthn_enabled() -> bool:
 def _redis_client():
     try:
         import redis
-        r = redis.Redis(
-            host=os.getenv("VALKEY_HOST", "valkey.datapond.svc.cluster.local"),
-            port=int(os.getenv("VALKEY_PORT", "6379")),
-            socket_connect_timeout=2, socket_timeout=2, decode_responses=True,
-        )
+        # Prefer REDIS_URL (correct host+port). Do NOT read VALKEY_PORT directly: when a
+        # 'valkey'/'redis' service exists, K8s injects VALKEY_PORT=tcp://<ip>:6379, which
+        # breaks int() → the client silently falls back to an in-process dict, and with >1
+        # backend replica the register/begin challenge is unreachable at register/complete
+        # ("Challenge expired") — passkey enrollment never completes.
+        url = os.getenv("REDIS_URL")
+        if url:
+            r = redis.Redis.from_url(url, socket_connect_timeout=2, socket_timeout=2, decode_responses=True)
+        else:
+            r = redis.Redis(
+                host=os.getenv("VALKEY_HOST", "valkey.datapond.svc.cluster.local"),
+                port=int(os.getenv("VALKEY_PORT", "6379").rsplit(":", 1)[-1] or "6379"),
+                socket_connect_timeout=2, socket_timeout=2, decode_responses=True,
+            )
         r.ping()
         return r
     except Exception:
