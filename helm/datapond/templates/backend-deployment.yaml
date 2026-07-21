@@ -50,6 +50,14 @@ spec:
           value: {{ .Values.product.profile.topology | quote }}
         - name: DATAPOND_NAMESPACE
           value: {{ .Values.namespace | quote }}
+        {{- if .Values.email.fromAddress }}
+        - name: SES_FROM_EMAIL
+          value: {{ .Values.email.fromAddress | quote }}
+        {{- end }}
+        {{- if .Values.email.baseUrl }}
+        - name: APP_BASE_URL
+          value: {{ .Values.email.baseUrl | quote }}
+        {{- end }}
         - name: STORAGE_PROVIDER
           value: {{ (.Values.storage.provider | default "s3") | quote }}
         - name: VECTOR_STORE

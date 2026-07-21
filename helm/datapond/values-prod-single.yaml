@@ -21,6 +21,14 @@ product:
     maturity: reference
     topology: ec2-k3s-single-node
 
+# Password-reset email via SES. fromAddress must be a verified SES sender identity
+# (datapond.csg.fitcloud.co.kr is verified via Easy DKIM in Route53); the node role
+# carries ses:SendEmail. SES sandbox only delivers to verified recipients until
+# production access is granted.
+email:
+  fromAddress: "noreply@datapond.csg.fitcloud.co.kr"
+  baseUrl: "https://datapond.csg.fitcloud.co.kr"
+
 namespace: datapond
 
 # Pull the ECR images via the regcred secret the cloud-init ecr-refresh timer maintains.
