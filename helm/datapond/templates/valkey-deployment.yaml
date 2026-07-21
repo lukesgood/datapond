@@ -38,13 +38,20 @@ spec:
         - name: valkey-data
           mountPath: /data
         {{- end }}
+        # timeoutSeconds/failureThreshold set explicitly (defaults are 1s/3): the exec
+        # `valkey-cli ping` can exceed 1s under transient node load (e.g. heavy image
+        # builds) on the single node, and 3 quick failures then SIGKILL the container —
+        # spurious restarts of a healthy Valkey (uses ~15Mi, no crash logs). Loosen so
+        # only sustained unresponsiveness restarts it.
         livenessProbe:
           exec:
             command:
             - valkey-cli
             - ping
           initialDelaySeconds: 30
-          periodSeconds: 10
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 5
         readinessProbe:
           exec:
             command:
@@ -52,6 +59,8 @@ spec:
             - ping
           initialDelaySeconds: 5
           periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
       {{- if .Values.valkey.persistence.enabled }}
       volumes:
       - name: valkey-data
