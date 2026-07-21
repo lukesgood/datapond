@@ -81,25 +81,28 @@ def _mask_pii_in_chunk(chunk, pii_columns) -> int:
 
 def _read_write_chunked(engine, query, source_table, write_mode, incremental_column,
                         on_step=None, partition_spec=None, key_columns=None,
-                        pii_columns=None, chunk_size=INGEST_CHUNK_SIZE):
+                        pii_columns=None, chunk_size=INGEST_CHUNK_SIZE, params=None):
     """Stream a source query in chunks → write to Iceberg, bounding memory to one chunk.
 
     Uses a server-side cursor (execution_options(stream_results=True)) so the DB driver
     does not buffer the entire result client-side either — without this, pandas'
     chunksize alone still loads every row into the driver (the OOM risk on big tables).
     First non-empty chunk uses write_mode (overwrite/append); subsequent chunks append.
+    When params is given the query is treated as a bound SQLAlchemy text() statement so
+    values (e.g. the incremental watermark) are never string-interpolated (SQL injection).
     Returns (rows_processed, max_value_str) where max_value is the incremental watermark.
     Synchronous (CPU/IO heavy) — call via asyncio.to_thread."""
     from .iceberg_writer import write_dataframe_to_iceberg
     # Incremental + PK → upsert(merge): updates changed rows, inserts new ones (no dup).
     # Without keys, incremental falls back to append (historical behavior).
     upsert = bool(key_columns) and write_mode == "append"
+    read_sql_obj = text(query) if params else query
     rows = 0
     masked = 0
     typed_max = None
     first = True
     with engine.connect().execution_options(stream_results=True) as conn:
-        for chunk in pd.read_sql(query, conn, chunksize=chunk_size):
+        for chunk in pd.read_sql(read_sql_obj, conn, chunksize=chunk_size, params=params):
             if chunk.empty:
                 continue
             # PII 마스킹 — 원천 데이터가 raw로 레이크하우스에 적재되기 전 차단(주권/규제).
@@ -124,7 +127,8 @@ def _read_write_chunked(engine, query, source_table, write_mode, incremental_col
     # recover the column schema via a LIMIT 0 read. Incremental + empty = no-op
     # (don't append nothing, don't move the watermark).
     if first and write_mode == "overwrite":
-        empty = pd.read_sql(f"SELECT * FROM ({query}) AS _src LIMIT 0", engine)
+        empty_sql = f"SELECT * FROM ({query}) AS _src LIMIT 0"
+        empty = pd.read_sql(text(empty_sql) if params else empty_sql, engine, params=params)
         write_dataframe_to_iceberg(empty, source_table, mode="overwrite",
                                    on_step=on_step, partition_spec=partition_spec)
     if masked and on_step:
@@ -732,7 +736,6 @@ class DatabaseURLConnector(BaseConnector):
         pii_columns: Optional[list] = None,
     ) -> SyncJobStatus:
         """Sync table data to Iceberg via SeaweedFS S3 + Trino."""
-        from .iceberg_writer import write_dataframe_to_iceberg
         started_at = datetime.utcnow()
         try:
             engine = self._get_engine()
@@ -745,19 +748,21 @@ class DatabaseURLConnector(BaseConnector):
                 tbl_name = source_table
 
             query = f"SELECT * FROM {qualified}"
+            # Parameterize the watermark value (never string-interpolate it — SQL injection).
+            # The column is a quoted identifier, not bindable, so it is validated/quoted here.
+            params = None
             if sync_mode == SyncMode.INCREMENTAL and incremental_column and last_value:
-                query += f" WHERE {incremental_column} > '{last_value}'"
+                query += f' WHERE "{incremental_column}" > :last_value'
+                params = {"last_value": last_value}
 
-            df = await asyncio.to_thread(pd.read_sql, query, engine)
-            logger.info(f"[dburl_connector] Read {len(df)} rows from {source_table}")
-
+            # Stream the source in chunks (bounded memory), mask PII before write, and
+            # upsert on key_columns when configured — shared helper mirrors PG/MySQL sync.
             write_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
-            rows_processed = await asyncio.to_thread(write_dataframe_to_iceberg, df, tbl_name, mode=write_mode, on_step=on_step, partition_spec=partition_spec)
-
-            max_value = None
-            if incremental_column and incremental_column in df.columns and not df.empty:
-                max_val = df[incremental_column].max()
-                max_value = str(max_val) if max_val is not None else None
+            rows_processed, max_value = await asyncio.to_thread(
+                _read_write_chunked, engine, query, tbl_name, write_mode,
+                incremental_column, on_step, partition_spec, key_columns, pii_columns,
+                params=params)
+            logger.info(f"[dburl_connector] Synced {rows_processed} rows from {source_table} (chunked)")
 
             return SyncJobStatus(
                 job_id=None,

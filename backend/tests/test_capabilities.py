@@ -7,9 +7,37 @@ def _env(**kw):
     return {f"FEATURE_{k}": v for k, v in kw.items()}
 
 
-def test_all_enabled_by_default():
-    """All features enabled when no env vars set (backward compat)."""
+def test_fail_closed_by_default():
+    """Fail-closed (design rule 3): with no FEATURE_* flags set, every
+    component-gated feature is OFF. Only the always-on core stays enabled."""
     caps = compute_capabilities({})
+    for k in (
+        "catalog",
+        "connectors",
+        "query",
+        "dashboards",
+        "pipelines",
+        "streaming",
+        "experiments",
+        "notebooks",
+        "lineage",
+    ):
+        assert caps[k] is False, f"{k} should default False (fail-closed)"
+    for k in ("knowledge", "ai", "settings", "governance", "storage", "services", "system", "dashboard"):
+        assert caps[k] is True, f"{k} should be True"
+
+
+def test_all_enabled_when_flags_set():
+    """Component features enable only when their FEATURE_* flag is explicitly true."""
+    caps = compute_capabilities(_env(
+        TRINO="true",
+        POLARIS="true",
+        AIRFLOW="true",
+        MLFLOW="true",
+        RISINGWAVE="true",
+        OPENMETADATA="true",
+        JUPYTER="true",
+    ))
     assert caps["catalog"] is True
     assert caps["query"] is True
     assert caps["streaming"] is True

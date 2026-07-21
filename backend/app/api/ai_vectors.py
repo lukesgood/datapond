@@ -131,29 +131,47 @@ async def ensure_vector_schema(pool) -> None:
 # ── Embeddings (via LiteLLM, egress-guarded) ─────────────────────────────────────
 
 async def _assert_embed_egress_ok() -> None:
-    """Under local-only, refuse an external embedding model (no data egress)."""
+    """Under local-only, refuse an external embedding model (no data egress).
+
+    Fail-closed: if the gateway can't be introspected to PROVE the embedding model is
+    local (network error, /model/info error, or the model isn't registered), block the
+    call rather than risk shipping document text to an external provider."""
     if egress_policy() != "local-only":
         return
     url, key = _gateway()
+    _unverified = HTTPException(
+        403,
+        "AI egress policy is 'local-only' but the LiteLLM gateway could not be "
+        "introspected to verify the embedding provider is local; blocking the call.",
+    )
     try:
         async with httpx.AsyncClient(timeout=5) as c:
             r = await c.get(f"{url}/model/info", headers=_headers(key))
-            if r.status_code < 400:
-                for m in r.json().get("data", []):
-                    if m.get("model_name") == _embed_model():
-                        prov = provider_of_model((m.get("litellm_params") or {}).get("model", ""))
-                        if is_external_provider(prov):
-                            raise HTTPException(
-                                403,
-                                f"AI egress policy is 'local-only': external embedding "
-                                f"provider '{prov}' is blocked. Use a local model "
-                                f"(Ollama bge-m3 / nomic-embed-text).",
-                            )
-                        return
+        if r.status_code >= 400:
+            raise _unverified
+        models = r.json().get("data", [])
     except HTTPException:
         raise
-    except Exception:
-        return  # best-effort; registration-time guard is the primary control
+    except Exception as e:
+        raise _unverified from e
+    for m in models:
+        if m.get("model_name") == _embed_model():
+            prov = provider_of_model((m.get("litellm_params") or {}).get("model", ""))
+            if is_external_provider(prov):
+                raise HTTPException(
+                    403,
+                    f"AI egress policy is 'local-only': external embedding "
+                    f"provider '{prov}' is blocked. Use a local model "
+                    f"(Ollama bge-m3 / nomic-embed-text).",
+                )
+            return
+    # Model isn't in the gateway registry — we can't prove it's local, so fail closed.
+    raise HTTPException(
+        403,
+        f"AI egress policy is 'local-only' but embedding model '{_embed_model()}' "
+        f"is not registered in the LiteLLM gateway to verify it is local; blocking "
+        f"the call.",
+    )
 
 
 async def _embed(texts: List[str]) -> List[List[float]]:
@@ -173,7 +191,21 @@ async def _embed(texts: List[str]) -> List[List[float]]:
         emit("EmbeddingCount", len(data), "Count")  # Bedrock Titan cost driver
     except Exception:
         pass
-    return [d["embedding"] for d in data]
+    vecs = [d["embedding"] for d in data]
+    # Fail fast on a dimension mismatch: ai_chunks.embedding is vector(AI_EMBED_DIM),
+    # so a model returning a different width otherwise dies with an opaque pgvector
+    # insert error. Surface a clear, actionable message here instead.
+    expected = EMBED_DIM()
+    for v in vecs:
+        if len(v) != expected:
+            raise HTTPException(
+                502,
+                f"Embedding dimension mismatch: model '{_embed_model()}' returned a "
+                f"{len(v)}-dim vector but AI_EMBED_DIM={expected}. Set AI_EMBED_DIM to "
+                f"the model's dimension (and match the collection), or use a model that "
+                f"emits {expected}-dim embeddings.",
+            )
+    return vecs
 
 
 # ── Request models ───────────────────────────────────────────────────────────────
@@ -319,7 +351,14 @@ async def _ingest_documents(coll_id, docs: List[tuple], chunk_size: int, overlap
     pii_masked = 0
     for source, text, meta in docs:
         for idx, raw in enumerate(_chunk(text, chunk_size, overlap)):
-            masked, found, _blk = pii_ko.apply(raw)
+            masked, found, blocked = pii_ko.apply(raw)
+            # In `block` mode pii_ko.apply() returns the ORIGINAL text with blocked=True
+            # (that contract is for rejecting an inbound request). A chunk we're about to
+            # store and ship to the embedding provider must never carry raw PII, so
+            # degrade block → mask here: redact rather than persist/embed the raw value.
+            # (mask mode already returns redacted text; off mode has found=[] → unchanged.)
+            if blocked:
+                masked = pii_ko.mask(raw, found)
             pii_masked += len(found)
             items.append((source, idx, masked, json.dumps(meta or {})))
     embeddings: List[List[float]] = []
@@ -699,16 +738,23 @@ async def rag(req: RagRequest, user: dict = Depends(require_user)):
 
     url, key = _gateway()
     model = os.getenv("LITELLM_MODEL", "default")
-    # Reuse the chat egress guard from ai_sql (blocks external chat under local-only).
-    try:
-        from app.api.ai_sql import _active_provider_is_external
-        import asyncio as _a
-        if egress_policy() == "local-only" and await _a.to_thread(_active_provider_is_external) is True:
-            raise HTTPException(403, "AI egress policy 'local-only': external chat model blocked.")
-    except HTTPException:
-        raise
-    except Exception:
-        pass
+    # Reuse the chat provider check from ai_sql. Fail-closed under local-only: only a
+    # DEFINITIVELY local provider (returns False) is allowed through — external (True)
+    # or unverifiable (None: introspection error / model not registered) both block, so
+    # a failed introspection can't let an external chat call proceed.
+    if egress_policy() == "local-only":
+        try:
+            from app.api.ai_sql import _active_provider_is_external
+            external = await asyncio.to_thread(_active_provider_is_external)
+        except Exception as e:
+            logger.warning(f"[ai_vectors] local-only chat egress check failed, blocking: {e}")
+            raise HTTPException(
+                403, "AI egress policy 'local-only': unable to verify the chat provider "
+                     "is local; blocking the call.")
+        if external is not False:
+            raise HTTPException(
+                403, "AI egress policy 'local-only': chat model blocked (external or "
+                     "unverifiable provider).")
 
     try:
         async with httpx.AsyncClient(timeout=120) as c:

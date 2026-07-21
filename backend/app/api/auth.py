@@ -330,48 +330,121 @@ async def require_admin_or_internal(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
     return user
 
+# ── Audit ────────────────────────────────────────────────────────────────────
+#
+# The unified audit stream (Governance → Activity) reads login/logout events from
+# auth_audit_log. record_auth_event is the single best-effort writer used by every
+# authentication path (local/LDAP login, passwordless WebAuthn, OIDC SSO). It MUST
+# never raise: an audit-write failure can never be allowed to break a real login.
+
+async def record_auth_event(
+    event_type: str,
+    *,
+    user_id=None,
+    user_email: Optional[str] = None,
+    result: str = "success",
+    failure_reason: Optional[str] = None,
+    request: Optional[Request] = None,
+    details: Optional[dict] = None,
+) -> None:
+    """Best-effort insert of an auth event into auth_audit_log. Never raises.
+
+    event_type must be a valid audit_event_type enum value (e.g. 'login_success',
+    'login_failure', 'logout'). ip_address/user_agent are pulled from the HTTP
+    request when available. Failures are swallowed (debug-logged) so authentication
+    is never blocked by the audit layer.
+    """
+    try:
+        ip = None
+        user_agent = None
+        if request is not None:
+            client = getattr(request, "client", None)
+            ip = getattr(client, "host", None) if client is not None else None
+            try:
+                user_agent = request.headers.get("user-agent")
+            except Exception:
+                user_agent = None
+        uid = None
+        if user_id:
+            uid = user_id if isinstance(user_id, uuid.UUID) else uuid.UUID(str(user_id))
+        pool = await _get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO auth_audit_log
+                     (event_type, user_id, user_email, ip_address, user_agent,
+                      action, result, failure_reason, details)
+                   VALUES ($1,$2,$3,$4::inet,$5,'authenticate',$6,$7,$8)""",
+                event_type, uid, user_email, ip, user_agent,
+                result, failure_reason, json.dumps(details or {}),
+            )
+    except Exception as e:
+        logger.debug("auth audit skipped (%s): %s", event_type, e)
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @router.post("/auth/login", response_model=TokenResponse)
-async def login(request: LoginRequest):
+async def login(request: LoginRequest, http_request: Request = None):
     """Authenticate and return JWT token."""
     await _ensure_admin_exists()
 
-    pool = await _get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """SELECT id, username, password_hash, role, display_name, email,
-                      auth_method, is_active, require_password_change
-               FROM users WHERE username=$1""",
-            request.username
-        )
+    try:
+        pool = await _get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT id, username, password_hash, role, display_name, email,
+                          auth_method, is_active, require_password_change
+                   FROM users WHERE username=$1""",
+                request.username
+            )
 
-    # Local password check (works even when LDAP is on — keeps the local admin usable).
-    local_ok = bool(row and row["is_active"] and row["password_hash"]
-                    and _verify_password(request.password, row["password_hash"]))
+        # Local password check (works even when LDAP is on — keeps the local admin usable).
+        local_ok = bool(row and row["is_active"] and row["password_hash"]
+                        and _verify_password(request.password, row["password_hash"]))
 
-    if not local_ok:
-        from .ldap_auth import ldap_enabled, ldap_authenticate
-        # Never let an LDAP bind shadow an existing LOCAL account with the same
-        # username — a wrong local password must NOT fall through to LDAP and hijack
-        # (or re-provision) that account.
-        if row and row["auth_method"] == "local" and row["password_hash"]:
-            raise HTTPException(status_code=401, detail="Invalid username or password")
-        # Fall back to LDAP/AD when enabled. On success, auto-provision the directory
-        # user so RBAC/RLS/audit treat them like any other account.
-        if ldap_enabled():
-            ldap_user = await asyncio.to_thread(ldap_authenticate, request.username, request.password)
-            if ldap_user:
-                row = await _upsert_ldap_user(ldap_user)
+        if not local_ok:
+            from .ldap_auth import ldap_enabled, ldap_authenticate
+            # Never let an LDAP bind shadow an existing LOCAL account with the same
+            # username — a wrong local password must NOT fall through to LDAP and hijack
+            # (or re-provision) that account.
+            if row and row["auth_method"] == "local" and row["password_hash"]:
+                raise HTTPException(status_code=401, detail="Invalid username or password")
+            # Fall back to LDAP/AD when enabled. On success, auto-provision the directory
+            # user so RBAC/RLS/audit treat them like any other account.
+            if ldap_enabled():
+                ldap_user = await asyncio.to_thread(ldap_authenticate, request.username, request.password)
+                if ldap_user:
+                    row = await _upsert_ldap_user(ldap_user)
+                else:
+                    raise HTTPException(status_code=401, detail="Invalid username or password")
             else:
                 raise HTTPException(status_code=401, detail="Invalid username or password")
-        else:
-            raise HTTPException(status_code=401, detail="Invalid username or password")
 
-    if not row or not row["is_active"]:
-        raise HTTPException(status_code=401, detail="Invalid username or password")
+        if not row or not row["is_active"]:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+    except HTTPException as exc:
+        # Record every rejected credential attempt (best-effort) so the audit stream
+        # has a real login-failure signal. user_email carries the attempted username.
+        if exc.status_code == 401:
+            await record_auth_event(
+                "login_failure",
+                user_email=request.username,
+                result="failure",
+                failure_reason=exc.detail,
+                request=http_request,
+                details={"username": request.username},
+            )
+        raise
 
     token = _create_token(str(row["id"]), row["username"], row["role"])
+    await record_auth_event(
+        "login_success",
+        user_id=row["id"],
+        user_email=row["email"],
+        result="success",
+        request=http_request,
+        details={"username": row["username"]},
+    )
     return TokenResponse(
         access_token=token,
         user={
@@ -492,8 +565,25 @@ async def change_password(body: dict, user: dict = Depends(require_user)):
 
 
 @router.post("/auth/logout")
-async def logout():
+async def logout(http_request: Request = None):
     """Logout (client deletes token)."""
+    # Best-effort audit. Logout stays unauthenticated (client just drops the token),
+    # so identity is read opportunistically from the request state populated by the
+    # auth middleware — a missing identity simply yields no audit row.
+    ident = None
+    try:
+        state = getattr(http_request, "state", None) if http_request is not None else None
+        ident = getattr(state, "user", None) if state is not None else None
+    except Exception:
+        ident = None
+    if ident:
+        await record_auth_event(
+            "logout",
+            user_id=ident.get("id"),
+            user_email=ident.get("username"),
+            result="success",
+            request=http_request,
+        )
     return {"message": "Logged out"}
 
 

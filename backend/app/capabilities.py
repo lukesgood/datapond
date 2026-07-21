@@ -2,8 +2,14 @@
 from typing import Mapping
 
 
-def _feat(env: Mapping, name: str, default: bool = True) -> bool:
-    """Parse FEATURE_<name> from env; default True if not set."""
+def _feat(env: Mapping, name: str, default: bool = False) -> bool:
+    """Parse FEATURE_<name> from env; default False (fail-closed) if not set.
+
+    Fail-closed is design rule 3 (docs/ARCHITECTURE.md): an optional capability
+    stays off until its FEATURE_* flag is explicitly true. All deployed profiles
+    render these flags via templates/backend-deployment.yaml, so this default only
+    governs environments where a flag was never set at all.
+    """
     v = env.get(f"FEATURE_{name}")
     if v is None:
         return default
@@ -11,7 +17,7 @@ def _feat(env: Mapping, name: str, default: bool = True) -> bool:
 
 
 def compute_capabilities(env: Mapping) -> dict:
-    """Feature→enabled map from FEATURE_<COMPONENT> env (default enabled).
+    """Feature→enabled map from FEATURE_<COMPONENT> env (fail-closed by default).
 
     Pure function: no imports beyond typing, no side effects, no I/O.
     Enables instant, infallible `/api/capabilities` endpoint.

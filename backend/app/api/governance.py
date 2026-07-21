@@ -156,21 +156,62 @@ class AiSafetyReport(BaseModel):
     recent_flags: List[AiSafetyFlag]
 
 
+# ── Auth / admin gate ─────────────────────────────────────────────────────────
+# Governance reads expose other users' SQL text plus auth telemetry, so every
+# read endpoint below is admin-only (mirrors the auth.sql `view_audit_log`
+# permission). Defined here so the legacy audit-log/ai-safety reads and the
+# RLS/mask management + audit-stream endpoints share one gate.
+
+try:
+    from app.rls import loader as _rls_loader
+    from app.rls.engine import enforce as _rls_enforce, RlsDenied as _RlsDenied, UserContext as _UserCtx
+    from app.api.auth import get_current_user as _get_current_user
+    _RLS_ADMIN_OK = True
+except Exception as _e:  # pragma: no cover
+    logger.warning("rls admin endpoints disabled: %s", _e)
+    _RLS_ADMIN_OK = False
+
+    async def _get_current_user(*a, **k):  # type: ignore
+        return None
+
+
+async def _require_admin(user: Optional[dict]) -> dict:
+    if not _RLS_ADMIN_OK:
+        raise HTTPException(status_code=503, detail="RLS management disabled (missing dependency)")
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    # JWT role or user_roles must include admin / security.manage_rls
+    if user.get("role") == "admin":
+        return user
+    try:
+        ctx = await _rls_loader.load_user_context(user)
+        if "admin" in ctx.roles:
+            return user
+    except Exception:
+        pass
+    raise HTTPException(status_code=403, detail="Admin privileges required")
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/governance/audit-log", response_model=AuditLogResponse)
-def get_audit_log(
+async def get_audit_log(
     event_type: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    user: Optional[dict] = Depends(_get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Return paginated audit log entries derived from query_history.
 
+    Admin-only: the log exposes every user's query text (mirrors the auth.sql
+    `view_audit_log` permission and the unified /governance/audit-stream gate).
+
     event_type filter (optional): 'query_executed', 'query_error', 'query_timeout'
     maps to the status column values ('success', 'error', 'timeout').
     """
+    await _require_admin(user)
     if limit < 1 or limit > 200:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
     if offset < 0:
@@ -458,18 +499,7 @@ def get_pii_report():
 # ── RLS / Masking policy management (P2) ──────────────────────────────────────
 # Admin-only CRUD over rls_policies / column_masking_policies (auth.sql schema).
 # Uses asyncpg via the RLS loader's pool. See docs/RLS_DESIGN.md.
-
-try:
-    from app.rls import loader as _rls_loader
-    from app.rls.engine import enforce as _rls_enforce, RlsDenied as _RlsDenied, UserContext as _UserCtx
-    from app.api.auth import get_current_user as _get_current_user
-    _RLS_ADMIN_OK = True
-except Exception as _e:  # pragma: no cover
-    logger.warning("rls admin endpoints disabled: %s", _e)
-    _RLS_ADMIN_OK = False
-
-    async def _get_current_user(*a, **k):  # type: ignore
-        return None
+# (Auth imports + _require_admin live in the Auth / admin gate section above.)
 
 
 class RlsPolicyIn(BaseModel):
@@ -503,23 +533,6 @@ class RlsPreviewIn(BaseModel):
     sql: str
     roles: List[str] = []
     attributes: dict = {}
-
-
-async def _require_admin(user: Optional[dict]) -> dict:
-    if not _RLS_ADMIN_OK:
-        raise HTTPException(status_code=503, detail="RLS management disabled (missing dependency)")
-    if not user:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    # JWT role or user_roles must include admin / security.manage_rls
-    if user.get("role") == "admin":
-        return user
-    try:
-        ctx = await _rls_loader.load_user_context(user)
-        if "admin" in ctx.roles:
-            return user
-    except Exception:
-        pass
-    raise HTTPException(status_code=403, detail="Admin privileges required")
 
 
 @router.get("/governance/audit-stream", response_model=AuditStreamResponse)
@@ -913,13 +926,20 @@ async def _audit_policy_event(conn, admin: dict, event_type: str, target: str, n
 
 
 @router.get("/governance/ai-safety", response_model=AiSafetyReport)
-def get_ai_safety(db: Session = Depends(get_db)):
+async def get_ai_safety(
+    user: Optional[dict] = Depends(_get_current_user),
+    db: Session = Depends(get_db),
+):
     """
     Evaluate recent query history for SQL safety risk.
+
+    Admin-only: the flagged samples embed other users' query text (mirrors the
+    auth.sql `view_audit_log` permission and the /governance/audit-stream gate).
 
     Classifies each query as high / medium / low risk and returns
     distribution counts plus the 5 most recent flagged queries.
     """
+    await _require_admin(user)
     try:
         # Fetch last 200 queries for analysis
         recent = (

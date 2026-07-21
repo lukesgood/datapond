@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 
-from app.api.auth import require_user, _get_pool, _create_token, get_current_user
+from app.api.auth import require_user, _get_pool, _create_token, get_current_user, record_auth_event
 
 logger = logging.getLogger(__name__)
 COSE_ALG_ALLOWLIST = [-7, -257]  # ES256, RS256
@@ -193,7 +193,7 @@ class AuthCompleteReq(BaseModel):
 
 
 @router.post("/authenticate/complete")
-async def authenticate_complete(req: AuthCompleteReq):
+async def authenticate_complete(req: AuthCompleteReq, request: Request = None):
     _require_enabled()
     from webauthn import verify_authentication_response
     from webauthn.helpers import base64url_to_bytes
@@ -230,6 +230,15 @@ async def authenticate_complete(req: AuthCompleteReq):
         await conn.execute("UPDATE webauthn_credentials SET sign_count=$1, last_used_at=NOW() WHERE id=$2",
                            v.new_sign_count, row["cid"])
     token = _create_token(str(row["uid"]), row["username"], row["role"])
+    # Best-effort audit so passkey logins land in the unified audit stream.
+    await record_auth_event(
+        "login_success",
+        user_id=row["uid"],
+        user_email=row["username"],
+        result="success",
+        request=request,
+        details={"username": row["username"], "method": "webauthn"},
+    )
     return {"access_token": token, "token_type": "bearer",
             "user": {"id": str(row["uid"]), "username": row["username"], "role": row["role"],
                      "require_password_change": bool(row["require_password_change"])}}

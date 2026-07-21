@@ -426,6 +426,61 @@ async def _load_partition_spec(pool, connection_id: str, table: str):
     return _parse_partition_spec(raw)
 
 
+async def _load_watermark(pool, connection_id: str, table: str):
+    """Read the stored (incremental_column, last_value) watermark for a table.
+
+    Returns (None, None) when no job row exists yet (first run). Incremental syncs
+    must pass last_value so the source query only reads rows newer than the watermark —
+    without it every run re-reads the full table and appends, duplicating rows."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT incremental_column, last_value FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
+            uuid.UUID(connection_id), table
+        )
+    if not row:
+        return None, None
+    return row['incremental_column'], row['last_value']
+
+
+async def _persist_sync_job(pool, connection_id: str, table: str, target: str,
+                            sync_mode: SyncMode, status, new_last_value):
+    """Upsert connector_sync_jobs by (connection, table) and return the job id (str).
+
+    Mirrors the SSE /sync/stream bookkeeping: never insert a duplicate row for a table
+    that already has one, and advance the watermark only when new_last_value is set
+    (never overwrite a good watermark with NULL)."""
+    run_at = datetime.utcnow()
+    async with pool.acquire() as conn:
+        existing = await conn.fetchval(
+            "SELECT id FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
+            uuid.UUID(connection_id), table
+        )
+        if existing:
+            if new_last_value is not None:
+                await conn.execute('''
+                    UPDATE connector_sync_jobs
+                    SET last_run_at=$1, last_run_status=$2, rows_synced=$3, last_value=$4
+                    WHERE id=$5
+                ''', run_at, status.status.value, status.rows_processed,
+                    new_last_value, existing)
+            else:
+                await conn.execute('''
+                    UPDATE connector_sync_jobs
+                    SET last_run_at=$1, last_run_status=$2, rows_synced=$3
+                    WHERE id=$4
+                ''', run_at, status.status.value, status.rows_processed, existing)
+            return str(existing)
+        new_id = uuid.uuid4()
+        await conn.execute('''
+            INSERT INTO connector_sync_jobs
+            (id, connection_id, source_table, target_table, sync_mode,
+             last_run_at, last_run_status, rows_synced, last_value)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        ''', new_id, uuid.UUID(connection_id), table, target, sync_mode.value,
+            run_at, status.status.value, status.rows_processed, new_last_value)
+        return str(new_id)
+
+
 # Credential vault instance
 
 vault = CredentialVault()
@@ -2026,12 +2081,25 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
             pool = await get_db_pool()
             for table in tables:
                 target = f"datapond.default.{table}"
+                # Load the stored watermark for incremental mode (mirror /sync/stream):
+                # without it every run re-reads the full table and appends → duplication.
+                table_mode = request.sync_mode
+                incremental_column = request.incremental_column
+                last_value = None
+                if table_mode == SyncMode.INCREMENTAL:
+                    stored_col, stored_val = await _load_watermark(pool, connection_id, table)
+                    incremental_column = incremental_column or stored_col
+                    if incremental_column:
+                        last_value = stored_val
+                    else:
+                        table_mode = SyncMode.FULL  # incremental with no column → full load
                 status = await _sync_with_retry(
                     connector,
                     source_table=table,
                     target_table=target,
-                    sync_mode=request.sync_mode,
-                    incremental_column=request.incremental_column,
+                    sync_mode=table_mode,
+                    incremental_column=incremental_column,
+                    last_value=last_value,
                     partition_spec=await _load_partition_spec(pool, connection_id, table),
                     key_columns=await _load_key_columns(pool, connection_id, table),
                     pii_columns=await _load_pii_columns(pool, connection_id, table),
@@ -2040,22 +2108,13 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
                 last_status = status
                 results.append((table, target, status.status == SyncStatus.SUCCESS,
                                 status.rows_processed, status))
-                job_id = str(uuid.uuid4())
-                async with pool.acquire() as conn:
-                    await conn.execute('''
-                        INSERT INTO connector_sync_jobs
-                        (id, connection_id, source_table, target_table, sync_mode, last_run_at, last_run_status, rows_synced)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                    ''',
-                        uuid.UUID(job_id),
-                        uuid.UUID(connection_id),
-                        table,
-                        target,
-                        request.sync_mode.value,
-                        datetime.utcnow(),
-                        status.status.value,
-                        status.rows_processed
-                    )
+                # Persist the returned watermark so the next incremental run reads only newer rows.
+                new_last_value = None
+                if (status.status == SyncStatus.SUCCESS
+                        and table_mode == SyncMode.INCREMENTAL and status.metadata):
+                    new_last_value = status.metadata.get("max_value")
+                job_id = await _persist_sync_job(pool, connection_id, table, target,
+                                                 request.sync_mode, status, new_last_value)
             # Update last_sync_at on connection
             async with pool.acquire() as conn:
                 await conn.execute(
@@ -2080,32 +2139,36 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
         target_table = request.target_table or f"datapond.default.{source_table}"
         started_at = datetime.utcnow()
         pool = await get_db_pool()
+        # Load the stored watermark for incremental mode (mirror /sync/stream):
+        # without it every run re-reads the full table and appends → duplication.
+        table_mode = request.sync_mode
+        incremental_column = request.incremental_column
+        last_value = None
+        if table_mode == SyncMode.INCREMENTAL:
+            stored_col, stored_val = await _load_watermark(pool, connection_id, source_table)
+            incremental_column = incremental_column or stored_col
+            if incremental_column:
+                last_value = stored_val
+            else:
+                table_mode = SyncMode.FULL  # incremental with no column → full load
         status = await _sync_with_retry(
             connector,
             source_table=source_table,
             target_table=target_table,
-            sync_mode=request.sync_mode,
-            incremental_column=request.incremental_column,
+            sync_mode=table_mode,
+            incremental_column=incremental_column,
+            last_value=last_value,
             partition_spec=await _load_partition_spec(pool, connection_id, source_table),
             key_columns=await _load_key_columns(pool, connection_id, source_table),
             pii_columns=await _load_pii_columns(pool, connection_id, source_table),
         )
-        job_id = str(uuid.uuid4())
-        async with pool.acquire() as conn:
-            await conn.execute('''
-                INSERT INTO connector_sync_jobs
-                (id, connection_id, source_table, target_table, sync_mode, last_run_at, last_run_status, rows_synced)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            ''',
-                uuid.UUID(job_id),
-                uuid.UUID(connection_id),
-                source_table,
-                target_table,
-                request.sync_mode.value,
-                datetime.utcnow(),
-                status.status.value,
-                status.rows_processed
-            )
+        # Persist the returned watermark so the next incremental run reads only newer rows.
+        new_last_value = None
+        if (status.status == SyncStatus.SUCCESS
+                and table_mode == SyncMode.INCREMENTAL and status.metadata):
+            new_last_value = status.metadata.get("max_value")
+        job_id = await _persist_sync_job(pool, connection_id, source_table, target_table,
+                                         request.sync_mode, status, new_last_value)
         # Update last_sync_at on connection
         async with pool.acquire() as conn:
             await conn.execute(
