@@ -33,7 +33,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["streaming"])
 
 RW_HOST = os.getenv("RISINGWAVE_HOST", "risingwave-frontend.datapond.svc.cluster.local")
-RW_PORT = int(os.getenv("RISINGWAVE_PORT", "4566"))
+# K8s injects <SVC>_PORT=tcp://<ip>:<port> when a matching service exists; take the
+# trailing port so int() can't choke on the scheme (same class as the POSTGRES_PORT /
+# VALKEY_PORT fixes).
+RW_PORT = int(os.getenv("RISINGWAVE_PORT", "4566").rsplit(":", 1)[-1] or "4566")
 
 
 def _iceberg_sink_s3_props() -> dict:
