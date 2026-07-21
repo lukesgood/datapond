@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import NextLink from "next/link"
 import { CapabilityGate } from "@/lib/capabilities"
+import { getUser } from "@/lib/auth"
 import { ErrorBox, EmptyState } from "@/components/ui/error-box"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -52,6 +53,10 @@ function CatalogPageInner() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedNamespace, setSelectedNamespace] = useState<string>("all")
   const [sendTable, setSendTable] = useState<Table | null>(null)
+  // "Send to Knowledge" drives admin-only ingest-source/schedule endpoints — a
+  // viewer would fill in the dialog only to hit a 403. Gate the action here,
+  // mirroring how the AI Gateway hides admin-only forms from non-admins.
+  const [isAdmin] = useState(() => getUser()?.role === "admin")
 
   const fetchData = useCallback(async () => {
     try {
@@ -185,6 +190,11 @@ function CatalogPageInner() {
         <p className="text-muted-foreground">
           Browse and explore tables registered in the catalog
         </p>
+        {!isAdmin && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Sending a table to Knowledge (RAG) requires an administrator — ask an administrator to enable it.
+          </p>
+        )}
       </div>
 
       {/* Search and Filters */}
@@ -265,7 +275,7 @@ function CatalogPageInner() {
                 catalogType={table.catalog_type}
                 tableType={table.table_type}
                 lastUpdated={table.last_updated}
-                onSendToKnowledge={() => setSendTable(table)}
+                onSendToKnowledge={isAdmin ? () => setSendTable(table) : undefined}
               />
             ))}
           </div>
@@ -276,8 +286,8 @@ function CatalogPageInner() {
                 <EmptyState
                   icon={Database}
                   title="No tables yet"
-                  hint="Connect a data source and sync it from Ingestion, and Iceberg tables will appear here."
-                  action={<Button size="sm" render={<NextLink href="/connectors" />}>Go to Ingestion</Button>}
+                  hint="Connect a data source and sync it from Sources, and Iceberg tables will appear here."
+                  action={<Button size="sm" render={<NextLink href="/connectors" />}>Go to Sources</Button>}
                 />
               ) : (
                 <p className="py-8 text-center text-muted-foreground">No tables found matching your search criteria</p>
@@ -312,6 +322,9 @@ function SendToKnowledgeDialog({ table, onClose }: { table: Table; onClose: () =
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  // On success, remember the target collection so we can offer a link into
+  // Knowledge instead of dead-ending the dialog on Close.
+  const [done, setDone] = useState<string | null>(null)
 
   useEffect(() => {
     fetch("/api/ai/collections").then(r => r.json() as Promise<CollectionsResponse>)
@@ -326,7 +339,7 @@ function SendToKnowledgeDialog({ table, onClose }: { table: Table; onClose: () =
   const submit = async () => {
     const target = (collection === "__new__" ? newName : collection).trim()
     if (!target || !col) { setErr("Select a collection and a text column."); return }
-    setBusy(true); setErr(null); setMsg(null)
+    setBusy(true); setErr(null); setMsg(null); setDone(null)
     try {
       // ensure collection exists (idempotent)
       await fetch("/api/ai/collections", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -336,12 +349,12 @@ function SendToKnowledgeDialog({ table, onClose }: { table: Table; onClose: () =
         const r = await fetch(`/api/ai/collections/${encodeURIComponent(target)}/schedule`, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ schedule: sched, source }) })
         if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-        const d = await r.json(); setMsg(`Schedule created: auto re-embeds every ${d.interval_minutes} min`)
+        const d = await r.json(); setMsg(`Schedule created: auto re-embeds every ${d.interval_minutes} min`); setDone(target)
       } else {
         const r = await fetch(`/api/ai/collections/${encodeURIComponent(target)}/ingest-source`, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(source) })
         if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-        const d = await r.json(); setMsg(`${d.documents} docs → ${d.chunks} chunks ingested (${target})`)
+        const d = await r.json(); setMsg(`${d.documents} docs → ${d.chunks} chunks ingested (${target})`); setDone(target)
       }
     } catch (error) { setErr(error instanceof Error ? error.message : "Failed to send table to Knowledge") }
     setBusy(false)
@@ -393,10 +406,16 @@ function SendToKnowledgeDialog({ table, onClose }: { table: Table; onClose: () =
           </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
-          <Button size="sm" onClick={submit} disabled={busy || !table}>
-            {busy ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : (sched ? <Clock className="h-4 w-4 mr-1.5" /> : <Sparkles className="h-4 w-4 mr-1.5" />)}
-            {sched ? "Schedule" : "Ingest"}
-          </Button>
+          {done ? (
+            <Button size="sm" render={<NextLink href={`/knowledge?collection=${encodeURIComponent(done)}`} />}>
+              <Sparkles className="h-4 w-4 mr-1.5" />Open in Knowledge
+            </Button>
+          ) : (
+            <Button size="sm" onClick={submit} disabled={busy || !table}>
+              {busy ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : (sched ? <Clock className="h-4 w-4 mr-1.5" /> : <Sparkles className="h-4 w-4 mr-1.5" />)}
+              {sched ? "Schedule" : "Ingest"}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
