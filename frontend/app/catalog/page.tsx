@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import NextLink from "next/link"
+import { CapabilityGate } from "@/lib/capabilities"
 import { ErrorBox, EmptyState } from "@/components/ui/error-box"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -40,40 +41,50 @@ interface CatalogData {
   namespaces: NamespaceInfo[]
 }
 
-export default function CatalogPage() {
+interface CollectionOption { name: string }
+interface CollectionsResponse { collections?: CollectionOption[] }
+interface CatalogColumn { name: string; type: string }
+
+function CatalogPageInner() {
   const [data, setData] = useState<CatalogData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedNamespace, setSelectedNamespace] = useState<string>("all")
   const [sendTable, setSendTable] = useState<Table | null>(null)
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true)
+      setError(null)
 
-      // Fetch tables
-      const tablesRes = await fetch("/api/catalog/tables")
+      const [tablesRes, namespacesRes] = await Promise.all([
+        fetch("/api/catalog/tables"),
+        fetch("/api/catalog/namespaces"),
+      ])
+      if (!tablesRes.ok || !namespacesRes.ok) {
+        throw new Error(`Catalog request failed (tables ${tablesRes.status}, namespaces ${namespacesRes.status})`)
+      }
       const tablesData = await tablesRes.json()
-
-      // Fetch namespaces
-      const namespacesRes = await fetch("/api/catalog/namespaces")
       const namespacesData = await namespacesRes.json()
 
       setData({
         tables: tablesData.tables || [],
         namespaces: namespacesData.namespaces || [],
       })
-    } catch (error) {
-      console.error("Failed to fetch catalog data:", error)
-      setData({ tables: [], namespaces: [] })
+    } catch (requestError) {
+      console.error("Failed to fetch catalog data:", requestError)
+      setData(null)
+      setError(requestError instanceof Error ? requestError.message : "Failed to load catalog data")
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
-    fetchData()
-  }, [])
+    const initial = window.setTimeout(() => void fetchData(), 0)
+    return () => window.clearTimeout(initial)
+  }, [fetchData])
 
   // Filter tables based on search and namespace
   const filteredTables = data?.tables.filter((table) => {
@@ -124,6 +135,30 @@ export default function CatalogPage() {
           {[...Array(8)].map((_, i) => (
             <Skeleton key={i} className="h-[140px]" />
           ))}
+        </div>
+      </div>
+    )
+  }
+
+  if (error || !data) {
+    return (
+      <div className="flex-1 space-y-4 p-8 pt-6">
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem><BreadcrumbLink href="/dashboard">Home</BreadcrumbLink></BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem><BreadcrumbPage>Catalog</BreadcrumbPage></BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Data Catalog</h2>
+          <p className="text-muted-foreground">Browse and explore tables registered in the catalog</p>
+        </div>
+        <div role="alert" aria-live="polite">
+          <ErrorBox
+            msg={error ?? "Catalog data is unavailable"}
+            action={<Button size="sm" variant="outline" onClick={fetchData}>Retry</Button>}
+          />
         </div>
       </div>
     )
@@ -252,18 +287,26 @@ export default function CatalogPage() {
         )}
       </div>
 
-      <SendToKnowledgeDialog table={sendTable} onClose={() => setSendTable(null)} />
+      {sendTable && <SendToKnowledgeDialog key={`${sendTable.namespace}.${sendTable.name}`} table={sendTable} onClose={() => setSendTable(null)} />}
     </div>
+  )
+}
+
+export default function CatalogPage() {
+  return (
+    <CapabilityGate capability="catalog">
+      <CatalogPageInner />
+    </CapabilityGate>
   )
 }
 
 // ── Send a catalog table to a RAG collection (embed a text column) ────────────────
 
-function SendToKnowledgeDialog({ table, onClose }: { table: Table | null; onClose: () => void }) {
-  const [collections, setCollections] = useState<{ name: string }[]>([])
+function SendToKnowledgeDialog({ table, onClose }: { table: Table; onClose: () => void }) {
+  const [collections, setCollections] = useState<CollectionOption[]>([])
   const [collection, setCollection] = useState("")
   const [newName, setNewName] = useState("")
-  const [cols, setCols] = useState<{ name: string; type: string }[]>([])
+  const [cols, setCols] = useState<CatalogColumn[]>([])
   const [col, setCol] = useState("")
   const [sched, setSched] = useState("")  // "" = one-off, else cron preset
   const [busy, setBusy] = useState(false)
@@ -271,19 +314,16 @@ function SendToKnowledgeDialog({ table, onClose }: { table: Table | null; onClos
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!table) return
-    setMsg(null); setErr(null); setNewName(""); setCollection(""); setSched("")
-    fetch("/api/ai/collections").then(r => r.json())
-      .then(d => { const c = d.collections || []; setCollections(c); if (c[0]) setCollection(c[0].name) })
+    fetch("/api/ai/collections").then(r => r.json() as Promise<CollectionsResponse>)
+      .then(d => { const options = d.collections ?? []; setCollections(options); if (options[0]) setCollection(options[0].name) })
       .catch(() => setCollections([]))
     const qs = new URLSearchParams({ catalog: "iceberg", schema: table.namespace, table: table.name })
-    fetch(`/api/catalog/columns?${qs}`).then(r => r.json())
-      .then(c => { const l = Array.isArray(c) ? c : []; setCols(l); setCol(l.find((x: any) => /char|text|string/i.test(x.type))?.name || l[0]?.name || "") })
+    fetch(`/api/catalog/columns?${qs}`).then(r => r.json() as Promise<CatalogColumn[]>)
+      .then(payload => { const columns = Array.isArray(payload) ? payload : []; setCols(columns); setCol(columns.find(column => /char|text|string/i.test(column.type))?.name ?? columns[0]?.name ?? "") })
       .catch(() => setCols([]))
   }, [table])
 
   const submit = async () => {
-    if (!table) return
     const target = (collection === "__new__" ? newName : collection).trim()
     if (!target || !col) { setErr("Select a collection and a text column."); return }
     setBusy(true); setErr(null); setMsg(null)
@@ -303,20 +343,19 @@ function SendToKnowledgeDialog({ table, onClose }: { table: Table | null; onClos
         if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
         const d = await r.json(); setMsg(`${d.documents} docs → ${d.chunks} chunks ingested (${target})`)
       }
-    } catch (e: any) { setErr(e.message) }
+    } catch (error) { setErr(error instanceof Error ? error.message : "Failed to send table to Knowledge") }
     setBusy(false)
   }
 
   return (
-    <Dialog open={!!table} onOpenChange={(o) => { if (!o) onClose() }}>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-1.5 text-base">
             <Sparkles className="h-4 w-4 text-primary" />Send to Knowledge
           </DialogTitle>
         </DialogHeader>
-        {table && (
-          <div className="space-y-3 text-sm">
+        <div className="space-y-3 text-sm">
             <p className="text-xs text-muted-foreground">
               Embeds a text column from <span className="font-mono">{table.namespace}.{table.name}</span> into a RAG collection.
             </p>
@@ -350,9 +389,8 @@ function SendToKnowledgeDialog({ table, onClose }: { table: Table | null; onClos
               </select>
             </div>
             {msg && <p className="text-xs text-[var(--dp-good)]">{msg}</p>}
-            {err && <ErrorBox msg={err} />}
+            {err && <div role="alert" aria-live="polite"><ErrorBox msg={err} /></div>}
           </div>
-        )}
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
           <Button size="sm" onClick={submit} disabled={busy || !table}>

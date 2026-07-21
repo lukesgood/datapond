@@ -1,7 +1,7 @@
 "use client"
 import { CapabilityGate } from "@/lib/capabilities"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useToast } from "@/lib/toast"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -41,195 +41,243 @@ import {
   Upload,
 } from "lucide-react"
 import { NotebookCard } from "@/components/notebooks/notebook-card"
-import { JupyterEmbed } from "@/components/notebooks/jupyter-embed"
 import { KernelStatus } from "@/components/notebooks/kernel-status"
 import { serviceUrls } from "@/lib/urls"
+
+interface ServiceStatus {
+  name: string
+  status?: "healthy" | "unhealthy" | "unknown" | "managed"
+}
+
+interface BackendNotebook {
+  name: string
+  path: string
+  last_modified?: string
+  size?: number
+  type: string
+}
+
+interface NotebookListResponse {
+  notebooks: BackendNotebook[]
+  total: number
+}
+
+function notebookApiPath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/")
+}
+
+async function apiError(response: Response, fallback: string): Promise<string> {
+  const body = await response.json().catch(() => null) as { detail?: unknown } | null
+  return typeof body?.detail === "string" ? body.detail : `${fallback} (HTTP ${response.status})`
+}
 
 interface NotebookItem {
   name: string
   path: string
   last_modified: string
   size?: string
-  type: "notebook" | "file"
+  type: string
   kernel?: string
 }
 
 function NotebooksPageInner() {
   const { toast } = useToast()
   const [notebooks, setNotebooks] = useState<NotebookItem[]>([])
-  const [filteredNotebooks, setFilteredNotebooks] = useState<NotebookItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [jupyterStatus, setJupyterStatus] = useState<"healthy" | "unhealthy" | "unknown">("unknown")
-  const [selectedNotebook, setSelectedNotebook] = useState<NotebookItem | null>(null)
-  const [showJupyter, setShowJupyter] = useState(false)
+  const [jupyterStatus, setJupyterStatus] = useState<"healthy" | "unhealthy" | "unknown" | "managed">("unknown")
+  const [error, setError] = useState<string | null>(null)
+  const [busyAction, setBusyAction] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [searchQuery, setSearchQuery] = useState("")
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [newNotebookName, setNewNotebookName] = useState("")
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [notebookToDelete, setNotebookToDelete] = useState<NotebookItem | null>(null)
+  const [notebookToRename, setNotebookToRename] = useState<NotebookItem | null>(null)
+  const [renamePath, setRenamePath] = useState("")
 
-  const fetchNotebooks = async () => {
+  const fetchNotebooks = useCallback(async () => {
+    setLoading(true)
+    setError(null)
     try {
-      setLoading(true)
-      // Check JupyterLab status
-      const statusRes = await fetch("/api/services")
-      const servicesData = await statusRes.json()
-      const jupyter = servicesData.find((s: any) => s.name === "jupyterlab")
-      setJupyterStatus(jupyter?.status || "unknown")
-
-      // Fetch notebook list from JupyterLab Contents API
-      const [rootRes, workRes] = await Promise.all([
-        fetch("/jupyter/api/contents?token=jupyter"),
-        fetch("/jupyter/api/contents/work?token=jupyter"),
+      const [statusRes, notebooksRes] = await Promise.all([
+        fetch("/api/services"),
+        fetch("/api/notebooks?recursive=true"),
       ])
-
-      const rootData = rootRes.ok ? await rootRes.json() : { content: [] }
-      const workData = workRes.ok ? await workRes.json() : { content: [] }
-
-      const allItems = [
-        ...(rootData.content || []),
-        ...(workData.content || []).map((f: any) => ({ ...f, path: `work/${f.path}` })),
-      ].filter((f: any) => f.type !== "directory")
-
-      const items: NotebookItem[] = allItems.map((f: any) => ({
-        name: f.name,
-        path: f.path,
-        last_modified: f.last_modified
-          ? new Date(f.last_modified).toLocaleString()
+      if (statusRes.ok) {
+        const services = await statusRes.json() as ServiceStatus[]
+        const jupyter = services.find((service) => service.name === "jupyterlab")
+        setJupyterStatus(jupyter?.status || "unknown")
+      } else {
+        setJupyterStatus("unknown")
+      }
+      if (!notebooksRes.ok) {
+        throw new Error(await apiError(notebooksRes, "Failed to load notebooks"))
+      }
+      const data = await notebooksRes.json() as NotebookListResponse
+      if (!Array.isArray(data.notebooks)) throw new Error("Notebook API returned an invalid response")
+      setNotebooks(data.notebooks.map((notebook) => ({
+        name: notebook.name,
+        path: notebook.path,
+        last_modified: notebook.last_modified
+          ? new Date(notebook.last_modified).toLocaleString()
           : "Unknown",
-        size: f.size != null ? `${Math.round(f.size / 1024)} KB` : "—",
-        type: f.name.endsWith(".ipynb") ? "notebook" : "file",
+        size: notebook.size != null ? `${Math.round(notebook.size / 1024)} KB` : "—",
+        type: notebook.type,
         kernel: "Python 3",
-      }))
-
-      setNotebooks(items)
-      setFilteredNotebooks(items)
-    } catch (error) {
-      console.error("Failed to fetch notebooks:", error)
+      })))
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to load notebooks")
+      setNotebooks([])
     } finally {
       setLoading(false)
     }
-  }
-
-  useEffect(() => {
-    fetchNotebooks()
   }, [])
 
   useEffect(() => {
-    if (searchQuery.trim() === "") {
-      setFilteredNotebooks(notebooks)
-    } else {
-      const filtered = notebooks.filter((notebook) =>
-        notebook.name.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-      setFilteredNotebooks(filtered)
-    }
-  }, [searchQuery, notebooks])
+    const timer = window.setTimeout(() => { void fetchNotebooks() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [fetchNotebooks])
+
+  const filteredNotebooks = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+    return query
+      ? notebooks.filter((notebook) => notebook.name.toLowerCase().includes(query))
+      : notebooks
+  }, [notebooks, searchQuery])
 
   const openJupyter = () => {
-    window.open(serviceUrls.jupyter(), "_blank")
+    window.open(serviceUrls.jupyter(), "_blank", "noopener,noreferrer")
   }
 
   const openNotebook = (notebook: NotebookItem) => {
-    window.open(`${serviceUrls.jupyter()}/lab/tree/${notebook.path}`, "_blank")
+    window.open(`/notebooks/view?path=${encodeURIComponent(notebook.path)}`, "_blank", "noopener,noreferrer")
   }
 
   const handleCreateNotebook = async () => {
     if (!newNotebookName.trim()) return
-
-    const name = newNotebookName.endsWith(".ipynb")
-      ? newNotebookName
-      : `${newNotebookName}.ipynb`
-
+    const name = newNotebookName.trim().endsWith(".ipynb")
+      ? newNotebookName.trim()
+      : `${newNotebookName.trim()}.ipynb`
+    setBusyAction("create")
+    setError(null)
     try {
-      const res = await fetch("/jupyter/api/contents?token=jupyter", {
+      const response = await fetch("/api/notebooks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "notebook", path: name }),
       })
-      if (res.ok) {
-        setNewNotebookName("")
-        setShowCreateDialog(false)
-        toast(`노트북 "${name}" 생성됨`, "success")
-        await fetchNotebooks()
-        // Open the newly created notebook
-        window.open(`${serviceUrls.jupyter()}/lab/tree/${name}`, "_blank")
-        return
-      }
-    } catch (error) {
-      console.error("Failed to create notebook via API:", error)
+      if (!response.ok) throw new Error(await apiError(response, "Failed to create notebook"))
+      setNewNotebookName("")
+      setShowCreateDialog(false)
+      toast(`Notebook "${name}" created`, "success")
+      await fetchNotebooks()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to create notebook")
+    } finally {
+      setBusyAction(null)
     }
+  }
 
-    // Fallback: local state update
-    const newNotebook: NotebookItem = {
-      name,
-      path: name,
-      last_modified: new Date().toLocaleString(),
-      size: "0 KB",
-      type: "notebook",
-      kernel: "Python 3",
+  const handleRenameNotebook = async () => {
+    if (!notebookToRename || !renamePath.trim()) return
+    const newPath = renamePath.trim().endsWith(".ipynb") ? renamePath.trim() : `${renamePath.trim()}.ipynb`
+    setBusyAction(`rename:${notebookToRename.path}`)
+    setError(null)
+    try {
+      const response = await fetch(`/api/notebooks/${notebookApiPath(notebookToRename.path)}/rename`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_path: newPath }),
+      })
+      if (!response.ok) throw new Error(await apiError(response, "Failed to rename notebook"))
+      toast(`Notebook renamed to "${newPath}"`, "success")
+      setNotebookToRename(null)
+      setRenamePath("")
+      await fetchNotebooks()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to rename notebook")
+    } finally {
+      setBusyAction(null)
     }
-    setNotebooks([newNotebook, ...notebooks])
-    setNewNotebookName("")
-    setShowCreateDialog(false)
-    window.open(`${serviceUrls.jupyter()}/lab/tree/${name}`, "_blank")
   }
 
   const handleDeleteNotebook = async () => {
     if (!notebookToDelete) return
-
+    setBusyAction(`delete:${notebookToDelete.path}`)
+    setError(null)
     try {
-      await fetch(
-        `/jupyter/api/contents/${encodeURIComponent(notebookToDelete.path)}?token=jupyter`,
-        { method: "DELETE" }
-      )
-      toast(`노트북 "${notebookToDelete.name}" 삭제됨`, "success")
+      const response = await fetch(`/api/notebooks/${notebookApiPath(notebookToDelete.path)}`, { method: "DELETE" })
+      if (!response.ok) throw new Error(await apiError(response, "Failed to delete notebook"))
+      toast(`Notebook "${notebookToDelete.name}" deleted`, "success")
+      setNotebookToDelete(null)
+      setShowDeleteDialog(false)
       await fetchNotebooks()
-    } catch (error) {
-      console.error("Failed to delete notebook via API:", error)
-      // Fallback: remove from local state
-      setNotebooks(notebooks.filter((n) => n.path !== notebookToDelete.path))
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to delete notebook")
+    } finally {
+      setBusyAction(null)
     }
-
-    setNotebookToDelete(null)
-    setShowDeleteDialog(false)
   }
 
   const handleDuplicateNotebook = async (notebook: NotebookItem) => {
-    // In production, this would call /api/notebooks/{path}/duplicate
-    const nameParts = notebook.name.split(".")
-    const ext = nameParts.pop()
-    const baseName = nameParts.join(".")
-    const newName = `${baseName}_copy.${ext}`
-
-    const duplicatedNotebook: NotebookItem = {
-      ...notebook,
-      name: newName,
-      path: `/notebooks/${newName}`,
-      last_modified: "Just now",
+    setBusyAction(`duplicate:${notebook.path}`)
+    setError(null)
+    try {
+      const response = await fetch(`/api/notebooks/${notebookApiPath(notebook.path)}/duplicate`, { method: "POST" })
+      if (!response.ok) throw new Error(await apiError(response, "Failed to duplicate notebook"))
+      toast(`Notebook "${notebook.name}" duplicated`, "success")
+      await fetchNotebooks()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to duplicate notebook")
+    } finally {
+      setBusyAction(null)
     }
+  }
 
-    setNotebooks([duplicatedNotebook, ...notebooks])
+  const handleDownloadNotebook = async (notebook: NotebookItem) => {
+    setBusyAction(`download:${notebook.path}`)
+    setError(null)
+    try {
+      const response = await fetch(`/api/notebooks/download?path=${encodeURIComponent(notebook.path)}`)
+      if (!response.ok) throw new Error(await apiError(response, "Failed to download notebook"))
+      const url = URL.createObjectURL(await response.blob())
+      const link = document.createElement("a")
+      link.href = url
+      link.download = notebook.name
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to download notebook")
+    } finally {
+      setBusyAction(null)
+    }
   }
 
   const handleUploadNotebook = () => {
-    // In production, this would open a file picker and upload to /api/notebooks/upload
     const input = document.createElement("input")
     input.type = "file"
-    input.accept = ".ipynb"
-    input.onchange = (e: any) => {
-      const file = e.target.files[0]
-      if (file) {
-        const newNotebook: NotebookItem = {
-          name: file.name,
-          path: `/notebooks/${file.name}`,
-          last_modified: "Just now",
-          size: `${Math.round(file.size / 1024)} KB`,
-          type: "notebook",
-          kernel: "Python 3",
-        }
-        setNotebooks([newNotebook, ...notebooks])
+    input.accept = ".ipynb,application/x-ipynb+json,application/json"
+    input.onchange = async (event: Event) => {
+      if (!(event.target instanceof HTMLInputElement)) return
+      const file = event.target.files?.[0]
+      if (!file) return
+      setBusyAction("upload")
+      setError(null)
+      try {
+        const form = new FormData()
+        form.append("file", file)
+        form.append("path", file.name)
+        const response = await fetch("/api/notebooks/upload", { method: "POST", body: form })
+        if (!response.ok) throw new Error(await apiError(response, "Failed to upload notebook"))
+        toast(`Notebook "${file.name}" uploaded`, "success")
+        await fetchNotebooks()
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Failed to upload notebook")
+      } finally {
+        setBusyAction(null)
       }
     }
     input.click()
@@ -292,6 +340,7 @@ function NotebooksPageInner() {
             variant="outline"
             size="sm"
             onClick={handleUploadNotebook}
+            disabled={busyAction === "upload"}
           >
             <Upload className="mr-2 h-4 w-4" />
             Upload
@@ -315,12 +364,24 @@ function NotebooksPageInner() {
         </div>
       </div>
 
-      {/* Status Alert */}
-      {jupyterStatus === "unhealthy" && (
+      {error && (
+        <Alert variant="destructive">
+          <Info className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {jupyterStatus === "unhealthy" ? (
         <Alert variant="destructive">
           <Info className="h-4 w-4" />
           <AlertDescription>
-            JupyterLab is currently unavailable. Please check the service status in the Dashboard.
+            JupyterLab is unavailable. Notebook API actions will fail until the service recovers.
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <Alert>
+          <Info className="h-4 w-4" />
+          <AlertDescription>
+            Interactive JupyterLab opens as an external tool and may require its own authentication. DataPond does not inject a Jupyter token into browser URLs.
           </AlertDescription>
         </Alert>
       )}
@@ -430,11 +491,17 @@ function NotebooksPageInner() {
                   key={notebook.path}
                   notebook={notebook}
                   onOpen={openNotebook}
+                  onRename={(nb) => {
+                    setNotebookToRename(nb)
+                    setRenamePath(nb.path)
+                  }}
                   onDelete={(nb) => {
                     setNotebookToDelete(nb)
                     setShowDeleteDialog(true)
                   }}
                   onDuplicate={handleDuplicateNotebook}
+                  onDownload={handleDownloadNotebook}
+                  busy={busyAction?.endsWith(`:${notebook.path}`) ?? false}
                 />
               ))}
             </div>
@@ -461,11 +528,17 @@ function NotebooksPageInner() {
                   key={notebook.path}
                   notebook={notebook}
                   onOpen={openNotebook}
+                  onRename={(nb) => {
+                    setNotebookToRename(nb)
+                    setRenamePath(nb.path)
+                  }}
                   onDelete={(nb) => {
                     setNotebookToDelete(nb)
                     setShowDeleteDialog(true)
                   }}
                   onDuplicate={handleDuplicateNotebook}
+                  onDownload={handleDownloadNotebook}
+                  busy={busyAction?.endsWith(`:${notebook.path}`) ?? false}
                 />
               ))}
             </div>
@@ -487,15 +560,33 @@ function NotebooksPageInner() {
         </TabsContent>
       </Tabs>
 
-      {/* Jupyter Embed Dialog */}
-      <JupyterEmbed
-        notebook={selectedNotebook}
-        open={showJupyter}
-        onClose={() => {
-          setShowJupyter(false)
-          setSelectedNotebook(null)
-        }}
-      />
+      <Dialog open={notebookToRename !== null} onOpenChange={(open) => {
+        if (!open && busyAction?.startsWith("rename:") !== true) {
+          setNotebookToRename(null)
+          setRenamePath("")
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename Notebook</DialogTitle>
+            <DialogDescription>Enter a relative notebook path ending in .ipynb.</DialogDescription>
+          </DialogHeader>
+          <Input
+            value={renamePath}
+            onChange={(event) => setRenamePath(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void handleRenameNotebook()
+            }}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setNotebookToRename(null)
+              setRenamePath("")
+            }} disabled={busyAction?.startsWith("rename:")}>Cancel</Button>
+            <Button onClick={handleRenameNotebook} disabled={!renamePath.trim() || busyAction?.startsWith("rename:")}>Rename</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create Notebook Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
@@ -528,8 +619,8 @@ function NotebooksPageInner() {
             >
               Cancel
             </Button>
-            <Button onClick={handleCreateNotebook} disabled={!newNotebookName.trim()}>
-              Create
+            <Button onClick={handleCreateNotebook} disabled={!newNotebookName.trim() || busyAction === "create"}>
+              {busyAction === "create" ? "Creating…" : "Create"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -541,7 +632,7 @@ function NotebooksPageInner() {
           <DialogHeader>
             <DialogTitle>Delete Notebook</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "{notebookToDelete?.name}"? This action cannot be undone.
+              Are you sure you want to delete &quot;{notebookToDelete?.name}&quot;? This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -554,8 +645,12 @@ function NotebooksPageInner() {
             >
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleDeleteNotebook}>
-              Delete
+            <Button
+              variant="destructive"
+              onClick={handleDeleteNotebook}
+              disabled={busyAction?.startsWith("delete:")}
+            >
+              {busyAction?.startsWith("delete:") ? "Deleting…" : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>

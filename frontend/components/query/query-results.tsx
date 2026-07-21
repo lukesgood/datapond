@@ -15,15 +15,17 @@ import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Copy 
 
 interface QueryResultsProps {
   columns?: string[]
-  rows?: any[][]
+  rows?: unknown[][]
   executionTime?: number
   loading?: boolean
 }
 
 const ROWS_PER_PAGE = 50
 
+type CellType = "number" | "boolean" | "null" | "date" | "string"
+
 // Detect value type for formatting and alignment
-function detectType(value: any): "number" | "boolean" | "null" | "date" | "string" {
+function detectType(value: unknown): CellType {
   if (value === null || value === undefined) return "null"
   if (typeof value === "boolean") return "boolean"
   if (typeof value === "number") return "number"
@@ -35,7 +37,7 @@ function detectType(value: any): "number" | "boolean" | "null" | "date" | "strin
 }
 
 // Detect column type from first non-null rows
-function detectColumnType(rows: any[][], colIdx: number): "number" | "boolean" | "null" | "date" | "string" {
+function detectColumnType(rows: unknown[][], colIdx: number): CellType {
   for (const row of rows.slice(0, 20)) {
     const v = row[colIdx]
     if (v !== null && v !== undefined) return detectType(v)
@@ -43,7 +45,7 @@ function detectColumnType(rows: any[][], colIdx: number): "number" | "boolean" |
   return "string"
 }
 
-function formatValue(value: any, type: string): string {
+function formatValue(value: unknown, type: string): string {
   if (value === null || value === undefined) return ""
   if (type === "number" && typeof value === "number") {
     // Integer vs float
@@ -64,14 +66,14 @@ function formatValue(value: any, type: string): string {
   return String(value)
 }
 
-function copyToClipboard(columns: string[], rows: any[][]) {
+function copyToClipboard(columns: string[], rows: unknown[][]) {
   const header = columns.join("\t")
   const body = rows.map(row => row.map(v => v === null ? "" : String(v)).join("\t")).join("\n")
   navigator.clipboard.writeText(`${header}\n${body}`)
 }
 
-function downloadCSV(columns: string[], rows: any[][]) {
-  const escape = (v: any) => {
+function downloadCSV(columns: string[], rows: unknown[][]) {
+  const escape = (v: unknown) => {
     const s = v === null ? "" : String(v)
     return s.includes(",") || s.includes('"') || s.includes("\n")
       ? `"${s.replace(/"/g, '""')}"` : s

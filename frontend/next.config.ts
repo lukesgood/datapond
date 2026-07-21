@@ -20,6 +20,10 @@ const nextConfig: NextConfig = {
   // the SPA then runs an old build until a manual hard refresh. Content-hashed assets
   // under /_next/static stay immutable (safe to cache forever).
   async headers() {
+    // Next.js manages development caching/HMR itself. Overriding static asset
+    // headers in dev can retain stale chunks and produce hydration mismatches.
+    if (process.env.NODE_ENV !== "production") return [];
+
     return [
       {
         source: "/_next/static/:path*",

@@ -87,7 +87,7 @@ export function MultiMetricsChart({ title, metrics }: MultiMetricsChartProps) {
   })
 
   const chartData = Array.from(allSteps).sort((a, b) => a - b).map(step => {
-    const dataPoint: any = { step }
+    const dataPoint: Record<string, number | null> = { step }
     metrics.forEach(metric => {
       const point = metric.data.find(p => p.step === step)
       dataPoint[metric.name] = point?.value ?? null

@@ -238,6 +238,15 @@ class ConnectionTestRequest(BaseModel):
     connection_id: Optional[str] = None  # If editing existing, merge masked fields
 
 
+class ConnectionIntrospectRequest(BaseModel):
+    """Request to introspect tables/schemas directly from a submitted config,
+    without persisting a connection."""
+    connector_type: ConnectorType
+    config: Dict[str, Any]
+    connection_id: Optional[str] = None  # If editing existing, merge masked fields
+    include_schema: bool = True          # Fetch per-table columns (row_count included)
+
+
 class ConnectionCreateRequest(BaseModel):
     """Request to create a new connection"""
     name: str
@@ -616,6 +625,68 @@ async def test_connection(request: ConnectionTestRequest):
             "latency_ms": None,
             "metadata": {}
         }
+
+
+@router.post("/connectors/introspect")
+async def introspect_connection(request: ConnectionIntrospectRequest):
+    """
+    List tables (and, by default, their column schemas) directly from a submitted
+    config WITHOUT persisting a connection.
+
+    Used by the setup wizard's Step 2 so the wizard no longer has to create a
+    connection just to enumerate tables. This eliminates the orphan-connection
+    resource leak that occurred when the user closed the tab or navigated away
+    mid-wizard — the connection is now only persisted at the final Finish step.
+
+    Mirrors /connectors/test: if connection_id is supplied, masked fields
+    (••••••••) are replaced with stored values before introspection.
+    """
+    try:
+        config = dict(request.config)
+
+        # If editing an existing connection, replace masked fields with stored originals
+        if request.connection_id:
+            has_masked = any(v == "••••••••" for v in config.values() if isinstance(v, str))
+            if has_masked:
+                pool = await get_db_pool()
+                async with pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        "SELECT config_encrypted FROM connector_connections WHERE id=$1",
+                        uuid.UUID(request.connection_id)
+                    )
+                if row:
+                    stored = vault.decrypt_credentials(row['config_encrypted'])
+                    for k, v in config.items():
+                        if v == "••••••••":
+                            config[k] = stored.get(k, v)
+
+        connector = _create_connector(request.connector_type, config)
+
+        table_names = await connector.get_tables()
+
+        tables: List[Dict[str, Any]] = []
+        for name in table_names:
+            info: Dict[str, Any] = {"name": name}
+            if request.include_schema:
+                # Best-effort per table — a single unreadable table must not fail the
+                # whole listing (the UI degrades gracefully to name-only).
+                try:
+                    schema = await connector.get_schema(name)
+                    info["row_count"] = schema.row_count
+                    info["columns"] = [
+                        {"name": c.name, "type": c.type, "nullable": c.nullable}
+                        for c in schema.columns
+                    ]
+                except Exception as e:
+                    logger.debug(f"[introspect] schema fetch failed for {name}: {e}")
+            tables.append(info)
+
+        return {"tables": tables}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to introspect: {str(e)}")
 
 
 @router.post("/connectors/sample-db")
@@ -1044,6 +1115,7 @@ def _generate_sync_dag(connection_id: str, connection_name: str, schedule: str) 
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+import os
 import requests
 
 default_args = {{
@@ -1053,8 +1125,12 @@ default_args = {{
 }}
 
 def run_sync(**kwargs):
+    internal_api_key = os.getenv("DATAPOND_INTERNAL_KEY", "").strip()
+    if not internal_api_key:
+        raise RuntimeError("DATAPOND_INTERNAL_KEY is required for scheduled connector sync")
     resp = requests.post(
         "http://backend.datapond.svc.cluster.local:8000/api/connectors/{connection_id}/sync",
+        headers={{"X-Internal-Key": internal_api_key}},
         json={{}}, timeout=600
     )
     resp.raise_for_status()

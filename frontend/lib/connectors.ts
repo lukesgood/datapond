@@ -5,7 +5,7 @@ export interface ConnectorField {
   label: string
   type: "text" | "number" | "password" | "boolean" | "select" | "textarea"
   required?: boolean
-  default?: any
+  default?: string | number | boolean
   options?: string[]
   placeholder?: string
   help?: string
@@ -30,7 +30,7 @@ export interface Connection {
   status: "active" | "paused" | "error"
   last_sync?: string
   next_sync?: string
-  config: Record<string, any>
+  config: Record<string, string | number | boolean | null>
   created_at: string
 }
 
@@ -51,9 +51,9 @@ export const availableConnectors: Connector[] = [
     name: "PostgreSQL",
     category: "database",
     icon: "/connectors/postgresql.svg",
-    description: "Connect to PostgreSQL databases with full CDC support",
+    description: "Connect to PostgreSQL databases for full or incremental batch sync",
     supported: true,
-    features: ["CDC", "Incremental Sync", "Schema Discovery"],
+    features: ["Incremental Sync", "Schema Discovery"],
     fields: [
       { name: "host", label: "Host", type: "text", required: true, placeholder: "localhost" },
       { name: "port", label: "Port", type: "number", default: 5432, required: true },
@@ -68,9 +68,9 @@ export const availableConnectors: Connector[] = [
     name: "MySQL",
     category: "database",
     icon: "/connectors/mysql.svg",
-    description: "Connect to MySQL and MariaDB databases",
+    description: "Connect to MySQL and MariaDB for full or incremental batch sync",
     supported: true,
-    features: ["CDC", "Incremental Sync", "Schema Discovery"],
+    features: ["Incremental Sync", "Schema Discovery"],
     fields: [
       { name: "host", label: "Host", type: "text", required: true, placeholder: "localhost" },
       { name: "port", label: "Port", type: "number", default: 3306, required: true },
@@ -84,13 +84,14 @@ export const availableConnectors: Connector[] = [
     name: "Amazon S3",
     category: "storage",
     icon: "/connectors/s3.svg",
-    description: "Connect to AWS S3 buckets and compatible storage",
+    description: "Connect to Amazon S3 or an S3-compatible endpoint",
     supported: true,
-    features: ["File Discovery", "Incremental Sync", "Partitioning"],
+    features: ["File Discovery", "Incremental Sync", "Structured Files"],
     fields: [
       { name: "bucket", label: "Bucket Name", type: "text", required: true, placeholder: "my-bucket" },
-      { name: "access_key", label: "Access Key ID", type: "text", required: true },
-      { name: "secret_key", label: "Secret Access Key", type: "password", required: true },
+      { name: "endpoint_url", label: "S3 Endpoint URL", type: "text", required: false, placeholder: "https://s3.example.com", help: "Leave blank for Amazon S3" },
+      { name: "access_key", label: "Access Key ID", type: "text", required: false, help: "Optional when the runtime credential chain provides access" },
+      { name: "secret_key", label: "Secret Access Key", type: "password", required: false },
       {
         name: "region",
         label: "Region",
@@ -184,9 +185,9 @@ export const availableConnectors: Connector[] = [
     name: "Universal Database",
     category: "database",
     icon: "/connectors/database.svg",
-    description: "SQLAlchemy 연결 문자열로 Oracle, SQL Server, Snowflake, Redshift 등 모든 DB 연결",
+    description: "Connect through a SQLAlchemy URL when the required dialect and driver are installed",
     supported: true,
-    features: ["Oracle", "SQL Server", "Snowflake", "Redshift", "SQLite", "+더보기"],
+    features: ["SQLAlchemy URL", "Batch Sync", "Driver-dependent"],
     fields: [
       {
         name: "database_url",

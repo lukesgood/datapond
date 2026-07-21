@@ -30,7 +30,7 @@ class _FakePool:
 def test_ensure_vector_schema_adds_schedule_columns(monkeypatch):
     import app.api.ai_vectors as v
     pool = _FakePool()
-    asyncio.get_event_loop().run_until_complete(v.ensure_vector_schema(pool))
+    asyncio.run(v.ensure_vector_schema(pool))
     joined = " ".join(s if isinstance(s, str) else s[1] for s in pool.sql)
     assert "refresh_source" in joined and "JSONB" in joined.upper()
     assert "refresh_interval_minutes" in joined
@@ -56,8 +56,7 @@ def test_ingest_documents_replaces_when_group_given(monkeypatch):
     monkeypatch.setattr(v, "get_db_pool", lambda: _aval(pool))
     monkeypatch.setattr(v, "_embed", lambda texts: _aval([[0.0] for _ in texts]))
     docs = [("s3://b/a.txt", "hello world", {"k": 1})]
-    asyncio.get_event_loop().run_until_complete(
-        v._ingest_documents("cid", docs, 1000, 150, source_group="s3:b/"))
+    asyncio.run(v._ingest_documents("cid", docs, 1000, 150, source_group="s3:b/"))
     dels = [s for s in sink if isinstance(s, str) and s.strip().upper().startswith("DELETE")]
     assert dels and "source_group" in dels[0]
 
@@ -68,8 +67,7 @@ def test_ingest_documents_appends_when_no_group(monkeypatch):
     pool = _FakePool(); pool.acquire = lambda: _FakeConn(sink)
     monkeypatch.setattr(v, "get_db_pool", lambda: _aval(pool))
     monkeypatch.setattr(v, "_embed", lambda texts: _aval([[0.0] for _ in texts]))
-    asyncio.get_event_loop().run_until_complete(
-        v._ingest_documents("cid", [("s", "text", {})], 1000, 150))
+    asyncio.run(v._ingest_documents("cid", [("s", "text", {})], 1000, 150))
     dels = [s for s in sink if isinstance(s, str) and s.strip().upper().startswith("DELETE")]
     assert not dels
 
@@ -83,7 +81,7 @@ def test_refresh_from_source_purges_legacy_untagged_chunks(monkeypatch):
         return {"chunks": 0, "pii_masked": 0}
     monkeypatch.setattr(v, "_ingest_documents", fake_ingest)
     src = v.SourceIngest(type="s3", bucket="b", prefix="p/")
-    asyncio.get_event_loop().run_until_complete(v._refresh_from_source(pool, "cid", src))
+    asyncio.run(v._refresh_from_source(pool, "cid", src))
     legacy = [s for s in sink if isinstance(s, str) and "source_group IS NULL" in s]
     assert legacy and "LIKE" in legacy[0]
 

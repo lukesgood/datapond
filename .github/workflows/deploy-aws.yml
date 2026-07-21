@@ -1,0 +1,99 @@
+name: Deploy · AWS single-node
+
+# Reproducible CD for the AWS single-node reference (EC2/K3s + Aurora/S3/Glue/Athena/
+# Bedrock). Builds backend+frontend, pushes IMMUTABLE ECR tags (so a replaced/spot node
+# can always pull the running image — the manual "build on node + ctr import" flow left
+# images only in the node's containerd), then rolls the node via SSM (helm upgrade,
+# pulling the new tag from ECR). No kubeconfig leaves the cluster; the deploy hop is SSM.
+#
+# ── Activation (one-time) — set these repo Secrets/Variables ───────────────────────────
+#   Secret  AWS_CD_ROLE_ARN   OIDC role this repo can assume. Needs: ecr:* push on the two
+#                             repos + ecr:GetAuthorizationToken; s3:PutObject/GetObject on
+#                             <DEPLOY_BUCKET>/deploy/*; ssm:SendCommand +
+#                             ssm:GetCommandInvocation on the node. (The existing
+#                             ECR_PUSH_ROLE_ARN is ECR-only — extend it or make a new role
+#                             whose trust policy allows token.actions.githubusercontent.com
+#                             for repo:lukesgood/datapond.)
+#   Secret  NODE_INSTANCE_ID  the EC2 instance id (terraform output node_instance_id)
+#   Var     DEPLOY_BUCKET     an S3 bucket for the transient chart bundle (e.g. datapond-iceberg)
+# Until they exist this workflow only runs on manual dispatch and will fail fast at the
+# AWS auth step — it changes nothing on its own.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "git ref to build & deploy (default: this ref)"
+        required: false
+
+permissions:
+  id-token: write   # OIDC to assume AWS_CD_ROLE_ARN
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  build-push:
+    name: Build + push images to ECR
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+      - id: tag
+        name: Compute immutable tag (appVersion-<shortsha>)
+        run: |
+          APPV=$(grep '^appVersion:' helm/datapond/Chart.yaml | tr -d ' "' | cut -d: -f2)
+          echo "tag=${APPV}-$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_CD_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+      - name: Build + push backend (enterprise target, repo-root context)
+        run: |
+          REG=${{ steps.ecr.outputs.registry }}
+          docker build -f backend/Dockerfile --target enterprise -t $REG/datapond-backend:${{ steps.tag.outputs.tag }} .
+          docker push $REG/datapond-backend:${{ steps.tag.outputs.tag }}
+      - name: Build + push frontend
+        run: |
+          REG=${{ steps.ecr.outputs.registry }}
+          docker build -f frontend/Dockerfile -t $REG/datapond-frontend:${{ steps.tag.outputs.tag }} frontend/
+          docker push $REG/datapond-frontend:${{ steps.tag.outputs.tag }}
+      - name: Bundle chart + deploy script → S3 (for the node to helm-upgrade)
+        run: |
+          tar czf /tmp/bundle.tgz helm/datapond scripts/deploy-node-helm.sh
+          aws s3 cp /tmp/bundle.tgz "s3://${{ vars.DEPLOY_BUCKET }}/deploy/bundle-${{ steps.tag.outputs.tag }}.tgz"
+
+  deploy:
+    name: Roll the node (helm via SSM)
+    needs: build-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_CD_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: helm upgrade on the node via SSM
+        env:
+          TAG: ${{ needs.build-push.outputs.tag }}
+          BUCKET: ${{ vars.DEPLOY_BUCKET }}
+          NODE: ${{ secrets.NODE_INSTANCE_ID }}
+        run: |
+          CMD=$(aws ssm send-command --region "$AWS_REGION" --instance-ids "$NODE" \
+            --document-name AWS-RunShellScript --comment "CD deploy $TAG" \
+            --parameters "executionTimeout=900,commands=[\"set -e\",\"cd /tmp\",\"aws s3 cp s3://$BUCKET/deploy/bundle-$TAG.tgz b.tgz --region $AWS_REGION\",\"rm -rf dpdeploy; mkdir dpdeploy; tar xzf b.tgz -C dpdeploy; cd dpdeploy\",\"sudo DATAPOND_CHART_DIR=\$PWD/helm/datapond bash scripts/deploy-node-helm.sh $TAG\"]" \
+            --query Command.CommandId --output text)
+          echo "SSM CommandId=$CMD"
+          for i in $(seq 1 40); do
+            S=$(aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$CMD" --instance-id "$NODE" --query Status --output text 2>/dev/null || echo Pending)
+            echo "status=$S"; [ "$S" = Success ] && break
+            [ "$S" = Failed ] || [ "$S" = TimedOut ] || [ "$S" = Cancelled ] && { aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$CMD" --instance-id "$NODE" --query StandardErrorContent --output text; exit 1; }
+            sleep 15
+          done
+          aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$CMD" --instance-id "$NODE" --query StandardOutputContent --output text
+          aws s3 rm "s3://$BUCKET/deploy/bundle-$TAG.tgz" --region "$AWS_REGION" || true

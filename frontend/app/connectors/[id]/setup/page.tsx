@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, use, useEffect } from "react"
+import { useState, use } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -49,6 +49,15 @@ interface TableConfig {
   incremental_column: string   // "" = none
 }
 
+type ConfigValue = string | number | boolean | null | undefined
+interface IntrospectedTable {
+  name: string
+  row_count?: number
+  columns?: { name: string; type: string; nullable: boolean }[]
+}
+interface TablesResponse { tables?: Array<string | IntrospectedTable> }
+interface CreatedConnection { id: string }
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function ConnectorSetupPage({ params }: { params: Promise<{ id: string }> }) {
@@ -64,8 +73,8 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
 
   // Step 1
   const [connectionName, setConnectionName] = useState(`${connector?.name || ""} Connection`)
-  const [config, setConfig] = useState<Record<string, any>>(() => {
-    const d: Record<string, any> = {}
+  const [config, setConfig] = useState<Record<string, ConfigValue>>(() => {
+    const d: Record<string, ConfigValue> = {}
     connector?.fields.forEach(f => { if (f.default !== undefined) d[f.name] = f.default })
     return d
   })
@@ -84,12 +93,9 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
   const [syncFrequency, setSyncFrequency] = useState("manual")
   const [syncImmediately, setSyncImmediately] = useState(true)  // Fix #6: opt-in
 
-  // If capabilities load after the user picked a recurring frequency (or this
-  // profile has no Airflow), force back to Manual so we never submit a
-  // schedule that can't actually run.
-  useEffect(() => {
-    if (!pipelinesEnabled && syncFrequency !== "manual") setSyncFrequency("manual")
-  }, [pipelinesEnabled, syncFrequency])
+  // A profile without pipelines always behaves as Manual, even if capabilities
+  // finish loading after a recurring option was selected.
+  const effectiveSyncFrequency = pipelinesEnabled ? syncFrequency : "manual"
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
@@ -123,84 +129,84 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
     }
   }
 
-  // When advancing from Step 1 → 2: create connection first, then fetch real tables
+  // Store only pure DB connection config (no ingestion metadata)
+  const pureConfig = () => Object.fromEntries(
+    Object.entries(config).filter(([key]) => !["sync_frequency", "sync_mode", "selected_tables"].includes(key))
+  )
+
+  // When advancing from Step 1 → 2: introspect tables directly from the entered
+  // config. No connection is persisted here — deferring creation to Finish is what
+  // prevents an orphan connection being left behind if the user closes the tab or
+  // navigates away mid-wizard.
   const handleToStep2 = async () => {
-    setCreating(true)
     setCreateError(null)
+    setLoadingTables(true)
+    setCurrentStep(2)
     try {
-      // Create connection — store only pure DB connection config (no ingestion metadata)
-      const { sync_frequency: _, sync_mode: __, selected_tables: ___, ...pureConfig } = config as any
-      const res = await fetch("/api/connectors/create", {
+      const res = await fetch("/api/connectors/introspect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: connectionName, connector_type: id, config: pureConfig }),
+        body: JSON.stringify({ connector_type: id, config: pureConfig(), include_schema: true }),
       })
       if (!res.ok) {
         const d = await res.json()
-        throw new Error(d.detail || "Failed to create connection")
+        throw new Error(d.detail || "Failed to list tables")
       }
-      const created = await res.json()
-      setCreatedId(created.id)
+      const data: TablesResponse = await res.json()
+      const remoteTables: RemoteTable[] = (data.tables ?? []).map((table) =>
+        typeof table === "string"
+          ? { name: table }
+          : { name: table.name, row_count: table.row_count, columns: table.columns }
+      )
+      setTables(remoteTables)
 
-      // Fetch actual tables from the connection
-      setLoadingTables(true)
-      const tablesRes = await fetch(`/api/connectors/${created.id}/tables`)
-      if (tablesRes.ok) {
-        const data = await tablesRes.json()
-        const rawTables: RemoteTable[] = (data.tables ?? []).map((t: any) =>
-          typeof t === "string" ? { name: t } : { name: t.name }
-        )
-        setTables(rawTables)
-
-        // Fetch schema for each table to get column info
-        const schemaResults = await Promise.allSettled(
-          rawTables.map(t =>
-            fetch(`/api/connectors/${created.id}/schema/${t.name}`)
-              .then(r => r.ok ? r.json() : null)
-          )
-        )
-        const enriched = rawTables.map((t, i) => {
-          const schema = schemaResults[i].status === "fulfilled" ? schemaResults[i].value : null
-          return schema ? { ...t, columns: schema.columns } : t
-        })
-        setTables(enriched)
-
-        // Default: all tables enabled, no incremental column
-        const defaults: Record<string, TableConfig> = {}
-        rawTables.forEach(t => { defaults[t.name] = { enabled: true, incremental_column: "" } })
-        setTableConfigs(defaults)
-      }
+      // Default: all tables enabled, no incremental column
+      const defaults: Record<string, TableConfig> = {}
+      remoteTables.forEach(t => { defaults[t.name] = { enabled: true, incremental_column: "" } })
+      setTableConfigs(defaults)
     } catch (e) {
-      setCreateError(e instanceof Error ? e.message : "Failed")
-    } finally {
-      setCreating(false)
-      setLoadingTables(false)
-    }
-    setCurrentStep(2)
-  }
-
-  // Fix #3: Back from Step2 → discard orphan connection
-  const handleBackFromStep2 = async () => {
-    if (createdId) {
-      try {
-        await fetch(`/api/connectors/${createdId}/draft`, { method: "DELETE" })
-      } catch {}
-      setCreatedId(null)
+      setCreateError(e instanceof Error ? e.message : "Failed to list tables")
       setTables([])
       setTableConfigs({})
+    } finally {
+      setLoadingTables(false)
     }
+  }
+
+  // Back from Step 2 → simply return to Step 1. Nothing was persisted, so there is
+  // no orphan connection to discard.
+  const handleBackFromStep2 = () => {
+    setTables([])
+    setTableConfigs({})
     setCurrentStep(1)
   }
 
-  // Finalize: apply table config, schedule, sync mode
+  // Finalize: create the connection now, then apply table config, schedule, sync mode
   const handleFinish = async () => {
-    if (!createdId) return
     setCreating(true)
     setCreateError(null)
     try {
+      // Create the connection only now — this is the single point where a record
+      // is persisted, so abandoning the wizard earlier leaves nothing behind.
+      let connectionId = createdId
+      if (!connectionId) {
+        const res = await fetch("/api/connectors/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: connectionName, connector_type: id, config: pureConfig() }),
+        })
+        if (!res.ok) {
+          const d = await res.json()
+          throw new Error(d.detail || "Failed to create connection")
+        }
+        const created: CreatedConnection = await res.json()
+        connectionId = created.id
+        setCreatedId(created.id)
+      }
+      const createdId2 = connectionId
       // 1. Apply table enabled state + incremental columns in one pass
       await Promise.all(Object.entries(tableConfigs).map(([tbl, cfg]) =>
-        fetch(`/api/connectors/${createdId}/tables/${tbl}/enabled`, {
+        fetch(`/api/connectors/${createdId2}/tables/${tbl}/enabled`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -211,16 +217,16 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
       ))
 
       // 2. Set sync mode for all tables
-      await fetch(`/api/connectors/${createdId}/sync-mode`, {
+      await fetch(`/api/connectors/${createdId2}/sync-mode`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sync_mode: syncMode }),
       })
 
       // 3. Apply schedule
-      const cron = FREQUENCY_TO_CRON[syncFrequency]
+      const cron = FREQUENCY_TO_CRON[effectiveSyncFrequency]
       if (cron) {
-        await fetch(`/api/connectors/${createdId}/schedule`, {
+        await fetch(`/api/connectors/${createdId2}/schedule`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ schedule: cron }),
@@ -229,14 +235,14 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
 
       // 4. Fix #6: Trigger initial sync only if user opted in
       if (syncImmediately) {
-        await fetch(`/api/connectors/${createdId}/sync`, {
+        await fetch(`/api/connectors/${createdId2}/sync`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sync_mode: syncMode }),
         })
       }
 
-      router.push(`/connectors/connections/${createdId}`)
+      router.push(`/connectors/connections/${createdId2}`)
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : "Failed to finalize")
       setCreating(false)
@@ -575,7 +581,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                       key={opt.value}
                       onClick={() => setSyncFrequency(opt.value)}
                       className={`text-left px-3 py-2.5 rounded-lg border transition-colors ${
-                        syncFrequency === opt.value
+                        effectiveSyncFrequency === opt.value
                           ? "border-primary bg-primary/5 text-primary"
                           : "border-border hover:border-muted-foreground/40"
                       }`}
@@ -594,7 +600,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                     Scheduled sync requires the Airflow pipelines component (not enabled
                     on this profile). Trigger syncs manually with Sync Now.
                   </p>
-                ) : syncFrequency !== "manual" && (
+                ) : effectiveSyncFrequency !== "manual" && (
                   <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                     <CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good)]" />
                     Airflow DAG will be created automatically
@@ -613,7 +619,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                   ["Tables",      `${enabledTables.length} of ${tables.length} selected`],
                   ["With watermark", `${Object.values(tableConfigs).filter(c => c.enabled && c.incremental_column).length} tables`],
                   ["Sync Mode",   syncMode === "full" ? "Full Refresh" : "Incremental"],
-                  ["Schedule",    syncFrequency === "manual" ? "Manual" : `${syncFrequency} (${FREQUENCY_TO_CRON[syncFrequency]})`],
+                  ["Schedule",    effectiveSyncFrequency === "manual" ? "Manual" : `${effectiveSyncFrequency} (${FREQUENCY_TO_CRON[effectiveSyncFrequency]})`],
                 ].map(([label, value]) => (
                   <div key={label} className="flex items-center justify-between">
                     <span className="text-muted-foreground">{label}</span>
@@ -654,8 +660,8 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
           <span className="text-xs text-muted-foreground sm:hidden">{currentStep} / {STEPS.length}</span>
 
           {currentStep === 1 ? (
-            <Button size="sm" onClick={handleToStep2} disabled={!canProceed() || creating}>
-              {creating ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Creating…</> : <>Next<ChevronRight className="h-4 w-4 ml-1" /></>}
+            <Button size="sm" onClick={handleToStep2} disabled={!canProceed()}>
+              Next<ChevronRight className="h-4 w-4 ml-1" />
             </Button>
           ) : currentStep === 2 ? (
             <Button size="sm" onClick={() => setCurrentStep(3)} disabled={!canProceed()}>

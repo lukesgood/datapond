@@ -10,8 +10,8 @@ import { ConditionalLayout } from "@/components/conditional-layout"
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
 
 export const metadata: Metadata = {
-  title: "DataPond — AI Data Foundation",
-  description: "AWS-native data foundation for production RAG and AI apps",
+  title: "DataPond — Portable AI Data Foundation",
+  description: "Governed RAG and AI data infrastructure with replaceable storage, model, and deployment adapters",
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

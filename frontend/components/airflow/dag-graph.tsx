@@ -146,7 +146,7 @@ function layoutGraph(nodes: Node[], edges: Edge[]) {
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
-export function DagGraph({ dag_id, nodes: rawNodes, edges: rawEdges, taskStates = {} }: DagGraphProps) {
+export function DagGraph({ nodes: rawNodes, edges: rawEdges, taskStates = {} }: DagGraphProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<TaskData>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
 

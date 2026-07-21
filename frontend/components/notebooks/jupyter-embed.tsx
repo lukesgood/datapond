@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { X, ExternalLink, Maximize2, Minimize2 } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -18,15 +18,13 @@ interface JupyterEmbedProps {
 
 export function JupyterEmbed({ notebook, open, onClose }: JupyterEmbedProps) {
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const [iframeError, setIframeError] = useState(false)
-
-  useEffect(() => {
-    setIframeError(false)
-  }, [notebook])
+  const [iframeErrorPath, setIframeErrorPath] = useState<string | null>(null)
 
   if (!notebook) return null
 
-  const jupyterUrl = `${serviceUrls.jupyter()}/lab/tree${notebook.path}?token=jupyter`
+  const iframeError = iframeErrorPath === notebook.path
+  const encodedPath = notebook.path.split("/").map(encodeURIComponent).join("/")
+  const jupyterUrl = `${serviceUrls.jupyter()}/lab/tree/${encodedPath}`
 
   const openInNewTab = () => {
     window.open(jupyterUrl, "_blank")
@@ -48,7 +46,12 @@ export function JupyterEmbed({ notebook, open, onClose }: JupyterEmbedProps) {
       >
         <DialogHeader className="p-4 pb-3 border-b bg-muted/50">
           <div className="flex items-center justify-between">
-            <DialogTitle className="text-base">{notebook.name}</DialogTitle>
+            <div>
+              <DialogTitle className="text-base">{notebook.name}</DialogTitle>
+              <p className="mt-1 text-xs text-muted-foreground">
+                JupyterLab is an external tool and may require a separate sign-in. DataPond does not inject browser tokens.
+              </p>
+            </div>
             <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
@@ -104,7 +107,7 @@ export function JupyterEmbed({ notebook, open, onClose }: JupyterEmbedProps) {
                 isFullscreen ? "h-[calc(100vh-60px)]" : "h-[calc(90vh-60px)]"
               }`}
               sandbox="allow-same-origin allow-scripts allow-forms allow-downloads"
-              onError={() => setIframeError(true)}
+              onError={() => setIframeErrorPath(notebook.path)}
             />
           )}
         </div>

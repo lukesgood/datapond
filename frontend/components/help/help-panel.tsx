@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { X, Book, HelpCircle, Search, ExternalLink } from "lucide-react"
+import { X, HelpCircle, Search, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -104,7 +104,7 @@ export function HelpPanel({ isOpen, onClose, title, sections, quickLinks = [] }:
           <div className="space-y-2">
             {filteredSections.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                No results found for "{searchQuery}"
+                No results found for &quot;{searchQuery}&quot;
               </div>
             ) : (
               filteredSections.map((section, idx) => (

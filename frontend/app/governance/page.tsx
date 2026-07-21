@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useCapabilities } from "@/lib/capabilities"
 import { useConfirm } from "@/lib/confirm"
 import { useToast } from "@/lib/toast"
@@ -194,14 +194,19 @@ interface MaskPolicy {
   id: string; catalog_name: string; schema_name: string; table_name: string
   column_name: string; masking_type: string; enabled: boolean; roles: string[]
 }
-interface RoleOption { name: string; display_name: string }
+interface PreviewResult {
+  allowed?: boolean
+  rewritten_sql?: string
+  reason?: string
+  error?: string
+}
 
-const MASK_TYPES = ["full", "partial_email", "partial_ssn", "partial_phone", "hash", "null", "custom"]
+type DefaultDenyState = "enabled" | "disabled" | "unknown"
 
 function AccessControlTab() {
   const [policies, setPolicies] = useState<RlsPolicy[]>([])
   const [masks, setMasks] = useState<MaskPolicy[]>([])
-  const [roles, setRoles] = useState<RoleOption[]>([])
+  const [defaultDeny, setDefaultDeny] = useState<DefaultDenyState>("unknown")
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
 
@@ -223,36 +228,56 @@ function AccessControlTab() {
   const [pvSql, setPvSql] = useState("SELECT * FROM sales.orders")
   const [pvRoles, setPvRoles] = useState("business_analyst")
   const [pvAttrs, setPvAttrs] = useState('{"region":"us-east"}')
-  const [pvResult, setPvResult] = useState<any>(null)
+  const [pvResult, setPvResult] = useState<PreviewResult | null>(null)
 
-  const load = () => {
-    setLoading(true); setErr(null)
-    Promise.all([
-      fetch("/api/governance/rls/policies").then((r) => r.ok ? r.json() : Promise.reject(r.status)),
-      fetch("/api/governance/masking/policies").then((r) => r.ok ? r.json() : []),
-      fetch("/api/governance/roles").then((r) => r.ok ? r.json() : []),
-    ])
-      .then(([p, m, ro]) => { setPolicies(p ?? []); setMasks(m ?? []); setRoles(ro ?? []) })
-      .catch((e) => setErr(e === 403 || e === 401 ? "Admin permission required" : `Failed to load (${e})`))
-      .finally(() => setLoading(false))
-  }
-  useEffect(load, [])
+  const load = useCallback(async () => {
+    setLoading(true); setErr(null); setDefaultDeny("unknown")
+    try {
+      const [policyResponse, maskResponse, rulesResponse] = await Promise.all([
+        fetch("/api/governance/rls/policies"),
+        fetch("/api/governance/masking/policies"),
+        fetch("/api/governance/rls/trino-rules"),
+      ])
+      if (!policyResponse.ok) throw policyResponse.status
+      if (!maskResponse.ok) throw maskResponse.status
+      const policyData: RlsPolicy[] = await policyResponse.json()
+      const maskData: MaskPolicy[] = await maskResponse.json()
+      setPolicies(policyData ?? [])
+      setMasks(maskData ?? [])
 
-  // Default the policy catalog to the active engine's catalog (Athena →
-  // AwsDataCatalog, Trino → iceberg) instead of a hardcoded "iceberg".
-  const caps = useCapabilities()
-  useEffect(() => {
-    const qc = caps.query_catalog
-    if (typeof qc === "string" && qc) {
-      if (form.catalog_name === "iceberg") setForm((f) => ({ ...f, catalog_name: qc }))
-      if (maskForm.catalog_name === "iceberg") setMaskForm((f) => ({ ...f, catalog_name: qc }))
+      if (rulesResponse.ok) {
+        const rulesData: unknown = await rulesResponse.json()
+        const summary = rulesData && typeof rulesData === "object"
+          ? (rulesData as { summary?: unknown }).summary
+          : null
+        const value = summary && typeof summary === "object"
+          ? (summary as { default_deny?: unknown }).default_deny
+          : undefined
+        setDefaultDeny(value === true ? "enabled" : value === false ? "disabled" : "unknown")
+      }
+    } catch (error) {
+      setPolicies([])
+      setMasks([])
+      setDefaultDeny("unknown")
+      setErr(error === 403 || error === 401 ? "Admin permission required" : `Failed to load (${String(error)})`)
+    } finally {
+      setLoading(false)
     }
-  }, [caps.query_catalog])
+  }, [])
+  useEffect(() => {
+    const initial = window.setTimeout(() => void load(), 0)
+    return () => window.clearTimeout(initial)
+  }, [load])
+
+  // Apply the runtime catalog at submission time. This preserves user-entered
+  // values while keeping the default aligned with Athena/Glue or Trino/Polaris.
+  const caps = useCapabilities()
+  const queryCatalog = typeof caps.query_catalog === "string" && caps.query_catalog ? caps.query_catalog : "iceberg"
 
   const createPolicy = async () => {
     setErr(null)
     const body = {
-      name: form.name, catalog_name: form.catalog_name, schema_name: form.schema_name,
+      name: form.name, catalog_name: form.catalog_name === "iceberg" ? queryCatalog : form.catalog_name, schema_name: form.schema_name,
       table_name: form.table_name, filter_expression: form.filter_expression,
       role_names: form.role_names.split(",").map((s) => s.trim()).filter(Boolean),
     }
@@ -263,13 +288,23 @@ function AccessControlTab() {
     else setErr((await r.json().catch(() => ({})))?.detail ?? "Failed to create")
   }
 
+  const confirm = useConfirm()
+  const { toast } = useToast()
   const togglePolicy = async (p: RlsPolicy) => {
-    await fetch(`/api/governance/rls/policies/${p.id}`, {
+    // Disabling a row-level security policy is a security-relevant action — confirm it.
+    if (p.enabled && !(await confirm({
+      title: "Disable policy",
+      message: `Disable RLS policy on ${p.schema_name}.${p.table_name}? Rows it currently restricts will become visible.`,
+      confirmText: "Disable", destructive: true,
+    }))) return
+    const r = await fetch(`/api/governance/rls/policies/${p.id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: !p.enabled }),
-    }); load()
+    })
+    if (r.ok) toast(`Policy ${p.enabled ? "disabled" : "enabled"}`, "success")
+    else toast(`Failed to update policy (HTTP ${r.status})`, "error")
+    load()
   }
-  const confirm = useConfirm()
   const deletePolicy = async (id: string) => {
     if (!(await confirm({ title: "Delete policy", message: "Delete this RLS policy?", destructive: true, confirmText: "Delete" }))) return
     await fetch(`/api/governance/rls/policies/${id}`, { method: "DELETE" }); load()
@@ -278,7 +313,7 @@ function AccessControlTab() {
   const createMask = async () => {
     setMaskErr(null)
     const body = {
-      name: maskForm.name, catalog_name: maskForm.catalog_name, schema_name: maskForm.schema_name,
+      name: maskForm.name, catalog_name: maskForm.catalog_name === "iceberg" ? queryCatalog : maskForm.catalog_name, schema_name: maskForm.schema_name,
       table_name: maskForm.table_name, column_name: maskForm.column_name,
       masking_type: maskForm.masking_type,
       custom_expression: maskForm.masking_type === "custom" ? maskForm.custom_expression : null,
@@ -295,8 +330,12 @@ function AccessControlTab() {
     await fetch(`/api/governance/masking/policies/${id}`, { method: "DELETE" }); load()
   }
   const runPreview = async () => {
-    let attrs = {}
-    try { attrs = JSON.parse(pvAttrs || "{}") } catch { setPvResult({ error: "Failed to parse attributes JSON" }); return }
+    let attrs: Record<string, unknown> = {}
+    try {
+      const parsed: unknown = JSON.parse(pvAttrs || "{}")
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Attributes must be an object")
+      attrs = parsed as Record<string, unknown>
+    } catch { setPvResult({ error: "Failed to parse attributes JSON" }); return }
     const r = await fetch("/api/governance/rls/preview", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sql: pvSql, roles: pvRoles.split(",").map((s) => s.trim()).filter(Boolean), attributes: attrs }),
@@ -306,13 +345,46 @@ function AccessControlTab() {
 
   if (loading) return <Skeleton className="h-64" />
   if (err) return (
-    <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">
+    <Card role="alert" aria-live="polite"><CardContent className="py-8 text-center text-sm text-muted-foreground">
       <Lock className="h-5 w-5 mx-auto mb-2" />{err}
     </CardContent></Card>
   )
 
+  const enforcementState: "enabled" | "disabled" | "unknown" = caps.rls === true
+    ? "enabled"
+    : caps.rls === false
+      ? "disabled"
+      : "unknown"
+  const enforcementEnabled = enforcementState === "enabled"
+  const defaultDenyExplanation = defaultDeny === "enabled"
+    ? enforcementEnabled
+      ? "Tables without a matching policy are denied by the DataPond query API."
+      : "The setting is configured, but it is inactive while query API enforcement is not enabled."
+    : defaultDeny === "disabled"
+      ? "Tables without a matching policy are not denied by default."
+      : "The server did not return a default-deny value, so unmatched-table behavior cannot be confirmed."
+
   return (
     <div className="space-y-4">
+      <Card className={enforcementEnabled ? "border-[var(--dp-good)]/30" : enforcementState === "disabled" ? "border-[var(--dp-warn)]/30" : "border-muted"}>
+        <CardContent className="py-4 text-sm">
+          <p className="font-medium">Query API enforcement: {enforcementState}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            This tab manages and previews policy records; records shown here do not by themselves prove that queries are enforced.
+            {enforcementEnabled
+              ? " The deployment reports that active row filters and column masks are applied to SQL submitted through DataPond's query API."
+              : enforcementState === "disabled"
+                ? " The deployment reports that query API enforcement is disabled."
+                : " The capability response is unavailable or omitted this value, so query API enforcement cannot be confirmed."}
+            {" "}Direct query-engine and object-store access remains outside this UI policy boundary.
+          </p>
+          <p className="mt-2 text-xs">
+            <span className="font-medium">Default-deny setting: {defaultDeny}.</span>{" "}
+            <span className="text-muted-foreground">{defaultDenyExplanation}</span>
+          </p>
+        </CardContent>
+      </Card>
+
       {/* Create policy */}
       <Card>
         <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2"><Lock className="h-4 w-4" />Add RLS Policy</CardTitle></CardHeader>
@@ -338,7 +410,7 @@ function AccessControlTab() {
               <TableHead>Priority</TableHead><TableHead>Status</TableHead><TableHead></TableHead>
             </TableRow></TableHeader>
             <TableBody>
-              {policies.length === 0 && <TableRow><TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-6">No policies registered — default_deny blocks all tables.</TableCell></TableRow>}
+              {policies.length === 0 && <TableRow><TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-6">No RLS policies registered. Default-deny is {defaultDeny}; {defaultDenyExplanation}</TableCell></TableRow>}
               {policies.map((p) => (
                 <TableRow key={p.id}>
                   <TableCell className="font-mono text-xs">{p.catalog_name}.{p.schema_name}.{p.table_name}</TableCell>
@@ -386,7 +458,7 @@ function AccessControlTab() {
               disabled={!maskForm.name || !maskForm.schema_name || !maskForm.table_name || !maskForm.column_name || (maskForm.masking_type === "custom" && !maskForm.custom_expression)}>
               Create masking policy
             </Button>
-            {maskErr && <span className="text-xs text-destructive">{maskErr}</span>}
+            {maskErr && <span role="alert" aria-live="polite" className="text-xs text-destructive">{maskErr}</span>}
           </div>
 
           <Table>
@@ -418,7 +490,7 @@ function AccessControlTab() {
           </div>
           <Button size="sm" variant="outline" onClick={runPreview}>Run preview</Button>
           {pvResult && (
-            <div className={`rounded-md p-3 text-xs font-mono whitespace-pre-wrap ${pvResult.allowed ? "bg-emerald-500/10" : "bg-red-500/10"}`}>
+            <div role={pvResult.error ? "alert" : undefined} aria-live={pvResult.error ? "polite" : undefined} className={`rounded-md p-3 text-xs font-mono whitespace-pre-wrap ${pvResult.allowed ? "bg-emerald-500/10" : "bg-red-500/10"}`}>
               {pvResult.error ? `Error: ${pvResult.error}`
                 : pvResult.allowed ? `✅ Allowed → ${pvResult.rewritten_sql}`
                 : `⛔ Blocked: ${pvResult.reason}`}
@@ -471,16 +543,16 @@ function fmtUsd(n: number): string {
 }
 
 function CostTab() {
+  const caps = useCapabilities()
   const [usage, setUsage] = useState<AiUsage | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
-    setLoading(true); setErr(null)
     fetch("/api/settings/ai/usage")
       .then((r) => r.ok ? r.json() : Promise.reject(r.status))
       .then(setUsage)
-      .catch((e) => setErr(`Failed to load AI usage (${e})`))
+      .catch((e) => setErr(e === 403 || e === 401 ? "Admin permission required" : `Failed to load AI usage (${e})`))
       .finally(() => setLoading(false))
   }, [])
 
@@ -533,7 +605,7 @@ function CostTab() {
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
             <DollarSign className="h-5 w-5 mx-auto mb-2" />
-            No AI spend recorded yet — spend appears here once requests flow through the LiteLLM gateway to Bedrock.
+            No AI spend recorded yet — usage and provider-reported cost appear here once requests flow through the configured LiteLLM gateway.
           </CardContent>
         </Card>
       ) : (
@@ -609,9 +681,9 @@ function CostTab() {
         </>
       )}
 
-      {/* Athena scan cost pointer — tracked in CloudWatch, not a backend API */}
-      <Card>
-        <CardContent className="py-4 flex items-start gap-3">
+      {caps.query_engine === "athena" && (
+        <Card>
+          <CardContent className="py-4 flex items-start gap-3">
           <ExternalLink className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
           <p className="text-xs text-muted-foreground">
             Athena query scan cost (estimated at $5/TB) is tracked separately in the{" "}
@@ -631,6 +703,7 @@ function CostTab() {
           </p>
         </CardContent>
       </Card>
+      )}
     </div>
   )
 }
@@ -781,32 +854,38 @@ export default function GovernancePage() {
 
   // Audit log — re-fetch when filter changes
   useEffect(() => {
-    setAuditLoading(true)
-    const qs = new URLSearchParams({ limit: "50", offset: "0" })
-    if (eventTypeFilter !== "all") qs.set("event_type", eventTypeFilter)
-    fetch(`/api/governance/audit-log?${qs}`)
-      .then((r) => r.json())
-      .then((d) => {
-        setAuditItems(d.items ?? [])
-        setAuditTotal(d.total ?? 0)
-      })
-      .catch(() => {})
-      .finally(() => setAuditLoading(false))
+    const request = window.setTimeout(() => {
+      setAuditLoading(true)
+      const qs = new URLSearchParams({ limit: "50", offset: "0" })
+      if (eventTypeFilter !== "all") qs.set("event_type", eventTypeFilter)
+      fetch(`/api/governance/audit-log?${qs}`)
+        .then((r) => r.json())
+        .then((d) => {
+          setAuditItems(d.items ?? [])
+          setAuditTotal(d.total ?? 0)
+        })
+        .catch(() => {})
+        .finally(() => setAuditLoading(false))
+    }, 0)
+    return () => window.clearTimeout(request)
   }, [eventTypeFilter])
 
   // Unified activity stream — re-fetch when source filter changes
   useEffect(() => {
-    setActivityLoading(true)
-    const qs = new URLSearchParams({ limit: "100" })
-    if (activitySource !== "all") qs.set("source", activitySource)
-    fetch(`/api/governance/audit-stream?${qs}`)
-      .then((r) => r.json())
-      .then((d) => {
-        setActivityItems(d.items ?? [])
-        setActivitySources(d.sources ?? [])
-      })
-      .catch(() => { setActivityItems([]); setActivitySources([]) })
-      .finally(() => setActivityLoading(false))
+    const request = window.setTimeout(() => {
+      setActivityLoading(true)
+      const qs = new URLSearchParams({ limit: "100" })
+      if (activitySource !== "all") qs.set("source", activitySource)
+      fetch(`/api/governance/audit-stream?${qs}`)
+        .then((r) => r.json())
+        .then((d) => {
+          setActivityItems(d.items ?? [])
+          setActivitySources(d.sources ?? [])
+        })
+        .catch(() => { setActivityItems([]); setActivitySources([]) })
+        .finally(() => setActivityLoading(false))
+    }, 0)
+    return () => window.clearTimeout(request)
   }, [activitySource])
 
   // client-side search filter on audit items

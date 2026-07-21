@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, Suspense } from "react"
+import { useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -21,21 +21,21 @@ const SOURCES = [
   {
     id: "postgres-cdc", type: "cdc", name: "PostgreSQL CDC",
     icon: "🐘", color: "blue",
-    description: "WAL 기반 실시간 변경 캡처 (INSERT / UPDATE / DELETE)",
-    features: ["Zero latency", "No source load", "DELETE 반영"],
+    description: "WAL-based real-time change capture (INSERT / UPDATE / DELETE)",
+    features: ["Zero latency", "No source load", "DELETE support"],
     available: true,
   },
   {
     id: "mysql-cdc", type: "cdc", name: "MySQL CDC",
     icon: "🐬", color: "orange",
-    description: "binlog 기반 MySQL / MariaDB 실시간 변경 캡처",
-    features: ["binlog 기반", "MariaDB 지원"],
+    description: "binlog-based real-time change capture for MySQL / MariaDB",
+    features: ["binlog-based", "MariaDB support"],
     available: false,
   },
   {
     id: "kafka", type: "event", name: "Apache Kafka",
     icon: "📨", color: "purple",
-    description: "Kafka 토픽을 Iceberg 테이블로 실시간 수집",
+    description: "Real-time ingestion of Kafka topics into Iceberg tables",
     features: ["JSON / Avro / CSV", "Schema Registry"],
     available: true,
   },
@@ -43,20 +43,36 @@ const SOURCES = [
     id: "kinesis", type: "event", name: "Amazon Kinesis",
     icon: "☁️", color: "purple",
     description: "AWS Kinesis Data Streams → Iceberg",
-    features: ["AWS 네이티브", "at-least-once"],
+    features: ["AWS native", "at-least-once"],
     available: true,
   },
   {
     id: "pulsar", type: "event", name: "Apache Pulsar",
     icon: "⚡", color: "purple",
-    description: "Pulsar 토픽 스트리밍",
-    features: ["멀티테넌시"],
+    description: "Pulsar topic streaming",
+    features: ["Multi-tenancy"],
     available: false,
   },
 ] as const
 
 type SourceId = typeof SOURCES[number]["id"]
 type SourceType = "cdc" | "event" | "custom"
+
+interface CdcPipelineResult {
+  tables_total: number
+  tables_success: number
+  tables_failed: number
+  results: Array<{ table: string; status: string; error?: string | null }>
+}
+
+async function responseError(response: Response, fallback: string) {
+  try {
+    const data = await response.json()
+    return typeof data?.detail === "string" ? data.detail : fallback
+  } catch {
+    return fallback
+  }
+}
 
 // ── CDC Prerequisites Sidebar ─────────────────────────────────────────────────
 
@@ -204,11 +220,6 @@ function NewStreamingPipelineInner() {
   const [step, setStep] = useState<number | "confirm" | "done">(initialSource ? 2 : 1)
   const [selectedSource, setSelectedSource] = useState<SourceId | null>(initialSource)
 
-  // Preset event form source_type from query param
-  useEffect(() => {
-    if (sourceParam === "kinesis") setEventForm(p => ({ ...p, source_type: "kinesis" }))
-  }, [sourceParam])
-
   const sourceType: SourceType | null = selectedSource
     ? (SOURCES.find(s => s.id === selectedSource)?.type as SourceType) ?? null
     : null
@@ -262,7 +273,7 @@ function NewStreamingPipelineInner() {
   // ── Event form ────────────────────────────────────────────────────────────────
   const [eventForm, setEventForm] = useState({
     pipeline_name: "",
-    source_type: "kafka" as "kafka" | "kinesis",
+    source_type: (sourceParam === "kinesis" ? "kinesis" : "kafka") as "kafka" | "kinesis",
     topic: "",
     bootstrap_servers: "",
     stream_name: "",
@@ -275,7 +286,7 @@ function NewStreamingPipelineInner() {
   // ── Create state ──────────────────────────────────────────────────────────────
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
-  const [createResult, setCreateResult] = useState<any>(null)
+  const [createResult, setCreateResult] = useState<{ success: boolean; error?: string } | null>(null)
 
   // ── Derived step list ─────────────────────────────────────────────────────────
   const stepLabels =
@@ -321,9 +332,10 @@ function NewStreamingPipelineInner() {
   const handleCreate = async () => {
     setCreating(true)
     setCreateError(null)
+    setCreateResult(null)
     try {
       if (sourceType === "cdc") {
-        const res = await fetch("/api/streaming/cdc-pipeline", {
+        const response = await fetch("/api/streaming/cdc-pipeline", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -338,55 +350,44 @@ function NewStreamingPipelineInner() {
             iceberg_schema: cdcForm.iceberg_schema,
           }),
         })
-        const d = await res.json()
-        setCreateResult(d)
+        if (!response.ok) {
+          throw new Error(await responseError(response, "CDC pipeline creation failed"))
+        }
+        const result: CdcPipelineResult = await response.json()
+        if (result.tables_failed > 0) {
+          const failed = result.results
+            .filter(item => item.status !== "success")
+            .map(item => `${item.table}: ${item.error || "creation failed"}`)
+            .join("; ")
+          const partial = result.tables_success > 0
+            ? `Partial creation: ${result.tables_success}/${result.tables_total} tables succeeded; created objects were retained. `
+            : "No tables were created. "
+          throw new Error(`${partial}${failed}`)
+        }
+        setCreateResult({ success: true })
       } else {
-        // Event (Kafka / Kinesis): source → view → sink
+        // Event (Kafka / Kinesis): one atomic server-side call creates
+        // source → view → sink and rolls back on any partial failure, so a
+        // tab-close mid-create can no longer leak a partial pipeline.
         const isKafka = eventForm.source_type === "kafka"
-        const srcRes = await fetch("/api/streaming/sources", {
+        const response = await fetch("/api/streaming/event-pipeline", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            name: `${eventForm.pipeline_name}_src`,
-            connector: eventForm.source_type,
-            topic: isKafka ? eventForm.topic : eventForm.stream_name,
+            pipeline_name: eventForm.pipeline_name,
+            source_type: eventForm.source_type,
+            topic: isKafka ? eventForm.topic : "",
             bootstrap_servers: isKafka ? eventForm.bootstrap_servers : "",
-            format: "plain",
-            row_encode: eventForm.format,
-            extra_props: isKafka
-              ? {}
-              : { stream: eventForm.stream_name, "aws.region": eventForm.aws_region },
+            stream_name: isKafka ? "" : eventForm.stream_name,
+            aws_region: eventForm.aws_region,
+            format: eventForm.format,
+            iceberg_schema: eventForm.iceberg_schema,
             columns_sql: eventForm.columns_sql,
           }),
         })
-        if (!srcRes.ok) {
-          const d = await srcRes.json()
-          throw new Error(d.detail ?? "Source creation failed")
+        if (!response.ok) {
+          throw new Error(await responseError(response, "Pipeline creation failed"))
         }
-        const mvRes = await fetch("/api/streaming/views", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: `${eventForm.pipeline_name}_mv`,
-            definition: `SELECT * FROM ${eventForm.pipeline_name}_src`,
-          }),
-        })
-        if (!mvRes.ok) {
-          const d = await mvRes.json()
-          throw new Error(d.detail ?? "View creation failed")
-        }
-        await fetch("/api/streaming/sinks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: `${eventForm.pipeline_name}_sink`,
-            from_mv: `${eventForm.pipeline_name}_mv`,
-            connector: "iceberg",
-            sink_type: "append-only",
-            iceberg_schema: eventForm.iceberg_schema,
-            iceberg_table: eventForm.pipeline_name,
-          }),
-        })
         setCreateResult({ success: true })
       }
       setStep("done")
@@ -411,7 +412,7 @@ function NewStreamingPipelineInner() {
       return (
         <div className="space-y-6">
           <p className="text-sm text-muted-foreground">
-            어떤 소스에서 실시간으로 데이터를 가져오시겠습니까?
+            Which source would you like to stream data from in real time?
           </p>
 
           {/* DB Change Capture */}
@@ -421,7 +422,7 @@ function NewStreamingPipelineInner() {
                 <RefreshCw className="h-3 w-3 text-primary" />
               </div>
               <p className="text-sm font-semibold">DB Change Capture</p>
-              <span className="text-xs text-muted-foreground">— INSERT / UPDATE / DELETE 실시간 캡처</span>
+              <span className="text-xs text-muted-foreground">— Real-time INSERT / UPDATE / DELETE capture</span>
             </div>
             <div className="grid grid-cols-2 gap-3">
               {cdcSources.map(src => (
@@ -475,7 +476,7 @@ function NewStreamingPipelineInner() {
                 <Radio className="h-3 w-3 text-purple-600" />
               </div>
               <p className="text-sm font-semibold">Event Stream</p>
-              <span className="text-xs text-muted-foreground">— Kafka · Kinesis 실시간 이벤트</span>
+              <span className="text-xs text-muted-foreground">— Kafka · Kinesis real-time events</span>
             </div>
             <div className="grid grid-cols-3 gap-3">
               {eventSources.map(src => (
@@ -753,7 +754,7 @@ function NewStreamingPipelineInner() {
             <Label className="text-xs">Source Type</Label>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { id: "kafka",   name: "Apache Kafka",   icon: "📨", desc: "Kafka 토픽" },
+                { id: "kafka",   name: "Apache Kafka",   icon: "📨", desc: "Kafka topic" },
                 { id: "kinesis", name: "Amazon Kinesis", icon: "☁️", desc: "AWS Kinesis" },
               ].map(t => (
                 <button
@@ -928,7 +929,7 @@ function NewStreamingPipelineInner() {
 
     // ── Done ───────────────────────────────────────────────────────────────────
     if (step === "done") {
-      const success = !createResult?.error
+      const success = createResult?.success === true
       return (
         <div className="flex flex-col items-center py-10 space-y-5 text-center">
           {success ? (
@@ -1058,11 +1059,6 @@ function NewStreamingPipelineInner() {
   }
 
   // ── Page ───────────────────────────────────────────────────────────────────────
-
-  const currentStepNum =
-    step === "done" || step === "confirm"
-      ? stepLabels.length
-      : (step as number)
 
   return (
     <div className="flex-1 px-6 py-5">

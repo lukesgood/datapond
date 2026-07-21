@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useRouter, useParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -30,7 +30,7 @@ import {
   Check,
   X,
 } from "lucide-react"
-import { dashboardApi, queryApi, Dashboard } from "@/lib/api"
+import { dashboardApi, queryApi, Dashboard, type QueryResult } from "@/lib/api"
 import { ChartRenderer } from "@/components/query/chart-renderer"
 import { QueryResults } from "@/components/query/query-results"
 import { useToast } from "@/lib/toast"
@@ -43,12 +43,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog"
-
-interface QueryResult {
-  columns: string[]
-  rows: any[][]
-  execution_time_ms: number
-}
 
 export default function DashboardViewPage() {
   const router = useRouter()
@@ -73,13 +67,21 @@ export default function DashboardViewPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  useEffect(() => {
-    if (dashboardId) {
-      loadDashboard()
-    }
-  }, [dashboardId])
+  const executeQuery = useCallback(async (queryText: string) => {
+    if (!queryText) return
 
-  const loadDashboard = async () => {
+    try {
+      setExecuting(true)
+      const result = await queryApi.execute(queryText)
+      setQueryResult(result)
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Query execution failed", "error")
+    } finally {
+      setExecuting(false)
+    }
+  }, [toast])
+
+  const loadDashboard = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
@@ -95,22 +97,13 @@ export default function DashboardViewPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [dashboardId, executeQuery])
 
-  const executeQuery = async (queryText?: string) => {
-    const query = queryText || dashboard?.query_text
-    if (!query) return
-
-    try {
-      setExecuting(true)
-      const result = await queryApi.execute(query)
-      setQueryResult(result)
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "Query execution failed", "error")
-    } finally {
-      setExecuting(false)
-    }
-  }
+  useEffect(() => {
+    if (!dashboardId) return
+    const timer = window.setTimeout(() => { void loadDashboard() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [dashboardId, loadDashboard])
 
   const handleSave = async () => {
     if (!dashboard) return
@@ -169,7 +162,7 @@ export default function DashboardViewPage() {
     if (!queryResult || !queryResult.rows || queryResult.rows.length === 0) return []
 
     return queryResult.rows.map((row) => {
-      const obj: any = {}
+      const obj: Record<string, unknown> = {}
       queryResult.columns.forEach((col, idx) => {
         obj[col] = row[idx]
       })
@@ -317,7 +310,7 @@ export default function DashboardViewPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => executeQuery()}
+              onClick={() => executeQuery(dashboard.query_text)}
               disabled={executing}
             >
               <RefreshCw className={`mr-2 h-4 w-4 ${executing ? "animate-spin" : ""}`} />
@@ -417,7 +410,7 @@ export default function DashboardViewPage() {
           <DialogHeader>
             <DialogTitle>Delete Dashboard</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "{dashboard.name}"? This action cannot be undone.
+              Are you sure you want to delete &quot;{dashboard.name}&quot;? This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

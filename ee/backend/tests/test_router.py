@@ -5,7 +5,7 @@ from ee.sso.router import _map_role, _upsert_oidc_user
 
 def _run(coro):
     import asyncio
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def test_map_role_admin_when_group_present():

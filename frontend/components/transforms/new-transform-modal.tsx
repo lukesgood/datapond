@@ -48,7 +48,7 @@ interface Props {
   open: boolean
   onClose: () => void
   onCreated: () => void
-  editing?: EditingTransform | null   // 지정 시 수정 모드(이름 고정, overwrite 배포)
+  editing?: EditingTransform | null   // when set: edit mode (name locked, overwrite deploy)
 }
 
 export function NewTransformModal({ open, onClose, onCreated, editing }: Props) {
@@ -63,26 +63,32 @@ export function NewTransformModal({ open, onClose, onCreated, editing }: Props) 
   const [error, setError]                     = useState<string | null>(null)
   const [sourceNamespaces, setSourceNamespaces] = useState<string[]>(NAMESPACES)
 
-  // T6: 소스는 카탈로그의 실제 네임스페이스 목록(실데이터가 default 등에 존재)
+  // T6: source list uses the catalog's actual namespaces (real data may live in default, etc.)
   useEffect(() => {
     if (!open) return
     fetch("/api/catalog/schemas?columns=false")
       .then(r => r.json())
       .then(d => {
-        const names = (d.catalogs ?? []).flatMap((c: any) => (c.schemas ?? []).map((x: any) => x.name))
+        const response = d as { catalogs?: Array<{ schemas?: Array<{ name?: string }> }> }
+        const names = (response.catalogs ?? [])
+          .flatMap(c => c.schemas ?? [])
+          .map(schema => schema.name)
+          .filter((name): name is string => typeof name === "string")
         const merged = Array.from(new Set([...names, ...NAMESPACES])).sort()
         if (merged.length) setSourceNamespaces(merged)
       })
       .catch(() => {})
   }, [open])
 
-  // T4: 수정 모드 — 기존값 프리필
+  // T4: edit mode — prefill existing values
   useEffect(() => {
-    if (open && editing) {
+    if (!open || !editing) return
+    const timer = setTimeout(() => {
       setName(editing.name); setDescription(editing.description || "")
       setSourceNs(editing.source_namespace); setTargetNs(editing.target_namespace)
       setTargetTable(editing.target_table); setSql(editing.sql); setSchedule(editing.schedule || "")
-    }
+    }, 0)
+    return () => clearTimeout(timer)
   }, [open, editing])
 
   const valid = name.trim() && targetTable.trim() && sql.trim() && sourceNs !== targetNs
@@ -107,13 +113,13 @@ export function NewTransformModal({ open, onClose, onCreated, editing }: Props) 
           overwrite: !!editing,
         }),
       })
-      const data = await res.json()
+      const data = await res.json() as { detail?: string }
       if (!res.ok) throw new Error(data.detail || "Failed to create transform")
-      toast(`Transform '${name.trim()}' ${editing ? "수정 배포됨" : "배포됨"} — Airflow DAG ${editing ? "갱신" : "생성"} 완료`, "success")
+      toast(`Transform '${name.trim()}' ${editing ? "updated & redeployed" : "deployed"} — Airflow DAG ${editing ? "updated" : "created"}`, "success")
       onCreated()
       handleClose()
-    } catch (e: any) {
-      setError(e.message)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create transform")
     } finally {
       setSubmitting(false)
     }

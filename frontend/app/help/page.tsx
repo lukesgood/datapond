@@ -1,6 +1,8 @@
 "use client"
 
 import Link from "next/link"
+import type { LucideIcon } from "lucide-react"
+import { ArrowDownToLine, ArrowRight, BookOpen, Bot, Code2, Database, HardDrive, Layers, ShieldCheck, Sparkles } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -11,269 +13,191 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import {
-  Code2,
-  Database,
-  Plug,
-  BookOpen,
-  Sparkles,
-  ShieldCheck,
-  HardDrive,
-  ArrowRight,
-  ExternalLink
-} from "lucide-react"
+import { useCapabilities } from "@/lib/capabilities"
+import { getProductProfile } from "@/lib/product-profile"
 
-// Guides for the foundation-live features. The first three have written
-// walkthroughs under /help/*; the rest link straight to the feature page.
-const guides = [
-  {
-    title: "SQL Lab",
-    description: "Write and run SQL against your data — Athena on AWS, Trino on the full profile",
-    icon: Code2,
-    href: "/help/sql-lab",
-    color: "text-[var(--chart-1)]",
-    bgColor: "bg-[var(--chart-1)]/10",
-    topics: ["Query editor", "Schema browser", "Query history", "Keyboard shortcuts"],
-  },
-  {
-    title: "Data Catalog",
-    description: "Browse, search, and preview Iceberg tables in the Glue catalog",
-    icon: Database,
-    href: "/help/catalog",
-    color: "text-[var(--chart-2)]",
-    bgColor: "bg-[var(--chart-2)]/10",
-    topics: ["Table browser", "Schema explorer", "Column stats", "Send to Knowledge"],
-  },
-  {
-    title: "Connectors",
-    description: "Bring data in from databases, storage, and streaming sources",
-    icon: Plug,
-    href: "/help/connectors",
-    color: "text-[var(--chart-3)]",
-    bgColor: "bg-[var(--chart-3)]/10",
-    topics: ["Connector setup", "Authentication", "Data sync", "Health monitoring"],
-  },
+type Guide = {
+  title: string
+  description: string
+  icon: LucideIcon
+  href: string
+  capability?: string
+  topics: string[]
+}
+
+const guides: Guide[] = [
   {
     title: "Knowledge & RAG",
-    description: "Build vector collections and get cited answers from your documents",
+    description: "Build collections, test retrieval, and get cited answers",
     icon: Sparkles,
     href: "/knowledge",
-    color: "text-[var(--chart-4)]",
-    bgColor: "bg-[var(--chart-4)]/10",
-    topics: ["Collections", "Ingest documents", "Semantic search", "Cited RAG answers"],
+    topics: ["Collections", "Ingestion", "Semantic search", "Citations"],
+  },
+  {
+    title: "AI Gateway",
+    description: "Route models and inspect usage through one provider boundary",
+    icon: Bot,
+    href: "/ai",
+    topics: ["Models", "Routing", "Usage", "Spend"],
   },
   {
     title: "Governance",
-    description: "Control access, mask PII, and keep an audit trail across your data",
+    description: "Control collection access, protect PII, and review audit and cost",
     icon: ShieldCheck,
     href: "/governance",
-    color: "text-[var(--chart-5)]",
-    bgColor: "bg-[var(--chart-5)]/10",
-    topics: ["Row-level security", "PII masking", "Audit log", "Cost attribution"],
+    topics: ["Access", "PII", "Audit", "Cost"],
   },
   {
-    title: "Storage",
-    description: "Inspect the S3 buckets and objects backing your data foundation",
-    icon: HardDrive,
-    href: "/storage",
-    color: "text-primary",
-    bgColor: "bg-primary/10",
-    topics: ["Buckets", "Objects", "Usage", "Lifecycle"],
+    title: "Sources",
+    description: "Sync databases and table sources through the active catalog adapter",
+    icon: ArrowDownToLine,
+    href: "/help/connectors",
+    capability: "connectors",
+    topics: ["Setup", "Credentials", "Sync", "Freshness"],
+  },
+  {
+    title: "Catalog",
+    description: "Browse tables and send selected content to Knowledge",
+    icon: Database,
+    href: "/help/catalog",
+    capability: "catalog",
+    topics: ["Namespaces", "Schema", "Preview", "Send to Knowledge"],
+  },
+  {
+    title: "SQL Lab",
+    description: "Query through the configured Athena or Trino adapter",
+    icon: Code2,
+    href: "/help/sql-lab",
+    capability: "query",
+    topics: ["Editor", "Schema", "History", "Results"],
   },
 ]
 
 const quickHelp = [
   {
-    question: "How do I execute a SQL query?",
-    answer: "Open SQL Lab, write your query, and press Ctrl+Enter or click Execute.",
-    href: "/help/sql-lab#execute-query",
+    question: "What should I do first?",
+    answer: "Create a Knowledge collection, ingest a small representative source, test semantic search, and only then test cited RAG answers.",
+    href: "/docs/quickstart",
   },
   {
-    question: "Where can I see all my tables?",
-    answer: "Open Data Catalog to browse every Iceberg table across namespaces, with column stats and previews.",
-    href: "/help/catalog",
+    question: "Why is a menu missing?",
+    answer: "Optional menus appear only when the current profile explicitly enables their adapter or add-on. Disabled OSS is not automatically replaced by a cloud service.",
+    href: "/docs/profiles",
   },
   {
-    question: "How do I connect a new data source?",
-    answer: "Go to Connectors, choose your source type, and follow the setup wizard.",
-    href: "/help/connectors#setup",
+    question: "How portable is my deployment?",
+    answer: "The core uses S3-compatible objects, PostgreSQL/pgvector, LiteLLM, REST APIs, and Kubernetes. Review the documented migration limits before an exit drill.",
+    href: "/docs/exit-strategy",
   },
   {
-    question: "How do I build a RAG knowledge base?",
-    answer: "In Knowledge, create a collection, ingest text, tables, or S3 objects to embed them, then search or ask with RAG.",
-    href: "/knowledge",
+    question: "How is Knowledge access controlled?",
+    answer: "Collections use owner, administrator, and explicit sharing checks. Table policy enforcement is a separate optional data-plane capability.",
+    href: "/docs/governance",
   },
   {
-    question: "How is data access controlled?",
-    answer: "Governance lets you define row-level security and PII masking per collection; every query is recorded in the audit log.",
-    href: "/governance",
-  },
-  {
-    question: "Can I revisit a past query?",
-    answer: "Every query you run is saved to Query History in your browser — open the History panel in SQL Lab to re-run or copy it.",
-    href: "/query",
-  },
-  {
-    question: "What SQL dialect does DataPond use?",
-    answer: "Presto/Trino-family SQL (ANSI-compatible) for OLAP — Amazon Athena on the AWS profile, self-hosted Trino on the full profile.",
-    href: "/docs/trino-sql",
-  },
-]
-
-const resources = [
-  {
-    title: "Sample Queries",
-    description: "Common SQL patterns and examples",
-    icon: Sparkles,
-    href: "/help/sql-lab#examples",
-  },
-  {
-    title: "SQL Reference",
-    description: "Presto/Trino-family SQL, used by Athena",
-    icon: Code2,
-    href: "/docs/trino-sql",
-  },
-  {
-    title: "Documentation",
-    description: "Guides and reference docs",
-    icon: BookOpen,
-    href: "/docs",
+    question: "Where do I check an incident?",
+    answer: "Start with the active profile, then inspect Services and System before troubleshooting the configured storage, database, catalog, query, or model adapter.",
+    href: "/docs/troubleshooting",
   },
 ]
 
 export default function HelpPage() {
+  const caps = useCapabilities()
+  const profile = getProductProfile(caps)
+  // Guides explain setup and troubleshooting even when their optional product
+  // capability is disabled; direct product routes remain capability-gated.
+  const visibleGuides = guides
+
   return (
     <div className="flex-1 space-y-6 p-8 pt-6">
-      {/* Breadcrumb */}
       <Breadcrumb>
         <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/dashboard">Home</BreadcrumbLink>
-          </BreadcrumbItem>
+          <BreadcrumbItem><BreadcrumbLink href="/dashboard">Home</BreadcrumbLink></BreadcrumbItem>
           <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Help & Guides</BreadcrumbPage>
-          </BreadcrumbItem>
+          <BreadcrumbItem><BreadcrumbPage>Guides</BreadcrumbPage></BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 
-      {/* Page Header */}
       <div>
-        <h1 className="text-4xl font-bold tracking-tight">Help & Guides</h1>
-        <p className="text-lg text-muted-foreground mt-2">
-          Learn how to make the most of DataPond
-        </p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">{profile.label}</p>
+        <h1 className="mt-1 text-3xl font-bold tracking-tight">Guides</h1>
+        <p className="mt-2 text-muted-foreground">Follow the core AI workflow first; add data-plane modules only when the use case requires them.</p>
       </div>
 
-      {/* Feature Guides */}
-      <div className="space-y-3">
-        <h2 className="text-2xl font-bold">Feature Guides</h2>
-        <div className="grid gap-4 md:grid-cols-3">
-          {guides.map((guide, idx) => {
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="flex flex-wrap items-start justify-between gap-4 py-4">
+          <div className="flex gap-3">
+            <Layers className="mt-0.5 h-5 w-5 text-primary" />
+            <div>
+              <p className="text-sm font-semibold">Current profile: {profile.label}</p>
+              <p className="text-xs text-muted-foreground">{profile.description}</p>
+            </div>
+          </div>
+          <Link href="/docs/profiles" className="text-sm font-medium text-primary hover:underline">Compare profiles →</Link>
+        </CardContent>
+      </Card>
+
+      <section className="space-y-3">
+        <h2 className="text-xl font-bold">Available workflows</h2>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {visibleGuides.map((guide) => {
             const Icon = guide.icon
             return (
-              <Link key={idx} href={guide.href}>
-                <Card className="h-full hover:shadow-lg transition-all cursor-pointer group">
+              <Link key={guide.href} href={guide.href}>
+                <Card className="group h-full transition-all hover:-translate-y-0.5 hover:shadow-md">
                   <CardHeader>
-                    <div className={`inline-flex p-3 rounded-lg ${guide.bgColor} w-fit mb-2`}>
-                      <Icon className={`h-6 w-6 ${guide.color}`} />
+                    <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                      <Icon className="h-5 w-5 text-primary" />
                     </div>
-                    <CardTitle className="flex items-center justify-between">
-                      {guide.title}
-                      <ArrowRight className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <CardTitle className="flex items-center justify-between text-base">
+                      {guide.title}<ArrowRight className="h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100" />
                     </CardTitle>
                     <CardDescription>{guide.description}</CardDescription>
                   </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-wrap gap-1.5">
-                      {guide.topics.map((topic, topicIdx) => (
-                        <Badge key={topicIdx} variant="secondary" className="text-xs">
-                          {topic}
-                        </Badge>
-                      ))}
-                    </div>
+                  <CardContent className="flex flex-wrap gap-1.5">
+                    {guide.topics.map((topic) => <Badge key={topic} variant="secondary" className="text-xs">{topic}</Badge>)}
                   </CardContent>
                 </Card>
               </Link>
             )
           })}
         </div>
-      </div>
+      </section>
 
-      {/* Quick Help - FAQ */}
-      <div className="space-y-3">
-        <h2 className="text-2xl font-bold">Quick Help</h2>
+      <section className="space-y-3">
+        <h2 className="text-xl font-bold">Quick help</h2>
         <Card>
-          <CardContent className="p-0">
-            <div className="divide-y">
-              {quickHelp.map((item, idx) => (
-                <Link key={idx} href={item.href}>
-                  <div className="p-4 hover:bg-muted/50 transition-colors cursor-pointer group">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="space-y-1 flex-1">
-                        <h3 className="font-medium group-hover:text-primary transition-colors">
-                          {item.question}
-                        </h3>
-                        <p className="text-sm text-muted-foreground">{item.answer}</p>
-                      </div>
-                      <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity mt-1" />
-                    </div>
-                  </div>
-                </Link>
-              ))}
-            </div>
+          <CardContent className="divide-y p-0">
+            {quickHelp.map((item) => (
+              <Link key={item.question} href={item.href} className="group flex items-start justify-between gap-4 p-4 hover:bg-muted/50">
+                <div>
+                  <h3 className="font-medium group-hover:text-primary">{item.question}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{item.answer}</p>
+                </div>
+                <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+              </Link>
+            ))}
           </CardContent>
         </Card>
-      </div>
+      </section>
 
-      {/* Additional Resources */}
-      <div className="space-y-3">
-        <h2 className="text-2xl font-bold">Additional Resources</h2>
-        <div className="grid gap-4 md:grid-cols-3">
-          {resources.map((resource, idx) => {
-            const Icon = resource.icon
-            return (
-              <Link key={idx} href={resource.href}>
-                <Card className="h-full hover:shadow-md transition-shadow cursor-pointer">
-                  <CardHeader>
-                    <Icon className="h-5 w-5 text-muted-foreground mb-2" />
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-base">{resource.title}</CardTitle>
-                    </div>
-                    <CardDescription className="text-sm">
-                      {resource.description}
-                    </CardDescription>
-                  </CardHeader>
-                </Card>
-              </Link>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Contact Support */}
-      <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
-        <CardHeader>
-          <CardTitle>Need More Help?</CardTitle>
-          <CardDescription>
-            Our support team is here to assist you
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex gap-3">
-          <Link href="/docs">
-            <Badge variant="outline" className="gap-1 px-3 py-2 cursor-pointer hover:bg-background">
-              <BookOpen className="h-4 w-4" />
-              Full Documentation
-            </Badge>
-          </Link>
-          <a href="mailto:support@datapond.ai" target="_blank" rel="noopener noreferrer">
-            <Badge variant="outline" className="gap-1 px-3 py-2 cursor-pointer hover:bg-background">
-              <ExternalLink className="h-4 w-4" />
-              Contact Support
-            </Badge>
-          </a>
-        </CardContent>
-      </Card>
+      <section className="grid gap-4 md:grid-cols-3">
+        <Link href="/docs"><Resource icon={BookOpen} title="Documentation" description="Concepts, profiles, portability, and operations" /></Link>
+        <Link href="/storage"><Resource icon={HardDrive} title="Storage" description="Inspect configured objects and usage" /></Link>
+        <Link href="/services"><Resource icon={Layers} title="Services" description="Check workloads and external dependencies" /></Link>
+      </section>
     </div>
+  )
+}
+
+function Resource({ icon: Icon, title, description }: { icon: LucideIcon; title: string; description: string }) {
+  return (
+    <Card className="h-full transition-shadow hover:shadow-md">
+      <CardHeader>
+        <Icon className="mb-2 h-5 w-5 text-muted-foreground" />
+        <CardTitle className="text-base">{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+    </Card>
   )
 }

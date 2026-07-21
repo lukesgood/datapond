@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Database, Table, Sparkles } from "lucide-react"
+import { Table, Sparkles } from "lucide-react"
 import Link from "next/link"
 
 interface TableCardProps {
@@ -26,7 +26,6 @@ export function TableCard({
   namespace,
   catalog,
   catalogType,
-  tableType,
   lastUpdated,
   onSendToKnowledge,
 }: TableCardProps) {

@@ -2,16 +2,14 @@
 
 import { useState, useEffect } from "react"
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 import {
   CheckCircle2, XCircle, Loader2, AlertCircle,
@@ -26,7 +24,25 @@ interface Props {
 }
 
 interface Connection { id: string; name: string; connector_type: string }
-interface TableOption { catalog: string; schema: string; name: string }
+interface ValidationResult {
+  success: boolean
+  pipeline_name?: string
+  errors?: string[]
+  warnings?: string[]
+}
+interface DeployResult {
+  success: boolean
+  pipeline_name: string
+  dag_id: string
+  dag_file: string
+  message?: string
+}
+interface CompileResult {
+  success: boolean
+  pipeline_name: string
+  errors?: string[]
+  artifacts?: Array<{ type: string; content?: string }>
+}
 
 // ── Wizard state ────────────────────────────────────────────────────────────
 interface WizardState {
@@ -152,8 +168,8 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
   const [deployStep, setDeployStep] = useState<DeployStep>("edit")
   const [loading, setLoading]     = useState(false)
   const [error, setError]         = useState<string | null>(null)
-  const [validateResult, setValidateResult] = useState<any>(null)
-  const [deployResult, setDeployResult]     = useState<any>(null)
+  const [validateResult, setValidateResult] = useState<ValidationResult | null>(null)
+  const [deployResult, setDeployResult]     = useState<DeployResult | null>(null)
   const [overwrite, setOverwrite] = useState(false)
   const [connections, setConnections] = useState<Connection[]>([])
   const [customSchedule, setCustomSchedule] = useState("")
@@ -228,10 +244,10 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: currentCode }),
       })
-      const compData = await compRes.json()
+      const compData: CompileResult = await compRes.json()
       if (!compData.success) throw new Error(compData.errors?.join("\n") || "Compile failed")
 
-      const dagArtifact = compData.artifacts?.find((a: any) => a.type === "airflow_dag")
+      const dagArtifact = compData.artifacts?.find(a => a.type === "airflow_dag")
       if (!dagArtifact?.content) throw new Error("No DAG code generated")
 
       const deployRes = await fetch("/api/pipelines/deploy", {
@@ -243,7 +259,7 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
           overwrite,
         }),
       })
-      const deployData = await deployRes.json()
+      const deployData: DeployResult = await deployRes.json()
       if (deployRes.status === 409) {
         setError(`Pipeline '${compData.pipeline_name}' already exists.`)
         setOverwrite(true)
@@ -441,7 +457,9 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
                         <div className="space-y-1">
                           <Label className="text-[11px]">Sync Mode</Label>
                           <Select value={src.mode}
-                            onValueChange={(v) => { if (v) updateSource(src.id, { mode: v as any }) }}>
+                            onValueChange={(v) => {
+                              if (v === "incremental" || v === "full_refresh") updateSource(src.id, { mode: v })
+                            }}>
                             <SelectTrigger className="h-7 text-xs">
                               <SelectValue />
                             </SelectTrigger>
@@ -513,7 +531,9 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
                         <div className="space-y-1">
                           <Label className="text-[11px]">Mode</Label>
                           <Select value={tr.mode}
-                            onValueChange={(v) => { if (v) updateTransform(tr.id, { mode: v as any }) }}>
+                            onValueChange={(v) => {
+                              if (v === "incremental" || v === "full_refresh") updateTransform(tr.id, { mode: v })
+                            }}>
                             <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="incremental" className="text-xs">Incremental</SelectItem>
@@ -588,10 +608,9 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
                       <span className="text-destructive">Validation failed</span></>
                 }
               </div>
-              {validateResult.warnings?.length > 0 &&
-                validateResult.warnings.map((w: string, i: number) => (
-                  <p key={i} className="text-yellow-700">⚠ {w}</p>
-                ))}
+              {validateResult.warnings?.map((w, i) => (
+                <p key={i} className="text-yellow-700">⚠ {w}</p>
+              ))}
             </div>
           )}
 

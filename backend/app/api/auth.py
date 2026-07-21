@@ -9,11 +9,15 @@ Endpoints:
 """
 
 import os
+import re
+import hmac
 import json
 import uuid
+import hashlib
+import secrets
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import asyncpg
@@ -105,6 +109,16 @@ class SetupRequest(BaseModel):
     username: str
     password: str
     display_name: Optional[str] = None
+    # Optional real email so password recovery actually works. When omitted we fall
+    # back to the synthetic {username}@datapond.local for backward compatibility.
+    email: Optional[str] = None
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -242,30 +256,76 @@ async def require_user(
 
 
 def internal_api_key() -> str:
-    """Shared secret for trusted in-cluster automation (e.g. scheduled Airflow DAGs)."""
+    """Shared secret for trusted in-cluster automation."""
     return (os.getenv("INTERNAL_API_KEY") or "").strip()
 
 
+# Internal-key authentication is deliberately limited to the two callback shapes
+# used by unattended automation. ``fullmatch`` and a single non-slash path segment
+# prevent prefix/suffix confusion (for example, ``/sync/stream`` or trailing paths).
+_INTERNAL_AUTOMATION_ROUTES = (
+    ("POST", re.compile(r"/api/ai/collections/[^/]+/ingest-source")),
+    ("POST", re.compile(r"/api/connectors/[^/]+/sync")),
+)
+
+
+def is_internal_automation_path(method: str, path: str) -> bool:
+    method = (method or "").upper()
+    return any(
+        method == allowed_method and pattern.fullmatch(path or "") is not None
+        for allowed_method, pattern in _INTERNAL_AUTOMATION_ROUTES
+    )
+
+
 def _internal_request(request: Request) -> bool:
-    key = internal_api_key()
-    return bool(key) and request.headers.get("X-Internal-Key", "") == key
+    """Validate only the shared secret; route scoping is enforced separately."""
+    expected = internal_api_key()
+    headers = getattr(request, "headers", None)
+    if not expected or headers is None:
+        return False
+    presented = headers.get("X-Internal-Key", "")
+    return hmac.compare_digest(presented, expected)
+
+
+def is_internal_automation_request(request: Request) -> bool:
+    """Return true only for a valid key on an explicitly allowed callback route.
+
+    Method and URL metadata are mandatory. Missing metadata—including incomplete
+    request doubles—fails closed rather than weakening route scope.
+    """
+    method = getattr(request, "method", None)
+    url = getattr(request, "url", None)
+    path = getattr(url, "path", None) if url is not None else None
+    if not method or not path:
+        return False
+    return is_internal_automation_path(method, path) and _internal_request(request)
 
 
 async def require_user_or_internal(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> dict:
-    """Allow either a logged-in user (Bearer JWT) or trusted in-cluster automation
-    presenting the shared X-Internal-Key. The internal identity is an admin-scoped
-    service principal so it can ingest into any collection a schedule targets.
-    Used by endpoints that scheduled DAGs call back into (e.g. /ingest-source)."""
-    if _internal_request(request):
+    """Allow a user or the scoped internal automation principal.
+
+    The shared key is accepted only for the exact callback method/path allowlist and
+    is validated again here even after middleware admission.
+    """
+    if is_internal_automation_request(request):
         return {"id": None, "username": "system", "role": "admin", "internal": True}
     return await require_user(request, credentials)
 
 
 async def require_admin(user: dict = Depends(require_user)) -> dict:
     """Require admin role."""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
+    return user
+
+
+async def require_admin_or_internal(
+    user: dict = Depends(require_user_or_internal),
+) -> dict:
+    """Require an administrator or the scoped internal automation principal."""
     if user.get("role") != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
     return user
@@ -391,18 +451,26 @@ async def setup_password(request: SetupRequest, user: dict = Depends(require_adm
         # next login (matches the Reset Password dialog's promise in
         # frontend/app/settings/page.tsx). Previously this cleared the flag,
         # silently undoing the reset's own guarantee.
+        # Use the caller-supplied real email when provided (needed for password
+        # recovery); otherwise keep the legacy synthetic address for a NEW user.
+        provided_email = (request.email or "").strip()
+        insert_email = provided_email or f"{request.username}@datapond.local"
         await conn.execute("""
             INSERT INTO users (id, email, username, password_hash, display_name, role, is_active, require_password_change)
             VALUES (gen_random_uuid(), $1, $2, $3, $4, 'viewer', true, true)
             ON CONFLICT (username) DO UPDATE
               SET password_hash = EXCLUDED.password_hash,
                   display_name  = COALESCE(EXCLUDED.display_name, users.display_name),
+                  -- Only overwrite an existing user's email when a real one was
+                  -- explicitly provided; never clobber it with the synthetic value.
+                  email         = COALESCE(NULLIF($5, ''), users.email),
                   require_password_change = true
         """,
-            f"{request.username}@datapond.local",
+            insert_email,
             request.username,
             hashed,
             request.display_name or request.username,
+            provided_email,
         )
     return {"message": f"Password set for '{request.username}'"}
 
@@ -427,6 +495,122 @@ async def change_password(body: dict, user: dict = Depends(require_user)):
 async def logout():
     """Logout (client deletes token)."""
     return {"message": "Logged out"}
+
+
+# ── Password reset (email-based "forgot password") ──────────────────────────────
+#
+# Both endpoints are pre-auth (no JWT) and MUST be listed in main.py's AUTH_EXEMPT
+# set: "/api/auth/forgot-password" and "/api/auth/reset-password". Security model:
+# anti-enumeration (forgot always returns the same 200), tokens are single-use,
+# stored only as a SHA-256 hash, and expire after 30 minutes.
+
+RESET_TOKEN_TTL_MINUTES = 30
+_GENERIC_FORGOT_RESPONSE = {"message": "If that email exists, a reset link was sent."}
+
+
+def _hash_reset_token(raw_token: str) -> str:
+    """SHA-256 hex of the raw token — only the hash is ever persisted."""
+    return hashlib.sha256(raw_token.encode()).hexdigest()
+
+
+def _reset_base_url(request: Request) -> str:
+    """Base URL for the reset link: APP_BASE_URL if set, else request scheme+host."""
+    configured = (os.getenv("APP_BASE_URL") or "").strip()
+    if configured:
+        return configured.rstrip("/")
+    return str(request.base_url).rstrip("/")
+
+
+@router.post("/auth/forgot-password")
+async def forgot_password(body: ForgotPasswordRequest, request: Request):
+    """Start a password reset. ALWAYS returns 200 with a generic message so an
+    attacker cannot learn whether an email is registered (no user enumeration).
+
+    On a match to an ACTIVE user: prior unused tokens are invalidated, a new
+    URL-safe token is generated, its SHA-256 hash stored with a 30-min expiry,
+    and a reset link is emailed (best-effort via SES)."""
+    email = (body.email or "").strip()
+    if not email:
+        return _GENERIC_FORGOT_RESPONSE
+
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        # Case-insensitive match; only active local-capable accounts can reset.
+        row = await conn.fetchrow(
+            "SELECT id, email FROM users WHERE lower(email) = lower($1) AND is_active = true",
+            email,
+        )
+        if row:
+            raw_token = secrets.token_urlsafe(32)
+            token_hash = _hash_reset_token(raw_token)
+            expires_at = datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_TTL_MINUTES)
+            try:
+                # Best-effort: invalidate any prior unused tokens for this user so
+                # only the newest link is live.
+                await conn.execute(
+                    "UPDATE password_reset_tokens SET used_at = NOW() "
+                    "WHERE user_id = $1 AND used_at IS NULL",
+                    row["id"],
+                )
+                await conn.execute(
+                    "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) "
+                    "VALUES ($1, $2, $3)",
+                    row["id"], token_hash, expires_at,
+                )
+            except Exception as e:
+                # A DB error here must not reveal anything to the caller — log and
+                # still return the generic response.
+                logger.warning("[auth] failed to persist reset token: %s", e)
+                return _GENERIC_FORGOT_RESPONSE
+
+            reset_url = f"{_reset_base_url(request)}/reset?token={raw_token}"
+            try:
+                from app.email_util import send_email, password_reset_email
+                subject, text, html = password_reset_email(reset_url)
+                # send_email never raises and returns False when SES isn't
+                # configured — we intentionally ignore the result to avoid leaking
+                # delivery state to the caller.
+                await asyncio.to_thread(send_email, row["email"], subject, text, html)
+            except Exception as e:
+                logger.warning("[auth] reset email dispatch failed: %s", e)
+
+    return _GENERIC_FORGOT_RESPONSE
+
+
+@router.post("/auth/reset-password")
+async def reset_password(body: ResetPasswordRequest):
+    """Complete a password reset using the emailed token.
+
+    Looks up an unused, unexpired token by its hash; sets the new password, clears
+    require_password_change, and marks the token used (single-use)."""
+    raw_token = (body.token or "").strip()
+    new_password = body.new_password or ""
+    if not raw_token:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    token_hash = _hash_reset_token(raw_token)
+    hashed = _hash_password(new_password)
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, user_id FROM password_reset_tokens "
+            "WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()",
+            token_hash,
+        )
+        if not row:
+            raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+        async with conn.transaction():
+            await conn.execute(
+                "UPDATE users SET password_hash = $1, require_password_change = false WHERE id = $2",
+                hashed, row["user_id"],
+            )
+            await conn.execute(
+                "UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1",
+                row["id"],
+            )
+    return {"message": "Password has been reset. You can now sign in."}
 
 
 # ── User management endpoints ──────────────────────────────────────────────────

@@ -3,10 +3,9 @@
 import { useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import {
   CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight,
-  Clock, Database, Rows3, Timer,
+  Database, Rows3, Timer,
 } from "lucide-react"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -285,7 +284,7 @@ function SessionRow({ session, defaultOpen }: { session: SyncSession; defaultOpe
 
 const DEFAULT_VISIBLE = 5
 
-export function SyncHistory({ sessions, onDismissLive }: SyncHistoryProps) {
+export function SyncHistory({ sessions }: SyncHistoryProps) {
   const [showAll, setShowAll] = useState(false)
   const liveSession  = sessions.find(s => s.isLive)
   const pastSessions = sessions.filter(s => !s.isLive)

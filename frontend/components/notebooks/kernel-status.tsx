@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Circle, Square, RefreshCw, XCircle } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -10,8 +10,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 interface Kernel {
   id: string
   name: string
-  last_activity: string
-  execution_state: "idle" | "busy" | "starting"
+  last_activity?: string
+  execution_state?: "idle" | "busy" | "starting" | string
   connections: number
 }
 
@@ -22,69 +22,65 @@ interface KernelStatusProps {
 export function KernelStatus({ onRefresh }: KernelStatusProps) {
   const [kernels, setKernels] = useState<Kernel[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [actingOn, setActingOn] = useState<string | null>(null)
 
-  const fetchKernels = async () => {
+  const fetchKernels = useCallback(async () => {
     try {
-      setLoading(true)
-      // In production, this would fetch from /api/notebooks/kernels
-      const mockKernels: Kernel[] = [
-        {
-          id: "kernel-1",
-          name: "Python 3 (ipykernel)",
-          last_activity: "2 minutes ago",
-          execution_state: "idle",
-          connections: 1,
-        },
-        {
-          id: "kernel-2",
-          name: "Python 3 (ipykernel)",
-          last_activity: "Just now",
-          execution_state: "busy",
-          connections: 1,
-        },
-      ]
-      setKernels(mockKernels)
-    } catch (error) {
-      console.error("Failed to fetch kernels:", error)
+      setError(null)
+      const response = await fetch("/api/notebooks/kernels/list")
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { detail?: unknown } | null
+        throw new Error(typeof body?.detail === "string" ? body.detail : `Failed to load kernels (HTTP ${response.status})`)
+      }
+      setKernels(await response.json() as Kernel[])
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to load kernels")
     } finally {
       setLoading(false)
     }
-  }
-
-  useEffect(() => {
-    fetchKernels()
-    // Poll every 5 seconds for kernel status
-    const interval = setInterval(fetchKernels, 5000)
-    return () => clearInterval(interval)
   }, [])
 
+  useEffect(() => {
+    const initial = setTimeout(() => { void fetchKernels() }, 0)
+    const interval = setInterval(() => { void fetchKernels() }, 5000)
+    return () => {
+      clearTimeout(initial)
+      clearInterval(interval)
+    }
+  }, [fetchKernels])
+
   const handleRefresh = () => {
-    fetchKernels()
-    if (onRefresh) onRefresh()
+    void fetchKernels()
+    onRefresh?.()
   }
 
-  const handleStopKernel = async (kernelId: string) => {
-    // In production, this would call /api/notebooks/kernels/{id}/stop
-    console.log("Stopping kernel:", kernelId)
-    await new Promise((resolve) => setTimeout(resolve, 500))
-    setKernels((prev) => prev.filter((k) => k.id !== kernelId))
+  const kernelAction = async (kernelId: string, action: "stop" | "restart") => {
+    setActingOn(kernelId)
+    setError(null)
+    try {
+      const encoded = encodeURIComponent(kernelId)
+      const response = await fetch(
+        action === "stop"
+          ? `/api/notebooks/kernels/${encoded}`
+          : `/api/notebooks/kernels/${encoded}/restart`,
+        { method: action === "stop" ? "DELETE" : "POST" },
+      )
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { detail?: unknown } | null
+        throw new Error(typeof body?.detail === "string" ? body.detail : `Kernel ${action} failed (HTTP ${response.status})`)
+      }
+      await fetchKernels()
+      onRefresh?.()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : `Kernel ${action} failed`)
+    } finally {
+      setActingOn(null)
+    }
   }
 
-  const handleRestartKernel = async (kernelId: string) => {
-    // In production, this would call /api/notebooks/kernels/{id}/restart
-    console.log("Restarting kernel:", kernelId)
-    setKernels((prev) =>
-      prev.map((k) =>
-        k.id === kernelId ? { ...k, execution_state: "starting" as const } : k
-      )
-    )
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-    setKernels((prev) =>
-      prev.map((k) =>
-        k.id === kernelId ? { ...k, execution_state: "idle" as const } : k
-      )
-    )
-  }
+  const handleStopKernel = async (kernelId: string) => kernelAction(kernelId, "stop")
+  const handleRestartKernel = async (kernelId: string) => kernelAction(kernelId, "restart")
 
   const getStateIcon = (state: Kernel["execution_state"]) => {
     switch (state) {
@@ -94,6 +90,8 @@ export function KernelStatus({ onRefresh }: KernelStatusProps) {
         return <Circle className="h-3 w-3 text-yellow-500 fill-yellow-500 animate-pulse" />
       case "starting":
         return <Circle className="h-3 w-3 text-blue-500 fill-blue-500 animate-pulse" />
+      default:
+        return <Circle className="h-3 w-3 text-gray-400 fill-gray-400" />
     }
   }
 
@@ -105,6 +103,8 @@ export function KernelStatus({ onRefresh }: KernelStatusProps) {
         return "Busy"
       case "starting":
         return "Starting"
+      default:
+        return state || "Unknown"
     }
   }
 
@@ -136,6 +136,7 @@ export function KernelStatus({ onRefresh }: KernelStatusProps) {
         </div>
       </CardHeader>
       <CardContent>
+        {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
         {kernels.length > 0 ? (
           <div className="space-y-2">
             {kernels.map((kernel) => (
@@ -152,7 +153,7 @@ export function KernelStatus({ onRefresh }: KernelStatusProps) {
                       </span>
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      Last activity: {kernel.last_activity}
+                      Last activity: {kernel.last_activity ? new Date(kernel.last_activity).toLocaleString() : "Unknown"}
                     </div>
                   </div>
 
@@ -166,7 +167,7 @@ export function KernelStatus({ onRefresh }: KernelStatusProps) {
                     variant="outline"
                     size="sm"
                     onClick={() => handleRestartKernel(kernel.id)}
-                    disabled={kernel.execution_state === "starting"}
+                    disabled={actingOn === kernel.id}
                   >
                     <RefreshCw className="mr-2 h-3 w-3" />
                     Restart
@@ -175,7 +176,7 @@ export function KernelStatus({ onRefresh }: KernelStatusProps) {
                     variant="outline"
                     size="sm"
                     onClick={() => handleStopKernel(kernel.id)}
-                    disabled={kernel.execution_state === "starting"}
+                    disabled={actingOn === kernel.id}
                   >
                     <Square className="mr-2 h-3 w-3" />
                     Stop

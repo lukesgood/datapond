@@ -344,11 +344,12 @@ async def get_catalog_schemas(columns: bool = False):
     # Try Valkey cache first
     try:
         import redis, json as _json
-        _redis = redis.Redis(
-            host=os.getenv("VALKEY_HOST", "valkey.datapond.svc.cluster.local"),
-            port=int(os.getenv("VALKEY_PORT", "6379")),
-            decode_responses=True, socket_timeout=1,
-        )
+        # Prefer REDIS_URL — VALKEY_PORT is K8s-injected as tcp://<ip>:6379 and breaks int().
+        _url = os.getenv("REDIS_URL")
+        _redis = (redis.Redis.from_url(_url, decode_responses=True, socket_timeout=1) if _url
+                  else redis.Redis(host=os.getenv("VALKEY_HOST", "valkey.datapond.svc.cluster.local"),
+                                   port=int(os.getenv("VALKEY_PORT", "6379").rsplit(":", 1)[-1] or "6379"),
+                                   decode_responses=True, socket_timeout=1))
         cached = _redis.get(cache_key)
         if cached:
             return CatalogTree(**_json.loads(cached))
@@ -417,10 +418,12 @@ async def get_table_columns(catalog: str, schema: str, table: str):
     ck = f"catalog:cols:v1:{catalog}.{schema}.{table}"
     try:
         import redis, json as _json
-        _r = redis.Redis(
-            host=os.getenv("VALKEY_HOST", "valkey.datapond.svc.cluster.local"),
-            port=int(os.getenv("VALKEY_PORT", "6379")), decode_responses=True, socket_timeout=1,
-        )
+        # Prefer REDIS_URL — VALKEY_PORT is K8s-injected as tcp://<ip>:6379 and breaks int().
+        _url = os.getenv("REDIS_URL")
+        _r = (redis.Redis.from_url(_url, decode_responses=True, socket_timeout=1) if _url
+              else redis.Redis(host=os.getenv("VALKEY_HOST", "valkey.datapond.svc.cluster.local"),
+                               port=int(os.getenv("VALKEY_PORT", "6379").rsplit(":", 1)[-1] or "6379"),
+                               decode_responses=True, socket_timeout=1))
         c = _r.get(ck)
         if c:
             return [CatalogColumn(**x) for x in _json.loads(c)]

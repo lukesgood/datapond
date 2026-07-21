@@ -45,14 +45,14 @@ export function StatsCards({
       dot: "var(--chart-5)",
       icon: HardDrive,
       value: storageHuman ?? "—",
-      sub: storageObjects != null ? `${storageObjects.toLocaleString()} objects · S3` : "S3 · Iceberg",
+      sub: storageObjects != null ? `${storageObjects.toLocaleString()} objects · object storage` : "Object storage · Iceberg",
     },
     {
-      label: "Uptime",
+      label: "Workload health",
       dot: "var(--dp-good)",
       icon: ShieldCheck,
       value: totalServices > 0 ? `${uptimePct}%` : "—",
-      sub: `${healthyServices} / ${totalServices} services`,
+      sub: `${healthyServices} / ${totalServices} observed`,
     },
   ]
 

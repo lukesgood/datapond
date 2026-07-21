@@ -13,6 +13,7 @@ import asyncio
 import time
 import logging
 from k8s_client import k8s_client
+from app.cloud_info import cloud_info
 
 _log = logging.getLogger(__name__)
 from app.api.queries import router as queries_router
@@ -26,7 +27,11 @@ from app.api.dashboards import router as dashboards_router
 from app.api.pipelines import router as pipelines_router
 from app.api.storage import router as storage_router
 from app.api.streaming import router as streaming_router
-from app.api.auth import router as auth_router
+from app.api.auth import (
+    router as auth_router,
+    is_internal_automation_request,
+    require_user_or_internal,
+)
 from app.api.transforms import router as transforms_router
 from app.api.ai_sql import router as ai_sql_router
 from app.api.ai_backends import router as ai_backends_router
@@ -64,6 +69,9 @@ AUTH_EXEMPT = {
     # bearer gate. (register/* stays protected: you enroll a passkey while logged in.)
     "/api/auth/webauthn/authenticate/begin",
     "/api/auth/webauthn/authenticate/complete",
+    # Password reset is pre-auth by definition (you're locked out of your account).
+    "/api/auth/forgot-password",
+    "/api/auth/reset-password",
 }
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -75,12 +83,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Exempt public endpoints
         if path in AUTH_EXEMPT:
             return await call_next(request)
-        # Trusted in-cluster automation (scheduled DAGs) authenticates with a shared
-        # X-Internal-Key instead of a user JWT. Let it through here; the route's
-        # require_user_or_internal dependency re-validates and assigns a service identity.
-        import os as _os
-        _ikey = (_os.getenv("INTERNAL_API_KEY") or "").strip()
-        if _ikey and request.headers.get("X-Internal-Key", "") == _ikey:
+        # Trusted automation may use the internal key only on the exact callback
+        # method/path allowlist. The destination route dependency validates it again.
+        if is_internal_automation_request(request):
             return await call_next(request)
         # Check for Bearer token. Only the auth check is guarded by try/except —
         # call_next() MUST stay outside it, otherwise a route handler's exception
@@ -234,7 +239,11 @@ app.add_middleware(
 # Include API routers
 app.include_router(queries_router, prefix="/api")
 app.include_router(catalog_router, prefix="/api")
-app.include_router(connectors_router, prefix="/api")
+app.include_router(
+    connectors_router,
+    prefix="/api",
+    dependencies=[Depends(require_user_or_internal)],
+)
 app.include_router(services_router, prefix="/api")
 app.include_router(notebooks_router, prefix="/api",
                    dependencies=[Depends(require_component("JUPYTER", "Notebooks"))])
@@ -326,8 +335,11 @@ _stats_cache: dict = {"data": None, "ts": 0.0}
 
 
 def _compute_services_sync() -> List[ServiceStatus]:
-    """단일 pod 목록 캐시에서 서비스별 상태 산출 (블로킹 — 스레드에서 실행).
-    프로파일별 실제 워크로드만 표시(레지스트리 기반) + AWS 관리형은 'managed'."""
+    """Build service status from one cached pod list.
+
+    In-cluster workloads receive observed health. External/managed adapters receive
+    the compatibility status ``managed``, which means configured—not healthy.
+    """
     pods = k8s_client._get_all_pods_cached()
     by_app: dict = {}
     for pod in pods:
@@ -339,7 +351,7 @@ def _compute_services_sync() -> List[ServiceStatus]:
     out = []
     for svc in _service_registry():
         if svc.get("kind") == "managed":
-            out.append(ServiceStatus(name=svc["name"], status="managed", version="AWS managed",
+            out.append(ServiceStatus(name=svc["name"], status="managed", version="Configured adapter",
                                      description=svc.get("desc"), kind="managed"))
             continue
         sp = by_app.get(svc["app"], [])
@@ -387,8 +399,9 @@ async def get_dashboard_stats():
         return _stats_cache["data"]
 
     services = await get_services()  # 자체적으로 캐시/오류허용
-    healthy = sum(1 for s in services if s.status in ("healthy", "managed"))
-    unhealthy = sum(1 for s in services if s.status == "unhealthy")
+    observed = [s for s in services if s.status != "managed"]
+    healthy = sum(1 for s in observed if s.status == "healthy")
+    unhealthy = sum(1 for s in observed if s.status in ("unhealthy", "unknown"))
 
     cpu = mem = None
     try:
@@ -398,7 +411,7 @@ async def get_dashboard_stats():
         _log.warning(f"[/api/dashboard/stats] 메트릭 조회 실패/지연 — 메트릭 생략: {e}")
 
     stats = DashboardStats(
-        total_services=len(services), healthy_services=healthy,
+        total_services=len(observed), healthy_services=healthy,
         unhealthy_services=unhealthy, cpu_usage=cpu, memory_usage=mem,
     )
     _stats_cache.update(data=stats, ts=now)
@@ -425,13 +438,15 @@ async def get_system_info():
         return _sysinfo_cache["data"]
     try:
         data = await asyncio.wait_for(asyncio.to_thread(k8s_client.get_system_info), timeout=_K8S_TIMEOUT)
+        # AWS EC2 instance details (IMDS) when running on AWS; None otherwise. Cached.
+        data["cloud"] = await asyncio.to_thread(cloud_info)
         _sysinfo_cache.update(data=data, ts=now)
         return data
     except Exception as e:
         _log.warning(f"[/api/system/info] 조회 실패/지연: {e}")
         if _sysinfo_cache["data"] is not None:
             return _sysinfo_cache["data"]
-        return {"node": {}, "cluster": {}, "components": [], "storage": [], "usage": {}}
+        raise HTTPException(status_code=503, detail="Kubernetes system information is unavailable")
 
 
 @app.get("/api/trino/catalogs")

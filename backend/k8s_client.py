@@ -138,8 +138,10 @@ class K8sClient:
                 mem_pct = round(total_mem_bytes / alloc_mem_bytes * 100, 1)
                 return cpu_pct, mem_pct
 
-            # Return absolute values in millicores/MiB when no node info
-            return total_cpu_nano / 1_000_000, total_mem_bytes / (1024**2)
+            # No node allocatable ⇒ a percentage is genuinely unknown. Return None so the
+            # UI shows "unavailable" — NEVER return absolute millicores/MiB here, which the
+            # frontend would render as a bogus percent (e.g. 1747 MiB → "1747%").
+            return None, None
 
         except Exception as e:
             logger.warning(f"metrics-server unavailable: {e}")

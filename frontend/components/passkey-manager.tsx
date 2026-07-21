@@ -42,7 +42,10 @@ export function PasskeyManager() {
     }
   }, [])
 
-  useEffect(() => { fetchCredentials() }, [fetchCredentials])
+  useEffect(() => {
+    const timer = setTimeout(() => { void fetchCredentials() }, 0)
+    return () => clearTimeout(timer)
+  }, [fetchCredentials])
 
   const handleAdd = async () => {
     setAdding(true); setAddError(null)

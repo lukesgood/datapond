@@ -1,27 +1,31 @@
-# Lean "AI Data Foundation" profile
-# ---------------------------------
-# The minimal footprint for the AWS-native AI-app use case: S3 → embed →
-# pgvector → Bedrock RAG, with governance (RLS, PII, spend). Disables the heavy
-# lakehouse components — use AWS managed services instead:
-#   Trino → Athena · Spark → EMR Serverless/Glue · Airflow → MWAA ·
-#   MLflow → SageMaker · RisingWave → MSK/Managed Flink · Polaris → Glue Catalog
-#
-# Keeps ~5 workloads (backend, frontend, Postgres+pgvector, LiteLLM, Valkey)
-# instead of ~16. Backend starts cleanly with the heavy components off (their
-# clients connect lazily); lakehouse-only UI pages degrade gracefully.
+# Portable Core — AWS starter profile
+# -----------------------------------
+# Backward-compatible filename: values-foundation.yaml.
+# Runs the lightweight governed-RAG core with native S3, Bedrock through LiteLLM,
+# and in-cluster PostgreSQL + pgvector. Optional analytics and governance add-ons
+# are disabled; this profile does NOT provision Athena, Glue, EMR, MWAA, DataZone,
+# or SageMaker as replacements.
 #
 # Deploy:
 #   helm upgrade --install datapond helm/datapond -n datapond \
 #     -f helm/datapond/values-foundation.yaml
 #
-# Postgres runs in-cluster (pgvector) by default for a self-contained install.
-# To use Aurora instead: set postgres.enabled=false + externalDatabase.enabled=true
-# (see values-aws.yaml). Bedrock credentials: see docs/AWS_BEDROCK_SETUP.md.
+# To use Aurora instead of in-cluster PostgreSQL, set postgres.enabled=false and
+# externalDatabase.enabled=true. For the tested EC2/K3s reference topology, use
+# values-prod-single.yaml and follow docs/DEPLOY_SINGLE_NODE.md.
+
+product:
+  profile:
+    id: portable-core-aws
+    label: Portable Core · AWS
+    description: Lean governed RAG core using S3 and Bedrock with in-cluster pgvector.
+    maturity: supported-starter
+    topology: kubernetes
 
 global:
   externalScheme: https
 
-# --- Storage: AWS-native S3 (no in-cluster object store) ---
+# --- Storage: native Amazon S3 (no in-cluster object store) ---
 minio:
   enabled: false
 storage:
@@ -31,6 +35,7 @@ storage:
 
 # --- AI: Bedrock via LiteLLM ---
 ai:
+  provider: bedrock
   egressPolicy: "cloud-allowed"
   embedModel: "embed"
   embedDim: 1024
@@ -65,24 +70,24 @@ postgres:
 valkey:
   enabled: true          # cache/sessions (lightweight)
 
-# --- Heavy lakehouse — DISABLED (replace with AWS managed services) ---
+# --- Optional data and ML add-ons — DISABLED in Portable Core ---
 trino:
-  enabled: false         # → Amazon Athena
+  enabled: false
 spark:
-  enabled: false         # → EMR Serverless / Glue ETL
+  enabled: false
 polaris:
-  enabled: false         # → Glue Data Catalog
+  enabled: false
 airflow:
-  enabled: false         # → MWAA
+  enabled: false
 mlflow:
-  enabled: false         # → SageMaker
+  enabled: false
 risingwave:
-  enabled: false         # → MSK / Managed Service for Apache Flink
+  enabled: false
 openmetadata:
-  enabled: false         # → DataZone (or re-enable as OSS differentiator)
+  enabled: false
 jupyter:
-  enabled: false         # → SageMaker Studio
+  enabled: false
 ollama:
-  enabled: false         # → Bedrock
+  enabled: false
 vllm:
-  enabled: false         # → Bedrock / SageMaker endpoints
+  enabled: false

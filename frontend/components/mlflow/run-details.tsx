@@ -19,11 +19,10 @@ import {
   XCircle,
   Clock,
   User,
-  GitBranch,
-  Download,
   ExternalLink,
 } from "lucide-react"
-import { useState, useEffect } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { serviceUrls } from "@/lib/urls"
 
 interface RunDetailsProps {
   run: {
@@ -45,10 +44,50 @@ interface RunDetailsProps {
   }
 }
 
+interface Artifact {
+  path: string
+  is_dir: boolean
+  file_size?: number
+}
+
 export function RunDetails({ run }: RunDetailsProps) {
-  const [metricHistory, setMetricHistory] = useState<Record<string, any[]>>({})
-  const [artifacts, setArtifacts] = useState<any[]>([])
-  const [loading, setLoading] = useState(false)
+  const metricHistory = useMemo(() => {
+    const history: Record<string, Array<{ step: number; timestamp: number; value: number }>> = {}
+    run.data.metrics?.forEach((metric) => {
+      if (!history[metric.key]) history[metric.key] = []
+      history[metric.key].push({
+        step: metric.step,
+        timestamp: metric.timestamp,
+        value: metric.value,
+      })
+    })
+    return history
+  }, [run.data.metrics])
+  const [artifacts, setArtifacts] = useState<Artifact[] | null>(null)
+  const [artifactError, setArtifactError] = useState<string | null>(null)
+
+  const fetchArtifacts = useCallback(async () => {
+    setArtifacts(null)
+    setArtifactError(null)
+    try {
+      const response = await fetch(`/api/mlflow/runs/${encodeURIComponent(run.info.run_id)}/artifacts`)
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { detail?: unknown } | null
+        throw new Error(typeof body?.detail === "string" ? body.detail : `Failed to load artifacts (HTTP ${response.status})`)
+      }
+      const data = await response.json() as Artifact[]
+      if (!Array.isArray(data)) throw new Error("Invalid artifact response")
+      setArtifacts(data)
+    } catch (caught) {
+      setArtifacts([])
+      setArtifactError(caught instanceof Error ? caught.message : "Failed to load artifacts")
+    }
+  }, [run.info.run_id])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void fetchArtifacts() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [fetchArtifacts])
 
   const getStatusIcon = () => {
     switch (run.info.status) {
@@ -92,35 +131,6 @@ export function RunDetails({ run }: RunDetailsProps) {
     return new Date(timestamp).toLocaleString()
   }
 
-  useEffect(() => {
-    // Fetch metric history for each metric
-    const fetchMetricHistory = async () => {
-      setLoading(true)
-      try {
-        // In real implementation, fetch from API
-        // For now, use the single data point we have
-        const history: Record<string, any[]> = {}
-        run.data.metrics?.forEach((metric) => {
-          if (!history[metric.key]) {
-            history[metric.key] = []
-          }
-          history[metric.key].push({
-            step: metric.step,
-            timestamp: metric.timestamp,
-            value: metric.value,
-          })
-        })
-        setMetricHistory(history)
-      } catch (error) {
-        console.error("Error fetching metric history:", error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchMetricHistory()
-  }, [run])
-
   return (
     <div className="space-y-6">
       {/* Run Header */}
@@ -137,7 +147,15 @@ export function RunDetails({ run }: RunDetailsProps) {
               </div>
               <p className="text-sm text-muted-foreground font-mono">{run.info.run_id}</p>
             </div>
-            <Button variant="outline" size="sm">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open(
+                `${serviceUrls.mlflow()}/#/experiments/${encodeURIComponent(run.info.experiment_id)}/runs/${encodeURIComponent(run.info.run_id)}`,
+                "_blank",
+                "noopener,noreferrer",
+              )}
+            >
               <ExternalLink className="mr-2 h-4 w-4" />
               Open in MLflow
             </Button>
@@ -269,18 +287,21 @@ export function RunDetails({ run }: RunDetailsProps) {
               <CardTitle className="text-base">Artifacts</CardTitle>
             </CardHeader>
             <CardContent>
-              {artifacts.length > 0 ? (
+              {artifacts === null ? (
+                <p className="text-center text-muted-foreground py-8">Loading artifacts…</p>
+              ) : artifactError ? (
+                <p className="text-center text-destructive py-8">{artifactError}</p>
+              ) : artifacts.length > 0 ? (
                 <div className="space-y-2">
-                  {artifacts.map((artifact, idx) => (
+                  {artifacts.map((artifact) => (
                     <div
-                      key={idx}
+                      key={artifact.path}
                       className="flex items-center justify-between p-3 border rounded-lg"
                     >
                       <span className="font-mono text-sm">{artifact.path}</span>
-                      <Button variant="outline" size="sm">
-                        <Download className="mr-2 h-4 w-4" />
-                        Download
-                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        {artifact.is_dir ? "Directory" : artifact.file_size != null ? `${artifact.file_size} bytes` : "File"}
+                      </span>
                     </div>
                   ))}
                 </div>

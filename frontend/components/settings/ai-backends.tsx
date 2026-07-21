@@ -111,7 +111,10 @@ export function AiBackends() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const timer = setTimeout(() => { void load() }, 0)
+    return () => clearTimeout(timer)
+  }, [load])
 
   const addBackend = async () => {
     setAdding(true); setAddErr(null)
@@ -468,24 +471,51 @@ interface Usage { total_spend: number; max_budget: number | null; total_tokens: 
 const fmt$ = (n: number) => "$" + (n < 0.01 ? n.toFixed(6) : n.toFixed(4))
 const fmtN = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n)
 
+// Shape of GET /api/settings/ai/budget-alerts — covers both per-key breaches and
+// the account-wide global budget, which the client-side usage summary cannot see.
+interface KeyBudgetAlert { key_alias: string | null; spend: number; max_budget: number; pct: number }
+interface GlobalBudget { spend: number; max_budget: number; pct: number; alert: boolean }
+interface BudgetAlerts { threshold: number; global: GlobalBudget | null; alerts: KeyBudgetAlert[] }
+
 function UsagePanel() {
   const [u, setU] = useState<Usage | null>(null)
+  const [ba, setBa] = useState<BudgetAlerts | null>(null)
   const [loading, setLoading] = useState(true)
   const load = useCallback(() => {
     setLoading(true)
+    // Budget alerts are best-effort — a failure here must never blank the usage panel.
+    fetch("/api/settings/ai/budget-alerts")
+      .then(r => (r.ok ? r.json() : null)).then(setBa).catch(() => setBa(null))
     fetch("/api/settings/ai/usage").then(r => r.json()).then(setU).catch(() => {}).finally(() => setLoading(false))
   }, [])
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const timer = setTimeout(() => { void load() }, 0)
+    return () => clearTimeout(timer)
+  }, [load])
 
   if (loading) return <Skeleton className="h-32 rounded-lg" />
   if (!u) return null
-  const alerts = u.keys.filter(k => k.pct != null && (k.pct as number) >= 80)
+  // Per-key alerts come from the endpoint (same /key/list source the usage summary uses),
+  // so this replaces — not duplicates — the old client-side u.keys filter.
+  const keyAlerts = ba?.alerts ?? []
+  const globalAlert = ba?.global?.alert ? ba.global : null
   return (
     <Card>
-      {alerts.length > 0 && (
+      {(globalAlert || keyAlerts.length > 0) && (
         <div className="mx-6 mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive flex items-start gap-2">
           <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-          <span><b>Budget alert:</b> {alerts.map(a => `${a.key_alias || "key"} ${a.pct}%`).join(", ")} of budget used.</span>
+          <span>
+            {globalAlert && (
+              <span className="block">
+                <b>Global budget alert:</b> {globalAlert.pct}% used ({fmt$(globalAlert.spend)} / {fmt$(globalAlert.max_budget)}).
+              </span>
+            )}
+            {keyAlerts.length > 0 && (
+              <span className="block">
+                <b>Budget alert:</b> {keyAlerts.map(a => `${a.key_alias || "key"} ${a.pct}%`).join(", ")} of budget used.
+              </span>
+            )}
+          </span>
         </div>
       )}
       <CardHeader className="pb-3 flex-row items-center justify-between">
@@ -576,16 +606,26 @@ function UsagePanel() {
 
 // ── Date-ranged spend report ──────────────────────────────────────────────────────
 
-interface SpendReport { start_date: string; end_date: string; report: any[]; detail?: string }
+interface SpendReport { start_date: string; end_date: string; report: unknown[]; detail?: string }
 
-function reportRows(report: any[]): { label: string; spend: number }[] {
+type JsonRecord = Record<string, unknown>
+
+function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === "object" && value !== null
+}
+
+function reportRows(report: unknown[]): { label: string; spend: number }[] {
   if (!Array.isArray(report)) return []
-  return report.map((e) => {
-    const label = e.group_by_day || e.api_key || e.model || e.team_id || e.date || "—"
-    let spend = e.total_spend ?? e.spend ?? 0
-    if (!spend && Array.isArray(e.teams)) spend = e.teams.reduce((s: number, t: any) => s + (t.total_spend || 0), 0)
-    return { label: String(label).slice(0, 10), spend: Number(spend) || 0 }
-  }).filter(r => r.spend > 0 || r.label !== "—")
+  return report.flatMap((entry) => {
+    if (!isRecord(entry)) return []
+    const label = entry.group_by_day || entry.api_key || entry.model || entry.team_id || entry.date || "—"
+    let spend = Number(entry.total_spend ?? entry.spend ?? 0) || 0
+    if (!spend && Array.isArray(entry.teams)) {
+      spend = entry.teams.reduce<number>((sum, team) =>
+        sum + (isRecord(team) ? Number(team.total_spend) || 0 : 0), 0)
+    }
+    return [{ label: String(label).slice(0, 10), spend }]
+  }).filter(row => row.spend > 0 || row.label !== "—")
 }
 
 function SpendReportSection() {
@@ -753,7 +793,10 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
     } finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const timer = setTimeout(() => { void load() }, 0)
+    return () => clearTimeout(timer)
+  }, [load])
 
   const generate = async () => {
     setGenerating(true); setGenErr(null); setNewKey(null)

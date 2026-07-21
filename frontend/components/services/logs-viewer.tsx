@@ -19,6 +19,7 @@ interface LogsViewerProps {
   logs: string[]
   isStreaming: boolean
   onToggleStream: (streaming: boolean) => void
+  canStream?: boolean
 }
 
 type LogLevel = "all" | "error" | "warn" | "info"
@@ -27,6 +28,7 @@ export function LogsViewer({
   logs,
   isStreaming,
   onToggleStream,
+  canStream = true,
 }: LogsViewerProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [logLevel, setLogLevel] = useState<LogLevel>("all")
@@ -167,18 +169,21 @@ export function LogsViewer({
               <WrapText className="h-4 w-4" />
             </Button>
 
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() => onToggleStream(!isStreaming)}
-              title={isStreaming ? "Pause streaming" : "Start streaming"}
-            >
-              {isStreaming ? (
-                <Pause className="h-4 w-4" />
-              ) : (
-                <Play className="h-4 w-4" />
-              )}
-            </Button>
+            {canStream && (
+              <Button
+                variant="outline"
+                size="icon-sm"
+                onClick={() => onToggleStream(!isStreaming)}
+                aria-label={isStreaming ? "Pause log streaming" : "Start log streaming"}
+                title={isStreaming ? "Pause streaming" : "Start streaming"}
+              >
+                {isStreaming ? (
+                  <Pause className="h-4 w-4" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
+              </Button>
+            )}
 
             <Button
               variant="outline"

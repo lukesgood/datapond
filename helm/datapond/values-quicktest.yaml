@@ -2,6 +2,14 @@
 # Based on values-dev.yaml but with Backend/Frontend disabled
 # Testing data infrastructure only
 
+product:
+  profile:
+    id: quick-test
+    label: Quick Test
+    description: Reduced-resource integration profile for exercising the OSS extended stack.
+    maturity: development
+    topology: local-kubernetes
+
 # Global settings
 global:
   domain: datapond.local

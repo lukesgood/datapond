@@ -1,220 +1,198 @@
-# DataPond 제품 컨셉 — AWS-Native Data Foundation for AI Apps
+# DataPond 제품 컨셉 — Portable AI Data Foundation
 
-**작성일**: 2026-06-30
-**버전**: 4.0.0-aws-pivot
-**상위 설계**: [docs/superpowers/specs/2026-06-30-aws-ai-data-platform-pivot-design.md](superpowers/specs/2026-06-30-aws-ai-data-platform-pivot-design.md)
-**이전 컨셉(v3.0 OSS Lakehouse)**: `archive/oss-lakehouse` 브랜치 / `v3.0-oss-lakehouse` 태그
+**버전:** 5.0 · **상태:** 현재 제품 기준 · **갱신:** 2026-07-16
 
----
+## 한 문장
 
-## 🎯 제품 컨셉
+> **DataPond는 governed RAG와 AI agent 데이터 경로를 제공하면서 저장소·벡터 DB·모델·배포 환경을 교체 가능하게 유지하는 Portable AI Data Foundation이다.**
 
-### Tagline
-**"AWS 위에서 RAG·에이전트의 데이터 연료를 공급하는 데이터 기반"**
-*S3+Bedrock 네이티브, 거버넌스·카탈로그·실시간은 오픈소스로 차별화*
+AWS는 가장 구체적인 레퍼런스 배포이지만 제품의 경계는 아니다.
 
-### Elevator Pitch (30초)
-```
-DataPond는 AWS에서 AI 앱(RAG·에이전트)을 프로덕션에 올리려는 팀을 위한
-데이터 기반 플랫폼입니다.
+## 해결하는 문제
 
-S3 데이터 → 임베딩 → 벡터 검색 → Bedrock 응답까지의 파이프라인을,
-거버넌스(권한·계보·PII·비용)까지 갖춰 즉시 제공합니다.
+RAG PoC를 운영 단계로 옮기면 다음 배관을 팀이 직접 조립하게 된다.
 
-Bedrock Knowledge Bases가 '검색'만 준다면,
-DataPond는 그 위에 거버넌스·멀티테넌시·비용 관리·레이크하우스 통합을 더합니다.
+- 소스 접근, 청킹, 임베딩, 벡터 적재와 신선도
+- 검색 품질, reranking, citation
+- 컬렉션 권한과 PII 보호
+- 모델 키, routing, 사용자별 비용 귀속
+- 소스 데이터와 Knowledge 사이 연결
+- 백업, 복구, provider 변경
 
-고객의 AWS 계정 안에서 동작 → 데이터 주권 유지, 오픈소스 차별화 레이어로 락인 회피.
-```
+DataPond는 이 중 반복되는 **AI 애플리케이션 데이터 계층**을 제품으로 제공한다. 모든 분석·스트리밍·ML 엔진을 기본 설치하는 것이 목적이 아니다.
 
-### 포지셔닝 전환
+## 핵심 가치
 
-```yaml
-Before (v3.0 — OSS Lakehouse):
-  포지셔닝: "벤더 중립 OSS Databricks 대안 (1/10 비용)"
-  타깃: 비용 민감 데이터팀
-  경쟁축: 가격
-  약점: 벤더 중립이 곧 'AWS에서 1등은 아님'
+### 1. Governed RAG Core
 
-After (v4.0 — AWS-Native AI Data Foundation):
-  포지셔닝: "AWS에서 AI 앱의 데이터 기반"
-  타깃: AWS에서 RAG·에이전트 만드는 개발팀 + 플랫폼팀
-  경쟁축: AWS 통합 깊이 + 거버넌스 + 이식성
-  강점: 이미 구현된 AI 데이터 배관을 AWS 네이티브로 재프레이밍
-```
+현재 구현된 코어:
 
----
+- 텍스트, S3, 구성된 Iceberg source ingestion
+- chunking 및 `source_group` 단위 교체
+- PII masking과 retrieval 시 재보호
+- PostgreSQL/pgvector HNSW 검색
+- 선택적 LiteLLM rerank와 실패 시 vector-order fallback
+- LiteLLM/Bedrock RAG와 citation
+- collection owner/admin/shared 애플리케이션 ACL
+- 사용자 ID와 앱 metadata를 통한 사용량·비용 귀속
+- Airflow 없이 동작하는 Knowledge freshness scheduler
 
-## 🏆 핵심 가치 제안
+따라서 DataPond의 핵심 경쟁력은 “벡터 검색을 제공한다”가 아니라 **검색 전후의 운영·거버넌스 경로를 하나로 제공한다**는 점이다.
 
-### 1. AI 앱의 데이터 파이프라인을 거버넌스까지 완성형으로 🧩
-```yaml
-문제:
-  - RAG를 PoC에서 프로덕션으로 올릴 때 배관이 전부 수작업
-  - S3 → 청킹 → 임베딩 → 벡터 적재 → 검색 → 응답, 각 단계 직접 조립
-  - 권한/계보/PII/비용 거버넌스는 사후과제로 밀림
+### 2. Portable by Contract
 
-해결 (※ 다수가 이미 구현됨 — 아래 '재활용 자산' 참조):
-  - 인제스천: 청크 업서트, 재시도/부분실패 격리, PII 마스킹, 품질 게이트
-  - 벡터/RAG: pgvector 기반 RAG, 리랭크, 컬렉션 단위 RLS(행수준 보안)
-  - 브릿지: 레이크하우스/카탈로그 → Knowledge(벡터) 자동 전송
-  - 거버넌스: OpenMetadata 계보, 사용자별 비용 귀속, 예산 알림
+이식성은 모든 OSS를 동시에 운영해서가 아니라 다음 계약을 지켜서 얻는다.
 
-가치:
-  - "RAG 데모"가 아니라 "거버넌스 갖춘 프로덕션 RAG 기반"
-```
+| 경계 | 기본 계약 |
+|---|---|
+| Object | S3 API |
+| State/vector | PostgreSQL + pgvector |
+| Table | Parquet + Apache Iceberg, 사용 시 |
+| Model | LiteLLM의 논리 model name과 OpenAI-compatible API |
+| Identity | JWT, LDAP, WebAuthn, OIDC |
+| Deployment | OCI image, Helm, Kubernetes |
+| Application | REST/OpenAPI |
 
-### 2. AWS 네이티브 코어로 운영부담 제거 ☁️
-```yaml
-하이브리드 원칙:
-  - 상품화 가치 낮은 인프라 → AWS 매니지드로 교체 (운영부담 0)
-  - 차별화되는 레이어 → OSS 유지 (락인 회피·이식성)
+Provider 고유 ARN, model ID, bucket/warehouse URI, credential은 가능한 한 adapter 설정에 격리한다.
 
-AWS 코어:
-  - 스토리지: S3
-  - 테이블/카탈로그: S3 Tables + Glue Catalog (Polaris는 옵션)
-  - 쿼리/배치: Athena · EMR Serverless
-  - LLM: Amazon Bedrock (Claude) + LiteLLM 멀티모델 라우팅
-  - 벡터: pgvector(Aurora) 기본 / OpenSearch Serverless 확장
-  - 배포: EKS + Terraform/CDK + AWS Marketplace
-```
+### 3. AWS-Ready, Not AWS-Locked
 
-### 3. 데이터 주권 + 멀티모델 자유 🔐
-```yaml
-- 고객 AWS 계정 안에서 동작 (데이터 외부 반출 없음)
-- Bedrock(Claude/Titan) + LiteLLM로 클라우드/로컬 모델 혼합
-- 규제 산업(금융·헬스케어) 대응: PII 마스킹·RLS·계보 기본 탑재
-```
+AWS single-node reference는 다음을 실제 제공한다.
 
----
+- EC2/K3s application node
+- Aurora PostgreSQL Serverless v2 + pgvector
+- S3
+- Glue Data Catalog + Athena
+- Bedrock through LiteLLM
+- ECR, IAM/instance profile, Route53, Secrets Manager, CloudWatch/SNS
 
-## 🎭 타깃 고객
+그러나 현재 Terraform은 EKS, EMR Serverless, S3 Tables, Lake Formation, AOSS, DataZone, Marketplace를 만들지 않는다. 이 항목은 구현·acceptance 전까지 roadmap이다.
 
-### Primary: "AWS에서 AI 앱 만드는 개발팀"
-```yaml
-직함: AI/ML 엔지니어, 백엔드 리드, 플랫폼 엔지니어
-회사: AWS를 주력으로 쓰는 스타트업~중견 (10~500명)
-상황:
-  - RAG/에이전트 PoC는 됐는데 프로덕션 데이터 배관이 막막
-  - Bedrock Knowledge Bases만으론 권한·비용·계보가 부족
-  - 직접 조립하기엔 팀이 작음
-원하는 것:
-  - S3 데이터를 거버넌스 갖춰 AI에 연결
-  - 자기 AWS 계정 안에서, 빠르게
+## 제품 구조
+
+```mermaid
+flowchart TB
+    USER[AI developer · platform team] --> CORE
+
+    subgraph CORE[Portable Core]
+      KNOW[Knowledge collections]
+      RAG[Ingest · embed · retrieve · rerank · cite]
+      GOV[Access · PII · audit · spend]
+      GATE[LiteLLM gateway]
+    end
+
+    CORE --> STORE[Object adapter]
+    CORE --> VECTOR[PostgreSQL/pgvector adapter]
+    CORE --> MODEL[Model provider adapter]
+    CORE -. optional .-> PLANE[Data-plane add-ons]
+
+    STORE --> S3[S3 / S3-compatible]
+    VECTOR --> PG[PostgreSQL / Aurora]
+    MODEL --> BR[Bedrock / cloud / local]
+    PLANE --> CAT[Glue+Athena / Polaris+Trino]
+    PLANE --> EXT[RisingWave · OpenMetadata · Airflow · Jupyter · MLflow]
 ```
 
-### Secondary: "규제 산업 데이터 플랫폼팀"
-```yaml
-- 금융/헬스케어: 데이터 주권·감사·PII 필수
-- On-prem/Private(고객 VPC) 배포 요구
-- 멀티모델(로컬 LLM 포함) 하이브리드
-```
+## 사용자와 주요 여정
 
----
+### Primary: AI application team
 
-## 🏗️ 아키텍처 (하이브리드)
+- RAG/agent PoC는 있으나 데이터 ingestion, 권한, PII, 비용 운영이 부족하다.
+- 작은 팀으로 고객 계정/VPC 안에서 빠르게 운영해야 한다.
+- 첫 여정: **Knowledge 생성 → 데이터 적재 → retrieval 검증 → cited answer → governance/spend 확인**.
 
-```
-                 AI 앱 (RAG / 에이전트)
-                        │ RAG API
-   ┌────────────────────┼────────────────────┐
-   │  AI 데이터 레이어 (핵심)                  │
-   │  Bedrock Knowledge Base ── 벡터 스토어    │
-   │       ▲              (pgvector / AOSS)    │
-   │  임베딩 파이프라인 (Bedrock Embeddings)   │
-   │  인제스천(청크·재시도·PII·품질게이트)     │
-   └────────────────────┼────────────────────┘
-                        │
-   ┌────────────────────┼────────────────────┐
-   │  레이크하우스 코어                        │
-   │  S3 + Iceberg/S3 Tables + Glue           │
-   │  Athena · EMR Serverless · RisingWave    │
-   └────────────────────┼────────────────────┘
-                        │
-   ┌────────────────────┼────────────────────┐
-   │  거버넌스/관측 (OSS 차별화)               │
-   │  OpenMetadata(계보) · Polaris(RBAC)      │
-   │  벡터 RLS · 사용자별 비용·예산 알림       │
-   │  Lake Formation/IAM · DuckDB(로컬 탐색)  │
-   └──────────────────────────────────────────┘
+### Secondary: platform/data team
 
-   배포: EKS + Terraform/CDK + AWS Marketplace
-```
+- S3/Iceberg 테이블을 AI application에 연결하고 싶다.
+- Glue/Athena 또는 Polaris/Trino를 선택적으로 사용한다.
+- Catalog → Send to Knowledge를 통해 table data를 vector collection으로 연결한다.
 
-상세 컴포넌트 매핑은 [설계 스펙 §3](superpowers/specs/2026-06-30-aws-ai-data-platform-pivot-design.md)을 참조.
+### Regulated/sovereign team
 
----
+- 외부 반출과 vendor dependency를 통제해야 한다.
+- local model과 self-hosted object/catalog/query add-on을 선택한다.
+- 추가 운영 부담과 upstream license를 명시적으로 수용한다.
 
-## 🆚 경쟁 분석
+## 메뉴 정보구조
 
-| 항목 | Bedrock KB 단독 | Databricks/Snowflake | AWS DIY 조합 | **DataPond** |
-|---|---|---|---|---|
-| 벡터 검색 | ✅ | ✅ | ✅(직접) | ✅ |
-| 거버넌스(권한·계보) | ❌ | ✅(비쌈) | ❌(직접) | ✅ **OSS** |
-| 벡터 RLS/멀티테넌시 | ❌ | 제한적 | ❌ | ✅ **구현됨** |
-| PII 마스킹/품질게이트 | ❌ | 일부 | ❌ | ✅ **구현됨** |
-| 비용 귀속/예산 알림 | ❌ | 일부 | ❌ | ✅ **구현됨** |
-| 멀티모델 라우팅 | ❌(Bedrock만) | 제한적 | 직접 | ✅ LiteLLM |
-| AWS 통합 깊이 | ✅ | 중간 | ✅ | ✅ |
-| 데이터 주권(고객 VPC) | ✅ | ❌(SaaS) | ✅ | ✅ |
-| 즉시 배포 | ✅ | ✅ | ❌(수주) | ✅(Helm/Marketplace) |
-| 락인 | 높음 | 매우 높음 | 중간 | **낮음(OSS 레이어)** |
-
-**핵심 결론**: DataPond는 Bedrock KB의 '검색'에 **거버넌스·멀티테넌시·비용관리**를 더하고,
-Databricks/Snowflake 대비 **AWS 네이티브 + 저비용 + 이식성**으로 차별화한다.
-
----
-
-## ♻️ 재활용 자산 (이전 OSS 작업 → AWS 컨셉)
-
-피보팅이 **0에서 시작이 아닌** 이유 — `main`에 이미 구현되어 있는 자산:
-
-| 영역 | 기존 구현 | AWS 컨셉에서의 역할 |
+| 영역 | 메뉴 | 원칙 |
 |---|---|---|
-| 벡터/RAG | pgvector RAG, 리랭크, 컬렉션 RLS | **그대로 핵심 레이어** (pgvector 기본 전략과 일치) |
-| 인제스천 | 청크 업서트, 재시도, PII 마스킹, 품질 게이트 | AI 데이터 파이프라인 차별화 |
-| 브릿지 | Catalog/소스 → Knowledge 전송 | 레이크하우스 → 벡터 연결 |
-| 거버넌스 | OpenMetadata 계보, 벡터 RLS | OSS 차별화 레이어 |
-| 비용 | 사용자별 스펜드, 예산 알림, 토큰 대시보드 | AI 비용 거버넌스 |
-| LLM | LiteLLM 폴백·관측성·로컬 백엔드 | 멀티모델 라우팅 (Bedrock 위에) |
-| AWS | EC2 Spot K3s PoC (`datapond.csg.fitcloud.co.kr`) | EKS·매니지드로 진화할 베이스 |
+| Home | Dashboard | profile, core workflow, health |
+| Build AI | Knowledge, AI Gateway | 모든 프로필에서 표시 |
+| Data | Sources, Catalog, SQL Lab | adapter capability가 true일 때만 표시 |
+| Add-ons | Transforms, Streaming, Dashboards, Notebooks, Experiments | 해당 OSS/engine이 활성화될 때만 표시 |
+| Operate | Governance, Storage, Services, System, Settings | core 운영 기능 |
+| Learn | Documentation, Guides | shipped/optional/roadmap 구분 |
 
-> 즉 v4.0 작업의 상당 부분은 **'신규 구축'이 아니라 'AWS 네이티브로 재배선'** 이다.
+직접 URL 접근 시 현재 profile과 필요한 adapter/add-on을 설명한다. 메뉴가 없다는 이유만으로 기능이 “AWS에서 자동 제공”된다고 표현하지 않는다.
 
----
+## 배포 프로필
 
-## 🚀 로드맵
+- **Portable Core · AWS starter:** 가장 작은 RAG core. S3/Bedrock + in-cluster pgvector.
+- **AWS Single-Node Reference:** 현재 실제 AWS managed-adapter 레퍼런스. EC2/K3s이며 EKS가 아니다.
+- **AWS Hybrid Extended:** 기존 Kubernetes에 heavy OSS stack과 AWS endpoint를 혼합하는 compatibility profile.
+- **Sovereign OSS Extended:** local control을 위한 self-hosted profile. 최소 footprint가 아니라 선택권이 목적이다.
 
-| Phase | 내용 | 상태 |
+상세는 [DEPLOYMENT_PROFILES.md](DEPLOYMENT_PROFILES.md)를 따른다.
+
+## 거버넌스 경계
+
+- Knowledge collection 보안은 현재 PostgreSQL native RLS가 아니라 application-level owner/admin/shared ACL이다.
+- table RLS/column masking은 별도 governance engine 설정에 따른다.
+- OpenMetadata lineage는 optional이며 connector 등록은 best-effort이다.
+- 비용 budget 상태는 조회 가능하지만 durable notification workflow는 향후 hardening 대상이다.
+- UI capability gate는 UX 경계이며 API authorization을 대체하지 않는다.
+
+## 출구 전략
+
+현재 이동 가능한 자산:
+
+- S3 API로 접근 가능한 원본·가공 object
+- PostgreSQL dump/restore 가능한 application state와 pgvector
+- Helm values의 adapter 설정
+- LiteLLM logical model mapping
+- Parquet/Iceberg table metadata, 활성화한 경우
+
+주의 사항:
+
+- embedding model/dimension이 바뀌면 re-embedding이 필요하다.
+- Iceberg metadata의 warehouse URI가 바뀌면 rewrite 또는 table 재등록이 필요하다.
+- `ENCRYPTION_KEY` 없이는 저장된 credential을 복호화할 수 없다.
+- 통합 export/import CLI와 자동 exit drill은 아직 roadmap이다.
+
+## Open Core 원칙
+
+Community에 남겨야 하는 기능:
+
+- 데이터·metadata export와 provider 변경 경로
+- Knowledge/RAG core와 portable adapter interfaces
+- S3/PostgreSQL/LiteLLM/Iceberg 표준 지원
+- 기본 access/PII/audit/spend 거버넌스
+
+Enterprise 가치:
+
+- OIDC SSO와 향후 조직 단위 identity/policy
+- 중앙 운영, compliance policy pack, SLA/support
+- 다중 환경 관리와 검증된 migration 지원
+
+고객의 데이터를 이동시키는 기능을 상용 edition으로 잠그지 않는다.
+
+## 경쟁 기준
+
+| 대안 | 장점 | DataPond의 차별점 |
 |---|---|---|
-| **0** | 보관 (OSS 컨셉 아카이브) | ✅ 완료 |
-| **1** | 컨셉 재정의 (본 문서, README) | ✅ 진행 |
-| **2** | 레퍼런스 아키텍처 (IaC·보안·벡터 추상화) | ⏭️ 다음 |
-| **3** | MVP — S3→임베딩→벡터→Bedrock RAG end-to-end (기존 pgvector RAG 재배선) ([구현 계획](superpowers/plans/2026-06-30-aws-mvp-bedrock-rag.md)) | 🔜 계획 완료 |
-| **4** | GTM 재정렬 (Marketplace·데모·콘텐츠) | |
+| Bedrock Knowledge Bases | 빠른 AWS retrieval | application-level governance, cost attribution, portable model/vector boundary |
+| AWS DIY | 서비스 선택 자유 | 반복 배관을 제품화하고 profile/capability UX 제공 |
+| Databricks/Snowflake | 통합 data/AI suite | 고객 제어 환경과 오픈 계약, 더 작은 AI-focused core |
+| OSS 조립 | 최대 선택권 | 검증된 core workflow와 통합 운영 UI |
 
----
+DataPond는 범용 warehouse 경쟁이 아니라 **governed AI data path**에서 경쟁한다.
 
-## 💰 비즈니스 모델 (요약)
+## 상태 표기
 
-```yaml
-Open Core:
-  Community: Apache-2.0 (이 저장소 전체, /ee 제외) — LDAP·RLS·AI 거버넌스 포함, 고객 AWS 계정 셀프호스팅
-  Enterprise: /ee 디렉토리(상용 라이선스) — SSO(SAML/OIDC), 멀티테넌시, Marketplace 과금, SLA/지원
-  AWS Marketplace: 종량제/구독 리스팅으로 도입 마찰 최소화
+- **Shipped:** 코드, Helm wiring, 테스트가 존재하고 유지되는 기능.
+- **Reference:** 실제 구성이 있으나 topology 제한이 있는 배포.
+- **Optional:** 특정 profile/add-on에서만 제공.
+- **Roadmap:** 문서나 설계 이력은 있으나 현재 배포가 제공하지 않는 기능.
 
-Professional Services:
-  - AWS 환경 구축/마이그레이션 컨설팅
-  - 규제 산업 거버넌스 커스터마이징
-```
-
----
-
-## 🎯 핵심 메시지 요약
-
-1. **AI 앱의 데이터 기반** — RAG/에이전트의 연료를 거버넌스까지 완성형으로
-2. **AWS 네이티브** — S3·Bedrock 코어로 운영부담 제거, 고객 계정 안에서 동작
-3. **이미 만들어진 자산** — pgvector RAG·인제스천·거버넌스·비용관리가 구현 완료
-
-### Call-to-Action
-> "Bedrock Knowledge Bases로 시작했지만 권한·비용·계보가 막혔다면, DataPond."
+현재 canonical 문서는 [루트 README](../README.md)와 [active docs index](README.md) 목록이다. `superpowers/plans`와 `superpowers/specs`는 역사 기록이다.

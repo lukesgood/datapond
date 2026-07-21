@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useSyncExternalStore } from "react"
 import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
@@ -15,15 +15,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import {
-  Settings, Server, Package, Database, Activity, Cpu, HardDrive,
+  Server, Database, Activity, Cpu,
   CheckCircle2, ExternalLink, RefreshCw, Copy, Info, ShieldCheck,
-  GitBranch, Box, Clock, Layers, AlertCircle, Users, Plus, Trash2,
+  Box, AlertCircle, Trash2,
   Eye, EyeOff, UserPlus, KeyRound, Shield, UserX, UserCheck, SlidersHorizontal,
   Link, Terminal,
 } from "lucide-react"
 import { getUser } from "@/lib/auth"
-import { PasskeyManager } from "@/components/passkey-manager"
-import { useCapabilityStrict, useCapability } from "@/lib/capabilities"
+import { useCapabilityStrict, useCapability, useCapabilities } from "@/lib/capabilities"
+import { getProductProfile } from "@/lib/product-profile"
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -34,10 +34,13 @@ const SERVICE_META: Record<string, { label: string; desc: string; color: string;
   trino:        { label: "Trino 435",         desc: "Distributed SQL query engine",   color: "text-indigo-600" },
   risingwave:   { label: "RisingWave v1.6",   desc: "Streaming SQL database",         color: "text-cyan-600" },
   openmetadata: { label: "OpenMetadata",      desc: "Data catalog & lineage",         color: "text-purple-600", url: "/openmetadata" },
-  seaweedfs:    { label: "SeaweedFS",         desc: "S3-compatible object storage",   color: "text-green-600",  url: "/seaweedfs-console" },
+  minio:       { label: "MinIO",             desc: "S3-compatible object storage",   color: "text-green-600",  url: "/storage" },
   polaris:      { label: "Apache Polaris",    desc: "Iceberg REST catalog",           color: "text-red-500" },
   valkey:       { label: "Valkey",            desc: "Redis-compatible cache",         color: "text-rose-500" },
   airflow:      { label: "Airflow",           desc: "Pipeline orchestration",         color: "text-sky-600",    url: "/airflow/" },
+  spark:        { label: "Apache Spark",      desc: "Distributed batch compute",      color: "text-orange-600" },
+  ollama:       { label: "Ollama",            desc: "Local model and embedding runtime", color: "text-teal-600" },
+  "External PostgreSQL": { label: "External PostgreSQL", desc: "PostgreSQL + pgvector adapter", color: "text-blue-600" },
   // AWS-managed foundation services (names match /api/services display names)
   "Amazon S3":      { label: "Amazon S3",      desc: "Object storage",              color: "text-green-600" },
   "Amazon Aurora":  { label: "Amazon Aurora",  desc: "Postgres + pgvector",         color: "text-blue-600" },
@@ -53,10 +56,10 @@ const SERVICE_META: Record<string, { label: string; desc: string; color: string;
   // In-cluster pods
   backend:      { label: "Backend API",       desc: "FastAPI application",            color: "text-slate-600" },
   frontend:     { label: "Frontend",          desc: "Management UI (Next.js)",        color: "text-slate-500" },
-  litellm:      { label: "LiteLLM",           desc: "AI model gateway (→ Bedrock)",   color: "text-fuchsia-600" },
+  litellm:      { label: "LiteLLM",           desc: "Portable AI model gateway",      color: "text-fuchsia-600" },
 }
 
-// Access URLs (path-hosted services). OpenMetadata / SeaweedFS / Trino are NOT
+// Access URLs (path-hosted services). OpenMetadata / MinIO / Trino are NOT
 // listed: their web UIs don't support sub-path hosting, so they 404 under /<svc>
 // on every profile — use a subdomain or port-forward for those admin UIs.
 // MLflow/Airflow paths keep a trailing slash: their gunicorn frontend emits a
@@ -64,22 +67,40 @@ const SERVICE_META: Record<string, { label: string; desc: string; color: string;
 // X-Forwarded-Proto), which downgrades the click to http. Linking the slashed
 // form skips that redirect — /mlflow/ → 200, /airflow/ → relative 302.
 // `cap` gates a row behind a platform capability — dead links for disabled
-// components (Jupyter/Airflow/MLflow on the AWS foundation profile) are hidden.
+// optional components are hidden unless their runtime capability is explicitly true.
 const ACCESS_URL_DEFS = [
   { service: "Management UI",  path: "",                  cred: undefined },
   { service: "Backend API",    path: "/api/health",       cred: undefined },
-  { service: "JupyterLab",     path: "/jupyter",          cred: "token: jupyter",   cap: "notebooks" },
-  { service: "Airflow",        path: "/airflow/",         cred: "airflow / airflow", cap: "pipelines" },
+  { service: "JupyterLab",     path: "/jupyter",          cred: undefined,          cap: "notebooks" },
+  { service: "Airflow",        path: "/airflow/",         cred: undefined,          cap: "pipelines" },
   { service: "MLflow",         path: "/mlflow/",          cred: undefined,          cap: "experiments" },
 ]
 
-const HELM_CMDS = [
-  { label: "Check current values",  cmd: "helm get values datapond -n datapond" },
-  { label: "Upgrade (single-node)", cmd: "helm upgrade datapond helm/datapond \\\n  --namespace datapond \\\n  --values helm/datapond/values-prod-single.yaml \\\n  --wait=false" },
-  { label: "Pod status",            cmd: "kubectl get pods -n datapond" },
-  { label: "Resource usage",        cmd: "kubectl top pods -n datapond" },
-  { label: "Backend logs",          cmd: "kubectl logs -f deployment/backend -n datapond" },
-]
+const PROFILE_VALUES: Record<string, string> = {
+  "oss-extended": "values.yaml",
+  "portable-core-aws": "values-foundation.yaml",
+  "aws-single-node": "values-prod-single.yaml",
+  "aws-hybrid-extended": "values-aws.yaml",
+  "sovereign-oss-extended": "values-onprem.yaml",
+  development: "values-dev.yaml",
+  "quick-test": "values-quicktest.yaml",
+  "self-hosted-extended": "values-prod.yaml",
+}
+
+function helmCommands(profileId: string, namespace: string) {
+  const valuesFile = PROFILE_VALUES[profileId]
+  if (!valuesFile || !namespace) return null
+  return {
+    valuesFile,
+    commands: [
+      { label: "Check current values", cmd: `helm get values datapond -n ${namespace}` },
+      { label: `Upgrade (${valuesFile})`, cmd: `helm upgrade datapond helm/datapond \\\n  --namespace ${namespace} \\\n  --values helm/datapond/${valuesFile} \\\n  --wait=false` },
+      { label: "Pod status", cmd: `kubectl get pods -n ${namespace}` },
+      { label: "Resource usage", cmd: `kubectl top pods -n ${namespace}` },
+      { label: "Backend logs", cmd: `kubectl logs -f deployment/backend -n ${namespace}` },
+    ],
+  }
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -105,9 +126,30 @@ function CodeBlock({ label, code }: { label: string; code: string }) {
   )
 }
 
+interface ServiceSummary {
+  name: string
+  status: "healthy" | "unhealthy" | "unknown" | "managed"
+  description?: string
+  version?: string
+}
+interface DashboardStats { cpu_usage?: number; memory_usage?: number }
+interface StatusCardItem { label: string; value: string | null; sub: string; ok: boolean; warn?: boolean }
+
+const subscribeToClient = () => () => {}
+
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
+  const caps = useCapabilities()
+  const profile = getProductProfile(caps)
+  const runtimeProfileId = typeof caps.profile_id === "string" ? caps.profile_id : ""
+  const deploymentNamespace = typeof caps.deployment_namespace === "string" ? caps.deployment_namespace : ""
+  const helmConfig = helmCommands(runtimeProfileId, deploymentNamespace)
+  const valuesFile = helmConfig?.valuesFile
+  const commands = helmConfig?.commands ?? []
+  const storageContract = typeof caps.storage_provider === "string" ? caps.storage_provider.toUpperCase() : "Not reported"
+  const vectorStore = typeof caps.vector_store === "string" ? caps.vector_store : "PostgreSQL + pgvector"
+  const modelGateway = typeof caps.model_gateway === "string" ? caps.model_gateway : "LiteLLM"
   // Fail-closed: only render passkey management when the backend explicitly
   // reports webauthn=true. A /api/capabilities fetch error must not show the
   // secure-context-sensitive passkey UI (mirrors the login page's strict gate).
@@ -116,16 +158,16 @@ export default function SettingsPage() {
   // confirms it (EE image + OIDC_ENABLED). Avoids the Security Status card
   // asserting a state we haven't verified.
   const ssoEnabled = useCapabilityStrict("sso")
+  const rlsEnabled = useCapabilityStrict("rls")
   // Capability gates for profile-dependent access URLs / cards
   const notebooksEnabled = useCapability("notebooks")
   const pipelinesEnabled = useCapability("pipelines")
   const experimentsEnabled = useCapability("experiments")
-  const [services, setServices] = useState<any[]>([])
-  const [stats, setStats]       = useState<any>(null)
+  const [services, setServices] = useState<ServiceSummary[]>([])
+  const [stats, setStats]       = useState<DashboardStats | null>(null)
   const [loading, setLoading]   = useState(true)
-  // mounted guard — render browser-only values (window.location) after mount to
-  // avoid SSR/client hydration mismatch (React #418).
-  const [mounted, setMounted]   = useState(false)
+  // Render browser-only values after hydration without effect-driven state.
+  const mounted = useSyncExternalStore(subscribeToClient, () => true, () => false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -139,10 +181,29 @@ export default function SettingsPage() {
     } finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { load() }, [load])
-  useEffect(() => { setMounted(true) }, [])
+  useEffect(() => {
+    const initial = window.setTimeout(() => void load(), 0)
+    return () => window.clearTimeout(initial)
+  }, [load])
 
-  const healthy = services.filter(s => ["healthy", "managed"].includes(s.status)).length
+  const [isAdmin] = useState(() => getUser()?.role === "admin")
+  const healthCheckedServices = services.filter(s => s.status !== "managed")
+  const healthy = healthCheckedServices.filter(s => s.status === "healthy").length
+
+  // Settings is platform administration — admin only. Personal credentials
+  // (password, passkeys) live on /account, available to every user.
+  if (!isAdmin) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-3 p-16 text-center">
+        <ShieldCheck className="h-6 w-6 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">Admin permission required</h2>
+        <p className="max-w-md text-sm text-muted-foreground">
+          Settings is for platform administration. Manage your own password and passkeys in{" "}
+          <a className="font-medium text-primary hover:underline" href="/account">Account</a>.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -163,13 +224,13 @@ export default function SettingsPage() {
         {/* Status strip */}
         <div className="grid grid-cols-4 gap-3">
           {[
-            { label: "Services",   value: loading ? null : `${healthy}/${services.length}`,        sub: "healthy",         ok: !loading && healthy === services.length },
+            { label: "Workloads",  value: loading ? null : `${healthy}/${healthCheckedServices.length}`, sub: "observed healthy", ok: !loading && healthCheckedServices.length > 0 && healthy === healthCheckedServices.length },
             { label: "CPU",        value: loading ? null : stats?.cpu_usage != null ? `${stats.cpu_usage.toFixed(0)}%` : "—",
               sub: "cluster",    ok: !loading && (stats?.cpu_usage ?? 0) < 90,   warn: (stats?.cpu_usage ?? 0) >= 90 },
             { label: "Memory",     value: loading ? null : stats?.memory_usage != null ? `${stats.memory_usage.toFixed(0)}%` : "—",
               sub: "cluster",    ok: !loading && (stats?.memory_usage ?? 0) < 90, warn: (stats?.memory_usage ?? 0) >= 90 },
             { label: "Version",    value: "2.3.0",            sub: "DataPond",      ok: true },
-          ].map(({ label, value, sub, ok, warn }: any) => (
+          ].map(({ label, value, sub, ok, warn }: StatusCardItem) => (
             <Card key={label}>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-1">
@@ -206,7 +267,7 @@ export default function SettingsPage() {
                     </CardTitle>
                     <CardDescription>Running platform services</CardDescription>
                   </div>
-                  {!loading && healthy === services.length && services.length > 0 && (
+                  {!loading && healthCheckedServices.length > 0 && healthy === healthCheckedServices.length && (
                     <Badge className="bg-green-500/10 text-green-700 border-green-200 gap-1">
                       <CheckCircle2 className="h-3 w-3" />All Healthy
                     </Badge>
@@ -308,14 +369,13 @@ export default function SettingsPage() {
                     { label: "Password Hashing",     status: "ok",      note: "bcrypt (rounds=12)" },
                     { label: "Session Expiry",       status: "ok",      note: "24h JWT expiry" },
                     { label: "First-login Policy",   status: "ok",      note: "Forced password change" },
-                    // TLS is derived from the actual page origin (not hardcoded) so this
-                    // row can't drift from reality — the live deployment terminates TLS
-                    // via cert-manager/Let's Encrypt (values-prod-single.yaml), but a
-                    // port-forward or misconfigured ingress would correctly show HTTP.
+                    // TLS is derived from the actual page origin so this row cannot
+                    // drift from deployments that terminate TLS at different ingress
+                    // controllers, load balancers, or reverse proxies.
                     !mounted ? { label: "TLS/HTTPS", status: "ok", note: "Checking…" }
                       : window.location.protocol === "https:"
-                        ? { label: "TLS/HTTPS", status: "ok",      note: "HTTPS — cert-manager (Let's Encrypt)" }
-                        : { label: "TLS/HTTPS", status: "pending", note: "HTTP only — configure cert-manager" },
+                        ? { label: "TLS/HTTPS", status: "ok",      note: "HTTPS active" }
+                        : { label: "TLS/HTTPS", status: "pending", note: "HTTP only — configure TLS at the ingress or proxy" },
                     // LDAP/AD + OIDC SSO both ship in the image; gate the "Active" claim
                     // on the real /api/capabilities flag (mirrors PasskeyManager below)
                     // rather than asserting a state that may not be configured on every
@@ -326,9 +386,11 @@ export default function SettingsPage() {
                     webauthnEnabled
                       ? { label: "MFA", status: "ok",        note: "Passkey / WebAuthn active" }
                       : { label: "MFA", status: "available", note: "Shipped — Passkey/WebAuthn (requires HTTPS)" },
-                    { label: "Audit Log",            status: "ok",      note: "auth_audit_log + AI spend logs" },
-                    { label: "Column Masking",       status: "ok",      note: "Governance — masking policies" },
-                    { label: "Row-level Security",   status: "ok",      note: "Governance — RLS engine" },
+                    { label: "Audit Log",            status: "ok",        note: "auth_audit_log + AI spend logs" },
+                    { label: "Column Masking",       status: "available", note: "Shipped; enforcement depends on configured policies" },
+                    rlsEnabled
+                      ? { label: "Row-level Security", status: "ok",        note: "RLS engine enabled for this profile" }
+                      : { label: "Row-level Security", status: "available", note: "Shipped; disabled in the active profile" },
                   ].map(({ label, status, note }) => (
                     <div key={label} className="flex items-center gap-3 py-2.5 text-sm">
                       <span className={`h-2 w-2 rounded-full shrink-0 ${
@@ -347,8 +409,8 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
-            {/* Passkeys / WebAuthn */}
-            {webauthnEnabled && <PasskeyManager />}
+            {/* Per-user passkeys moved to the /account page (personal credential,
+                not platform administration). */}
 
             {/* Network isolation */}
             <Card>
@@ -360,14 +422,14 @@ export default function SettingsPage() {
               <CardContent>
                 <div className="divide-y">
                   {[
-                    { label: "Secret Encryption",  note: "K8s Secrets encrypted at rest" },
-                    { label: "Network Isolation",  note: "K8s namespace isolation" },
-                    { label: "Container Runtime",  note: "containerd — pod isolation" },
-                    { label: "Image Pull Policy",  note: "IfNotPresent" },
-                    { label: "Deployment Strategy",note: "Recreate — no partial state" },
+                    { label: "Application Credential Encryption", note: "Verify ENCRYPTION_KEY backup and rotation" },
+                    { label: "Kubernetes Secret Encryption",      note: "Cluster responsibility; not asserted by DataPond" },
+                    { label: "Network Isolation",                 note: "Enable and verify NetworkPolicies for your cluster" },
+                    { label: "Runtime Hardening",                 note: "Apply your Kubernetes distribution security baseline" },
+                    { label: "Image Supply Chain",                note: "Pin, scan, and approve images before production" },
                   ].map(({ label, note }) => (
                     <div key={label} className="flex items-center gap-3 py-2.5 text-sm">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                      <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       <span className="flex-1">{label}</span>
                       <span className="text-xs text-muted-foreground">{note}</span>
                     </div>
@@ -391,12 +453,13 @@ export default function SettingsPage() {
                   <div className="divide-y">
                     {[
                       { label: "DataPond",      value: "v2.3.0" },
-                      { label: "Kubernetes",    value: "v1.35.4+k3s1" },
-                      { label: "Distribution",  value: "K3s" },
-                      { label: "Namespace",     value: "datapond" },
-                      { label: "Ingress",       value: "Traefik" },
-                      { label: "Storage",       value: "Amazon S3 (data)" },
-                      { label: "Container RT",  value: "containerd" },
+                      { label: "Profile",       value: profile.label },
+                      { label: "Maturity",      value: profile.maturity },
+                      { label: "Topology",      value: profile.topology },
+                      { label: "Namespace",     value: deploymentNamespace || "Not reported" },
+                      { label: "Storage",       value: storageContract === "Not reported" ? storageContract : `${storageContract} contract` },
+                      { label: "Vector store",  value: vectorStore },
+                      { label: "Model gateway", value: modelGateway },
                     ].map(({ label, value }) => (
                       <div key={label} className="flex items-center justify-between py-2 text-sm">
                         <span className="text-muted-foreground text-xs">{label}</span>
@@ -449,7 +512,7 @@ export default function SettingsPage() {
                       <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                       <div>
                         <p className="font-medium">High resource usage</p>
-                        <p className="mt-0.5 text-amber-600">Disable unused services in values.yaml or add more RAM. Production: 32GB+ recommended.</p>
+                        <p className="mt-0.5 text-amber-600">Disable unused services in {valuesFile ?? "your deployment overlay"}, or add more RAM. Production: 32GB+ recommended.</p>
                       </div>
                     </div>
                   )}
@@ -466,19 +529,27 @@ export default function SettingsPage() {
                 <CardDescription>Helm-based configuration workflow</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="rounded-lg bg-muted/40 border px-4 py-3 text-xs space-y-1.5">
-                  <p className="font-medium">How to apply changes</p>
-                  <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                    <li>Edit <code className="bg-background rounded px-1">helm/datapond/values-prod-single.yaml</code></li>
-                    <li>Run the upgrade command below</li>
-                    <li>Wait for pods to restart and verify</li>
-                  </ol>
-                </div>
-                <div className="space-y-2">
-                  {HELM_CMDS.map(({ label, cmd }) => (
-                    <CodeBlock key={label} label={label} code={cmd} />
-                  ))}
-                </div>
+                {helmConfig ? (
+                  <>
+                    <div className="rounded-lg bg-muted/40 border px-4 py-3 text-xs space-y-1.5">
+                      <p className="font-medium">How to apply changes</p>
+                      <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                        <li>Edit <code className="bg-background rounded px-1">helm/datapond/{valuesFile}</code> or your deployment-specific overlay</li>
+                        <li>Run the upgrade command below</li>
+                        <li>Wait for workloads to restart and verify</li>
+                      </ol>
+                    </div>
+                    <div className="space-y-2">
+                      {commands.map(({ label, cmd }) => (
+                        <CodeBlock key={label} label={label} code={cmd} />
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-3 text-xs text-amber-700">
+                    Runtime profile identity or namespace is unavailable/custom. Upgrade commands are suppressed; use the values files and namespace from your actual deployment pipeline.
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -494,17 +565,25 @@ export default function SettingsPage() {
               <CardContent className="space-y-4">
                 <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-3">
                   <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
-                  <p className="text-xs text-amber-700"><span className="font-medium">Not configured</span> — follow the steps below to enable email notifications.</p>
+                  <p className="text-xs text-amber-700"><span className="font-medium">Operator configuration</span> — {helmConfig ? "use the steps below to enable or update email notifications." : "use your deployment pipeline to configure SMTP safely."}</p>
                 </div>
 
-                <CodeBlock label="Step 1 — Store SMTP password as K8s Secret"
-                  code={`kubectl create secret generic datapond-secrets -n datapond \\\n  --from-literal=AIRFLOW_SMTP_PASSWORD="your-password" \\\n  --dry-run=client -o yaml | kubectl apply -f -`} />
+                {helmConfig ? (
+                  <>
+                    <CodeBlock label="Step 1 — Store SMTP password as K8s Secret"
+                      code={`kubectl create secret generic datapond-secrets -n ${deploymentNamespace} \\\n  --from-literal=AIRFLOW_SMTP_PASSWORD="your-password" \\\n  --dry-run=client -o yaml | kubectl apply -f -`} />
 
-                <CodeBlock label="Step 2 — Add to values-prod-single.yaml"
-                  code={`airflow:\n  smtp:\n    enabled: true\n    host: "smtp.gmail.com"\n    port: "587"\n    user: "alerts@company.com"\n    mailFrom: "DataPond <alerts@company.com>"`} />
+                    <CodeBlock label={`Step 2 — Add to ${valuesFile}`}
+                      code={`airflow:\n  smtp:\n    enabled: true\n    host: "smtp.gmail.com"\n    port: "587"\n    user: "alerts@company.com"\n    mailFrom: "DataPond <alerts@company.com>"`} />
 
-                <CodeBlock label="Step 3 — Apply with Helm upgrade"
-                  code="helm upgrade datapond helm/datapond -n datapond --values helm/datapond/values-prod-single.yaml --wait=false" />
+                    <CodeBlock label="Step 3 — Apply with Helm upgrade"
+                      code={`helm upgrade datapond helm/datapond -n ${deploymentNamespace} --values helm/datapond/${valuesFile} --wait=false`} />
+                  </>
+                ) : (
+                  <div className="rounded-lg border px-4 py-3 text-xs text-muted-foreground">
+                    Commands are suppressed because this runtime does not report a maintained profile and namespace. Apply SMTP settings through your actual deployment overlay and secret-management workflow.
+                  </div>
+                )}
 
                 <div>
                   <p className="text-xs font-medium mb-2">Common SMTP providers</p>
@@ -589,7 +668,10 @@ function UserManagement() {
     } finally { setLoading(false) }
   }, [isAdmin])
 
-  useEffect(() => { fetchUsers() }, [fetchUsers])
+  useEffect(() => {
+    const initial = window.setTimeout(() => void fetchUsers(), 0)
+    return () => window.clearTimeout(initial)
+  }, [fetchUsers])
 
   const { toast } = useToast()
   const notify = (text: string, ok = true) => toast(text, ok ? "success" : "error")

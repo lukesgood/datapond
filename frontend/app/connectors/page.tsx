@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
@@ -25,6 +25,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { parseCron, nextRun } from "@/lib/schedule"
+import { CapabilityGate } from "@/lib/capabilities"
 
 interface Connection {
   id: string
@@ -42,13 +43,18 @@ interface ConnStats {
   successRate: number | null
 }
 
+interface SyncSessionSummary {
+  rows_processed?: number
+  status: string
+}
+
 // ── Ingestion flow empty state ────────────────────────────────────────────────
 
 const FLOW_STEPS = [
   {
     icon: Database,
     label: "Source",
-    desc: "PostgreSQL, MySQL, REST API, S3, Custom Python",
+    desc: "PostgreSQL, MySQL, REST, S3-compatible, custom",
     color: "bg-primary/10 text-primary border-primary/20",
     dot: "bg-primary",
   },
@@ -62,14 +68,14 @@ const FLOW_STEPS = [
   {
     icon: Layers,
     label: "Iceberg",
-    desc: "ACID Iceberg tables on S3, cataloged in AWS Glue",
+    desc: "Tables on object storage with the active catalog adapter",
     color: "bg-[var(--chart-5)]/10 text-[var(--chart-5)] border-[var(--chart-5)]/20",
     dot: "bg-[var(--chart-5)]",
   },
   {
     icon: BarChart2,
     label: "Query",
-    desc: "Athena SQL Lab, BI tools",
+    desc: "Configured SQL adapter and BI tools",
     color: "bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-[var(--dp-good)]/20",
     dot: "bg-[var(--dp-good)]",
   },
@@ -122,7 +128,7 @@ function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated }: {
           </div>
           <h3 className="text-xl font-bold">Connect your data sources</h3>
           <p className="text-sm text-muted-foreground max-w-lg mx-auto">
-            DataPond pulls data from any source into governed tables on S3 — ready for RAG and queryable via Athena (or Trino when enabled).
+            DataPond syncs supported sources into governed Iceberg tables on object storage. They are ready for RAG and become queryable when a compatible SQL adapter is enabled.
           </p>
         </div>
       )}
@@ -212,7 +218,7 @@ function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated }: {
   )
 }
 
-export default function ConnectorsPage() {
+function ConnectorsPageInner() {
   // ── Connections state ──────────────────────────────────────────────────────
   const [connections, setConnections] = useState<Connection[]>([])
   const [connStats, setConnStats] = useState<Map<string, ConnStats>>(new Map())
@@ -221,8 +227,9 @@ export default function ConnectorsPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [activeTab, setActiveTab] = useState("connections")
+  const [checkedAt, setCheckedAt] = useState(() => Date.now())
 
-  const fetchConnections = async () => {
+  const fetchConnections = useCallback(async () => {
     try {
       setError(null)
       const res = await fetch("/api/connectors/connections")
@@ -242,13 +249,13 @@ export default function ConnectorsPage() {
           let lastRows: number | null = null
           let successRate: number | null = null
           if (historyRes.ok) {
-            const sessions: any[] = await historyRes.json()
+            const sessions: SyncSessionSummary[] = await historyRes.json()
             if (sessions.length > 0) {
               // Last sync rows from most recent session
               lastRows = sessions[0].rows_processed ?? null
               // Success rate from recent sessions (accurate: session-level)
               const recent = sessions.slice(0, 20)
-              successRate = Math.round(recent.filter((s: any) => s.status === "success").length / recent.length * 100)
+              successRate = Math.round(recent.filter((session) => session.status === "success").length / recent.length * 100)
             }
           }
           return [conn.id, { tables, lastRows, successRate }] as [string, ConnStats]
@@ -257,14 +264,18 @@ export default function ConnectorsPage() {
         }
       }))
       setConnStats(new Map(statsEntries))
+      setCheckedAt(Date.now())
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load connections")
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  useEffect(() => { fetchConnections() }, [])
+  useEffect(() => {
+    const initial = window.setTimeout(() => void fetchConnections(), 0)
+    return () => window.clearTimeout(initial)
+  }, [fetchConnections])
 
   const handleSync = async (id: string) => {
     setActionLoading(id)
@@ -334,10 +345,9 @@ export default function ConnectorsPage() {
   const totalLastRows = Array.from(connStats.values()).reduce((s, c) => s + (c.lastRows ?? 0), 0)
   const rates = Array.from(connStats.values()).map(c => c.successRate).filter((r): r is number => r !== null)
   const avgSuccessRate = rates.length > 0 ? Math.round(rates.reduce((a, b) => a + b, 0) / rates.length) : null
-  const now = Date.now()
   const staleSources = connections.filter(c => {
     if (!c.last_sync_at) return true
-    return now - new Date(c.last_sync_at).getTime() > 86_400_000 // > 24h
+    return checkedAt - new Date(c.last_sync_at).getTime() > 86_400_000 // > 24h
   }).length
 
   return (
@@ -641,5 +651,13 @@ export default function ConnectorsPage() {
         </TabsContent>
       </Tabs>
     </div>
+  )
+}
+
+export default function ConnectorsPage() {
+  return (
+    <CapabilityGate capability="connectors">
+      <ConnectorsPageInner />
+    </CapabilityGate>
   )
 }

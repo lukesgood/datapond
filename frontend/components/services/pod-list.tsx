@@ -28,7 +28,6 @@ import {
   Trash2,
   RefreshCw,
 } from "lucide-react"
-import { formatDistanceToNow } from "date-fns"
 
 interface Pod {
   name: string

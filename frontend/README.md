@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DataPond Frontend
 
-## Getting Started
+Next.js operator UI for the **Portable AI Data Foundation**.
 
-First, run the development server:
+## Product information architecture
+
+| Area | Routes | Visibility |
+|---|---|---|
+| Home | `/dashboard` | Core |
+| Build AI | `/knowledge`, `/ai` | Core |
+| Data | `/connectors`, `/catalog`, `/query` | Adapter capability-gated |
+| Add-ons | `/pipelines`, `/streaming`, `/dashboards`, `/notebooks`, `/experiments` | Add-on capability-gated |
+| Operate | `/governance`, `/storage`, `/services`, `/system`, `/settings` | Core |
+| Learn | `/docs`, `/help` | Core |
+
+The shell displays the runtime deployment profile returned by `/api/capabilities`. Profile metadata is descriptive; boolean capability flags determine feature visibility.
+
+## UX rules
+
+1. Knowledge and AI Gateway are the primary product journey.
+2. Optional navigation fails closed until the backend explicitly returns `true`.
+3. Direct access to a disabled route explains the missing adapter/add-on and links to profile guidance.
+4. Disabled OSS components are not described as automatically replaced by cloud services.
+5. Service health and capability state remain separate.
+6. Existing URLs stay stable across profiles.
+
+## Key files
+
+- `components/app-sidebar.tsx` — navigation information architecture
+- `lib/capabilities.tsx` — capability provider and direct-route state
+- `lib/product-profile.ts` — profile/adapters presentation
+- `components/dashboard/journey-strip.tsx` — capability-aware core workflow
+- `app/docs/` — in-app product documentation
+- `app/help/` — workflow guides
+
+Canonical product documentation lives in the repository root `README.md` and `docs/`.
+
+## Development
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open <http://localhost:3000>. The backend is expected behind `/api`; see `next.config.ts` and `proxy.ts` for routing behavior.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Validation
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npx tsc --noEmit
+npm run lint
+npm run build
+```
 
-## Learn More
+The repository currently carries a broader lint backlog; changed files should not add new errors. Production builds must pass.
 
-To learn more about Next.js, take a look at the following resources:
+## Next.js version note
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This project uses Next.js 16. Read the local rules in `AGENTS.md` and the installed Next.js documentation before changing framework APIs or routing conventions.

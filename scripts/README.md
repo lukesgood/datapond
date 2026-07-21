@@ -1,6 +1,11 @@
 # DataPond Scripts
 
-Automation scripts for deploying and managing DataPond.
+Automation scripts for local development and self-hosted deployment.
+
+> `quick-deploy.sh` defaults to `values-quicktest.yaml`; it is not the AWS production
+> reference installer. Use `docs/DEPLOY_SINGLE_NODE.md` with
+> `values-prod-single.yaml` for the current Terraform-backed AWS reference, or
+> `values-foundation.yaml` for the lean Portable Core AWS starter.
 
 ## Quick Reference
 

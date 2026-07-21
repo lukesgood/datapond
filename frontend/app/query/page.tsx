@@ -28,11 +28,11 @@ const SaveDashboardModal = dynamic(() => import("@/components/query/save-dashboa
 const LogToMlflowModal = dynamic(() => import("@/components/query/log-to-mlflow-modal").then(m => ({ default: m.LogToMlflowModal })), { ssr: false })
 const OpenInNotebookModal = dynamic(() => import("@/components/query/open-in-notebook-modal").then(m => ({ default: m.OpenInNotebookModal })), { ssr: false })
 import { useToast } from "@/lib/toast"
-import { useCapability } from "@/lib/capabilities"
+import { useCapability, CapabilityGate } from "@/lib/capabilities"
 
 interface QueryResult {
   columns: string[]
-  rows: any[][]
+  rows: unknown[][]
   execution_time_ms: number
   truncated?: boolean
 }
@@ -42,8 +42,12 @@ type RightPanel = "history" | "chart-config" | null
 
 const DEFAULT_QUERY = "-- Write your SQL here\nSELECT 1 AS hello;"
 
-export default function QueryPage() {
-  const [query, setQuery]                   = useState(DEFAULT_QUERY)
+function QueryPageInner() {
+  const [query, setQuery]                   = useState(() => {
+    if (typeof window === "undefined") return DEFAULT_QUERY
+    const linkedSql = new URLSearchParams(window.location.search).get("sql")
+    return linkedSql?.trim() ? linkedSql : DEFAULT_QUERY
+  })
   const [queryStatus, setQueryStatus]       = useState<QueryStatus>("idle")
   const [results, setResults]               = useState<QueryResult | null>(null)
   const [error, setError]                   = useState<string | null>(null)
@@ -82,17 +86,11 @@ export default function QueryPage() {
       fetch("/api/services").then(r => r.json())
         .then((services: { name: string; status: string }[]) => {
           const svc = services.find(s => s.name === svcName)
-          setEngineStatus((svc?.status as any) ?? "unknown")
+          const status = svc?.status
+          setEngineStatus(status === "healthy" || status === "unhealthy" || status === "managed" ? status : "unknown")
         })
         .catch(() => setEngineStatus("unknown"))
     }).catch(() => {})
-  }, [])
-
-  // Deep link: /query?sql=<encoded> preloads the editor so "Open in SQL Lab"
-  // affordances elsewhere (Catalog, AI) can hand off a ready-to-run statement.
-  useEffect(() => {
-    const sql = new URLSearchParams(window.location.search).get("sql")
-    if (sql && sql.trim()) setQuery(sql)
   }, [])
 
   // ── Schema panel horizontal resize ──────────────────────────────────────────
@@ -151,8 +149,8 @@ export default function QueryPage() {
       if (!data.has_ai) {
         toast("Configure an AI provider in Settings → AI to enable AI SQL generation", "info")
       }
-    } catch (e: any) {
-      toast(e.message || "AI request failed", "error")
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "AI request failed", "error")
     } finally {
       setAiLoading(false)
     }
@@ -435,7 +433,7 @@ export default function QueryPage() {
                   title={`Query engine: ${engineName} (${engineStatus})`}
                 >
                   <span className={`h-1.5 w-1.5 rounded-full inline-block ${
-                    engineStatus === "healthy" || engineStatus === "managed" ? "bg-[var(--dp-good)]" :
+                    engineStatus === "healthy" ? "bg-[var(--dp-good)]" :
                     engineStatus === "unhealthy" ? "bg-destructive" : "bg-[var(--dp-warn)]"
                   }`} />
                   {engineName}
@@ -656,5 +654,13 @@ export default function QueryPage() {
         onSuccess={() => toast("Dashboard saved!", "success")}
       />
     </div>
+  )
+}
+
+export default function QueryPage() {
+  return (
+    <CapabilityGate capability="query">
+      <QueryPageInner />
+    </CapabilityGate>
   )
 }

@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState, Suspense } from "react"
+import { Suspense, useCallback, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -11,14 +11,23 @@ import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink,
   BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { FileCode, ExternalLink, Download, Edit, ArrowLeft, AlertCircle } from "lucide-react"
+import { ExternalLink, Edit, ArrowLeft, AlertCircle } from "lucide-react"
+import Image from "next/image"
 import Link from "next/link"
 import { serviceUrls } from "@/lib/urls"
+
+interface NotebookOutput {
+  output_type?: string
+  text?: string | string[]
+  data?: Record<string, string | string[]>
+  ename?: string
+  evalue?: string
+}
 
 interface NotebookCell {
   cell_type: "code" | "markdown" | "raw"
   source: string | string[]
-  outputs?: any[]
+  outputs?: NotebookOutput[]
   execution_count?: number | null
   id?: string
 }
@@ -34,7 +43,7 @@ function cellSource(cell: NotebookCell): string {
   return Array.isArray(cell.source) ? cell.source.join("") : (cell.source ?? "")
 }
 
-function renderOutput(output: any): string {
+function renderOutput(output: NotebookOutput): string {
   if (output.output_type === "stream") {
     return Array.isArray(output.text) ? output.text.join("") : (output.text ?? "")
   }
@@ -87,16 +96,13 @@ function NotebookViewer() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (path) fetchNotebook(path)
-  }, [path])
-
-  const fetchNotebook = async (notebookPath: string) => {
+  const fetchNotebook = useCallback(async (notebookPath: string) => {
     try {
       setLoading(true)
       setError(null)
 
-      const res = await fetch(`/api/notebooks/${encodeURIComponent(notebookPath)}`)
+      const encodedPath = notebookPath.split("/").map(encodeURIComponent).join("/")
+      const res = await fetch(`/api/notebooks/${encodedPath}`)
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.detail || `HTTP ${res.status}`)
@@ -108,15 +114,23 @@ function NotebookViewer() {
       if (!nbContent?.cells) throw new Error("Invalid notebook format")
 
       setNotebook({ cells: nbContent.cells, metadata: nbContent.metadata ?? {} })
-    } catch (err: any) {
-      setError(err.message || "Failed to load notebook")
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to load notebook")
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    if (!path) return
+    const timer = window.setTimeout(() => { void fetchNotebook(path) }, 0)
+    return () => window.clearTimeout(timer)
+  }, [fetchNotebook, path])
 
   const handleEdit = () => {
-    window.open(`${serviceUrls.jupyter()}/lab/tree/${path}`, "_blank")
+    if (!path) return
+    const encodedPath = path.split("/").map(encodeURIComponent).join("/")
+    window.open(`${serviceUrls.jupyter()}/lab/tree/${encodedPath}`, "_blank", "noopener,noreferrer")
   }
 
   if (loading) {
@@ -188,6 +202,13 @@ function NotebookViewer() {
         </div>
       </div>
 
+      <Alert>
+        <AlertCircle className="h-4 w-4" />
+        <AlertDescription>
+          Editing opens external JupyterLab, which may require a separate sign-in. No Jupyter token is placed in the browser URL.
+        </AlertDescription>
+      </Alert>
+
       {/* Cells */}
       <div className="space-y-3">
         {notebook.cells.map((cell, idx) => {
@@ -233,10 +254,13 @@ function NotebookViewer() {
                           if (isImage) {
                             return (
                               <div key={oi} className="p-3">
-                                <img
-                                  src={`data:image/png;base64,${output.data["image/png"]}`}
-                                  alt="output"
-                                  className="max-w-full rounded"
+                                <Image
+                                  src={`data:image/png;base64,${output.data!["image/png"]}`}
+                                  alt="Notebook output"
+                                  width={800}
+                                  height={600}
+                                  unoptimized
+                                  className="h-auto max-w-full rounded"
                                 />
                               </div>
                             )

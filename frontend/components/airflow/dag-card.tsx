@@ -35,7 +35,7 @@ function StateIndicator({ state }: { state?: string }) {
 
 export function DagCard({
   dag_id, is_paused, description, schedule_interval,
-  last_run_state, last_run_time, success_rate,
+  last_run_state, success_rate,
   savedStatus, onTrigger, onTogglePause, onDelete, onEdit,
 }: DagCardProps) {
   return (

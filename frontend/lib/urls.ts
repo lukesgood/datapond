@@ -16,6 +16,6 @@ export const serviceUrls = {
   airflow:      () => `${baseUrl()}/airflow`,
   mlflow:       () => `${baseUrl()}/mlflow`,
   openmetadata: () => `${baseUrl()}/openmetadata`,
-  seaweedfs:    () => `${baseUrl()}/seaweedfs-console`,
+  minio:        () => `${baseUrl()}/storage`,
   api:          () => `${baseUrl()}/api`,
 }

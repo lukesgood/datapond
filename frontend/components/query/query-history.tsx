@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Clock, Trash2 } from "lucide-react"
@@ -19,22 +19,16 @@ const MAX_HISTORY_ITEMS = 10
 const STORAGE_KEY = "datapond_query_history"
 
 export function QueryHistory({ onQuerySelect }: QueryHistoryProps) {
-  const [history, setHistory] = useState<HistoryItem[]>([])
-
-  useEffect(() => {
-    loadHistory()
-  }, [])
-
-  const loadHistory = () => {
+  const [history, setHistory] = useState<HistoryItem[]>(() => {
+    if (typeof window === "undefined") return []
     try {
       const stored = localStorage.getItem(STORAGE_KEY)
-      if (stored) {
-        setHistory(JSON.parse(stored))
-      }
+      return stored ? JSON.parse(stored) as HistoryItem[] : []
     } catch (error) {
       console.error("Failed to load query history:", error)
+      return []
     }
-  }
+  })
 
   const clearHistory = () => {
     localStorage.removeItem(STORAGE_KEY)

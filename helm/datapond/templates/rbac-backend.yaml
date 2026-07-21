@@ -13,9 +13,15 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "pods/log", "services", "persistentvolumeclaims"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete"]
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["patch", "update"]
   - apiGroups: ["metrics.k8s.io"]
     resources: ["pods", "nodes"]
     verbs: ["get", "list"]
@@ -32,15 +38,49 @@ metadata:
   labels:
     app: {{ .Values.backend.name }}
 subjects:
-  # backend 배포가 명시 SA를 안 쓰면 default SA로 실행되므로 둘 다 바인딩(환경별 차이 대응)
+  # Bind ONLY the SA the backend pod actually runs as (same default as the
+  # Deployment's serviceAccountName). Do NOT bind the namespace `default` SA —
+  # these escalated verbs (pods/delete, deployments/patch) must not leak to
+  # every add-on pod that runs without an explicit SA.
   - kind: ServiceAccount
-    name: {{ .Values.backend.serviceAccountName | default "default" }}
-    namespace: {{ .Values.namespace }}
-  - kind: ServiceAccount
-    name: backend
+    name: {{ .Values.backend.serviceAccountName | default "datapond-backend" }}
     namespace: {{ .Values.namespace }}
 roleRef:
   kind: Role
   name: datapond-backend-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+# Nodes are cluster-scoped, so the System page's node specs (CPU/memory/disk) and
+# the real usage-% (used ÷ node allocatable) need a ClusterRole. Read-only get/list.
+# Without it, list_node() 403s → specs are blank and memory-% falls back to raw MiB
+# (rendered as an absurd "1747%").
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.namespace }}-backend-node-reader
+  labels:
+    app: {{ .Values.backend.name }}
+    app.kubernetes.io/component: backend
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.namespace }}-backend-node-reader-binding
+  labels:
+    app: {{ .Values.backend.name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.backend.serviceAccountName | default "datapond-backend" }}
+    namespace: {{ .Values.namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ .Values.namespace }}-backend-node-reader
   apiGroup: rbac.authorization.k8s.io
 {{- end }}

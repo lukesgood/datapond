@@ -36,13 +36,14 @@ import {
   GitBranch,
   Clock,
 } from "lucide-react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
+import { serviceUrls } from "@/lib/urls"
 
 interface ModelVersion {
   name: string
   version: string
   creation_timestamp: number
-  last_updated_timestamp: number
+  last_updated_timestamp?: number
   current_stage: string
   description?: string
   run_id?: string
@@ -53,10 +54,10 @@ interface ModelVersion {
 interface RegisteredModel {
   name: string
   creation_timestamp: number
-  last_updated_timestamp: number
+  last_updated_timestamp?: number
   description?: string
   latest_versions?: ModelVersion[]
-  tags?: Array<{ key: string; value: string }>
+  tags?: Record<string, string>
 }
 
 export function ModelRegistry() {
@@ -64,69 +65,32 @@ export function ModelRegistry() {
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [stageFilter, setStageFilter] = useState<string>("all")
+  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    fetchModels()
-  }, [])
-
-  const fetchModels = async () => {
+  const fetchModels = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const response = await fetch("/api/mlflow/registered-models")
-      const data = await response.json()
-      setModels(data.registered_models || [])
-    } catch (error) {
-      console.error("Error fetching models:", error)
-      // Use mock data for now
-      setModels([
-        {
-          name: "customer-churn-model",
-          creation_timestamp: Date.now() - 86400000 * 7,
-          last_updated_timestamp: Date.now() - 3600000,
-          description: "XGBoost model for predicting customer churn",
-          latest_versions: [
-            {
-              name: "customer-churn-model",
-              version: "3",
-              creation_timestamp: Date.now() - 3600000,
-              last_updated_timestamp: Date.now() - 3600000,
-              current_stage: "Production",
-              run_id: "abc123",
-              status: "READY",
-            },
-            {
-              name: "customer-churn-model",
-              version: "2",
-              creation_timestamp: Date.now() - 86400000,
-              last_updated_timestamp: Date.now() - 86400000,
-              current_stage: "Staging",
-              run_id: "def456",
-              status: "READY",
-            },
-          ],
-        },
-        {
-          name: "sales-forecast-lstm",
-          creation_timestamp: Date.now() - 86400000 * 14,
-          last_updated_timestamp: Date.now() - 86400000 * 2,
-          description: "LSTM model for sales forecasting",
-          latest_versions: [
-            {
-              name: "sales-forecast-lstm",
-              version: "1",
-              creation_timestamp: Date.now() - 86400000 * 14,
-              last_updated_timestamp: Date.now() - 86400000 * 14,
-              current_stage: "Staging",
-              run_id: "ghi789",
-              status: "READY",
-            },
-          ],
-        },
-      ])
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { detail?: unknown } | null
+        throw new Error(typeof body?.detail === "string" ? body.detail : `Failed to load models (HTTP ${response.status})`)
+      }
+      const data = await response.json() as RegisteredModel[]
+      if (!Array.isArray(data)) throw new Error("Invalid model registry response")
+      setModels(data)
+    } catch (caught) {
+      setModels([])
+      setError(caught instanceof Error ? caught.message : "Failed to load models")
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    const timer = setTimeout(() => { void fetchModels() }, 0)
+    return () => clearTimeout(timer)
+  }, [fetchModels])
 
   const getStageBadge = (stage: string) => {
     switch (stage) {
@@ -142,19 +106,25 @@ export function ModelRegistry() {
   }
 
   const promoteModel = async (modelName: string, version: string, stage: string) => {
+    setError(null)
     try {
-      await fetch(`/api/mlflow/model-versions/transition-stage`, {
+      const response = await fetch("/api/mlflow/model-versions/transition-stage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: modelName, version, stage }),
       })
-      fetchModels()
-    } catch (error) {
-      console.error("Error promoting model:", error)
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { detail?: unknown } | null
+        throw new Error(typeof body?.detail === "string" ? body.detail : `Model transition failed (HTTP ${response.status})`)
+      }
+      await fetchModels()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Model transition failed")
     }
   }
 
-  const formatDate = (timestamp: number) => {
+  const formatDate = (timestamp?: number) => {
+    if (!timestamp) return "Unknown"
     const date = new Date(timestamp)
     const now = new Date()
     const diffMs = now.getTime() - date.getTime()
@@ -187,6 +157,11 @@ export function ModelRegistry() {
 
   return (
     <div className="space-y-4">
+      {error && (
+        <Card>
+          <CardContent className="py-3 text-sm text-destructive">{error}</CardContent>
+        </Card>
+      )}
       {/* Search and Filters */}
       <Card>
         <CardContent className="pt-6">
@@ -243,7 +218,15 @@ export function ModelRegistry() {
                       <p className="text-sm text-muted-foreground">{model.description}</p>
                     )}
                   </div>
-                  <Button variant="outline" size="sm">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.open(
+                      `${serviceUrls.mlflow()}/#/models/${encodeURIComponent(model.name)}`,
+                      "_blank",
+                      "noopener,noreferrer",
+                    )}
+                  >
                     <ExternalLink className="mr-2 h-4 w-4" />
                     Open in MLflow
                   </Button>

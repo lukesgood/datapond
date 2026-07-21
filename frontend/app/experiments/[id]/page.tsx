@@ -30,8 +30,6 @@ import {
 import {
   FlaskConical,
   ArrowLeft,
-  Plus,
-  GitBranch,
   PlayCircle,
   CheckCircle,
   XCircle,
@@ -40,10 +38,15 @@ import {
   TrendingUp,
   BarChart3,
 } from "lucide-react"
-import { MultiMetricsChart } from "@/components/mlflow/metrics-chart"
-import { useState, useEffect } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { serviceUrls } from "@/lib/urls"
+import { bestMetricValue } from "@/components/experiments/compare-runs"
+
+interface Experiment {
+  experiment_id: string
+  name: string
+}
 
 interface Run {
   info: {
@@ -62,38 +65,50 @@ interface Run {
   }
 }
 
+interface CompareData {
+  runs: Run[]
+  common_metrics?: string[]
+  common_params?: string[]
+  diff_params?: string[]
+}
+
 export default function ExperimentDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter()
-  const [experiment, setExperiment] = useState<any>(null)
+  const [experiment, setExperiment] = useState<Experiment | null>(null)
   const [runs, setRuns] = useState<Run[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedRuns, setSelectedRuns] = useState<string[]>([])
   const [sortBy, setSortBy] = useState<string>("start_time")
-  const [compareData, setCompareData] = useState<any>(null)
+  const [compareData, setCompareData] = useState<CompareData | null>(null)
   const [comparing, setComparing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    fetchExperimentDetails()
-  }, [params.id])
-
-  const fetchExperimentDetails = async () => {
+  const fetchExperimentDetails = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
-      // Fetch experiment info
       const expRes = await fetch(`/api/mlflow/experiments/${params.id}`)
-      const expData = await expRes.json()
-      setExperiment(expData.experiment)
+      if (!expRes.ok) throw new Error(await expRes.text() || `HTTP ${expRes.status}`)
+      setExperiment(await expRes.json() as Experiment)
 
-      // Fetch runs
       const runsRes = await fetch(`/api/mlflow/experiments/${params.id}/runs`)
-      const runsData = await runsRes.json()
-      setRuns(runsData.runs || [])
-    } catch (error) {
-      console.error("Error fetching experiment details:", error)
+      if (!runsRes.ok) throw new Error(await runsRes.text() || `HTTP ${runsRes.status}`)
+      const runData = await runsRes.json() as Run[]
+      if (!Array.isArray(runData)) throw new Error("Invalid runs response")
+      setRuns(runData)
+    } catch (caught) {
+      setExperiment(null)
+      setRuns([])
+      setError(caught instanceof Error ? caught.message : "Failed to load experiment")
     } finally {
       setLoading(false)
     }
-  }
+  }, [params.id])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void fetchExperimentDetails() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [fetchExperimentDetails])
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -149,19 +164,9 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
     return metric ? metric.value.toFixed(4) : "-"
   }
 
-  const getParamValue = (run: Run, paramKey: string) => {
-    const param = run.data.params?.find((p) => p.key === paramKey)
-    return param ? param.value : "-"
-  }
-
   // Get all unique metric keys
   const allMetrics = Array.from(
     new Set(runs.flatMap((run) => run.data.metrics?.map((m) => m.key) || []))
-  )
-
-  // Get all unique param keys
-  const allParams = Array.from(
-    new Set(runs.flatMap((run) => run.data.params?.map((p) => p.key) || []))
   )
 
   const handleCompare = async () => {
@@ -195,7 +200,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
       <div className="flex-1 space-y-4 p-8 pt-6">
         <Card>
           <CardContent className="py-8 text-center">
-            <p className="text-muted-foreground">Experiment not found</p>
+            <p className="text-muted-foreground">{error || "Experiment not found"}</p>
           </CardContent>
         </Card>
       </div>
@@ -237,10 +242,6 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" disabled>
-            <Plus className="mr-2 h-4 w-4" />
-            New Run
-          </Button>
           {selectedRuns.length > 0 && (
             <Button variant="default" size="sm" onClick={handleCompare} disabled={comparing}>
               <BarChart3 className="mr-2 h-4 w-4" />
@@ -423,7 +424,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                 <thead>
                   <tr className="border-b bg-muted/40">
                     <th className="text-left px-4 py-2 font-medium text-xs w-40">Field</th>
-                    {compareData.runs.map((run: any) => (
+                    {compareData.runs.map((run) => (
                       <th key={run.info.run_id} className="text-left px-4 py-2 font-medium text-xs">
                         <div className="font-mono truncate max-w-[160px]">
                           {run.info.run_name || run.info.run_id.slice(0, 8)}
@@ -437,23 +438,23 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                 </thead>
                 <tbody>
                   {/* Metrics section */}
-                  {compareData.common_metrics?.length > 0 && (
+                  {(compareData.common_metrics?.length ?? 0) > 0 && (
                     <>
                       <tr className="bg-muted/20">
                         <td colSpan={compareData.runs.length + 1} className="px-4 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
                           Metrics
                         </td>
                       </tr>
-                      {compareData.common_metrics.map((metric: string) => {
-                        const vals = compareData.runs.map((r: any) =>
-                          r.data.metrics?.find((m: any) => m.key === metric)?.value
+                      {(compareData.common_metrics ?? []).map((metric: string) => {
+                        const vals = compareData.runs.map((r) =>
+                          r.data.metrics?.find((m) => m.key === metric)?.value
                         )
-                        const numVals = vals.filter((v: any) => v != null) as number[]
-                        const best = numVals.length ? Math.max(...numVals) : null
+                        const numVals = vals.filter((v): v is number => v != null)
+                        const best = bestMetricValue(vals, metric)
                         return (
                           <tr key={metric} className="border-b hover:bg-muted/20">
                             <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{metric}</td>
-                            {vals.map((v: any, i: number) => (
+                            {vals.map((v, i) => (
                               <td key={i} className={`px-4 py-2 font-mono text-xs font-medium ${
                                 v === best && numVals.length > 1 ? "text-green-600" : ""
                               }`}>
@@ -469,22 +470,22 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                     </>
                   )}
                   {/* Params section */}
-                  {compareData.common_params?.length > 0 && (
+                  {(compareData.common_params?.length ?? 0) > 0 && (
                     <>
                       <tr className="bg-muted/20">
                         <td colSpan={compareData.runs.length + 1} className="px-4 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
                           Parameters
                         </td>
                       </tr>
-                      {compareData.common_params.map((param: string) => {
-                        const vals = compareData.runs.map((r: any) =>
-                          r.data.params?.find((p: any) => p.key === param)?.value
+                      {(compareData.common_params ?? []).map((param: string) => {
+                        const vals = compareData.runs.map((r) =>
+                          r.data.params?.find((p) => p.key === param)?.value
                         )
                         const allSame = new Set(vals).size === 1
                         return (
                           <tr key={param} className="border-b hover:bg-muted/20">
                             <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{param}</td>
-                            {vals.map((v: any, i: number) => (
+                            {vals.map((v, i) => (
                               <td key={i} className={`px-4 py-2 font-mono text-xs ${
                                 !allSame ? "font-medium" : "text-muted-foreground"
                               }`}>
@@ -497,21 +498,21 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                     </>
                   )}
                   {/* Diff params */}
-                  {compareData.diff_params?.length > 0 && (
+                  {(compareData.diff_params?.length ?? 0) > 0 && (
                     <>
                       <tr className="bg-amber-50/50 dark:bg-amber-900/10">
                         <td colSpan={compareData.runs.length + 1} className="px-4 py-1 text-[10px] font-semibold text-amber-600 uppercase tracking-wide">
                           Differing Parameters
                         </td>
                       </tr>
-                      {compareData.diff_params.map((param: string) => {
-                        const vals = compareData.runs.map((r: any) =>
-                          r.data.params?.find((p: any) => p.key === param)?.value
+                      {(compareData.diff_params ?? []).map((param: string) => {
+                        const vals = compareData.runs.map((r) =>
+                          r.data.params?.find((p) => p.key === param)?.value
                         )
                         return (
                           <tr key={param} className="border-b hover:bg-muted/20">
                             <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{param}</td>
-                            {vals.map((v: any, i: number) => (
+                            {vals.map((v, i) => (
                               <td key={i} className="px-4 py-2 font-mono text-xs font-medium text-amber-600">
                                 {v ?? <span className="text-muted-foreground/40">—</span>}
                               </td>

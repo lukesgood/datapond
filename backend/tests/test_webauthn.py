@@ -38,9 +38,7 @@ def test_cfg_derives_origin_from_rp_id(monkeypatch):
 def test_register_begin_returns_options_and_stores_challenge(monkeypatch):
     w = _fresh(monkeypatch, {"WEBAUTHN_RP_ID": "localhost", "WEBAUTHN_ORIGIN": "http://localhost:3000"})
     import asyncio
-    opts, nonce = asyncio.get_event_loop().run_until_complete(
-        w._build_registration_options(user_id="00000000-0000-0000-0000-000000000001", username="admin", existing=[])
-    )
+    opts, nonce = asyncio.run(w._build_registration_options(user_id="00000000-0000-0000-0000-000000000001", username="admin", existing=[]))
     assert "challenge" in opts and "rp" in opts
     assert w._challenge_pop(nonce) is not None      # stored
     assert w._challenge_pop(nonce) is None           # single-use consumed
@@ -49,8 +47,7 @@ def test_register_begin_returns_options_and_stores_challenge(monkeypatch):
 def test_registration_options_restrict_to_allowlist(monkeypatch):
     w = _fresh(monkeypatch, {"WEBAUTHN_RP_ID": "localhost", "WEBAUTHN_ORIGIN": "http://localhost:3000"})
     import asyncio
-    opts, _ = asyncio.get_event_loop().run_until_complete(
-        w._build_registration_options(user_id="00000000-0000-0000-0000-000000000001", username="admin", existing=[]))
+    opts, _ = asyncio.run(w._build_registration_options(user_id="00000000-0000-0000-0000-000000000001", username="admin", existing=[]))
     algs = {p["alg"] for p in opts["pubKeyCredParams"]}
     assert algs <= {-7, -257}          # only ES256/RS256 offered
     assert -7 in algs                   # ES256 present
@@ -136,3 +133,34 @@ def _make_async(ret):
     async def _f(*a, **k):
         return ret
     return _f
+
+
+def test_redis_client_prefers_redis_url_over_k8s_valkey_port(monkeypatch):
+    """Regression: K8s injects VALKEY_PORT=tcp://<ip>:6379, which broke int() and silently
+    dropped the challenge store to an in-process dict — so passkey register/begin and
+    register/complete landed on different backend replicas ("Challenge expired"), and
+    enrollment never completed. _redis_client must prefer REDIS_URL and never choke on the
+    tcp:// VALKEY_PORT."""
+    import app.api.webauthn as w
+    import redis
+    seen = {}
+
+    class _FakeRedis:
+        def ping(self):
+            return True
+
+    monkeypatch.setattr(redis.Redis, "from_url",
+                        lambda url, **kw: (seen.__setitem__("url", url), _FakeRedis())[1])
+
+    # 1) REDIS_URL wins; the tcp:// VALKEY_PORT noise is ignored.
+    monkeypatch.setenv("REDIS_URL", "redis://redis:6379")
+    monkeypatch.setenv("VALKEY_PORT", "tcp://10.43.224.159:6379")
+    assert w._redis_client() is not None
+    assert seen["url"] == "redis://redis:6379"
+
+    # 2) No REDIS_URL + tcp:// VALKEY_PORT must not raise; port parsed from the tail.
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.setattr(redis, "Redis",
+                        lambda **kw: (seen.__setitem__("port", kw.get("port")), _FakeRedis())[1])
+    assert w._redis_client() is not None
+    assert seen["port"] == 6379

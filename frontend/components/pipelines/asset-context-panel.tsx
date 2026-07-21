@@ -1,7 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { X, Database, Table2, ShieldCheck, Clock, Layers, ArrowRight, ArrowLeft } from "lucide-react"
+import { X, Database, Table2, ShieldCheck, Layers, ArrowRight, ArrowLeft } from "lucide-react"
 import { AssetNodeData } from "./asset-node"
 
 interface AssetContextPanelProps {
@@ -13,10 +12,7 @@ interface AssetContextPanelProps {
   onClose: () => void
 }
 
-export function AssetContextPanel({ nodeId, nodeData, dagId, edges, allNodes, onClose }: AssetContextPanelProps) {
-  const [taskLog, setTaskLog] = useState<string | null>(null)
-
-  useEffect(() => { setTaskLog(null) }, [nodeId])
+export function AssetContextPanel({ nodeId, nodeData, edges, allNodes, onClose }: AssetContextPanelProps) {
 
   if (!nodeId || !nodeData) return null
 

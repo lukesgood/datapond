@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react"
 import ReactFlow, {
-  Node, Edge,
+  Node, Edge, NodeMouseHandler,
   Controls, Background, MiniMap,
   useNodesState, useEdgesState,
   MarkerType, BackgroundVariant,
@@ -13,10 +13,16 @@ import "reactflow/dist/style.css"
 import { AssetNode, AssetNodeData } from "./asset-node"
 import { Database, Table2, ShieldCheck } from "lucide-react"
 
+interface RawAssetNode {
+  id: string
+  type: string
+  data: AssetNodeData
+}
+
 interface AssetGraphProps {
   dag_id: string
-  nodes: any[]
-  edges: any[]
+  nodes: RawAssetNode[]
+  edges: Edge[]
   taskStates?: Record<string, string>
   onNodeSelect?: (nodeId: string | null) => void
 }
@@ -95,7 +101,7 @@ export function AssetGraph(props: AssetGraphProps) {
   )
 }
 
-function AssetGraphInner({ dag_id, nodes: rawNodes, edges: rawEdges, taskStates = {}, onNodeSelect }: AssetGraphProps) {
+function AssetGraphInner({ nodes: rawNodes, edges: rawEdges, taskStates = {}, onNodeSelect }: AssetGraphProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
@@ -159,7 +165,7 @@ function AssetGraphInner({ dag_id, nodes: rawNodes, edges: rawEdges, taskStates 
     }
   }, [layoutVersion, nodes.length, fitView])
 
-  const handleNodeClick = useCallback((_: any, node: Node) => {
+  const handleNodeClick: NodeMouseHandler = useCallback((_, node) => {
     const next = selectedNode === node.id ? null : node.id
     setSelectedNode(next)
     onNodeSelect?.(next)

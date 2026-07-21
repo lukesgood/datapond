@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import {
   Dialog,
   DialogContent,
@@ -62,8 +62,31 @@ export function LogToMlflowModal({
   const [result, setResult] = useState<{ run_id: string; mlflow_url: string; run_name: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const fetchExperiments = useCallback(async () => {
+    setLoadingExps(true)
+    try {
+      const r = await fetch("/api/mlflow/experiments")
+      if (!r.ok) {
+        const body = await r.json().catch(() => null) as { detail?: unknown } | null
+        throw new Error(typeof body?.detail === "string" ? body.detail : `Failed to load experiments (HTTP ${r.status})`)
+      }
+      const exps = await r.json() as MlflowExperiment[]
+      if (!Array.isArray(exps)) throw new Error("Invalid experiment response")
+      setExperiments(exps)
+      if (exps.length > 0) {
+        setSelectedExpId(current => current || exps[0].experiment_id)
+      }
+    } catch (caught) {
+      setExperiments([])
+      setError(caught instanceof Error ? caught.message : "Failed to load experiments")
+    } finally {
+      setLoadingExps(false)
+    }
+  }, [])
+
   useEffect(() => {
-    if (open) {
+    if (!open) return
+    const timer = setTimeout(() => {
       setResult(null)
       setError(null)
       setRunName("")
@@ -71,26 +94,10 @@ export function LogToMlflowModal({
       setShowNewExp(false)
       setCustomParams([{ key: "", value: "" }])
       setCustomMetrics([])
-      fetchExperiments()
-    }
-  }, [open])
-
-  const fetchExperiments = async () => {
-    setLoadingExps(true)
-    try {
-      const r = await fetch("/api/mlflow/experiments")
-      const data = await r.json()
-      const exps: MlflowExperiment[] = Array.isArray(data) ? data : (data.experiments ?? [])
-      setExperiments(exps)
-      if (exps.length > 0 && !selectedExpId) {
-        setSelectedExpId(exps[0].experiment_id)
-      }
-    } catch {
-      // silently fail — user can still create a new experiment
-    } finally {
-      setLoadingExps(false)
-    }
-  }
+      void fetchExperiments()
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [open, fetchExperiments])
 
   const handleCreateExp = async () => {
     if (!newExpName.trim()) return
@@ -101,8 +108,11 @@ export function LogToMlflowModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newExpName.trim() }),
       })
-      if (!r.ok) throw new Error("Failed to create experiment")
-      const exp = await r.json()
+      if (!r.ok) {
+        const body = await r.json().catch(() => null) as { detail?: unknown } | null
+        throw new Error(typeof body?.detail === "string" ? body.detail : `Failed to create experiment (HTTP ${r.status})`)
+      }
+      const exp = await r.json() as MlflowExperiment
       setExperiments(prev => [...prev, exp])
       setSelectedExpId(exp.experiment_id)
       setNewExpName("")
@@ -169,7 +179,7 @@ export function LogToMlflowModal({
       setResult({
         run_id: data.run_id,
         mlflow_url: data.mlflow_url ?? "/mlflow",
-        run_name: runName.trim() || data.run_id?.slice(0, 8) || "run",
+        run_name: data.run_name || data.run_id?.slice(0, 8) || "run",
       })
       onSuccess?.(data.run_id)
     } catch (e) {

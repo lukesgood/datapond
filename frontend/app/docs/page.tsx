@@ -1,6 +1,21 @@
 "use client"
 
 import Link from "next/link"
+import { useState } from "react"
+import type { LucideIcon } from "lucide-react"
+import {
+  BookOpen,
+  Boxes,
+  Database,
+  ExternalLink,
+  FileText,
+  HelpCircle,
+  Plug,
+  Rocket,
+  Search,
+  Settings,
+  ShieldCheck,
+} from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -12,387 +27,186 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import {
-  Book,
-  Rocket,
-  Database,
-  Plug,
-  Code2,
-  Settings,
-  Shield,
-  Zap,
-  Search,
-  ExternalLink,
-  FileText,
-  GitBranch,
-  HelpCircle
-} from "lucide-react"
-import { useState } from "react"
 
-interface DocCategory {
+type DocLink = {
   title: string
   description: string
-  icon: any
-  docs: Array<{
-    title: string
-    description: string
-    href: string
-    badge?: string
-  }>
+  href: string
+  badge?: "Shipped" | "Optional" | "Reference" | "Roadmap"
+}
+
+type DocCategory = {
+  title: string
+  description: string
+  icon: LucideIcon
+  docs: DocLink[]
 }
 
 const docCategories: DocCategory[] = [
   {
-    title: "Getting Started",
-    description: "Quick start guides and introductions",
+    title: "Start Here",
+    description: "Understand the product and complete the governed RAG path",
     icon: Rocket,
     docs: [
-      {
-        title: "Platform Overview",
-        description: "Introduction to DataPond architecture and components",
-        href: "/docs/overview",
-        badge: "Start Here"
-      },
-      {
-        title: "Quick Start Guide",
-        description: "Get up and running in 5 minutes",
-        href: "/docs/quickstart",
-      },
-      {
-        title: "Architecture Guide",
-        description: "Understanding the AWS-native foundation architecture",
-        href: "/docs/architecture",
-      },
-      {
-        title: "Key Concepts",
-        description: "Iceberg tables, catalogs, and namespaces",
-        href: "/docs/concepts",
-      },
-    ]
+      { title: "Platform Overview", description: "What Portable Core ships and where adapters fit", href: "/docs/overview", badge: "Shipped" },
+      { title: "Quick Start", description: "Create a collection, ingest content, and ask a cited question", href: "/docs/quickstart" },
+      { title: "Core Workflow", description: "Connect → organize → ground → serve → govern", href: "/docs/core-workflow" },
+      { title: "Architecture", description: "Portable application layer, adapter contracts, and add-ons", href: "/docs/architecture" },
+    ],
   },
   {
-    title: "Data Engineering",
-    description: "Guides for data engineers",
-    icon: Database,
+    title: "Deployment Profiles",
+    description: "Choose an operating model without confusing profile intent with installed services",
+    icon: Boxes,
     docs: [
-      {
-        title: "SQL Lab Guide",
-        description: "Interactive query interface and SQL workflows",
-        href: "/help/sql-lab",
-      },
-      {
-        title: "Data Catalog",
-        description: "Browse and manage Iceberg tables",
-        href: "/help/catalog",
-      },
-      {
-        title: "Connectors Setup",
-        description: "Connect to databases and data sources",
-        href: "/help/connectors",
-      },
-      {
-        title: "Pipeline Development (MWAA / EMR)",
-        description: "Orchestrate batch/ELT with Amazon MWAA and EMR Serverless/Glue",
-        href: "/docs/pipelines",
-      },
-    ]
+      { title: "Profile Matrix", description: "Compare supported, reference, community, and development profiles", href: "/docs/profiles", badge: "Shipped" },
+      { title: "Portable Core · AWS", description: "Lean five-workload starter using S3 and Bedrock", href: "/docs/portable-core" },
+      { title: "AWS Single-Node Reference", description: "EC2/K3s with Aurora, S3, Glue/Athena, and Bedrock", href: "/docs/aws-reference", badge: "Reference" },
+      { title: "Sovereign OSS Extended", description: "Self-hosted core plus selected open-source add-ons", href: "/docs/sovereign", badge: "Optional" },
+    ],
   },
   {
-    title: "Query & Analytics",
-    description: "Running queries and analyzing data",
-    icon: Code2,
-    docs: [
-      {
-        title: "SQL Analytics (Athena / Trino)",
-        description: "Serverless SQL on S3 with Amazon Athena (Trino on the full profile)",
-        href: "/docs/trino-sql",
-      },
-      {
-        title: "Streaming (MSK / Managed Flink)",
-        description: "Real-time streaming with Amazon MSK and Managed Flink",
-        href: "/docs/streaming",
-      },
-      {
-        title: "Notebooks (SageMaker Studio / DuckDB)",
-        description: "Notebook exploration with SageMaker Studio (DuckDB on the full profile)",
-        href: "/docs/duckdb",
-      },
-      {
-        title: "Query Optimization",
-        description: "Performance tuning and best practices",
-        href: "/docs/optimization",
-      },
-    ]
-  },
-  {
-    title: "Integration & APIs",
-    description: "Connect external tools and services",
+    title: "Portability & Exit",
+    description: "Keep data, models, and deployment choices replaceable",
     icon: Plug,
     docs: [
-      {
-        title: "REST API Reference",
-        description: "Complete API documentation for DataPond services",
-        href: "/docs/api",
-      },
-      {
-        title: "Data Catalog (Glue / Polaris)",
-        description: "Table catalog with AWS Glue Data Catalog (Polaris on the full profile)",
-        href: "/docs/polaris",
-      },
-      {
-        title: "Object Storage (AWS S3)",
-        description: "Native S3 via the node instance profile / IRSA",
-        href: "/docs/storage",
-      },
-      {
-        title: "Python SDK",
-        description: "Programmatic access to DataPond",
-        href: "/docs/python-sdk",
-        badge: "Beta"
-      },
-    ]
+      { title: "Open Contracts", description: "S3 API, PostgreSQL/pgvector, LiteLLM, Iceberg, OIDC", href: "/docs/open-contracts", badge: "Shipped" },
+      { title: "Exit Strategy", description: "What can move today and which migration automation remains roadmap", href: "/docs/exit-strategy" },
+      { title: "Optional Add-ons", description: "Trino, Polaris, RisingWave, OpenMetadata, Airflow, Jupyter, MLflow", href: "/docs/addons", badge: "Optional" },
+      { title: "Backup & Restore", description: "Protect PostgreSQL, objects, and encryption keys", href: "/docs/backup-restore" },
+    ],
   },
   {
-    title: "Operations",
-    description: "Deployment, monitoring, and maintenance",
+    title: "Build & Govern",
+    description: "Use the shipped AI core and capability-gated data modules",
+    icon: Database,
+    docs: [
+      { title: "Knowledge & RAG", description: "Collections, ingestion, embeddings, retrieval, reranking, and citations", href: "/docs/knowledge-rag", badge: "Shipped" },
+      { title: "Sources", description: "Database and object ingestion when a catalog adapter is enabled", href: "/docs/sources", badge: "Optional" },
+      { title: "Catalog & Query", description: "Glue/Athena or Polaris/Trino, selected by deployment profile", href: "/docs/catalog-query", badge: "Optional" },
+      { title: "AI Gateway", description: "Provider routing, virtual keys, usage, and spend attribution", href: "/docs/ai-gateway", badge: "Shipped" },
+      { title: "Governance", description: "Collection access, PII controls, audit, lineage, and cost governance", href: "/docs/governance", badge: "Shipped" },
+    ],
+  },
+  {
+    title: "Operate",
+    description: "Configure, secure, observe, and troubleshoot a deployment",
     icon: Settings,
     docs: [
-      {
-        title: "Installation Guide",
-        description: "Deploy DataPond on Kubernetes",
-        href: "/docs/installation",
-      },
-      {
-        title: "Configuration",
-        description: "Helm values and environment variables",
-        href: "/docs/configuration",
-      },
-      {
-        title: "Monitoring & Observability",
-        description: "Logs, metrics, and health checks",
-        href: "/docs/monitoring",
-      },
-      {
-        title: "Troubleshooting",
-        description: "Common issues and solutions",
-        href: "/docs/troubleshooting",
-      },
-    ]
-  },
-  {
-    title: "Security & Governance",
-    description: "Access control and compliance",
-    icon: Shield,
-    docs: [
-      {
-        title: "Authentication & SSO",
-        description: "Configure OIDC and SAML integration",
-        href: "/docs/authentication",
-        badge: "Enterprise"
-      },
-      {
-        title: "Role-Based Access Control",
-        description: "Manage permissions at catalog and table level",
-        href: "/docs/rbac",
-      },
-      {
-        title: "Data Lineage (DataZone / OpenMetadata)",
-        description: "Track data flow with Amazon DataZone (OpenMetadata on the full profile)",
-        href: "/docs/lineage",
-      },
-      {
-        title: "Audit Logging",
-        description: "Compliance and audit trail",
-        href: "/docs/audit",
-      },
-    ]
+      { title: "Configuration", description: "Helm values, runtime profile metadata, and feature flags", href: "/docs/configuration" },
+      { title: "Monitoring", description: "Workload health, external services, metrics, and spend", href: "/docs/monitoring" },
+      { title: "Authentication", description: "Local JWT, passkeys, LDAP, and Enterprise OIDC", href: "/docs/authentication" },
+      { title: "Troubleshooting", description: "Diagnose adapters, storage, models, and profile-gated modules", href: "/docs/troubleshooting" },
+      { title: "REST API", description: "FastAPI endpoints for knowledge, AI, governance, and optional data modules", href: "/docs/api" },
+    ],
   },
 ]
 
 export default function DocsPage() {
   const [searchQuery, setSearchQuery] = useState("")
-
-  // Filter docs based on search
-  const filteredCategories = docCategories.map(category => ({
-    ...category,
-    docs: category.docs.filter(doc =>
-      doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      doc.description.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-  })).filter(category => category.docs.length > 0)
+  const needle = searchQuery.trim().toLowerCase()
+  const filteredCategories = docCategories
+    .map((category) => ({
+      ...category,
+      docs: category.docs.filter((doc) =>
+        !needle || `${doc.title} ${doc.description} ${doc.badge ?? ""}`.toLowerCase().includes(needle),
+      ),
+    }))
+    .filter((category) => category.docs.length > 0)
 
   return (
     <div className="flex-1 space-y-6 p-8 pt-6">
-      {/* Breadcrumb */}
       <Breadcrumb>
         <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/dashboard">Home</BreadcrumbLink>
-          </BreadcrumbItem>
+          <BreadcrumbItem><BreadcrumbLink href="/dashboard">Home</BreadcrumbLink></BreadcrumbItem>
           <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Documentation</BreadcrumbPage>
-          </BreadcrumbItem>
+          <BreadcrumbItem><BreadcrumbPage>Documentation</BreadcrumbPage></BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 
-      {/* Page Header */}
-      <div className="space-y-4">
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-4xl font-bold tracking-tight">Documentation</h1>
-            <p className="text-lg text-muted-foreground mt-2">
-              Everything you need to build with DataPond
-            </p>
-          </div>
-          <Link href="/help">
-            <Badge variant="outline" className="gap-1 px-3 py-1.5 cursor-pointer hover:bg-muted">
-              <HelpCircle className="h-3 w-3" />
-              Help & Guides
-            </Badge>
-          </Link>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">Product truth</p>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight">Documentation</h1>
+          <p className="mt-2 max-w-2xl text-muted-foreground">
+            Build on the Portable Core, choose adapters deliberately, and know which capabilities are shipped, optional, or roadmap.
+          </p>
         </div>
-
-        {/* Search */}
-        <div className="relative max-w-xl">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search documentation..."
-            className="pl-9"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
+        <Link href="/help">
+          <Badge variant="outline" className="gap-1 px-3 py-1.5 cursor-pointer hover:bg-muted">
+            <HelpCircle className="h-3 w-3" /> Guides
+          </Badge>
+        </Link>
       </div>
 
-      {/* Quick Stats */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
-              <Book className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-sm font-medium">Documentation Pages</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {docCategories.reduce((acc, cat) => acc + cat.docs.length, 0)}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
-              <GitBranch className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-sm font-medium">Categories</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{docCategories.length}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-sm font-medium">Quick Links</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-2 flex-wrap">
-              <Link href="/help/sql-lab">
-                <Badge variant="secondary" className="cursor-pointer hover:bg-secondary/80">
-                  SQL Lab
-                </Badge>
-              </Link>
-              <Link href="/help/catalog">
-                <Badge variant="secondary" className="cursor-pointer hover:bg-secondary/80">
-                  Catalog
-                </Badge>
-              </Link>
-              <Link href="/help/connectors">
-                <Badge variant="secondary" className="cursor-pointer hover:bg-secondary/80">
-                  Connectors
-                </Badge>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Documentation Categories */}
-      <div className="space-y-6">
-        {filteredCategories.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <p className="text-muted-foreground">
-                No documentation found for "{searchQuery}"
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="flex flex-wrap items-center justify-between gap-4 py-4">
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="mt-0.5 h-5 w-5 text-primary" />
+            <div>
+              <p className="text-sm font-semibold">One core, explicit adapters</p>
+              <p className="text-xs text-muted-foreground">
+                Disabled components are not silently replaced by cloud services. The active profile and capabilities are shown in the app shell.
               </p>
-            </CardContent>
-          </Card>
-        ) : (
-          filteredCategories.map((category, idx) => {
-            const Icon = category.icon
-            return (
-              <div key={idx} className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <Icon className="h-5 w-5 text-primary" />
-                  <h2 className="text-2xl font-bold">{category.title}</h2>
-                </div>
-                <p className="text-muted-foreground">{category.description}</p>
+            </div>
+          </div>
+          <Link className="text-sm font-medium text-primary hover:underline" href="/docs/profiles">Choose a profile →</Link>
+        </CardContent>
+      </Card>
 
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {category.docs.map((doc, docIdx) => (
-                    <Link key={docIdx} href={doc.href}>
-                      <Card className="h-full hover:shadow-md transition-shadow cursor-pointer">
-                        <CardHeader>
-                          <div className="flex items-start justify-between">
-                            <CardTitle className="text-base">{doc.title}</CardTitle>
-                            {doc.badge && (
-                              <Badge variant="secondary" className="ml-2">
-                                {doc.badge}
-                              </Badge>
-                            )}
-                          </div>
-                          <CardDescription className="text-sm">
-                            {doc.description}
-                          </CardDescription>
-                        </CardHeader>
-                      </Card>
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            )
-          })
-        )}
+      <div className="relative max-w-xl">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder="Search concepts, profiles, or capabilities…"
+          className="pl-9"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+        />
       </div>
 
-      {/* Footer CTA */}
+      <div className="space-y-7">
+        {filteredCategories.length === 0 ? (
+          <Card><CardContent className="py-12 text-center text-muted-foreground">No documentation found for “{searchQuery}”.</CardContent></Card>
+        ) : filteredCategories.map((category) => {
+          const Icon = category.icon
+          return (
+            <section key={category.title} className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Icon className="h-5 w-5 text-primary" />
+                <h2 className="text-xl font-bold">{category.title}</h2>
+              </div>
+              <p className="text-sm text-muted-foreground">{category.description}</p>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {category.docs.map((doc) => (
+                  <Link key={doc.href} href={doc.href}>
+                    <Card className="h-full transition-all hover:-translate-y-0.5 hover:shadow-md">
+                      <CardHeader>
+                        <div className="flex items-start justify-between gap-2">
+                          <CardTitle className="text-base">{doc.title}</CardTitle>
+                          {doc.badge && <Badge variant="secondary" className="shrink-0 text-[10px]">{doc.badge}</Badge>}
+                        </div>
+                        <CardDescription>{doc.description}</CardDescription>
+                      </CardHeader>
+                    </Card>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          )
+        })}
+      </div>
+
       <Card className="bg-muted/50">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            Can't find what you're looking for?
-          </CardTitle>
-          <CardDescription>
-            Visit our comprehensive help center or reach out to support
-          </CardDescription>
+          <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" />Need implementation detail?</CardTitle>
+          <CardDescription>The repository docs are the canonical operator reference; historical plans are not current product truth.</CardDescription>
         </CardHeader>
-        <CardContent className="flex gap-3">
-          <Link href="/help">
-            <Badge variant="outline" className="gap-1 px-3 py-2 cursor-pointer hover:bg-background">
-              <HelpCircle className="h-4 w-4" />
-              Help Center
-            </Badge>
+        <CardContent className="flex flex-wrap gap-3">
+          <Link className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline" href="/help">
+            <BookOpen className="h-4 w-4" /> Open guides
           </Link>
-          <a href="mailto:support@datapond.ai" target="_blank" rel="noopener noreferrer">
-            <Badge variant="outline" className="gap-1 px-3 py-2 cursor-pointer hover:bg-background">
-              <ExternalLink className="h-4 w-4" />
-              Contact Support
-            </Badge>
+          <a className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline" href="mailto:support@datapond.ai">
+            <ExternalLink className="h-4 w-4" /> Contact support
           </a>
         </CardContent>
       </Card>

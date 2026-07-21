@@ -1,7 +1,7 @@
 # DataPond Disaster Recovery Runbook
 
-Covers the AWS-native profile (Aurora pgvector + native S3). Non-AWS profiles use
-in-cluster MinIO/Postgres and are out of scope here.
+Covers the AWS Single-Node Reference (Aurora pgvector + native S3). Self-hosted
+profiles use their configured object store/PostgreSQL and require an equivalent backup plan.
 
 ## Objectives
 

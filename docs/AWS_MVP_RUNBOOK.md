@@ -1,149 +1,210 @@
-# AWS MVP Runbook — Bedrock RAG on S3 + Aurora pgvector
+# AWS RAG Acceptance Runbook
 
-## 0. Prerequisites
-- `terraform apply` complete (Tasks 4-5); Bedrock model access enabled.
-- Instance profile `datapond-app-profile` attached to the K3s EC2 instance.
+This runbook validates the shipped AWS adapter path:
 
-### Bedrock Credentials
+```text
+S3 source → Bedrock embedding → PostgreSQL/pgvector → optional rerank → Bedrock answer + citations
+```
 
-LiteLLM connects to Bedrock for embeddings (Titan) and generation (Claude). Credential wiring depends on deployment mode:
+It does not provision infrastructure. For the Terraform-backed EC2/K3s reference, follow [DEPLOY_SINGLE_NODE.md](DEPLOY_SINGLE_NODE.md). For the lean starter, follow [FOUNDATION_PROFILE.md](FOUNDATION_PROFILE.md).
 
-- **EC2 / K3s PoC**: No config needed — instance profile `datapond-app-profile` is auto-assumed via metadata service.
-- **EKS**: Use IRSA: `terraform apply -var eks_oidc_provider_arn=... -var eks_oidc_provider_url=...`, then `helm upgrade ... --set litellm.serviceAccount.roleArn=$(terraform output -raw litellm_bedrock_role_arn)`.
-- **Portable / Static**: Set `litellm.aws.staticCredentials=true` and add `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` to `datapond-secrets` Secret.
+## 1. Choose the deployment under test
 
-**Required:** Bedrock model access must be enabled in the AWS console per region (Claude Haiku/Sonnet + Titan Embed v2). See [AWS Bedrock Setup Guide](./AWS_BEDROCK_SETUP.md) for detailed instructions.
+| Profile | Database | Catalog/query | Expected test scope |
+|---|---|---|---|
+| `values-foundation.yaml` | in-cluster PostgreSQL/pgvector | none | Knowledge/RAG, PII, spend |
+| `values-prod-single.yaml` | Aurora PostgreSQL/pgvector | Glue/Athena | Core scope plus Catalog/SQL |
 
-## 1. Seed credentials secret (Aurora) and deploy
-    kubectl -n datapond create secret generic datapond-secrets \
-      --from-literal=POSTGRES_USER=datapond \
-      --from-literal=POSTGRES_PASSWORD=<db_master_password> \
-      --from-literal=POSTGRES_DB=datapond \
-      --from-literal=JWT_SECRET=<random> \
-      --from-literal=INTERNAL_API_KEY=<random> \
-      --dry-run=client -o yaml | kubectl apply -f -
+`values-aws.yaml` is the hybrid extended compatibility overlay and is not the default target for this runbook.
 
-    # (the S3 bucket is specified per-request in /ingest-source, not via Helm)
-    helm upgrade --install datapond helm/datapond -n datapond \
-      -f helm/datapond/values-aws.yaml \
-      --set externalDatabase.host=<aurora_endpoint>
+## 2. Prerequisites
 
-## 2. Wait for backend ready
-    kubectl -n datapond rollout status deploy/backend
-    kubectl -n datapond logs deploy/backend | grep -i "vector schema"   # ensure_vector_schema ran
+- deployment is healthy and `/api/capabilities` reports the expected profile;
+- Bedrock model access is enabled for Titan Embed, Claude, and optional Amazon Rerank;
+- the backend/LiteLLM can obtain AWS credentials through instance profile, IRSA on a bring-your-own EKS cluster, or configured static credentials;
+- the role can read the test S3 prefix and invoke the configured models;
+- an administrator credential is available.
 
-## 3. Upload sample source docs to S3
-    aws s3 cp ./samples/ s3://<bucket_name>/rag-samples/ --recursive   # *.md / *.txt
+Check profile identity:
 
-## 4. End-to-end RAG smoke test
-    TOKEN=$(curl -s -X POST https://<domain>/api/auth/login \
-      -d '{"username":"admin","password":"<pw>"}' -H 'Content-Type: application/json' | jq -r .access_token)
+```bash
+curl -sk https://<domain>/api/capabilities | jq '{
+  profile_id, profile_label, knowledge, catalog, query,
+  storage_provider, vector_store, model_gateway,
+  catalog_backend, query_engine
+}'
+```
 
-    # create collection
-    curl -s -X POST https://<domain>/api/ai/collections -H "Authorization: Bearer $TOKEN" \
-      -H 'Content-Type: application/json' -d '{"name":"mvp","description":"aws mvp"}'
+## 3. Upload a representative source
 
-    # ingest from S3 (uses IAM role; embeds via Bedrock Titan)
-    curl -s -X POST https://<domain>/api/ai/collections/mvp/ingest-source \
-      -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-      -d '{"type":"s3","bucket":"<bucket_name>","prefix":"rag-samples/","max_files":50}'
-    # expect: {"success":true,"documents":N,"chunks":M,...}
+Use non-sensitive test documents containing:
 
-    # RAG query (generation via Bedrock Claude)
-    curl -s -X POST https://<domain>/api/ai/rag -H "Authorization: Bearer $TOKEN" \
-      -H 'Content-Type: application/json' \
-      -d '{"collection":"mvp","question":"<a question answerable from the docs>","k":5}'
-    # expect: {"answer":"... [1] ...","citations":[...],"has_ai":true}
+- facts that can be answered deterministically;
+- at least one repeated source update case;
+- synthetic PII for masking verification;
+- enough documents to produce multiple chunks.
 
-## 5. Pass criteria
-- ingest-source returns documents > 0 and chunks > 0 (Titan embeddings succeeded).
-- /api/ai/rag returns has_ai=true with non-empty citations referencing s3://<bucket> sources.
-- backend logs show no 502 from embeddings and no egress-policy 403.
+```bash
+aws s3 cp ./samples/ s3://<bucket>/rag-acceptance/ --recursive
+```
 
-## 6. Local / on-prem object storage (MinIO) — self-hosted / full-profile only
-> **Scope:** This section applies only to the **self-hosted / full lakehouse profiles**.
-> The AWS **foundation** profile (`values-foundation.yaml`) and `values-aws.yaml` use
-> **native Amazon S3** (no in-cluster MinIO) — skip this section for those deployments.
+## 4. Authenticate
 
-On non-AWS profiles (`values-dev`, `values-quicktest`, `values-onprem`, `values-prod`)
-the in-cluster S3 store is **MinIO** (it replaced SeaweedFS). The AWS profiles
-(`values-aws`, `values-foundation`) set `minio.enabled: false` and use native S3 instead.
+```bash
+TOKEN=$(curl -sk -X POST https://<domain>/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"<password>"}' | jq -r .access_token)
 
-- S3 API: `http://minio:9000` (what the analytics engines — Trino/Spark/Polaris/RisingWave/MLflow/Jupyter — and the backend point at **when those engines are enabled**; the foundation profile runs none of them)
-- Console UI: `http://minio:9001` (exposed via ingress when `minio.enabled`)
-- Buckets: the `iceberg` warehouse bucket is created by the `minio-bucket-init` Job
-  (post-install/upgrade hook).
-- Credentials: `minio.auth.rootUser` / `minio.auth.rootPassword` (per profile).
-- `minio.clusterIP` must be a static service IP in your cluster's service CIDR
-  (used by the CoreDNS virtual-host rewrite). Set per environment.
+test -n "$TOKEN" && test "$TOKEN" != null
+```
 
-## 7. Critical secrets (auto-generated + preserved)
-`JWT_SECRET`, `INTERNAL_API_KEY`, `ENCRYPTION_KEY`, and `ADMIN_PASSWORD` are
-generated automatically by Helm on first install (no manual seeding needed —
-step 1's `--from-literal=JWT_SECRET=...`/`INTERNAL_API_KEY=...` are only
-required if you're bootstrapping the secret out-of-band before `helm upgrade
---install`). On every subsequent `helm upgrade`, the chart looks up the
-existing in-cluster `datapond-secrets` Secret and preserves these values —
-they are never silently rotated. `ENCRYPTION_KEY` in particular must never
-change once set: it encrypts stored credentials (connector secrets, provider
-keys), and rotating it makes them undecryptable.
+### 4a. Run the read-only deployment preflight
 
-**Pre-upgrade preflight (existing deployments only):** if your running backend
-got its `ENCRYPTION_KEY` out-of-band (hand-edited Secret under a different key
-name, or a raw Deployment env — the live EC2 deploy predates chart-managed
-generation), you MUST copy that working key into `datapond-secrets` under
-exactly `ENCRYPTION_KEY` **before** the first `helm upgrade` onto this chart.
-Otherwise Helm generates a fresh key and previously stored encrypted settings
-(provider API keys, connector credentials) silently become undecryptable.
-Check first:
+From a trusted operator workstation that has `kubectl`, `curl`, and `jq`, run the
+validator against the deployed origin. With no pre-issued token it prompts for the admin
+password without echoing it:
 
-    kubectl -n datapond get secret datapond-secrets -o jsonpath='{.data.ENCRYPTION_KEY}' | base64 -d
-    # empty? seed it with the value your running backend currently uses:
-    kubectl -n datapond patch secret datapond-secrets --type merge \
-      -p '{"stringData":{"ENCRYPTION_KEY":"<the-live-key>"}}'
+```bash
+DATAPOND_BASE_URL=https://<domain> \
+  bash scripts/validate-deployment.sh
+```
 
-Retrieve the generated initial admin password:
+For automation, prefer a mode-`0600` token file instead of putting a credential on the
+command line:
 
-    kubectl -n datapond get secret datapond-secrets -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d
+```bash
+umask 077
+printf '%s' "$TOKEN" > /tmp/datapond-admin.token
 
-To pin the admin password instead of using the generated one, set
-`auth.adminPassword` in your values file before first install.
+DATAPOND_BASE_URL=https://<domain> \
+DATAPOND_TOKEN_FILE=/tmp/datapond-admin.token \
+  bash scripts/validate-deployment.sh
 
-Production (`values-aws.yaml`, `values-onprem.yaml`, `values-prod.yaml`)
-fails closed at backend startup if `JWT_SECRET`, `ENCRYPTION_KEY`, or
-`ADMIN_PASSWORD` are missing — a Helm deploy always provides them, so this
-should only trip if the Secret was hand-edited or deployed outside Helm.
+rm -f /tmp/datapond-admin.token
+```
 
-> **DR:** the full backup/restore posture (Aurora PITR, S3 versioning, Secrets Manager
-> re-seed, restore ORDERING) is in [docs/DISASTER_RECOVERY.md](DISASTER_RECOVERY.md).
-> Critical: re-seed `datapond-secrets` from Secrets Manager BEFORE the app touches a
-> restored Aurora, or stored encrypted credentials are undecryptable.
+The script checks pod readiness/restarts, health, frontend availability, the admin role,
+protected read-only API contracts, and backend TCP reachability to its configured
+PostgreSQL and Valkey/Redis hosts. An absent in-cluster Postgres pod is treated as an
+external-database profile and direct schema inspection is skipped with a warning. The
+script does not create, update, delete, restart, or scale application resources.
 
-## Component passwords (P0-1b)
-POSTGRES_PASSWORD, MinIO S3_SECRET_KEY, AIRFLOW_PASSWORD, JUPYTER_TOKEN, POLARIS_CLIENT_SECRET
-are auto-generated on first install and preserved across upgrades (lookup-preserve).
-Note: MinIO/AIRFLOW/JUPYTER/POLARIS secrets are only generated/used on **self-hosted / full
-profiles** that enable those components — the AWS **foundation** profile (native S3, no
-Airflow/Jupyter/Polaris) does not use them.
-Retrieve any of them:
+Optional live boundary checks can be enabled with mode-`0600` files:
 
-    kubectl -n datapond get secret datapond-secrets -o jsonpath='{.data.<KEY>}' | base64 -d
+```bash
+DATAPOND_BASE_URL=https://<domain> \
+DATAPOND_TOKEN_FILE=/secure/admin.token \
+DATAPOND_VIEWER_TOKEN_FILE=/secure/viewer.token \
+DATAPOND_INTERNAL_KEY_FILE=/secure/internal-key \
+  bash scripts/validate-deployment.sh
+```
 
-⚠️ **NEVER delete datapond-secrets while keeping data PVCs:** Postgres/MinIO were initialized
-with the generated passwords — a regenerated Secret will not match the data volumes and
-every component login will fail. Delete the Secret only together with the PVCs (full reset).
-Existing installs keep their current passwords (no rotation is performed by upgrades).
-If catalog auth starts failing with 401 after an upgrade (POLARIS_CLIENT_SECRET desync),
-recover by re-running the Polaris bootstrap with the current POLARIS_CLIENT_SECRET (delete
-the /shared/skip sentinel-guarded state only with care) — or restore the previous secret
-value into datapond-secrets.
+These optional checks assert that a viewer receives `403` from the read-only admin system
+settings endpoint and that an internal key alone receives `401` on `GET /api/services`.
+The validator deliberately does **not** exercise a successful internal-key callback,
+because both allowed callbacks are mutating `POST` operations. Validate the positive
+internal callback only against a dedicated connector/collection fixture, then verify its
+result and clean up that fixture explicitly. Never print or retain the token/key files as
+evidence.
 
-## 8. Live EC2 deploy — tar-sync caveat
+## 5. Create and ingest a collection
 
-The live EC2 (K3s) deployment is updated via an SSM tar-sync pipeline, not a full git
-checkout — `/home/ubuntu/datapond` only contains whatever was last synced. Any new
-runtime file (routes, schema, config) must be added to the tar-sync set or it never
-reaches the built image. **`ee/` must be included in the tar-sync set** — the enterprise
-image build COPYs `ee/backend/ee`; a sync that omits `ee/` silently produces a community
-image (no SSO endpoints, no error). This does not affect a fresh install via
-`helm/install.sh`, which always builds from a full checkout.
+```bash
+curl -sk -X POST https://<domain>/api/ai/collections \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"aws-acceptance","description":"AWS adapter acceptance"}' | jq .
+
+curl -sk -X POST https://<domain>/api/ai/collections/aws-acceptance/ingest-source \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"s3","bucket":"<bucket>","prefix":"rag-acceptance/","max_files":50}' | jq .
+```
+
+Pass condition: `documents > 0`, `chunks > 0`, and no embedding/provider error.
+
+## 6. Validate retrieval before generation
+
+```bash
+curl -sk -X POST https://<domain>/api/ai/search \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"collection":"aws-acceptance","query":"<known phrase>","k":5}' | jq .
+```
+
+Check:
+
+- expected source appears near the top;
+- source URIs reference the test prefix;
+- synthetic PII is masked according to the configured mode;
+- rerank failure, if induced, falls back without failing the search.
+
+## 7. Validate cited RAG
+
+```bash
+curl -sk -X POST https://<domain>/api/ai/rag \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"collection":"aws-acceptance","question":"<answerable question>","k":5}' | jq .
+```
+
+Pass condition:
+
+- `has_ai=true`;
+- answer is non-empty;
+- citations are non-empty and reference the expected source;
+- answer is grounded in the supplied documents;
+- no unmasked synthetic PII is returned.
+
+## 8. Validate replacement and freshness
+
+1. Change one source document while retaining the same source URI/group.
+2. Re-run ingestion.
+3. Confirm old chunks for that source group were replaced rather than duplicated.
+4. Confirm retrieval returns the new fact and not the previous value.
+5. If a schedule is configured, verify stale → scheduled re-embedding behavior.
+
+## 9. Validate governance and spend
+
+- non-owner cannot access a private collection unless shared;
+- administrator can inspect the collection;
+- shared user can access only explicitly shared collections;
+- AI usage contains the actor/user metadata and model usage;
+- budget status is visible where configured;
+- treat durable budget notification delivery as hardening/roadmap unless separately implemented.
+
+Collection ACL is currently application-level owner/admin/shared enforcement, not PostgreSQL-native collection RLS.
+
+## 10. Optional Glue/Athena acceptance
+
+Run only when `/api/capabilities` reports:
+
+```json
+{"catalog": true, "query": true, "catalog_backend": "glue", "query_engine": "athena"}
+```
+
+Verify:
+
+1. Catalog lists expected Glue databases/tables.
+2. Athena executes a bounded `SELECT` and writes results to the configured output location.
+3. Catalog → Send to Knowledge creates/updates a collection.
+4. The resulting collection can answer a cited question.
+5. IAM denies access outside the intended bucket/catalog scope.
+
+Do not run or claim this scope for `values-foundation.yaml`.
+
+## 11. Evidence to record
+
+- date, commit SHA, chart version, profile ID;
+- AWS account alias/region without secrets;
+- model IDs and embedding dimension;
+- collection/document/chunk counts;
+- retrieval and RAG result samples with test data only;
+- Glue/Athena evidence when applicable;
+- failures, fallbacks, latency, and cost observations.
+
+## 12. Pass/fail summary
+
+A release may claim the AWS RAG adapter path only when sections 5–9 pass. Glue/Athena claims require section 10. EKS, EMR Serverless, S3 Tables, Lake Formation, AOSS, DataZone, and Marketplace require separate implementation and acceptance; this runbook does not validate them.
+
+For critical secret generation, preservation, and restore ordering, use [DEPLOY_SINGLE_NODE.md](DEPLOY_SINGLE_NODE.md) and [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md).

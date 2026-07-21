@@ -1,14 +1,15 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState, type ComponentType } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ErrorBox } from "@/components/ui/error-box"
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { Server, Cpu, MemoryStick, HardDrive, Boxes, RefreshCw, Layers, Gauge } from "lucide-react"
+import { Server, Cpu, MemoryStick, HardDrive, Boxes, RefreshCw, Layers, Gauge, Cloud } from "lucide-react"
 
 interface CompareRow {
   resource: string; unit: string; required: number; recommended: number
@@ -30,6 +31,12 @@ interface SystemInfo {
   requirements: { cpu_cores?: number; memory_gb?: number; disk_gb?: number }
   recommended: { cpu_cores?: number; memory_gb?: number; disk_gb?: number }
   comparison: CompareRow[]
+  cloud?: {
+    provider?: string; name?: string | null; instance_id?: string; instance_type?: string
+    lifecycle?: string | null; ami_id?: string; region?: string; availability_zone?: string
+    private_ip?: string | null; public_ip?: string | null; private_hostname?: string | null
+    security_groups?: string[]
+  } | null
 }
 
 const CMP_STATUS: Record<string, { label: string; cls: string }> = {
@@ -39,7 +46,7 @@ const CMP_STATUS: Record<string, { label: string; cls: string }> = {
   unknown:      { label: "Unknown", cls: "bg-muted text-muted-foreground border-transparent" },
 }
 
-function Meter({ label, pct, Icon }: { label: string; pct?: number | null; Icon: any }) {
+function Meter({ label, pct, Icon }: { label: string; pct?: number | null; Icon: ComponentType<{ className?: string }> }) {
   const v = typeof pct === "number" ? pct : null
   const color = v == null ? "bg-muted-foreground/30" : v > 85 ? "bg-destructive" : v > 60 ? "bg-[var(--dp-warn)]" : "bg-[var(--dp-good)]"
   return (
@@ -67,19 +74,26 @@ function Spec({ label, value }: { label: string; value?: string | number }) {
 export default function SystemPage() {
   const [info, setInfo] = useState<SystemInfo | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const load = async () => {
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
     try {
       const res = await fetch("/api/system/info")
-      if (res.ok) setInfo(await res.json())
-    } catch {} finally { setLoading(false) }
-  }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setInfo(await res.json())
+    } catch (requestError) {
+      setInfo(null)
+      setError(requestError instanceof Error ? `Failed to load system information (${requestError.message})` : "Failed to load system information")
+    } finally { setLoading(false) }
+  }, [])
 
   useEffect(() => {
-    load()
-    const t = setInterval(load, 15000)  // refresh every 15s
-    return () => clearInterval(t)
-  }, [])
+    const initial = window.setTimeout(() => void load(), 0)
+    const interval = window.setInterval(() => void load(), 15000)
+    return () => { window.clearTimeout(initial); window.clearInterval(interval) }
+  }, [load])
 
   const n = info?.node ?? {}
   const c = info?.cluster ?? {}
@@ -88,7 +102,7 @@ export default function SystemPage() {
     <div className="p-6 space-y-6">
       <Breadcrumb>
         <BreadcrumbList>
-          <BreadcrumbItem><BreadcrumbLink href="/dashboard">Dashboard</BreadcrumbLink></BreadcrumbItem>
+          <BreadcrumbItem><BreadcrumbLink href="/dashboard">Overview</BreadcrumbLink></BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem><BreadcrumbPage>System</BreadcrumbPage></BreadcrumbItem>
         </BreadcrumbList>
@@ -99,12 +113,17 @@ export default function SystemPage() {
           <h1 className="text-2xl font-bold flex items-center gap-2"><Server className="h-6 w-6" />System</h1>
           <p className="text-muted-foreground text-sm">Server system information · configuration specs</p>
         </div>
-        <Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-4 w-4 mr-1.5" />Refresh</Button>
+        <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+          <RefreshCw className={`mr-1.5 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          {loading ? "Refreshing" : "Refresh"}
+        </Button>
       </div>
 
-      {loading && !info ? (
-        <div className="grid gap-4 md:grid-cols-2"><Skeleton className="h-48" /><Skeleton className="h-48" /></div>
-      ) : (
+      {error ? (
+        <div role="alert" aria-live="polite"><ErrorBox msg={error} action={<Button size="sm" variant="outline" onClick={load}>Retry</Button>} /></div>
+      ) : loading && !info ? (
+        <div className="grid gap-4 md:grid-cols-2" aria-busy="true"><Skeleton className="h-48" /><Skeleton className="h-48" /></div>
+      ) : info ? (
       <>
         <div className="grid gap-4 md:grid-cols-2">
           {/* Node specs */}
@@ -127,7 +146,7 @@ export default function SystemPage() {
               <div className="flex justify-between gap-3 py-1.5 text-sm">
                 <span className="text-muted-foreground">Node Status</span>
                 <span className="flex gap-1.5">
-                  <Badge variant="outline" className={`text-[10px] ${n.ready ? "text-[var(--dp-good)] border-[var(--dp-good)]/30" : "text-destructive border-destructive/30"}`}>{n.ready ? "Ready" : "NotReady"}</Badge>
+                  <Badge variant="outline" className={`text-[10px] ${n.ready === true ? "text-[var(--dp-good)] border-[var(--dp-good)]/30" : n.ready === false ? "text-destructive border-destructive/30" : "text-muted-foreground"}`}>{n.ready === true ? "Ready" : n.ready === false ? "NotReady" : "Unknown"}</Badge>
                   {n.memory_pressure && <Badge variant="outline" className="text-[10px] text-[var(--dp-warn)] border-[var(--dp-warn)]/30">MemPressure</Badge>}
                   {n.disk_pressure && <Badge variant="outline" className="text-[10px] text-[var(--dp-warn)] border-[var(--dp-warn)]/30">DiskPressure</Badge>}
                 </span>
@@ -151,6 +170,32 @@ export default function SystemPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* AWS EC2 instance details — shown only when running on AWS (IMDS reachable) */}
+        {info.cloud?.provider === "aws" && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2"><Cloud className="h-4 w-4" />AWS EC2 Instance</CardTitle>
+              <CardDescription>Underlying cloud compute resource · live EC2 instance metadata</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-x-10 md:grid-cols-2">
+              <div>
+                {info.cloud.name && <Spec label="Name" value={info.cloud.name} />}
+                <Spec label="Instance ID" value={info.cloud.instance_id} />
+                <Spec label="Instance Type" value={info.cloud.instance_type} />
+                <Spec label="Lifecycle" value={info.cloud.lifecycle ?? "on-demand"} />
+                <Spec label="AMI" value={info.cloud.ami_id} />
+              </div>
+              <div>
+                <Spec label="Region" value={info.cloud.region} />
+                <Spec label="Availability Zone" value={info.cloud.availability_zone} />
+                <Spec label="Private IP" value={info.cloud.private_ip ?? undefined} />
+                <Spec label="Public IP" value={info.cloud.public_ip ?? undefined} />
+                <Spec label="Security Groups" value={info.cloud.security_groups?.length ? info.cloud.security_groups.join(", ") : undefined} />
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Spec comparison: required (sum of requests) vs recommended vs actual */}
         <Card>
@@ -233,7 +278,7 @@ export default function SystemPage() {
           </CardContent>
         </Card>
       </>
-      )}
+      ) : null}
     </div>
   )
 }

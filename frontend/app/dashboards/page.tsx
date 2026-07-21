@@ -12,12 +12,12 @@ import {
   BarChart3, Eye, Clock, Search, Globe, Lock,
   LineChart, PieChart, TrendingUp, AreaChart, Table, Plus, RefreshCw,
 } from "lucide-react"
-import { dashboardApi, queryApi, Dashboard } from "@/lib/api"
+import { dashboardApi, queryApi, Dashboard, type ChartConfig } from "@/lib/api"
 import { formatDistanceToNow } from "date-fns"
 import { ChartRenderer } from "@/components/query/chart-renderer"
 
-interface QueryResult { columns: string[]; rows: any[][] }
-type PreviewMap = Record<string, { data: any[]; error?: string }>
+type PreviewRow = Record<string, unknown>
+type PreviewMap = Record<string, { data: PreviewRow[]; error?: string }>
 
 export default function DashboardsPage() {
   const router = useRouter()
@@ -26,35 +26,16 @@ export default function DashboardsPage() {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [previews, setPreviews] = useState<PreviewMap>({})
-  const [loadingPreviews, setLoadingPreviews] = useState(false)
-
-  useEffect(() => { loadDashboards() }, [])
-
-  const loadDashboards = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const data = await dashboardApi.list()
-      setDashboards(data)
-      // Fetch chart data for all dashboards in parallel
-      fetchPreviews(data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load dashboards")
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const fetchPreviews = useCallback(async (list: Dashboard[]) => {
-    setLoadingPreviews(true)
     const results = await Promise.allSettled(
       list.map(async (d) => {
         try {
           const result = await queryApi.execute(d.query_text, false)
           const rows = result.rows ?? []
           const cols = result.columns ?? []
-          const data = rows.map((row: any[]) => {
-            const obj: any = {}
+          const data = rows.map((row: unknown[]) => {
+            const obj: PreviewRow = {}
             cols.forEach((col: string, i: number) => { obj[col] = row[i] })
             return obj
           })
@@ -69,8 +50,26 @@ export default function DashboardsPage() {
       if (r.status === "fulfilled") map[r.value.id] = { data: r.value.data }
     })
     setPreviews(map)
-    setLoadingPreviews(false)
   }, [])
+
+  const loadDashboards = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await dashboardApi.list()
+      setDashboards(data)
+      void fetchPreviews(data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load dashboards")
+    } finally {
+      setLoading(false)
+    }
+  }, [fetchPreviews])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadDashboards() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [loadDashboards])
 
   const filteredDashboards = dashboards.filter((d) =>
     d.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -171,7 +170,7 @@ export default function DashboardsPage() {
             <div>
               <p className="font-medium text-sm">No dashboards yet</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Run a query in SQL Lab and click "Save as Dashboard"
+                Run a query in SQL Lab and click &quot;Save as Dashboard&quot;
               </p>
             </div>
             <Button size="sm" onClick={() => router.push("/query")}>
@@ -239,7 +238,7 @@ export default function DashboardsPage() {
                           <tbody>
                             {preview.data.slice(0, 5).map((row, i) => (
                               <tr key={i} className="border-b last:border-0">
-                                {Object.values(row).map((v: any, j) => (
+                                {Object.values(row).map((v, j) => (
                                   <td key={j} className="px-1 py-0.5 text-muted-foreground">{String(v ?? "")}</td>
                                 ))}
                               </tr>
@@ -251,7 +250,7 @@ export default function DashboardsPage() {
                       <div className="pointer-events-none scale-[0.85] origin-top-left" style={{ width: "118%", height: "118%" }}>
                         <ChartRenderer
                           data={preview.data}
-                          chartType={chartType as any}
+                          chartType={chartType as ChartConfig["chartType"]}
                           xAxis={dashboard.chart_config.xAxis || ""}
                           yAxis={dashboard.chart_config.yAxis || ""}
                           chartConfig={{
@@ -287,7 +286,7 @@ export default function DashboardsPage() {
       {!loading && !error && dashboards.length > 0 && filteredDashboards.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-center border rounded-lg bg-muted/20">
           <Search className="h-8 w-8 text-muted-foreground/30 mb-2" />
-          <p className="text-sm text-muted-foreground">No dashboards match "{searchQuery}"</p>
+          <p className="text-sm text-muted-foreground">No dashboards match &quot;{searchQuery}&quot;</p>
         </div>
       )}
     </div>

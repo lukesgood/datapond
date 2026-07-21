@@ -12,10 +12,11 @@ import asyncio
 import httpx
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db, engine, Base
@@ -44,8 +45,13 @@ TRINO_HOST = os.getenv("TRINO_SERVICE_HOST", "trino.datapond.svc.cluster.local")
 TRINO_PORT = int(os.getenv("TRINO_SERVICE_PORT", "8080"))
 
 
+def _airflow_response_detail(response: httpx.Response) -> str:
+    detail = response.text.strip()
+    return detail[:1000] if detail else f"HTTP {response.status_code}"
+
+
 async def _ensure_trino_connection() -> None:
-    """Create or update trino_default Airflow connection to point at our Trino cluster."""
+    """Create or update the Airflow Trino connection, failing closed on errors."""
     payload = {
         "connection_id": "trino_default",
         "conn_type": "trino",
@@ -54,17 +60,28 @@ async def _ensure_trino_connection() -> None:
         "login": "datapond",
         "schema": "iceberg",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
-        # Try PATCH first, fall back to POST
-        resp = await client.patch(
-            f"{AIRFLOW_API}/connections/trino_default",
-            auth=_airflow_auth(), json=payload,
-        )
-        if resp.status_code == 404:
-            await client.post(
-                f"{AIRFLOW_API}/connections",
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.patch(
+                f"{AIRFLOW_API}/connections/trino_default",
                 auth=_airflow_auth(), json=payload,
             )
+            if response.status_code == 404:
+                response = await client.post(
+                    f"{AIRFLOW_API}/connections",
+                    auth=_airflow_auth(), json=payload,
+                )
+            if response.status_code not in (200, 201, 204):
+                raise HTTPException(
+                    502,
+                    f"Airflow Trino connection setup failed: {_airflow_response_detail(response)}",
+                )
+    except HTTPException:
+        raise
+    except (httpx.ConnectError, httpx.TimeoutException) as exc:
+        raise HTTPException(503, f"Airflow is unavailable while configuring Trino: {exc}") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, f"Airflow connection request failed: {exc}") from exc
 
 
 class TransformCreateRequest(BaseModel):
@@ -76,6 +93,18 @@ class TransformCreateRequest(BaseModel):
     sql: str                    # SELECT … (no CREATE TABLE prefix)
     schedule: Optional[str] = None   # cron or None
     overwrite: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        # name is interpolated into the generated DAG source; restrict it to a
+        # safe charset so it cannot break out of the docstring / inject Python.
+        v = (v or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9 _-]{1,64}", v):
+            raise ValueError(
+                "name may contain only letters, digits, spaces, underscore or hyphen (1–64 chars)"
+            )
+        return v
 
 
 class TransformUpdateRequest(BaseModel):
@@ -127,7 +156,9 @@ def _generate_dag(transform: "SavedTransform") -> str:
     # T1: CREATE OR REPLACE TABLE … AS — 원자적 교체(Trino 481 Iceberg 검증).
     #     실패 시 기존 테이블이 보존되고, drop~create 사이 조회 공백도 없다.
     # T8: SQL은 base64로 삽입 — 따옴표/백슬래시가 생성된 DAG 소스를 깨지 못함.
-    # description/name이 따옴표·개행을 포함해도 생성된 Python 소스가 깨지지 않도록 정제
+    # description/name이 따옴표·개행을 포함해도 생성된 Python 소스가 깨지지 않도록 정제.
+    # name은 request 검증에서 이미 제한되지만, DAG docstring 삽입 전 한 번 더 정제(심층 방어).
+    name_safe = re.sub(r'["\\\n\r]+', " ", (transform.name or "")).strip()
     desc_safe = re.sub(r'["\\\n\r]+', " ", (transform.description or transform.name)).strip()
     replace_sql = (
         f"CREATE OR REPLACE TABLE {fqtn}\n"
@@ -137,7 +168,7 @@ def _generate_dag(transform: "SavedTransform") -> str:
     sql_b64 = base64.b64encode(replace_sql.encode("utf-8")).decode("ascii")
 
     return f'''"""
-Auto-generated ELT transform DAG: {transform.name}
+Auto-generated ELT transform DAG: {name_safe}
 {desc_safe}
 Source: iceberg.{transform.source_namespace}  →  Target: {fqtn}
 Generated: {datetime.utcnow().isoformat()}
@@ -210,55 +241,103 @@ with DAG(
 
 
 async def _deploy_dag(dag_id: str, dag_code: str) -> bool:
-    DAGS_PATH.mkdir(parents=True, exist_ok=True)
-    (DAGS_PATH / f"{dag_id}.py").write_text(dag_code, encoding="utf-8")
+    """Install and activate a DAG, restoring the prior file on remote failure."""
+    dag_file = DAGS_PATH / f"{dag_id}.py"
+    temporary = DAGS_PATH / f".{dag_id}.{uuid.uuid4().hex}.tmp"
+    previous = dag_file.read_bytes() if dag_file.exists() else None
     try:
+        DAGS_PATH.mkdir(parents=True, exist_ok=True)
+        temporary.write_text(dag_code, encoding="utf-8")
+        temporary.replace(dag_file)
         await _ensure_trino_connection()
+
+        last_response = None
         async with httpx.AsyncClient(timeout=10) as client:
-            await client.patch(
-                f"{AIRFLOW_API}/dags/{dag_id}",
-                auth=_airflow_auth(),
-                json={"is_paused": False},
-            )
-    except Exception:
-        pass
-    return True
+            for attempt in range(5):
+                last_response = await client.patch(
+                    f"{AIRFLOW_API}/dags/{dag_id}",
+                    auth=_airflow_auth(),
+                    json={"is_paused": False},
+                )
+                if last_response.status_code in (200, 204):
+                    return True
+                if last_response.status_code != 404 or attempt == 4:
+                    break
+                await asyncio.sleep(0.5)
+        assert last_response is not None
+        raise HTTPException(
+            502,
+            f"Airflow failed to activate DAG '{dag_id}': {_airflow_response_detail(last_response)}",
+        )
+    except HTTPException:
+        if previous is None:
+            dag_file.unlink(missing_ok=True)
+        else:
+            dag_file.write_bytes(previous)
+        raise
+    except (httpx.ConnectError, httpx.TimeoutException) as exc:
+        if previous is None:
+            dag_file.unlink(missing_ok=True)
+        else:
+            dag_file.write_bytes(previous)
+        raise HTTPException(503, f"Airflow is unavailable while activating DAG '{dag_id}': {exc}") from exc
+    except httpx.HTTPError as exc:
+        if previous is None:
+            dag_file.unlink(missing_ok=True)
+        else:
+            dag_file.write_bytes(previous)
+        raise HTTPException(503, f"Airflow activation request failed for DAG '{dag_id}': {exc}") from exc
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 @router.post("/transforms")
 async def create_transform(req: TransformCreateRequest, db: Session = Depends(get_db)):
-    # T6: 소스는 카탈로그의 임의 네임스페이스 허용(실데이터가 default 등에 존재).
-    #     타깃만 medallion 네임스페이스로 강제한다.
     if req.target_namespace not in NAMESPACES:
         raise HTTPException(400, f"target namespace must be one of {NAMESPACES}")
     if req.source_namespace == req.target_namespace:
         raise HTTPException(400, "source and target namespace must differ")
-
-    # T3+T2: 배포 전 검증 — SELECT/WITH 단일문 + Trino EXPLAIN
     _validate_transform_sql(req.sql)
     await _explain_check(req.sql)
 
-    # T7: 이름 정규화(dag_id) 충돌 — 다른 transform의 DAG 파일을 덮어쓰지 않도록
-    new_dag_id = f"transform_{_safe_id(req.name)}"
+    dag_id = f"transform_{_safe_id(req.name)}"
     clash = db.query(SavedTransform).filter(
-        SavedTransform.dag_id == new_dag_id, SavedTransform.name != req.name
+        SavedTransform.dag_id == dag_id, SavedTransform.name != req.name
     ).first()
     if clash:
-        raise HTTPException(409, f"Name normalizes to DAG id '{new_dag_id}' which is already used by transform '{clash.name}' — choose a different name")
+        raise HTTPException(
+            409,
+            f"Name normalizes to DAG id '{dag_id}' which is already used by transform '{clash.name}' — choose a different name",
+        )
 
     existing = db.query(SavedTransform).filter(SavedTransform.name == req.name).first()
     if existing and not req.overwrite:
         raise HTTPException(409, f"Transform '{req.name}' already exists")
 
+    candidate = SimpleNamespace(
+        name=req.name,
+        description=req.description,
+        source_namespace=req.source_namespace,
+        target_namespace=req.target_namespace,
+        target_table=req.target_table,
+        sql=req.sql,
+        schedule=req.schedule,
+    )
+    try:
+        await _deploy_dag(dag_id, _generate_dag(candidate))
+    except Exception:
+        db.rollback()
+        raise
+
     if existing:
-        existing.description      = req.description
-        existing.source_namespace = req.source_namespace
-        existing.target_namespace = req.target_namespace
-        existing.target_table     = req.target_table
-        existing.sql              = req.sql
-        existing.schedule         = req.schedule
-        existing.updated_at       = datetime.utcnow()
         row = existing
+        row.description = req.description
+        row.source_namespace = req.source_namespace
+        row.target_namespace = req.target_namespace
+        row.target_table = req.target_table
+        row.sql = req.sql
+        row.schedule = req.schedule
+        row.updated_at = datetime.utcnow()
     else:
         row = SavedTransform(
             id=uuid.uuid4(),
@@ -269,26 +348,29 @@ async def create_transform(req: TransformCreateRequest, db: Session = Depends(ge
             target_table=req.target_table,
             sql=req.sql,
             schedule=req.schedule,
-            status="draft",
         )
         db.add(row)
-    db.commit()
-    db.refresh(row)
-
-    dag_id   = f"transform_{_safe_id(row.name)}"
-    dag_code = _generate_dag(row)
-    await _deploy_dag(dag_id, dag_code)
-
     row.status = "deployed"
     row.dag_id = dag_id
-    db.commit()
+    try:
+        db.commit()
+        db.refresh(row)
+    except Exception:
+        db.rollback()
+        # DAG was already activated in Airflow above; without a DB row it would be
+        # an orphan running against nothing — best-effort remove it so state stays consistent.
+        try:
+            await _remove_remote_dag(dag_id)
+        except Exception:
+            pass
+        raise
 
     return {
         "id": str(row.id),
         "name": row.name,
         "dag_id": dag_id,
         "status": "deployed",
-        "message": "Transform deployed. Airflow will pick it up within 30 seconds.",
+        "message": "Transform deployed and activated in Airflow.",
     }
 
 
@@ -362,6 +444,66 @@ async def get_transform(transform_id: str, db: Session = Depends(get_db)):
     }
 
 
+@router.patch("/transforms/{transform_id}")
+async def update_transform(
+    transform_id: str,
+    req: TransformUpdateRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        transform_uuid = uuid.UUID(transform_id)
+    except ValueError as exc:
+        raise HTTPException(400, "Invalid transform id") from exc
+    row = db.query(SavedTransform).filter(SavedTransform.id == transform_uuid).first()
+    if not row:
+        raise HTTPException(404, "Transform not found")
+
+    fields_set = getattr(req, "model_fields_set", getattr(req, "__fields_set__", set()))
+    values = {
+        "description": req.description if "description" in fields_set else row.description,
+        "source_namespace": req.source_namespace if "source_namespace" in fields_set else row.source_namespace,
+        "target_namespace": req.target_namespace if "target_namespace" in fields_set else row.target_namespace,
+        "target_table": req.target_table if "target_table" in fields_set else row.target_table,
+        "sql": req.sql if "sql" in fields_set else row.sql,
+        "schedule": req.schedule if "schedule" in fields_set else row.schedule,
+    }
+    if not values["source_namespace"] or not values["target_namespace"] or not values["target_table"] or not values["sql"]:
+        raise HTTPException(400, "source_namespace, target_namespace, target_table, and sql cannot be empty")
+    if values["target_namespace"] not in NAMESPACES:
+        raise HTTPException(400, f"target namespace must be one of {NAMESPACES}")
+    if values["source_namespace"] == values["target_namespace"]:
+        raise HTTPException(400, "source and target namespace must differ")
+    _validate_transform_sql(values["sql"])
+    await _explain_check(values["sql"])
+
+    dag_id = row.dag_id or f"transform_{_safe_id(row.name)}"
+    candidate = SimpleNamespace(name=row.name, **values)
+    try:
+        await _deploy_dag(dag_id, _generate_dag(candidate))
+    except Exception:
+        db.rollback()
+        raise
+
+    for field, value in values.items():
+        setattr(row, field, value)
+    row.dag_id = dag_id
+    row.status = "deployed"
+    row.updated_at = datetime.utcnow()
+    try:
+        db.commit()
+        db.refresh(row)
+    except Exception:
+        db.rollback()
+        raise
+    return {
+        "id": str(row.id),
+        "name": row.name,
+        "dag_id": row.dag_id,
+        "status": row.status,
+        "message": "Transform updated and activated in Airflow.",
+    }
+
+
 @router.post("/transforms/{transform_id}/trigger")
 async def trigger_transform(transform_id: str, db: Session = Depends(get_db)):
     row = db.query(SavedTransform).filter(SavedTransform.id == uuid.UUID(transform_id)).first()
@@ -369,38 +511,84 @@ async def trigger_transform(transform_id: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Transform not found or not deployed")
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            # DAG가 발견 전 배포된 unpause PATCH(404)를 못 받았을 수 있다 — 트리거 직전 보장
-            await client.patch(f"{AIRFLOW_API}/dags/{row.dag_id}", auth=_airflow_auth(), json={"is_paused": False})
-            resp = await client.post(
+            activation = await client.patch(
+                f"{AIRFLOW_API}/dags/{row.dag_id}",
+                auth=_airflow_auth(),
+                json={"is_paused": False},
+            )
+            if activation.status_code not in (200, 204):
+                raise HTTPException(502, f"Airflow activation failed: {_airflow_response_detail(activation)}")
+            response = await client.post(
                 f"{AIRFLOW_API}/dags/{row.dag_id}/dagRuns",
                 auth=_airflow_auth(),
                 json={"conf": {}},
             )
-        if resp.status_code not in (200, 201):
-            raise HTTPException(502, f"Airflow trigger failed: {resp.text}")
-        return {"success": True, "dag_id": row.dag_id, "run": resp.json()}
+        if response.status_code not in (200, 201):
+            raise HTTPException(502, f"Airflow trigger failed: {_airflow_response_detail(response)}")
+        return {"success": True, "dag_id": row.dag_id, "run": response.json()}
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(502, str(e))
+    except (httpx.ConnectError, httpx.TimeoutException) as exc:
+        raise HTTPException(503, f"Airflow is unavailable while triggering the transform: {exc}") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, f"Airflow trigger request failed: {exc}") from exc
+
+
+async def _remove_remote_dag(dag_id: str) -> None:
+    """Pause and delete a DAG; 404 means the remote state is already absent."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            paused = await client.patch(
+                f"{AIRFLOW_API}/dags/{dag_id}",
+                auth=_airflow_auth(),
+                json={"is_paused": True},
+            )
+            if paused.status_code == 404:
+                return
+            if paused.status_code not in (200, 204):
+                raise HTTPException(
+                    502,
+                    f"Airflow failed to pause DAG '{dag_id}': {_airflow_response_detail(paused)}",
+                )
+            deleted = await client.delete(
+                f"{AIRFLOW_API}/dags/{dag_id}",
+                auth=_airflow_auth(),
+            )
+            if deleted.status_code not in (200, 204, 404):
+                raise HTTPException(
+                    502,
+                    f"Airflow failed to delete DAG '{dag_id}': {_airflow_response_detail(deleted)}",
+                )
+    except HTTPException:
+        raise
+    except (httpx.ConnectError, httpx.TimeoutException) as exc:
+        raise HTTPException(503, f"Airflow is unavailable while deleting DAG '{dag_id}': {exc}") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, f"Airflow delete request failed for DAG '{dag_id}': {exc}") from exc
 
 
 @router.delete("/transforms/{transform_id}")
 async def delete_transform(transform_id: str, db: Session = Depends(get_db)):
-    row = db.query(SavedTransform).filter(SavedTransform.id == uuid.UUID(transform_id)).first()
+    try:
+        transform_uuid = uuid.UUID(transform_id)
+    except ValueError as exc:
+        raise HTTPException(400, "Invalid transform id") from exc
+    row = db.query(SavedTransform).filter(SavedTransform.id == transform_uuid).first()
     if not row:
         raise HTTPException(404, "Transform not found")
 
     if row.dag_id:
-        dag_file = DAGS_PATH / f"{row.dag_id}.py"
-        dag_file.unlink(missing_ok=True)
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                await client.patch(f"{AIRFLOW_API}/dags/{row.dag_id}", auth=_airflow_auth(), json={"is_paused": True})
-                await client.delete(f"{AIRFLOW_API}/dags/{row.dag_id}", auth=_airflow_auth())
+            await _remove_remote_dag(row.dag_id)
         except Exception:
-            pass
+            db.rollback()
+            raise
+        (DAGS_PATH / f"{row.dag_id}.py").unlink(missing_ok=True)
 
     db.delete(row)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return {"success": True}

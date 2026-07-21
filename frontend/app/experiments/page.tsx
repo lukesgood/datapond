@@ -7,7 +7,6 @@ import { ErrorBox } from "@/components/ui/error-box"
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts"
-import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -25,9 +24,12 @@ import { Checkbox } from "@/components/ui/checkbox"
 import {
   FlaskConical, Plus, RefreshCw, GitBranch, ChevronRight, X,
   BarChart3, Clock, CheckCircle2, XCircle, AlertCircle, Loader2,
-  GitCompare,
+  GitCompare, Trash2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { getUser } from "@/lib/auth"
+import { useConfirm } from "@/lib/confirm"
+import { bestMetricValue } from "@/components/experiments/compare-runs"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -75,14 +77,11 @@ interface Run {
 }
 
 interface CompareResult {
-  runs: Array<{
-    run_id: string
-    run_name?: string
-    metrics: Record<string, number>
-    params: Record<string, string>
-  }>
-  metrics: string[]
-  params: string[]
+  runs: Run[]
+  common_metrics: string[]
+  common_params: string[]
+  diff_metrics: string[]
+  diff_params: string[]
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -329,19 +328,18 @@ function CompareView({
   result: CompareResult
   onClose: () => void
 }) {
-  // Find best (min or max?) — for now highlight lowest value per metric row as "best"
-  // In practice, "best" is ambiguous; we highlight min for loss-like and max for acc-like metrics
+  const metricNames = Array.from(new Set([...result.common_metrics, ...result.diff_metrics]))
+  const paramNames = Array.from(new Set([...result.common_params, ...result.diff_params]))
+  // Highlight the best run per metric using the shared best-value rule
+  // (lower is better for loss/error-like metrics, otherwise higher is better).
   const getBest = (metric: string): string | null => {
     const vals = result.runs.map((r) => ({
-      id: r.run_id,
-      v: r.metrics[metric] ?? null,
+      id: r.info.run_id,
+      v: r.data.metrics.find((value) => value.key === metric)?.value ?? null,
     })).filter((x) => x.v !== null) as Array<{ id: string; v: number }>
     if (vals.length === 0) return null
-    const maxV = Math.max(...vals.map((x) => x.v))
-    const minV = Math.min(...vals.map((x) => x.v))
-    // Heuristic: if metric name suggests accuracy/score/r2 → higher is better
-    const higherIsBetter = /acc|score|r2|auc|f1|precision|recall/i.test(metric)
-    const best = higherIsBetter ? maxV : minV
+    const best = bestMetricValue(vals.map((x) => x.v), metric)
+    if (best === null) return null
     return vals.find((x) => x.v === best)?.id ?? null
   }
 
@@ -361,7 +359,7 @@ function CompareView({
 
       <div className="flex-1 overflow-auto p-3 space-y-4">
         {/* Metrics comparison */}
-        {result.metrics.length > 0 && (
+        {metricNames.length > 0 && (
           <div>
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
               Metrics
@@ -372,24 +370,24 @@ function CompareView({
                   <tr className="border-b">
                     <th className="text-left p-1.5 font-medium text-muted-foreground w-32">Metric</th>
                     {result.runs.map((r) => (
-                      <th key={r.run_id} className="text-left p-1.5 font-medium min-w-[100px]">
-                        {r.run_name || r.run_id.slice(0, 8)}
+                      <th key={r.info.run_id} className="text-left p-1.5 font-medium min-w-[100px]">
+                        {r.info.run_name || r.info.run_id.slice(0, 8)}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {result.metrics.map((metric) => {
+                  {metricNames.map((metric) => {
                     const bestId = getBest(metric)
                     return (
                       <tr key={metric} className="border-b last:border-0 hover:bg-muted/30">
                         <td className="p-1.5 font-mono text-muted-foreground">{metric}</td>
                         {result.runs.map((r) => {
-                          const v = r.metrics[metric]
-                          const isBest = bestId === r.run_id && v !== undefined
+                          const v = r.data.metrics.find((value) => value.key === metric)?.value
+                          const isBest = bestId === r.info.run_id && v !== undefined
                           return (
                             <td
-                              key={r.run_id}
+                              key={r.info.run_id}
                               className={cn(
                                 "p-1.5 font-mono",
                                 isBest && "text-emerald-600 dark:text-emerald-400 font-semibold"
@@ -409,7 +407,7 @@ function CompareView({
         )}
 
         {/* Params comparison */}
-        {result.params.length > 0 && (
+        {paramNames.length > 0 && (
           <div>
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
               Parameters
@@ -420,19 +418,19 @@ function CompareView({
                   <tr className="border-b">
                     <th className="text-left p-1.5 font-medium text-muted-foreground w-32">Param</th>
                     {result.runs.map((r) => (
-                      <th key={r.run_id} className="text-left p-1.5 font-medium min-w-[100px]">
-                        {r.run_name || r.run_id.slice(0, 8)}
+                      <th key={r.info.run_id} className="text-left p-1.5 font-medium min-w-[100px]">
+                        {r.info.run_name || r.info.run_id.slice(0, 8)}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {result.params.map((param) => (
+                  {paramNames.map((param) => (
                     <tr key={param} className="border-b last:border-0 hover:bg-muted/30">
                       <td className="p-1.5 font-mono text-muted-foreground">{param}</td>
                       {result.runs.map((r) => (
-                        <td key={r.run_id} className="p-1.5 font-mono">
-                          {r.params[param] ?? <span className="text-muted-foreground/40">—</span>}
+                        <td key={r.info.run_id} className="p-1.5 font-mono">
+                          {r.data.params.find((value) => value.key === param)?.value ?? <span className="text-muted-foreground/40">—</span>}
                         </td>
                       ))}
                     </tr>
@@ -483,7 +481,7 @@ function NewExperimentDialog({
         throw new Error(msg || String(res.status))
       }
       const created = await res.json()
-      toast(`실험 "${name.trim()}" 생성됨`, "success")
+      toast(`Experiment "${name.trim()}" created`, "success")
       onCreate(created)
       setName("")
       setArtifactLocation("")
@@ -561,7 +559,6 @@ function ExperimentsPageInner() {
   const [selectedRun, setSelectedRun] = useState<Run | null>(null)
 
   // Compare mode
-  const [compareMode, setCompareMode] = useState(false)
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set())
   const [compareResult, setCompareResult] = useState<CompareResult | null>(null)
   const [comparePending, setComparePending] = useState(false)
@@ -576,6 +573,11 @@ function ExperimentsPageInner() {
   // Dialog
   const [createExpOpen, setCreateExpOpen] = useState(false)
 
+  // Admin-gated actions
+  const { toast } = useToast()
+  const confirm = useConfirm()
+  const isAdmin = getUser()?.role === "admin"
+
   // ── Loaders ────────────────────────────────────────────────────────────────
 
   const loadExperiments = useCallback(async () => {
@@ -584,9 +586,9 @@ function ExperimentsPageInner() {
     try {
       const res = await fetch("/api/mlflow/experiments")
       if (!res.ok) throw new Error(String(res.status))
-      const data = await res.json()
-      const exps: Experiment[] = Array.isArray(data) ? data : (data.experiments ?? [])
-      const active = exps.filter((e) => e.lifecycle_stage !== "deleted")
+      const data = await res.json() as Experiment[]
+      if (!Array.isArray(data)) throw new Error("Invalid experiment response")
+      const active = data.filter((e) => e.lifecycle_stage !== "deleted")
       setExperiments(active)
 
       // Fetch run counts in parallel (best-effort)
@@ -595,8 +597,10 @@ function ExperimentsPageInner() {
         active.map(async (exp) => {
           try {
             const r = await fetch(`/api/mlflow/experiments/${exp.experiment_id}/runs`)
-            const d = await r.json()
-            counts[exp.experiment_id] = Array.isArray(d) ? d.length : (d.runs?.length ?? 0)
+            if (!r.ok) throw new Error(String(r.status))
+            const runs = await r.json() as Run[]
+            if (!Array.isArray(runs)) throw new Error("Invalid runs response")
+            counts[exp.experiment_id] = runs.length
           } catch {
             counts[exp.experiment_id] = 0
           }
@@ -620,11 +624,11 @@ function ExperimentsPageInner() {
     try {
       const res = await fetch(`/api/mlflow/experiments/${exp.experiment_id}/runs`)
       if (!res.ok) throw new Error(String(res.status))
-      const data = await res.json()
-      const runList: Run[] = Array.isArray(data) ? data : (data.runs ?? [])
-      setRuns(runList)
+      const data = await res.json() as Run[]
+      if (!Array.isArray(data)) throw new Error("Invalid runs response")
+      setRuns(data)
       // Update run count for this experiment
-      setRunCounts((prev) => ({ ...prev, [exp.experiment_id]: runList.length }))
+      setRunCounts((prev) => ({ ...prev, [exp.experiment_id]: data.length }))
     } catch (err) {
       setRunsError(err instanceof Error ? err.message : "Failed to load runs")
     } finally {
@@ -675,9 +679,35 @@ function ExperimentsPageInner() {
     setCompareResult(null)
   }, [])
 
+  const handleDeleteExp = useCallback(async (exp: Experiment) => {
+    const ok = await confirm({
+      title: "Delete experiment",
+      message: `Delete experiment "${exp.name}"? This moves it to MLflow's deleted stage and removes it from this list.`,
+      confirmText: "Delete",
+      destructive: true,
+    })
+    if (!ok) return
+    try {
+      const res = await fetch(`/api/mlflow/experiments/${exp.experiment_id}`, { method: "DELETE" })
+      if (!res.ok) throw new Error(String(res.status))
+      toast(`Experiment "${exp.name}" deleted`, "success")
+      if (selectedExp?.experiment_id === exp.experiment_id) {
+        setSelectedExp(null)
+        setRuns([])
+        setSelectedRun(null)
+        setCompareResult(null)
+        setCompareIds(new Set())
+      }
+      void loadExperiments()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to delete experiment", "error")
+    }
+  }, [confirm, toast, selectedExp, loadExperiments])
+
   // Initial load
   useEffect(() => {
-    loadExperiments()
+    const timer = window.setTimeout(() => { void loadExperiments() }, 0)
+    return () => window.clearTimeout(timer)
   }, [loadExperiments])
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -803,45 +833,57 @@ function ExperimentsPageInner() {
                   const isSelected = selectedExp?.experiment_id === exp.experiment_id
                   const isDefault = exp.experiment_id === "0"
                   return (
-                    <button
-                      key={exp.experiment_id}
-                      onClick={() => handleSelectExp(exp)}
-                      className={cn(
-                        "w-full text-left px-2.5 py-2 rounded-md transition-colors group",
-                        "hover:bg-muted/60",
-                        isSelected
-                          ? "bg-background border-l-2 border-l-blue-500 pl-[calc(0.625rem-2px)] shadow-sm"
-                          : "border-l-2 border-l-transparent"
-                      )}
-                    >
-                      <div className="flex items-center justify-between gap-1.5">
-                        <span
-                          className={cn(
-                            "text-xs font-medium truncate leading-tight",
-                            isSelected ? "text-foreground" : "text-foreground/80"
-                          )}
-                        >
-                          {exp.name}
-                        </span>
-                        <div className="flex items-center gap-1 shrink-0">
-                          {isDefault && (
-                            <Badge variant="secondary" className="text-[9px] h-3.5 px-1">
-                              default
-                            </Badge>
-                          )}
+                    <div key={exp.experiment_id} className="relative group">
+                      <button
+                        onClick={() => handleSelectExp(exp)}
+                        className={cn(
+                          "w-full text-left px-2.5 py-2 rounded-md transition-colors",
+                          "hover:bg-muted/60",
+                          isSelected
+                            ? "bg-background border-l-2 border-l-blue-500 pl-[calc(0.625rem-2px)] shadow-sm"
+                            : "border-l-2 border-l-transparent"
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-1.5">
                           <span
                             className={cn(
-                              "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
-                              count > 0
-                                ? "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400"
-                                : "bg-muted text-muted-foreground"
+                              "text-xs font-medium truncate leading-tight",
+                              isSelected ? "text-foreground" : "text-foreground/80"
                             )}
                           >
-                            {count}
+                            {exp.name}
                           </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {isDefault && (
+                              <Badge variant="secondary" className="text-[9px] h-3.5 px-1">
+                                default
+                              </Badge>
+                            )}
+                            <span
+                              className={cn(
+                                "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
+                                count > 0
+                                  ? "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400"
+                                  : "bg-muted text-muted-foreground"
+                              )}
+                            >
+                              {count}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    </button>
+                      </button>
+                      {isAdmin && !isDefault && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); void handleDeleteExp(exp) }}
+                          aria-label={`Delete experiment ${exp.name}`}
+                          title="Delete experiment"
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded-md border bg-background text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:border-destructive/40 transition-opacity"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
                   )
                 })}
               </div>

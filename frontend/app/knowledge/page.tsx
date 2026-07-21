@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label"
 import { getUser } from "@/lib/auth"
 import { useConfirm } from "@/lib/confirm"
 import { ErrorBox, EmptyState } from "@/components/ui/error-box"
+import { useCapability } from "@/lib/capabilities"
 
 interface Collection {
   name: string; embed_model: string; dim: number
@@ -33,10 +34,17 @@ function timeAgo(iso: string | null | undefined): string {
   if (s < 86400) return `${Math.floor(s / 3600)} hr ago`
   return `${Math.floor(s / 86400)} d ago`
 }
-interface Hit { source: string | null; content: string; score: number }
+interface Hit { source: string | null; content: string; score: number; rerank_score?: number }
+interface CollectionsResponse { collections?: Collection[] }
+interface AiStatusResponse { egress_policy?: string }
+interface CatalogColumn { name: string; type: string }
+interface CatalogResponse {
+  catalogs?: Array<{ name: string; schemas?: Array<{ name: string; tables?: Array<{ name: string }> }> }>
+}
 
 export default function KnowledgePage() {
   const { toast } = useToast()
+  const catalogEnabled = useCapability("catalog")
   const [cols, setCols] = useState<Collection[]>([])
   const [loading, setLoading] = useState(true)
   const [sel, setSel] = useState<string | null>(null)
@@ -49,8 +57,8 @@ export default function KnowledgePage() {
     setLoading(true)
     try {
       const r = await fetch("/api/ai/collections")
-      const d = await r.json()
-      const list: Collection[] = d.collections || []
+      const d: CollectionsResponse = await r.json()
+      const list = d.collections ?? []
       setCols(list)
       setSel(s => s && list.some(c => c.name === s) ? s : (list[0]?.name ?? null))
     } catch { setErr("Failed to load collections") }
@@ -58,8 +66,9 @@ export default function KnowledgePage() {
   }, [])
 
   useEffect(() => {
-    load()
-    fetch("/api/settings/ai/status").then(r => r.json()).then(d => setEgress(d.egress_policy || "")).catch(() => {})
+    const initial = window.setTimeout(() => void load(), 0)
+    fetch("/api/settings/ai/status").then(r => r.json() as Promise<AiStatusResponse>).then(d => setEgress(d.egress_policy ?? "")).catch(() => {})
+    return () => window.clearTimeout(initial)
   }, [load])
 
   return (
@@ -99,8 +108,12 @@ export default function KnowledgePage() {
                 <EmptyState
                   icon={Sparkles}
                   title="No collections yet"
-                  hint="Create one with New Collection above, or send data straight from a table's ✨ (Send to Knowledge) action in Catalog."
-                  action={<Button size="sm" variant="outline" render={<Link href="/catalog" />}>Send from Catalog</Button>}
+                  hint={catalogEnabled
+                    ? "Create one above, or send a table to Knowledge from the enabled Catalog module."
+                    : "Create a collection above, then ingest text or an S3 source directly."}
+                  action={catalogEnabled
+                    ? <Button size="sm" variant="outline" render={<Link href="/catalog" />}>Send from Catalog</Button>
+                    : undefined}
                 />
               </CardContent></Card>
             ) : cols.map(c => (
@@ -152,7 +165,7 @@ export default function KnowledgePage() {
   )
 }
 
-async function deleteCol(name: string, after: () => void, confirm: (o: any) => Promise<boolean>, notify?: (m: string, t?: any) => void) {
+async function deleteCol(name: string, after: () => void, confirm: ReturnType<typeof useConfirm>, notify?: ReturnType<typeof useToast>["toast"]) {
   if (!(await confirm({ title: "Delete collection", message: `This deletes "${name}" and all its chunks. This cannot be undone.`, destructive: true, confirmText: "Delete" }))) return
   await fetch(`/api/ai/collections/${encodeURIComponent(name)}`, { method: "DELETE" })
   notify?.(`Collection "${name}" deleted`, "success")
@@ -174,7 +187,7 @@ function CreateCollection({ onCreated }: { onCreated: () => void }) {
       })
       if (!r.ok) throw new Error((await r.json()).detail || "Create failed")
       setOpen(false); toast(`Collection "${name.trim()}" created`, "success"); setName(""); setDesc(""); onCreated()
-    } catch (err: any) { setE(err.message) }
+    } catch (error) { setE(error instanceof Error ? error.message : "Create failed") }
     setBusy(false)
   }
   return (
@@ -208,12 +221,80 @@ function Workspace({ name, onChange, empty }: { name: string; onChange: () => vo
         {/* An empty collection has nothing to search — open on Ingest so the first step is obvious. */}
         <Tabs defaultValue={empty ? "ingest" : "search"}>
           <TabsList><TabsTrigger value="search"><Search className="h-3.5 w-3.5 mr-1" />Search / RAG</TabsTrigger>
-            <TabsTrigger value="ingest"><Upload className="h-3.5 w-3.5 mr-1" />Ingest</TabsTrigger></TabsList>
+            <TabsTrigger value="ingest"><Upload className="h-3.5 w-3.5 mr-1" />Ingest</TabsTrigger>
+            <TabsTrigger value="schedule"><Clock className="h-3.5 w-3.5 mr-1" />Schedule</TabsTrigger></TabsList>
           <TabsContent value="search"><SearchPanel name={name} /></TabsContent>
           <TabsContent value="ingest"><IngestPanel name={name} onChange={onChange} /></TabsContent>
+          <TabsContent value="schedule"><SchedulePanel name={name} /></TabsContent>
         </Tabs>
       </CardContent>
     </Card>
+  )
+}
+
+interface ScheduleState {
+  enabled: boolean
+  interval_minutes: number | null
+  last_refreshed_at: string | null
+  last_refresh_status: string | null
+}
+
+function SchedulePanel({ name }: { name: string }) {
+  const isAdmin = getUser()?.role === "admin"
+  const { toast } = useToast()
+  const confirm = useConfirm()
+  const [state, setState] = useState<ScheduleState | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const load = useCallback(async () => {
+    setLoading(true); setErr(null)
+    try {
+      const r = await fetch(`/api/ai/collections/${encodeURIComponent(name)}/schedule`)
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      setState(await r.json())
+    } catch (error) { setErr(error instanceof Error ? error.message : "Failed to load schedule") }
+    setLoading(false)
+  }, [name])
+  useEffect(() => { const t = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(t) }, [load])
+  const cancel = async () => {
+    if (!(await confirm({ title: "Cancel schedule", message: "Stop the recurring re-embed for this collection?", confirmText: "Cancel schedule", destructive: true }))) return
+    setBusy(true)
+    try {
+      const r = await fetch(`/api/ai/collections/${encodeURIComponent(name)}/schedule`, { method: "DELETE" })
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      toast("Schedule cancelled", "success"); load()
+    } catch (error) { toast(error instanceof Error ? error.message : "Failed to cancel", "error") }
+    setBusy(false)
+  }
+  if (loading) return <div className="pt-3 text-xs text-muted-foreground flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Loading schedule…</div>
+  if (err) return <div className="pt-3"><ErrorBox msg={err} /></div>
+  if (!state?.enabled) return (
+    <div className="pt-3 text-sm text-muted-foreground">
+      No recurring re-embed is scheduled for this collection.
+      {isAdmin ? " Set one up from the Ingest tab (choose a source, then “Schedule ingest”)." : " An administrator can set one up."}
+    </div>
+  )
+  const okStatus = (state.last_refresh_status ?? "").toLowerCase().includes("ok") || (state.last_refresh_status ?? "").toLowerCase().includes("success")
+  return (
+    <div className="space-y-3 pt-3 text-sm">
+      <div className="flex items-center gap-2">
+        <Badge className="bg-[var(--dp-good)] text-white">Active</Badge>
+        <span className="text-muted-foreground">re-embeds every <span className="dp-num">{state.interval_minutes}</span> min</span>
+      </div>
+      <div className="grid grid-cols-1 gap-1 text-xs text-muted-foreground">
+        <div>Last run: {state.last_refreshed_at ? new Date(state.last_refreshed_at).toLocaleString() : "not yet"}</div>
+        {state.last_refresh_status && (
+          <div className="flex items-center gap-1">Status:
+            <span className={okStatus ? "text-[var(--dp-good)]" : "text-[var(--dp-warn)]"}>{state.last_refresh_status}</span>
+          </div>
+        )}
+      </div>
+      {isAdmin && (
+        <Button variant="outline" size="sm" onClick={cancel} disabled={busy}>
+          {busy ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5 mr-1.5" />}Cancel schedule</Button>
+      )}
+    </div>
   )
 }
 
@@ -221,23 +302,25 @@ function SearchPanel({ name }: { name: string }) {
   const [q, setQ] = useState(""); const [mode, setMode] = useState<"search" | "rag">("rag")
   const [busy, setBusy] = useState(false); const [ans, setAns] = useState<string | null>(null)
   const [hits, setHits] = useState<Hit[]>([]); const [e, setE] = useState<string | null>(null)
-  const [pii, setPii] = useState(0)
+  const [pii, setPii] = useState(0); const [hasAi, setHasAi] = useState(true)
   const run = async () => {
     if (!q.trim()) return
-    setBusy(true); setE(null); setAns(null); setHits([]); setPii(0)
+    setBusy(true); setE(null); setAns(null); setHits([]); setPii(0); setHasAi(true)
     try {
       if (mode === "rag") {
         const r = await fetch("/api/ai/rag", { method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ collection: name, question: q, k: 5 }) })
         if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-        const d = await r.json(); setAns(d.answer); setHits(d.citations || []); setPii(d.pii_masked || 0)
+        // has_ai=false ⇒ no model configured or the LLM call failed; the backend
+        // returns search results only. Don't present that as a real answer.
+        const d = await r.json(); setAns(d.answer); setHits(d.citations || []); setPii(d.pii_masked || 0); setHasAi(d.has_ai !== false)
       } else {
         const r = await fetch("/api/ai/search", { method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ collection: name, query: q, k: 8 }) })
         if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
         const d = await r.json(); setHits(d.results || []); setPii(d.pii_masked || 0)
       }
-    } catch (err: any) { setE(err.message) }
+    } catch (error) { setE(error instanceof Error ? error.message : "Search failed") }
     setBusy(false)
   }
   return (
@@ -256,7 +339,7 @@ function SearchPanel({ name }: { name: string }) {
       </div>
       {pii > 0 && <div className="text-[11px] text-[var(--dp-good)] flex items-center gap-1"><ShieldCheck className="h-3 w-3" />{pii} PII item(s) masked before processing (guardrail)</div>}
       {e && <ErrorBox msg={e} />}
-      {ans && (
+      {ans && hasAi && (
         <Card className="dp-surface">
           <CardContent className="py-3">
             <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
@@ -266,6 +349,12 @@ function SearchPanel({ name }: { name: string }) {
           </CardContent>
         </Card>
       )}
+      {ans && !hasAi && (
+        <div className="rounded-md border border-[var(--dp-warn)]/40 bg-[var(--dp-warn)]/5 px-3 py-2 text-xs text-muted-foreground flex items-start gap-1.5">
+          <AlertCircle className="h-3.5 w-3.5 text-[var(--dp-warn)] mt-0.5 shrink-0" />
+          <span>No answer generated — the AI model is not configured or the call failed. Showing retrieved results below only. Configure a model in the AI Gateway to get cited answers.</span>
+        </div>
+      )}
       {hits.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">{mode === "rag" ? "Citations" : "Results"}</p>
@@ -273,7 +362,12 @@ function SearchPanel({ name }: { name: string }) {
             <div key={i} className="rounded-md border px-3 py-2 text-xs">
               <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
                 <span className="flex items-center gap-1"><FileText className="h-3 w-3" />{h.source || "n/a"}</span>
-                <Badge variant="outline" className="dp-num text-[10px]">{h.score?.toFixed(3)}</Badge>
+                <span className="flex items-center gap-1">
+                  {typeof h.rerank_score === "number" && (
+                    <Badge variant="outline" className="dp-num text-[10px] border-primary/40 text-primary" title="Reranked relevance score">rerank {h.rerank_score.toFixed(3)}</Badge>
+                  )}
+                  <Badge variant="outline" className="dp-num text-[10px]">{h.score?.toFixed(3)}</Badge>
+                </span>
               </div>
               <div className="line-clamp-3">{h.content}</div>
             </div>
@@ -285,66 +379,78 @@ function SearchPanel({ name }: { name: string }) {
 }
 
 function IngestPanel({ name, onChange }: { name: string; onChange: () => void }) {
+  const catalogEnabled = useCapability("catalog")
+  // Source ingest + schedule are admin-only on the backend (require_admin);
+  // don't offer them to non-admins, who would only hit a 403.
+  const isAdmin = getUser()?.role === "admin"
+  const { toast } = useToast()
   const [tab, setTab] = useState<"text" | "source">("text")
   const [text, setText] = useState(""); const [src, setSrc] = useState("")
   const [stype, setStype] = useState<"iceberg" | "s3">("iceberg")
   const [schema, setSchema] = useState("default"); const [table, setTable] = useState(""); const [col, setCol] = useState("")
   const [bucket, setBucket] = useState(""); const [prefix, setPrefix] = useState("")
-  const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<string | null>(null); const [e, setE] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false); const [e, setE] = useState<string | null>(null)
   const [sched, setSched] = useState("@daily"); const [schedBusy, setSchedBusy] = useState(false)
   // Lakehouse picker: iceberg catalog tree (schemas→tables) + columns of the chosen table.
   const [tree, setTree] = useState<{ schema: string; tables: string[] }[]>([])
-  const [cols, setCols] = useState<{ name: string; type: string }[]>([])
+  const [cols, setCols] = useState<CatalogColumn[]>([])
+  const sourceType = catalogEnabled ? stype : "s3"
 
   useEffect(() => {
-    fetch("/api/catalog/schemas").then(r => r.json()).then(d => {
-      const ice = (d.catalogs || []).find((c: any) => c.name === "iceberg") || (d.catalogs || [])[0]
-      const sc = (ice?.schemas || []).map((s: any) => ({ schema: s.name, tables: (s.tables || []).map((t: any) => t.name) }))
-      setTree(sc)
+    if (!catalogEnabled) return
+    fetch("/api/catalog/schemas").then(r => r.json() as Promise<CatalogResponse>).then(d => {
+      const catalogs = d.catalogs ?? []
+      const activeCatalog = catalogs.find(catalog => catalog.name === "iceberg") ?? catalogs[0]
+      const schemas = (activeCatalog?.schemas ?? []).map(item => ({ schema: item.name, tables: (item.tables ?? []).map(table => table.name) }))
+      setTree(schemas)
     }).catch(() => {})
-  }, [])
+  }, [catalogEnabled])
   // When a table is picked, lazily fetch its columns to populate the text-column select.
   useEffect(() => {
-    if (stype !== "iceberg" || !schema || !table) { setCols([]); return }
+    if (sourceType !== "iceberg" || !schema || !table) return
     const qs = new URLSearchParams({ catalog: "iceberg", schema, table })
-    fetch(`/api/catalog/columns?${qs}`).then(r => r.json())
-      .then((c) => { const list = Array.isArray(c) ? c : []; setCols(list); if (list.length && !list.find((x: any) => x.name === col)) setCol(list[0].name) })
+    fetch(`/api/catalog/columns?${qs}`).then(r => r.json() as Promise<CatalogColumn[]>)
+      .then((payload) => {
+        const columns = Array.isArray(payload) ? payload : []
+        setCols(columns)
+        setCol(current => columns.length > 0 && !columns.some(column => column.name === current) ? columns[0].name : current)
+      })
       .catch(() => setCols([]))
-  }, [schema, table, stype])  // eslint-disable-line react-hooks/exhaustive-deps
-  const sourceBody = () => stype === "iceberg"
+  }, [schema, sourceType, table])
+  const sourceBody = () => sourceType === "iceberg"
     ? { type: "iceberg", schema, table, text_column: col }
     : { type: "s3", bucket, prefix }
 
   const ingestText = async () => {
-    setBusy(true); setE(null); setMsg(null)
+    setBusy(true); setE(null)
     try {
       const r = await fetch(`/api/ai/collections/${encodeURIComponent(name)}/ingest`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ documents: [{ source: src || "manual", text }] }) })
       if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-      const d = await r.json(); setMsg(`Ingested ${d.chunks} chunks (${d.pii_masked} PII masked)`); setText(""); onChange()
-    } catch (err: any) { setE(err.message) }
+      const d = await r.json(); toast(`Ingested ${d.chunks} chunks (${d.pii_masked} PII masked)`, "success"); setText(""); onChange()
+    } catch (error) { setE(error instanceof Error ? error.message : "Ingestion failed") }
     setBusy(false)
   }
   const ingestSource = async () => {
-    setBusy(true); setE(null); setMsg(null)
+    setBusy(true); setE(null)
     try {
       const r = await fetch(`/api/ai/collections/${encodeURIComponent(name)}/ingest-source`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sourceBody()) })
       if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-      const d = await r.json(); setMsg(`${d.documents} docs → ${d.chunks} chunks (${d.pii_masked} PII masked)`); onChange()
-    } catch (err: any) { setE(err.message) }
+      const d = await r.json(); toast(`${d.documents} docs → ${d.chunks} chunks (${d.pii_masked} PII masked)`, "success"); onChange()
+    } catch (error) { setE(error instanceof Error ? error.message : "Source ingestion failed") }
     setBusy(false)
   }
   const scheduleSource = async () => {
-    setSchedBusy(true); setE(null); setMsg(null)
+    setSchedBusy(true); setE(null)
     try {
       const r = await fetch(`/api/ai/collections/${encodeURIComponent(name)}/schedule`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ schedule: sched, source: sourceBody() }) })
       if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-      const d = await r.json(); setMsg(`Schedule created: auto re-embeds every ${d.interval_minutes} min`)
-    } catch (err: any) { setE(err.message) }
+      const d = await r.json(); toast(`Schedule created — auto re-embeds every ${d.interval_minutes} min`, "success")
+    } catch (error) { setE(error instanceof Error ? error.message : "Schedule creation failed") }
     setSchedBusy(false)
   }
 
@@ -352,11 +458,13 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
     <div className="space-y-3 pt-3">
       <div className="flex rounded-md border overflow-hidden w-fit text-xs">
         {(["text", "source"] as const).map(t => (
+          (t === "source" && !isAdmin) ? null : (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-1 ${tab === t ? "bg-primary text-primary-foreground" : "bg-background"}`}>
-            {t === "text" ? "Paste text" : "From catalog / S3"}</button>
+            {t === "text" ? "Paste text" : catalogEnabled ? "From catalog / S3" : "From S3"}</button>
+          )
         ))}
       </div>
-      {tab === "text" ? (
+      {(tab === "text" || !isAdmin) ? (
         <>
           <Input value={src} onChange={e => setSrc(e.target.value)} placeholder="source label (optional)" className="text-sm" />
           <Textarea value={text} onChange={e => setText(e.target.value)} placeholder="Paste documents to embed…" className="min-h-[160px] text-sm" />
@@ -364,13 +472,15 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
         </>
       ) : (
         <>
-          <div className="flex rounded-md border overflow-hidden w-fit text-xs">
-            {(["iceberg", "s3"] as const).map(t => (
-              <button key={t} onClick={() => setStype(t)}
-                className={`px-3 py-1 ${stype === t ? "bg-primary text-primary-foreground" : "bg-background"}`}>{t}</button>
-            ))}
-          </div>
-          {stype === "iceberg" ? (
+          {catalogEnabled && (
+            <div className="flex rounded-md border overflow-hidden w-fit text-xs">
+              {(["iceberg", "s3"] as const).map(t => (
+                <button key={t} onClick={() => setStype(t)}
+                  className={`px-3 py-1 ${stype === t ? "bg-primary text-primary-foreground" : "bg-background"}`}>{t}</button>
+              ))}
+            </div>
+          )}
+          {sourceType === "iceberg" ? (
             tree.length > 0 ? (
               <div className="grid grid-cols-3 gap-2">
                 <select value={schema} onChange={e => { setSchema(e.target.value); setTable("") }}
@@ -403,10 +513,10 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
               <Input value={prefix} onChange={e => setPrefix(e.target.value)} placeholder="prefix (optional)" className="text-sm" />
             </div>
           )}
-          {(() => { const ready = stype === "iceberg" ? !!(table && col) : !!bucket; return (
+          {(() => { const ready = sourceType === "iceberg" ? !!(table && col) : !!bucket; return (
             <div className="flex flex-wrap items-center gap-2">
               <Button onClick={ingestSource} disabled={busy || schedBusy || !ready}>
-                {busy && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}Ingest from {stype}</Button>
+                {busy && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}Ingest from {sourceType}</Button>
               <span className="text-xs text-muted-foreground ml-1">or schedule:</span>
               <select value={sched} onChange={e => setSched(e.target.value)}
                 className="h-9 rounded-md border bg-background px-2 text-xs">
@@ -419,10 +529,12 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
                 Schedule ingest</Button>
             </div>
           )})()}
-          <p className="text-[11px] text-muted-foreground">Scheduled ingest re-embeds the source on an interval — and automatically whenever a connector sync updates the source table, so retrieval stays fresh.</p>
+          <p className="text-[11px] text-muted-foreground">
+            Scheduled ingest re-embeds this source on the selected interval
+            {sourceType === "iceberg" ? " and when a linked connector sync marks it stale." : "."}
+          </p>
         </>
       )}
-      {msg && <p className="text-xs text-[var(--dp-good)]">{msg}</p>}
       {e && <ErrorBox msg={e} />}
     </div>
   )

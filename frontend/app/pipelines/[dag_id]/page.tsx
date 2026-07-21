@@ -12,16 +12,15 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { AssetGraph } from "@/components/pipelines/asset-graph"
+import type { AssetNodeData } from "@/components/pipelines/asset-node"
 import { AssetContextPanel } from "@/components/pipelines/asset-context-panel"
-import { AssetNodeData } from "@/components/pipelines/asset-node"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import {
   ArrowLeft, Play, Pause, RefreshCw, AlertCircle,
-  Calendar, Clock, TrendingUp, CheckCircle2, XCircle,
-  GitBranch, Tag, User, Timer, Activity, ExternalLink,
-  Settings2, Zap, PanelRightClose,
+  Clock, TrendingUp, CheckCircle2, XCircle,
+  GitBranch, Timer, Activity, Zap, PanelRightClose,
 } from "lucide-react"
 import { formatDistanceToNow, format } from "date-fns"
 
@@ -42,6 +41,20 @@ interface DagRun {
   dag_run_id: string; dag_id: string; execution_date: string
   start_date?: string; end_date?: string; state: string; run_type: string
   conf?: Record<string, unknown>
+}
+interface GraphNode {
+  id: string
+  type: string
+  data: AssetNodeData
+}
+interface GraphEdge {
+  id: string
+  source: string
+  target: string
+}
+interface TaskInstance {
+  task_id?: string
+  state?: string
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -95,7 +108,7 @@ export default function DagDetailPage() {
   const [dag,        setDag]        = useState<DAG | null>(null)
   const [stats,      setStats]      = useState<DagStats | null>(null)
   const [runs,       setRuns]       = useState<DagRun[]>([])
-  const [graphData,  setGraphData]  = useState<{ nodes: any[]; edges: any[] } | null>(null)
+  const [graphData,  setGraphData]  = useState<{ nodes: GraphNode[]; edges: GraphEdge[] } | null>(null)
   const [taskStates, setTaskStates] = useState<Record<string, string>>({})
   const [loading,    setLoading]    = useState(true)
   const [error,      setError]      = useState<string | null>(null)
@@ -155,7 +168,9 @@ export default function DagDetailPage() {
             const td = await tR.json()
             const instances = Array.isArray(td) ? td : (td.task_instances ?? [])
             const map: Record<string,string> = {}
-            instances.forEach((t:any) => { if (t.task_id) map[t.task_id] = t.state ?? "none" })
+            instances.forEach((task: TaskInstance) => {
+              if (task.task_id) map[task.task_id] = task.state ?? "none"
+            })
             setTaskStates(map)
           }
         }
@@ -165,16 +180,21 @@ export default function DagDetailPage() {
     } finally {
       setLoading(false)
     }
-  }, [dag_id])
+  }, [dag_id, router])
 
   // Adaptive polling: 5s when tasks are running, 30s otherwise
   const hasRunningTasks = Object.values(taskStates).some(s => s === "running" || s === "queued")
 
   useEffect(() => {
-    load()
+    const initial = window.setTimeout(() => { void load() }, 0)
     const interval = hasRunningTasks ? 5000 : 30000
-    const t = setInterval(() => { if (!isDraft.current) load() }, interval)
-    return () => clearInterval(t)
+    const poll = window.setInterval(() => {
+      if (!isDraft.current) void load()
+    }, interval)
+    return () => {
+      window.clearTimeout(initial)
+      window.clearInterval(poll)
+    }
   }, [load, hasRunningTasks])
 
   const togglePause = async () => {
@@ -319,7 +339,7 @@ export default function DagDetailPage() {
         {selectedNodeId && graphData && (
           <AssetContextPanel
             nodeId={selectedNodeId}
-            nodeData={graphData.nodes.find((n: any) => n.id === selectedNodeId)?.data ?? null}
+            nodeData={graphData.nodes.find((node) => node.id === selectedNodeId)?.data ?? null}
             dagId={dag_id}
             edges={graphData.edges}
             allNodes={graphData.nodes}
@@ -373,7 +393,7 @@ export default function DagDetailPage() {
           <div className="space-y-3 py-2">
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">
-                Config JSON <span className="text-muted-foreground font-normal">(선택)</span>
+                Config JSON <span className="text-muted-foreground font-normal">(optional)</span>
               </Label>
               <Textarea
                 value={triggerConf}
@@ -383,7 +403,7 @@ export default function DagDetailPage() {
                 rows={5}
               />
               <p className="text-[11px] text-muted-foreground">
-                DAG에 전달할 파라미터를 JSON으로 입력하세요
+                Enter parameters to pass to the DAG as JSON
               </p>
             </div>
           </div>

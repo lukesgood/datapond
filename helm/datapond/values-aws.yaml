@@ -1,15 +1,29 @@
-# AWS deployment profile — EKS + S3 + Bedrock
+# AWS Hybrid Extended compatibility profile
+# -----------------------------------------
+# Connects the base OSS-extended chart to S3, Bedrock, and external PostgreSQL.
+# It does NOT provision EKS; bring an existing Kubernetes cluster. Because this
+# overlay inherits base component defaults, it is heavier than Portable Core.
+# Prefer values-foundation.yaml for the lean starter or values-prod-single.yaml
+# for the documented EC2/K3s AWS reference.
+#
 # Usage:
 #   helm upgrade datapond helm/datapond \
 #     --namespace datapond \
 #     --values helm/datapond/values-aws.yaml
-#
+
+product:
+  profile:
+    id: aws-hybrid-extended
+    label: AWS Hybrid Extended
+    description: S3, Bedrock, and external PostgreSQL with optional self-hosted OSS data services.
+    maturity: compatibility
+    topology: bring-your-own-kubernetes
+
 # Before deploying, replace placeholder values:
 #   - global.domain
-#   - storage.bucket
-#   - storage.region
+#   - storage region and any catalog warehouse paths used by enabled services
 #   - litellm.config model aws_region_name
-#   - externalDatabase.host (RDS endpoint)
+#   - externalDatabase.host (PostgreSQL-compatible endpoint)
 
 global:
   domain: datapond.example.com   # Replace with actual domain
@@ -28,15 +42,18 @@ ingress:
 minio:
   enabled: false
 
-# Storage: point the backend at AWS S3 (other services rewired in later phases)
+# Storage endpoint and credential routing only. This compatibility profile inherits
+# the OSS warehouse bucket/path defaults; ensure those buckets exist or override
+# polaris.warehouseBucket, polaris.storage.defaultBaseLocation, and other enabled
+# service-specific warehouse locations.
 storage:
   provider: s3
   endpoint: ""          # empty = use AWS native S3 endpoints
   region: us-east-1
-  bucket: datapond-iceberg
 
 # AI egress policy — AWS profile uses managed Bedrock (external by design).
 ai:
+  provider: bedrock
   egressPolicy: "cloud-allowed"
   embedModel: "embed"
   embedDim: 1024
@@ -77,14 +94,15 @@ backend:
     minReplicas: 2
     maxReplicas: 10
 
-# PostgreSQL: disabled — use AWS RDS
+# In-cluster PostgreSQL is disabled; connect an external PostgreSQL-compatible service.
 postgres:
   enabled: false
 
-# RDS connection (set host via secret or override)
+# External PostgreSQL-compatible connection (set host via secret or override)
 externalDatabase:
   enabled: true
-  host: ""          # set at deploy time to the Aurora writer endpoint
+  adapter: postgresql
+  host: ""          # set at deploy time to a PostgreSQL-compatible endpoint
   port: 5432
   name: datapond
   sslmode: "require"

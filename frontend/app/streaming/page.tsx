@@ -1,7 +1,7 @@
 "use client"
 import { CapabilityGate } from "@/lib/capabilities"
 
-import { useEffect, useState, useRef } from "react"
+import { useCallback, useEffect, useState, useRef } from "react"
 import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
@@ -54,7 +54,7 @@ interface DdlProgress {
 }
 
 interface SqlResult {
-  columns?: string[]; rows?: any[][]; row_count?: number
+  columns?: string[]; rows?: unknown[][]; row_count?: number
   execution_time_ms?: number; message?: string
 }
 
@@ -133,20 +133,20 @@ function CdcPrereqPanel({ dbName, dbUser }: { dbName?: string; dbUser?: string }
 
 const STREAMING_SOURCES = [
   { id: "postgres-cdc", type: "cdc",   name: "PostgreSQL CDC",   icon: "🐘",
-    description: "WAL 기반 실시간 변경 캡처 (INSERT / UPDATE / DELETE)",
-    features: ["Zero latency", "No source load", "DELETE 반영"], available: true },
+    description: "WAL-based real-time change capture (INSERT / UPDATE / DELETE)",
+    features: ["Zero latency", "No source load", "DELETE support"], available: true },
   { id: "mysql-cdc",    type: "cdc",   name: "MySQL CDC",         icon: "🐬",
-    description: "binlog 기반 MySQL / MariaDB 실시간 변경 캡처",
-    features: ["binlog 기반", "MariaDB 지원"], available: false },
+    description: "binlog-based real-time change capture for MySQL / MariaDB",
+    features: ["binlog-based", "MariaDB support"], available: false },
   { id: "kafka",        type: "event", name: "Apache Kafka",      icon: "📨",
-    description: "Kafka 토픽을 Iceberg 테이블로 실시간 수집",
+    description: "Real-time ingestion of Kafka topics into Iceberg tables",
     features: ["JSON / Avro / CSV", "Schema Registry"], available: true },
   { id: "kinesis",      type: "event", name: "Amazon Kinesis",    icon: "☁️",
     description: "AWS Kinesis Data Streams → Iceberg",
-    features: ["AWS 네이티브", "at-least-once"], available: true },
+    features: ["AWS native", "at-least-once"], available: true },
   { id: "pulsar",       type: "event", name: "Apache Pulsar",     icon: "⚡",
-    description: "Pulsar 토픽 스트리밍",
-    features: ["멀티테넌시"], available: false },
+    description: "Pulsar topic streaming",
+    features: ["Multi-tenancy"], available: false },
 ] as const
 
 // ── SQL Templates ──────────────────────────────────────────────────────────────
@@ -184,7 +184,7 @@ WITH (
   type           = 'append-only',
   catalog.type   = 'storage',
   warehouse.path = 's3a://iceberg/warehouse',
-  s3.endpoint    = 'http://seaweedfs-s3:8333',
+  s3.endpoint    = 'http://minio:9000',
   s3.access.key  = 'datapond',
   s3.secret.key  = 'datapond_dev',
   database.name  = 'default',
@@ -212,6 +212,15 @@ function fmtDate(s: string | null) {
   return new Intl.DateTimeFormat("en-US", {
     month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
   }).format(new Date(s))
+}
+
+async function responseError(response: Response, fallback: string) {
+  try {
+    const data = await response.json()
+    return typeof data?.detail === "string" ? data.detail : fallback
+  } catch {
+    return fallback
+  }
 }
 
 // ── Pipeline grouping helper ───────────────────────────────────────────────────
@@ -347,7 +356,10 @@ function StreamingPageInner() {
   const [sourceSearch, setSourceSearch] = useState("")
   const [sourceCat, setSourceCat] = useState("all")
 
-  const fetchAll = async () => {
+  // Sample streams creation state
+  const [makingSamples, setMakingSamples] = useState(false)
+
+  const fetchAll = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -368,9 +380,12 @@ function StreamingPageInner() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  useEffect(() => { fetchAll() }, [])
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void fetchAll() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [fetchAll])
 
   // Auto-refresh progress while DDL running
   useEffect(() => {
@@ -405,11 +420,23 @@ function StreamingPageInner() {
 
   const { toast } = useToast()
   const confirm = useConfirm()
-  const handleDrop = async (type: string, name: string) => {
-    if (!(await confirm({ title: `${type} 삭제`, message: `"${name}" 를 삭제할까요?`, destructive: true, confirmText: "삭제" }))) return
-    await fetch(`/api/streaming/${type}/${name}`, { method: "DELETE" })
-    toast(`${name} 삭제됨`, "success")
-    fetchAll()
+
+  const handleMakeSamples = async () => {
+    setMakingSamples(true)
+    try {
+      const res = await fetch("/api/streaming/sample-streams", { method: "POST" })
+      if (!res.ok) {
+        toast(await responseError(res, "Failed to create sample streams"), "error")
+        return
+      }
+      const data = await res.json()
+      toast(`Created ${data.created}/${data.total} sample streams`, "success")
+      fetchAll()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Failed to create sample streams", "error")
+    } finally {
+      setMakingSamples(false)
+    }
   }
 
   const handlePreview = async (mv: MV) => {
@@ -421,12 +448,36 @@ function StreamingPageInner() {
   }
 
   const handleDropPipeline = async (pipeline: PipelineGroup) => {
-    if (!(await confirm({ title: "파이프라인 삭제", message: `"${pipeline.name}" 와 연관 객체 ${pipeline.tables.length * 3}개를 삭제합니다.`, destructive: true, confirmText: "삭제" }))) return
-    for (const name of pipeline.sinks)   await fetch(`/api/streaming/sinks/${name}`,   { method: "DELETE" })
-    for (const name of pipeline.views)   await fetch(`/api/streaming/views/${name}`,   { method: "DELETE" })
-    for (const name of pipeline.sources) await fetch(`/api/streaming/sources/${name}`, { method: "DELETE" })
-    toast(`파이프라인 "${pipeline.name}" 삭제됨`, "success")
-    fetchAll()
+    const operations = [
+      ...pipeline.sinks.map(name => ({ type: "sinks", name })),
+      ...pipeline.views.map(name => ({ type: "views", name })),
+      ...pipeline.sources.map(name => ({ type: "sources", name })),
+    ]
+    if (!(await confirm({ title: "Delete Pipeline", message: `Delete "${pipeline.name}" and its ${operations.length} associated objects.`, destructive: true, confirmText: "Delete" }))) return
+
+    const deleted: string[] = []
+    try {
+      for (const operation of operations) {
+        const response = await fetch(
+          `/api/streaming/${operation.type}/${operation.name}`,
+          { method: "DELETE" },
+        )
+        if (!response.ok) {
+          const detail = await responseError(response, `${operation.name} deletion failed`)
+          throw new Error(`${operation.name}: ${detail}`)
+        }
+        deleted.push(operation.name)
+      }
+      toast(`Pipeline "${pipeline.name}" deleted`, "success")
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : "Deletion failed"
+      const outcome = deleted.length > 0
+        ? `Partial deletion: removed ${deleted.length}/${operations.length} objects before ${detail}`
+        : `Pipeline deletion failed: ${detail}`
+      toast(outcome, "error")
+    } finally {
+      void fetchAll()
+    }
   }
 
   const pipelines = groupPipelines(sources, views, sinks)
@@ -544,11 +595,11 @@ function StreamingPageInner() {
                 <Button onClick={() => setActiveTab("add-source")} className="gap-1.5">
                   <Plus className="h-4 w-4" />Add Source
                 </Button>
-                <Button variant="outline" className="gap-1.5" onClick={async () => {
-                  const res = await fetch("/api/streaming/sample-streams", { method: "POST" })
-                  if (res.ok) fetchAll()
-                }}>
-                  <Play className="h-4 w-4" />Make Sample Streams
+                <Button variant="outline" className="gap-1.5"
+                  onClick={handleMakeSamples} disabled={makingSamples}>
+                  {makingSamples
+                    ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</>
+                    : <><Play className="h-4 w-4" />Make Sample Streams</>}
                 </Button>
               </div>
               <div className="flex items-center gap-6 text-xs text-muted-foreground">
