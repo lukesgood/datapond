@@ -450,7 +450,8 @@ See `.claude/agents/pm-agent.md` for detailed spawning examples and coordination
 - ✅ ~~에어갭 설치 패키지~~ — 구성요소 검증 완료 (#59). *(OSS 온프렘 프로파일 한정; AWS 파운데이션은 ECR pull 기반)*
 - ✅ ~~Iceberg VACUUM DAG~~ — startup `deploy_maintenance_dag()`로 유지보수 DAG 배포 *(full-profile Airflow 한정)*
 - ✅ ~~**자동 신선도(AI Data Foundation 핵심)**~~ — 완료: 백엔드 인프로세스 재임베딩 스케줄러(`backend/app/rag_scheduler.py`, pg advisory-lock으로 replica 중복 방지, interval 기반). Airflow DAG 경로 제거, append→replace(`ai_chunks.source_group`) 버그 수정. `RAG_SCHEDULER_ENABLED`/`TICK_SECONDS` env
-- [ ] 커넥터 RAG sink(소스 변경 시 자동 재임베딩), 모니터링 스택(Prometheus/Grafana)·Langfuse 실배포(차트 opt-in만)
-- [ ] Sovereign profile live acceptance와 Bedrock→local model/provider exit drill 자동화
+- ✅ ~~커넥터 RAG sink(소스 변경 시 자동 재임베딩)~~ — 완료·라이브: 커넥터 sync 완료 시 `_invalidate_sink_collections()`가 매칭되는 fresh 컬렉션(`refresh_enabled`, iceberg source, 동일 (namespace,table))의 `last_refreshed_at`을 NULL로 → in-process `rag_scheduler`가 다음 tick에 재임베딩(advisory-lock, source_group replace). `RAG_SINK_ENABLED`(기본 on) 게이트, `test_connector_rag_sink.py` 커버.
+- ✅ ~~모니터링(AWS)~~ — AWS 단일노드는 **CloudWatch**로 관측(`cloudwatchMetrics.enabled`, 노드 profile의 PutMetricData, 추가 파드 없음). 앱 메트릭(`DataPond` 네임스페이스: RagQuery/EmbeddingCount/QueryCount/BytesScanned) + EC2 메트릭을 묶은 CloudWatch 대시보드 `DataPond` 배포. Prometheus/Grafana는 OSS 프로파일용 옵션으로 남음(차트 템플릿 미구현). Langfuse 트레이싱은 opt-in.
+- [ ] Sovereign profile live acceptance와 Bedrock→local model/provider exit drill 자동화 *(별도 self-hosted OSS 환경 필요 — AWS 단일노드에선 라이브 acceptance 불가)*
 
 > **배포 주의 (AWS 라이브):** 라이브는 단일 EC2(K3s) + SSM tar-sync 파이프라인으로 운영되며 `/home/ubuntu/datapond`는 풀 체크아웃이 아님 — 새 런타임 파일(라우트/스키마/설정)을 추가하면 배포 시 전체 소스를 동기화해야 이미지에 포함됨. 정식 신규설치(helm/install.sh)는 무관.
