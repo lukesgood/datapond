@@ -15,49 +15,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import {
-  Server, Database, Activity, Cpu,
-  CheckCircle2, ExternalLink, RefreshCw, Copy, Info, ShieldCheck,
-  Box, AlertCircle, Trash2,
+  Server, Activity,
+  CheckCircle2, RefreshCw, Copy, Info, ShieldCheck,
+  AlertCircle, Trash2,
   Eye, EyeOff, UserPlus, KeyRound, Shield, UserX, UserCheck, SlidersHorizontal,
   Link, Terminal,
 } from "lucide-react"
 import { getUser } from "@/lib/auth"
+import NextLink from "next/link"
 import { useCapabilityStrict, useCapability, useCapabilities } from "@/lib/capabilities"
-import { getProductProfile } from "@/lib/product-profile"
 
 // ── Constants ──────────────────────────────────────────────────────────────────
-
-const SERVICE_META: Record<string, { label: string; desc: string; color: string; url?: string }> = {
-  postgres:     { label: "PostgreSQL 16",     desc: "Shared metadata database",      color: "text-blue-600" },
-  mlflow:       { label: "MLflow",            desc: "ML experiment tracking",         color: "text-orange-500", url: "/mlflow/" },
-  jupyterlab:   { label: "JupyterLab",        desc: "Interactive notebooks",          color: "text-amber-500",  url: "/jupyter" },
-  trino:        { label: "Trino 435",         desc: "Distributed SQL query engine",   color: "text-indigo-600" },
-  risingwave:   { label: "RisingWave v1.6",   desc: "Streaming SQL database",         color: "text-cyan-600" },
-  openmetadata: { label: "OpenMetadata",      desc: "Data catalog & lineage",         color: "text-purple-600", url: "/openmetadata" },
-  minio:       { label: "MinIO",             desc: "S3-compatible object storage",   color: "text-green-600",  url: "/storage" },
-  polaris:      { label: "Apache Polaris",    desc: "Iceberg REST catalog",           color: "text-red-500" },
-  valkey:       { label: "Valkey",            desc: "Redis-compatible cache",         color: "text-rose-500" },
-  airflow:      { label: "Airflow",           desc: "Pipeline orchestration",         color: "text-sky-600",    url: "/airflow/" },
-  spark:        { label: "Apache Spark",      desc: "Distributed batch compute",      color: "text-orange-600" },
-  ollama:       { label: "Ollama",            desc: "Local model and embedding runtime", color: "text-teal-600" },
-  "External PostgreSQL": { label: "External PostgreSQL", desc: "PostgreSQL + pgvector adapter", color: "text-blue-600" },
-  // AWS-managed foundation services (names match /api/services display names)
-  "Amazon S3":      { label: "Amazon S3",      desc: "Object storage",              color: "text-green-600" },
-  "Amazon Aurora":  { label: "Amazon Aurora",  desc: "Postgres + pgvector",         color: "text-blue-600" },
-  "Amazon Bedrock": { label: "Amazon Bedrock", desc: "LLM / embeddings",            color: "text-purple-600" },
-  "AWS Glue":       { label: "AWS Glue",       desc: "Iceberg Data Catalog",        color: "text-orange-600" },
-  "Amazon Athena":  { label: "Amazon Athena",  desc: "Serverless SQL query engine", color: "text-indigo-600" },
-  // Lowercase aliases (in case the API keys by short name)
-  s3:           { label: "Amazon S3",         desc: "Object storage",                 color: "text-green-600" },
-  aurora:       { label: "Amazon Aurora",     desc: "Postgres + pgvector",            color: "text-blue-600" },
-  bedrock:      { label: "Amazon Bedrock",    desc: "LLM / embeddings",               color: "text-purple-600" },
-  glue:         { label: "AWS Glue",          desc: "Iceberg Data Catalog",           color: "text-orange-600" },
-  athena:       { label: "Amazon Athena",     desc: "Serverless SQL query engine",    color: "text-indigo-600" },
-  // In-cluster pods
-  backend:      { label: "Backend API",       desc: "FastAPI application",            color: "text-slate-600" },
-  frontend:     { label: "Frontend",          desc: "Management UI (Next.js)",        color: "text-slate-500" },
-  litellm:      { label: "LiteLLM",           desc: "Portable AI model gateway",      color: "text-fuchsia-600" },
-}
 
 // Access URLs (path-hosted services). OpenMetadata / MinIO / Trino are NOT
 // listed: their web UIs don't support sub-path hosting, so they 404 under /<svc>
@@ -141,15 +109,11 @@ const subscribeToClient = () => () => {}
 
 export default function SettingsPage() {
   const caps = useCapabilities()
-  const profile = getProductProfile(caps)
   const runtimeProfileId = typeof caps.profile_id === "string" ? caps.profile_id : ""
   const deploymentNamespace = typeof caps.deployment_namespace === "string" ? caps.deployment_namespace : ""
   const helmConfig = helmCommands(runtimeProfileId, deploymentNamespace)
   const valuesFile = helmConfig?.valuesFile
   const commands = helmConfig?.commands ?? []
-  const storageContract = typeof caps.storage_provider === "string" ? caps.storage_provider.toUpperCase() : "Not reported"
-  const vectorStore = typeof caps.vector_store === "string" ? caps.vector_store : "PostgreSQL + pgvector"
-  const modelGateway = typeof caps.model_gateway === "string" ? caps.model_gateway : "LiteLLM"
   // Fail-closed: only render passkey management when the backend explicitly
   // reports webauthn=true. A /api/capabilities fetch error must not show the
   // secure-context-sensitive passkey UI (mirrors the login page's strict gate).
@@ -257,56 +221,12 @@ export default function SettingsPage() {
 
           {/* ── Overview ── */}
           <TabsContent value="overview" className="mt-5 space-y-5">
-            {/* Service Health */}
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Server className="h-4 w-4 text-muted-foreground" />Service Health
-                    </CardTitle>
-                    <CardDescription>Running platform services</CardDescription>
-                  </div>
-                  {!loading && healthCheckedServices.length > 0 && healthy === healthCheckedServices.length && (
-                    <Badge className="bg-green-500/10 text-green-700 border-green-200 gap-1">
-                      <CheckCircle2 className="h-3 w-3" />All Healthy
-                    </Badge>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                  {loading
-                    ? Array(9).fill(0).map((_,i) => <Skeleton key={i} className="h-16 rounded-lg" />)
-                    : services.map(svc => {
-                        const meta = SERVICE_META[svc.name]
-                        return (
-                          <div key={svc.name}
-                            className="flex items-center gap-3 rounded-lg border p-3 bg-card hover:bg-muted/30 transition-colors">
-                            <span className={`shrink-0 ${meta?.color ?? "text-muted-foreground"}`}>
-                              <Database className="h-4 w-4" />
-                            </span>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-xs font-medium truncate">{meta?.label ?? svc.name}</span>
-                                <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                                  svc.status === "healthy" ? "bg-green-500" :
-                                  svc.status === "unhealthy" ? "bg-red-500" : "bg-amber-400"}`} />
-                              </div>
-                              <p className="text-[11px] text-muted-foreground truncate">{meta?.desc}</p>
-                            </div>
-                            {meta?.url && (
-                              <a href={meta.url} target="_blank" rel="noreferrer"
-                                className="shrink-0 text-muted-foreground hover:text-foreground">
-                                <ExternalLink className="h-3.5 w-3.5" />
-                              </a>
-                            )}
-                          </div>
-                        )
-                      })}
-                </div>
-              </CardContent>
-            </Card>
+            {/* Live service health lives on the Infrastructure (Services) page — this
+                tab keeps only genuine config/reference, not a duplicated status grid. */}
+            <NextLink href="/services"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+              View live workload and node status in Infrastructure →
+            </NextLink>
 
             {/* Access URLs */}
             <Card>
@@ -441,84 +361,12 @@ export default function SettingsPage() {
 
           {/* ── System ── */}
           <TabsContent value="system" className="mt-5 space-y-5">
-            <div className="grid md:grid-cols-2 gap-5">
-              {/* Platform info */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Box className="h-4 w-4 text-muted-foreground" />Platform Information
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="divide-y">
-                    {[
-                      { label: "DataPond",      value: "v2.3.0" },
-                      { label: "Profile",       value: profile.label },
-                      { label: "Maturity",      value: profile.maturity },
-                      { label: "Topology",      value: profile.topology },
-                      { label: "Namespace",     value: deploymentNamespace || "Not reported" },
-                      { label: "Storage",       value: storageContract === "Not reported" ? storageContract : `${storageContract} contract` },
-                      { label: "Vector store",  value: vectorStore },
-                      { label: "Model gateway", value: modelGateway },
-                    ].map(({ label, value }) => (
-                      <div key={label} className="flex items-center justify-between py-2 text-sm">
-                        <span className="text-muted-foreground text-xs">{label}</span>
-                        <span className="font-mono text-xs">{value}</span>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Resource usage */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Cpu className="h-4 w-4 text-muted-foreground" />Resource Usage
-                  </CardTitle>
-                  <CardDescription>Cluster-wide resource allocation</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-5">
-                  {[
-                    { label: "CPU",    value: stats?.cpu_usage },
-                    { label: "Memory", value: stats?.memory_usage },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">{label}</span>
-                        {loading
-                          ? <Skeleton className="h-4 w-12" />
-                          : <span className={`font-semibold tabular-nums ${
-                              value == null ? "text-muted-foreground" :
-                              value >= 90 ? "text-destructive" :
-                              value >= 75 ? "text-amber-600" : "text-green-600"}`}>
-                              {value != null ? `${value.toFixed(1)}%` : "—"}
-                            </span>}
-                      </div>
-                      {loading ? <Skeleton className="h-2 w-full" /> : (
-                        <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                          <div className={`h-full rounded-full transition-all ${
-                            value == null ? "" :
-                            value >= 90 ? "bg-destructive" :
-                            value >= 75 ? "bg-amber-500" : "bg-green-500"}`}
-                            style={{ width: `${Math.min(value ?? 0, 100)}%` }} />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-
-                  {((stats?.cpu_usage ?? 0) >= 75 || (stats?.memory_usage ?? 0) >= 75) && (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2.5 text-xs text-amber-700 flex items-start gap-2">
-                      <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-medium">High resource usage</p>
-                        <p className="mt-0.5 text-amber-600">Disable unused services in {valuesFile ?? "your deployment overlay"}, or add more RAM. Production: 32GB+ recommended.</p>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+            {/* Platform specs and live resource usage are owned by the System page —
+                this tab keeps only operator configuration (Helm ops + SMTP). */}
+            <NextLink href="/services?tab=system"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+              View live platform specs and resource usage in System →
+            </NextLink>
 
             {/* Helm configuration */}
             <Card>

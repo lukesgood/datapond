@@ -99,7 +99,7 @@ const ARTICLES: Record<string, Doc> = {
       "The profile is production-oriented but not application-node HA; recovery procedures are part of the operating model.",
       "EKS, EMR Serverless, S3 Tables, Lake Formation, AOSS, DataZone, CDK, and Marketplace packaging remain roadmap until implemented and accepted live.",
     ],
-    related: [{ label: "System", href: "/system" }, { label: "Backup & restore", href: "/docs/backup-restore" }],
+    related: [{ label: "System", href: "/services?tab=system" }, { label: "Backup & restore", href: "/docs/backup-restore" }],
   },
   sovereign: {
     title: "Sovereign OSS Extended",
@@ -231,7 +231,7 @@ const ARTICLES: Record<string, Doc> = {
       "Workload health is separate from capability status: enabled means configured, not necessarily healthy.",
       "The AWS single-node reference can emit CloudWatch metrics; OSS observability stacks are not required by Portable Core.",
     ],
-    related: [{ label: "Services", href: "/services" }, { label: "System", href: "/system" }],
+    related: [{ label: "Services", href: "/services" }, { label: "System", href: "/services?tab=system" }],
   },
   authentication: {
     title: "Authentication",
@@ -323,7 +323,7 @@ export default function DocArticlePage() {
     <div className="flex-1 space-y-5 p-8 pt-6 max-w-3xl">
       <Breadcrumb>
         <BreadcrumbList>
-          <BreadcrumbItem><BreadcrumbLink href="/docs">Docs</BreadcrumbLink></BreadcrumbItem>
+          <BreadcrumbItem><BreadcrumbLink href="/help?tab=docs">Docs</BreadcrumbLink></BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem><BreadcrumbPage>{doc?.title || humanize(slug)}</BreadcrumbPage></BreadcrumbItem>
         </BreadcrumbList>
@@ -391,7 +391,7 @@ export default function DocArticlePage() {
         <Card>
           <CardContent className="space-y-3 py-8 text-center">
             <p className="text-sm text-muted-foreground">The article <span className="font-mono">{slug}</span> is not part of the active documentation set.</p>
-            <Link href="/docs" className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-muted">
+            <Link href="/help?tab=docs" className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-muted">
               <ArrowLeft className="h-3.5 w-3.5" /> Documentation home
             </Link>
           </CardContent>

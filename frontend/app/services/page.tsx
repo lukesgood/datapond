@@ -1,20 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useCallback, useEffect, useState, Suspense } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
 import {
   Activity,
   CheckCircle2,
@@ -24,6 +16,8 @@ import {
   RefreshCw,
   ExternalLink,
 } from "lucide-react"
+import { InfraTabs } from "@/components/infra/infra-tabs"
+import { SystemPanel } from "@/components/infra/system-panel"
 
 interface Service {
   name: string
@@ -47,7 +41,10 @@ function getExternalUrl(name: string): string | null {
   return EXTERNAL_URLS[name] ?? null
 }
 
-export default function ServicesPage() {
+// The Services half of the Infrastructure workspace — health of DataPond
+// workloads and configured external adapters. Deep links to /services/[id] for
+// per-service detail are preserved.
+function ServicesPanel() {
   const router = useRouter()
   const [services, setServices] = useState<Service[]>([])
   const [loading, setLoading] = useState(true)
@@ -170,248 +167,249 @@ export default function ServicesPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex-1 space-y-4 p-8 pt-6">
-        <Skeleton className="h-5 w-[200px]" />
-        <div className="space-y-2">
-          <Skeleton className="h-8 w-[150px]" />
-          <Skeleton className="h-4 w-[300px]" />
-        </div>
-        <div className="grid gap-4 md:grid-cols-4">
-          {[...Array(4)].map((_, i) => (
-            <Skeleton key={i} className="h-[120px]" />
-          ))}
-        </div>
-        <Skeleton className="h-[400px]" />
-      </div>
-    )
-  }
-
   return (
-    <div className="flex-1 space-y-4 p-8 pt-6">
-      {/* Breadcrumb */}
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/dashboard">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Services</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      {/* Page Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Platform Services</h2>
-          <p className="text-muted-foreground">
-            Monitor configured DataPond workloads and external adapters
-          </p>
-        </div>
-
-        <Button variant="outline" size="sm" onClick={fetchServices}>
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
-        </Button>
-      </div>
-
-      {/* Search + status filter */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full max-w-md">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            aria-label="Search services by name"
-            placeholder="Search services..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-8"
-          />
-        </div>
-
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter services by status">
-          {statusFilters.map((f) => (
-            <button
-              key={f.key}
-              type="button"
-              onClick={() => setStatusFilter(f.key)}
-              aria-pressed={statusFilter === f.key}
-              className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                statusFilter === f.key
-                  ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]"
-                  : "text-muted-foreground hover:bg-muted"
-              }`}
-            >
-              {f.label}
-              <span className="dp-num tabular-nums font-semibold">{f.count}</span>
-            </button>
-          ))}
+    <div className="flex flex-col" style={{ minHeight: "calc(100vh - 56px)" }}>
+      {/* Workspace top bar — same height as the System top bar so switching tabs
+          keeps the chrome steady. */}
+      <div className="flex items-center gap-1.5 border-b px-3 h-11 shrink-0 bg-background">
+        <InfraTabs active="services" />
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={fetchServices} disabled={loading}>
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            <span className="hidden md:inline">Refresh</span>
+          </Button>
         </div>
       </div>
 
-      {/* Health summary — healthy share across all reporting services */}
-      {services.length > 0 && (
-        <div className="flex items-center gap-3 rounded-md border dp-surface px-3 py-2">
-          <span className="whitespace-nowrap text-xs text-muted-foreground">
-            <span className="dp-num tabular-nums font-semibold text-foreground">{healthyCount}</span>
-            {" / "}
-            <span className="dp-num tabular-nums">{services.length}</span> healthy
-          </span>
-          <div
-            className="flex h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
-            role="img"
-            aria-label={`${healthyCount} healthy, ${unhealthyCount} with issues, ${configuredCount} configured adapters, of ${services.length} total`}
-          >
-            {healthyCount > 0 && (
-              <div className="bg-[var(--dp-good)]" style={{ width: `${(healthyCount / services.length) * 100}%` }} />
-            )}
-            {unhealthyCount > 0 && (
-              <div className="bg-destructive" style={{ width: `${(unhealthyCount / services.length) * 100}%` }} />
-            )}
-            {configuredCount > 0 && (
-              <div className="bg-muted-foreground/40" style={{ width: `${(configuredCount / services.length) * 100}%` }} />
-            )}
+      <div className="flex-1 space-y-4 px-6 py-5">
+        <p className="text-sm text-muted-foreground">
+          Monitor configured DataPond workloads and external adapters
+        </p>
+
+        {loading && services.length === 0 ? (
+          <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-4">
+              {[...Array(4)].map((_, i) => (
+                <Skeleton key={i} className="h-[120px]" />
+              ))}
+            </div>
+            <Skeleton className="h-[400px]" />
           </div>
-        </div>
-      )}
-
-      {/* Statistics Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Total Services</CardTitle>
-              <Activity className="h-4 w-4 text-muted-foreground" />
+        ) : (
+        <>
+          {/* Search + status filter */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative w-full max-w-md">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                aria-label="Search services by name"
+                placeholder="Search services..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8"
+              />
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold dp-num">{services.length}</div>
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Healthy</CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-[var(--dp-good)]" />
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter services by status">
+              {statusFilters.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => setStatusFilter(f.key)}
+                  aria-pressed={statusFilter === f.key}
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    statusFilter === f.key
+                      ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]"
+                      : "text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  {f.label}
+                  <span className="dp-num tabular-nums font-semibold">{f.count}</span>
+                </button>
+              ))}
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-[var(--dp-good)] dp-num">{healthyCount}</div>
-          </CardContent>
-        </Card>
+          </div>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Issues</CardTitle>
-              <XCircle className="h-4 w-4 text-destructive" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-destructive dp-num">{unhealthyCount}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Configured adapters</CardTitle>
-              <ExternalLink className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold dp-num">{configuredCount}</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* A refresh failed but we still have a prior snapshot — say so rather than
-          silently showing state that may be stale. */}
-      {error && services.length > 0 && (
-        <div className="flex items-center gap-2 rounded-md border border-[var(--dp-warn)]/40 bg-[var(--dp-warn)]/10 px-3 py-2 text-xs">
-          <AlertCircle className="h-4 w-4 shrink-0 text-[var(--dp-warn)]" />
-          <span>Showing last known state — refresh failed ({error}).</span>
-        </div>
-      )}
-
-      {/* Services Grid */}
-      {error && services.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-lg border bg-muted/30 p-12 text-center">
-          <XCircle className="h-6 w-6 text-[var(--dp-bad)]" />
-          <p className="text-sm font-medium">Could not load services</p>
-          <p className="text-xs text-muted-foreground">{error}</p>
-        </div>
-      ) : !loading && filteredServices.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-lg border bg-muted/30 p-12 text-center">
-          <p className="text-sm font-medium">
-            {searchQuery || statusFilter !== "all" ? "No services match your filters" : "No services found"}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {searchQuery || statusFilter !== "all"
-              ? "Adjust the search or status filter to see more."
-              : "No platform services are reporting yet."}
-          </p>
-        </div>
-      ) : (
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {filteredServices.map((service) => (
-          <Card
-            key={service.name}
-            className={`${statusAccent(service.status)} ${service.status === "managed" ? "transition-shadow" : "hover:shadow-md transition-shadow cursor-pointer"}`}
-            onClick={() => { if (service.status !== "managed") router.push(`/services/${service.name}`) }}
-          >
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base capitalize">{service.name}</CardTitle>
-                {getStatusBadge(service.status)}
+          {/* Health summary — healthy share across all reporting services */}
+          {services.length > 0 && (
+            <div className="flex items-center gap-3 rounded-md border dp-surface px-3 py-2">
+              <span className="whitespace-nowrap text-xs text-muted-foreground">
+                <span className="dp-num tabular-nums font-semibold text-foreground">{healthyCount}</span>
+                {" / "}
+                <span className="dp-num tabular-nums">{services.length}</span> healthy
+              </span>
+              <div
+                className="flex h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
+                role="img"
+                aria-label={`${healthyCount} healthy, ${unhealthyCount} with issues, ${configuredCount} configured adapters, of ${services.length} total`}
+              >
+                {healthyCount > 0 && (
+                  <div className="bg-[var(--dp-good)]" style={{ width: `${(healthyCount / services.length) * 100}%` }} />
+                )}
+                {unhealthyCount > 0 && (
+                  <div className="bg-destructive" style={{ width: `${(unhealthyCount / services.length) * 100}%` }} />
+                )}
+                {configuredCount > 0 && (
+                  <div className="bg-muted-foreground/40" style={{ width: `${(configuredCount / services.length) * 100}%` }} />
+                )}
               </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm text-muted-foreground line-clamp-2">
-                {service.description ?? serviceDescriptions[service.name] ?? "DataPond platform service"}
-              </p>
+            </div>
+          )}
 
-              {service.version && (
-                <div className="text-xs text-muted-foreground">
-                  Version: {service.version}
+          {/* Statistics Cards */}
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium">Total Services</CardTitle>
+                  <Activity className="h-4 w-4 text-muted-foreground" />
                 </div>
-              )}
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold dp-num">{services.length}</div>
+              </CardContent>
+            </Card>
 
-              <div className="flex gap-2 pt-2">
-                {service.status !== "managed" && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      router.push(`/services/${service.name}`)
-                    }}
-                  >
-                    Details
-                  </Button>
-                )}
-                {getExternalUrl(service.name) && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      window.open(getExternalUrl(service.name)!, "_blank")
-                    }}
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium">Healthy</CardTitle>
+                  <CheckCircle2 className="h-4 w-4 text-[var(--dp-good)]" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-[var(--dp-good)] dp-num">{healthyCount}</div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium">Issues</CardTitle>
+                  <XCircle className="h-4 w-4 text-destructive" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-destructive dp-num">{unhealthyCount}</div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium">Configured adapters</CardTitle>
+                  <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold dp-num">{configuredCount}</div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* A refresh failed but we still have a prior snapshot — say so rather than
+              silently showing state that may be stale. */}
+          {error && services.length > 0 && (
+            <div className="flex items-center gap-2 rounded-md border border-[var(--dp-warn)]/40 bg-[var(--dp-warn)]/10 px-3 py-2 text-xs">
+              <AlertCircle className="h-4 w-4 shrink-0 text-[var(--dp-warn)]" />
+              <span>Showing last known state — refresh failed ({error}).</span>
+            </div>
+          )}
+
+          {/* Services Grid */}
+          {error && services.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 rounded-lg border bg-muted/30 p-12 text-center">
+              <XCircle className="h-6 w-6 text-[var(--dp-bad)]" />
+              <p className="text-sm font-medium">Could not load services</p>
+              <p className="text-xs text-muted-foreground">{error}</p>
+            </div>
+          ) : !loading && filteredServices.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 rounded-lg border bg-muted/30 p-12 text-center">
+              <p className="text-sm font-medium">
+                {searchQuery || statusFilter !== "all" ? "No services match your filters" : "No services found"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {searchQuery || statusFilter !== "all"
+                  ? "Adjust the search or status filter to see more."
+                  : "No platform services are reporting yet."}
+              </p>
+            </div>
+          ) : (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {filteredServices.map((service) => (
+              <Card
+                key={service.name}
+                className={`${statusAccent(service.status)} ${service.status === "managed" ? "transition-shadow" : "hover:shadow-md transition-shadow cursor-pointer"}`}
+                onClick={() => { if (service.status !== "managed") router.push(`/services/${service.name}`) }}
+              >
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base capitalize">{service.name}</CardTitle>
+                    {getStatusBadge(service.status)}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-sm text-muted-foreground line-clamp-2">
+                    {service.description ?? serviceDescriptions[service.name] ?? "DataPond platform service"}
+                  </p>
+
+                  {service.version && (
+                    <div className="text-xs text-muted-foreground">
+                      Version: {service.version}
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 pt-2">
+                    {service.status !== "managed" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          router.push(`/services/${service.name}`)
+                        }}
+                      >
+                        Details
+                      </Button>
+                    )}
+                    {getExternalUrl(service.name) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          window.open(getExternalUrl(service.name)!, "_blank")
+                        }}
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          )}
+        </>
+        )}
       </div>
-      )}
     </div>
+  )
+}
+
+// Infrastructure workspace — one entry, two tabs. ?tab=system selects the node /
+// cluster System panel; anything else is the Services grid. Neither half is
+// capability-gated (like Services/System have always been).
+function InfraWorkspace() {
+  const tab = useSearchParams().get("tab")
+  return tab === "system" ? <SystemPanel /> : <ServicesPanel />
+}
+
+export default function ServicesPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading…</div>}>
+      <InfraWorkspace />
+    </Suspense>
   )
 }
