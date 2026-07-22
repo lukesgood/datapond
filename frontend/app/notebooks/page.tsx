@@ -75,10 +75,13 @@ interface NotebookItem {
   name: string
   path: string
   last_modified: string
+  modified_ts?: number // raw epoch ms for honest recency sort; 0/undefined when unknown
   size?: string
   type: string
   kernel?: string
 }
+
+const RECENT_LIMIT = 10
 
 function NotebooksPageInner() {
   const { toast } = useToast()
@@ -122,6 +125,7 @@ function NotebooksPageInner() {
         last_modified: notebook.last_modified
           ? new Date(notebook.last_modified).toLocaleString()
           : "Unknown",
+        modified_ts: notebook.last_modified ? Date.parse(notebook.last_modified) || 0 : 0,
         size: notebook.size != null ? `${Math.round(notebook.size / 1024)} KB` : "—",
         type: notebook.type,
         kernel: "Python 3",
@@ -283,7 +287,21 @@ function NotebooksPageInner() {
     input.click()
   }
 
-  const recentNotebooks = filteredNotebooks.slice(0, 10)
+  // "Recent" must actually mean most-recently-modified — sort by real timestamp, not API order.
+  const recentSorted = useMemo(
+    () => [...filteredNotebooks].sort((a, b) => (b.modified_ts ?? 0) - (a.modified_ts ?? 0)),
+    [filteredNotebooks],
+  )
+  const recentNotebooks = recentSorted.slice(0, RECENT_LIMIT)
+  const recentCapped = recentSorted.length > RECENT_LIMIT
+  // Newest across all notebooks for the stat card (don't assume list is pre-sorted).
+  const newestNotebook = useMemo(
+    () => notebooks.reduce<NotebookItem | null>(
+      (acc, n) => (acc === null || (n.modified_ts ?? 0) > (acc.modified_ts ?? 0) ? n : acc),
+      null,
+    ),
+    [notebooks],
+  )
 
   if (loading) {
     return (
@@ -438,9 +456,14 @@ function NotebooksPageInner() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-lg font-bold">
-              {notebooks.length > 0 ? notebooks[0].last_modified : "N/A"}
-            </div>
+            {newestNotebook ? (
+              <>
+                <div className="text-lg font-bold tabular-nums truncate">{newestNotebook.last_modified}</div>
+                <div className="text-xs text-muted-foreground truncate" title={newestNotebook.name}>{newestNotebook.name}</div>
+              </>
+            ) : (
+              <div className="text-lg font-bold text-muted-foreground">N/A</div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -450,7 +473,12 @@ function NotebooksPageInner() {
         <div className="flex items-center justify-between">
           <TabsList>
             <TabsTrigger value="recent">Recent</TabsTrigger>
-            <TabsTrigger value="all">All Notebooks</TabsTrigger>
+            <TabsTrigger value="all" className="gap-1.5">
+              All Notebooks
+              {notebooks.length > 0 && (
+                <span className="tabular-nums text-xs text-muted-foreground">{filteredNotebooks.length}</span>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="kernels">Running Kernels</TabsTrigger>
           </TabsList>
 
@@ -485,6 +513,13 @@ function NotebooksPageInner() {
 
         <TabsContent value="recent" className="space-y-4">
           {recentNotebooks.length > 0 ? (
+            <>
+            {recentCapped && (
+              // Never let a capped list read as complete.
+              <p className="text-xs text-muted-foreground">
+                Showing the {RECENT_LIMIT} most recently modified of {filteredNotebooks.length}. See <span className="font-medium text-foreground">All Notebooks</span> for the full list.
+              </p>
+            )}
             <div className={viewMode === "grid" ? "grid gap-4 md:grid-cols-2 lg:grid-cols-3" : "space-y-2"}>
               {recentNotebooks.map((notebook) => (
                 <NotebookCard
@@ -505,6 +540,7 @@ function NotebooksPageInner() {
                 />
               ))}
             </div>
+            </>
           ) : (
             <Card>
               <CardContent className="text-center py-12 text-muted-foreground">

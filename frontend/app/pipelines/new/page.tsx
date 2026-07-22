@@ -1293,7 +1293,7 @@ function PipelineForm({
         )}
       </div>
 
-      {/* ── 4. Generated Code ────────────────────────────────────── */}
+      {/* ── 6. Generated Code ────────────────────────────────────── */}
       <div className="p-4 space-y-2">
         <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
           Generated Code
@@ -1832,6 +1832,22 @@ export default function NewPipelinePage() {
     return errors
   }, [edges, nodes, pipeline.pipelineName])
 
+  // Live readiness — surface blocking issues reactively so the user knows *why* a deploy
+  // would fail without having to click Validate/Deploy first (honest, proactive feedback).
+  const liveIssues = useMemo(() => validatePipeline(), [validatePipeline])
+  const liveErrorNodeIds = useMemo(() => {
+    const ids = new Set<string>()
+    const dataNodes = nodes.filter(n => n.type !== "layerHeader")
+    for (const err of liveIssues) {
+      const match = err.match(/^\[(.+?)\]/)
+      if (match) {
+        const node = dataNodes.find(n => (n.data as NodeData).name === match[1])
+        if (node) ids.add(node.id)
+      }
+    }
+    return ids
+  }, [liveIssues, nodes])
+
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
 
   const handleSave = useCallback(async () => {
@@ -2073,6 +2089,24 @@ export default function NewPipelinePage() {
               <span>Validated</span>
             </div>
           )}
+          {/* Live readiness pill — proactively answers "why can't I deploy?" */}
+          {liveIssues.length === 0 ? (
+            <div
+              className="hidden lg:flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700"
+              title="All checks passed — ready to deploy"
+            >
+              <CheckCircle2 className="h-3 w-3 shrink-0" />
+              Ready
+            </div>
+          ) : (
+            <div
+              className="hidden lg:flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700"
+              title={`Fix before deploy:\n${liveIssues.map((e) => "• " + e).join("\n")}`}
+            >
+              <span className="tabular-nums font-bold">{liveIssues.length}</span>
+              {liveIssues.length === 1 ? "issue to fix" : "issues to fix"}
+            </div>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -2108,6 +2142,11 @@ export default function NewPipelinePage() {
             className="h-8 text-xs gap-1.5"
             onClick={handleDeploy}
             disabled={loading}
+            title={
+              liveIssues.length > 0
+                ? `Deploy will fail until these are fixed:\n${liveIssues.map((e) => "• " + e).join("\n")}`
+                : "Compile and deploy this pipeline to Airflow"
+            }
           >
             {loading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -2231,10 +2270,12 @@ export default function NewPipelinePage() {
               const color = n.data.layer === "bronze" ? "bg-amber-500"
                 : n.data.layer === "silver" ? "bg-slate-400" : "bg-yellow-400"
               const isActive = selectedNodeId === n.id
+              const hasError = liveErrorNodeIds.has(n.id)
               return (
                 <button
                   key={n.id}
                   onClick={() => setSelectedNodeId(n.id)}
+                  title={hasError ? "This node has unresolved required fields" : undefined}
                   className={`flex items-center gap-1.5 px-3 h-9 text-xs font-medium whitespace-nowrap
                     border-b-2 transition-colors shrink-0
                     ${isActive
@@ -2244,6 +2285,7 @@ export default function NewPipelinePage() {
                 >
                   <div className={`h-2 w-1 rounded-full ${color}`} />
                   {d.name || `${n.data.layer}-${n.id.slice(-4)}`}
+                  {hasError && <span className="h-1.5 w-1.5 rounded-full bg-red-500 shrink-0" />}
                 </button>
               )
             })}
@@ -2390,6 +2432,20 @@ export default function NewPipelinePage() {
                 autoFocus
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter selects the first match — fulfils the "↵ select" hint below.
+                  if (e.key === "Enter") {
+                    const q = searchQuery.toLowerCase()
+                    const first = nodes
+                      .filter((n) => n.type !== "layerHeader")
+                      .find((n) => !q || (n.data as NodeData).name?.toLowerCase().includes(q))
+                    if (first) {
+                      setSelectedNodeId(first.id)
+                      setSearchOpen(false)
+                      setSearchQuery("")
+                    }
+                  }
+                }}
                 placeholder="Search nodes by name..."
                 className="flex-1 text-sm outline-none bg-transparent placeholder:text-muted-foreground"
               />

@@ -32,6 +32,7 @@ export default function LoginPage() {
   const [username, setUsername]   = useState("")
   const [password, setPassword]   = useState("")
   const [showPw, setShowPw]       = useState(false)
+  const [capsLock, setCapsLock]   = useState(false)
   const [loading, setLoading]     = useState(false)
   const [error, setError]         = useState<string | null>(null)
   const [shake, setShake]         = useState(false)
@@ -340,7 +341,11 @@ export default function LoginPage() {
                 onChange={e => { setUsername(e.target.value); setError(null) }}
                 placeholder="Enter your username"
                 autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
                 disabled={loading}
+                aria-invalid={!!error}
+                aria-describedby={error ? "login-error" : undefined}
                 className={`h-10 ${error ? "border-destructive" : ""}`}
               />
             </div>
@@ -358,9 +363,14 @@ export default function LoginPage() {
                   type={showPw ? "text" : "password"}
                   value={password}
                   onChange={e => { setPassword(e.target.value); setError(null) }}
+                  onKeyUp={e => setCapsLock(e.getModifierState("CapsLock"))}
+                  onKeyDown={e => setCapsLock(e.getModifierState("CapsLock"))}
+                  onBlur={() => setCapsLock(false)}
                   placeholder="Enter your password"
                   autoComplete="current-password"
                   disabled={loading}
+                  aria-invalid={!!error}
+                  aria-describedby={error ? "login-error" : undefined}
                   className={`h-10 pr-10 ${error ? "border-destructive" : ""}`}
                 />
                 <button
@@ -373,10 +383,18 @@ export default function LoginPage() {
                   {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
+              {capsLock && (
+                // Honest keyboard-state hint: a common cause of "wrong password" that
+                // the user can't otherwise see while typing into a masked field.
+                <p role="status" aria-live="polite" className="flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  Caps Lock is on
+                </p>
+              )}
             </div>
 
             {error && (
-              <div role="alert" aria-live="assertive" className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5">
+              <div id="login-error" role="alert" aria-live="assertive" className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5">
                 <Lock className="h-4 w-4 text-destructive shrink-0" />
                 <p className="text-sm text-destructive">{error}</p>
               </div>

@@ -14,6 +14,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Skeleton } from "@/components/ui/skeleton"
 import { TaskList } from "@/components/airflow/task-list"
 import { LogsViewer } from "@/components/airflow/logs-viewer"
 import {
@@ -118,32 +119,39 @@ export default function RunDetailPage() {
   }
 
   const getStateIcon = (state: string) => {
+    // Colors reference design tokens (dp-good/dp-warn) so light+dark stay correct.
     switch (state) {
       case "success":
-        return <CheckCircle2 className="h-5 w-5 text-green-500" />
+        return <CheckCircle2 className="h-5 w-5" style={{ color: "var(--dp-good)" }} aria-hidden="true" />
       case "failed":
-        return <XCircle className="h-5 w-5 text-red-500" />
+      case "upstream_failed":
+        return <XCircle className="h-5 w-5 text-destructive" aria-hidden="true" />
       case "running":
-        return <RefreshCw className="h-5 w-5 text-blue-500 animate-spin" />
+        return <RefreshCw className="h-5 w-5 text-primary animate-spin" aria-hidden="true" />
       case "queued":
-        return <Clock className="h-5 w-5 text-yellow-500" />
+        return <Clock className="h-5 w-5" style={{ color: "var(--dp-warn)" }} aria-hidden="true" />
       default:
-        return <Clock className="h-5 w-5 text-gray-500" />
+        return <Clock className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
     }
   }
 
   const getStateBadge = (state: string) => {
+    const label = state.replace(/_/g, " ")
     switch (state) {
       case "success":
-        return <Badge className="bg-green-600">Success</Badge>
+        return <Badge className="text-white" style={{ backgroundColor: "var(--dp-good)" }} aria-label="Status: success">Success</Badge>
       case "failed":
-        return <Badge variant="destructive">Failed</Badge>
+        return <Badge variant="destructive" aria-label="Status: failed">Failed</Badge>
+      case "upstream_failed":
+        return <Badge variant="destructive" aria-label="Status: upstream failed">Upstream failed</Badge>
       case "running":
-        return <Badge className="bg-blue-600">Running</Badge>
+        return <Badge className="bg-primary" aria-label="Status: running">Running</Badge>
       case "queued":
-        return <Badge className="bg-yellow-600">Queued</Badge>
+        return <Badge className="text-white" style={{ backgroundColor: "var(--dp-warn)" }} aria-label="Status: queued">Queued</Badge>
+      case "skipped":
+        return <Badge variant="secondary" aria-label="Status: skipped">Skipped</Badge>
       default:
-        return <Badge variant="secondary">{state}</Badge>
+        return <Badge variant="secondary" className="capitalize" aria-label={`Status: ${label}`}>{label}</Badge>
     }
   }
 
@@ -174,24 +182,50 @@ export default function RunDetailPage() {
   }
 
   const successTasks = tasks.filter((t) => t.state === "success").length
-  const failedTasks = tasks.filter((t) => t.state === "failed").length
+  const failedTasks = tasks.filter((t) => t.state === "failed" || t.state === "upstream_failed").length
   const runningTasks = tasks.filter((t) => t.state === "running").length
   const totalTasks = tasks.length
+  // Anything not yet resolved (queued / scheduled / none / null) is "pending".
+  const pendingTasks = Math.max(0, totalTasks - successTasks - failedTasks - runningTasks)
+  const pct = (n: number) => (totalTasks > 0 ? (n / totalTasks) * 100 : 0)
 
   if (loading && !run) {
     return (
-      <div className="flex-1 p-8 pt-6">
-        <div className="text-center py-12 text-muted-foreground">Loading...</div>
+      <div className="flex-1 space-y-4 p-8 pt-6">
+        <Skeleton className="h-4 w-64" />
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-9 w-9 rounded-md" />
+          <Skeleton className="h-9 w-72" />
+          <Skeleton className="h-6 w-20 rounded-full" />
+        </div>
+        <Skeleton className="h-40 w-full rounded-lg" />
+        <div className="grid gap-4 md:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-28 w-full rounded-lg" />
+          ))}
+        </div>
+        <Skeleton className="h-48 w-full rounded-lg" />
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="flex-1 p-8 pt-6">
+      <div className="flex-1 space-y-4 p-8 pt-6">
+        <Button variant="ghost" size="sm" onClick={() => router.back()} className="-ml-2">
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back
+        </Button>
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription className="flex items-center justify-between gap-4">
+            <span>{error}</span>
+            {/* Failures are recoverable — offer a retry rather than a dead end. */}
+            <Button variant="outline" size="sm" onClick={fetchData} disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Retry
+            </Button>
+          </AlertDescription>
         </Alert>
       </div>
     )
@@ -276,21 +310,49 @@ export default function RunDetailPage() {
                   <CheckCircle2 className="h-4 w-4" />
                   Progress
                 </div>
-                <div className="font-medium mt-1">
-                  {successTasks}/{totalTasks} tasks
+                <div className="font-medium mt-1 dp-num tabular-nums">
+                  {successTasks}/{totalTasks} done
+                  {failedTasks > 0 && (
+                    <span className="text-destructive"> · {failedTasks} failed</span>
+                  )}
                 </div>
               </div>
             </div>
 
-            {run.state === "running" && (
-              <div className="mt-4">
-                <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-blue-600 transition-all duration-500"
-                    style={{
-                      width: `${totalTasks > 0 ? (successTasks / totalTasks) * 100 : 0}%`,
-                    }}
-                  />
+            {/* Honest run composition: every task is accounted for by state+color,
+                not just the successful ones. Always shown when tasks exist. */}
+            {totalTasks > 0 && (
+              <div className="mt-4 space-y-2">
+                <div
+                  className="flex h-2 w-full overflow-hidden rounded-full bg-muted"
+                  role="img"
+                  aria-label={`${successTasks} succeeded, ${failedTasks} failed, ${runningTasks} running, ${pendingTasks} pending of ${totalTasks} tasks`}
+                >
+                  {successTasks > 0 && (
+                    <div className="h-full transition-all duration-500" style={{ width: `${pct(successTasks)}%`, backgroundColor: "var(--dp-good)" }} />
+                  )}
+                  {failedTasks > 0 && (
+                    <div className="h-full bg-destructive transition-all duration-500" style={{ width: `${pct(failedTasks)}%` }} />
+                  )}
+                  {runningTasks > 0 && (
+                    <div className="h-full bg-primary animate-pulse transition-all duration-500" style={{ width: `${pct(runningTasks)}%` }} />
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5 text-xs">
+                  {[
+                    { label: "Succeeded", n: successTasks, color: "var(--dp-good)" },
+                    { label: "Failed", n: failedTasks, color: "var(--destructive)" },
+                    { label: "Running", n: runningTasks, color: "var(--primary)" },
+                    { label: "Pending", n: pendingTasks, color: "var(--muted-foreground)" },
+                  ]
+                    .filter((s) => s.n > 0)
+                    .map((s) => (
+                      <span key={s.label} className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1">
+                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: s.color }} aria-hidden="true" />
+                        <span className="font-semibold dp-num tabular-nums">{s.n}</span>
+                        <span className="text-muted-foreground">{s.label}</span>
+                      </span>
+                    ))}
                 </div>
               </div>
             )}
@@ -308,7 +370,7 @@ export default function RunDetailPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalTasks}</div>
+            <div className="text-2xl font-bold dp-num tabular-nums">{totalTasks}</div>
           </CardContent>
         </Card>
 
@@ -320,7 +382,7 @@ export default function RunDetailPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{runningTasks}</div>
+            <div className="text-2xl font-bold dp-num tabular-nums">{runningTasks}</div>
           </CardContent>
         </Card>
 
@@ -332,7 +394,7 @@ export default function RunDetailPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{successTasks}</div>
+            <div className="text-2xl font-bold dp-num tabular-nums" style={{ color: "var(--dp-good)" }}>{successTasks}</div>
           </CardContent>
         </Card>
 
@@ -344,7 +406,7 @@ export default function RunDetailPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{failedTasks}</div>
+            <div className="text-2xl font-bold dp-num tabular-nums text-destructive">{failedTasks}</div>
           </CardContent>
         </Card>
       </div>

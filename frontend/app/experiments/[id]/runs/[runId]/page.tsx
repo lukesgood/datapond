@@ -1,7 +1,8 @@
 "use client"
 
-import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { EmptyState } from "@/components/ui/error-box"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -11,7 +12,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { RunDetails } from "@/components/mlflow/run-details"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, GitBranch } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 
@@ -75,11 +76,14 @@ export default function RunDetailPage({
   if (loading) {
     return (
       <div className="flex-1 space-y-4 p-8 pt-6">
-        <Card>
-          <CardContent className="py-8 text-center">
-            <p className="text-muted-foreground">Loading run...</p>
-          </CardContent>
-        </Card>
+        <Skeleton className="h-5 w-96" />
+        <Skeleton className="h-8 w-40" />
+        <Skeleton className="h-32 w-full rounded-lg" />
+        <div className="grid gap-4 md:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 w-full rounded-lg" />
+          ))}
+        </div>
       </div>
     )
   }
@@ -87,11 +91,15 @@ export default function RunDetailPage({
   if (!run) {
     return (
       <div className="flex-1 space-y-4 p-8 pt-6">
-        <Card>
-          <CardContent className="py-8 text-center">
-            <p className="text-muted-foreground">{error || "Run not found"}</p>
-          </CardContent>
-        </Card>
+        <Button variant="ghost" size="sm" onClick={() => router.back()}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Experiment
+        </Button>
+        <EmptyState
+          icon={GitBranch}
+          title={error ? "Couldn't load this run" : "Run not found"}
+          hint={error || "This run may have been deleted or its ID is invalid."}
+        />
       </div>
     )
   }

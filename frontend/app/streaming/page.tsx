@@ -482,6 +482,15 @@ function StreamingPageInner() {
 
   const pipelines = groupPipelines(sources, views, sinks)
 
+  // Summary of active streams — derived from actually-present catalog objects.
+  // "Live" = full source→view→sink set exists; "Partial" flags a broken/incomplete pipeline.
+  const isPipelineLive = (p: PipelineGroup) =>
+    p.sources.length > 0 && p.views.length > 0 && p.sinks.length > 0
+  const cdcCount = pipelines.filter(p => p.pipeline_type === "cdc").length
+  const eventCount = pipelines.filter(p => p.pipeline_type === "event").length
+  const tableCount = pipelines.reduce((n, p) => n + p.tables.length, 0)
+  const liveCount = pipelines.filter(isPipelineLive).length
+
   const statusColor = cluster?.status === "healthy" ? "text-green-600"
     : cluster?.status === "degraded" ? "text-amber-500" : "text-red-500"
   const StatusIcon = cluster?.status === "healthy" ? CheckCircle2
@@ -609,7 +618,24 @@ function StreamingPageInner() {
               </div>
             </div>
           ) : (
-            <div className="rounded-lg border overflow-hidden">
+            <div className="space-y-3">
+              {/* Summary of active streams — honest counts from present objects */}
+              <div className="flex flex-wrap items-center gap-2">
+                {[
+                  { label: "Pipelines", value: pipelines.length },
+                  { label: "CDC", value: cdcCount },
+                  { label: "Event", value: eventCount },
+                  { label: "Tables", value: tableCount },
+                  { label: "Live", value: liveCount, good: true },
+                ].map(s => (
+                  <div key={s.label} className="rounded-md border px-2.5 py-1 flex items-center gap-1.5">
+                    <span className={`dp-num text-sm font-bold tabular-nums ${s.good && s.value > 0 ? "text-green-600" : ""}`}>{s.value}</span>
+                    <span className="text-xs text-muted-foreground">{s.label}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-lg border overflow-hidden">
               <Table>
                 <TableHeader className="bg-muted/40">
                   <TableRow>
@@ -636,7 +662,22 @@ function StreamingPageInner() {
                             ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                             : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
                         </TableCell>
-                        <TableCell className="font-medium text-sm">{p.name}</TableCell>
+                        <TableCell className="font-medium text-sm">
+                          <div className="flex items-center gap-2">
+                            {p.name}
+                            {isPipelineLive(p) ? (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-1.5 py-0.5 text-[10px] font-medium text-green-700"
+                                title="Full source → view → sink set is materializing">
+                                <span className="h-1.5 w-1.5 rounded-full bg-green-500" />Live
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+                                title="Incomplete — missing a source, view, or sink object">
+                                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />Partial
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell>
                           {p.pipeline_type === "cdc" && (
                             <Badge className="text-xs bg-primary/10 text-primary border-primary/20 hover:bg-primary/10">CDC</Badge>
@@ -776,6 +817,7 @@ function StreamingPageInner() {
                   ))}
                 </TableBody>
               </Table>
+              </div>
             </div>
           )}
         </TabsContent>

@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Loader2, Layers, Lock, Eye, EyeOff, ArrowLeft } from "lucide-react"
+import { Loader2, Layers, Lock, Eye, EyeOff, ArrowLeft, Check, AlertTriangle } from "lucide-react"
 
 export default function ResetPasswordPage() {
   // Read the one-time token from the query string at mount (SSR-guarded). Mirrors the
@@ -14,8 +14,15 @@ export default function ResetPasswordPage() {
   const [pw, setPw]             = useState("")
   const [confirm, setConfirm]   = useState("")
   const [showPw, setShowPw]     = useState(false)
+  const [capsLock, setCapsLock] = useState(false)
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState<string | null>(null)
+
+  // Derived, pre-submit validity so the user gets honest feedback before hitting the
+  // button — mirrors the same rules enforced in handleSubmit (no new constraints).
+  const tooShort = pw.length > 0 && pw.length < 6
+  const mismatch = confirm.length > 0 && pw !== confirm
+  const matches  = confirm.length > 0 && pw === confirm && pw.length >= 6
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -126,10 +133,15 @@ export default function ResetPasswordPage() {
                     type={showPw ? "text" : "password"}
                     value={pw}
                     onChange={e => { setPw(e.target.value); setError(null) }}
+                    onKeyUp={e => setCapsLock(e.getModifierState("CapsLock"))}
+                    onKeyDown={e => setCapsLock(e.getModifierState("CapsLock"))}
+                    onBlur={() => setCapsLock(false)}
                     placeholder="Minimum 6 characters"
                     autoComplete="new-password"
                     autoFocus
                     disabled={loading}
+                    aria-invalid={!!error || tooShort}
+                    aria-describedby={error ? "reset-error" : undefined}
                     className="h-10 pr-10"
                   />
                   <button
@@ -141,6 +153,14 @@ export default function ResetPasswordPage() {
                     {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
+                {capsLock ? (
+                  <p role="status" aria-live="polite" className="flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    Caps Lock is on
+                  </p>
+                ) : tooShort && (
+                  <p className="text-xs text-muted-foreground">Use at least 6 characters.</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -153,12 +173,22 @@ export default function ResetPasswordPage() {
                   placeholder="Repeat new password"
                   autoComplete="new-password"
                   disabled={loading}
+                  aria-invalid={mismatch}
                   className="h-10"
                 />
+                {/* Honest pre-submit match feedback — green only once the pair is actually valid. */}
+                {matches ? (
+                  <p role="status" aria-live="polite" className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                    <Check className="h-3.5 w-3.5 shrink-0" />
+                    Passwords match
+                  </p>
+                ) : mismatch && (
+                  <p role="status" aria-live="polite" className="text-xs text-muted-foreground">Passwords don&apos;t match yet.</p>
+                )}
               </div>
 
               {error && (
-                <div role="alert" aria-live="assertive" className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5">
+                <div id="reset-error" role="alert" aria-live="assertive" className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5">
                   <Lock className="h-4 w-4 text-destructive shrink-0" />
                   <p className="text-sm text-destructive">{error}</p>
                 </div>

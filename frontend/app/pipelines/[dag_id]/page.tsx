@@ -79,11 +79,13 @@ function runDuration(start?: string, end?: string) {
 }
 
 function RunStateBadge({ state }: { state: string }) {
+  // Theme-aware: light-mode 700 text + dark-mode lighter text so the pill stays
+  // legible on both backgrounds (bare 700 text is too dark on the dark surface).
   const map: Record<string, string> = {
-    success: "bg-emerald-500/15 text-emerald-700 border-emerald-200",
-    failed:  "bg-red-500/15 text-red-700 border-red-200",
-    running: "bg-blue-500/15 text-blue-700 border-blue-200",
-    queued:  "bg-yellow-500/15 text-yellow-700 border-yellow-200",
+    success: "bg-emerald-500/15 text-emerald-700 border-emerald-200 dark:text-emerald-300 dark:border-emerald-500/30",
+    failed:  "bg-red-500/15 text-red-700 border-red-200 dark:text-red-400 dark:border-red-500/30",
+    running: "bg-blue-500/15 text-blue-700 border-blue-200 dark:text-blue-300 dark:border-blue-500/30",
+    queued:  "bg-yellow-500/15 text-yellow-700 border-yellow-200 dark:text-yellow-300 dark:border-yellow-500/30",
   }
   const icons: Record<string, React.ReactNode> = {
     success: <CheckCircle2 className="h-3 w-3" />,
@@ -92,10 +94,21 @@ function RunStateBadge({ state }: { state: string }) {
     queued:  <Clock className="h-3 w-3" />,
   }
   return (
-    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-md border ${map[state] ?? "bg-muted text-muted-foreground border-border"}`}>
+    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-md border capitalize ${map[state] ?? "bg-muted text-muted-foreground border-border"}`}>
       {icons[state]}{state}
     </span>
   )
+}
+
+// Solid fill per run state for the compact run-history strip (colored segments).
+function runStateBar(state: string) {
+  switch (state) {
+    case "success": return "bg-emerald-500"
+    case "failed":  return "bg-red-500"
+    case "running": return "bg-blue-500 animate-pulse"
+    case "queued":  return "bg-yellow-500"
+    default:        return "bg-muted-foreground/25"
+  }
 }
 
 // ── Main ───────────────────────────────────────────────────────────────────
@@ -322,6 +335,35 @@ export default function DagDetailPage() {
         ))}
       </div>
 
+      {/* ── Run-history strip — last runs as colored segments (oldest → newest),
+             a one-glance summary of recent health without opening the drawer. ── */}
+      {runs.length > 0 && (() => {
+        const recent = runs.slice(0, 40)
+        const ok = recent.filter(r => r.state === "success").length
+        const bad = recent.filter(r => r.state === "failed").length
+        return (
+          <div className="flex items-center gap-3 px-4 h-8 border-b shrink-0 bg-muted/10">
+            <span className="text-[11px] text-muted-foreground shrink-0">Run history</span>
+            <div
+              className="flex items-center gap-0.5 flex-1 overflow-hidden"
+              role="img"
+              aria-label={`Last ${recent.length} runs: ${ok} succeeded, ${bad} failed`}
+            >
+              {[...recent].reverse().map(run => (
+                <span
+                  key={run.dag_run_id}
+                  title={`${run.state} · ${fmtDate(run.start_date)}`}
+                  className={`h-4 w-1.5 rounded-sm shrink-0 ${runStateBar(run.state)}`}
+                />
+              ))}
+            </div>
+            <span className="text-[11px] text-muted-foreground shrink-0 tabular-nums">
+              {ok}/{recent.length} ok · newest →
+            </span>
+          </div>
+        )
+      })()}
+
       {/* ── Graph + Context Panel ── */}
       <div className="flex flex-1 overflow-hidden">
         {/* Canvas */}
@@ -368,11 +410,13 @@ export default function DagDetailPage() {
               >
                 <RunStateBadge state={run.state} />
                 <span className="font-mono text-muted-foreground truncate flex-1">{run.dag_run_id}</span>
-                <span className="text-muted-foreground flex items-center gap-1">
+                <span className="text-muted-foreground/70 hidden sm:inline capitalize w-16 shrink-0">{run.run_type}</span>
+                <span className="text-muted-foreground flex items-center gap-1 shrink-0" title={fmtDate(run.start_date)}>
                   <Clock className="h-3 w-3" />
-                  {fmtDate(run.start_date)}
+                  {timeAgo(run.start_date)}
                 </span>
-                <span className="text-muted-foreground w-14">
+                <span className="text-muted-foreground w-14 shrink-0 flex items-center gap-1">
+                  <Timer className="h-3 w-3" />
                   {runDuration(run.start_date, run.end_date)}
                 </span>
               </Link>

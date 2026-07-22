@@ -283,6 +283,23 @@ const DOCS: Record<string, Doc> = {
   "python-sdk": ARTICLES.api,
 }
 
+// Canonical reading order, mirroring the section grouping on the docs index.
+const ORDER = [
+  "overview", "quickstart", "core-workflow", "architecture",
+  "profiles", "portable-core", "aws-reference", "sovereign",
+  "open-contracts", "exit-strategy", "addons", "backup-restore",
+  "knowledge-rag", "sources", "catalog-query", "ai-gateway", "governance",
+  "configuration", "monitoring", "authentication", "troubleshooting", "api",
+]
+
+// Match lifecycle status to color, consistent with the docs index badges.
+const STATUS_STYLES: Record<Status, string> = {
+  Shipped: "bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-[var(--dp-good)]/25",
+  Optional: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-[var(--dp-warn)]/25",
+  Reference: "bg-primary/10 text-primary border-primary/25",
+  Roadmap: "bg-muted text-muted-foreground border-border",
+}
+
 function humanize(slug: string) {
   return slug.replace(/-/g, " ").replace(/\b\w/g, (character) => character.toUpperCase())
 }
@@ -293,6 +310,14 @@ export default function DocArticlePage() {
   const doc = DOCS[slug]
   const caps = useCapabilities()
   const related = doc?.related?.filter((item) => !item.capability || caps[item.capability] === true)
+
+  // Resolve the canonical slug (aliases share a Doc object) to place prev/next in the reading order.
+  const canonicalSlug = ORDER.includes(slug)
+    ? slug
+    : Object.keys(ARTICLES).find((key) => ARTICLES[key] === doc)
+  const orderIndex = canonicalSlug ? ORDER.indexOf(canonicalSlug) : -1
+  const prevSlug = orderIndex > 0 ? ORDER[orderIndex - 1] : undefined
+  const nextSlug = orderIndex >= 0 && orderIndex < ORDER.length - 1 ? ORDER[orderIndex + 1] : undefined
 
   return (
     <div className="flex-1 space-y-5 p-8 pt-6 max-w-3xl">
@@ -309,12 +334,13 @@ export default function DocArticlePage() {
           <div className="flex flex-wrap items-center gap-2">
             <BookOpen className="h-5 w-5 text-primary" />
             <h1 className="text-2xl font-semibold">{doc.title}</h1>
-            <Badge variant="secondary">{doc.status}</Badge>
+            <Badge variant="outline" className={STATUS_STYLES[doc.status]}>{doc.status}</Badge>
           </div>
           <Card>
             <CardContent className="space-y-4 py-5">
-              <p className="text-sm leading-relaxed text-muted-foreground">{doc.summary}</p>
-              <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed">
+              {/* Lead paragraph reads at body weight/foreground; bullets carry the detail. */}
+              <p className="text-[15px] leading-relaxed text-foreground">{doc.summary}</p>
+              <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground marker:text-primary/60">
                 {doc.points.map((point) => <li key={point}>{point}</li>)}
               </ul>
               {related && related.length > 0 && (
@@ -331,6 +357,35 @@ export default function DocArticlePage() {
               </p>
             </CardContent>
           </Card>
+
+          {(prevSlug || nextSlug) && (
+            <nav aria-label="Article navigation" className="flex flex-col gap-2 sm:flex-row sm:gap-3">
+              {prevSlug ? (
+                <Link
+                  href={`/docs/${prevSlug}`}
+                  className="group flex flex-1 items-center gap-2 rounded-md border px-3 py-2.5 text-left transition-colors hover:border-primary/40 hover:bg-muted"
+                >
+                  <ArrowLeft className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:-translate-x-0.5" />
+                  <span className="min-w-0">
+                    <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">Previous</span>
+                    <span className="block truncate text-sm font-medium">{ARTICLES[prevSlug].title}</span>
+                  </span>
+                </Link>
+              ) : <span className="hidden flex-1 sm:block" />}
+              {nextSlug ? (
+                <Link
+                  href={`/docs/${nextSlug}`}
+                  className="group flex flex-1 items-center justify-end gap-2 rounded-md border px-3 py-2.5 text-right transition-colors hover:border-primary/40 hover:bg-muted"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">Next</span>
+                    <span className="block truncate text-sm font-medium">{ARTICLES[nextSlug].title}</span>
+                  </span>
+                  <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                </Link>
+              ) : <span className="hidden flex-1 sm:block" />}
+            </nav>
+          )}
         </>
       ) : (
         <Card>
