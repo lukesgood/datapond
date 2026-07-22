@@ -541,24 +541,35 @@ function UsagePanel() {
           </div>
         </div>
 
-        {u.models.length > 0 && (
+        {u.models.length > 0 && (() => {
+          // Rank by spend so the biggest cost driver reads first, and back each
+          // row with a faint share bar (spend ÷ top spend) — spend distribution
+          // becomes scannable without leaving the table.
+          const ranked = [...u.models].sort((a, b) => b.spend - a.spend)
+          const maxSpend = Math.max(...ranked.map(m => m.spend), 0)
+          return (
           <div>
             <div className="text-xs font-medium mb-1.5">By model</div>
             <div className="rounded-lg border divide-y">
               <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-3 py-1.5 text-[11px] text-muted-foreground">
                 <span>Model</span><span className="text-right">Spend</span><span className="text-right">Req</span><span className="text-right">Tokens (in/out)</span>
               </div>
-              {u.models.map(m => (
-                <div key={m.model} className="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-3 py-1.5 text-xs items-center">
-                  <span className="font-mono truncate">{m.model}</span>
-                  <span className="text-right">{fmt$(m.spend)}</span>
-                  <span className="text-right text-muted-foreground">{m.requests}</span>
-                  <span className="text-right text-muted-foreground">{fmtN(m.total_tokens)} <span className="opacity-60">({fmtN(m.prompt_tokens)}/{fmtN(m.completion_tokens)})</span></span>
+              {ranked.map(m => (
+                <div key={m.model} className="relative grid grid-cols-[1fr_auto_auto_auto] gap-3 px-3 py-1.5 text-xs items-center">
+                  {maxSpend > 0 && (
+                    <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 bg-primary/[0.06]"
+                      style={{ width: `${Math.max(2, (m.spend / maxSpend) * 100)}%` }} />
+                  )}
+                  <span className="relative font-mono truncate">{m.model}</span>
+                  <span className="relative text-right tabular-nums">{fmt$(m.spend)}</span>
+                  <span className="relative text-right tabular-nums text-muted-foreground">{m.requests}</span>
+                  <span className="relative text-right tabular-nums text-muted-foreground">{fmtN(m.total_tokens)} <span className="opacity-60">({fmtN(m.prompt_tokens)}/{fmtN(m.completion_tokens)})</span></span>
                 </div>
               ))}
             </div>
           </div>
-        )}
+          )
+        })()}
 
         {u.users && u.users.length > 0 && (
           <div>
@@ -628,6 +639,41 @@ function reportRows(report: unknown[]): { label: string; spend: number }[] {
   }).filter(row => row.spend > 0 || row.label !== "—")
 }
 
+// Lightweight column chart for the date-ranged spend series — no chart lib:
+// bars scaled to the peak, the peak day emphasized, a baseline rule so zero
+// reads as zero. Kept in the app's inline-bar idiom (matches key-budget bars).
+function SpendBars({ rows }: { rows: { label: string; spend: number }[] }) {
+  const peak = Math.max(...rows.map(r => r.spend), 0)
+  if (peak <= 0) return null
+  const peakLabel = rows.reduce((a, b) => (b.spend > a.spend ? b : a), rows[0])
+  return (
+    <div className="rounded-md border p-3">
+      <div className="mb-2 flex items-baseline justify-between text-[11px] text-muted-foreground">
+        <span>Daily spend</span>
+        <span className="tabular-nums">peak {fmt$(peak)} · {peakLabel.label}</span>
+      </div>
+      <div className="flex h-24 items-end gap-px overflow-x-auto border-b pb-px">
+        {rows.map((r, i) => {
+          const isPeak = r.spend === peak
+          return (
+            <div key={i} title={`${r.label} · ${fmt$(r.spend)}`}
+              className="group flex min-w-[3px] flex-1 flex-col justify-end self-stretch">
+              <div className={`w-full rounded-t-sm transition-colors ${isPeak ? "bg-primary" : "bg-primary/35 group-hover:bg-primary/60"}`}
+                style={{ height: `${Math.max(2, (r.spend / peak) * 100)}%` }} />
+            </div>
+          )
+        })}
+      </div>
+      {rows.length > 1 && (
+        <div className="mt-1 flex justify-between text-[10px] tabular-nums text-muted-foreground">
+          <span>{rows[0].label}</span>
+          <span>{rows[rows.length - 1].label}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SpendReportSection() {
   const [open, setOpen] = useState(false)
   const [start, setStart] = useState("")
@@ -673,14 +719,17 @@ function SpendReportSection() {
                   {data.start_date} → {data.end_date} · total {fmt$(total)}
                 </div>
                 {rows.length > 0 ? (
-                  <div className="rounded-md border divide-y max-h-56 overflow-auto">
-                    {rows.map((r, i) => (
-                      <div key={i} className="grid grid-cols-[1fr_auto] gap-3 px-3 py-1.5 text-xs">
-                        <span className="font-mono truncate">{r.label}</span>
-                        <span className="text-right">{fmt$(r.spend)}</span>
-                      </div>
-                    ))}
-                  </div>
+                  <>
+                    {rows.length > 1 && <SpendBars rows={rows} />}
+                    <div className="rounded-md border divide-y max-h-56 overflow-auto">
+                      {rows.map((r, i) => (
+                        <div key={i} className="grid grid-cols-[1fr_auto] gap-3 px-3 py-1.5 text-xs">
+                          <span className="font-mono truncate">{r.label}</span>
+                          <span className="text-right tabular-nums">{fmt$(r.spend)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
                 ) : (
                   <p className="text-[11px] text-muted-foreground">
                     No spend rolled up for this range. LiteLLM rolls report data periodically — the live
