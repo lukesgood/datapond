@@ -301,12 +301,24 @@ function SchedulePanel({ name }: { name: string }) {
 // Render an answer, styling inline [n] citation markers as chips that echo the
 // numbered source list below — the visible link that makes the answer accountable.
 function renderCitedAnswer(text: string) {
+  // Split on [n] citations → chips. Within the surrounding prose, also render the
+  // **bold** emphasis the model routinely returns, so the literal ** markers don't
+  // leak into the grounded answer.
   return text.split(/(\[\d+\])/g).map((part, i) => {
     const m = part.match(/^\[(\d+)\]$/)
     if (m) return (
       <sup key={i} className="mx-0.5 inline-flex items-center rounded bg-primary/10 px-1 py-px align-baseline text-[10px] font-semibold text-primary">{m[1]}</sup>
     )
-    return <span key={i}>{part}</span>
+    return (
+      <span key={i}>
+        {part.split(/(\*\*[^*]+\*\*)/g).map((seg, j) => {
+          const b = seg.match(/^\*\*([^*]+)\*\*$/)
+          return b
+            ? <strong key={j} className="font-semibold text-foreground">{b[1]}</strong>
+            : <span key={j}>{seg}</span>
+        })}
+      </span>
+    )
   })
 }
 
