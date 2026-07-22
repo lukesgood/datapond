@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react"
 import { useToast } from "@/lib/toast"
 import Link from "next/link"
-import { Sparkles, Plus, Trash2, Search, MessageSquare, Database, Upload, AlertCircle, Loader2, FileText, ShieldCheck, Clock, Users } from "lucide-react"
+import { Sparkles, Plus, Trash2, Search, MessageSquare, Database, Upload, AlertCircle, Loader2, FileText, ShieldCheck, Clock, Users, CheckCircle2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -424,6 +424,9 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
   const [schema, setSchema] = useState("default"); const [table, setTable] = useState(""); const [col, setCol] = useState("")
   const [bucket, setBucket] = useState(""); const [prefix, setPrefix] = useState("")
   const [busy, setBusy] = useState(false); const [e, setE] = useState<string | null>(null)
+  // Keep the last ingest outcome on screen — a toast vanishes, but the run's
+  // governance read (chunks embedded, PII masked) is worth leaving visible.
+  const [result, setResult] = useState<{ docs?: number; chunks: number; pii: number } | null>(null)
   const [sched, setSched] = useState("@daily"); const [schedBusy, setSchedBusy] = useState(false)
   // Lakehouse picker: iceberg catalog tree (schemas→tables) + columns of the chosen table.
   const [tree, setTree] = useState<{ schema: string; tables: string[] }[]>([])
@@ -462,7 +465,8 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ documents: [{ source: src || "manual", text }] }) })
       if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-      const d = await r.json(); toast(`Ingested ${d.chunks} chunks (${d.pii_masked} PII masked)`, "success"); setText(""); onChange()
+      const d = await r.json(); toast(`Ingested ${d.chunks} chunks (${d.pii_masked} PII masked)`, "success")
+      setResult({ chunks: d.chunks, pii: d.pii_masked }); setText(""); onChange()
     } catch (error) { setE(error instanceof Error ? error.message : "Ingestion failed") }
     setBusy(false)
   }
@@ -472,7 +476,8 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
       const r = await fetch(`/api/ai/collections/${encodeURIComponent(name)}/ingest-source`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sourceBody()) })
       if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-      const d = await r.json(); toast(`${d.documents} docs → ${d.chunks} chunks (${d.pii_masked} PII masked)`, "success"); onChange()
+      const d = await r.json(); toast(`${d.documents} docs → ${d.chunks} chunks (${d.pii_masked} PII masked)`, "success")
+      setResult({ docs: d.documents, chunks: d.chunks, pii: d.pii_masked }); onChange()
     } catch (error) { setE(error instanceof Error ? error.message : "Source ingestion failed") }
     setBusy(false)
   }
@@ -502,7 +507,10 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
         <>
           <Input value={src} onChange={e => setSrc(e.target.value)} placeholder="source label (optional)" className="text-sm" />
           <Textarea value={text} onChange={e => setText(e.target.value)} placeholder="Paste documents to embed…" className="min-h-[160px] text-sm" />
-          <Button onClick={ingestText} disabled={!text.trim() || busy}>{busy && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}Ingest</Button>
+          <div className="flex items-center justify-between">
+            <Button onClick={ingestText} disabled={!text.trim() || busy}>{busy && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}Ingest</Button>
+            {text.trim() && <span className="text-[11px] tabular-nums text-muted-foreground">{text.length.toLocaleString()} chars · masked at ingest</span>}
+          </div>
         </>
       ) : (
         <>
@@ -568,6 +576,17 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
             {sourceType === "iceberg" ? " and when a linked connector sync marks it stale." : "."}
           </p>
         </>
+      )}
+      {result && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-[var(--dp-good)]/25 bg-[var(--dp-good)]/[0.06] px-3 py-2 text-xs">
+          <span className="flex items-center gap-1.5 font-medium text-[var(--dp-good)]">
+            <CheckCircle2 className="h-3.5 w-3.5" />Ingested
+          </span>
+          {result.docs != null && <span className="text-muted-foreground"><b className="tabular-nums text-foreground">{result.docs.toLocaleString()}</b> docs</span>}
+          <span className="text-muted-foreground"><b className="tabular-nums text-foreground">{result.chunks.toLocaleString()}</b> chunks embedded</span>
+          <span className="text-muted-foreground"><b className="tabular-nums text-foreground">{result.pii.toLocaleString()}</b> PII masked</span>
+          <span className="ml-auto text-[11px] text-muted-foreground">now searchable in this collection</span>
+        </div>
       )}
       {e && <ErrorBox msg={e} />}
     </div>
