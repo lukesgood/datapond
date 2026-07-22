@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
@@ -8,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ConnectorField } from "@/lib/connectors"
-import { Loader2, CheckCircle2, XCircle } from "lucide-react"
+import { Loader2, CheckCircle2, XCircle, Eye, EyeOff, ShieldCheck } from "lucide-react"
 
 type ConnectionValue = string | number | boolean | null | undefined
 
@@ -41,19 +42,28 @@ export function ConnectionForm({
   testStatus = "idle",
   testMessage
 }: ConnectionFormProps) {
-  // Mirror the CDC wizard's `canTest` guard: every required field must have a
-  // non-empty value before the connection can be tested.
-  const canTest = fields.every((field) => {
-    if (!field.required) return true
+  // Per-field secret reveal state (a form can carry more than one password field).
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({})
+
+  const isEmpty = (field: ConnectorField) => {
     const value = values[field.name]
-    if (typeof value === "boolean" || typeof value === "number") return true
-    return typeof value === "string" && value.trim() !== ""
-  })
+    if (typeof value === "boolean" || typeof value === "number") return false
+    return !(typeof value === "string" && value.trim() !== "")
+  }
+  // Every required field must be filled before the connection can be tested.
+  const missing = fields.filter((field) => field.required && isEmpty(field))
+  const canTest = missing.length === 0
+  const hasSecret = fields.some((field) => field.type === "password")
+
   return (
     <div className="space-y-6">
-      <div className="grid gap-4">
-        {fields.map((field) => (
-          <div key={field.name} className="space-y-2">
+      {/* Two-column grid: half-width fields (host+port, username+password) pair on
+          one row; everything else spans the full width. Stacks on narrow widths. */}
+      <div className="grid grid-cols-2 gap-4">
+        {fields.map((field) => {
+          const reveal = revealed[field.name]
+          return (
+          <div key={field.name} className={`space-y-2 ${field.half ? "col-span-2 sm:col-span-1" : "col-span-2"}`}>
             <Label htmlFor={field.name}>
               {field.label}
               {field.required && <span className="text-destructive ml-1">*</span>}
@@ -68,10 +78,30 @@ export function ConnectionForm({
                 required={field.required}
                 className="font-mono text-sm min-h-[180px]"
               />
-            ) : field.type === "text" || field.type === "password" ? (
+            ) : field.type === "password" ? (
+              <div className="relative">
+                <Input
+                  id={field.name}
+                  type={reveal ? "text" : "password"}
+                  placeholder={field.placeholder}
+                  value={toInputValue(values[field.name] || "")}
+                  onChange={(e) => onChange(field.name, e.target.value)}
+                  required={field.required}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setRevealed((r) => ({ ...r, [field.name]: !r[field.name] }))}
+                  aria-label={reveal ? `Hide ${field.label}` : `Show ${field.label}`}
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:text-foreground"
+                >
+                  {reveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            ) : field.type === "text" ? (
               <Input
                 id={field.name}
-                type={field.type}
+                type="text"
                 placeholder={field.placeholder}
                 value={toInputValue(values[field.name] || "")}
                 onChange={(e) => onChange(field.name, e.target.value)}
@@ -122,8 +152,17 @@ export function ConnectionForm({
               <p className="text-xs text-muted-foreground">{field.help}</p>
             )}
           </div>
-        ))}
+          )
+        })}
       </div>
+
+      {/* Credential handling reassurance — only when the form actually collects a secret. */}
+      {hasSecret && (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-[var(--dp-good)]" />
+          Credentials are encrypted at rest by the platform credential vault.
+        </p>
+      )}
 
       {/* Test Connection */}
       {onTest && (
@@ -146,6 +185,13 @@ export function ConnectionForm({
             )}
             Test Connection
           </Button>
+
+          {/* Explain why Test is disabled instead of leaving it inertly greyed. */}
+          {!canTest && testStatus !== "testing" && (
+            <p className="text-xs text-muted-foreground">
+              Fill {missing.map((f) => f.label).join(", ")} to test the connection.
+            </p>
+          )}
 
           {testStatus === "success" && (
             <Alert className="border-green-500/50 bg-green-500/10">

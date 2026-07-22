@@ -9,6 +9,9 @@ export interface ConnectorField {
   options?: string[]
   placeholder?: string
   help?: string
+  // Render at half width so two related fields (host+port, username+password)
+  // pair on one row instead of each taking a full-width line.
+  half?: boolean
 }
 
 export interface Connector {
@@ -55,11 +58,11 @@ export const availableConnectors: Connector[] = [
     supported: true,
     features: ["Incremental Sync", "Schema Discovery"],
     fields: [
-      { name: "host", label: "Host", type: "text", required: true, placeholder: "localhost" },
-      { name: "port", label: "Port", type: "number", default: 5432, required: true },
+      { half: true, name: "host", label: "Host", type: "text", required: true, placeholder: "localhost" },
+      { half: true, name: "port", label: "Port", type: "number", default: 5432, required: true },
       { name: "database", label: "Database", type: "text", required: true, placeholder: "mydb" },
-      { name: "username", label: "Username", type: "text", required: true },
-      { name: "password", label: "Password", type: "password", required: true },
+      { half: true, name: "username", label: "Username", type: "text", required: true },
+      { half: true, name: "password", label: "Password", type: "password", required: true },
       { name: "ssl", label: "Use SSL", type: "boolean", default: false, help: "Enable SSL/TLS connection" }
     ]
   },
@@ -72,11 +75,11 @@ export const availableConnectors: Connector[] = [
     supported: true,
     features: ["Incremental Sync", "Schema Discovery"],
     fields: [
-      { name: "host", label: "Host", type: "text", required: true, placeholder: "localhost" },
-      { name: "port", label: "Port", type: "number", default: 3306, required: true },
+      { half: true, name: "host", label: "Host", type: "text", required: true, placeholder: "localhost" },
+      { half: true, name: "port", label: "Port", type: "number", default: 3306, required: true },
       { name: "database", label: "Database", type: "text", required: true, placeholder: "mydb" },
-      { name: "username", label: "Username", type: "text", required: true },
-      { name: "password", label: "Password", type: "password", required: true }
+      { half: true, name: "username", label: "Username", type: "text", required: true },
+      { half: true, name: "password", label: "Password", type: "password", required: true }
     ]
   },
   {
@@ -108,7 +111,7 @@ export const availableConnectors: Connector[] = [
     name: "Apache Kafka",
     category: "streaming",
     icon: "/connectors/kafka.svg",
-    description: "Stream data from Kafka topics (batch connector 미구현)",
+    description: "Stream data from Kafka topics (batch connector coming soon)",
     supported: false,
     features: ["Real-time Streaming", "Schema Registry", "Exactly-once Processing"],
     fields: [
@@ -146,8 +149,8 @@ export const availableConnectors: Connector[] = [
       { name: "warehouse", label: "Warehouse", type: "text", required: true },
       { name: "database", label: "Database", type: "text", required: true },
       { name: "schema", label: "Schema", type: "text", required: true },
-      { name: "username", label: "Username", type: "text", required: true },
-      { name: "password", label: "Password", type: "password", required: true }
+      { half: true, name: "username", label: "Username", type: "text", required: true },
+      { half: true, name: "password", label: "Password", type: "password", required: true }
     ]
   },
   {
@@ -159,11 +162,11 @@ export const availableConnectors: Connector[] = [
     supported: false,
     features: ["Batch Sync", "Schema Discovery"],
     fields: [
-      { name: "host", label: "Host", type: "text", required: true },
-      { name: "port", label: "Port", type: "number", default: 5439 },
+      { half: true, name: "host", label: "Host", type: "text", required: true },
+      { half: true, name: "port", label: "Port", type: "number", default: 5439 },
       { name: "database", label: "Database", type: "text", required: true },
-      { name: "username", label: "Username", type: "text", required: true },
-      { name: "password", label: "Password", type: "password", required: true }
+      { half: true, name: "username", label: "Username", type: "text", required: true },
+      { half: true, name: "password", label: "Password", type: "password", required: true }
     ]
   },
   {
