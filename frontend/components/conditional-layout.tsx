@@ -5,7 +5,9 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { CapabilitiesProvider, CapabilityGate } from "@/lib/capabilities"
 
-const NO_SHELL_PATHS = ["/login"]
+// Public auth routes render their own full-screen split layout — they must not
+// be wrapped in the authenticated app shell (sidebar + top bar).
+const NO_SHELL_PATHS = ["/login", "/forgot", "/reset"]
 
 const OPTIONAL_ROUTES: Array<[prefix: string, capability: string]> = [
   // Help and troubleshooting routes remain readable even when the product
