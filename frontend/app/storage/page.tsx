@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/table"
 import {
   HardDrive, Database, RefreshCw, Plus, Trash2, FolderOpen,
-  FileText, ChevronRight, ChevronLeft, Package, Upload, Download,
+  FileText, ChevronRight, ChevronLeft, Package, Upload, Download, Search, X,
 } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 
@@ -71,8 +71,19 @@ export default function StoragePage() {
   const [creating, setCreating] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [objectFilter, setObjectFilter] = useState("")
+  const [dragging, setDragging] = useState(false)
   const [isAdmin] = useState(() => getUser()?.role === "admin")
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  // The objects endpoint caps at 100; when the page is full there may be more
+  // server-side that this client list can't see — surface that instead of
+  // letting objects.length read as the true total.
+  const OBJECT_LIMIT = 100
+  const objectsCapped = objects.length >= OBJECT_LIMIT
+  const filteredObjects = objectFilter.trim()
+    ? objects.filter(o => o.key.toLowerCase().includes(objectFilter.trim().toLowerCase()))
+    : objects
 
   const loadOverview = useCallback(async () => {
     setLoading(true)
@@ -94,7 +105,7 @@ export default function StoragePage() {
     setObjects([])
     setObjectsError(null)
     try {
-      const res = await fetch(`/api/storage/buckets/${encodeURIComponent(bucket)}/objects?limit=100`)
+      const res = await fetch(`/api/storage/buckets/${encodeURIComponent(bucket)}/objects?limit=${OBJECT_LIMIT}`)
       if (!res.ok) throw new Error(`${res.status}`)
       setObjects(await res.json())
     } catch (requestError) {
@@ -107,6 +118,7 @@ export default function StoragePage() {
 
   const handleSelectBucket = (name: string) => {
     setSelectedBucket(name)
+    setObjectFilter("")
     loadObjects(name)
   }
 
@@ -409,7 +421,11 @@ export default function StoragePage() {
                   </CardTitle>
                   {selectedBucket && (
                     <CardDescription className="text-[11px] mt-0.5">
-                      {objectsLoading ? "Loading..." : `${objects.length} objects`}
+                      {objectsLoading
+                        ? "Loading..."
+                        : objectFilter.trim()
+                          ? `${filteredObjects.length} of ${objects.length}${objectsCapped ? "+" : ""} objects`
+                          : `${objects.length}${objectsCapped ? "+" : ""} objects${objectsCapped ? ` · first ${OBJECT_LIMIT}` : ""}`}
                     </CardDescription>
                   )}
                 </div>
@@ -442,7 +458,24 @@ export default function StoragePage() {
             </div>
           </CardHeader>
 
-          <CardContent className="flex-1 overflow-auto p-0">
+          <CardContent
+            className="relative flex-1 overflow-auto p-0"
+            onDragOver={selectedBucket && isAdmin ? (e) => { e.preventDefault(); setDragging(true) } : undefined}
+            onDragLeave={selectedBucket && isAdmin ? (e) => { if (e.currentTarget === e.target) setDragging(false) } : undefined}
+            onDrop={selectedBucket && isAdmin ? (e) => {
+              e.preventDefault(); setDragging(false)
+              const file = e.dataTransfer.files?.[0]
+              if (file && selectedBucket) void handleUpload(selectedBucket, file)
+            } : undefined}
+          >
+            {/* Drop-to-upload affordance — a storage browser should accept a
+                dropped file, not only a picked one. */}
+            {dragging && selectedBucket && isAdmin && (
+              <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-primary bg-primary/5 backdrop-blur-[1px]">
+                <Upload className="h-6 w-6 text-primary" />
+                <p className="text-sm font-medium text-primary">Drop to upload to {selectedBucket}</p>
+              </div>
+            )}
             {!selectedBucket ? (
               <div className="flex flex-col items-center justify-center h-48 text-center px-4">
                 <FolderOpen className="h-10 w-10 text-muted-foreground/20 mb-3" />
@@ -465,8 +498,36 @@ export default function StoragePage() {
                 <p className="text-sm text-muted-foreground">This bucket is empty</p>
               </div>
             ) : (
-              <Table>
-                <TableHeader className="sticky top-0 bg-muted/60 backdrop-blur-sm">
+              <>
+                {/* Filter within the loaded page — objects can run to the 100-row
+                    cap, so give a way to jump to a known key without scrolling. */}
+                <div className="sticky top-0 z-[5] flex items-center gap-2 border-b bg-background/95 px-3 py-2 backdrop-blur-sm">
+                  <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <input
+                    value={objectFilter}
+                    onChange={e => setObjectFilter(e.target.value)}
+                    placeholder="Filter objects by key"
+                    className="w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+                    aria-label="Filter objects by key"
+                  />
+                  {objectFilter && (
+                    <button type="button" onClick={() => setObjectFilter("")}
+                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground" aria-label="Clear filter">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+                {filteredObjects.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center px-4">
+                    <Search className="h-6 w-6 text-muted-foreground/20 mb-2" />
+                    <p className="text-sm text-muted-foreground">No objects match “{objectFilter}”</p>
+                    {objectsCapped && (
+                      <p className="mt-1 text-[11px] text-muted-foreground/70">Only the first {OBJECT_LIMIT} objects are loaded — a match may exist beyond them.</p>
+                    )}
+                  </div>
+                ) : (
+                <Table>
+                <TableHeader className="sticky top-[41px] bg-muted/60 backdrop-blur-sm">
                   <TableRow>
                     <TableHead className="text-xs">Key</TableHead>
                     <TableHead className="text-xs text-right w-24">Size</TableHead>
@@ -475,7 +536,7 @@ export default function StoragePage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {objects.map(obj => (
+                  {filteredObjects.map(obj => (
                     <TableRow key={obj.key} className="hover:bg-muted/30">
                       <TableCell className="text-xs font-mono truncate max-w-[400px]" title={obj.key}>
                         <span className="flex items-center gap-1.5">
@@ -504,6 +565,8 @@ export default function StoragePage() {
                   ))}
                 </TableBody>
               </Table>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
