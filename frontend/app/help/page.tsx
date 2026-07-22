@@ -174,7 +174,7 @@ export default function HelpPage() {
                   <h3 className="font-medium group-hover:text-primary">{item.question}</h3>
                   <p className="mt-1 text-sm text-muted-foreground">{item.answer}</p>
                 </div>
-                <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+                <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
               </Link>
             ))}
           </CardContent>
@@ -192,10 +192,12 @@ export default function HelpPage() {
 
 function Resource({ icon: Icon, title, description }: { icon: LucideIcon; title: string; description: string }) {
   return (
-    <Card className="h-full transition-shadow hover:shadow-md">
+    <Card className="group h-full transition-all hover:-translate-y-0.5 hover:shadow-md">
       <CardHeader>
-        <Icon className="mb-2 h-5 w-5 text-muted-foreground" />
-        <CardTitle className="text-base">{title}</CardTitle>
+        <Icon className="mb-2 h-5 w-5 text-muted-foreground transition-colors group-hover:text-primary" />
+        <CardTitle className="flex items-center justify-between text-base">
+          {title}<ArrowRight className="h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100" />
+        </CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
     </Card>

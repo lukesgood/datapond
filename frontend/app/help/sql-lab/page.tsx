@@ -36,7 +36,7 @@ export default function SqlLabHelpPage() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbLink href="/help">Help & Guides</BreadcrumbLink>
+            <BreadcrumbLink href="/help">Guides</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
@@ -51,8 +51,9 @@ export default function SqlLabHelpPage() {
           <Code2 className="h-8 w-8 text-blue-500" />
         </div>
         <div>
-          <h1 className="text-4xl font-bold tracking-tight">SQL Lab Guide</h1>
-          <p className="text-lg text-muted-foreground mt-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">Guide</p>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight">SQL Lab</h1>
+          <p className="mt-2 text-muted-foreground">
             Interactive query interface for your data
           </p>
         </div>
@@ -67,9 +68,11 @@ export default function SqlLabHelpPage() {
           </CardTitle>
           <CardDescription>Get started with SQL Lab in 3 steps</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex gap-3">
-            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold">
+        <CardContent className="pt-1">
+          <div className="relative flex gap-3 pb-6">
+            {/* connector line links steps into a visible progression */}
+            <span aria-hidden className="absolute left-4 top-10 bottom-0 w-px -translate-x-1/2 bg-border" />
+            <div className="relative z-10 flex-shrink-0 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold">
               1
             </div>
             <div>
@@ -83,8 +86,9 @@ export default function SqlLabHelpPage() {
             </div>
           </div>
 
-          <div className="flex gap-3">
-            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold">
+          <div className="relative flex gap-3 pb-6">
+            <span aria-hidden className="absolute left-4 top-10 bottom-0 w-px -translate-x-1/2 bg-border" />
+            <div className="relative z-10 flex-shrink-0 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold">
               2
             </div>
             <div>
@@ -95,8 +99,8 @@ export default function SqlLabHelpPage() {
             </div>
           </div>
 
-          <div className="flex gap-3">
-            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold">
+          <div className="relative flex gap-3">
+            <div className="relative z-10 flex-shrink-0 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold">
               3
             </div>
             <div>

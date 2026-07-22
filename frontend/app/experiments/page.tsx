@@ -29,7 +29,7 @@ import {
 import { cn } from "@/lib/utils"
 import { getUser } from "@/lib/auth"
 import { useConfirm } from "@/lib/confirm"
-import { bestMetricValue } from "@/components/experiments/compare-runs"
+import { bestMetricValue, metricLowerIsBetter } from "@/components/experiments/compare-runs"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -379,21 +379,44 @@ function CompareView({
                 <tbody>
                   {metricNames.map((metric) => {
                     const bestId = getBest(metric)
+                    // Per-metric range for direction-aware magnitude bars (the
+                    // "better" end reads fuller, matching the best-value highlight).
+                    const nums = result.runs
+                      .map((r) => r.data.metrics.find((value) => value.key === metric)?.value)
+                      .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
+                    const lo = nums.length ? Math.min(...nums) : 0
+                    const hi = nums.length ? Math.max(...nums) : 0
+                    const span = hi - lo
+                    const lowerBetter = metricLowerIsBetter(metric)
                     return (
                       <tr key={metric} className="border-b last:border-0 hover:bg-muted/30">
-                        <td className="p-1.5 font-mono text-muted-foreground">{metric}</td>
+                        <td className="p-1.5 font-mono text-muted-foreground align-top">{metric}</td>
                         {result.runs.map((r) => {
                           const v = r.data.metrics.find((value) => value.key === metric)?.value
                           const isBest = bestId === r.info.run_id && v !== undefined
+                          const goodness = v === undefined
+                            ? 0
+                            : span === 0
+                              ? 1
+                              : lowerBetter ? (hi - v) / span : (v - lo) / span
                           return (
-                            <td
-                              key={r.info.run_id}
-                              className={cn(
-                                "p-1.5 font-mono",
-                                isBest && "text-emerald-600 dark:text-emerald-400 font-semibold"
+                            <td key={r.info.run_id} className="p-1.5 font-mono align-top">
+                              <span
+                                className={cn(
+                                  "tabular-nums",
+                                  isBest && "text-emerald-600 dark:text-emerald-400 font-semibold"
+                                )}
+                              >
+                                {v !== undefined ? v.toPrecision(5) : <span className="text-muted-foreground/40">—</span>}
+                              </span>
+                              {v !== undefined && nums.length > 1 && (
+                                <div className="mt-1 h-1 w-16 rounded-full bg-muted overflow-hidden">
+                                  <div
+                                    className={cn("h-full rounded-full", isBest ? "bg-emerald-500" : "bg-blue-500/50")}
+                                    style={{ width: `${Math.round(goodness * 100)}%` }}
+                                  />
+                                </div>
                               )}
-                            >
-                              {v !== undefined ? v.toPrecision(5) : <span className="text-muted-foreground/40">—</span>}
                             </td>
                           )
                         })}

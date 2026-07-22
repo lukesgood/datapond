@@ -21,6 +21,12 @@ export default function AccountPage() {
   const [confirm, setConfirm] = useState("")
   const [busy, setBusy] = useState(false)
 
+  // Inline validity so the user sees why the button is disabled before submitting,
+  // instead of only discovering it via a toast after a click.
+  const tooShort = pw.length > 0 && pw.length < 6
+  const mismatch = confirm.length > 0 && pw !== confirm
+  const canSubmit = pw.length >= 6 && pw === confirm
+
   const changePassword = async () => {
     if (pw.length < 6) { toast("Password must be at least 6 characters", "error"); return }
     if (pw !== confirm) { toast("Passwords do not match", "error"); return }
@@ -68,15 +74,29 @@ export default function AccountPage() {
         </CardHeader>
         <CardContent className="space-y-3 max-w-sm">
           <div className="space-y-1.5">
-            <Label className="text-xs">New password</Label>
-            <Input type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="At least 6 characters" />
+            <Label htmlFor="new-password" className="text-xs">New password</Label>
+            <Input id="new-password" type="password" autoComplete="new-password" value={pw}
+              onChange={e => setPw(e.target.value)} placeholder="At least 6 characters"
+              aria-invalid={tooShort} aria-describedby={tooShort ? "new-password-hint" : undefined} />
+            {tooShort && (
+              <p id="new-password-hint" className="text-[11px] text-[var(--dp-warn)]">
+                Use at least 6 characters.
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Confirm password</Label>
-            <Input type="password" value={confirm} onChange={e => setConfirm(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && changePassword()} />
+            <Label htmlFor="confirm-password" className="text-xs">Confirm password</Label>
+            <Input id="confirm-password" type="password" autoComplete="new-password" value={confirm}
+              onChange={e => setConfirm(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && changePassword()}
+              aria-invalid={mismatch} aria-describedby={mismatch ? "confirm-password-hint" : undefined} />
+            {mismatch && (
+              <p id="confirm-password-hint" className="text-[11px] text-destructive">
+                Passwords do not match.
+              </p>
+            )}
           </div>
-          <Button onClick={changePassword} disabled={busy || !pw || !confirm}>
+          <Button onClick={changePassword} disabled={busy || !canSubmit}>
             {busy && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}Update password
           </Button>
         </CardContent>

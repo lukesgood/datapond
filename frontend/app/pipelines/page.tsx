@@ -416,7 +416,7 @@ function PipelinesPageInner() {
             accent: Array.from(dagStats.values()).reduce((a, s) => a + s.failed_runs, 0) > 0,
           },
         ].map(({ label, value, sub, icon: Icon, accent }) => (
-          <Card key={label} className={accent ? "border-destructive/20 bg-destructive/5/30" : ""}>
+          <Card key={label} className={accent ? "border-destructive/20 bg-destructive/5" : ""}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs text-muted-foreground">{label}</span>
@@ -493,11 +493,24 @@ function PipelinesPageInner() {
                             {t.status}
                           </span>
                           {t.last_run_state && (
-                            <span className={`text-[10px] w-fit ${
-                              t.last_run_state === "success" ? "text-green-600" :
-                              t.last_run_state === "failed" ? "text-destructive" : "text-muted-foreground"
-                            }`}>
-                              run: {t.last_run_state}{t.last_run_at ? ` · ${new Date(t.last_run_at).toLocaleString()}` : ""}
+                            <span
+                              className={`inline-flex items-center gap-1 text-[10px] w-fit ${
+                                t.last_run_state === "success" ? "text-green-600" :
+                                t.last_run_state === "failed" ? "text-destructive" :
+                                t.last_run_state === "running" ? "text-primary" : "text-muted-foreground"
+                              }`}
+                              title={t.last_run_at ? new Date(t.last_run_at).toLocaleString() : undefined}
+                            >
+                              {t.last_run_state === "success" ? <CheckCircle2 className="h-3 w-3" /> :
+                               t.last_run_state === "failed" ? <XCircle className="h-3 w-3" /> :
+                               t.last_run_state === "running" ? <Play className="h-3 w-3" /> :
+                               <Clock className="h-3 w-3" />}
+                              <span className="capitalize">{t.last_run_state}</span>
+                              {t.last_run_at && (
+                                <span className="text-muted-foreground/70">
+                                  · {formatDistance(new Date(t.last_run_at), new Date(), { addSuffix: true })}
+                                </span>
+                              )}
                             </span>
                           )}
                         </div>

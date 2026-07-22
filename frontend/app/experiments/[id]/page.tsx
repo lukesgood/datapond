@@ -38,10 +38,12 @@ import {
   TrendingUp,
   BarChart3,
 } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { Skeleton } from "@/components/ui/skeleton"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { serviceUrls } from "@/lib/urls"
-import { bestMetricValue } from "@/components/experiments/compare-runs"
+import { cn } from "@/lib/utils"
+import { bestMetricValue, metricLowerIsBetter } from "@/components/experiments/compare-runs"
 
 interface Experiment {
   experiment_id: string
@@ -124,11 +126,21 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
   }
 
   const getStatusBadge = (status: string) => {
+    // Theme-aware chips consistent with the Experiments overview StatusBadge
+    // (subtle bg + border, readable in both light and dark).
     switch (status) {
       case "RUNNING":
-        return <Badge className="bg-blue-600">Running</Badge>
+        return (
+          <Badge variant="outline" className="border-blue-200 dark:border-blue-800 bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
+            Running
+          </Badge>
+        )
       case "FINISHED":
-        return <Badge className="bg-green-600">Finished</Badge>
+        return (
+          <Badge variant="outline" className="border-emerald-200 dark:border-emerald-800 bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
+            Finished
+          </Badge>
+        )
       case "FAILED":
         return <Badge variant="destructive">Failed</Badge>
       default:
@@ -159,15 +171,45 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
     )
   }
 
-  const getMetricValue = (run: Run, metricKey: string) => {
-    const metric = run.data.metrics?.find((m) => m.key === metricKey)
-    return metric ? metric.value.toFixed(4) : "-"
-  }
-
   // Get all unique metric keys
-  const allMetrics = Array.from(
-    new Set(runs.flatMap((run) => run.data.metrics?.map((m) => m.key) || []))
+  const allMetrics = useMemo(
+    () => Array.from(new Set(runs.flatMap((run) => run.data.metrics?.map((m) => m.key) || []))),
+    [runs]
   )
+
+  // Apply the sort control (previously inert — the Select changed state but the
+  // table always rendered in fetch order). Rank statuses so active work floats up.
+  const sortedRuns = useMemo(() => {
+    const statusRank: Record<string, number> = { RUNNING: 0, FAILED: 1, FINISHED: 2 }
+    // Running runs (no end_time) are still ongoing → treat as longest, float to top.
+    const dur = (r: Run) => (r.info.end_time != null ? r.info.end_time - r.info.start_time : Number.POSITIVE_INFINITY)
+    return [...runs].sort((a, b) => {
+      switch (sortBy) {
+        case "duration": return dur(b) - dur(a)
+        case "status": return (statusRank[a.info.status] ?? 3) - (statusRank[b.info.status] ?? 3)
+        default: return b.info.start_time - a.info.start_time
+      }
+    })
+  }, [runs, sortBy])
+
+  // Per-metric best value + range, so each metric column can flag the winning run
+  // and draw a small direction-aware bar (lower-is-better for loss/error metrics).
+  const metricStats = useMemo(() => {
+    const stats: Record<string, { min: number; max: number; best: number | null; count: number; lowerBetter: boolean }> = {}
+    for (const key of allMetrics) {
+      const vals = runs
+        .map((r) => r.data.metrics?.find((m) => m.key === key)?.value)
+        .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
+      stats[key] = {
+        min: vals.length ? Math.min(...vals) : 0,
+        max: vals.length ? Math.max(...vals) : 0,
+        best: bestMetricValue(vals, key),
+        count: vals.length,
+        lowerBetter: metricLowerIsBetter(key),
+      }
+    }
+    return stats
+  }, [runs, allMetrics])
 
   const handleCompare = async () => {
     if (selectedRuns.length < 2) return
@@ -186,9 +228,17 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
   if (loading) {
     return (
       <div className="flex-1 space-y-4 p-8 pt-6">
+        <Skeleton className="h-8 w-64" />
+        <div className="grid gap-4 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 w-full rounded-lg" />
+          ))}
+        </div>
         <Card>
-          <CardContent className="py-8 text-center">
-            <p className="text-muted-foreground">Loading experiment...</p>
+          <CardContent className="space-y-2 py-4">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
           </CardContent>
         </Card>
       </div>
@@ -334,7 +384,13 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12">
-                    <Checkbox />
+                    <Checkbox
+                      aria-label="Select all runs"
+                      checked={runs.length > 0 && selectedRuns.length === runs.length}
+                      onCheckedChange={(c) =>
+                        setSelectedRuns(c ? runs.map((r) => r.info.run_id) : [])
+                      }
+                    />
                   </TableHead>
                   <TableHead>Run</TableHead>
                   <TableHead>Status</TableHead>
@@ -347,7 +403,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {runs.map((run) => (
+                {sortedRuns.map((run) => (
                   <TableRow
                     key={run.info.run_id}
                     className="cursor-pointer hover:bg-muted/50"
@@ -381,11 +437,47 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                     <TableCell className="text-sm">
                       {formatDuration(run.info.start_time, run.info.end_time)}
                     </TableCell>
-                    {allMetrics.slice(0, 3).map((metric) => (
-                      <TableCell key={metric} className="font-mono text-sm">
-                        {getMetricValue(run, metric)}
-                      </TableCell>
-                    ))}
+                    {allMetrics.slice(0, 3).map((metric) => {
+                      const stat = metricStats[metric]
+                      const v = run.data.metrics?.find((m) => m.key === metric)?.value
+                      const isBest = stat.best != null && v === stat.best && stat.count > 1
+                      // Direction-aware fill: the "better" end of the range reads fuller.
+                      const span = stat.max - stat.min
+                      const goodness = v == null
+                        ? 0
+                        : span === 0
+                          ? 1
+                          : stat.lowerBetter
+                            ? (stat.max - v) / span
+                            : (v - stat.min) / span
+                      return (
+                        <TableCell key={metric} className="font-mono text-sm">
+                          {v == null ? (
+                            <span className="text-muted-foreground/40">—</span>
+                          ) : (
+                            <div className="space-y-1">
+                              <span
+                                className={cn(
+                                  "tabular-nums inline-flex items-center gap-1",
+                                  isBest && "font-semibold text-emerald-600 dark:text-emerald-400"
+                                )}
+                              >
+                                {v.toFixed(4)}
+                                {isBest && <span className="text-[10px]">★</span>}
+                              </span>
+                              {stat.count > 1 && (
+                                <div className="h-1.5 w-14 rounded-full bg-muted overflow-hidden">
+                                  <div
+                                    className={cn("h-full rounded-full", isBest ? "bg-emerald-500" : "bg-blue-500/50")}
+                                    style={{ width: `${Math.round(goodness * 100)}%` }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </TableCell>
+                      )
+                    })}
                     <TableCell className="text-right">
                       <Button
                         variant="ghost"
@@ -455,8 +547,8 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                           <tr key={metric} className="border-b hover:bg-muted/20">
                             <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{metric}</td>
                             {vals.map((v, i) => (
-                              <td key={i} className={`px-4 py-2 font-mono text-xs font-medium ${
-                                v === best && numVals.length > 1 ? "text-green-600" : ""
+                              <td key={i} className={`px-4 py-2 font-mono text-xs font-medium tabular-nums ${
+                                v === best && numVals.length > 1 ? "text-emerald-600 dark:text-emerald-400" : ""
                               }`}>
                                 {v != null ? Number(v).toFixed(4) : "—"}
                                 {v === best && numVals.length > 1 && (

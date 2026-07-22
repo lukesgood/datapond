@@ -22,6 +22,19 @@ interface NotebookOutput {
   data?: Record<string, string | string[]>
   ename?: string
   evalue?: string
+  execution_count?: number | null
+  name?: string // stream name: "stdout" | "stderr"
+}
+
+// Short, honest label for an output's provenance so readers can tell a
+// returned value from stdout/stderr from a traceback at a glance.
+function outputLabel(output: NotebookOutput): string {
+  if (output.output_type === "error") return "Error"
+  if (output.output_type === "stream") return output.name === "stderr" ? "stderr" : "stdout"
+  if (output.output_type === "execute_result") {
+    return typeof output.execution_count === "number" ? `Out [${output.execution_count}]` : "Out"
+  }
+  return "Out" // display_data and other rich outputs
 }
 
 interface NotebookCell {
@@ -249,11 +262,14 @@ function NotebookViewer() {
                       <div className="border-t">
                         {cell.outputs.map((output, oi) => {
                           const isError = output.output_type === "error"
+                          const isStderr = output.output_type === "stream" && output.name === "stderr"
                           const isImage = output.data?.["image/png"]
+                          const label = outputLabel(output)
 
                           if (isImage) {
                             return (
-                              <div key={oi} className="p-3">
+                              <div key={oi} className="flex gap-2 p-3">
+                                <span className="shrink-0 pt-0.5 text-[10px] font-mono text-muted-foreground">Out</span>
                                 <Image
                                   src={`data:image/png;base64,${output.data!["image/png"]}`}
                                   alt="Notebook output"
@@ -267,11 +283,18 @@ function NotebookViewer() {
                           }
 
                           return (
-                            <pre key={oi} className={`px-4 py-2 text-xs font-mono overflow-x-auto ${
-                              isError ? "bg-destructive/10 text-destructive" : "bg-muted/30 text-muted-foreground"
+                            <div key={oi} className={`flex gap-2 px-4 py-2 ${
+                              isError || isStderr ? "bg-destructive/10" : "bg-muted/30"
                             }`}>
-                              {renderOutput(output)}
-                            </pre>
+                              <span className={`shrink-0 select-none pt-px text-[10px] font-mono ${
+                                isError || isStderr ? "text-destructive/70" : "text-muted-foreground/70"
+                              }`}>{label}</span>
+                              <pre className={`min-w-0 flex-1 overflow-x-auto text-xs font-mono ${
+                                isError || isStderr ? "text-destructive" : "text-muted-foreground"
+                              }`}>
+                                {renderOutput(output)}
+                              </pre>
+                            </div>
                           )
                         })}
                       </div>

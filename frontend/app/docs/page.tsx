@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import {
+  ArrowRight,
   BookOpen,
   Boxes,
   Database,
@@ -40,6 +41,14 @@ type DocCategory = {
   description: string
   icon: LucideIcon
   docs: DocLink[]
+}
+
+// Encode lifecycle status as color so readers can scan shipped vs. optional vs. roadmap at a glance.
+const STATUS_STYLES: Record<NonNullable<DocLink["badge"]>, string> = {
+  Shipped: "bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-[var(--dp-good)]/25",
+  Optional: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-[var(--dp-warn)]/25",
+  Reference: "bg-primary/10 text-primary border-primary/25",
+  Roadmap: "bg-muted text-muted-foreground border-border",
 }
 
 const docCategories: DocCategory[] = [
@@ -114,6 +123,9 @@ export default function DocsPage() {
     }))
     .filter((category) => category.docs.length > 0)
 
+  const totalDocs = docCategories.reduce((sum, category) => sum + category.docs.length, 0)
+  const shownDocs = filteredCategories.reduce((sum, category) => sum + category.docs.length, 0)
+
   return (
     <div className="flex-1 space-y-6 p-8 pt-6">
       <Breadcrumb>
@@ -154,14 +166,22 @@ export default function DocsPage() {
         </CardContent>
       </Card>
 
-      <div className="relative max-w-xl">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Search concepts, profiles, or capabilities…"
-          className="pl-9"
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
-        />
+      <div className="space-y-1.5">
+        <div className="relative max-w-xl">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search concepts, profiles, or capabilities…"
+            className="pl-9"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            aria-label="Search documentation"
+          />
+        </div>
+        <p className="text-xs text-muted-foreground" aria-live="polite">
+          {needle
+            ? `${shownDocs} of ${totalDocs} article${totalDocs === 1 ? "" : "s"} match`
+            : `${totalDocs} articles across ${docCategories.length} sections`}
+        </p>
       </div>
 
       <div className="space-y-7">
@@ -179,11 +199,17 @@ export default function DocsPage() {
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {category.docs.map((doc) => (
                   <Link key={doc.href} href={doc.href}>
-                    <Card className="h-full transition-all hover:-translate-y-0.5 hover:shadow-md">
+                    <Card className="group h-full transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md">
                       <CardHeader>
                         <div className="flex items-start justify-between gap-2">
-                          <CardTitle className="text-base">{doc.title}</CardTitle>
-                          {doc.badge && <Badge variant="secondary" className="shrink-0 text-[10px]">{doc.badge}</Badge>}
+                          <CardTitle className="flex items-center gap-1.5 text-base">
+                            {doc.title}
+                            {/* Arrow morphs in on hover to signal the card is navigable */}
+                            <ArrowRight className="h-4 w-4 shrink-0 -translate-x-1 text-muted-foreground opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
+                          </CardTitle>
+                          {doc.badge && (
+                            <Badge variant="outline" className={`shrink-0 text-[10px] ${STATUS_STYLES[doc.badge]}`}>{doc.badge}</Badge>
+                          )}
                         </div>
                         <CardDescription>{doc.description}</CardDescription>
                       </CardHeader>

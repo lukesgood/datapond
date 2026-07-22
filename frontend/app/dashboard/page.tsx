@@ -126,6 +126,13 @@ export default function DashboardPage() {
   const running = services?.filter((service) => service.status === "healthy").length ?? null
   const observed = services?.filter((service) => service.status !== "managed") ?? null
   const allObservedHealthy = !!observed?.length && observed.every((service) => service.status === "healthy")
+  // Observed in-cluster workloads that are not confirmed healthy (unhealthy/unknown) — surfaced honestly.
+  const attention = observed?.filter((service) => service.status !== "healthy").length ?? 0
+  // Problem-first ordering so a degraded workload never hides at the bottom of the grid.
+  const statusOrder: Record<Service["status"], number> = { unhealthy: 0, unknown: 1, healthy: 2, managed: 3 }
+  const sortedServices = services
+    ? [...services].sort((a, b) => statusOrder[a.status] - statusOrder[b.status])
+    : null
   const healthAvailable = stats !== null || services !== null
   const totalServices = stats?.total_services ?? services?.length ?? 0
   const healthyServices = stats?.healthy_services ?? running ?? 0
@@ -195,11 +202,30 @@ export default function DashboardPage() {
       )}
 
       <div className="space-y-3">
-        <div className="flex items-baseline justify-between">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-lg font-semibold tracking-tight">Platform Services</h2>
-          <span className="text-xs text-muted-foreground tabular-nums">
-            {services ? `${running} healthy · ${configured} configured` : "Status unavailable"}
-          </span>
+          {services ? (
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--dp-good)]" />
+                <span className="font-semibold tabular-nums">{running}</span>
+                <span className="text-muted-foreground">healthy</span>
+              </span>
+              {attention > 0 && (
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-[var(--dp-warn)]/30 px-2.5 py-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--dp-warn)]" />
+                  <span className="font-semibold tabular-nums text-[var(--dp-warn)]">{attention}</span>
+                  <span className="text-muted-foreground">need attention</span>
+                </span>
+              )}
+              <span className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1">
+                <span className="font-semibold tabular-nums">{configured}</span>
+                <span className="text-muted-foreground">configured</span>
+              </span>
+            </div>
+          ) : (
+            <span className="text-xs text-muted-foreground">Status unavailable</span>
+          )}
         </div>
         {services === null ? (
           <p className="rounded-md border px-4 py-8 text-center text-sm text-muted-foreground">
@@ -211,7 +237,7 @@ export default function DashboardPage() {
           </p>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {services.map((service) => (
+            {sortedServices!.map((service) => (
               <ServiceCard
                 key={service.name}
                 name={service.name}

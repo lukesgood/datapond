@@ -168,33 +168,50 @@ function StepIndicator({
     : currentStep === "confirm" ? steps.length - 1
     : (currentStep as number) - 1
 
+  // Fraction of the wizard completed — drives the progress bar fill.
+  const pct = Math.min(100, Math.round((stepIndex / (steps.length - 1)) * 100))
+
   return (
-    <div className="flex items-center gap-1 text-xs">
-      {steps.map((s, i) => (
-        <div key={s} className="flex items-center gap-1">
-          <span
-            className={`w-5 h-5 rounded-full flex items-center justify-center font-medium ${
-              i < stepIndex
-                ? "bg-green-600 text-white"
-                : i === stepIndex
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground"
-            }`}
-          >
-            {i < stepIndex ? "✓" : i + 1}
-          </span>
-          <span
-            className={
-              i === stepIndex ? "text-foreground font-medium" : "text-muted-foreground"
-            }
-          >
-            {s}
-          </span>
-          {i < steps.length - 1 && (
-            <ChevronRight className="h-3 w-3 text-muted-foreground" />
-          )}
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-xs">
+        <div className="flex items-center gap-1">
+          {steps.map((s, i) => (
+            <div key={s} className="flex items-center gap-1">
+              <span
+                className={`w-5 h-5 rounded-full flex items-center justify-center font-medium ${
+                  i < stepIndex
+                    ? "bg-green-600 text-white"
+                    : i === stepIndex
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {i < stepIndex ? "✓" : i + 1}
+              </span>
+              <span
+                className={
+                  i === stepIndex ? "text-foreground font-medium" : "text-muted-foreground"
+                }
+              >
+                {s}
+              </span>
+              {i < steps.length - 1 && (
+                <ChevronRight className="h-3 w-3 text-muted-foreground" />
+              )}
+            </div>
+          ))}
         </div>
-      ))}
+        <span className="text-muted-foreground tabular-nums">
+          Step {Math.min(stepIndex + 1, steps.length)} of {steps.length}
+        </span>
+      </div>
+      {/* Progress bar — inline-bar idiom */}
+      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+        <div
+          className="h-full rounded-full bg-primary transition-all duration-300"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
     </div>
   )
 }
@@ -540,7 +557,7 @@ function NewStreamingPipelineInner() {
         <div className="space-y-4">
 
           <div className="space-y-1">
-            <Label className="text-xs">Pipeline Name</Label>
+            <Label className="text-xs">Pipeline Name <span className="text-destructive">*</span></Label>
             <Input
               value={cdcForm.pipeline_name}
               placeholder="e.g. orders_cdc"
@@ -550,7 +567,7 @@ function NewStreamingPipelineInner() {
 
           <div className="grid grid-cols-3 gap-2">
             <div className="col-span-2 space-y-1">
-              <Label className="text-xs">Host</Label>
+              <Label className="text-xs">Host <span className="text-destructive">*</span></Label>
               <Input
                 value={cdcForm.db_host}
                 placeholder="postgres.datapond.svc"
@@ -568,7 +585,7 @@ function NewStreamingPipelineInner() {
           </div>
 
           <div className="space-y-1">
-            <Label className="text-xs">Database</Label>
+            <Label className="text-xs">Database <span className="text-destructive">*</span></Label>
             <Input
               value={cdcForm.db_name}
               placeholder="mydb"
@@ -578,7 +595,7 @@ function NewStreamingPipelineInner() {
 
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
-              <Label className="text-xs">Username</Label>
+              <Label className="text-xs">Username <span className="text-destructive">*</span></Label>
               <Input
                 value={cdcForm.db_user}
                 placeholder="postgres"
@@ -682,6 +699,19 @@ function NewStreamingPipelineInner() {
               {tableError}
             </p>
           )}
+
+          {/* Inline validation — spell out what's still required for Next */}
+          {(() => {
+            const missing = [
+              !cdcForm.pipeline_name && "Pipeline Name",
+              !cdcForm.db_host && "Host",
+              !cdcForm.db_name && "Database",
+              !cdcForm.db_user && "Username",
+            ].filter(Boolean)
+            return missing.length > 0 ? (
+              <p className="text-[11px] text-muted-foreground">Required to continue: {missing.join(", ")}</p>
+            ) : null
+          })()}
         </div>
       )
     }
@@ -741,7 +771,7 @@ function NewStreamingPipelineInner() {
       return (
         <div className="space-y-4">
           <div className="space-y-1">
-            <Label className="text-xs">Pipeline Name</Label>
+            <Label className="text-xs">Pipeline Name <span className="text-destructive">*</span></Label>
             <Input
               value={eventForm.pipeline_name}
               placeholder="e.g. user_events"
@@ -784,7 +814,7 @@ function NewStreamingPipelineInner() {
           {eventForm.source_type === "kafka" ? (
             <>
               <div className="space-y-1">
-                <Label className="text-xs">Topic</Label>
+                <Label className="text-xs">Topic <span className="text-destructive">*</span></Label>
                 <Input
                   value={eventForm.topic}
                   placeholder="my-topic"
@@ -792,7 +822,7 @@ function NewStreamingPipelineInner() {
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Bootstrap Servers</Label>
+                <Label className="text-xs">Bootstrap Servers <span className="text-destructive">*</span></Label>
                 <Input
                   value={eventForm.bootstrap_servers}
                   placeholder="kafka:9092"
@@ -803,7 +833,7 @@ function NewStreamingPipelineInner() {
           ) : (
             <>
               <div className="space-y-1">
-                <Label className="text-xs">Stream Name</Label>
+                <Label className="text-xs">Stream Name <span className="text-destructive">*</span></Label>
                 <Input
                   value={eventForm.stream_name}
                   placeholder="my-kinesis-stream"
@@ -869,6 +899,19 @@ function NewStreamingPipelineInner() {
               Default <code className="font-mono">data JSONB</code> captures raw JSON. Define columns to extract specific fields.
             </p>
           </div>
+
+          {/* Inline validation — spell out what's still required for Next */}
+          {(() => {
+            const missing = [
+              !eventForm.pipeline_name && "Pipeline Name",
+              eventForm.source_type === "kafka" && !eventForm.topic && "Topic",
+              eventForm.source_type === "kafka" && !eventForm.bootstrap_servers && "Bootstrap Servers",
+              eventForm.source_type === "kinesis" && !eventForm.stream_name && "Stream Name",
+            ].filter(Boolean)
+            return missing.length > 0 ? (
+              <p className="text-[11px] text-muted-foreground">Required to continue: {missing.join(", ")}</p>
+            ) : null
+          })()}
         </div>
       )
     }
