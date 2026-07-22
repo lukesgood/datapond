@@ -1089,6 +1089,49 @@ export default function GovernancePage() {
             </p>
           </div>
 
+          {/* Summary strip — surface totals and anything that needs attention
+              before the raw feed. Source pills double as quick filters; per-source
+              counts only read true in the unfiltered ("all") window. */}
+          {!activityLoading && activityItems.length > 0 && (() => {
+            const attention = new Set(["failure", "failed", "error", "blocked", "차단", "denied"])
+            const needsAttention = activityItems.filter(i => i.status && attention.has(i.status)).length
+            const bySource: Record<string, number> = { query: 0, auth: 0, connector: 0 }
+            for (const i of activityItems) if (i.source in bySource) bySource[i.source] += 1
+            const sources: { key: string; label: string }[] = [
+              { key: "query", label: "Query" }, { key: "auth", label: "Auth" }, { key: "connector", label: "Connector" },
+            ]
+            return (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1">
+                  <span className="font-semibold tabular-nums">{activityItems.length}</span>
+                  <span className="text-muted-foreground">events</span>
+                </span>
+                <span className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 ${needsAttention > 0 ? "border-destructive/30 bg-destructive/5 text-destructive" : "text-muted-foreground"}`}>
+                  <span className="font-semibold tabular-nums">{needsAttention}</span>
+                  <span>need{needsAttention === 1 ? "s" : ""} attention</span>
+                </span>
+                {activitySource === "all" && (
+                  <>
+                    <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+                    {sources.map(s => (
+                      <button key={s.key} onClick={() => setActivitySource(s.key)}
+                        className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 transition-colors hover:border-primary/40 hover:bg-muted/40">
+                        <span className="font-semibold tabular-nums">{bySource[s.key]}</span>
+                        <span className="text-muted-foreground">{s.label}</span>
+                      </button>
+                    ))}
+                  </>
+                )}
+                {activitySource !== "all" && (
+                  <button onClick={() => setActivitySource("all")}
+                    className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted/40">
+                    Clear filter
+                  </button>
+                )}
+              </div>
+            )
+          })()}
+
           <Card>
             <CardContent className="p-0">
               <Table>

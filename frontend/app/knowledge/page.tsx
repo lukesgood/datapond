@@ -298,6 +298,18 @@ function SchedulePanel({ name }: { name: string }) {
   )
 }
 
+// Render an answer, styling inline [n] citation markers as chips that echo the
+// numbered source list below — the visible link that makes the answer accountable.
+function renderCitedAnswer(text: string) {
+  return text.split(/(\[\d+\])/g).map((part, i) => {
+    const m = part.match(/^\[(\d+)\]$/)
+    if (m) return (
+      <sup key={i} className="mx-0.5 inline-flex items-center rounded bg-primary/10 px-1 py-px align-baseline text-[10px] font-semibold text-primary">{m[1]}</sup>
+    )
+    return <span key={i}>{part}</span>
+  })
+}
+
 function SearchPanel({ name }: { name: string }) {
   const [q, setQ] = useState(""); const [mode, setMode] = useState<"search" | "rag">("rag")
   const [busy, setBusy] = useState(false); const [ans, setAns] = useState<string | null>(null)
@@ -337,39 +349,61 @@ function SearchPanel({ name }: { name: string }) {
         </div>
         <Button onClick={run} disabled={!q.trim() || busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}</Button>
       </div>
-      {pii > 0 && <div className="text-[11px] text-[var(--dp-good)] flex items-center gap-1"><ShieldCheck className="h-3 w-3" />{pii} PII item(s) masked before processing (guardrail)</div>}
-      {e && <ErrorBox msg={e} />}
-      {ans && hasAi && (
-        <Card className="dp-surface">
-          <CardContent className="py-3">
-            <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-              <Sparkles className="h-3 w-3 text-primary" />Answer
-            </div>
-            <div className="text-sm leading-relaxed whitespace-pre-wrap">{ans}</div>
-          </CardContent>
-        </Card>
+      {/* PII signal stands alone only for Search (no answer); for a RAG answer it
+          folds into the answer's trust bar so governance reads in one place. */}
+      {pii > 0 && !(ans && hasAi) && (
+        <div className="text-[11px] text-[var(--dp-good)] flex items-center gap-1"><ShieldCheck className="h-3 w-3" />{pii} PII item(s) masked before processing (guardrail)</div>
       )}
+      {e && <ErrorBox msg={e} />}
+
+      {/* Signature: the grounded, governed answer — the product's core moment.
+          Accent rail + hero type + inline citation chips, with a trust bar that
+          makes "grounded · PII-masked · reranked" legible at a glance. */}
+      {ans && hasAi && (() => {
+        const reranked = hits.some(h => typeof h.rerank_score === "number")
+        return (
+          <Card className="dp-surface overflow-hidden border-primary/20">
+            <div className="flex">
+              <div className="w-1 shrink-0 bg-gradient-to-b from-primary to-[var(--chart-3)]" aria-hidden />
+              <CardContent className="flex-1 py-3.5">
+                <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
+                  <Sparkles className="h-3.5 w-3.5" />Grounded answer
+                </div>
+                <div className="text-[15px] leading-7 text-foreground whitespace-pre-wrap">{renderCitedAnswer(ans)}</div>
+                <div className="mt-3.5 flex flex-wrap items-center gap-x-3.5 gap-y-1.5 border-t pt-2.5 text-[11px] text-muted-foreground">
+                  <span className="flex items-center gap-1"><FileText className="h-3 w-3" /><span className="dp-num font-medium text-foreground">{hits.length}</span>&nbsp;source{hits.length === 1 ? "" : "s"}</span>
+                  {pii > 0 && <span className="flex items-center gap-1 text-[var(--dp-good)]"><ShieldCheck className="h-3 w-3" /><span className="dp-num font-medium">{pii}</span>&nbsp;PII masked</span>}
+                  {reranked && <span className="flex items-center gap-1 text-primary"><Sparkles className="h-3 w-3" />reranked</span>}
+                </div>
+              </CardContent>
+            </div>
+          </Card>
+        )
+      })()}
       {ans && !hasAi && (
         <div className="rounded-md border border-[var(--dp-warn)]/40 bg-[var(--dp-warn)]/5 px-3 py-2 text-xs text-muted-foreground flex items-start gap-1.5">
           <AlertCircle className="h-3.5 w-3.5 text-[var(--dp-warn)] mt-0.5 shrink-0" />
-          <span>No answer generated — the AI model is not configured or the call failed. Showing retrieved results below only. Configure a model in the AI Gateway to get cited answers.</span>
+          <span>No answer generated — the AI model isn&apos;t configured or the call failed. Showing retrieved results below only. Ask an administrator to configure a model in the AI Gateway to get cited answers.</span>
         </div>
       )}
+
       {hits.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs text-muted-foreground">{mode === "rag" ? "Citations" : "Results"}</p>
+          <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground">{mode === "rag" ? "Sources" : "Results"}</p>
           {hits.map((h, i) => (
-            <div key={i} className="rounded-md border px-3 py-2 text-xs">
-              <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
-                <span className="flex items-center gap-1"><FileText className="h-3 w-3" />{h.source || "n/a"}</span>
-                <span className="flex items-center gap-1">
+            <div key={i} className="rounded-lg border bg-card px-3 py-2.5 text-xs transition-colors hover:border-primary/30">
+              <div className="mb-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                {/* number echoes the answer's inline [n] chips */}
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-primary/10 dp-num text-[10px] font-semibold text-primary">{i + 1}</span>
+                <span className="flex min-w-0 items-center gap-1 truncate"><FileText className="h-3 w-3 shrink-0" />{h.source || "n/a"}</span>
+                <span className="ml-auto flex shrink-0 items-center gap-1">
                   {typeof h.rerank_score === "number" && (
                     <Badge variant="outline" className="dp-num text-[10px] border-primary/40 text-primary" title="Reranked relevance score">rerank {h.rerank_score.toFixed(3)}</Badge>
                   )}
-                  <Badge variant="outline" className="dp-num text-[10px]">{h.score?.toFixed(3)}</Badge>
+                  <Badge variant="outline" className="dp-num text-[10px]" title="Cosine similarity">{h.score?.toFixed(3)}</Badge>
                 </span>
               </div>
-              <div className="line-clamp-3">{h.content}</div>
+              <div className="line-clamp-3 leading-relaxed text-muted-foreground">{h.content}</div>
             </div>
           ))}
         </div>

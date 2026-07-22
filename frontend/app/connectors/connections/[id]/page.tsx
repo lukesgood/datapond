@@ -2,6 +2,7 @@
 
 import { use, useCallback, useEffect, useState, useRef } from "react"
 import { useToast } from "@/lib/toast"
+import { useConfirm } from "@/lib/confirm"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -612,7 +613,6 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const [error, setError]                 = useState<string | null>(null)
   const [syncing, setSyncing]             = useState(false)
   const [deleting, setDeleting]           = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(false)
   // The sync-complete toast points at Catalog but auto-dismisses; keep a
   // persistent CTA so the ingest → explore journey isn't a dead end.
   const [syncedOk, setSyncedOk]           = useState(false)
@@ -620,6 +620,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   // History sessions (past + live)
   const [sessions, setSessions]           = useState<SyncSession[]>([])
   const { toast } = useToast()
+  const confirmDialog = useConfirm()
   const [liveSession, setLiveSession]     = useState<SyncSession | null>(null)
   const [jobsRows, setJobsRows]           = useState<number | null>(null)  // fallback for lastRunRows
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -962,7 +963,12 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   }
 
   const handleDelete = async () => {
-    if (!confirmDelete) { setConfirmDelete(true); return }
+    if (!(await confirmDialog({
+      title: "Delete connector",
+      message: "Permanently remove this connector and its sync configuration? This can't be undone.",
+      confirmText: "Delete",
+      destructive: true,
+    }))) return
     setDeleting(true)
     try {
       const res = await fetch(`/api/connectors/${id}`, { method: "DELETE" })
@@ -970,7 +976,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
       router.push("/connectors")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete.")
-      setDeleting(false); setConfirmDelete(false)
+      setDeleting(false)
     }
   }
 
@@ -1091,9 +1097,9 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
             <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
             {syncing ? "Syncing…" : "Sync Now"}
           </Button>
-          <Button variant={confirmDelete ? "destructive" : "outline"} onClick={handleDelete} disabled={deleting}>
+          <Button variant="outline" onClick={handleDelete} disabled={deleting}>
             <Trash2 className="h-4 w-4 mr-2" />
-            {deleting ? "Deleting…" : confirmDelete ? "Confirm Delete" : "Delete"}
+            {deleting ? "Deleting…" : "Delete"}
           </Button>
         </div>
       </div>
@@ -1118,13 +1124,6 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
       {saveMessage && (
         <div className={`text-sm px-1 ${saveMessage.includes("success") ? "text-[var(--dp-good)]" : "text-destructive"}`}>
           {saveMessage}
-        </div>
-      )}
-      {confirmDelete && !deleting && (
-        <div className="text-sm text-destructive px-1 flex items-center gap-1">
-          <AlertTriangle className="h-4 w-4" />
-          Click &quot;Confirm Delete&quot; to permanently remove this connector.
-          <Button variant="ghost" size="sm" className="ml-2 h-6 px-2 text-xs" onClick={() => setConfirmDelete(false)}>Cancel</Button>
         </div>
       )}
 
