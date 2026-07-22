@@ -21,7 +21,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { Search, Database, FolderOpen } from "lucide-react"
+import { Search, Database, FolderOpen, Layers } from "lucide-react"
 
 interface Table {
   name: string
@@ -30,6 +30,14 @@ interface Table {
   catalog_type: string
   table_type: string
   last_updated?: string
+}
+
+// Catalog-type colors mirror the per-card badge palette in table-card.tsx so the
+// summary breakdown and the individual cards read as the same encoding.
+const CATALOG_TYPE_META: Record<string, { label: string; color: string }> = {
+  managed:  { label: "Managed",  color: "var(--dp-managed)" },
+  external: { label: "External", color: "var(--dp-warn)" },
+  foreign:  { label: "Foreign",  color: "var(--chart-2)" },
 }
 
 interface NamespaceInfo {
@@ -109,6 +117,23 @@ function CatalogPageInner() {
     acc[table.namespace] = (acc[table.namespace] || 0) + 1
     return acc
   }, {} as Record<string, number>)
+
+  // Catalog-type distribution (managed/external/foreign) for the summary breakdown —
+  // scannable "what's in here" metadata without eagerly loading any columns.
+  const typeCounts = data?.tables.reduce((acc, table) => {
+    const key = table.catalog_type || "managed"
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {} as Record<string, number>)
+  const typeSegments = Object.entries(typeCounts ?? {}).sort((a, b) => b[1] - a[1])
+
+  const totalTables = data?.tables.length ?? 0
+  const isFiltered = searchQuery !== "" || selectedNamespace !== "all"
+  const clearFilters = () => { setSearchQuery(""); setSelectedNamespace("all") }
+  // Keyboard activation for the namespace filter pills (Badge renders a span).
+  const onFilterKeyDown = (ns: string) => (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedNamespace(ns) }
+  }
 
   if (loading) {
     return (
@@ -210,18 +235,28 @@ function CatalogPageInner() {
         </div>
         <div className="flex gap-2 flex-wrap">
           <Badge
+            role="button"
+            tabIndex={0}
+            aria-pressed={selectedNamespace === "all"}
+            aria-label={`Show all namespaces (${totalTables} tables)`}
             variant={selectedNamespace === "all" ? "default" : "outline"}
-            className="cursor-pointer px-3 py-1"
+            className="cursor-pointer px-3 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             onClick={() => setSelectedNamespace("all")}
+            onKeyDown={onFilterKeyDown("all")}
           >
-            All ({data?.tables.length || 0})
+            All ({totalTables})
           </Badge>
           {data?.namespaces.map((namespace) => (
             <Badge
               key={namespace.name}
+              role="button"
+              tabIndex={0}
+              aria-pressed={selectedNamespace === namespace.name}
+              aria-label={`Filter to namespace ${namespace.name} (${namespaceCounts?.[namespace.name] || 0} tables)`}
               variant={selectedNamespace === namespace.name ? "default" : "outline"}
-              className="cursor-pointer px-3 py-1"
+              className="cursor-pointer px-3 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
               onClick={() => setSelectedNamespace(namespace.name)}
+              onKeyDown={onFilterKeyDown(namespace.name)}
             >
               {namespace.name} ({namespaceCounts?.[namespace.name] || 0})
             </Badge>
@@ -230,7 +265,7 @@ function CatalogPageInner() {
       </div>
 
       {/* Statistics Cards */}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -239,7 +274,7 @@ function CatalogPageInner() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="dp-num text-2xl font-bold tabular-nums">{data?.tables.length || 0}</div>
+            <div className="dp-num text-2xl font-bold tabular-nums">{totalTables}</div>
           </CardContent>
         </Card>
 
@@ -254,6 +289,48 @@ function CatalogPageInner() {
             <div className="dp-num text-2xl font-bold tabular-nums">{data?.namespaces.length || 0}</div>
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">Table Types</CardTitle>
+              <Layers className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            {totalTables > 0 && typeSegments.length > 0 ? (
+              <>
+                {/* Stacked share bar — same inline-bar idiom used across the app */}
+                <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted" aria-hidden="true">
+                  {typeSegments.map(([type, count]) => (
+                    <div
+                      key={type}
+                      className="h-full"
+                      style={{
+                        width: `${(count / totalTables) * 100}%`,
+                        backgroundColor: CATALOG_TYPE_META[type]?.color ?? "var(--muted-foreground)",
+                      }}
+                    />
+                  ))}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                  {typeSegments.map(([type, count]) => (
+                    <span key={type} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{ backgroundColor: CATALOG_TYPE_META[type]?.color ?? "var(--muted-foreground)" }}
+                      />
+                      {CATALOG_TYPE_META[type]?.label ?? type}
+                      <span className="dp-num font-medium tabular-nums text-foreground">{count}</span>
+                    </span>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">No tables yet</p>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Tables Grid */}
@@ -261,7 +338,9 @@ function CatalogPageInner() {
         <h3 className="text-xl font-semibold mb-4 flex items-baseline gap-2">
           {selectedNamespace === "all" ? "All Tables" : `Tables in ${selectedNamespace}`}
           <span className="text-sm font-normal text-muted-foreground tabular-nums">
-            {filteredTables?.length ?? 0} shown
+            {isFiltered
+              ? `${filteredTables?.length ?? 0} of ${totalTables} shown`
+              : `${filteredTables?.length ?? 0} shown`}
           </span>
         </h3>
         {filteredTables && filteredTables.length > 0 ? (
@@ -290,7 +369,12 @@ function CatalogPageInner() {
                   action={<Button size="sm" render={<NextLink href="/connectors" />}>Go to Sources</Button>}
                 />
               ) : (
-                <p className="py-8 text-center text-muted-foreground">No tables found matching your search criteria</p>
+                <EmptyState
+                  icon={Search}
+                  title="No tables match your filters"
+                  hint={`None of the ${totalTables} table${totalTables !== 1 ? "s" : ""} in the catalog match the current search or namespace filter.`}
+                  action={<Button size="sm" variant="outline" onClick={clearFilters}>Clear filters</Button>}
+                />
               )}
             </CardContent>
           </Card>

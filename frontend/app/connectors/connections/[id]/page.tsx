@@ -1165,6 +1165,23 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
             <p className="text-[11px] text-muted-foreground mt-0.5">
               {recentSessions.length > 0 ? `last ${recentSessions.length} syncs` : "no history"}
             </p>
+            {/* Per-run outcome strip (oldest→newest) — encodes the rate as form+color
+                so a run of recent failures is visible at a glance, not just the % */}
+            {recentSessions.length > 0 && (
+              <div className="flex gap-0.5 mt-1.5" aria-hidden="true">
+                {[...recentSessions].reverse().map((s, i) => (
+                  <div
+                    key={i}
+                    title={s.status}
+                    className={`h-1.5 flex-1 rounded-sm ${
+                      s.status === "success" ? "bg-[var(--dp-good)]" :
+                      s.status === "failed" ? "bg-destructive" :
+                      "bg-muted-foreground/30"
+                    }`}
+                  />
+                ))}
+              </div>
+            )}
           </CardHeader>
         </Card>
         {/* 4. Data Freshness */}
@@ -1293,7 +1310,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] font-medium">Warning</span>
                 )}
               </div>
-              <button onClick={fetchQuality} className="text-[10px] text-muted-foreground hover:text-foreground">Refresh</button>
+              <button onClick={fetchQuality} aria-label="Refresh data quality checks" className="text-[10px] text-muted-foreground hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:underline">Refresh</button>
             </div>
           </CardHeader>
           <CardContent className="p-0">
@@ -1348,31 +1365,43 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                     </div>
                   )}
 
-                  {/* Null rates — only show problematic columns */}
-                  {Object.entries(check.null_checks || {})
-                    .filter(([, value]) => value.null_rate > 0)
-                    .sort(([, left], [, right]) => right.null_rate - left.null_rate)
-                    .slice(0, 5)
-                    .map(([col, value]) => (
-                      <div key={col} className="flex items-center gap-2 mt-1">
-                        <span className="font-mono text-[10px] text-muted-foreground w-32 truncate">{col}</span>
-                        <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${
-                              value.status === "alert" ? "bg-destructive" :
-                              value.status === "warning" ? "bg-[var(--dp-warn)]" :
-                              "bg-primary/40"
-                            }`}
-                            style={{ width: `${Math.min(value.null_rate, 100)}%` }}
-                          />
-                        </div>
-                        <span className={`text-[10px] font-mono w-10 text-right ${
-                          value.status === "alert" ? "text-destructive" :
-                          value.status === "warning" ? "text-[var(--dp-warn)]" :
-                          "text-muted-foreground"
-                        }`}>{value.null_rate}%</span>
-                      </div>
-                    ))}
+                  {/* Null rates — only show problematic columns, capped but honest */}
+                  {(() => {
+                    const nullCols = Object.entries(check.null_checks || {})
+                      .filter(([, value]) => value.null_rate > 0)
+                      .sort(([, left], [, right]) => right.null_rate - left.null_rate)
+                    const shown = nullCols.slice(0, 5)
+                    const hidden = nullCols.length - shown.length
+                    return (
+                      <>
+                        {shown.map(([col, value]) => (
+                          <div key={col} className="flex items-center gap-2 mt-1">
+                            <span className="font-mono text-[10px] text-muted-foreground w-32 truncate">{col}</span>
+                            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${
+                                  value.status === "alert" ? "bg-destructive" :
+                                  value.status === "warning" ? "bg-[var(--dp-warn)]" :
+                                  "bg-primary/40"
+                                }`}
+                                style={{ width: `${Math.min(value.null_rate, 100)}%` }}
+                              />
+                            </div>
+                            <span className={`text-[10px] font-mono w-10 text-right ${
+                              value.status === "alert" ? "text-destructive" :
+                              value.status === "warning" ? "text-[var(--dp-warn)]" :
+                              "text-muted-foreground"
+                            }`}>{value.null_rate}%</span>
+                          </div>
+                        ))}
+                        {hidden > 0 && (
+                          <p className="text-[10px] text-muted-foreground mt-1.5">
+                            +{hidden} more column{hidden > 1 ? "s" : ""} with nulls
+                          </p>
+                        )}
+                      </>
+                    )
+                  })()}
                 </div>
               ))
             })()}

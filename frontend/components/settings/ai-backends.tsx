@@ -191,11 +191,17 @@ export function AiBackends() {
   const localOnly = status?.egress_policy === "local-only"
   // Under a local-only egress policy, external providers are blocked.
   const providerBlocked = localOnly && !!prov?.external
-  const formValid = !providerBlocked && form.model_name.trim() && form.model.trim() &&
-    (!prov?.fields.includes("api_base") || form.api_base.trim()) &&
-    (form.provider !== "bedrock" || form.aws_region_name.trim()) &&
+  // First unmet requirement, in field order — drives both the disabled submit and
+  // an actionable hint so the button never reads as broken-with-no-reason.
+  const formIssue =
+    providerBlocked ? "This provider is blocked by the local-only egress policy." :
+    !form.model_name.trim() ? "Enter a name for this backend." :
+    !form.model.trim() ? "Enter the provider model ID." :
+    (prov?.fields.includes("api_base") && !form.api_base.trim()) ? "Enter the API base URL." :
+    (form.provider === "bedrock" && !form.aws_region_name.trim()) ? "Enter an AWS region." :
     // api_key is required for anthropic/openai/gemini (vllm allows blank)
-    (!prov?.fields.includes("api_key") || form.provider === "vllm" || form.api_key.trim())
+    (prov?.fields.includes("api_key") && form.provider !== "vllm" && !form.api_key.trim()) ? "Enter the API key." :
+    null
 
   return (
     <div className="space-y-5">
@@ -448,12 +454,18 @@ export function AiBackends() {
 
             {addErr && <ErrorBox msg={addErr} />}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
-            <Button onClick={addBackend} disabled={!formValid || adding}>
-              {adding ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
-              {adding ? "Adding…" : "Add Backend"}
-            </Button>
+          <DialogFooter className="items-center sm:justify-between">
+            {/* Tell the admin exactly what is missing rather than a dead disabled button. */}
+            <span className="text-[11px] text-muted-foreground flex items-center gap-1.5 mr-auto">
+              {formIssue && !addErr && <><AlertCircle className="h-3.5 w-3.5 shrink-0" />{formIssue}</>}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
+              <Button onClick={addBackend} disabled={!!formIssue || adding}>
+                {adding ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
+                {adding ? "Adding…" : "Add Backend"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -795,6 +807,14 @@ function GatewayBanner({ status, loading, onRefresh }: {
             </div>
           </div>
         </div>
+        {/* Surface the gateway's own reason when it is not healthy — otherwise a
+            degraded/unreachable status reads as a dead-end with no cause. */}
+        {!loading && status?.detail && g !== "healthy" && (
+          <p className={`mt-3 flex items-start gap-1.5 text-[11px] ${tone.text}`}>
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-px" />
+            <span>{status.detail}</span>
+          </p>
+        )}
       </CardContent>
     </Card>
   )
@@ -938,13 +958,23 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
                         <code className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{k.token?.slice(0, 12)}…</code>
                         {k.models.length > 0 && <Badge variant="secondary" className="h-4 text-[10px]">{k.models.join(", ")}</Badge>}
                       </div>
-                      <p className="text-[11px] text-muted-foreground mt-1">
-                        spend ${Number(k.spend).toFixed(4)}{k.max_budget != null ? ` / $${k.max_budget}` : ""}
+                      <p className="text-[11px] text-muted-foreground mt-1 tabular-nums">
+                        spend ${Number(k.spend).toFixed(4)}{k.max_budget != null ? ` / $${k.max_budget}` : " · no budget cap"}
                         {k.rpm_limit != null ? ` · ${k.rpm_limit} rpm` : ""}{k.tpm_limit != null ? ` · ${k.tpm_limit} tpm` : ""}
                       </p>
                       {pct != null && (
-                        <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden mt-1.5">
-                          <div className={`h-full rounded-full ${pct >= 90 ? "bg-destructive" : pct >= 70 ? "bg-[var(--dp-warn)]" : "bg-[var(--dp-good)]"}`} style={{ width: `${pct}%` }} />
+                        <div className="mt-1.5">
+                          <div className="flex items-center justify-between text-[10px] tabular-nums mb-0.5">
+                            <span className={pct >= 100 ? "text-destructive font-medium" : "text-muted-foreground"}>
+                              {pct >= 100 ? "Budget exhausted" : `${Math.round(pct)}% of budget`}
+                            </span>
+                            <span className="text-muted-foreground">
+                              ${Math.max(0, (k.max_budget || 0) - k.spend).toFixed(2)} left
+                            </span>
+                          </div>
+                          <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                            <div className={`h-full rounded-full ${pct >= 90 ? "bg-destructive" : pct >= 70 ? "bg-[var(--dp-warn)]" : "bg-[var(--dp-good)]"}`} style={{ width: `${pct}%` }} />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1019,16 +1049,22 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
               {genErr && <ErrorBox msg={genErr} />}
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className={newKey ? undefined : "items-center sm:justify-between"}>
             {newKey ? (
               <Button onClick={() => { setShowGen(false); setNewKey(null) }}>Done</Button>
             ) : (
               <>
-                <Button variant="outline" onClick={() => setShowGen(false)}>Cancel</Button>
-                <Button onClick={generate} disabled={!alias.trim() || generating}>
-                  {generating ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
-                  {generating ? "Generating…" : "Generate"}
-                </Button>
+                {/* Explain the one required field instead of a silently-disabled button. */}
+                <span className="text-[11px] text-muted-foreground flex items-center gap-1.5 mr-auto">
+                  {!alias.trim() && !genErr && <><AlertCircle className="h-3.5 w-3.5 shrink-0" />An alias is required — it labels this key in spend reports.</>}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" onClick={() => setShowGen(false)}>Cancel</Button>
+                  <Button onClick={generate} disabled={!alias.trim() || generating}>
+                    {generating ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
+                    {generating ? "Generating…" : "Generate"}
+                  </Button>
+                </div>
               </>
             )}
           </DialogFooter>

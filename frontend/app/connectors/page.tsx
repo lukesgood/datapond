@@ -329,12 +329,25 @@ function ConnectorsPageInner() {
     }).format(new Date(utc))
   }
 
+  // Status encoded as form + color: a pill with a leading dot, distinct per state,
+  // so status is scannable at a glance and not carried by text/color alone.
   const statusBadge = (status: string) => {
-    if (status === "active")
-      return <Badge className="bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-[var(--dp-good)]/20 text-[10px] h-5">Active</Badge>
-    if (status === "error")
-      return <Badge variant="destructive" className="text-[10px] h-5">Error</Badge>
-    return <Badge variant="secondary" className="text-[10px] h-5 capitalize">{status}</Badge>
+    const map: Record<string, { label: string; cls: string; dot: string }> = {
+      active:  { label: "Active",  cls: "bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-[var(--dp-good)]/20", dot: "bg-[var(--dp-good)]" },
+      error:   { label: "Error",   cls: "bg-destructive/10 text-destructive border-destructive/20",              dot: "bg-destructive" },
+      paused:  { label: "Paused",  cls: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-[var(--dp-warn)]/20", dot: "bg-[var(--dp-warn)]" },
+      pending: { label: "Pending", cls: "bg-muted text-muted-foreground border-border",                          dot: "bg-muted-foreground animate-pulse" },
+    }
+    const s = map[status] ?? { label: status, cls: "bg-muted text-muted-foreground border-border", dot: "bg-muted-foreground" }
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium capitalize ${s.cls}`}
+        aria-label={`Status: ${s.label}`}
+      >
+        <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} aria-hidden />
+        {s.label}
+      </span>
+    )
   }
 
   const activeCount = connections.filter(c => c.status === "active").length
@@ -518,12 +531,14 @@ function ConnectorsPageInner() {
                   connections.map(conn => (
                     <TableRow
                       key={conn.id}
-                      className={actionLoading === conn.id ? "opacity-50" : ""}
+                      className={`group transition-colors hover:bg-muted/40 ${actionLoading === conn.id ? "opacity-50" : ""}`}
                     >
                       <TableCell className="font-medium text-sm">
+                        {/* Whole row is navigable via this link; arrow morphs in on hover to signal it */}
                         <Link href={`/connectors/connections/${conn.id}`}
-                          className="hover:underline underline-offset-2">
+                          className="inline-flex items-center gap-1 hover:text-primary transition-colors">
                           {conn.name}
+                          <ArrowRight className="h-3 w-3 -translate-x-1 opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" aria-hidden />
                         </Link>
                       </TableCell>
                       <TableCell>
@@ -534,7 +549,24 @@ function ConnectorsPageInner() {
                       </TableCell>
                       <TableCell>{statusBadge(conn.status)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {formatDate(conn.last_sync_at)}
+                        {(() => {
+                          // Surface staleness (>24h / never) inline so the platform "Stale Sources"
+                          // metric maps back to the specific row responsible for it.
+                          const stale = conn.status !== "pending" &&
+                            (!conn.last_sync_at || checkedAt - new Date(conn.last_sync_at).getTime() > 86_400_000)
+                          return (
+                            <span className="inline-flex items-center gap-1.5">
+                              {stale && (
+                                <span
+                                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--dp-warn)]"
+                                  aria-label="Stale — no sync in over 24h"
+                                  title="No sync in over 24h"
+                                />
+                              )}
+                              {formatDate(conn.last_sync_at)}
+                            </span>
+                          )
+                        })()}
                       </TableCell>
                       <TableCell className="text-xs">
                         {conn.schedule ? (
@@ -633,8 +665,20 @@ function ConnectorsPageInner() {
           </div>
 
           {filteredConnectors.length === 0 ? (
-            <div className="py-16 text-center text-sm text-muted-foreground">
-              No connectors found
+            <div className="flex flex-col items-center gap-2 py-16 text-center">
+              <Search className="h-8 w-8 text-muted-foreground/40" aria-hidden />
+              <p className="text-sm font-medium">No connectors match your search</p>
+              <p className="text-xs text-muted-foreground">Try a different term or category.</p>
+              {(searchQuery || marketCat !== "all") && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-1 h-7 gap-1.5 text-xs"
+                  onClick={() => { setSearchQuery(""); setMarketCat("all") }}
+                >
+                  Clear filters
+                </Button>
+              )}
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

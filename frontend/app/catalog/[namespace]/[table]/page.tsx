@@ -6,7 +6,7 @@ import { CapabilityGate } from "@/lib/capabilities"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ErrorBox } from "@/components/ui/error-box"
+import { ErrorBox, EmptyState } from "@/components/ui/error-box"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Breadcrumb,
@@ -16,7 +16,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { Table, Database, Eye, ExternalLink } from "lucide-react"
+import { Table, Database, Eye, ExternalLink, Columns3, CheckCircle2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 interface Column {
@@ -115,6 +115,15 @@ function TableDetailPageInner() {
     return num.toLocaleString()
   }
 
+  // Overall fill rate (100 − mean null_rate) across profiled columns. Only meaningful
+  // once the preview has actually returned stats — otherwise we leave it unknown rather
+  // than implying a perfect 100%.
+  const stats = preview?.column_stats ?? []
+  const completeness =
+    stats.length > 0
+      ? Math.round((100 - stats.reduce((sum, s) => sum + s.null_rate, 0) / stats.length) * 10) / 10
+      : null
+
   if (loading) {
     return (
       <div className="flex-1 space-y-4 p-8 pt-6">
@@ -205,6 +214,52 @@ function TableDetailPageInner() {
             </div>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">Columns</CardTitle>
+              <Columns3 className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold dp-num">
+              {formatNumber(tableDetail.columns.length)}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">Data Completeness</CardTitle>
+              <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            {completeness == null ? (
+              // Fail closed: no profiled stats yet → "—", not a fabricated 100%.
+              <div className="text-2xl font-bold dp-num text-muted-foreground">—</div>
+            ) : (
+              <>
+                <div
+                  className="text-2xl font-bold dp-num"
+                  style={{ color: completeness >= 95 ? "var(--dp-good)" : completeness >= 80 ? "var(--dp-warn)" : "var(--destructive)" }}
+                >
+                  {completeness}%
+                </div>
+                <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden" role="presentation">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${completeness}%`,
+                      backgroundColor: completeness >= 95 ? "var(--dp-good)" : completeness >= 80 ? "var(--dp-warn)" : "var(--destructive)",
+                    }}
+                  />
+                </div>
+                <p className="mt-1.5 text-xs text-muted-foreground">non-null across {stats.length} profiled column{stats.length === 1 ? "" : "s"}</p>
+              </>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Tabs */}
@@ -226,7 +281,7 @@ function TableDetailPageInner() {
         {/* Preview Tab */}
         <TabsContent value="preview" className="space-y-4">
           {/* Column stats */}
-          {(preview?.column_stats ?? []).length > 0 && (
+          {stats.length > 0 && (
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Column Statistics</CardTitle>
@@ -237,26 +292,42 @@ function TableDetailPageInner() {
                     <thead>
                       <tr className="border-b bg-muted/40">
                         <th className="px-4 py-2 text-left font-medium">Column</th>
-                        <th className="px-4 py-2 text-right font-medium">Null %</th>
+                        <th className="px-4 py-2 text-left font-medium w-[34%]">Null rate</th>
                         <th className="px-4 py-2 text-right font-medium">Distinct</th>
                         <th className="px-4 py-2 text-left font-medium">Min</th>
                         <th className="px-4 py-2 text-left font-medium">Max</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {preview!.column_stats.map(s => (
-                        <tr key={s.column} className="border-b last:border-0 hover:bg-muted/20">
-                          <td className="px-4 py-1.5 font-mono">{s.column}</td>
-                          <td className="px-4 py-1.5 text-right">
-                            <span className={s.null_rate > 20 ? "text-[var(--dp-warn)]" : "text-muted-foreground"}>
-                              {s.null_rate}%
-                            </span>
-                          </td>
-                          <td className="px-4 py-1.5 text-right text-muted-foreground">{s.distinct_count.toLocaleString()}</td>
-                          <td className="px-4 py-1.5 font-mono text-muted-foreground truncate max-w-[160px]">{s.min ?? "—"}</td>
-                          <td className="px-4 py-1.5 font-mono text-muted-foreground truncate max-w-[160px]">{s.max ?? "—"}</td>
-                        </tr>
-                      ))}
+                      {stats.map(s => {
+                        // Encode null density as form + colour: green ≤5%, amber ≤20%, red above.
+                        const tone = s.null_rate <= 5 ? "var(--dp-good)" : s.null_rate <= 20 ? "var(--dp-warn)" : "var(--destructive)"
+                        return (
+                          <tr key={s.column} className="border-b last:border-0 hover:bg-muted/20">
+                            <td className="px-4 py-1.5 font-mono whitespace-nowrap">{s.column}</td>
+                            <td className="px-4 py-1.5">
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className="h-1.5 flex-1 min-w-[48px] rounded-full bg-muted overflow-hidden"
+                                  role="img"
+                                  aria-label={`${s.null_rate}% null (${formatNumber(s.null_count)} rows)`}
+                                >
+                                  <div
+                                    className="h-full rounded-full"
+                                    style={{ width: `${Math.min(s.null_rate, 100)}%`, backgroundColor: tone }}
+                                  />
+                                </div>
+                                <span className="tabular-nums text-right w-10 shrink-0" style={{ color: s.null_rate > 20 ? tone : undefined }}>
+                                  {s.null_rate}%
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-1.5 text-right tabular-nums text-muted-foreground">{s.distinct_count.toLocaleString()}</td>
+                            <td className="px-4 py-1.5 font-mono text-muted-foreground truncate max-w-[160px]">{s.min ?? "—"}</td>
+                            <td className="px-4 py-1.5 font-mono text-muted-foreground truncate max-w-[160px]">{s.max ?? "—"}</td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -267,10 +338,16 @@ function TableDetailPageInner() {
           {/* Data rows */}
           <Card>
             <CardHeader className="pb-2 flex flex-row items-center justify-between">
-              <CardTitle className="text-sm">
-                {preview ? `Top ${preview.total_returned} rows` : "Data Preview"}
+              <CardTitle className="text-sm flex items-center gap-2">
+                Data Preview
+                {preview && preview.rows.length > 0 && (
+                  // Be explicit that this is a capped sample, not the full table.
+                  <Badge variant="secondary" className="font-normal tabular-nums">
+                    first {preview.total_returned.toLocaleString()} rows
+                  </Badge>
+                )}
               </CardTitle>
-              {!preview && !previewLoading && (
+              {!preview && !previewLoading && !previewError && (
                 <button onClick={loadPreview} className="text-xs text-primary hover:underline">Load preview</button>
               )}
             </CardHeader>
@@ -288,14 +365,22 @@ function TableDetailPageInner() {
                   />
                 </div>
               ) : !preview ? (
-                <div className="text-center py-12 text-sm text-muted-foreground">Click &quot;Load preview&quot; to fetch data</div>
+                <EmptyState
+                  icon={Eye}
+                  title="No preview loaded"
+                  hint="Fetch the first 100 rows to inspect this table's data."
+                  action={
+                    <button onClick={loadPreview} className="mt-1 text-xs text-primary hover:underline font-medium">Load preview</button>
+                  }
+                />
               ) : preview.rows.length === 0 ? (
-                <div className="text-center py-12 text-sm text-muted-foreground">Table is empty</div>
+                <EmptyState icon={Table} title="Table is empty" hint="No rows were returned for this table." />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b bg-muted/40">
+                        <th className="px-3 py-2 text-right font-medium text-muted-foreground w-10 sticky left-0 bg-muted/40">#</th>
                         {preview.columns.map(col => (
                           <th key={col} className="px-3 py-2 text-left font-medium font-mono whitespace-nowrap">{col}</th>
                         ))}
@@ -303,7 +388,8 @@ function TableDetailPageInner() {
                     </thead>
                     <tbody>
                       {preview.rows.map((row, i) => (
-                        <tr key={i} className="border-b last:border-0 hover:bg-muted/20">
+                        <tr key={i} className="border-b last:border-0 hover:bg-muted/30 odd:bg-muted/[0.04]">
+                          <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground/50 select-none">{i + 1}</td>
                           {preview.columns.map(col => (
                             <td key={col} className="px-3 py-1.5 font-mono text-muted-foreground whitespace-nowrap max-w-[200px] truncate">
                               {row[col] === null || row[col] === undefined

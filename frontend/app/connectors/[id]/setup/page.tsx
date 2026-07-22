@@ -250,7 +250,9 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
   }
 
   const canProceed = () => {
-    if (currentStep === 1) return testStatus === "success"
+    // Require both a name and a passing test before creating a connection — an
+    // empty name would persist a nameless record.
+    if (currentStep === 1) return testStatus === "success" && connectionName.trim().length > 0
     if (currentStep === 2) return enabledTables.length > 0
     return true
   }
@@ -307,8 +309,9 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
           ))}
         </div>
 
-        {/* Error banner */}
-        {createError && (
+        {/* Error banner — suppressed on Step 2 where the tables card shows a
+            contextual error + Retry in place, so the message isn't doubled. */}
+        {createError && !(currentStep === 2 && tables.length === 0) && (
           <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
             <AlertCircle className="h-4 w-4 shrink-0" />{createError}
           </div>
@@ -396,10 +399,24 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                   {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
                 </div>
               ) : tables.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Database className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                  <p className="text-sm">No tables found in this connection</p>
-                </div>
+                // Distinguish a failed introspection (recoverable, offer retry) from a
+                // source that genuinely exposes no tables — never let an error read as "empty".
+                createError ? (
+                  <div className="text-center py-8">
+                    <AlertCircle className="h-8 w-8 mx-auto mb-2 text-destructive/60" />
+                    <p className="text-sm font-medium text-destructive">Couldn&apos;t list tables</p>
+                    <p className="text-xs text-muted-foreground mt-1">{createError}</p>
+                    <Button variant="outline" size="sm" className="mt-3" onClick={handleToStep2}>
+                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" />Retry
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Database className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">No tables found in this connection</p>
+                    <p className="text-xs opacity-70 mt-1">The source is reachable but exposes no tables to sync.</p>
+                  </div>
+                )
               ) : (
                 <div className="space-y-px">
                   {/* Header */}
@@ -409,7 +426,11 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                     <span>Incremental Column <span className="normal-case font-normal">(optional)</span></span>
                   </div>
 
-                  {filteredTables.map(table => {
+                  {filteredTables.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-6">
+                      No tables match &quot;{tableSearch}&quot;
+                    </p>
+                  ) : filteredTables.map(table => {
                     const cfg = tableConfigs[table.name] ?? { enabled: true, incremental_column: "" }
                     const tsColumns = table.columns?.filter(c =>
                       c.type.toLowerCase().includes("timestamp") ||
@@ -660,13 +681,28 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
           <span className="text-xs text-muted-foreground sm:hidden">{currentStep} / {STEPS.length}</span>
 
           {currentStep === 1 ? (
-            <Button size="sm" onClick={handleToStep2} disabled={!canProceed()}>
-              Next<ChevronRight className="h-4 w-4 ml-1" />
-            </Button>
+            <div className="flex items-center gap-3">
+              {/* Tell the user why Next is blocked instead of leaving a dead button */}
+              {!canProceed() && (
+                <span className="text-xs text-muted-foreground hidden sm:inline">
+                  {!connectionName.trim() ? "Name your connection" : "Test the connection to continue"}
+                </span>
+              )}
+              <Button size="sm" onClick={handleToStep2} disabled={!canProceed()}>
+                Next<ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
           ) : currentStep === 2 ? (
-            <Button size="sm" onClick={() => setCurrentStep(3)} disabled={!canProceed()}>
-              Next<ChevronRight className="h-4 w-4 ml-1" />
-            </Button>
+            <div className="flex items-center gap-3">
+              {!canProceed() && (
+                <span className="text-xs text-muted-foreground hidden sm:inline">
+                  Select at least one table
+                </span>
+              )}
+              <Button size="sm" onClick={() => setCurrentStep(3)} disabled={!canProceed()}>
+                Next<ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
           ) : (
             <Button size="sm" onClick={handleFinish} disabled={creating}>
               {creating

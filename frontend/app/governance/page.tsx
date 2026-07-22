@@ -183,6 +183,48 @@ function PiiTypeBadge({ column, type }: { column: string; type: string }) {
   )
 }
 
+// ─── summary stat pill ─────────────────────────────────────────────────────
+// Shared with the Activity tab's summary-strip idiom (bordered rounded pill,
+// bold tabular-nums value). `tone` encodes state as color; default is neutral.
+
+function StatPill({
+  value,
+  label,
+  tone = "default",
+}: {
+  value: React.ReactNode
+  label: string
+  tone?: "default" | "good" | "warn" | "bad"
+}) {
+  const toneCls =
+    tone === "bad"
+      ? "border-destructive/30 bg-destructive/5 text-destructive"
+      : tone === "warn"
+        ? "border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/5 text-[var(--dp-warn)]"
+        : tone === "good"
+          ? "border-[var(--dp-good)]/30 bg-[var(--dp-good)]/5 text-[var(--dp-good)]"
+          : "text-muted-foreground"
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 ${toneCls}`}>
+      <span className="font-semibold tabular-nums">{value}</span>
+      <span className={tone === "default" ? "text-muted-foreground" : undefined}>{label}</span>
+    </span>
+  )
+}
+
+// ─── inline share bar ──────────────────────────────────────────────────────
+// The app's inline-bar idiom: thin muted track + colored fill. Used to show a
+// row's share of a total so spend tables are scannable at a glance.
+
+function ShareBar({ pct, colorVar = "var(--chart-1)" }: { pct: number; colorVar?: string }) {
+  const clamped = Math.max(0, Math.min(100, pct))
+  return (
+    <div className="h-1.5 rounded-full bg-muted overflow-hidden" role="presentation">
+      <div className="h-full rounded-full" style={{ width: `${clamped}%`, backgroundColor: colorVar }} />
+    </div>
+  )
+}
+
 // ─── Access Control (RLS) tab ───────────────────────────────────────────────
 
 interface RlsPolicy {
@@ -402,7 +444,19 @@ function AccessControlTab() {
 
       {/* Policy list */}
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">RLS Policies ({policies.length})</CardTitle></CardHeader>
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-base">RLS Policies</CardTitle>
+            {policies.length > 0 && (
+              <div className="flex items-center gap-2 text-xs">
+                <StatPill value={policies.filter((p) => p.enabled).length} label="active" tone="good" />
+                {policies.some((p) => !p.enabled) && (
+                  <StatPill value={policies.filter((p) => !p.enabled).length} label="inactive" tone="warn" />
+                )}
+              </div>
+            )}
+          </div>
+        </CardHeader>
         <CardContent className="p-0">
           <Table>
             <TableHeader><TableRow>
@@ -576,10 +630,16 @@ function CostTab() {
             <p className="dp-num text-3xl font-bold mt-1 text-[var(--chart-1)]">
               {usage ? fmtUsd(usage.total_spend) : "$0.00"}
             </p>
-            {usage?.max_budget != null && (
-              <p className="text-xs text-muted-foreground mt-1">
-                {budgetPct}% of {fmtUsd(usage.max_budget)} budget
-              </p>
+            {usage?.max_budget != null && budgetPct != null && (
+              <div className="mt-2 space-y-1">
+                <ShareBar
+                  pct={budgetPct}
+                  colorVar={budgetPct >= 90 ? "var(--destructive)" : budgetPct >= 75 ? "var(--dp-warn)" : "var(--dp-good)"}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {budgetPct}% of {fmtUsd(usage.max_budget)} budget
+                </p>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -634,7 +694,13 @@ function CostTab() {
                   ) : (
                     usage!.users.map((u) => (
                       <TableRow key={u.user}>
-                        <TableCell className="text-sm">{u.user === "unattributed" ? <span className="text-muted-foreground italic">unattributed</span> : u.user}</TableCell>
+                        <TableCell className="text-sm">
+                          <div className="space-y-1 max-w-[220px]">
+                            {u.user === "unattributed" ? <span className="text-muted-foreground italic">unattributed</span> : u.user}
+                            {/* Share of total spend — scannable ranking without a chart lib */}
+                            {usage!.total_spend > 0 && <ShareBar pct={(u.spend / usage!.total_spend) * 100} />}
+                          </div>
+                        </TableCell>
                         <TableCell className="dp-num text-right">{fmtUsd(u.spend)}</TableCell>
                         <TableCell className="dp-num text-right">{u.requests.toLocaleString()}</TableCell>
                         <TableCell className="dp-num text-right">{u.total_tokens.toLocaleString()}</TableCell>
@@ -667,7 +733,12 @@ function CostTab() {
                   ) : (
                     usage!.models.map((m) => (
                       <TableRow key={m.model}>
-                        <TableCell className="font-mono text-xs">{m.model}</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          <div className="space-y-1 max-w-[220px]">
+                            {m.model}
+                            {usage!.total_spend > 0 && <ShareBar pct={(m.spend / usage!.total_spend) * 100} colorVar="var(--chart-2)" />}
+                          </div>
+                        </TableCell>
                         <TableCell className="dp-num text-right">{fmtUsd(m.spend)}</TableCell>
                         <TableCell className="dp-num text-right">{m.requests.toLocaleString()}</TableCell>
                         <TableCell className="dp-num text-right">{m.total_tokens.toLocaleString()}</TableCell>
@@ -1016,6 +1087,22 @@ export default function GovernancePage() {
             </Button>
           </div>
 
+          {/* Summary strip — pass vs. needs-attention within the loaded window.
+              Counts describe the rows currently shown; the total/cap is stated
+              below the table so a partial window never reads as complete. */}
+          {!auditLoading && filteredAudit.length > 0 && (() => {
+            const attention = new Set(["error", "failure", "failed", "timeout", "blocked", "차단"])
+            const needsAttention = filteredAudit.filter((i) => i.status && attention.has(i.status)).length
+            const passed = filteredAudit.length - needsAttention
+            return (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <StatPill value={filteredAudit.length} label="shown" />
+                {needsAttention > 0 && <StatPill value={needsAttention} label={`error${needsAttention === 1 ? "" : "s"} / timeout`} tone="bad" />}
+                <StatPill value={passed} label="passed" tone="good" />
+              </div>
+            )
+          })()}
+
           <Card>
             <CardContent className="p-0">
               <Table>
@@ -1198,6 +1285,17 @@ export default function GovernancePage() {
 
         {/* ── Tab 2: AI Safety ──────────────────────────────────────────── */}
         <TabsContent value="ai-safety" className="mt-4 space-y-4">
+          {/* Summary strip — high-risk count leads, before the distribution
+              charts. Counts are the real assessed totals from /ai-safety. */}
+          {!safetyLoading && riskDist && totalRisk > 0 && (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <StatPill value={totalRisk} label="assessed" />
+              {riskDist.high > 0 && <StatPill value={riskDist.high} label="high risk" tone="bad" />}
+              {riskDist.medium > 0 && <StatPill value={riskDist.medium} label="caution" tone="warn" />}
+              <StatPill value={riskDist.low} label="normal" tone="good" />
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Pie chart */}
             <Card>
