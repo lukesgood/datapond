@@ -613,6 +613,9 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const [syncing, setSyncing]             = useState(false)
   const [deleting, setDeleting]           = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // The sync-complete toast points at Catalog but auto-dismisses; keep a
+  // persistent CTA so the ingest → explore journey isn't a dead end.
+  const [syncedOk, setSyncedOk]           = useState(false)
 
   // History sessions (past + live)
   const [sessions, setSessions]           = useState<SyncSession[]>([])
@@ -771,6 +774,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
 
   const handleSyncNow = async () => {
     setSyncing(true)
+    setSyncedOk(false)
     const startedAt = new Date().toISOString()
 
     // Create live session placeholder
@@ -851,7 +855,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
             if (elapsedRef.current) clearInterval(elapsedRef.current)
             setSyncing(false)
             if (d.tables_failed > 0) toast(`Sync complete — ${d.tables_failed} table(s) failed (see history)`, "error")
-            else toast("Sync complete — check Catalog for the ingested results", "success")
+            else { toast("Sync complete — check Catalog for the ingested results", "success"); setSyncedOk(true) }
             setLiveSession(prev => prev ? {
               ...prev, isLive: false,
               status: d.tables_failed > 0 ? "failed" : "success",
@@ -1095,6 +1099,22 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
       </div>
 
       {/* Feedback */}
+      {syncedOk && catalogEnabled && (
+        <div className="flex items-center gap-2 rounded-md bg-[var(--dp-good)]/10 border border-[var(--dp-good)]/20 px-3 py-2 text-sm text-[var(--dp-good)]">
+          <Check className="h-4 w-4 shrink-0" />
+          <span className="flex-1">Sync complete — your data is ready to explore.</span>
+          <Button size="sm" variant="outline" className="h-7" render={<Link href="/catalog" />}>
+            <Database className="h-3.5 w-3.5 mr-1.5" />View in Catalog
+          </Button>
+          <button
+            aria-label="Dismiss"
+            onClick={() => setSyncedOk(false)}
+            className="text-[var(--dp-good)]/70 hover:text-[var(--dp-good)]"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
       {saveMessage && (
         <div className={`text-sm px-1 ${saveMessage.includes("success") ? "text-[var(--dp-good)]" : "text-destructive"}`}>
           {saveMessage}

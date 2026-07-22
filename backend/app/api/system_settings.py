@@ -22,19 +22,17 @@ vault = CredentialVault()  # reads ENCRYPTION_KEY; prod-fail-closed, dev-warns (
 SENSITIVE_KEYS = {
     "ai.aws_access_key_id",
     "ai.aws_secret_access_key",
-    "ai.anthropic_api_key",
 }
 
-# All allowed settings keys and their env-var names for runtime apply
+# All allowed settings keys and their env-var names for runtime apply.
+# All model calls route through the LiteLLM gateway; the former direct
+# Bedrock/Anthropic fallback keys were removed as nothing consumed them.
 AI_ENV_MAP = {
     "ai.provider":              "AI_PROVIDER",
     "ai.litellm_url":           "LITELLM_URL",
     "ai.litellm_model":         "LITELLM_MODEL",
-    "ai.aws_bedrock_region":    "AWS_BEDROCK_REGION",
     "ai.aws_access_key_id":     "AWS_ACCESS_KEY_ID",
     "ai.aws_secret_access_key": "AWS_SECRET_ACCESS_KEY",
-    "ai.bedrock_model_id":      "BEDROCK_MODEL_ID",
-    "ai.anthropic_api_key":     "ANTHROPIC_API_KEY",
 }
 
 
@@ -140,17 +138,11 @@ async def get_ai_settings():
     # Merge with current env (env wins display if DB empty)
     _litellm_url = os.getenv("LITELLM_URL", "http://litellm.datapond.svc.cluster.local:4000")
     defaults = {
-        "ai.provider":           (
-            "litellm" if _litellm_url
-            else ("bedrock" if os.getenv("AWS_BEDROCK_REGION") else ("anthropic" if os.getenv("ANTHROPIC_API_KEY") else "none"))
-        ),
+        "ai.provider":           "litellm" if _litellm_url else "none",
         "ai.litellm_url":        _litellm_url,
         "ai.litellm_model":      os.getenv("LITELLM_MODEL", "default"),
-        "ai.aws_bedrock_region": os.getenv("AWS_BEDROCK_REGION", ""),
-        "ai.bedrock_model_id":   os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0"),
         "ai.aws_access_key_id":  "••••" if os.getenv("AWS_ACCESS_KEY_ID") else "",
         "ai.aws_secret_access_key": "••••" if os.getenv("AWS_SECRET_ACCESS_KEY") else "",
-        "ai.anthropic_api_key":  "••••" if os.getenv("ANTHROPIC_API_KEY") else "",
     }
     for k, v in defaults.items():
         if k not in result:

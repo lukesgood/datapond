@@ -146,8 +146,17 @@ async def oidc_callback(request: Request, code: str = "", state: str = "", error
     if row is None or not row["is_active"]:
         return _fail("account_conflict", f"username={username}")
 
-    from app.api.auth import _create_token
+    from app.api.auth import _create_token, record_auth_event
     token = _create_token(str(row["id"]), row["username"], row["role"])
+    # Best-effort audit so SSO logins land in the unified audit stream.
+    await record_auth_event(
+        "login_success",
+        user_id=row["id"],
+        user_email=row["username"],
+        result="success",
+        request=request,
+        details={"username": row["username"], "method": "oidc"},
+    )
     resp = RedirectResponse("/login?sso=1", status_code=302)
     resp.set_cookie("datapond_token", token, max_age=COOKIE_MAX_AGE,
                     secure=_cookie_secure(), samesite="lax", path="/")

@@ -236,13 +236,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def require_capability(cap_key: str, label: str):
+    """FastAPI dependency: 503 unless compute_capabilities marks ``cap_key`` true.
+
+    Unlike require_component (a single FEATURE_* flag), catalog / query / connectors
+    are OR-composed capabilities (e.g. ``trino or polaris or glue``). Gating on the
+    computed boolean keeps this server-side guard in exact agreement with the
+    /api/capabilities the UI gates on. Fails closed by design (rule 3).
+    """
+    def _guard() -> None:
+        if not compute_capabilities(os.environ).get(cap_key):
+            raise HTTPException(
+                status_code=503,
+                detail=f"{label} is not enabled on this deployment profile.",
+            )
+    return _guard
+
+
 # Include API routers
-app.include_router(queries_router, prefix="/api")
-app.include_router(catalog_router, prefix="/api")
+app.include_router(queries_router, prefix="/api",
+                   dependencies=[Depends(require_capability("query", "SQL Lab"))])
+app.include_router(catalog_router, prefix="/api",
+                   dependencies=[Depends(require_capability("catalog", "Catalog"))])
 app.include_router(
     connectors_router,
     prefix="/api",
-    dependencies=[Depends(require_user_or_internal)],
+    dependencies=[
+        Depends(require_user_or_internal),
+        Depends(require_capability("connectors", "Connectors")),
+    ],
 )
 app.include_router(services_router, prefix="/api")
 app.include_router(notebooks_router, prefix="/api",
