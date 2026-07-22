@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   BarChart3, Eye, Clock, Search, Globe, Lock,
-  LineChart, PieChart, TrendingUp, AreaChart, Table, Plus, RefreshCw,
+  LineChart, PieChart, TrendingUp, AreaChart, Table, Plus, RefreshCw, AlertTriangle,
 } from "lucide-react"
 import { dashboardApi, queryApi, Dashboard, type ChartConfig } from "@/lib/api"
 import { formatDistanceToNow } from "date-fns"
@@ -39,15 +39,17 @@ export default function DashboardsPage() {
             cols.forEach((col: string, i: number) => { obj[col] = row[i] })
             return obj
           })
-          return { id: d.id, data }
-        } catch {
-          return { id: d.id, data: [] }
+          return { id: d.id, data, error: undefined as string | undefined }
+        } catch (e) {
+          // Fail closed: keep the query error so the preview can show a
+          // distinct "failed" state instead of masquerading as empty data.
+          return { id: d.id, data: [] as PreviewRow[], error: e instanceof Error ? e.message : "Preview query failed" }
         }
       })
     )
     const map: PreviewMap = {}
     results.forEach((r) => {
-      if (r.status === "fulfilled") map[r.value.id] = { data: r.value.data }
+      if (r.status === "fulfilled") map[r.value.id] = { data: r.value.data, error: r.value.error }
     })
     setPreviews(map)
   }, [])
@@ -189,8 +191,14 @@ export default function DashboardsPage() {
             return (
               <Card
                 key={dashboard.id}
-                className="hover:shadow-md transition-shadow cursor-pointer group"
+                role="button"
+                tabIndex={0}
+                aria-label={`Open dashboard ${dashboard.name}`}
+                className="hover:shadow-md transition-shadow cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 onClick={() => router.push(`/dashboards/${dashboard.id}`)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); router.push(`/dashboards/${dashboard.id}`) }
+                }}
               >
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between gap-2">
@@ -221,9 +229,15 @@ export default function DashboardsPage() {
                       <div className="h-full flex items-center justify-center">
                         <div className="h-4 w-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
                       </div>
+                    ) : preview.error ? (
+                      <div className="h-full flex flex-col items-center justify-center gap-1 px-3 text-center">
+                        <AlertTriangle className="h-4 w-4 text-[var(--dp-warn)]" />
+                        <span className="text-xs font-medium text-[var(--dp-warn)]">Preview failed</span>
+                        <span className="text-[10px] text-muted-foreground line-clamp-2">{preview.error}</span>
+                      </div>
                     ) : preview.data.length === 0 ? (
                       <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
-                        No data
+                        No rows returned
                       </div>
                     ) : chartType === "table" ? (
                       <div className="overflow-auto h-full p-2">
@@ -245,6 +259,12 @@ export default function DashboardsPage() {
                             ))}
                           </tbody>
                         </table>
+                        {/* Honesty: don't let a 5-row cap read as the full result set. */}
+                        {preview.data.length > 5 && (
+                          <p className="px-1 pt-1 text-[10px] text-muted-foreground">
+                            +{(preview.data.length - 5).toLocaleString()} more {preview.data.length - 5 === 1 ? "row" : "rows"}
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <div className="pointer-events-none scale-[0.85] origin-top-left" style={{ width: "118%", height: "118%" }}>
@@ -270,7 +290,7 @@ export default function DashboardsPage() {
                       {formatDistanceToNow(new Date(dashboard.updated_at), { addSuffix: true })}
                     </div>
                     <Button variant="ghost" size="sm"
-                      className="h-6 text-[10px] px-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="h-6 text-[10px] px-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity"
                       onClick={(e) => { e.stopPropagation(); router.push(`/dashboards/${dashboard.id}`) }}>
                       <Eye className="h-3 w-3 mr-1" />Open
                     </Button>

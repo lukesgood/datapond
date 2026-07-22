@@ -29,6 +29,7 @@ import {
   ArrowLeft,
   Check,
   X,
+  AlertTriangle,
 } from "lucide-react"
 import { dashboardApi, queryApi, Dashboard, type QueryResult } from "@/lib/api"
 import { ChartRenderer } from "@/components/query/chart-renderer"
@@ -55,6 +56,7 @@ export default function DashboardViewPage() {
   const [loading, setLoading] = useState(true)
   const [executing, setExecuting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [execError, setExecError] = useState<string | null>(null)
 
   // Edit mode
   const [isEditing, setIsEditing] = useState(false)
@@ -72,10 +74,16 @@ export default function DashboardViewPage() {
 
     try {
       setExecuting(true)
+      setExecError(null)
       const result = await queryApi.execute(queryText)
       setQueryResult(result)
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Query execution failed", "error")
+      // Fail closed: surface the failure in-panel and drop stale results so a
+      // broken refresh can't keep rendering an old chart as if it were current.
+      const msg = err instanceof Error ? err.message : "Query execution failed"
+      setExecError(msg)
+      setQueryResult(null)
+      toast(msg, "error")
     } finally {
       setExecuting(false)
     }
@@ -348,6 +356,21 @@ export default function DashboardViewPage() {
               ? "Data Table"
               : `${dashboard.chart_config.chartType.charAt(0).toUpperCase() + dashboard.chart_config.chartType.slice(1)} Chart`}
           </CardTitle>
+          {/* Chart care: name the axis mapping and row count so the render is legible at a glance. */}
+          {!execError && queryResult && (
+            <p className="text-xs text-muted-foreground">
+              {dashboard.chart_config.chartType !== "table" && dashboard.chart_config.xAxis && dashboard.chart_config.yAxis && (
+                <>
+                  <span className="text-foreground/70">X</span> {dashboard.chart_config.xAxis}
+                  {"  ·  "}
+                  <span className="text-foreground/70">Y</span> {dashboard.chart_config.yAxis}
+                  {"  ·  "}
+                </>
+              )}
+              <span className="tabular-nums">{(queryResult.rows?.length ?? 0).toLocaleString()}</span>{" "}
+              {(queryResult.rows?.length ?? 0) === 1 ? "row" : "rows"}
+            </p>
+          )}
         </CardHeader>
         <CardContent>
           {executing && (
@@ -359,7 +382,28 @@ export default function DashboardViewPage() {
             </div>
           )}
 
-          {!executing && queryResult && (
+          {!executing && execError && (
+            <div className="flex items-center justify-center h-[400px]">
+              <div className="text-center space-y-3 max-w-md px-4">
+                <AlertTriangle className="h-8 w-8 mx-auto text-[var(--dp-warn)]" />
+                <div>
+                  <p className="text-sm font-medium">Query failed</p>
+                  <p className="text-xs text-muted-foreground mt-1 break-words">{execError}</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => executeQuery(dashboard.query_text)}
+                  disabled={executing}
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Retry
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {!executing && !execError && queryResult && (
             <>
               {dashboard.chart_config.chartType === "table" ? (
                 <QueryResults
@@ -384,7 +428,7 @@ export default function DashboardViewPage() {
             </>
           )}
 
-          {!executing && !queryResult && (
+          {!executing && !execError && !queryResult && (
             <div className="flex items-center justify-center h-[400px]">
               <p className="text-sm text-muted-foreground">No data available</p>
             </div>

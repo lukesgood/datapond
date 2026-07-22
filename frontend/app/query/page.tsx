@@ -7,7 +7,7 @@ import {
   Play, Save, History, Settings, ChevronRight, ChevronLeft,
   FlaskConical, Code2, Database, Trash2, AlignLeft,
   TableProperties, BarChart2, AlertCircle, FileCode,
-  Sparkles, Loader2, X,
+  Sparkles, Loader2, X, Copy, Check,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import dynamic from "next/dynamic"
@@ -50,6 +50,10 @@ function QueryPageInner() {
   })
   const [queryStatus, setQueryStatus]       = useState<QueryStatus>("idle")
   const [results, setResults]               = useState<QueryResult | null>(null)
+  // The exact editor text that produced `results` — lets us flag when the
+  // editor has drifted from the shown result set (SQL ⇄ results legibility).
+  const [executedQuery, setExecutedQuery]   = useState<string | null>(null)
+  const [copied, setCopied]                 = useState(false)
   const [error, setError]                   = useState<string | null>(null)
   const [chartType, setChartType]           = useState<ChartType>("table")
   const [xAxis, setXAxis]                   = useState("")
@@ -181,6 +185,7 @@ function QueryPageInner() {
       if (!response.ok) throw new Error(data.detail || data.error || "Query execution failed")
 
       setResults(data)
+      setExecutedQuery(query)
       setQueryStatus("success")
       addToQueryHistory(query)
       // Reset chart axes whenever the new result set's columns no longer
@@ -194,6 +199,32 @@ function QueryPageInner() {
       setQueryStatus("error")
     }
   }, [query])
+
+  // Global ⌘/Ctrl+Enter runs the query from anywhere on the page. Monaco owns
+  // this binding while focused (it stops propagation), so skip when the editor
+  // has focus to avoid a double execution.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        const el = document.activeElement as HTMLElement | null
+        if (el?.closest(".monaco-editor")) return
+        e.preventDefault()
+        executeQuery()
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [executeQuery])
+
+  const copySql = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(query)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      toast("Couldn't copy to clipboard", "error")
+    }
+  }, [query, toast])
 
   const handleTableSelect = (catalog: string, schema: string, table: string) => {
     // 2-part name resolves under each engine's default catalog (Athena
@@ -235,6 +266,8 @@ function QueryPageInner() {
 
   const hasResults = results && results.rows.length > 0
   const isRunning  = queryStatus === "running"
+  // Editor text has drifted from what produced the visible results.
+  const resultsStale = !!results && executedQuery !== null && query.trim() !== executedQuery.trim()
 
   return (
     <div className="flex flex-col overflow-hidden bg-background" style={{ height: "calc(100vh - 56px)" }}>
@@ -254,7 +287,7 @@ function QueryPageInner() {
           {queryStatus === "success" && results && (
             <Badge className="dp-num text-xs text-white bg-[var(--dp-good)] hover:bg-[var(--dp-good)] gap-1">
               <TableProperties className="h-3 w-3" />
-              {results.rows.length.toLocaleString()} rows · {
+              {results.truncated ? "first " : ""}{results.rows.length.toLocaleString()} rows · {
                 results.execution_time_ms < 1000
                   ? `${Math.round(results.execution_time_ms)}ms`
                   : `${(results.execution_time_ms / 1000).toFixed(2)}s`
@@ -443,6 +476,17 @@ function QueryPageInner() {
                 <Button
                   variant="ghost" size="sm" className="h-6 px-2 text-[11px] gap-1
                     text-muted-foreground hover:text-foreground"
+                  onClick={copySql}
+                  aria-label="Copy SQL to clipboard" title="Copy SQL to clipboard"
+                >
+                  {copied
+                    ? <Check className="h-3 w-3 text-[var(--dp-good)]" />
+                    : <Copy className="h-3 w-3" />}
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+                <Button
+                  variant="ghost" size="sm" className="h-6 px-2 text-[11px] gap-1
+                    text-muted-foreground hover:text-foreground"
                   onClick={formatQuery}
                   aria-label="Format SQL" title="Format SQL"
                 >
@@ -489,7 +533,7 @@ function QueryPageInner() {
                   <>
                     <div className="h-3.5 w-px bg-border" />
                     <span className="dp-num text-[11px] text-muted-foreground">
-                      {results.rows.length.toLocaleString()} rows
+                      {results.truncated ? "first " : ""}{results.rows.length.toLocaleString()} rows
                     </span>
                     <span className="text-[11px] text-muted-foreground/60">·</span>
                     <span className="dp-num text-[11px] text-muted-foreground">
@@ -509,6 +553,16 @@ function QueryPageInner() {
                       >
                         <AlertCircle className="h-3 w-3" />
                         Limited to 1,000 rows
+                      </Badge>
+                    )}
+                    {resultsStale && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] h-4 px-1.5 font-normal gap-1 text-[var(--dp-warn)] border-[var(--dp-warn)]/40"
+                        title="The editor has changed since these results were produced — re-run to refresh"
+                      >
+                        <AlertCircle className="h-3 w-3" />
+                        Editor changed since run
                       </Badge>
                     )}
                   </>

@@ -798,8 +798,10 @@ function UserManagement() {
         if (!r.ok) { const d = await r.json(); throw new Error(d.detail) }
         setOwnPw("")
       }
-      setProfileMsg("Profile updated successfully"); setShowProfile(false)
-    } catch (e) { setProfileMsg(e instanceof Error ? e.message : "Failed") }
+      // Confirm via toast — the dialog closes here, so an inline success line
+      // would never be seen. profileMsg is reserved for errors (dialog stays open).
+      notify("Profile updated"); setShowProfile(false)
+    } catch (e) { setProfileMsg(e instanceof Error ? e.message : "Failed to update profile") }
     finally { setSavingProfile(false) }
   }
 
@@ -818,7 +820,8 @@ function UserManagement() {
           <KeyRound className="h-4 w-4 mr-1.5" />My Profile
         </Button>
         {isAdmin && (
-          <Button size="sm" variant="ghost" className="ml-auto" onClick={fetchUsers}>
+          <Button size="sm" variant="ghost" className="ml-auto" onClick={fetchUsers}
+            disabled={loading} aria-label="Refresh users" title="Refresh users">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           </Button>
         )}
@@ -935,7 +938,8 @@ function UserManagement() {
               <div className="relative">
                 <Input type={showNewPw ? "text" : "password"} value={newPassword}
                   onChange={e => setNewPassword(e.target.value)} placeholder="Min 6 characters" className="pr-9" />
-                <button onClick={() => setShowNewPw(v => !v)} tabIndex={-1}
+                <button type="button" onClick={() => setShowNewPw(v => !v)} tabIndex={-1}
+                  aria-label={showNewPw ? "Hide password" : "Show password"}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                   {showNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -973,7 +977,8 @@ function UserManagement() {
               <div className="relative">
                 <Input type={showResetPw ? "text" : "password"} value={resetPw}
                   onChange={e => setResetPw(e.target.value)} placeholder="Min 6 characters" className="pr-9" autoFocus />
-                <button onClick={() => setShowResetPw(v => !v)} tabIndex={-1}
+                <button type="button" onClick={() => setShowResetPw(v => !v)} tabIndex={-1}
+                  aria-label={showResetPw ? "Hide password" : "Show password"}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                   {showResetPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -1038,13 +1043,14 @@ function UserManagement() {
               <div className="relative">
                 <Input type={showOwnPw ? "text" : "password"} value={ownPw}
                   onChange={e => setOwnPw(e.target.value)} placeholder="New password (optional)" className="pr-9" />
-                <button onClick={() => setShowOwnPw(v => !v)} tabIndex={-1}
+                <button type="button" onClick={() => setShowOwnPw(v => !v)} tabIndex={-1}
+                  aria-label={showOwnPw ? "Hide password" : "Show password"}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                   {showOwnPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
-            {profileMsg && <p className={`text-xs ${profileMsg.includes("success") ? "text-green-600" : "text-destructive"}`}>{profileMsg}</p>}
+            {profileMsg && <ErrorBox msg={profileMsg} />}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowProfile(false)}>Cancel</Button>
