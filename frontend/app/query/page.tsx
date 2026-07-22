@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useRef, useCallback, useEffect } from "react"
+import { useState, useRef, useCallback, useEffect, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -29,6 +30,8 @@ const LogToMlflowModal = dynamic(() => import("@/components/query/log-to-mlflow-
 const OpenInNotebookModal = dynamic(() => import("@/components/query/open-in-notebook-modal").then(m => ({ default: m.OpenInNotebookModal })), { ssr: false })
 import { useToast } from "@/lib/toast"
 import { useCapability, CapabilityGate } from "@/lib/capabilities"
+import { AnalyticsTabs } from "@/components/query/analytics-tabs"
+import { DashboardsGallery } from "@/components/dashboards/dashboards-gallery"
 
 interface QueryResult {
   columns: string[]
@@ -276,7 +279,7 @@ function QueryPageInner() {
       <div className="flex items-center gap-1.5 border-b px-3 h-11 shrink-0 bg-background">
         {/* Left: status */}
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <span className="text-sm font-semibold text-foreground hidden sm:block">SQL Lab</span>
+          <AnalyticsTabs active="editor" />
           <div className="h-4 w-px bg-border hidden sm:block" />
           {isRunning && (
             <Badge variant="secondary" className="text-xs gap-1">
@@ -711,10 +714,20 @@ function QueryPageInner() {
   )
 }
 
+// Analytics workspace — one entry, two tabs. ?tab=dashboards selects the saved
+// dashboards gallery; anything else is the SQL Editor. Both share the "query"
+// capability and the /queries/execute engine.
+function AnalyticsWorkspace() {
+  const tab = useSearchParams().get("tab")
+  return tab === "dashboards" ? <DashboardsGallery /> : <QueryPageInner />
+}
+
 export default function QueryPage() {
   return (
     <CapabilityGate capability="query">
-      <QueryPageInner />
+      <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading…</div>}>
+        <AnalyticsWorkspace />
+      </Suspense>
     </CapabilityGate>
   )
 }
