@@ -35,20 +35,14 @@ import { dashboardApi, queryApi, Dashboard, type QueryResult } from "@/lib/api"
 import { ChartRenderer } from "@/components/query/chart-renderer"
 import { QueryResults } from "@/components/query/query-results"
 import { useToast } from "@/lib/toast"
+import { useConfirm } from "@/lib/confirm"
 import { formatDistanceToNow } from "date-fns"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
 
 export default function DashboardViewPage() {
   const router = useRouter()
   const params = useParams()
   const { toast } = useToast()
+  const confirm = useConfirm()
   const dashboardId = params.id as string
 
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
@@ -66,7 +60,6 @@ export default function DashboardViewPage() {
   const [saving, setSaving] = useState(false)
 
   // Delete confirmation
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
   const executeQuery = useCallback(async (queryText: string) => {
@@ -143,6 +136,14 @@ export default function DashboardViewPage() {
   }
 
   const handleDelete = async () => {
+    if (!dashboard) return
+    const ok = await confirm({
+      title: "Delete Dashboard",
+      message: `This deletes the "${dashboard.name}" dashboard and cannot be undone.`,
+      destructive: true,
+      confirmText: "Delete",
+    })
+    if (!ok) return
     try {
       setDeleting(true)
       await dashboardApi.delete(dashboardId)
@@ -151,7 +152,6 @@ export default function DashboardViewPage() {
     } catch (err) {
       toast(err instanceof Error ? err.message : "Failed to delete dashboard", "error")
       setDeleting(false)
-      setShowDeleteDialog(false)
     }
   }
 
@@ -339,9 +339,14 @@ export default function DashboardViewPage() {
             <Button
               variant="destructive"
               size="sm"
-              onClick={() => setShowDeleteDialog(true)}
+              onClick={handleDelete}
+              disabled={deleting}
             >
-              <Trash2 className="mr-2 h-4 w-4" />
+              {deleting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
               Delete
             </Button>
           </div>
@@ -447,35 +452,6 @@ export default function DashboardViewPage() {
           </pre>
         </CardContent>
       </Card>
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Dashboard</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete &quot;{dashboard.name}&quot;? This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowDeleteDialog(false)}
-              disabled={deleting}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleting}
-            >
-              {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Delete Dashboard
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

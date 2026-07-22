@@ -25,17 +25,6 @@ import {
 } from "lucide-react"
 import { formatDistance } from "date-fns"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { NewTransformModal, type EditingTransform } from "@/components/transforms/new-transform-modal"
 import { useConfirm } from "@/lib/confirm"
 import { ArrowRight, Layers } from "lucide-react"
 
@@ -90,10 +79,7 @@ function PipelinesPageInner() {
   const [recentRuns, setRecentRuns] = useState<DagRun[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [transforms, setTransforms] = useState<Transform[]>([])
-  const [showNewTransform, setShowNewTransform] = useState(false)
-  const [editTransform, setEditTransform] = useState<EditingTransform | null>(null)
   const [triggeringTransform, setTriggeringTransform] = useState<string | null>(null)
   const [savedStatuses, setSavedStatuses] = useState<Map<string, string>>(new Map())
   const router = useRouter()
@@ -205,15 +191,6 @@ function PipelinesPageInner() {
     }
   }, [])
 
-  const handleEditTransform = async (id: string) => {
-    try {
-      const r = await fetch(`/api/transforms/${id}`)
-      if (!r.ok) throw new Error()
-      setEditTransform(await r.json())
-      setShowNewTransform(true)
-    } catch { toast("Failed to load transform details", "error") }
-  }
-
   const handleTriggerTransform = async (id: string, dagId: string) => {
     setTriggeringTransform(id)
     try {
@@ -283,20 +260,20 @@ function PipelinesPageInner() {
     }
   }
 
-  const handleDeleteConfirm = async () => {
-    if (!deleteTarget) return
+  const handleDeletePipeline = async (dag_id: string) => {
+    if (!(await confirmDialog({
+      title: "Delete Pipeline",
+      message: `Delete the '${dag_id}' pipeline? The DAG file is removed and run history is preserved. This cannot be undone.`,
+      destructive: true, confirmText: "Delete",
+    }))) return
     try {
-      const response = await fetch(`/api/pipelines/${deleteTarget}`, { method: "DELETE" })
-      if (response.ok) {
-        setDags((prev) => prev.filter((d) => d.dag_id !== deleteTarget))
-      } else {
-        throw new Error("Failed to delete pipeline")
-      }
+      const response = await fetch(`/api/pipelines/${dag_id}`, { method: "DELETE" })
+      if (!response.ok) throw new Error("Failed to delete pipeline")
+      setDags((prev) => prev.filter((d) => d.dag_id !== dag_id))
+      toast(`Pipeline '${dag_id}' deleted`, "success")
     } catch (err) {
       console.error("Failed to delete:", err)
       toast("Failed to delete pipeline", "error")
-    } finally {
-      setDeleteTarget(null)
     }
   }
 
@@ -338,7 +315,7 @@ function PipelinesPageInner() {
           <p className="text-sm text-muted-foreground">No pipelines found</p>
           <p className="text-xs text-muted-foreground/70 mt-1">Create a SQL Transform to deploy it as an Airflow DAG</p>
         </div>
-        <Button size="sm" onClick={() => setShowNewTransform(true)}>New Transform</Button>
+        <Button size="sm" onClick={() => router.push("/pipelines/new")}>New Transform</Button>
       </div>
     )
     return (
@@ -361,7 +338,7 @@ function PipelinesPageInner() {
               savedStatus={savedStatuses.get(dag.dag_id)}
               onTrigger={handleTriggerDag}
               onTogglePause={handleTogglePause}
-              onDelete={(id) => setDeleteTarget(id)}
+              onDelete={handleDeletePipeline}
               onEdit={handleEdit}
             />
           )
@@ -387,7 +364,7 @@ function PipelinesPageInner() {
             Refresh
           </Button>
           <Button size="sm" className="h-8 text-xs gap-1.5"
-            onClick={() => setShowNewTransform(true)}>
+            onClick={() => router.push("/pipelines/new")}>
             <Plus className="h-3.5 w-3.5" />
             New Transform
           </Button>
@@ -448,7 +425,7 @@ function PipelinesPageInner() {
               <p className="text-xs text-muted-foreground mb-4">
                 SQL-based ELT: raw → refined → serving via Airflow + Trino CTAS
               </p>
-              <Button size="sm" className="h-7 text-xs gap-1.5" onClick={() => setShowNewTransform(true)}>
+              <Button size="sm" className="h-7 text-xs gap-1.5" onClick={() => router.push("/pipelines/new")}>
                 <Plus className="h-3 w-3" />New Transform
               </Button>
             </div>
@@ -520,7 +497,7 @@ function PipelinesPageInner() {
                           <Button
                             variant="ghost" size="sm" aria-label={`Edit ${t.name}`}
                             className="h-6 text-[10px] px-2"
-                            onClick={() => handleEditTransform(t.id)}
+                            onClick={() => router.push(`/pipelines/new?load=${encodeURIComponent(t.name)}`)}
                           >
                             <Pencil className="h-3 w-3" />
                           </Button>
@@ -657,33 +634,6 @@ function PipelinesPageInner() {
           </div>
         </TabsContent>
       </Tabs>
-
-      {/* New Transform modal */}
-      <NewTransformModal
-        editing={editTransform}
-        open={showNewTransform}
-        onClose={() => { setShowNewTransform(false); setEditTransform(null) }}
-        onCreated={() => { setShowNewTransform(false); setEditTransform(null); fetchData() }}
-      />
-
-      {/* Delete confirmation dialog */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Pipeline</AlertDialogTitle>
-            <AlertDialogDescription>
-              Delete the <strong>{deleteTarget}</strong> pipeline?
-              The DAG file will be removed and run history preserved. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteConfirm} className="bg-red-600 hover:bg-red-700">
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
     </div>
   )

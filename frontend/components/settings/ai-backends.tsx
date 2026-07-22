@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import type { ChangeEventHandler } from "react"
 import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
@@ -71,6 +72,28 @@ const emptyForm = {
 
 const numOrUndef = (s: string) => (s.trim() === "" ? undefined : Number(s))
 
+// Masked input with a show/hide toggle — same idiom as connection-form.tsx.
+function SecretInput({ value, onChange, placeholder, reveal, onToggle, label }: {
+  value: string
+  onChange: ChangeEventHandler<HTMLInputElement>
+  placeholder?: string
+  reveal: boolean
+  onToggle: () => void
+  label: string
+}) {
+  return (
+    <div className="relative">
+      <Input className="h-9 font-mono text-sm pr-9" type={reveal ? "text" : "password"}
+        placeholder={placeholder} value={value} onChange={onChange} />
+      <button type="button" tabIndex={-1} aria-label={reveal ? `Hide ${label}` : `Show ${label}`}
+        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+        onClick={onToggle}>
+        {reveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
+  )
+}
+
 export function AiBackends() {
   const [status, setStatus]     = useState<GatewayStatus | null>(null)
   const [backends, setBackends] = useState<Backend[]>([])
@@ -85,7 +108,9 @@ export function AiBackends() {
   const [form, setForm]         = useState({ ...emptyForm })
   const [adding, setAdding]     = useState(false)
   const [addErr, setAddErr]     = useState<string | null>(null)
-  const [showSecret, setShowSecret] = useState(false)
+  // Per-field secret reveal — the Add-backend form can carry several secret inputs
+  // (api_key, aws_access_key_id, aws_secret_access_key). Keyed by form field name.
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -330,98 +355,111 @@ export function AiBackends() {
       <Dialog open={showAdd} onOpenChange={setShowAdd}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Add Model Backend</DialogTitle></DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Provider</Label>
-                <Select value={form.provider} onValueChange={v => v && setForm(f => ({ ...f, provider: v }))}>
-                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(PROVIDERS).map(([k, v]) => {
-                      const blocked = localOnly && v.external
-                      return (
-                        <SelectItem key={k} value={k} disabled={blocked}>
-                          {v.label}{blocked ? " — blocked (local-only)" : ""}
-                        </SelectItem>
-                      )
-                    })}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Name <span className="text-destructive">*</span></Label>
-                <Input className="h-9 font-mono text-sm" placeholder="default"
-                  value={form.model_name} onChange={e => setForm(f => ({ ...f, model_name: e.target.value }))} />
-              </div>
-            </div>
-
-            {providerBlocked && (
-              <div className="flex items-start gap-2 rounded-md border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-3 py-2 text-[11px] text-[var(--dp-warn)]">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                <span>This environment runs a <b>local-only</b> AI egress policy — external
-                providers are blocked to keep data in your environment. Choose Ollama or vLLM, or change
-                <code className="mx-1">ai.egressPolicy</code> for this deployment.</span>
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <Label className="text-xs">Model <span className="text-destructive">*</span></Label>
-              <Input className="h-9 font-mono text-sm" placeholder={prov?.modelPlaceholder}
-                value={form.model} onChange={e => setForm(f => ({ ...f, model: e.target.value }))} />
-            </div>
-
-            {prov?.fields.includes("api_base") && (
-              <div className="space-y-1.5">
-                <Label className="text-xs">API Base URL <span className="text-destructive">*</span></Label>
-                <Input className="h-9 font-mono text-sm"
-                  placeholder={form.provider === "ollama" ? "http://ollama.datapond.svc.cluster.local:11434" : "http://my-llm.internal:8000"}
-                  value={form.api_base} onChange={e => setForm(f => ({ ...f, api_base: e.target.value }))} />
-              </div>
-            )}
-
-            {prov?.fields.includes("aws") && (
-              <>
+          <div className="space-y-4 py-2">
+            {/* ── Provider & model ─────────────────────────────────────────── */}
+            <section className="space-y-3">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Provider &amp; model</div>
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label className="text-xs">AWS Region <span className="text-destructive">*</span></Label>
-                  <Input className="h-9 font-mono text-sm" placeholder="us-east-1"
-                    value={form.aws_region_name} onChange={e => setForm(f => ({ ...f, aws_region_name: e.target.value }))} />
+                  <Label className="text-xs">Provider</Label>
+                  <Select value={form.provider} onValueChange={v => v && setForm(f => ({ ...f, provider: v }))}>
+                    <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(PROVIDERS).map(([k, v]) => {
+                        const blocked = localOnly && v.external
+                        return (
+                          <SelectItem key={k} value={k} disabled={blocked}>
+                            {v.label}{blocked ? " — blocked (local-only)" : ""}
+                          </SelectItem>
+                        )
+                      })}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Access Key ID</Label>
-                    <Input className="h-9 font-mono text-sm" type={showSecret ? "text" : "password"} placeholder="optional (IAM role)"
-                      value={form.aws_access_key_id} onChange={e => setForm(f => ({ ...f, aws_access_key_id: e.target.value }))} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Secret Access Key</Label>
-                    <Input className="h-9 font-mono text-sm" type={showSecret ? "text" : "password"} placeholder="optional"
-                      value={form.aws_secret_access_key} onChange={e => setForm(f => ({ ...f, aws_secret_access_key: e.target.value }))} />
-                  </div>
-                </div>
-              </>
-            )}
-
-            {prov?.fields.includes("api_key") && (
-              <div className="space-y-1.5">
-                <Label className="text-xs">
-                  API Key {form.provider !== "vllm" && <span className="text-destructive">*</span>}
-                </Label>
-                <div className="relative">
-                  <Input className="h-9 font-mono text-sm pr-9" type={showSecret ? "text" : "password"} placeholder="sk-…"
-                    value={form.api_key} onChange={e => setForm(f => ({ ...f, api_key: e.target.value }))} />
-                  <button type="button" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" tabIndex={-1}
-                    onClick={() => setShowSecret(v => !v)}>
-                    {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Name <span className="text-destructive">*</span></Label>
+                  <Input className="h-9 font-mono text-sm" placeholder="default"
+                    value={form.model_name} onChange={e => setForm(f => ({ ...f, model_name: e.target.value }))} />
                 </div>
               </div>
+
+              {providerBlocked && (
+                <div className="flex items-start gap-2 rounded-md border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-3 py-2 text-[11px] text-[var(--dp-warn)]">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>This environment runs a <b>local-only</b> AI egress policy — external
+                  providers are blocked to keep data in your environment. Choose Ollama or vLLM, or change
+                  <code className="mx-1">ai.egressPolicy</code> for this deployment.</span>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <Label className="text-xs">Model <span className="text-destructive">*</span></Label>
+                <Input className="h-9 font-mono text-sm" placeholder={prov?.modelPlaceholder}
+                  value={form.model} onChange={e => setForm(f => ({ ...f, model: e.target.value }))} />
+              </div>
+            </section>
+
+            {/* ── Connection — endpoint & credentials for the chosen provider ── */}
+            {(prov?.fields.includes("api_base") || prov?.fields.includes("aws") || prov?.fields.includes("api_key")) && (
+              <section className="space-y-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Connection</div>
+
+                {prov?.fields.includes("api_base") && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">API Base URL <span className="text-destructive">*</span></Label>
+                    <Input className="h-9 font-mono text-sm"
+                      placeholder={form.provider === "ollama" ? "http://ollama.datapond.svc.cluster.local:11434" : "http://my-llm.internal:8000"}
+                      value={form.api_base} onChange={e => setForm(f => ({ ...f, api_base: e.target.value }))} />
+                  </div>
+                )}
+
+                {prov?.fields.includes("aws") && (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">AWS Region <span className="text-destructive">*</span></Label>
+                      <Input className="h-9 font-mono text-sm" placeholder="us-east-1"
+                        value={form.aws_region_name} onChange={e => setForm(f => ({ ...f, aws_region_name: e.target.value }))} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Access Key ID</Label>
+                        <SecretInput label="Access Key ID" placeholder="optional (IAM role)"
+                          value={form.aws_access_key_id} reveal={!!revealed.aws_access_key_id}
+                          onToggle={() => setRevealed(r => ({ ...r, aws_access_key_id: !r.aws_access_key_id }))}
+                          onChange={e => setForm(f => ({ ...f, aws_access_key_id: e.target.value }))} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Secret Access Key</Label>
+                        <SecretInput label="Secret Access Key" placeholder="optional"
+                          value={form.aws_secret_access_key} reveal={!!revealed.aws_secret_access_key}
+                          onToggle={() => setRevealed(r => ({ ...r, aws_secret_access_key: !r.aws_secret_access_key }))}
+                          onChange={e => setForm(f => ({ ...f, aws_secret_access_key: e.target.value }))} />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {prov?.fields.includes("api_key") && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">
+                      API Key {form.provider !== "vllm" && <span className="text-destructive">*</span>}
+                    </Label>
+                    <SecretInput label="API Key" placeholder="sk-…"
+                      value={form.api_key} reveal={!!revealed.api_key}
+                      onToggle={() => setRevealed(r => ({ ...r, api_key: !r.api_key }))}
+                      onChange={e => setForm(f => ({ ...f, api_key: e.target.value }))} />
+                  </div>
+                )}
+
+                {prov?.hint && <p className="text-[11px] text-muted-foreground">{prov.hint}</p>}
+              </section>
             )}
 
-            {prov?.hint && <p className="text-[11px] text-muted-foreground">{prov.hint}</p>}
-
-            {/* Advanced per-model params (optional) */}
+            {/* ── Limits & tuning — optional per-model params, collapsed for density ── */}
             <details className="rounded-lg border bg-muted/10 px-3 py-2">
-              <summary className="text-xs font-medium cursor-pointer select-none text-muted-foreground">Advanced parameters (optional)</summary>
+              <summary className="flex cursor-pointer select-none items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Limits &amp; tuning <span className="font-normal normal-case tracking-normal opacity-70">optional</span>
+              </summary>
               <div className="grid grid-cols-2 gap-3 pt-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs">Temperature</Label>

@@ -3,6 +3,7 @@ import { CapabilityGate } from "@/lib/capabilities"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useToast } from "@/lib/toast"
+import { useConfirm } from "@/lib/confirm"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -85,6 +86,7 @@ const RECENT_LIMIT = 10
 
 function NotebooksPageInner() {
   const { toast } = useToast()
+  const confirm = useConfirm()
   const [notebooks, setNotebooks] = useState<NotebookItem[]>([])
   const [loading, setLoading] = useState(true)
   const [jupyterStatus, setJupyterStatus] = useState<"healthy" | "unhealthy" | "unknown" | "managed">("unknown")
@@ -94,8 +96,6 @@ function NotebooksPageInner() {
   const [searchQuery, setSearchQuery] = useState("")
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [newNotebookName, setNewNotebookName] = useState("")
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
-  const [notebookToDelete, setNotebookToDelete] = useState<NotebookItem | null>(null)
   const [notebookToRename, setNotebookToRename] = useState<NotebookItem | null>(null)
   const [renamePath, setRenamePath] = useState("")
 
@@ -206,16 +206,20 @@ function NotebooksPageInner() {
     }
   }
 
-  const handleDeleteNotebook = async () => {
-    if (!notebookToDelete) return
-    setBusyAction(`delete:${notebookToDelete.path}`)
+  const handleDeleteNotebook = async (notebook: NotebookItem) => {
+    const ok = await confirm({
+      title: "Delete Notebook",
+      message: `This deletes the notebook "${notebook.name}" and cannot be undone.`,
+      destructive: true,
+      confirmText: "Delete",
+    })
+    if (!ok) return
+    setBusyAction(`delete:${notebook.path}`)
     setError(null)
     try {
-      const response = await fetch(`/api/notebooks/${notebookApiPath(notebookToDelete.path)}`, { method: "DELETE" })
+      const response = await fetch(`/api/notebooks/${notebookApiPath(notebook.path)}`, { method: "DELETE" })
       if (!response.ok) throw new Error(await apiError(response, "Failed to delete notebook"))
-      toast(`Notebook "${notebookToDelete.name}" deleted`, "success")
-      setNotebookToDelete(null)
-      setShowDeleteDialog(false)
+      toast(`Notebook "${notebook.name}" deleted`, "success")
       await fetchNotebooks()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to delete notebook")
@@ -530,10 +534,7 @@ function NotebooksPageInner() {
                     setNotebookToRename(nb)
                     setRenamePath(nb.path)
                   }}
-                  onDelete={(nb) => {
-                    setNotebookToDelete(nb)
-                    setShowDeleteDialog(true)
-                  }}
+                  onDelete={handleDeleteNotebook}
                   onDuplicate={handleDuplicateNotebook}
                   onDownload={handleDownloadNotebook}
                   busy={busyAction?.endsWith(`:${notebook.path}`) ?? false}
@@ -568,10 +569,7 @@ function NotebooksPageInner() {
                     setNotebookToRename(nb)
                     setRenamePath(nb.path)
                   }}
-                  onDelete={(nb) => {
-                    setNotebookToDelete(nb)
-                    setShowDeleteDialog(true)
-                  }}
+                  onDelete={handleDeleteNotebook}
                   onDuplicate={handleDuplicateNotebook}
                   onDownload={handleDownloadNotebook}
                   busy={busyAction?.endsWith(`:${notebook.path}`) ?? false}
@@ -662,35 +660,6 @@ function NotebooksPageInner() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Notebook</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete &quot;{notebookToDelete?.name}&quot;? This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowDeleteDialog(false)
-                setNotebookToDelete(null)
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteNotebook}
-              disabled={busyAction?.startsWith("delete:")}
-            >
-              {busyAction?.startsWith("delete:") ? "Deleting…" : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
