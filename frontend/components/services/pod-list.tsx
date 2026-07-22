@@ -1,9 +1,9 @@
 "use client"
 
-import { useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { useConfirm } from "@/lib/confirm"
 import {
   Table,
   TableBody,
@@ -12,14 +12,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   CheckCircle2,
   AlertCircle,
@@ -51,8 +43,7 @@ export function PodList({
   onDeletePod,
   onRefresh,
 }: PodListProps) {
-  const [selectedPod, setSelectedPod] = useState<Pod | null>(null)
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const confirm = useConfirm()
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -94,22 +85,20 @@ export function PodList({
     }
   }
 
-  const handleDeleteClick = (pod: Pod) => {
-    setSelectedPod(pod)
-    setShowDeleteDialog(true)
-  }
-
-  const handleDeleteConfirm = () => {
-    if (selectedPod && onDeletePod) {
-      onDeletePod(selectedPod.name)
-    }
-    setShowDeleteDialog(false)
-    setSelectedPod(null)
+  const handleDeleteClick = async (pod: Pod) => {
+    if (!onDeletePod) return
+    const ok = await confirm({
+      title: "Delete Pod",
+      message: `This deletes the pod "${pod.name}", which triggers Kubernetes to restart it. This cannot be undone.`,
+      destructive: true,
+      confirmText: "Delete Pod",
+    })
+    if (!ok) return
+    onDeletePod(pod.name)
   }
 
   return (
-    <>
-      <Card>
+    <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
@@ -203,37 +192,5 @@ export function PodList({
           )}
         </CardContent>
       </Card>
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Pod</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete this pod? This will trigger
-              Kubernetes to restart the pod.
-            </DialogDescription>
-          </DialogHeader>
-          {selectedPod && (
-            <div className="py-4">
-              <div className="font-mono text-sm bg-muted p-3 rounded">
-                {selectedPod.name}
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowDeleteDialog(false)}
-            >
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleDeleteConfirm}>
-              Delete Pod
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
   )
 }
