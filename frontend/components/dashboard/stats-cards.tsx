@@ -1,7 +1,8 @@
 "use client"
 
+import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
-import { Sparkles, Boxes, HardDrive, ShieldCheck } from "lucide-react"
+import { Sparkles, Boxes, HardDrive, ShieldCheck, ArrowUpRight } from "lucide-react"
 
 interface StatsCardsProps {
   collections: number | null
@@ -32,6 +33,7 @@ export function StatsCards({
       icon: Sparkles,
       value: fmt(collections),
       sub: "vector collections",
+      href: "/knowledge",
     },
     {
       label: "Vectors",
@@ -39,6 +41,7 @@ export function StatsCards({
       icon: Boxes,
       value: fmt(vectors),
       sub: "embedded chunks",
+      href: "/knowledge",
     },
     {
       label: "Storage",
@@ -46,6 +49,7 @@ export function StatsCards({
       icon: HardDrive,
       value: storageHuman ?? "—",
       sub: storageObjects != null ? `${storageObjects.toLocaleString()} objects · object storage` : "Object storage · Iceberg",
+      href: "/storage",
     },
     {
       label: "Workload health",
@@ -53,6 +57,7 @@ export function StatsCards({
       icon: ShieldCheck,
       value: totalServices > 0 ? `${uptimePct}%` : "—",
       sub: `${healthyServices} / ${totalServices} observed`,
+      href: "/services",
     },
   ]
 
@@ -61,17 +66,28 @@ export function StatsCards({
       {stats.map((s) => {
         const Icon = s.icon
         return (
-          <Card key={s.label}>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-[11.5px] font-medium text-muted-foreground">
-                <span className="h-1.5 w-1.5 rounded-full" style={{ background: s.dot }} />
-                <span>{s.label}</span>
-                <Icon className="ml-auto h-3.5 w-3.5 opacity-60" />
-              </div>
-              <div className="dp-num mt-2 text-[27px] font-semibold leading-none tracking-tight">{s.value}</div>
-              <p className="mt-1.5 text-[11.5px] text-muted-foreground">{s.sub}</p>
-            </CardContent>
-          </Card>
+          <Link
+            key={s.label}
+            href={s.href}
+            aria-label={`${s.label}: view details`}
+            className="group rounded-xl focus-visible:outline-none"
+          >
+            <Card className="h-full transition-colors group-hover:border-primary/40 group-hover:bg-muted/30 group-focus-visible:ring-2 group-focus-visible:ring-ring group-focus-visible:ring-offset-2">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-[11.5px] font-medium text-muted-foreground">
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: s.dot }} />
+                  <span>{s.label}</span>
+                  {/* Corner icon morphs to an arrow on hover to signal the card is navigable. */}
+                  <span className="ml-auto relative h-3.5 w-3.5 shrink-0">
+                    <Icon className="absolute inset-0 h-3.5 w-3.5 opacity-60 transition-opacity group-hover:opacity-0" />
+                    <ArrowUpRight className="absolute inset-0 h-3.5 w-3.5 text-primary opacity-0 transition-opacity group-hover:opacity-100" />
+                  </span>
+                </div>
+                <div className="dp-num mt-2 text-[27px] font-semibold leading-none tracking-tight">{s.value}</div>
+                <p className="mt-1.5 text-[11.5px] text-muted-foreground">{s.sub}</p>
+              </CardContent>
+            </Card>
+          </Link>
         )
       })}
     </div>
