@@ -1,0 +1,217 @@
+{
+  "concepts": [
+    {
+      "name": "Contract",
+      "aliases": [
+        "agreement"
+      ],
+      "parent": null,
+      "pii": false
+    },
+    {
+      "name": "Policy",
+      "aliases": [
+        "insurance policy",
+        "active policy",
+        "coverage"
+      ],
+      "parent": "Contract",
+      "pii": false
+    },
+    {
+      "name": "AutoPolicy",
+      "aliases": [
+        "auto policy",
+        "auto coverage",
+        "car insurance"
+      ],
+      "parent": "Policy",
+      "pii": false
+    },
+    {
+      "name": "HomePolicy",
+      "aliases": [
+        "homeowners policy",
+        "property insurance",
+        "home coverage",
+        "home insurance"
+      ],
+      "parent": "Policy",
+      "pii": false
+    },
+    {
+      "name": "LifePolicy",
+      "aliases": [
+        "life insurance",
+        "life policy"
+      ],
+      "parent": "Policy",
+      "pii": false
+    },
+    {
+      "name": "Coverage",
+      "aliases": [
+        "protection",
+        "cover",
+        "insurance coverage",
+        "collision coverage",
+        "liability coverage",
+        "dwelling",
+        "contents"
+      ],
+      "parent": null,
+      "pii": false
+    },
+    {
+      "name": "Premium",
+      "aliases": [
+        "monthly premium",
+        "annual premium",
+        "payment"
+      ],
+      "parent": null,
+      "pii": false
+    },
+    {
+      "name": "Deductible",
+      "aliases": [
+        "excess"
+      ],
+      "parent": null,
+      "pii": false
+    },
+    {
+      "name": "Claim",
+      "aliases": [
+        "claim form",
+        "payout",
+        "loss",
+        "life insurance claim"
+      ],
+      "parent": null,
+      "pii": false
+    },
+    {
+      "name": "Risk",
+      "aliases": [
+        "peril",
+        "fire",
+        "theft",
+        "accident"
+      ],
+      "parent": null,
+      "pii": false
+    },
+    {
+      "name": "Policyholder",
+      "aliases": [
+        "insured",
+        "homeowner"
+      ],
+      "parent": null,
+      "pii": true
+    },
+    {
+      "name": "Beneficiary",
+      "aliases": [
+        "named beneficiary"
+      ],
+      "parent": null,
+      "pii": true
+    },
+    {
+      "name": "Agent",
+      "aliases": [
+        "insurance agent",
+        "broker"
+      ],
+      "parent": null,
+      "pii": true
+    },
+    {
+      "name": "Underwriting",
+      "aliases": [
+        "underwriting review",
+        "adjuster review"
+      ],
+      "parent": null,
+      "pii": false
+    },
+    {
+      "name": "Renewal",
+      "aliases": [
+        "renewal notice",
+        "policy renewal"
+      ],
+      "parent": null,
+      "pii": false
+    }
+  ],
+  "relations": [
+    {
+      "subject": "Policyholder",
+      "predicate": "holds",
+      "object": "Policy"
+    },
+    {
+      "subject": "Agent",
+      "predicate": "sells",
+      "object": "Policy"
+    },
+    {
+      "subject": "Policy",
+      "predicate": "has",
+      "object": "Coverage"
+    },
+    {
+      "subject": "Policy",
+      "predicate": "has",
+      "object": "Premium"
+    },
+    {
+      "subject": "Policy",
+      "predicate": "has",
+      "object": "Deductible"
+    },
+    {
+      "subject": "Coverage",
+      "predicate": "covers",
+      "object": "Risk"
+    },
+    {
+      "subject": "Policyholder",
+      "predicate": "pays",
+      "object": "Premium"
+    },
+    {
+      "subject": "Premium",
+      "predicate": "paidFor",
+      "object": "Coverage"
+    },
+    {
+      "subject": "Claim",
+      "predicate": "filedAgainst",
+      "object": "Policy"
+    },
+    {
+      "subject": "Underwriting",
+      "predicate": "assesses",
+      "object": "Claim"
+    },
+    {
+      "subject": "Beneficiary",
+      "predicate": "receives",
+      "object": "Claim"
+    },
+    {
+      "subject": "LifePolicy",
+      "predicate": "has",
+      "object": "Beneficiary"
+    },
+    {
+      "subject": "Policy",
+      "predicate": "hasRenewal",
+      "object": "Renewal"
+    }
+  ]
+}

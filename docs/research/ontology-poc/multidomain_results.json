@@ -1,0 +1,20 @@
+[
+  {
+    "domain": "LEGAL",
+    "c_recall": 0.93,
+    "c_prec": 0.88,
+    "tax_prec": 0.75,
+    "rel_recall": 0.22,
+    "usable": 0.59,
+    "passed": 3
+  },
+  {
+    "domain": "HEALTHCARE",
+    "c_recall": 0.88,
+    "c_prec": 0.82,
+    "tax_prec": 0.5,
+    "rel_recall": 0.22,
+    "usable": 0.56,
+    "passed": 2
+  }
+]
