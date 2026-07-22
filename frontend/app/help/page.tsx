@@ -1,6 +1,8 @@
 "use client"
 
 import Link from "next/link"
+import { Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import type { LucideIcon } from "lucide-react"
 import { ArrowDownToLine, ArrowRight, BookOpen, Bot, Code2, Database, HardDrive, Layers, ShieldCheck, Sparkles } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,6 +17,8 @@ import {
 } from "@/components/ui/breadcrumb"
 import { useCapabilities } from "@/lib/capabilities"
 import { getProductProfile } from "@/lib/product-profile"
+import { HelpTabs } from "@/components/help/help-tabs"
+import { DocsIndex } from "@/components/docs/docs-index"
 
 type Guide = {
   title: string
@@ -101,7 +105,10 @@ const quickHelp = [
   },
 ]
 
-export default function HelpPage() {
+// The Guides half of the Help workspace — the task-oriented hub. Rendered in the
+// default (?tab omitted) panel; the guide article pages (/help/catalog, etc.)
+// remain separate routes reached from the cards below.
+function GuidesHub() {
   const caps = useCapabilities()
   const profile = getProductProfile(caps)
   // Guides explain setup and troubleshooting even when their optional product
@@ -109,83 +116,91 @@ export default function HelpPage() {
   const visibleGuides = guides
 
   return (
-    <div className="flex-1 space-y-6 p-8 pt-6">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem><BreadcrumbLink href="/dashboard">Home</BreadcrumbLink></BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem><BreadcrumbPage>Guides</BreadcrumbPage></BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">{profile.label}</p>
-        <h1 className="mt-1 text-3xl font-bold tracking-tight">Guides</h1>
-        <p className="mt-2 text-muted-foreground">Follow the core AI workflow first; add data-plane modules only when the use case requires them.</p>
+    <div className="flex flex-col">
+      {/* Workspace top bar — same height as the Documentation index bar so
+          switching tabs keeps the chrome steady. */}
+      <div className="flex items-center gap-1.5 border-b px-3 h-11 shrink-0 bg-background">
+        <HelpTabs active="guides" />
       </div>
 
-      <Card className="border-primary/20 bg-primary/5">
-        <CardContent className="flex flex-wrap items-start justify-between gap-4 py-4">
-          <div className="flex gap-3">
-            <Layers className="mt-0.5 h-5 w-5 text-primary" />
-            <div>
-              <p className="text-sm font-semibold">Current profile: {profile.label}</p>
-              <p className="text-xs text-muted-foreground">{profile.description}</p>
-            </div>
-          </div>
-          <Link href="/docs/profiles" className="text-sm font-medium text-primary hover:underline">Compare profiles →</Link>
-        </CardContent>
-      </Card>
+      <div className="flex-1 space-y-6 p-8 pt-6">
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem><BreadcrumbLink href="/dashboard">Home</BreadcrumbLink></BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem><BreadcrumbPage>Guides</BreadcrumbPage></BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
 
-      <section className="space-y-3">
-        <h2 className="text-xl font-bold">Available workflows</h2>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {visibleGuides.map((guide) => {
-            const Icon = guide.icon
-            return (
-              <Link key={guide.href} href={guide.href}>
-                <Card className="group h-full transition-all hover:-translate-y-0.5 hover:shadow-md">
-                  <CardHeader>
-                    <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                      <Icon className="h-5 w-5 text-primary" />
-                    </div>
-                    <CardTitle className="flex items-center justify-between text-base">
-                      {guide.title}<ArrowRight className="h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100" />
-                    </CardTitle>
-                    <CardDescription>{guide.description}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex flex-wrap gap-1.5">
-                    {guide.topics.map((topic) => <Badge key={topic} variant="secondary" className="text-xs">{topic}</Badge>)}
-                  </CardContent>
-                </Card>
-              </Link>
-            )
-          })}
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">{profile.label}</p>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight">Guides</h1>
+          <p className="mt-2 text-muted-foreground">Follow the core AI workflow first; add data-plane modules only when the use case requires them.</p>
         </div>
-      </section>
 
-      <section className="space-y-3">
-        <h2 className="text-xl font-bold">Quick help</h2>
-        <Card>
-          <CardContent className="divide-y p-0">
-            {quickHelp.map((item) => (
-              <Link key={item.question} href={item.href} className="group flex items-start justify-between gap-4 p-4 hover:bg-muted/50">
-                <div>
-                  <h3 className="font-medium group-hover:text-primary">{item.question}</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">{item.answer}</p>
-                </div>
-                <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
-              </Link>
-            ))}
+        <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="flex flex-wrap items-start justify-between gap-4 py-4">
+            <div className="flex gap-3">
+              <Layers className="mt-0.5 h-5 w-5 text-primary" />
+              <div>
+                <p className="text-sm font-semibold">Current profile: {profile.label}</p>
+                <p className="text-xs text-muted-foreground">{profile.description}</p>
+              </div>
+            </div>
+            <Link href="/docs/profiles" className="text-sm font-medium text-primary hover:underline">Compare profiles →</Link>
           </CardContent>
         </Card>
-      </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <Link href="/docs"><Resource icon={BookOpen} title="Documentation" description="Concepts, profiles, portability, and operations" /></Link>
-        <Link href="/storage"><Resource icon={HardDrive} title="Storage" description="Inspect configured objects and usage" /></Link>
-        <Link href="/services"><Resource icon={Layers} title="Services" description="Check workloads and external dependencies" /></Link>
-      </section>
+        <section className="space-y-3">
+          <h2 className="text-xl font-bold">Available workflows</h2>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {visibleGuides.map((guide) => {
+              const Icon = guide.icon
+              return (
+                <Link key={guide.href} href={guide.href}>
+                  <Card className="group h-full transition-all hover:-translate-y-0.5 hover:shadow-md">
+                    <CardHeader>
+                      <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                        <Icon className="h-5 w-5 text-primary" />
+                      </div>
+                      <CardTitle className="flex items-center justify-between text-base">
+                        {guide.title}<ArrowRight className="h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100" />
+                      </CardTitle>
+                      <CardDescription>{guide.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex flex-wrap gap-1.5">
+                      {guide.topics.map((topic) => <Badge key={topic} variant="secondary" className="text-xs">{topic}</Badge>)}
+                    </CardContent>
+                  </Card>
+                </Link>
+              )
+            })}
+          </div>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-xl font-bold">Quick help</h2>
+          <Card>
+            <CardContent className="divide-y p-0">
+              {quickHelp.map((item) => (
+                <Link key={item.question} href={item.href} className="group flex items-start justify-between gap-4 p-4 hover:bg-muted/50">
+                  <div>
+                    <h3 className="font-medium group-hover:text-primary">{item.question}</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">{item.answer}</p>
+                  </div>
+                  <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                </Link>
+              ))}
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="grid gap-4 md:grid-cols-3">
+          <Link href="/help?tab=docs"><Resource icon={BookOpen} title="Documentation" description="Concepts, profiles, portability, and operations" /></Link>
+          <Link href="/storage"><Resource icon={HardDrive} title="Storage" description="Inspect configured objects and usage" /></Link>
+          <Link href="/services"><Resource icon={Layers} title="Services" description="Check workloads and external dependencies" /></Link>
+        </section>
+      </div>
     </div>
   )
 }
@@ -201,5 +216,21 @@ function Resource({ icon: Icon, title, description }: { icon: LucideIcon; title:
         <CardDescription>{description}</CardDescription>
       </CardHeader>
     </Card>
+  )
+}
+
+// Help workspace — one entry, two tabs. ?tab=docs selects the Documentation
+// index; anything else is the task-oriented Guides hub. Help is not
+// capability-gated, so there is no CapabilityGate here.
+function HelpWorkspace() {
+  const tab = useSearchParams().get("tab")
+  return tab === "docs" ? <DocsIndex /> : <GuidesHub />
+}
+
+export default function HelpPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading…</div>}>
+      <HelpWorkspace />
+    </Suspense>
   )
 }

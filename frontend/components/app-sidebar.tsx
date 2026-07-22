@@ -1,8 +1,8 @@
 "use client"
 
 import {
-  Home, Database, FlaskConical, Settings, Activity,
-  BarChart3, BookOpen, HelpCircle, FileCode,
+  Home, Database, FlaskConical, Settings,
+  BarChart3, HelpCircle, FileCode,
   HardDrive, Radio, ArrowDownToLine, ShieldCheck, LogOut, User, GitBranch, Server,
   Sparkles, Bot,
 } from "lucide-react"
@@ -61,31 +61,39 @@ const mainSections: NavSection[] = [
     ],
   },
   {
-    label: "Add-ons",
-    hint: "Capability-gated data and ML workloads",
+    label: "Pipelines",
+    hint: "Optional transform and streaming workloads",
     items: [
-      { title: "Transforms",  url: "/pipelines",   icon: GitBranch,      capability: "pipelines" },
-      { title: "Streaming",   url: "/streaming",   icon: Radio,          capability: "streaming" },
-      { title: "Notebooks",   url: "/notebooks",   icon: FileCode,       capability: "notebooks" },
-      { title: "Experiments", url: "/experiments", icon: FlaskConical,   capability: "experiments" },
+      { title: "Transforms", url: "/pipelines", icon: GitBranch, capability: "pipelines" },
+      { title: "Streaming",  url: "/streaming", icon: Radio,     capability: "streaming" },
+    ],
+  },
+  {
+    label: "Data Science",
+    hint: "Optional notebooks and ML tracking",
+    items: [
+      { title: "Notebooks",   url: "/notebooks",   icon: FileCode,     capability: "notebooks" },
+      { title: "Experiments", url: "/experiments", icon: FlaskConical, capability: "experiments" },
     ],
   },
   {
     label: "Operate",
     hint: "Govern and run the foundation",
     items: [
-      { title: "Governance", url: "/governance", icon: ShieldCheck },
-      { title: "Storage",    url: "/storage",    icon: HardDrive },
-      { title: "Services",   url: "/services",   icon: Activity },
-      { title: "System",     url: "/system",     icon: Server },
-      { title: "Settings",   url: "/settings",   icon: Settings, adminOnly: true },
+      { title: "Governance",     url: "/governance", icon: ShieldCheck },
+      { title: "Storage",        url: "/storage",    icon: HardDrive },
+      // Infrastructure = Services (workloads/adapters) + System (node) as one
+      // workspace at /services with tabs; /system redirects into it.
+      { title: "Infrastructure", url: "/services",   icon: Server },
+      { title: "Settings",       url: "/settings",   icon: Settings, adminOnly: true },
     ],
   },
 ]
 
+// Help = Guides + Documentation as one workspace at /help with tabs; /docs
+// redirects into it.
 const bottomItems = [
-  { title: "Documentation", url: "/docs",  icon: BookOpen },
-  { title: "Guides",        url: "/help",  icon: HelpCircle },
+  { title: "Help", url: "/help", icon: HelpCircle },
 ]
 
 export function AppSidebar() {
