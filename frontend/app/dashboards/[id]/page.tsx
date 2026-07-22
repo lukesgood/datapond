@@ -147,7 +147,7 @@ export default function DashboardViewPage() {
       setDeleting(true)
       await dashboardApi.delete(dashboardId)
       toast("Dashboard deleted successfully!", "success")
-      router.push("/dashboards")
+      router.push("/query?tab=dashboards")
     } catch (err) {
       toast(err instanceof Error ? err.message : "Failed to delete dashboard", "error")
       setDeleting(false)
@@ -194,7 +194,7 @@ export default function DashboardViewPage() {
           <CardContent className="py-12">
             <div className="text-center space-y-3">
               <p className="text-destructive">{error || "Dashboard not found"}</p>
-              <Button onClick={() => router.push("/dashboards")} variant="outline">
+              <Button onClick={() => router.push("/query?tab=dashboards")} variant="outline">
                 Back to Dashboards
               </Button>
             </div>
@@ -214,7 +214,7 @@ export default function DashboardViewPage() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbLink href="/dashboards">Dashboards</BreadcrumbLink>
+            <BreadcrumbLink href="/query?tab=dashboards">Dashboards</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
@@ -310,7 +310,7 @@ export default function DashboardViewPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => router.push("/dashboards")}
+              onClick={() => router.push("/query?tab=dashboards")}
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back

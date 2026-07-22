@@ -1,7 +1,7 @@
 "use client"
 
 import {
-  Home, Database, FlaskConical, Code2, Settings, Activity,
+  Home, Database, FlaskConical, Settings, Activity,
   BarChart3, BookOpen, HelpCircle, FileCode,
   HardDrive, Radio, ArrowDownToLine, ShieldCheck, LogOut, User, GitBranch, Server,
   Sparkles, Bot,
@@ -55,9 +55,9 @@ const mainSections: NavSection[] = [
     label: "Data",
     hint: "Optional ingestion, catalog, and query adapters",
     items: [
-      { title: "Sources", url: "/connectors", icon: ArrowDownToLine, capability: "connectors" },
-      { title: "Catalog", url: "/catalog",    icon: Database,        capability: "catalog" },
-      { title: "SQL Lab", url: "/query",      icon: Code2,           capability: "query" },
+      { title: "Sources",   url: "/connectors", icon: ArrowDownToLine, capability: "connectors" },
+      { title: "Catalog",   url: "/catalog",    icon: Database,        capability: "catalog" },
+      { title: "Analytics", url: "/query",      icon: BarChart3,       capability: "query" },
     ],
   },
   {
@@ -66,7 +66,6 @@ const mainSections: NavSection[] = [
     items: [
       { title: "Transforms",  url: "/pipelines",   icon: GitBranch,      capability: "pipelines" },
       { title: "Streaming",   url: "/streaming",   icon: Radio,          capability: "streaming" },
-      { title: "Dashboards",  url: "/dashboards",  icon: BarChart3,      capability: "dashboards" },
       { title: "Notebooks",   url: "/notebooks",   icon: FileCode,       capability: "notebooks" },
       { title: "Experiments", url: "/experiments", icon: FlaskConical,   capability: "experiments" },
     ],
