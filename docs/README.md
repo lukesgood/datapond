@@ -7,6 +7,9 @@
 | 문서 | 목적 |
 |---|---|
 | [PRODUCT_CONCEPT.md](PRODUCT_CONCEPT.md) | 대상 사용자, 가치 제안, 제품 경계, 경쟁 기준 |
+| [CONCEPT_RECONFIRMATION.md](CONCEPT_RECONFIRMATION.md) | v6 방향 결정 노트 (에이전트 governed 데이터 접근 계층 · 수요 게이트) |
+| [OPERATIONS_PAUSE.md](OPERATIONS_PAUSE.md) | 라이브 환경 중지 상태·재시작 절차 (2026-07) |
+| [ONTOLOGY_FEASIBILITY_REPORT.md](ONTOLOGY_FEASIBILITY_REPORT.md) | 온톨로지 실현가능성·가치 5개 실험 검증 리포트 (연구 기록) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Portable Core, 어댑터 계약, optional add-on 구조 |
 | [DEPLOYMENT_PROFILES.md](DEPLOYMENT_PROFILES.md) | Helm 프로필별 실제 구성과 선택 기준 |
 | [FOUNDATION_PROFILE.md](FOUNDATION_PROFILE.md) | `values-foundation.yaml` Portable Core · AWS starter 상세 |
