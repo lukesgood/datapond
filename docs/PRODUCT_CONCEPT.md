@@ -2,6 +2,10 @@
 
 **버전:** 5.0 · **상태:** 현재 제품 기준 · **갱신:** 2026-07-16
 
+> **재확정 진행 중 (2026-07):** 운영 중지 기간에 v6 방향(에이전트·AI 앱의 governed
+> 데이터 접근 계층)이 제안되었다 — `CONCEPT_RECONFIRMATION.md` 참조. 수요 게이트
+> 통과 전까지 본 v5.0이 현행 기준으로 유지된다.
+
 ## 한 문장
 
 > **DataPond는 governed RAG와 AI agent 데이터 경로를 제공하면서 저장소·벡터 DB·모델·배포 환경을 교체 가능하게 유지하는 Portable AI Data Foundation이다.**

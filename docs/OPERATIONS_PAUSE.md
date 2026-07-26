@@ -96,6 +96,10 @@ Notes on restart:
 
 ## Concept status (what "re-confirm" means)
 
+> **Update 2026-07-27:** re-confirmation completed as a decision note — see
+> `CONCEPT_RECONFIRMATION.md` (v6 direction: governed data-access layer for agents/AI apps,
+> demo-armed demand validation, ontology demand-gated). Restart is gated on §5.2 of that note.
+
 Re-confirmation covers the open strategic questions surfaced this cycle:
 - **Positioning** — lead with governance + portability (not "AI Data Foundation" breadth, not RAG).
 - **Ontology scope** — validated as a *governance + relationship + jargon-vertical* play, **not**
