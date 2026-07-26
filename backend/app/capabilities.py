@@ -56,6 +56,8 @@ def compute_capabilities(env: Mapping) -> dict:
         "notebooks": _feat(env, "JUPYTER"),
         "lineage": _feat(env, "OPENMETADATA"),  # governance sub-tab (nav stays core)
         "rls": _feat(env, "RLS", default=False),
+        # Phase 0 ontology slice: concept store + opt-in query expansion. Fail-closed.
+        "ontology": _feat(env, "ONTOLOGY", default=False),
         # Non-boolean UI hints (safe extras — nav gating ignores these):
         "query_engine": query_engine,      # "athena" | "trino"
         "query_catalog": query_catalog,    # catalog prefix for fully-qualified names

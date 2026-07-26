@@ -262,6 +262,9 @@ spec:
           value: {{ (.Values.catalog | default dict).backend | default "polaris" | quote }}
         - name: GLUE_WAREHOUSE
           value: {{ (.Values.catalog | default dict).glueWarehouse | default "" | quote }}
+        # Phase 0 ontology slice (concept store + opt-in query expansion). Fail-closed.
+        - name: FEATURE_ONTOLOGY
+          value: {{ ((.Values.ontology | default dict).enabled | default false) | quote }}
         # Query engine (slice 2): Athena on the glue profile, else Trino. Derived from catalog.backend.
         - name: FEATURE_ATHENA
           value: "{{ if eq ((.Values.catalog | default dict).backend | default "polaris") "glue" }}true{{ else }}false{{ end }}"

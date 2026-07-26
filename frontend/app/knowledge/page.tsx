@@ -322,27 +322,35 @@ function renderCitedAnswer(text: string) {
   })
 }
 
+// Concepts the backend expanded the query with (Phase 0 ontology slice).
+interface ConceptUse { name: string; pii?: boolean; added?: string[] }
+
 function SearchPanel({ name }: { name: string }) {
   const [q, setQ] = useState(""); const [mode, setMode] = useState<"search" | "rag">("rag")
   const [busy, setBusy] = useState(false); const [ans, setAns] = useState<string | null>(null)
   const [hits, setHits] = useState<Hit[]>([]); const [e, setE] = useState<string | null>(null)
   const [pii, setPii] = useState(0); const [hasAi, setHasAi] = useState(true)
+  // Concept expansion — opt-in, only offered when the ontology capability is on.
+  const ontologyEnabled = useCapability("ontology")
+  const [expand, setExpand] = useState(false)
+  const [concepts, setConcepts] = useState<ConceptUse[]>([])
   const run = async () => {
     if (!q.trim()) return
-    setBusy(true); setE(null); setAns(null); setHits([]); setPii(0); setHasAi(true)
+    setBusy(true); setE(null); setAns(null); setHits([]); setPii(0); setHasAi(true); setConcepts([])
+    const expandOn = ontologyEnabled && expand
     try {
       if (mode === "rag") {
         const r = await fetch("/api/ai/rag", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ collection: name, question: q, k: 5 }) })
+          body: JSON.stringify({ collection: name, question: q, k: 5, expand_concepts: expandOn }) })
         if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
         // has_ai=false ⇒ no model configured or the LLM call failed; the backend
         // returns search results only. Don't present that as a real answer.
-        const d = await r.json(); setAns(d.answer); setHits(d.citations || []); setPii(d.pii_masked || 0); setHasAi(d.has_ai !== false)
+        const d = await r.json(); setAns(d.answer); setHits(d.citations || []); setPii(d.pii_masked || 0); setHasAi(d.has_ai !== false); setConcepts(d.concepts || [])
       } else {
         const r = await fetch("/api/ai/search", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ collection: name, query: q, k: 8 }) })
+          body: JSON.stringify({ collection: name, query: q, k: 8, expand_concepts: expandOn }) })
         if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-        const d = await r.json(); setHits(d.results || []); setPii(d.pii_masked || 0)
+        const d = await r.json(); setHits(d.results || []); setPii(d.pii_masked || 0); setConcepts(d.concepts || [])
       }
     } catch (error) { setE(error instanceof Error ? error.message : "Search failed") }
     setBusy(false)
@@ -359,12 +367,31 @@ function SearchPanel({ name }: { name: string }) {
               {m === "rag" ? "RAG" : "Search"}</button>
           ))}
         </div>
+        {ontologyEnabled && (
+          <button onClick={() => setExpand(x => !x)} aria-pressed={expand}
+            title="Expand the query with curated concept synonyms/jargon before retrieval"
+            className={`flex items-center gap-1 rounded-md border px-2.5 text-xs transition-colors ${expand ? "border-primary/50 bg-primary/10 text-primary" : "bg-background text-muted-foreground hover:text-foreground"}`}>
+            <Sparkles className="h-3 w-3" />Concepts
+          </button>
+        )}
         <Button onClick={run} disabled={!q.trim() || busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}</Button>
       </div>
       {/* PII signal stands alone only for Search (no answer); for a RAG answer it
           folds into the answer's trust bar so governance reads in one place. */}
       {pii > 0 && !(ans && hasAi) && (
         <div className="text-[11px] text-[var(--dp-good)] flex items-center gap-1"><ShieldCheck className="h-3 w-3" />{pii} PII item(s) masked before processing (guardrail)</div>
+      )}
+      {/* Search mode has no trust bar — show which concepts widened the query here. */}
+      {concepts.length > 0 && !(ans && hasAi) && (
+        <div className="flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+          expanded via
+          {concepts.map(c => (
+            <span key={c.name} title={`+${(c.added || []).join(", ") || "—"}`}
+              className={`inline-flex items-center gap-0.5 rounded px-1 py-px text-[10px] font-medium ${c.pii ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]" : "bg-primary/10 text-primary"}`}>
+              {c.name}{c.pii && <ShieldCheck className="h-2.5 w-2.5" />}
+            </span>
+          ))}
+        </div>
       )}
       {e && <ErrorBox msg={e} />}
 
@@ -386,6 +413,16 @@ function SearchPanel({ name }: { name: string }) {
                   <span className="flex items-center gap-1"><FileText className="h-3 w-3" /><span className="dp-num font-medium text-foreground">{hits.length}</span>&nbsp;source{hits.length === 1 ? "" : "s"}</span>
                   {pii > 0 && <span className="flex items-center gap-1 text-[var(--dp-good)]"><ShieldCheck className="h-3 w-3" /><span className="dp-num font-medium">{pii}</span>&nbsp;PII masked</span>}
                   {reranked && <span className="flex items-center gap-1 text-primary"><Sparkles className="h-3 w-3" />reranked</span>}
+                  {concepts.length > 0 && (
+                    <span className="flex items-center gap-1" title={concepts.map(c => `${c.name}: +${(c.added || []).join(", ") || "—"}`).join("\n")}>
+                      expanded via
+                      {concepts.map(c => (
+                        <span key={c.name} className={`inline-flex items-center gap-0.5 rounded px-1 py-px text-[10px] font-medium ${c.pii ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]" : "bg-primary/10 text-primary"}`}>
+                          {c.name}{c.pii && <ShieldCheck className="h-2.5 w-2.5" />}
+                        </span>
+                      ))}
+                    </span>
+                  )}
                 </div>
               </CardContent>
             </div>

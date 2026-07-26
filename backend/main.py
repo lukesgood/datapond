@@ -36,6 +36,7 @@ from app.api.transforms import router as transforms_router
 from app.api.ai_sql import router as ai_sql_router
 from app.api.ai_backends import router as ai_backends_router
 from app.api.ai_vectors import router as ai_vectors_router
+from app.api.ontology import router as ontology_router
 from app.api.system_settings import router as system_settings_router, load_settings_on_startup
 from app.api.governance import router as governance_router
 from app.api.maintenance import router as maintenance_router, deploy_maintenance_dag
@@ -215,6 +216,16 @@ async def startup():
     except Exception as e:
         logger.warning(f"[startup] pgvector schema skipped: {e}")
 
+    # Ontology concept store (Phase 0 slice) — only when the capability is enabled
+    try:
+        from app.api.ontology import ensure_ontology_schema, ontology_enabled
+        if ontology_enabled():
+            from app.api.connectors import get_db_pool
+            await ensure_ontology_schema(await get_db_pool())
+            logger.info("[startup] ontology concept store ready")
+    except Exception as e:
+        logger.warning(f"[startup] ontology schema skipped: {e}")
+
     # RAG freshness scheduler — periodic re-embedding of scheduled collections
     # (Airflow-free; multi-replica safe via pg advisory lock).
     try:
@@ -281,6 +292,7 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(transforms_router, prefix="/api")
 app.include_router(ai_sql_router, prefix="/api")
 app.include_router(ai_vectors_router, prefix="/api")
+app.include_router(ontology_router, prefix="/api")
 app.include_router(ai_backends_router, prefix="/api")
 app.include_router(system_settings_router, prefix="/api")
 app.include_router(governance_router, prefix="/api")
