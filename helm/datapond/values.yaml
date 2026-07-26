@@ -11,6 +11,12 @@ product:
     maturity: community
     topology: kubernetes
 
+# Phase 0 ontology slice: concept store + opt-in query expansion on /ai/search
+# and /ai/rag. Fail-closed; demo/design-partner validation feature — see
+# docs/CONCEPT_RECONFIRMATION.md §5. No extra pods; lives in the shared Postgres.
+ontology:
+  enabled: false
+
 # Email delivery for password reset (AWS SES). fromAddress MUST be a verified SES sender
 # identity; baseUrl is the public origin used in reset links. Empty ⇒ the forgot-password
 # flow stays wired but sends no email (returns the generic 200). Needs ses:SendEmail on the

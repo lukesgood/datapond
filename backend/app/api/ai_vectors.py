@@ -235,12 +235,15 @@ class SearchRequest(BaseModel):
     collection: str
     query: str
     k: int = 5
+    # Phase 0 ontology slice: opt-in concept expansion (no-op unless FEATURE_ONTOLOGY).
+    expand_concepts: bool = False
 
 
 class RagRequest(BaseModel):
     collection: str
     question: str
     k: int = 5
+    expand_concepts: bool = False
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────────
@@ -699,9 +702,17 @@ async def search(req: SearchRequest, user: dict = Depends(require_user)):
     q_text, q_find, q_block = _guard(req.query)
     if q_block:
         raise HTTPException(400, "Query blocked by PII guardrail (PII_GUARDRAIL_MODE=block).")
+    # Optional concept expansion AFTER the PII guard (expansion terms are curated
+    # vocabulary, never user PII). Retrieval sees the expanded text; the response
+    # reports which concepts fired so the UI can show them (incl. PII-tagged ones).
+    concepts_used: list = []
+    if req.expand_concepts:
+        from app.api.ontology import expand_for_query
+        q_text, concepts_used = await expand_for_query(q_text)
     results, r_masked = await _retrieve(req.collection, q_text, req.k, user)
     return {"collection": req.collection, "query": req.query,
             "pii_masked": len(q_find) + r_masked,
+            "concepts": concepts_used,
             "results": results}
 
 
@@ -721,11 +732,18 @@ async def rag(req: RagRequest, user: dict = Depends(require_user)):
         return {"answer": "The question contains detected personal information (PII) and was blocked (PII_GUARDRAIL_MODE=block).",
                 "citations": [], "has_ai": False, "pii_masked": len(q_find)}
 
-    hits, r_masked = await _retrieve(req.collection, q_text, req.k, user)
+    # Optional concept expansion — retrieval sees the expanded text, the LLM keeps
+    # the user's original question (cleaner answers, expansion only widens recall).
+    r_text, concepts_used = q_text, []
+    if req.expand_concepts:
+        from app.api.ontology import expand_for_query
+        r_text, concepts_used = await expand_for_query(q_text)
+    hits, r_masked = await _retrieve(req.collection, r_text, req.k, user)
     pii_masked = len(q_find) + r_masked
     if not hits:
         return {"answer": "No relevant documents found. (Collection is empty or has no related content.)",
-                "citations": [], "has_ai": False, "pii_masked": pii_masked}
+                "citations": [], "has_ai": False, "pii_masked": pii_masked,
+                "concepts": concepts_used}
 
     context = "\n\n".join(
         f"[{i+1}] (source: {h['source'] or 'n/a'})\n{h['content']}" for i, h in enumerate(hits)
@@ -765,11 +783,13 @@ async def rag(req: RagRequest, user: dict = Depends(require_user)):
                                    **actor_payload("ai_rag")})
         if r.status_code >= 400:
             return {"answer": f"(LLM call failed: {r.status_code}) Returning search results only.",
-                    "citations": hits, "has_ai": False, "pii_masked": pii_masked}
+                    "citations": hits, "has_ai": False, "pii_masked": pii_masked,
+                    "concepts": concepts_used}
         answer = r.json()["choices"][0]["message"]["content"].strip()
     except Exception as e:
         logger.warning(f"[ai_vectors] rag chat failed: {e}")
         return {"answer": "(LLM not configured/error) Returning search results only.", "citations": hits,
-                "has_ai": False, "pii_masked": pii_masked}
+                "has_ai": False, "pii_masked": pii_masked, "concepts": concepts_used}
 
-    return {"answer": answer, "citations": hits, "has_ai": True, "pii_masked": pii_masked}
+    return {"answer": answer, "citations": hits, "has_ai": True, "pii_masked": pii_masked,
+            "concepts": concepts_used}
