@@ -17,3 +17,10 @@ Corpora + hand-built gold are inline in each script. `emb_cache.json` (regenerab
 committed. Run: `python3 <script>.py`.
 
 NOTE: research/decision artifacts — NOT shipped product code.
+
+## demo/ — design-partner demo assets (Phase 0 slice)
+
+`demo/medical_billing_concepts.json` (jargon concept pack for /ai/concepts/import),
+`demo/DEMO_RUNBOOK.md` (full side-by-side demo procedure), `demo/verify_demo.py`
+(pre-demo assertion that every runbook query fires its intended concept — run it
+after ANY pack edit).

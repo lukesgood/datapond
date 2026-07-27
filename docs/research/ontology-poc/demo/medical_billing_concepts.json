@@ -1,0 +1,122 @@
+{
+  "concepts": [
+    {
+      "name": "UB-04",
+      "description": "Institutional (hospital/facility) claim form, also CMS-1450.",
+      "pii": false,
+      "aliases": [
+        "ub04",
+        "ub 04",
+        "cms-1450",
+        "institutional claim form",
+        "hospital inpatient bill",
+        "facility claim form",
+        "inpatient bill",
+        "hospital claim",
+        "facility claim"
+      ]
+    },
+    {
+      "name": "CMS-1500",
+      "description": "Professional (physician/outpatient) claim form.",
+      "pii": false,
+      "aliases": [
+        "cms1500",
+        "hcfa-1500",
+        "professional claim form",
+        "physician outpatient bill",
+        "professional billing form"
+      ]
+    },
+    {
+      "name": "CPT-99213",
+      "description": "Office visit, established patient, low complexity.",
+      "pii": false,
+      "aliases": [
+        "99213",
+        "standard office visit",
+        "routine short visit",
+        "level 3 office visit"
+      ]
+    },
+    {
+      "name": "CPT-99215",
+      "description": "Office visit, established patient, high complexity.",
+      "pii": false,
+      "aliases": [
+        "99215",
+        "complex office visit",
+        "long complex consultation",
+        "level 5 office visit"
+      ]
+    },
+    {
+      "name": "EOB",
+      "description": "Explanation of Benefits statement sent to the member.",
+      "pii": false,
+      "aliases": [
+        "eob",
+        "explanation of benefits",
+        "benefit statement"
+      ]
+    },
+    {
+      "name": "ERA",
+      "description": "Electronic Remittance Advice (835) sent to the provider.",
+      "pii": false,
+      "aliases": [
+        "era",
+        "835",
+        "electronic remittance advice",
+        "remittance",
+        "payment posting",
+        "electronic payment",
+        "remittance advice"
+      ]
+    },
+    {
+      "name": "PriorAuthorization",
+      "description": "Payer approval required before a service is rendered.",
+      "pii": false,
+      "aliases": [
+        "prior auth",
+        "pre-authorization",
+        "preauth",
+        "pre-certification",
+        "precert",
+        "approval",
+        "pre-approval",
+        "authorization"
+      ]
+    },
+    {
+      "name": "Deductible",
+      "description": "Amount the member pays before coverage applies.",
+      "pii": false,
+      "aliases": [
+        "excess",
+        "annual deductible"
+      ]
+    },
+    {
+      "name": "Member",
+      "description": "The insured person; personal identifiers attach here.",
+      "pii": true,
+      "aliases": [
+        "insured",
+        "policyholder",
+        "subscriber",
+        "patient"
+      ]
+    },
+    {
+      "name": "NPI",
+      "description": "National Provider Identifier — identifies a specific provider (personal identifier).",
+      "pii": true,
+      "aliases": [
+        "national provider identifier",
+        "provider id"
+      ]
+    }
+  ]
+}
