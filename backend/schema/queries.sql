@@ -16,6 +16,10 @@ CREATE TABLE IF NOT EXISTS query_history (
     catalog VARCHAR(128),
     schema VARCHAR(128),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Who wrote this statement. AI-generated SQL must be separable from what a
+    -- person typed: the relationship graph mines this table, and counting the
+    -- assistant's own joins as evidence would launder a guess into a fact.
+    origin VARCHAR(16) NOT NULL DEFAULT 'ui',
 
     CONSTRAINT check_status CHECK (status IN ('success', 'error', 'timeout', 'cancelled'))
 );

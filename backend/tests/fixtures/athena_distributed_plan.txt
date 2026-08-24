@@ -1,0 +1,73 @@
+Fragment 0 [SINGLE]
+    Output layout: [tier, count, sum]
+    Output partitioning: SINGLE []
+    Output[columnNames = [tier, n, total]]
+    │   Layout: [tier:varchar, count:bigint, sum:double]
+    │   Estimates: {rows: ? (?), cpu: 0, memory: 0B, network: 0B}
+    │   n := count
+    │   total := sum
+    └─ RemoteMerge[sourceFragmentIds = [1]]
+           Layout: [tier:varchar, count:bigint, sum:double]
+
+Fragment 1 [ROUND_ROBIN]
+    Output layout: [tier, count, sum]
+    Output partitioning: SINGLE []
+    LocalMerge[orderBy = [sum DESC NULLS LAST]]
+    │   Layout: [tier:varchar, count:bigint, sum:double]
+    │   Estimates: {rows: ? (?), cpu: 0, memory: 0B, network: 0B}
+    └─ PartialSort[orderBy = [sum DESC NULLS LAST]]
+       │   Layout: [tier:varchar, count:bigint, sum:double]
+       │   Estimates: {rows: ? (?), cpu: 0, memory: 0B, network: 0B}
+       └─ RemoteSource[sourceFragmentIds = [2]]
+              Layout: [tier:varchar, count:bigint, sum:double]
+
+Fragment 2 [HASH]
+    Output layout: [tier, count, sum]
+    Output partitioning: ROUND_ROBIN []
+    Aggregate[type = FINAL, keys = [tier]]
+    │   Layout: [tier:varchar, count:bigint, sum:double]
+    │   Estimates: {rows: ? (?), cpu: ?, memory: ?, network: 0B}
+    │   count := count("count_3")
+    │   sum := sum("sum_4")
+    └─ LocalExchange[partitioning = HASH, arguments = ["tier"]]
+       │   Layout: [tier:varchar, count_3:bigint, sum_4:row(double, bigint)]
+       │   Estimates: {rows: ? (?), cpu: ?, memory: 0B, network: 0B}
+       └─ RemoteSource[sourceFragmentIds = [3]]
+              Layout: [tier:varchar, count_3:bigint, sum_4:row(double, bigint)]
+
+Fragment 3 [SOURCE]
+    Output layout: [tier, count_3, sum_4]
+    Output partitioning: HASH [tier]
+    Aggregate[type = PARTIAL, keys = [tier]]
+    │   Layout: [tier:varchar, count_3:bigint, sum_4:row(double, bigint)]
+    │   Estimates: {rows: ? (?), cpu: ?, memory: ?, network: 0B}
+    │   count_3 := count(*)
+    │   sum_4 := sum("amt")
+    └─ InnerJoin[criteria = ("cust_id" = "cust_id_0"), distribution = REPLICATED]
+       │   Layout: [amt:double, tier:varchar]
+       │   Estimates: {rows: ? (?), cpu: ?, memory: ?, network: 0B}
+       │   Distribution: REPLICATED
+       │   dynamicFilterAssignments = {cust_id_0 -> #df_579}
+       ├─ ScanFilterProject[table = awsdatacatalog$iceberg-aws:planlab.orders$data@6528223484469227776, filterPredicate = ("region" = VARCHAR 'us'), dynamicFilters = {"cust_id" = #df_579}, projectLocality = LOCAL, protectedBarrier = NONE]
+       │      Layout: [cust_id:integer, amt:double]
+       │      Estimates: {rows: ? (?), cpu: ?, memory: 0B, network: 0B}/{rows: ? (?), cpu: ?, memory: 0B, network: 0B}/{rows: ? (?), cpu: ?, memory: 0B, network: 0B}
+       │      amt := 4:amt:double
+       │      region := 2:region:varchar
+       │      cust_id := 3:cust_id:integer
+       └─ LocalExchange[partitioning = HASH, arguments = ["cust_id_0"]]
+          │   Layout: [cust_id_0:integer, tier:varchar]
+          │   Estimates: {rows: ? (?), cpu: ?, memory: 0B, network: 0B}
+          └─ RemoteSource[sourceFragmentIds = [4]]
+                 Layout: [cust_id_0:integer, tier:varchar]
+
+Fragment 4 [SOURCE]
+    Output layout: [cust_id_0, tier]
+    Output partitioning: BROADCAST []
+    TableScan[table = awsdatacatalog$iceberg-aws:planlab.customers$data@5358812865844653088]
+        Layout: [cust_id_0:integer, tier:varchar]
+        Estimates: {rows: ? (?), cpu: ?, memory: 0B, network: 0B}
+        cust_id_0 := 1:cust_id:integer
+        tier := 3:tier:varchar
+
+
+

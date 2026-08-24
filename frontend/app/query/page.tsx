@@ -45,6 +45,23 @@ type RightPanel = "history" | "chart-config" | null
 
 const DEFAULT_QUERY = "-- Write your SQL here\nSELECT 1 AS hello;"
 
+type PlanFinding = { severity: "critical" | "warning" | "info" | "good"; code: string; message: string }
+type PlanAccessed = { schema: string; table: string; filters: { column: string; summary: string }[] }
+type PlanReview = {
+  validated: boolean
+  validation_error: string | null
+  accessed: PlanAccessed[]
+  findings: PlanFinding[]
+  estimates_available?: boolean
+}
+
+const FINDING_STYLE: Record<PlanFinding["severity"], string> = {
+  critical: "text-red-600 dark:text-red-400",
+  warning:  "text-amber-600 dark:text-amber-400",
+  info:     "text-muted-foreground",
+  good:     "text-emerald-600 dark:text-emerald-400",
+}
+
 function QueryPageInner() {
   const [query, setQuery]                   = useState(() => {
     if (typeof window === "undefined") return DEFAULT_QUERY
@@ -77,6 +94,13 @@ function QueryPageInner() {
   const [aiQuestion, setAiQuestion]         = useState("")
   const [aiLoading, setAiLoading]           = useState(false)
   const [aiExplanation, setAiExplanation]   = useState<string | null>(null)
+  const [aiCheck, setAiCheck]               = useState<{ ok: boolean | null; error?: string | null } | null>(null)
+  const [planReview, setPlanReview]         = useState<PlanReview | null>(null)
+  const [planLoading, setPlanLoading]       = useState(false)
+  // The exact statement Ask AI produced. Comparing against it (rather than tracking
+  // edits) tells us whether what is about to run is still the assistant's work —
+  // which the relationship graph must be able to exclude from its evidence.
+  const [aiGeneratedSql, setAiGeneratedSql] = useState<string | null>(null)
 
   const isResizingSchema   = useRef(false)
   const isResizingEditor   = useRef(false)
@@ -139,10 +163,32 @@ function QueryPageInner() {
   }
 
   // ── AI SQL generation ────────────────────────────────────────────────────────
+  // What will this statement actually read? EXPLAIN resolves it against the live
+  // catalog and scans no data, so this is safe to run on every generated query —
+  // and it catches the case validation cannot: valid SQL over the wrong table.
+  const reviewPlan = useCallback(async (sql: string) => {
+    setPlanLoading(true)
+    setPlanReview(null)
+    try {
+      const res = await fetch("/api/queries/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sql, deep: true }),
+      })
+      if (!res.ok) return
+      setPlanReview(await res.json())
+    } catch {
+      /* review is advisory — never block the editor on it */
+    } finally {
+      setPlanLoading(false)
+    }
+  }, [])
+
   const handleAskAI = async () => {
     if (!aiQuestion.trim() || aiLoading) return
     setAiLoading(true)
     setAiExplanation(null)
+    setAiCheck(null)
     try {
       const res = await fetch("/api/ai/sql", {
         method: "POST",
@@ -151,10 +197,21 @@ function QueryPageInner() {
       })
       if (!res.ok) throw new Error("AI request failed")
       const data = await res.json()
-      setQuery(data.sql)
+      // Only replace the editor when there is a statement. A clarifying question or
+      // an empty catalog returns no SQL, and pasting that over the user's work — or
+      // pasting prose as if it were runnable — is worse than doing nothing.
+      if (data.sql) { setQuery(data.sql); setAiGeneratedSql(data.sql) }
       setAiExplanation(data.explanation)
-      if (!data.has_ai) {
+      if (data.validated !== null && data.validated !== undefined) {
+        setAiCheck({ ok: data.validated, error: data.validation_error })
+      }
+      if (data.sql) void reviewPlan(data.sql)
+      if (data.needs_input) {
+        toast(data.explanation || "The assistant needs more detail to write this query", "info")
+      } else if (!data.has_ai) {
         toast("Configure an AI provider in Settings → AI to enable AI SQL generation", "info")
+      } else if (data.validated === false) {
+        toast("Generated SQL did not pass catalog validation — review before running", "error")
       }
     } catch (error) {
       toast(error instanceof Error ? error.message : "AI request failed", "error")
@@ -182,7 +239,10 @@ function QueryPageInner() {
       const response = await fetch("/api/queries/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: stripped }),
+        body: JSON.stringify({
+          query: stripped,
+          origin: aiGeneratedSql && query.trim() === aiGeneratedSql.trim() ? "ai_sql" : "ui",
+        }),
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.detail || data.error || "Query execution failed")
@@ -400,15 +460,71 @@ function QueryPageInner() {
             : <Sparkles className="h-3.5 w-3.5" />}
           {aiLoading ? "Generating…" : "Generate SQL"}
         </Button>
+        {aiCheck && (
+          <span
+            title={aiCheck.error || "Resolved against the catalog with EXPLAIN (TYPE VALIDATE)"}
+            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+              aiCheck.ok
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                : "bg-red-500/10 text-red-600 dark:text-red-400"
+            }`}
+          >
+            {aiCheck.ok ? "카탈로그 검증됨" : "검증 실패"}
+          </span>
+        )}
+        {planLoading && (
+          <span className="shrink-0 text-[10px] text-muted-foreground">플랜 검토 중…</span>
+        )}
         {aiExplanation && (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground max-w-xs truncate">
-            <span className="truncate">{aiExplanation}</span>
-            <button onClick={() => setAiExplanation(null)}>
+            <span className="truncate" title={aiExplanation}>{aiExplanation}</span>
+            <button onClick={() => { setAiExplanation(null); setAiCheck(null); setPlanReview(null) }}>
               <X className="h-3 w-3 hover:text-foreground" />
             </button>
           </div>
         )}
       </div>
+
+      {/* ── Plan review — what this statement actually reads ─────────────────── */}
+      {planReview && (planReview.accessed.length > 0 || planReview.findings.length > 0) && (
+        <div className="shrink-0 border-b bg-muted/30 px-3 py-2 text-xs space-y-1.5">
+          {planReview.accessed.length > 0 && (
+            <div className="flex items-start gap-2 flex-wrap">
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground pt-0.5 shrink-0">
+                읽는 테이블
+              </span>
+              {planReview.accessed.map(t => (
+                <span
+                  key={`${t.schema}.${t.table}`}
+                  className="rounded border bg-background px-1.5 py-0.5 font-mono text-[11px]"
+                  title={t.filters.length
+                    ? t.filters.map(f => `${f.column} ${f.summary}`).join(", ")
+                    : "조건 없이 전체를 읽습니다"}
+                >
+                  {t.schema}.{t.table}
+                  {t.filters.length > 0 && (
+                    <span className="ml-1 text-emerald-600 dark:text-emerald-400">
+                      {t.filters.map(f => f.column).join(",")}
+                    </span>
+                  )}
+                </span>
+              ))}
+            </div>
+          )}
+          {planReview.findings.length > 0 && (
+            <ul className="space-y-0.5">
+              {planReview.findings.map((f, i) => (
+                <li key={`${f.code}-${i}`} className={`flex gap-1.5 ${FINDING_STYLE[f.severity]}`}>
+                  <span className="shrink-0 font-mono text-[10px] uppercase pt-px">
+                    {f.severity === "good" ? "ok" : f.severity}
+                  </span>
+                  <span>{f.message}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* ── Main body ───────────────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">

@@ -40,7 +40,9 @@ except ImportError:
 from app.database.connection import get_db
 from app.models.query import QueryHistory
 from app.schemas.query import QueryExecuteRequest, QueryHistoryResponse, QueryHistoryListResponse
-from app.api.query_engine import get_engine
+from app.api.query_engine import explain_statement, get_engine
+from app.api.plan_review import review as review_plan_text
+from app.api.catalog_graph import build_graph
 from app.api.table_resolver import (
     TableResolutionError,
     get_catalog_index,
@@ -155,6 +157,38 @@ def add_limit_to_query(query: str, limit: int = MAX_ROWS) -> tuple[str, bool]:
     return query, False
 
 
+_ALLOWED_ORIGINS = ("ui", "ai_sql", "internal")
+
+
+def _safe_origin(request) -> str:
+    """Never store an arbitrary client string in a column the graph filters on."""
+    value = str(getattr(request, "origin", "ui") or "ui").strip().lower()
+    return value if value in _ALLOWED_ORIGINS else "ui"
+
+
+def _catalog_schema_for_graph(max_tables: int = 60) -> dict:
+    """{qualified table: [{name, type}]} for candidate-relationship inference.
+
+    Capped: the guess layer exists to make a small catalog legible on day one, and a
+    hairball of hundreds of inferred edges would be worse than an empty diagram.
+    """
+    out = {}
+    try:
+        from app.api.catalog_backend import get_catalog_reader
+        reader = get_catalog_reader()
+        for ns in reader.list_namespaces():
+            for tbl in reader.list_tables(ns):
+                try:
+                    out[f"{ns}.{tbl}".lower()] = reader.get_columns(ns, tbl)
+                except Exception:
+                    continue
+                if len(out) >= max_tables:
+                    return out
+    except Exception as e:
+        logger.warning(f"[catalog] schema read for relationship candidates failed: {e}")
+    return out
+
+
 @router.post("/queries/execute", response_model=QueryResult)
 async def execute_query(
     request: QueryExecuteRequest,
@@ -261,7 +295,8 @@ async def execute_query(
                     status=status,
                     error_message=error_msg,
                     catalog=engine.default_catalog,
-                    schema=engine.default_schema
+                    schema=engine.default_schema,
+                    origin=_safe_origin(request),
                 )
                 db.add(history)
                 db.commit()
@@ -283,7 +318,8 @@ async def execute_query(
                 rows_returned=len(rows),
                 status=status,
                 catalog=engine.default_catalog,
-                schema=engine.default_schema
+                schema=engine.default_schema,
+                origin=_safe_origin(request),
             )
             db.add(history)
             db.commit()
@@ -468,3 +504,92 @@ async def get_table_columns(catalog: str, schema: str, table: str):
         return cols
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch columns: {str(e)[:200]}")
+
+
+# ── Plan review ───────────────────────────────────────────────────────────────
+# "Will this read what I meant?" is the question EXPLAIN (TYPE VALIDATE) cannot
+# answer: a generated query can resolve perfectly and still hit the wrong table.
+# See docs/RLS_DESIGN.md for the separate question of what the user may read.
+
+class QueryPlanRequest(BaseModel):
+    sql: str
+    deep: bool = False   # also fetch TYPE DISTRIBUTED (a second engine round-trip)
+
+
+@router.post("/queries/plan")
+async def review_plan(request: QueryPlanRequest, user: dict = Depends(require_user)):
+    """Describe a statement without running it: tables read, predicates that reached
+    them, and structural findings. Scans no data."""
+    sql = (request.sql or "").strip().rstrip(";")
+    if not sql:
+        raise HTTPException(status_code=400, detail="SQL cannot be empty")
+
+    engine = get_engine()
+    try:
+        sql = qualify_tables(sql, dialect=engine.rls_dialect, load_index=get_catalog_index)
+    except TableResolutionError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"[plan] table resolution failed: {e}")
+
+    ok, err, io_text = await asyncio.to_thread(explain_statement, sql, "TYPE IO, FORMAT JSON")
+    if not ok:
+        return {"validated": False, "validation_error": err,
+                "accessed": [], "findings": [], "sql": sql}
+
+    dist_text = None
+    if request.deep:
+        d_ok, _d_err, d_text = await asyncio.to_thread(
+            explain_statement, sql, "TYPE DISTRIBUTED")
+        dist_text = d_text if d_ok else None
+
+    out = review_plan_text(io_text, dist_text)
+    out.update({"validated": True, "validation_error": None, "sql": sql})
+    return out
+
+
+# ── Catalog relationship graph ────────────────────────────────────────────────
+# Which tables are joined to which, mined from what people actually ran. The
+# ontology PoC (docs/ONTOLOGY_FEASIBILITY_REPORT.md) found inferred relationships to
+# be unreliable in every domain tested; a join in query_history is not inferred.
+
+@router.get("/catalog/relationships")
+async def catalog_relationships(
+    days: int = 30,
+    include_ai: bool = False,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_user),
+):
+    """Join graph: relationships people actually ran, plus naming-convention guesses.
+
+    AI-generated SQL is excluded by default. Ask AI writes a join, the user runs it,
+    and it lands in this table — counting that as observed evidence would launder the
+    assistant's guess into a recorded fact. `include_ai=true` opts back in.
+    """
+    from datetime import datetime, timedelta
+    cutoff = datetime.utcnow() - timedelta(days=max(1, min(days, 365)))
+
+    try:
+        query = (
+            db.query(QueryHistory.query_text)
+              .filter(QueryHistory.created_at >= cutoff)
+              .filter(QueryHistory.status == "success")
+        )
+        if not include_ai:
+            query = query.filter(QueryHistory.origin != "ai_sql")
+        rows = query.order_by(QueryHistory.created_at.desc()).limit(5000).all()
+    except Exception as e:
+        logger.warning(f"[catalog] relationship history read failed: {e}")
+        rows = []
+
+    schema = await asyncio.to_thread(_catalog_schema_for_graph)
+    graph = build_graph([r[0] for r in rows if r and r[0]],
+                        dialect=get_engine().rls_dialect, schema=schema)
+    graph["source"] = "query_history+catalog"
+    graph["window_days"] = days
+    graph["statements_scanned"] = len(rows)
+    graph["includes_ai_generated"] = include_ai
+    graph["tables_inspected"] = len(schema)
+    return graph
