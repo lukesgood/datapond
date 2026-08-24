@@ -8,7 +8,7 @@ tables run on embedded DuckDB as usual.
 
 NOTE: this is the *soft* / UX layer — it can be bypassed by calling duckdb directly.
 The hard boundary is the SeaweedFS S3 identity prefix-deny applied by the platform
-(see docs/RLS_DESIGN.md §6 and GET /api/governance/rls/sensitive-tables). Use both.
+(see docs/RLS_DESIGN.md (Layer 3 — direct-read guard) and GET /api/governance/rls/sensitive-tables). Use both.
 
 Usage in a notebook:
     import datapond_lake as dp

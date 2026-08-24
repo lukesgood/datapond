@@ -824,7 +824,7 @@ class DirectReadIn(BaseModel):
 async def get_sensitive_tables(user: Optional[dict] = Depends(_get_current_user)):
     """
     List policy-bearing (sensitive) tables + the SeaweedFS prefixes that the Jupyter
-    S3 identity should be denied (RLS Layer 3 / DuckDB guard). See docs/RLS_DESIGN.md §6.
+    S3 identity should be denied (RLS Layer 3 / DuckDB guard). See docs/RLS_DESIGN.md.
     Auth optional: the Jupyter guard calls this; if unauth and RLS off, returns empty.
     """
     if not _RLS_ADMIN_OK:
