@@ -125,6 +125,7 @@ def test_relationships_endpoint_builds_the_graph_from_successful_history(monkeyp
                 ("SELECT * FROM sales.orders o JOIN sales.customers c ON o.cust_id = c.id",),
             ])
 
+    monkeypatch.setattr(q, "_catalog_schema_for_graph", lambda: {})
     res = asyncio.run(q.catalog_relationships(days=30, db=_DB(),
                                               user={"id": "00000000-0000-0000-0000-0000000000aa"}))
 
@@ -132,4 +133,144 @@ def test_relationships_endpoint_builds_the_graph_from_successful_history(monkeyp
     edge = res["edges"][0]
     assert {edge["source"], edge["target"]} == {"sales.orders", "sales.customers"}
     assert edge["count"] == 2
-    assert res["source"] == "query_history"
+    assert res["source"] == "query_history+catalog"
+
+
+# ── candidate relationships from catalog metadata ─────────────────────────────
+# History alone leaves a new catalog blank: the person who needs the diagram has no
+# query history, and the person with history already knows the joins. Candidates
+# fill day zero — clearly marked as guesses, never mixed with observed evidence.
+
+from app.api.catalog_graph import candidate_joins  # noqa: E402
+
+SCHEMA = {
+    "sales.orders":    [{"name": "id", "type": "int"}, {"name": "cust_id", "type": "int"},
+                        {"name": "status", "type": "varchar"}, {"name": "amt", "type": "double"}],
+    "sales.customers": [{"name": "id", "type": "int"}, {"name": "cust_id", "type": "int"},
+                        {"name": "status", "type": "varchar"}, {"name": "name", "type": "varchar"}],
+    "ref.regions":     [{"name": "code", "type": "varchar"}, {"name": "name", "type": "varchar"}],
+}
+
+
+def _cand(schema):
+    return {(c["source"], c["target"], c["joins"][0]["left_column"], c["joins"][0]["right_column"])
+            for c in candidate_joins(schema)}
+
+
+def test_matching_key_column_on_both_tables_is_a_candidate():
+    assert ("sales.customers", "sales.orders", "cust_id", "cust_id") in _cand(SCHEMA)
+
+
+def test_foreign_key_naming_matches_the_other_tables_primary_key():
+    """orders.cust_id -> customers.id, the most common FK convention."""
+    got = _cand({"sales.orders":    [{"name": "cust_id", "type": "int"}],
+                 "sales.customers": [{"name": "id", "type": "int"}]})
+    assert ("sales.customers", "sales.orders", "id", "cust_id") in got
+
+
+def test_bare_id_columns_are_not_a_relationship():
+    """Every table has `id`; matching them all would connect the whole catalog."""
+    got = _cand(SCHEMA)
+    assert not any(lc == "id" and rc == "id" for _s, _t, lc, rc in got)
+
+
+def test_generic_columns_are_ignored():
+    got = _cand(SCHEMA)
+    assert not any(lc in ("status", "name") for _s, _t, lc, _rc in got)
+
+
+def test_type_mismatch_is_not_a_candidate():
+    got = _cand({"a.t1": [{"name": "cust_id", "type": "int"}],
+                 "a.t2": [{"name": "cust_id", "type": "varchar"}]})
+    assert got == set()
+
+
+def test_a_table_is_not_a_candidate_against_itself():
+    got = candidate_joins({"a.t1": [{"name": "cust_id", "type": "int"}]})
+    assert got == []
+
+
+def test_candidates_are_marked_as_candidates():
+    for c in candidate_joins(SCHEMA):
+        assert c["evidence"] == "candidate"
+        assert c["count"] == 0
+        assert c["reason"]
+
+
+# ── merging the two layers ────────────────────────────────────────────────────
+
+def test_observed_edges_are_marked_observed():
+    g = build_graph(["SELECT * FROM sales.orders o JOIN sales.customers c ON o.cust_id = c.id"])
+    assert g["edges"][0]["evidence"] == "observed"
+
+
+def test_a_candidate_is_dropped_when_the_pair_was_actually_observed():
+    """Once people have run the join, the guess adds nothing but noise."""
+    g = build_graph(
+        ["SELECT * FROM sales.orders o JOIN sales.customers c ON o.cust_id = c.id"],
+        schema=SCHEMA,
+    )
+    pairs = [(e["source"], e["target"]) for e in g["edges"]]
+    assert pairs.count(("sales.customers", "sales.orders")) == 1
+    edge = next(e for e in g["edges"] if {e["source"], e["target"]}
+                == {"sales.orders", "sales.customers"})
+    assert edge["evidence"] == "observed"
+
+
+def test_candidates_appear_when_there_is_no_history_at_all():
+    g = build_graph([], schema=SCHEMA)
+    assert g["edges"], "a fresh catalog must still show something"
+    assert all(e["evidence"] == "candidate" for e in g["edges"])
+    assert {n["id"] for n in g["nodes"]} >= {"sales.orders", "sales.customers"}
+
+
+# ── origin: keep the assistant out of its own evidence ────────────────────────
+# Ask AI generates a join -> the user runs it -> it lands in query_history -> it
+# becomes an "observed relationship". A guess laundered into evidence. The origin
+# column breaks that loop.
+
+def test_relationships_endpoint_excludes_ai_generated_history_by_default(monkeypatch):
+    import asyncio
+    import app.api.queries as q
+
+    filters = []
+
+    class _Q:
+        def filter(self, expr):
+            filters.append(str(expr))
+            return self
+        def order_by(self, *a, **k): return self
+        def limit(self, n): return self
+        def all(self): return []
+
+    class _DB:
+        def query(self, *cols): return _Q()
+
+    monkeypatch.setattr(q, "_catalog_schema_for_graph", lambda: {})
+    asyncio.run(q.catalog_relationships(days=30, db=_DB(),
+                                        user={"id": "00000000-0000-0000-0000-0000000000aa"}))
+    assert any("origin" in f for f in filters), "ai_sql history must be filtered out"
+
+
+def test_relationships_endpoint_can_include_ai_history_on_request(monkeypatch):
+    import asyncio
+    import app.api.queries as q
+
+    filters = []
+
+    class _Q:
+        def filter(self, expr):
+            filters.append(str(expr))
+            return self
+        def order_by(self, *a, **k): return self
+        def limit(self, n): return self
+        def all(self): return []
+
+    class _DB:
+        def query(self, *cols): return _Q()
+
+    monkeypatch.setattr(q, "_catalog_schema_for_graph", lambda: {})
+    res = asyncio.run(q.catalog_relationships(days=30, include_ai=True, db=_DB(),
+                                              user={"id": "00000000-0000-0000-0000-0000000000aa"}))
+    assert not any("origin" in f for f in filters)
+    assert res["includes_ai_generated"] is True

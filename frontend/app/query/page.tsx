@@ -97,6 +97,10 @@ function QueryPageInner() {
   const [aiCheck, setAiCheck]               = useState<{ ok: boolean | null; error?: string | null } | null>(null)
   const [planReview, setPlanReview]         = useState<PlanReview | null>(null)
   const [planLoading, setPlanLoading]       = useState(false)
+  // The exact statement Ask AI produced. Comparing against it (rather than tracking
+  // edits) tells us whether what is about to run is still the assistant's work —
+  // which the relationship graph must be able to exclude from its evidence.
+  const [aiGeneratedSql, setAiGeneratedSql] = useState<string | null>(null)
 
   const isResizingSchema   = useRef(false)
   const isResizingEditor   = useRef(false)
@@ -196,7 +200,7 @@ function QueryPageInner() {
       // Only replace the editor when there is a statement. A clarifying question or
       // an empty catalog returns no SQL, and pasting that over the user's work — or
       // pasting prose as if it were runnable — is worse than doing nothing.
-      if (data.sql) setQuery(data.sql)
+      if (data.sql) { setQuery(data.sql); setAiGeneratedSql(data.sql) }
       setAiExplanation(data.explanation)
       if (data.validated !== null && data.validated !== undefined) {
         setAiCheck({ ok: data.validated, error: data.validation_error })
@@ -235,7 +239,10 @@ function QueryPageInner() {
       const response = await fetch("/api/queries/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: stripped }),
+        body: JSON.stringify({
+          query: stripped,
+          origin: aiGeneratedSql && query.trim() === aiGeneratedSql.trim() ? "ai_sql" : "ui",
+        }),
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.detail || data.error || "Query execution failed")

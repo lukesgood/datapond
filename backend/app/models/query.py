@@ -22,6 +22,8 @@ class QueryHistory(Base):
     error_message = Column(Text, nullable=True)
     catalog = Column(String(128), nullable=True)
     schema = Column(String(128), nullable=True)
+    # 'ui' | 'ai_sql' | 'internal' — see schema/queries.sql
+    origin = Column(String(16), nullable=False, default="ui")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     def to_dict(self):

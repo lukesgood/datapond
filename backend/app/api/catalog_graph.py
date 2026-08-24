@@ -9,7 +9,8 @@ which paths through the catalog people actually use.
 Pure functions over SQL strings — no database access, no engine calls.
 """
 import logging
-from typing import Iterable, List
+import re
+from typing import Dict, Iterable, List, Optional
 
 import sqlglot
 from sqlglot import exp
@@ -123,7 +124,102 @@ def _tables_in(sql: str, dialect: str = "trino") -> List[str]:
     return names
 
 
-def build_graph(statements: Iterable[str], dialect: str = "trino") -> dict:
+
+
+# ── Candidate relationships from catalog metadata ─────────────────────────────
+# History alone leaves a new catalog blank — the person who needs the diagram has no
+# query history, and the person who has history already knows the joins. Candidates
+# fill day zero. They are guesses from column naming and are labelled as such; an
+# observed join always supersedes one.
+
+# A key-ish suffix. `region` matching `region` across two tables is a coincidence;
+# `cust_id` matching `cust_id` is a convention.
+_KEYISH = re.compile(r"(^|_)(id|key|code|no|num|uuid|sk|fk)$", re.I)
+
+# Names so common that matching them would connect the entire catalog to itself.
+_GENERIC = {"id", "name", "status", "type", "value", "date", "code", "key",
+            "created_at", "updated_at", "deleted_at", "created", "updated"}
+
+_NUMERIC = ("int", "long", "bigint", "smallint", "tinyint", "decimal", "double",
+            "float", "real", "numeric")
+_STRINGY = ("varchar", "char", "string", "text", "uuid")
+
+
+def _type_bucket(t: str) -> str:
+    t = (t or "").strip().lower()
+    if t.startswith(_NUMERIC):
+        return "number"
+    if t.startswith(_STRINGY):
+        return "string"
+    return t or "unknown"
+
+
+def _bare_table(qualified: str) -> str:
+    return qualified.split(".")[-1].lower()
+
+
+def _singularish(word: str) -> str:
+    w = word.lower()
+    for suffix in ("ies", "es", "s"):
+        if len(w) > 3 and w.endswith(suffix):
+            return w[: -len(suffix)]
+    return w
+
+
+def candidate_joins(schema: Dict[str, List[dict]]) -> List[dict]:
+    """Guess relationships from column names and types.
+
+    Two conventions, both deliberately narrow — a wide net here produces a hairball
+    that is worse than an empty diagram:
+      1. the same key-ish column name on two tables (`cust_id` = `cust_id`)
+      2. `<thing>_id` on one table against `id` on a table named after `<thing>`
+    """
+    out: List[dict] = []
+    seen = set()
+    names = sorted(schema)
+
+    def _emit(t_a, c_a, t_b, c_b, reason):
+        left, lc, right, rc = (t_a, c_a, t_b, c_b) if t_a < t_b else (t_b, c_b, t_a, c_a)
+        key = f"{left}.{lc}={right}.{rc}"
+        if key in seen:
+            return
+        seen.add(key)
+        out.append({
+            "source": left, "target": right, "count": 0, "evidence": "candidate",
+            "reason": reason,
+            "joins": [{"left_column": lc, "right_column": rc, "count": 0}],
+        })
+
+    for i, ta in enumerate(names):
+        for tb in names[i + 1:]:
+            cols_a = {c["name"].lower(): _type_bucket(c.get("type", "")) for c in schema[ta]}
+            cols_b = {c["name"].lower(): _type_bucket(c.get("type", "")) for c in schema[tb]}
+
+            for col, type_a in cols_a.items():
+                if col in _GENERIC or not _KEYISH.search(col):
+                    continue
+                if cols_b.get(col) == type_a:
+                    _emit(ta, col, tb, col, "같은 이름의 키 컬럼")
+
+            # <thing>_id against the id of a table named <thing>
+            for a, b in ((ta, tb), (tb, ta)):
+                a_cols = cols_a if a == ta else cols_b
+                b_cols = cols_b if a == ta else cols_a
+                if "id" not in b_cols:
+                    continue
+                stem = _singularish(_bare_table(b))
+                for col, type_a in a_cols.items():
+                    if not col.endswith("_id") or col == "id":
+                        continue
+                    prefix = col[:-3]
+                    if type_a != b_cols["id"]:
+                        continue
+                    if stem.startswith(prefix) or prefix.startswith(stem):
+                        _emit(a, col, b, "id", f"{prefix}_id → {_bare_table(b)}.id 명명 규칙")
+    return out
+
+def build_graph(statements: Iterable[str], dialect: str = "trino",
+                schema: Optional[Dict[str, List[dict]]] = None) -> dict:
     """Aggregate a history of statements into {nodes, edges}.
 
     Node `query_count` is how many statements touched the table; edge `count` is how
@@ -146,12 +242,22 @@ def build_graph(statements: Iterable[str], dialect: str = "trino") -> dict:
             for t in pair:
                 nodes.setdefault(t, 0)
 
+    observed = [{
+        "source": src, "target": dst, "count": e["count"], "evidence": "observed",
+        "joins": [{"left_column": lc, "right_column": rc, "count": c}
+                  for (lc, rc), c in sorted(e["joins"].items(), key=lambda kv: -kv[1])],
+    } for (src, dst), e in sorted(edges.items(), key=lambda kv: -kv[1]["count"])]
+
+    # A guess about a pair people have actually joined adds nothing but noise.
+    observed_pairs = {(e["source"], e["target"]) for e in observed}
+    candidates = [c for c in candidate_joins(schema or {})
+                  if (c["source"], c["target"]) not in observed_pairs]
+    for c in candidates:
+        for t in (c["source"], c["target"]):
+            nodes.setdefault(t, 0)
+
     return {
         "nodes": [{"id": name, "query_count": n}
                   for name, n in sorted(nodes.items(), key=lambda kv: (-kv[1], kv[0]))],
-        "edges": [{
-            "source": src, "target": dst, "count": e["count"],
-            "joins": [{"left_column": lc, "right_column": rc, "count": c}
-                      for (lc, rc), c in sorted(e["joins"].items(), key=lambda kv: -kv[1])],
-        } for (src, dst), e in sorted(edges.items(), key=lambda kv: -kv[1]["count"])],
+        "edges": observed + candidates,
     }

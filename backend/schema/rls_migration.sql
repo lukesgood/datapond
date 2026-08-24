@@ -23,6 +23,12 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS require_password_change BOOLEAN NOT N
 -- aren't installed.
 ALTER TABLE IF EXISTS connector_connections ADD COLUMN IF NOT EXISTS schedule TEXT;
 
+-- query_history.origin — separates AI-generated SQL from hand-written. queries.sql is
+-- sentinel-guarded and won't re-run, so an existing database needs the column here
+-- (this migration runs every startup and is idempotent). Consumed by the catalog
+-- relationship graph, which must not count the assistant's own joins as evidence.
+ALTER TABLE IF EXISTS query_history ADD COLUMN IF NOT EXISTS origin VARCHAR(16) NOT NULL DEFAULT 'ui';
+
 -- Roles + user-role assignment (loader reads these; falls back to users.role if absent)
 CREATE TABLE IF NOT EXISTS roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
