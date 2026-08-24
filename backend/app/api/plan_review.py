@@ -10,7 +10,12 @@ predicates that reached them, which answers the question validation cannot.
 Structural signals come second, from `EXPLAIN (TYPE DISTRIBUTED)`. Deliberately no
 cost score: on Iceberg tables without analyzed statistics Trino emits `NaN` for every
 estimate (verified on the live cluster), so a numeric grade here would be invented.
-`no_statistics` is reported as a finding instead.
+`estimates_available` says so plainly instead.
+
+Findings are split into `problems` (act on these) and `characteristics` (how it will
+run). Anything that would fire on every query is neither — it is state, and belongs
+in a field the UI can render quietly. A panel whose warnings are always present
+teaches people to stop reading it.
 
 Pure parsing — no I/O, no engine calls. The callers own the round-trips.
 """
@@ -132,71 +137,68 @@ def _finding(severity: str, code: str, message: str) -> dict:
 
 
 def review(io_text: Optional[str], dist_text: Optional[str] = None) -> dict:
-    """Combine both plans into {accessed, findings, ...}.
+    """Combine both plans into {accessed, problems, characteristics, findings, ...}.
 
     `dist_text` is optional on purpose: TYPE DISTRIBUTED is a second engine
     round-trip, and the table list — the part that answers "is this the query I
     meant" — must not depend on paying for it.
+
+    Findings are split so warnings stay worth reading. `problems` are things to act
+    on; `characteristics` describe how the engine will run it. Anything that would
+    fire on every query belongs in neither: it is state, not news.
     """
     io = parse_io_plan(io_text or "")
     dist = parse_distributed_plan(dist_text or "")
 
-    findings = []
-
-    if not io["estimates_available"]:
-        findings.append(_finding(
-            "info", "no_statistics",
-            "테이블 통계가 없어 행 수·데이터 크기 추정치를 사용할 수 없습니다. "
-            "구조적 신호만으로 판정했습니다. (ANALYZE 실행 시 추정치 확보 가능)"))
+    problems, characteristics = [], []
 
     for j in dist["joins"]:
         if j["type"].lower().startswith("cross"):
-            findings.append(_finding(
+            problems.append(_finding(
                 "critical", "cross_join",
-                f"크로스 조인이 계획에 있습니다 ({j['criteria'] or '조인 조건 없음'}) — "
-                "행 수가 곱연산으로 폭증합니다."))
+                f"Cross join in the plan ({j['criteria'] or 'no join condition'}) — "
+                "row count multiplies."))
         elif j["distribution"] == "REPLICATED":
-            findings.append(_finding(
+            characteristics.append(_finding(
                 "info", "broadcast_join",
-                f"{j['type']} {j['criteria']} — 브로드캐스트(REPLICATED) 조인. "
-                "작은 쪽 테이블이 각 워커로 복제됩니다."))
+                f"{j['type']} {j['criteria']} — broadcast (REPLICATED): the smaller "
+                "side is copied to every worker."))
 
-    # A scan with no predicate reads the whole table. Reported per table, since the
-    # useful action ("add a filter on customers") names one.
-    filtered = {s["table"] for s in dist["scans"] if s["filter"]}
-    for s in dist["scans"]:
-        if not s["filter"] and s["table"] and s["table"] not in filtered:
-            findings.append(_finding(
-                "warning", "unfiltered_scan",
-                f"{s['table']}: 조건 없이 전체를 읽습니다 (술어 푸시다운 없음)."))
-    if not dist["scans"]:
-        for t in io["tables"]:
-            if not t["filters"]:
-                findings.append(_finding(
+    # A full scan only matters on a large table, and without statistics we cannot know
+    # the size. Warning regardless fires on every ordinary aggregate, which teaches
+    # people to ignore the panel — and the accessed-tables list already states which
+    # predicates reached each table, so nothing is hidden by staying quiet here.
+    if io["estimates_available"]:
+        filtered = {s["table"] for s in dist["scans"] if s["filter"]}
+        for s in dist["scans"]:
+            if not s["filter"] and s["table"] and s["table"] not in filtered:
+                problems.append(_finding(
                     "warning", "unfiltered_scan",
-                    f"{t['schema']}.{t['table']}: 테이블에 도달한 조건이 없습니다."))
-
-    if dist["dynamic_filters"]:
-        findings.append(_finding(
-            "good", "dynamic_filter",
-            "동적 필터링이 적용됩니다 — 조인 상대의 값으로 스캔이 줄어듭니다."))
+                    f"{s['table']}: read in full, no predicate pushed down."))
 
     if dist["has_sort"] and not dist["sort_is_bounded"]:
-        findings.append(_finding(
+        problems.append(_finding(
             "warning", "sort_without_limit",
-            "LIMIT 없는 전역 정렬입니다 — 결과 전체를 정렬합니다."))
+            "Global sort with no LIMIT — the whole result set is ordered."))
+
+    if dist["dynamic_filters"]:
+        characteristics.append(_finding(
+            "good", "dynamic_filter",
+            "Dynamic filtering is active — the scan is narrowed by the join's values."))
 
     if dist["fragments"] > 4:
-        findings.append(_finding(
+        characteristics.append(_finding(
             "info", "many_stages",
-            f"{dist['fragments']}개 프래그먼트 — 셔플 단계가 많습니다."))
+            f"{dist['fragments']} fragments — several shuffle stages."))
 
-    order = {"critical": 0, "warning": 1, "info": 2, "good": 3}
-    findings.sort(key=lambda f: order.get(f["severity"], 9))
+    order = {"critical": 0, "warning": 1}
+    problems.sort(key=lambda f: order.get(f["severity"], 9))
 
     return {
         "accessed": io["tables"],
-        "findings": findings,
+        "problems": problems,
+        "characteristics": characteristics,
+        "findings": problems + characteristics,
         "estimates_available": io["estimates_available"],
         "joins": dist["joins"],
         "fragments": dist["fragments"],

@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.api.catalog_backend import get_catalog_reader
+from app.api.query_engine import get_engine
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -79,11 +80,14 @@ async def list_all_tables():
     """List all tables from the active catalog backend (Glue or Polaris)."""
     try:
         reader = get_catalog_reader()
+        # The engine decides the catalog name — AwsDataCatalog on Athena, iceberg on
+        # Trino. Hardcoding it printed a name the engine would reject.
+        default_catalog = get_engine().default_catalog
         tables = []
         for ns in reader.list_namespaces():
             try:
                 for tbl in reader.list_tables(ns):
-                    tables.append(TableInfo(name=tbl, namespace=ns))
+                    tables.append(TableInfo(name=tbl, namespace=ns, catalog=default_catalog))
             except Exception:
                 continue
         return TablesResponse(tables=tables)
@@ -93,7 +97,7 @@ async def list_all_tables():
 
 
 @router.get("/catalog/tables/{namespace}/{table}", response_model=TableDetails)
-async def get_table_details(namespace: str, table: str, catalog: str = "iceberg"):
+async def get_table_details(namespace: str, table: str, catalog: Optional[str] = None):
     """Get table schema, location, and row count from the active catalog backend."""
     try:
         reader = get_catalog_reader()
@@ -122,7 +126,7 @@ async def get_table_details(namespace: str, table: str, catalog: str = "iceberg"
 
 
 @router.get("/catalog/tables/{namespace}/{table}/preview")
-async def preview_table(namespace: str, table: str, catalog: str = "iceberg", limit: int = 100):
+async def preview_table(namespace: str, table: str, catalog: Optional[str] = None, limit: int = 100):
     """Return top N rows and per-column statistics (null rate, distinct count, min, max)."""
     try:
         # Sample rows via the active catalog backend (Glue → pyiceberg scan; Polaris → Trino)
@@ -179,7 +183,7 @@ async def catalog_health():
     try:
         # Reachability check against the active catalog backend (Glue or Polaris).
         get_catalog_reader().list_namespaces()
-        return {"status": "healthy", "catalogs": ["iceberg"]}
+        return {"status": "healthy", "catalogs": [get_engine().default_catalog]}
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
 

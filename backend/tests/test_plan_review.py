@@ -92,17 +92,39 @@ def test_review_leads_with_the_accessed_tables():
     ]
 
 
-def test_review_flags_a_scan_with_no_predicate():
-    out = review(IO_PLAN, DIST_PLAN)
-    codes = {f["code"] for f in out["findings"]}
-    assert "unfiltered_scan" in codes, "customers is read with no filter at all"
-    finding = next(f for f in out["findings"] if f["code"] == "unfiltered_scan")
-    assert "customers" in finding["message"]
-
-
-def test_review_reports_missing_statistics_rather_than_guessing():
+def test_no_unfiltered_scan_warning_without_statistics():
+    """A full scan is only a problem on a big table, and without statistics we cannot
+    know the size. Warning anyway fires on every ordinary aggregate — observed live:
+    two WARNING lines on a plain GROUP BY, which trains people to ignore the panel.
+    The accessed-tables list already states which predicates reached each table."""
     codes = {f["code"] for f in review(IO_PLAN, DIST_PLAN)["findings"]}
-    assert "no_statistics" in codes
+    assert "unfiltered_scan" not in codes
+
+
+def test_unfiltered_scan_warns_once_statistics_exist():
+    """With row counts available the warning becomes actionable again."""
+    io_with_stats = IO_PLAN.replace('"outputRowCount" : "NaN"', '"outputRowCount" : 5000000.0')
+    codes = {f["code"] for f in review(io_with_stats, DIST_PLAN)["findings"]}
+    assert "unfiltered_scan" in codes
+
+
+def test_missing_statistics_is_context_not_a_finding():
+    """It never changes between queries here, so it is not news — the response carries
+    it as state the UI can render quietly."""
+    out = review(IO_PLAN, DIST_PLAN)
+    assert "no_statistics" not in {f["code"] for f in out["findings"]}
+    assert out["estimates_available"] is False
+
+
+def test_findings_are_split_into_problems_and_characteristics():
+    """Warnings must stay scarce enough to be worth reading."""
+    out = review(IO_PLAN, DIST_PLAN)
+    assert all(f["severity"] in ("critical", "warning") for f in out["problems"])
+    assert all(f["severity"] in ("info", "good") for f in out["characteristics"])
+    assert out["findings"] == out["problems"] + out["characteristics"]
+    # The fixture query has no LIMIT, so the unbounded sort is a real finding and
+    # stays. What must be gone is the constant noise that fired alongside it.
+    assert [f["code"] for f in out["problems"]] == ["sort_without_limit"]
 
 
 def test_review_flags_a_cross_join_as_critical():

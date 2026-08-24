@@ -80,9 +80,11 @@ export function TableCard({
               <Badge variant="secondary">{catalog ? `${catalog}.${namespace}` : namespace}</Badge>
               <Badge variant="outline" className={catStyle.cls}>{catStyle.label}</Badge>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Updated {formatLastUpdated(lastUpdated)}
-            </p>
+            {lastUpdated && (
+              <p className="text-xs text-muted-foreground">
+                Updated {formatLastUpdated(lastUpdated)}
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>

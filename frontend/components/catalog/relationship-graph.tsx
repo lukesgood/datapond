@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import ReactFlow, { Background, Controls, MarkerType, type Edge, type Node } from "reactflow"
+import ReactFlow, { Background, Controls, type Edge, type Node } from "reactflow"
 import "reactflow/dist/style.css"
 import { Loader2, Share2 } from "lucide-react"
 
@@ -38,7 +38,9 @@ function ring(nodes: GraphNode[]): Node[] {
           <div className="text-left leading-tight">
             <div className="text-[9px] uppercase tracking-wide opacity-60">{schema}</div>
             <div className="text-[12px] font-medium">{table}</div>
-            <div className="text-[9px] opacity-60">쿼리 {node.query_count}회</div>
+            <div className="text-[9px] opacity-60">
+              {node.query_count > 0 ? `${node.query_count} queries` : "not queried"}
+            </div>
           </div>
         ),
       },
@@ -91,12 +93,14 @@ export function RelationshipGraph({ days = 30 }: { days?: number }) {
             fontStyle: observed ? "normal" : "italic",
           },
           labelBgStyle: { fill: "var(--background)" },
+          data: { reason: e.reason },
           // Solid and thick = people ran it. Dashed and thin = we guessed from column
           // naming. The two must never be mistaken for each other.
           style: observed
             ? { strokeWidth: Math.min(1 + Math.log2(e.count + 1), 4) }
             : { strokeWidth: 1, strokeDasharray: "4 3", opacity: 0.65 },
-          markerEnd: { type: MarkerType.Arrow },
+          // No arrowhead: source/target are sorted alphabetically to make the edge
+          // undirected, so an arrow would assert a direction the data never had.
           animated: false,
         }
       }),
@@ -106,7 +110,7 @@ export function RelationshipGraph({ days = 30 }: { days?: number }) {
   if (loading) {
     return (
       <div className="flex h-[420px] items-center justify-center text-sm text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 쿼리 이력에서 관계를 찾는 중…
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Finding relationships…
       </div>
     )
   }
@@ -115,10 +119,10 @@ export function RelationshipGraph({ days = 30 }: { days?: number }) {
     return (
       <div className="flex h-[420px] flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
         <Share2 className="h-6 w-6 opacity-40" />
-        <p>표시할 테이블 관계가 없습니다.</p>
+        <p>No table relationships to show.</p>
         <p className="text-xs">
-          카탈로그에 테이블이 없거나, 조인할 만한 키 컬럼이 발견되지 않았습니다.
-          Analytics에서 조인 쿼리를 실행하면 관측된 관계가 쌓입니다.
+          The catalog has no tables, or no key-like columns were found to relate them.
+          Running a join in Analytics adds an observed relationship here.
         </p>
       </div>
     )
@@ -130,17 +134,17 @@ export function RelationshipGraph({ days = 30 }: { days?: number }) {
         <span className="inline-flex items-center gap-1.5">
           <svg width="22" height="8" aria-hidden><line x1="0" y1="4" x2="22" y2="4"
             stroke="currentColor" strokeWidth="2.5" /></svg>
-          <b className="text-foreground">관측됨</b> — 실제 실행된 조인 (굵기 = 빈도)
+          <b className="text-foreground">Observed</b> — joins people actually ran (thickness = frequency)
         </span>
         <span className="inline-flex items-center gap-1.5">
           <svg width="22" height="8" aria-hidden><line x1="0" y1="4" x2="22" y2="4"
             stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 3" opacity="0.7" /></svg>
-          <i>후보</i> — 컬럼 명명 규칙에서 추정, 미검증
+          <i>Candidate</i> — inferred from column naming, unverified
         </span>
         <span>
-          최근 {graph.window_days}일 · 쿼리 {graph.statements_scanned}건
-          {typeof graph.tables_inspected === "number" && ` · 테이블 ${graph.tables_inspected}개`}
-          {" · AI 생성 쿼리 제외"}
+          Last {graph.window_days} days · {graph.statements_scanned} queries
+          {typeof graph.tables_inspected === "number" && ` · ${graph.tables_inspected} tables`}
+          {" · AI-generated queries excluded"}
         </span>
       </div>
       <div className="h-[420px] rounded-md border">
