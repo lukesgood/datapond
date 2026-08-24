@@ -77,6 +77,7 @@ function QueryPageInner() {
   const [aiQuestion, setAiQuestion]         = useState("")
   const [aiLoading, setAiLoading]           = useState(false)
   const [aiExplanation, setAiExplanation]   = useState<string | null>(null)
+  const [aiCheck, setAiCheck]               = useState<{ ok: boolean | null; error?: string | null } | null>(null)
 
   const isResizingSchema   = useRef(false)
   const isResizingEditor   = useRef(false)
@@ -143,6 +144,7 @@ function QueryPageInner() {
     if (!aiQuestion.trim() || aiLoading) return
     setAiLoading(true)
     setAiExplanation(null)
+    setAiCheck(null)
     try {
       const res = await fetch("/api/ai/sql", {
         method: "POST",
@@ -151,10 +153,20 @@ function QueryPageInner() {
       })
       if (!res.ok) throw new Error("AI request failed")
       const data = await res.json()
-      setQuery(data.sql)
+      // Only replace the editor when there is a statement. A clarifying question or
+      // an empty catalog returns no SQL, and pasting that over the user's work — or
+      // pasting prose as if it were runnable — is worse than doing nothing.
+      if (data.sql) setQuery(data.sql)
       setAiExplanation(data.explanation)
-      if (!data.has_ai) {
+      if (data.validated !== null && data.validated !== undefined) {
+        setAiCheck({ ok: data.validated, error: data.validation_error })
+      }
+      if (data.needs_input) {
+        toast(data.explanation || "The assistant needs more detail to write this query", "info")
+      } else if (!data.has_ai) {
         toast("Configure an AI provider in Settings → AI to enable AI SQL generation", "info")
+      } else if (data.validated === false) {
+        toast("Generated SQL did not pass catalog validation — review before running", "error")
       }
     } catch (error) {
       toast(error instanceof Error ? error.message : "AI request failed", "error")
@@ -400,10 +412,22 @@ function QueryPageInner() {
             : <Sparkles className="h-3.5 w-3.5" />}
           {aiLoading ? "Generating…" : "Generate SQL"}
         </Button>
+        {aiCheck && (
+          <span
+            title={aiCheck.error || "Resolved against the catalog with EXPLAIN (TYPE VALIDATE)"}
+            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+              aiCheck.ok
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                : "bg-red-500/10 text-red-600 dark:text-red-400"
+            }`}
+          >
+            {aiCheck.ok ? "카탈로그 검증됨" : "검증 실패"}
+          </span>
+        )}
         {aiExplanation && (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground max-w-xs truncate">
-            <span className="truncate">{aiExplanation}</span>
-            <button onClick={() => setAiExplanation(null)}>
+            <span className="truncate" title={aiExplanation}>{aiExplanation}</span>
+            <button onClick={() => { setAiExplanation(null); setAiCheck(null) }}>
               <X className="h-3 w-3 hover:text-foreground" />
             </button>
           </div>

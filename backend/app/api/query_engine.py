@@ -113,3 +113,26 @@ class AthenaEngine:
 def get_engine():
     backend = os.getenv("QUERY_ENGINE", "trino").strip().lower()
     return AthenaEngine() if backend == "athena" else TrinoEngine()
+
+
+def validate_statement(sql: str, user: str = "datapond"):
+    """Check `sql` against the live catalog without running it.
+
+    `EXPLAIN (TYPE VALIDATE)` parses and analyses the statement — resolving every
+    table and column — and scans no data, so it is the cheapest way to tell a
+    plausible-looking generated query from a runnable one. Both engines are
+    Trino-dialect and support it.
+
+    Returns (ok, error_message). Never raises: a validator that fails closed on its
+    own outage would block queries that are perfectly fine.
+    """
+    engine = get_engine()
+    try:
+        engine.execute(f"EXPLAIN (TYPE VALIDATE) {sql}", user)
+        return True, None
+    except Exception as e:
+        try:
+            _status, detail, _code = engine.map_error(e)
+        except Exception:
+            detail = str(e)[:300]
+        return False, detail
