@@ -211,3 +211,44 @@ def test_enforce_mask_survives_athena_dialect():
     assert "m-email" in res.applied_mask_ids
     low = res.sql.lower()
     assert "except" in low and "regexp_replace" in low
+
+
+# ── Default catalog/schema for unqualified references ─────────────────────────
+# The engine's session database (ATHENA_DATABASE) and RLS's fallback schema must
+# come from one source; when they diverge, a policy on sales.orders does not match
+# a query that says `FROM orders`.
+
+def _table(sql):
+    import sqlglot
+    from sqlglot import exp
+    return sqlglot.parse_one(sql).find(exp.Table)
+
+
+def test_qualify_uses_rls_default_schema(monkeypatch):
+    from app.rls import engine as rls_engine
+    monkeypatch.setenv("RLS_DEFAULT_CATALOG", "AwsDataCatalog")
+    monkeypatch.setenv("RLS_DEFAULT_SCHEMA", "sales")
+
+    assert rls_engine._qualify(_table("SELECT * FROM orders")) == "awsdatacatalog.sales.orders"
+
+
+def test_qualify_falls_back_to_trino_schema_then_default(monkeypatch):
+    from app.rls import engine as rls_engine
+    monkeypatch.delenv("RLS_DEFAULT_SCHEMA", raising=False)
+    monkeypatch.delenv("RLS_DEFAULT_CATALOG", raising=False)
+    monkeypatch.setenv("TRINO_SCHEMA", "legacy")
+    monkeypatch.setenv("TRINO_CATALOG", "iceberg")
+    assert rls_engine._qualify(_table("SELECT * FROM orders")) == "iceberg.legacy.orders"
+
+    monkeypatch.delenv("TRINO_SCHEMA", raising=False)
+    monkeypatch.delenv("TRINO_CATALOG", raising=False)
+    assert rls_engine._qualify(_table("SELECT * FROM orders")) == "iceberg.default.orders"
+
+
+def test_qualify_reads_env_at_call_time(monkeypatch):
+    """Import-time constants made the value untestable and unresponsive to config."""
+    from app.rls import engine as rls_engine
+    monkeypatch.setenv("RLS_DEFAULT_SCHEMA", "one")
+    assert ".one." in rls_engine._qualify(_table("SELECT * FROM orders"))
+    monkeypatch.setenv("RLS_DEFAULT_SCHEMA", "two")
+    assert ".two." in rls_engine._qualify(_table("SELECT * FROM orders"))

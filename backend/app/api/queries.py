@@ -41,6 +41,11 @@ from app.database.connection import get_db
 from app.models.query import QueryHistory
 from app.schemas.query import QueryExecuteRequest, QueryHistoryResponse, QueryHistoryListResponse
 from app.api.query_engine import get_engine
+from app.api.table_resolver import (
+    TableResolutionError,
+    get_catalog_index,
+    qualify_tables,
+)
 
 router = APIRouter()
 
@@ -180,6 +185,27 @@ async def execute_query(
         raise HTTPException(status_code=401, detail="Invalid user identity")
 
     engine = get_engine()
+
+    # ── Resolve unqualified table names against the catalog ───────────────────
+    # Must run BEFORE enforce(): RLS keys policies on the fully qualified name, so
+    # `FROM orders` would miss a policy registered on `sales.orders` and — with
+    # RLS_DEFAULT_DENY off — run unfiltered. Fail-closed for the same reason: a bare
+    # name we cannot resolve is rejected rather than passed through. A fully
+    # qualified query reads no catalog and is left byte-for-byte unchanged.
+    try:
+        effective_query = qualify_tables(
+            effective_query, dialect=engine.rls_dialect, load_index=get_catalog_index
+        )
+    except TableResolutionError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.warning(f"[catalog] table resolution failed, blocking: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail="Could not resolve table names against the catalog. "
+                   "Qualify tables as <namespace>.<table> and retry.",
+        )
+
     # ── RLS enforcement (Layer 1) — gated by RLS_ENABLED ──────────────────────
     trino_user = TRINO_USER
     if RLS_ENABLED and _RLS_IMPORTS_OK:
