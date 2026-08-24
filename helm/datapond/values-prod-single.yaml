@@ -52,6 +52,8 @@ catalog:
   glueWarehouse: "s3://datapond-iceberg/warehouse"
   athenaOutputLocation: "s3://datapond-iceberg/athena-results/"
   athenaWorkgroup: "primary"
+  # Bare table names are resolved against the Glue catalog at query time; this is
+  # only the fallback database (and RLS's matching default schema).
   athenaDatabase: "default"
 
 # --- Postgres: external Aurora (not in-cluster) ---

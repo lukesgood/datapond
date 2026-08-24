@@ -113,10 +113,18 @@ def _default_deny_enabled() -> bool:
     return os.getenv("RLS_DEFAULT_DENY", "false").lower() in ("1", "true", "yes")
 
 
-# Default catalog/schema used to qualify unqualified table refs (matches queries.py).
-# RLS_DEFAULT_CATALOG lets the Athena engine re-point the catalog (AwsDataCatalog).
-DEFAULT_CATALOG = os.getenv("RLS_DEFAULT_CATALOG", os.getenv("TRINO_CATALOG", "iceberg"))
-DEFAULT_SCHEMA = os.getenv("TRINO_SCHEMA", "default")
+# Default catalog/schema used to qualify unqualified table refs. Both are derived
+# in Helm from catalog.backend alongside the query engine's own defaults, so the
+# schema RLS assumes and the schema the engine actually resolves against cannot
+# drift apart — a divergence would let `FROM orders` miss a policy registered on
+# `sales.orders`. Read at call time (like _default_deny_enabled) so config changes
+# and tests take effect without a re-import.
+def _default_catalog() -> str:
+    return os.getenv("RLS_DEFAULT_CATALOG") or os.getenv("TRINO_CATALOG") or "iceberg"
+
+
+def _default_schema() -> str:
+    return os.getenv("RLS_DEFAULT_SCHEMA") or os.getenv("TRINO_SCHEMA") or "default"
 
 _ATTR_KEY_RE = re.compile(r"^[A-Za-z0-9_]{1,64}$")
 _ATTR_CALL_RE = re.compile(r"current_user_attribute\(\s*'([^']*)'\s*\)")
@@ -211,9 +219,9 @@ def _qualify(table: exp.Table) -> str:
     """Return canonical catalog.schema.table (lowercased) for a sqlglot Table node."""
     parts = [p for p in (table.catalog, table.db, table.name) if p]
     if len(parts) == 1:
-        parts = [DEFAULT_CATALOG, DEFAULT_SCHEMA, parts[0]]
+        parts = [_default_catalog(), _default_schema(), parts[0]]
     elif len(parts) == 2:
-        parts = [DEFAULT_CATALOG, parts[0], parts[1]]
+        parts = [_default_catalog(), parts[0], parts[1]]
     return ".".join(p.lower() for p in parts)
 
 

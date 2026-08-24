@@ -109,7 +109,11 @@ catalog:
   # Athena query engine (slice 2), used when backend=glue:
   athenaOutputLocation: ""     # s3://<bucket>/athena-results/ — Athena result staging
   athenaWorkgroup: "primary"
-  athenaDatabase: "default"    # default Glue database for unqualified queries
+  # Fallback Glue database for a table reference that is still unqualified after
+  # catalog resolution. The backend resolves bare names against the catalog first
+  # (app/api/table_resolver.py), so this is a last resort, not the primary path.
+  # RLS_DEFAULT_SCHEMA is derived from this value — keep them one setting.
+  athenaDatabase: "default"
 
 # Backend (FastAPI)
 backend:

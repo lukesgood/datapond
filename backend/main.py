@@ -129,25 +129,12 @@ except ImportError as e:
 
 @app.on_event("startup")
 async def startup():
-    """Initialize Iceberg Medallion namespaces on startup."""
+    """Application startup: best-effort bootstraps (never fatal, each guarded)."""
     import asyncio, logging, os
     logger = logging.getLogger(__name__)
-    try:
-        import trino
-        conn = trino.dbapi.connect(
-            host=os.getenv("TRINO_SERVICE_HOST", "trino.datapond.svc.cluster.local"),
-            port=int(os.getenv("TRINO_SERVICE_PORT", "8080")),
-            user="datapond", catalog="iceberg", http_scheme="http", request_timeout=10,
-        )
-        cur = conn.cursor()
-        for ns in ("raw", "refined", "serving"):
-            try:
-                cur.execute(f"CREATE SCHEMA IF NOT EXISTS iceberg.{ns}")
-                logger.info(f"[startup] Iceberg namespace '{ns}' ready")
-            except Exception as e:
-                logger.warning(f"[startup] Schema '{ns}' skip: {e}")
-    except Exception as e:
-        logger.warning(f"[startup] Medallion init skipped: {e}")
+    # Iceberg medallion namespaces — no-op unless Trino is enabled (see app/medallion_init.py).
+    from app.medallion_init import init_medallion_namespaces
+    init_medallion_namespaces(logger)
 
     # Restore persisted system settings into env (retry — DB may not be ready immediately)
     import asyncio as _asyncio
