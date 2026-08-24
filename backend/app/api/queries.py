@@ -40,7 +40,8 @@ except ImportError:
 from app.database.connection import get_db
 from app.models.query import QueryHistory
 from app.schemas.query import QueryExecuteRequest, QueryHistoryResponse, QueryHistoryListResponse
-from app.api.query_engine import get_engine
+from app.api.query_engine import explain_statement, get_engine
+from app.api.plan_review import review as review_plan_text
 from app.api.table_resolver import (
     TableResolutionError,
     get_catalog_index,
@@ -468,3 +469,47 @@ async def get_table_columns(catalog: str, schema: str, table: str):
         return cols
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch columns: {str(e)[:200]}")
+
+
+# ── Plan review ───────────────────────────────────────────────────────────────
+# "Will this read what I meant?" is the question EXPLAIN (TYPE VALIDATE) cannot
+# answer: a generated query can resolve perfectly and still hit the wrong table.
+# See docs/RLS_DESIGN.md for the separate question of what the user may read.
+
+class QueryPlanRequest(BaseModel):
+    sql: str
+    deep: bool = False   # also fetch TYPE DISTRIBUTED (a second engine round-trip)
+
+
+@router.post("/queries/plan")
+async def review_plan(request: QueryPlanRequest, user: dict = Depends(require_user)):
+    """Describe a statement without running it: tables read, predicates that reached
+    them, and structural findings. Scans no data."""
+    sql = (request.sql or "").strip().rstrip(";")
+    if not sql:
+        raise HTTPException(status_code=400, detail="SQL cannot be empty")
+
+    engine = get_engine()
+    try:
+        sql = qualify_tables(sql, dialect=engine.rls_dialect, load_index=get_catalog_index)
+    except TableResolutionError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"[plan] table resolution failed: {e}")
+
+    ok, err, io_text = await asyncio.to_thread(explain_statement, sql, "TYPE IO, FORMAT JSON")
+    if not ok:
+        return {"validated": False, "validation_error": err,
+                "accessed": [], "findings": [], "sql": sql}
+
+    dist_text = None
+    if request.deep:
+        d_ok, _d_err, d_text = await asyncio.to_thread(
+            explain_statement, sql, "TYPE DISTRIBUTED")
+        dist_text = d_text if d_ok else None
+
+    out = review_plan_text(io_text, dist_text)
+    out.update({"validated": True, "validation_error": None, "sql": sql})
+    return out

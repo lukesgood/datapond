@@ -115,6 +115,28 @@ def get_engine():
     return AthenaEngine() if backend == "athena" else TrinoEngine()
 
 
+def explain_statement(sql: str, kind: str = "IO, FORMAT JSON", user: str = "datapond"):
+    """Run `EXPLAIN (<kind>) sql` and return (ok, error, text).
+
+    EXPLAIN analyses the statement against the live catalog and scans no data, so it
+    both validates and describes. `kind` is interpolated by the caller, never by a
+    user — keep it to the fixed set in app/api/plan_review.py's callers.
+
+    Never raises: a reviewer that throws would hide the query behind its own outage.
+    """
+    engine = get_engine()
+    try:
+        rows, _cols = engine.execute(f"EXPLAIN ({kind}) {sql}", user)
+        text = "\n".join(str(r[0]) for r in rows if r and r[0] is not None)
+        return True, None, text
+    except Exception as e:
+        try:
+            _status, detail, _code = engine.map_error(e)
+        except Exception:
+            detail = str(e)[:300]
+        return False, detail, ""
+
+
 def validate_statement(sql: str, user: str = "datapond"):
     """Check `sql` against the live catalog without running it.
 

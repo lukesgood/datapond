@@ -1,0 +1,65 @@
+{
+  "inputTableColumnInfos" : [ {
+    "table" : {
+      "catalog" : "awsdatacatalog$iceberg-aws",
+      "schemaTable" : {
+        "schema" : "planlab",
+        "table" : "orders"
+      }
+    },
+    "constraint" : {
+      "none" : false,
+      "columnConstraints" : [ {
+        "columnName" : "region",
+        "type" : "varchar",
+        "domain" : {
+          "nullsAllowed" : false,
+          "ranges" : [ {
+            "low" : {
+              "value" : "us",
+              "bound" : "EXACTLY"
+            },
+            "high" : {
+              "value" : "us",
+              "bound" : "EXACTLY"
+            }
+          } ]
+        }
+      } ]
+    },
+    "estimate" : {
+      "outputRowCount" : "NaN",
+      "outputSizeInBytes" : "NaN",
+      "cpuCost" : "NaN",
+      "maxMemory" : 0.0,
+      "networkCost" : 0.0
+    }
+  }, {
+    "table" : {
+      "catalog" : "awsdatacatalog$iceberg-aws",
+      "schemaTable" : {
+        "schema" : "planlab",
+        "table" : "customers"
+      }
+    },
+    "constraint" : {
+      "none" : false,
+      "columnConstraints" : [ ]
+    },
+    "estimate" : {
+      "outputRowCount" : "NaN",
+      "outputSizeInBytes" : "NaN",
+      "cpuCost" : "NaN",
+      "maxMemory" : 0.0,
+      "networkCost" : 0.0
+    }
+  } ],
+  "estimate" : {
+    "outputRowCount" : "NaN",
+    "outputSizeInBytes" : "NaN",
+    "cpuCost" : "NaN",
+    "maxMemory" : "NaN",
+    "networkCost" : "NaN"
+  }
+}
+
