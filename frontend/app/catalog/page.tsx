@@ -239,9 +239,9 @@ function CatalogPageInner() {
           <CardTitle className="flex items-center gap-2 text-sm font-medium">
             {showGraph ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
             <Share2 className="h-4 w-4 text-muted-foreground" />
-            테이블 관계
+            Table relationships
             <span className="ml-1 text-xs font-normal text-muted-foreground">
-              실제 실행된 조인에서 추출
+              from joins people actually ran
             </span>
           </CardTitle>
         </CardHeader>
@@ -330,7 +330,9 @@ function CatalogPageInner() {
           <CardContent>
             {totalTables > 0 && typeSegments.length > 0 ? (
               <>
-                {/* Stacked share bar — same inline-bar idiom used across the app */}
+                {/* Stacked share bar. With a single type it is a solid block conveying
+                    nothing, so show the breakdown alone in that case. */}
+                {typeSegments.length > 1 && (
                 <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted" aria-hidden="true">
                   {typeSegments.map(([type, count]) => (
                     <div
@@ -343,6 +345,7 @@ function CatalogPageInner() {
                     />
                   ))}
                 </div>
+                )}
                 <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
                   {typeSegments.map(([type, count]) => (
                     <span key={type} className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -444,7 +447,11 @@ function SendToKnowledgeDialog({ table, onClose }: { table: Table; onClose: () =
     fetch("/api/ai/collections").then(r => r.json() as Promise<CollectionsResponse>)
       .then(d => { const options = d.collections ?? []; setCollections(options); if (options[0]) setCollection(options[0].name) })
       .catch(() => setCollections([]))
-    const qs = new URLSearchParams({ catalog: "iceberg", schema: table.namespace, table: table.name })
+    const qs = new URLSearchParams({
+      ...(table.catalog ? { catalog: table.catalog } : {}),
+      schema: table.namespace,
+      table: table.name,
+    })
     fetch(`/api/catalog/columns?${qs}`).then(r => r.json() as Promise<CatalogColumn[]>)
       .then(payload => { const columns = Array.isArray(payload) ? payload : []; setCols(columns); setCol(columns.find(column => /char|text|string/i.test(column.type))?.name ?? columns[0]?.name ?? "") })
       .catch(() => setCols([]))

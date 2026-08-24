@@ -51,7 +51,8 @@ type PlanReview = {
   validated: boolean
   validation_error: string | null
   accessed: PlanAccessed[]
-  findings: PlanFinding[]
+  problems: PlanFinding[]
+  characteristics: PlanFinding[]
   estimates_available?: boolean
 }
 
@@ -97,6 +98,7 @@ function QueryPageInner() {
   const [aiCheck, setAiCheck]               = useState<{ ok: boolean | null; error?: string | null } | null>(null)
   const [planReview, setPlanReview]         = useState<PlanReview | null>(null)
   const [planLoading, setPlanLoading]       = useState(false)
+  const [planDetail, setPlanDetail]         = useState(false)
   // The exact statement Ask AI produced. Comparing against it (rather than tracking
   // edits) tells us whether what is about to run is still the assistant's work —
   // which the relationship graph must be able to exclude from its evidence.
@@ -169,6 +171,7 @@ function QueryPageInner() {
   const reviewPlan = useCallback(async (sql: string) => {
     setPlanLoading(true)
     setPlanReview(null)
+    setPlanDetail(false)
     try {
       const res = await fetch("/api/queries/plan", {
         method: "POST",
@@ -469,11 +472,11 @@ function QueryPageInner() {
                 : "bg-red-500/10 text-red-600 dark:text-red-400"
             }`}
           >
-            {aiCheck.ok ? "카탈로그 검증됨" : "검증 실패"}
+            {aiCheck.ok ? "Catalog-checked" : "Check failed"}
           </span>
         )}
         {planLoading && (
-          <span className="shrink-0 text-[10px] text-muted-foreground">플랜 검토 중…</span>
+          <span className="shrink-0 text-[10px] text-muted-foreground">Checking plan…</span>
         )}
         {aiExplanation && (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground max-w-xs truncate">
@@ -486,41 +489,49 @@ function QueryPageInner() {
       </div>
 
       {/* ── Plan review — what this statement actually reads ─────────────────── */}
-      {planReview && (planReview.accessed.length > 0 || planReview.findings.length > 0) && (
-        <div className="shrink-0 border-b bg-muted/30 px-3 py-2 text-xs space-y-1.5">
-          {planReview.accessed.length > 0 && (
-            <div className="flex items-start gap-2 flex-wrap">
-              <span className="text-[10px] uppercase tracking-wide text-muted-foreground pt-0.5 shrink-0">
-                읽는 테이블
-              </span>
-              {planReview.accessed.map(t => (
-                <span
-                  key={`${t.schema}.${t.table}`}
-                  className="rounded border bg-background px-1.5 py-0.5 font-mono text-[11px]"
-                  title={t.filters.length
+      {planReview && planReview.accessed.length > 0 && (
+        <div className="shrink-0 border-b bg-muted/30 px-3 py-2 text-xs">
+          {/* The answer first: which tables. Everything else is secondary. */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Reads</span>
+            {planReview.accessed.map(t => (
+              <span
+                key={`${t.schema}.${t.table}`}
+                className="rounded border bg-background px-1.5 py-0.5 font-mono text-[11px]"
+              >
+                {t.schema}.{t.table}
+                <span className="ml-1.5 text-[10px] text-muted-foreground">
+                  {t.filters.length
                     ? t.filters.map(f => `${f.column} ${f.summary}`).join(", ")
-                    : "조건 없이 전체를 읽습니다"}
-                >
-                  {t.schema}.{t.table}
-                  {t.filters.length > 0 && (
-                    <span className="ml-1 text-emerald-600 dark:text-emerald-400">
-                      {t.filters.map(f => f.column).join(",")}
-                    </span>
-                  )}
+                    : "no filter"}
                 </span>
+              </span>
+            ))}
+            {planReview.problems.map((f, i) => (
+              <span key={`p-${i}`} className={`ml-1 ${FINDING_STYLE[f.severity]}`}>
+                {f.severity === "critical" ? "▲" : "△"} {f.message}
+              </span>
+            ))}
+            {planReview.characteristics.length > 0 && (
+              <button
+                onClick={() => setPlanDetail(v => !v)}
+                className="ml-auto shrink-0 text-[10px] text-muted-foreground hover:text-foreground"
+              >
+                {planDetail ? "Hide plan details" : `Plan details (${planReview.characteristics.length})`}
+              </button>
+            )}
+          </div>
+          {planDetail && (
+            <ul className="mt-1.5 space-y-0.5 border-t pt-1.5">
+              {planReview.characteristics.map((f, i) => (
+                <li key={`c-${i}`} className={FINDING_STYLE[f.severity]}>{f.message}</li>
               ))}
-            </div>
-          )}
-          {planReview.findings.length > 0 && (
-            <ul className="space-y-0.5">
-              {planReview.findings.map((f, i) => (
-                <li key={`${f.code}-${i}`} className={`flex gap-1.5 ${FINDING_STYLE[f.severity]}`}>
-                  <span className="shrink-0 font-mono text-[10px] uppercase pt-px">
-                    {f.severity === "good" ? "ok" : f.severity}
-                  </span>
-                  <span>{f.message}</span>
+              {planReview.estimates_available === false && (
+                <li className="text-muted-foreground">
+                  No table statistics, so row-count and size estimates are unavailable.
+                  Run ANALYZE on the tables to enable them.
                 </li>
-              ))}
+              )}
             </ul>
           )}
         </div>
