@@ -42,6 +42,7 @@ from app.models.query import QueryHistory
 from app.schemas.query import QueryExecuteRequest, QueryHistoryResponse, QueryHistoryListResponse
 from app.api.query_engine import explain_statement, get_engine
 from app.api.plan_review import review as review_plan_text
+from app.api.catalog_graph import build_graph
 from app.api.table_resolver import (
     TableResolutionError,
     get_catalog_index,
@@ -513,3 +514,38 @@ async def review_plan(request: QueryPlanRequest, user: dict = Depends(require_us
     out = review_plan_text(io_text, dist_text)
     out.update({"validated": True, "validation_error": None, "sql": sql})
     return out
+
+
+# ── Catalog relationship graph ────────────────────────────────────────────────
+# Which tables are joined to which, mined from what people actually ran. The
+# ontology PoC (docs/ONTOLOGY_FEASIBILITY_REPORT.md) found inferred relationships to
+# be unreliable in every domain tested; a join in query_history is not inferred.
+
+@router.get("/catalog/relationships")
+async def catalog_relationships(
+    days: int = 30,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_user),
+):
+    """Join graph over the last `days` of successful queries."""
+    from datetime import datetime, timedelta
+    cutoff = datetime.utcnow() - timedelta(days=max(1, min(days, 365)))
+
+    try:
+        rows = (
+            db.query(QueryHistory.query_text)
+              .filter(QueryHistory.created_at >= cutoff)
+              .filter(QueryHistory.status == "success")
+              .order_by(QueryHistory.created_at.desc())
+              .limit(5000)
+              .all()
+        )
+    except Exception as e:
+        logger.warning(f"[catalog] relationship history read failed: {e}")
+        rows = []
+
+    graph = build_graph([r[0] for r in rows if r and r[0]], dialect=get_engine().rls_dialect)
+    graph["source"] = "query_history"
+    graph["window_days"] = days
+    graph["statements_scanned"] = len(rows)
+    return graph

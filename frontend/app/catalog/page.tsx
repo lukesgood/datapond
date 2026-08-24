@@ -21,7 +21,14 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { Search, Database, FolderOpen, Layers } from "lucide-react"
+import { Search, Database, FolderOpen, Layers, Share2, ChevronDown, ChevronRight } from "lucide-react"
+import dynamic from "next/dynamic"
+
+// reactflow pulls in a chunk we should not pay for unless the panel is opened.
+const RelationshipGraph = dynamic(
+  () => import("@/components/catalog/relationship-graph").then(m => m.RelationshipGraph),
+  { ssr: false },
+)
 
 interface Table {
   name: string
@@ -55,6 +62,7 @@ interface CollectionsResponse { collections?: CollectionOption[] }
 interface CatalogColumn { name: string; type: string }
 
 function CatalogPageInner() {
+  const [showGraph, setShowGraph] = useState(false)
   const [data, setData] = useState<CatalogData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -221,6 +229,28 @@ function CatalogPageInner() {
           </p>
         )}
       </div>
+
+      {/* Relationships — mined from query history, not inferred */}
+      <Card>
+        <CardHeader
+          className="cursor-pointer select-none py-3"
+          onClick={() => setShowGraph(v => !v)}
+        >
+          <CardTitle className="flex items-center gap-2 text-sm font-medium">
+            {showGraph ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            <Share2 className="h-4 w-4 text-muted-foreground" />
+            테이블 관계
+            <span className="ml-1 text-xs font-normal text-muted-foreground">
+              실제 실행된 조인에서 추출
+            </span>
+          </CardTitle>
+        </CardHeader>
+        {showGraph && (
+          <CardContent>
+            <RelationshipGraph days={30} />
+          </CardContent>
+        )}
+      </Card>
 
       {/* Search and Filters */}
       <div className="flex flex-col gap-4 sm:flex-row">
