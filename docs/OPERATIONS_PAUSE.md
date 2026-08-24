@@ -1,32 +1,57 @@
-# Operations Pause — Live Environment Stopped (Concept Re-confirmation)
+# Operations — Live Environment Stop / Restart Runbook
 
-> **State: PAUSED.** The live AWS operational environment was intentionally stopped to
-> halt run cost while the product **concept is re-confirmed** before a restart. Nothing was
-> destroyed — all data, images, catalog, secrets, and DNS are preserved and the system is
-> restartable. See "Restart procedure" below.
+> **State as of 2026-08-24: RUNNING.** The EC2 node was started on 2026-08-24 and the
+> release is at Helm revision 59 (backend `2.3.0-0a5fbfa`). The Aurora cluster was already
+> `available` — AWS force-started it under the 7-day rule described in caveat 1 below.
+> The EventBridge schedulers remain **DISABLED**, so nothing will stop the node
+> automatically; stopping is a manual action (see "Stop procedure").
+>
+> **History.** The environment was intentionally stopped on 2026-07-27 to halt run cost
+> while the product concept was re-confirmed (`CONCEPT_RECONFIRMATION.md`). Nothing was
+> destroyed at any point — data, images, catalog, secrets, and DNS were preserved
+> throughout.
 
-## Why
+## Cost note from the 2026-07 pause
+
+Caveat 1 below was not acted on: the Aurora cluster was never re-stopped weekly, so AWS
+force-started it roughly seven days into the pause and it billed ACU from then until the
+2026-08-24 restart — about four weeks. Only the EC2 node stayed down for the full pause.
+Any future pause longer than a week needs either a weekly re-stop or the snapshot+delete
+path.
+
+## Why the 2026-07 pause happened
 
 Following the strategy + validation work in `docs/ONTOLOGY_FEASIBILITY_REPORT.md`, the decision
-is to **pause operations and re-confirm the product concept** (positioning, target vertical,
+was to **pause operations and re-confirm the product concept** (positioning, target vertical,
 product-only vs services, ontology scope) before continuing to invest. The binding constraint
-identified is **demand**, not technology — so the live system is paused rather than extended.
+identified was **demand**, not technology — so the live system was paused rather than extended.
 
-## What was stopped (and what stays)
+## Stop procedure (what to stop, and what stays)
 
 | Resource | Action | State after |
 |---|---|---|
 | EC2 node `i-0bbf886f0728f3e6e` (m6i.xlarge, **persistent spot, stop-behavior**) | `stop-instances` | stopped (restartable) |
-| Aurora Serverless v2 cluster `datapond-pg` (aurora-postgresql, 0.5–4 ACU) | `stop-db-cluster` | stopped (data retained) |
+| Aurora Serverless v2 cluster `datapond-pg` (aurora-postgresql, 0.5–4 ACU) | `stop-db-cluster` | stopped (data retained, **re-stop weekly** — caveat 1) |
 | EventBridge Scheduler `datapond-node-start` / `datapond-node-stop` | set **DISABLED** | won't auto-restart the node |
 
-**Preserved (untouched):** S3 bucket `datapond-iceberg` (all data + warehouse + athena results),
-ECR images (`datapond-backend`, `datapond-frontend`; live tags backend `2.3.0-20aad91`,
-frontend `2.3.0-84ca7ae`* build path), Glue/Athena catalog, Secrets Manager, Route53 domain
-`datapond.csg.fitcloud.co.kr`, the Helm release manifest, and Aurora data (stopped, not deleted).
+Commands (region `us-east-1`):
 
-*Frontend was last deployed at `2.3.0-e3719b2`; `84ca7ae` is the latest committed frontend but
-was a docs commit — confirm the running image tag on restart with the command below.
+```bash
+R="--region us-east-1"
+aws ec2 stop-instances --instance-ids i-0bbf886f0728f3e6e $R
+aws rds stop-db-cluster --db-cluster-identifier datapond-pg $R
+aws scheduler update-schedule --name datapond-node-start --state DISABLED ...  # re-supply required fields
+aws scheduler update-schedule --name datapond-node-stop  --state DISABLED ...
+```
+
+**Preserved (untouched):** S3 bucket `datapond-iceberg` (all data + warehouse + athena results),
+ECR images (`datapond-backend`, `datapond-frontend`), Glue/Athena catalog, Secrets Manager,
+Route53 domain `datapond.csg.fitcloud.co.kr`, the Helm release manifest, and Aurora data
+(stopped, not deleted).
+
+Image tags running as of 2026-08-24 (Helm revision 59): backend `2.3.0-0a5fbfa`, frontend
+`2.3.0-e3719b2`. Always confirm with the command in step 5 rather than trusting this line —
+a backend-only or frontend-only deploy moves one tag and not the other.
 
 ## Cost while paused
 
@@ -100,7 +125,7 @@ Notes on restart:
 > `CONCEPT_RECONFIRMATION.md` (v6 direction: governed data-access layer for agents/AI apps,
 > demo-armed demand validation, ontology demand-gated). Restart is gated on §5.2 of that note.
 
-Re-confirmation covers the open strategic questions surfaced this cycle:
+Re-confirmation covered the open strategic questions surfaced in that cycle:
 - **Positioning** — lead with governance + portability (not "AI Data Foundation" breadth, not RAG).
 - **Ontology scope** — validated as a *governance + relationship + jargon-vertical* play, **not**
   a general "better search" play (see `ONTOLOGY_FEASIBILITY_REPORT.md`; concept layer is

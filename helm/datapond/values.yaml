@@ -283,7 +283,7 @@ jupyter:
     defaultEmail: "user@datapond.local"
 
   # RLS Layer 3 — sanctioned DuckDB helper (datapond_lake) blocking direct reads of
-  # sensitive tables. Off by default; enable with backend RLS_ENABLED. See docs/RLS_DESIGN.md §6.
+  # sensitive tables. Off by default; enable with backend RLS_ENABLED. See docs/RLS_DESIGN.md (Layer 3 — direct-read guard).
   rlsGuard:
     enabled: false
 

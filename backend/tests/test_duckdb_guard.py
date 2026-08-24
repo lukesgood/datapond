@@ -1,6 +1,6 @@
 """
 Unit tests for the DuckDB / direct-S3 read guard (RLS Layer 3). No cluster needed.
-See docs/RLS_DESIGN.md §6.
+See docs/RLS_DESIGN.md (Layer 3 — direct-read guard).
 """
 from app.rls.engine import RlsPolicy
 from app.rls.duckdb_guard import (

@@ -1,5 +1,5 @@
 """
-RLS Layer 3 — DuckDB / direct-S3 read guard (see docs/RLS_DESIGN.md §6).
+RLS Layer 3 — DuckDB / direct-S3 read guard (see docs/RLS_DESIGN.md).
 
 The JupyterLab → DuckDB → SeaweedFS path reads Iceberg/parquet directly, bypassing
 Trino/Polaris/RLS. Locked decision (2026-06-02): **block direct reads of sensitive
