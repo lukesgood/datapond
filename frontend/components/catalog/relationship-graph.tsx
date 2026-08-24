@@ -46,9 +46,9 @@ function ring(nodes: GraphNode[]): Node[] {
         borderRadius: 6,
         padding: "6px 10px",
         fontSize: 12,
-        background: "hsl(var(--card))",
-        color: "hsl(var(--card-foreground))",
-        border: "1px solid hsl(var(--border))",
+        background: "var(--card)",
+        color: "var(--card-foreground)",
+        border: "1px solid var(--border)",
       },
     }
   })
@@ -87,10 +87,10 @@ export function RelationshipGraph({ days = 30 }: { days?: number }) {
             : observed ? `×${e.count}` : "",
           labelStyle: {
             fontSize: 10,
-            fill: observed ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))",
+            fill: observed ? "var(--foreground)" : "var(--muted-foreground)",
             fontStyle: observed ? "normal" : "italic",
           },
-          labelBgStyle: { fill: "hsl(var(--background))" },
+          labelBgStyle: { fill: "var(--background)" },
           // Solid and thick = people ran it. Dashed and thin = we guessed from column
           // naming. The two must never be mistaken for each other.
           style: observed
