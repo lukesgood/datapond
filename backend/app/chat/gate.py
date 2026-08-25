@@ -44,7 +44,8 @@ class InvocationStore(Protocol):
     async def create(self, **fields) -> dict: ...
     async def get(self, invocation_id: str) -> Optional[dict]: ...
     async def update(self, invocation_id: str, **fields) -> dict: ...
-    async def record_audit(self, event: str, user_id: Optional[str], details: dict) -> None: ...
+    async def record_audit(self, event: str, user_id: Optional[str],
+                           user_email: Optional[str], details: dict) -> None: ...
 
 
 def _held_permissions(user: dict) -> set:
@@ -69,7 +70,10 @@ async def _audit(store: InvocationStore, event: str, user: dict, **details) -> N
     # The human is always the actor. An audit log that attributes a change to "the
     # assistant" has lost the only fact worth recording.
     try:
-        await store.record_audit(event, user.get("id"), {"via": "chat", **details})
+        # user_email as well as user_id: the audit viewer renders the former, and a
+        # trail that says "someone executed this" answers nothing.
+        await store.record_audit(event, user.get("id"), user.get("username"),
+                                 {"via": "chat", **details})
     except Exception as e:  # bookkeeping must not fail the request
         logger.warning(f"[chat] audit write failed for {event}: {e}")
 
@@ -99,7 +103,8 @@ async def propose(
     store: InvocationStore,
     executor: Optional[Callable] = None,
     previewer: Optional[Callable] = None,
-    message_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+    request_text: Optional[str] = None,
 ) -> dict:
     """Validate a proposal and either run it (read) or park it for approval (write).
 
@@ -131,7 +136,10 @@ async def propose(
 
     invocation = await store.create(
         action_id=action.id, params=clean, preview=preview, page=page,
-        message_id=message_id, user_id=user.get("id"), status="proposed",
+        conversation_id=conversation_id, user_id=user.get("id"), status="proposed",
+        # The message that asked for this — the only transcript kept, and only
+        # because a change needs a reason on record. See design §9.
+        request_text=(request_text or "")[:2000] or None,
     )
     await _audit(store, "chat_action_proposed", user, action=action.id,
                  invocation=invocation["id"], kind=action.kind.value)

@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation"
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
+import { AssistantPanel } from "@/components/chat/assistant-panel"
 import { AppSidebar } from "@/components/app-sidebar"
 import { CapabilitiesProvider, CapabilityGate } from "@/lib/capabilities"
 
@@ -59,6 +60,7 @@ export function ConditionalLayout({ children }: { children: React.ReactNode }) {
           </div>
           <OptionalRouteGate pathname={pathname}>{children}</OptionalRouteGate>
         </main>
+        <AssistantPanel />
       </SidebarProvider>
     </CapabilitiesProvider>
   )

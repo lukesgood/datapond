@@ -116,7 +116,7 @@ _ACTIONS: Sequence[Action] = (
            "Columns, types, and relationships for one table.",
            ("/catalog", "/query"), "catalog:read", ActionKind.READ, TableRef),
     Action("catalog.find_tables", "Find tables",
-           "Search the catalog for tables matching a description.",
+           "Find tables by name or namespace. Pass plain words only — there is no query syntax, no operators, no field: prefixes.",
            ("*",), "catalog:read", ActionKind.READ, TableSearch),
     Action("catalog.explain_relationships", "Explain relationships",
            "How tables are joined, from observed query history and column naming.",

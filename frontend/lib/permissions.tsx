@@ -1,6 +1,7 @@
 "use client"
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
+import { getToken } from "@/lib/auth"
 
 /** What the signed-in user may do, per backend/app/permissions.py.
  *
@@ -26,6 +27,15 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false
+    // No credential, no request. This provider sits in the root layout, so it also
+    // mounts on /login and /forgot; asking an authenticated endpoint there produced a
+    // 401, which the fetch interceptor reads as an expired session — and /forgot is
+    // not on the interceptor's suppression list, so password recovery bounced the
+    // user back to the login screen.
+    if (!getToken()) {
+      setState(s => (s.loaded ? { role: "viewer", permissions: new Set(), loaded: false } : s))
+      return
+    }
     fetch("/api/me/permissions")
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
