@@ -63,6 +63,11 @@ AUTH_EXEMPT = {
     "/api/auth/logout",
     "/health",
     "/api/health",
+    # Probes reach /health/ready on the pod directly, but an operator checking a
+    # deployment from outside gets the same answer through the API path. It reports
+    # bootstrap outcomes and whether the database responds — no data, no identities.
+    "/health/ready",
+    "/api/health/ready",
     "/docs",
     "/openapi.json",
     "/redoc",
