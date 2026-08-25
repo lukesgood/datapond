@@ -2,7 +2,7 @@
 DataPond Backend API
 FastAPI backend for DataPond unified management interface
 """
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Response
 from app.component_guard import require_component
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -132,8 +132,14 @@ except ImportError as e:
 
 @app.on_event("startup")
 async def startup():
-    """Application startup: best-effort bootstraps (never fatal, each guarded)."""
+    """Application startup: best-effort bootstraps (never fatal, each guarded).
+
+    Never fatal, but no longer invisible: each one reports to app/readiness.py, and a
+    failed *required* bootstrap keeps the pod out of service rather than letting it
+    serve a partial schema.
+    """
     import asyncio, logging, os
+    from app.readiness import readiness
     logger = logging.getLogger(__name__)
     # Iceberg medallion namespaces — no-op unless Trino is enabled (see app/medallion_init.py).
     from app.medallion_init import init_medallion_namespaces
@@ -189,7 +195,12 @@ async def startup():
         from app.api.connectors import get_db_pool
         from app.schema_bootstrap import ensure_base_schema
         await ensure_base_schema(await get_db_pool())
+        readiness.record("base_schema", ok=True)
     except Exception as e:
+        # Recorded, not just logged. Without the base schema the product cannot
+        # answer a request correctly, so the pod must stay out of service instead of
+        # failing one endpoint at a time. See app/readiness.py.
+        readiness.record("base_schema", ok=False, detail=str(e))
         logger.warning(f"[startup] Base schema bootstrap skipped: {e}")
 
     # Pipelines table — moved off module import, where it ran DDL before the app
@@ -199,7 +210,9 @@ async def startup():
         from app.api.transforms import ensure_transforms_table
         await asyncio.to_thread(ensure_pipelines_table)
         await asyncio.to_thread(ensure_transforms_table)
+        readiness.record("pipelines_tables", ok=True)
     except Exception as e:
+        readiness.record("pipelines_tables", ok=False, detail=str(e))
         logger.warning(f"[startup] pipelines/transforms table bootstrap skipped: {e}")
 
     # RLS 스키마 마이그레이션 (멱등 — rls_policies/masking/user_roles/attributes). best-effort.
@@ -207,7 +220,9 @@ async def startup():
         from app.api.connectors import get_db_pool
         from app.rls.migrate import ensure_rls_schema
         await ensure_rls_schema(await get_db_pool())
+        readiness.record("rls_schema", ok=True)
     except Exception as e:
+        readiness.record("rls_schema", ok=False, detail=str(e))
         logger.warning(f"[startup] RLS schema migration skipped: {e}")
 
     # WebAuthn/passkey credentials table (idempotent — every startup). best-effort.
@@ -215,8 +230,10 @@ async def startup():
         from app.api.connectors import get_db_pool
         from app.webauthn_schema import ensure_webauthn_schema
         await ensure_webauthn_schema(await get_db_pool())
+        readiness.record("webauthn_schema", ok=True)
         logger.info("[startup] webauthn schema ready")
     except Exception as e:
+        readiness.record("webauthn_schema", ok=False, detail=str(e))
         logger.warning(f"[startup] webauthn schema skipped: {e}")
 
     # Iceberg 유지보수 DAG 배포 (best-effort — Airflow/PVC 미준비 시 건너뜀)
@@ -380,6 +397,47 @@ async def health_check():
 async def api_health_check():
     """Health check endpoint (API path)"""
     return {"status": "healthy"}
+
+
+async def _readiness_payload():
+    """Bootstrap outcomes plus a live database check.
+
+    The schema being present at startup is not the same as the database being
+    reachable now, and readiness is a question about now. Kubernetes supplies the
+    consecutive-failure semantics through failureThreshold, so a brief blip does not
+    need to be smoothed over here.
+    """
+    from app.readiness import readiness
+
+    status = dict(readiness.status())
+    try:
+        from app.api.connectors import get_db_pool
+        pool = await asyncio.wait_for(get_db_pool(), timeout=3)
+        async with pool.acquire() as conn:
+            await asyncio.wait_for(conn.execute("SELECT 1"), timeout=3)
+        status["database"] = "ok"
+    except Exception as e:
+        status["database"] = f"unreachable: {e}"
+        status["ready"] = False
+    return status
+
+
+@app.get("/health/ready")
+async def readiness_check(response: Response):
+    """Should this pod receive traffic. Distinct from /health, which only says the
+    process is running — both probes used to point at that."""
+    payload = await _readiness_payload()
+    if not payload["ready"]:
+        response.status_code = 503
+    return payload
+
+
+@app.get("/api/health/ready")
+async def api_readiness_check(response: Response):
+    payload = await _readiness_payload()
+    if not payload["ready"]:
+        response.status_code = 503
+    return payload
 
 
 @app.get("/api/capabilities")
