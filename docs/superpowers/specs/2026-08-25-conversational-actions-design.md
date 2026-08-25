@@ -281,5 +281,9 @@ offers, and — because the model is not in the loop for that decision — canno
    trail that cannot name an approver. Blocked at the routes and again in the gate.
    Natural language for agents belongs in an MCP surface, which this product does not
    have.
-3. `query.run` classed as `create` adds an approval step to something Analytics does
-   with one click today. Correct, or friction that will be routed around?
+3. ~~`query.run` classed as `create`~~ — **resolved 2026-08-25: the approval step
+   stays.** It does add a step to something Analytics does on one click, but the two
+   are not the same act: there the person wrote the statement, here they did not.
+   Pinned by a test so it cannot be reverted by a one-word edit.
+
+All three questions are resolved; nothing in this design is open.
