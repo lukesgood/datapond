@@ -994,3 +994,8 @@ maintenance:
 # lakehouse_s3_role_arn` on EKS; leave empty on K3s/EC2 (node instance profile) or MinIO.
 lakehouseIrsa:
   roleArn: ""
+
+# Default-deny ingress plus an egress rule that keeps pods away from the instance
+# metadata endpoint. See helm/datapond/templates/networkpolicy.yaml.
+networkPolicy:
+  enabled: false

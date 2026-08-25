@@ -1,0 +1,115 @@
+{{- if (.Values.networkPolicy).enabled }}
+{{/*
+Default-deny ingress, plus the connections the product actually makes.
+
+The namespace had no NetworkPolicy at all, so every pod could reach every other pod
+on every port. K3s runs kube-router's netpol controller here, so these are enforced
+rather than decorative — checked on the running cluster before writing them.
+
+Off by default. The base values file carries the full OSS add-on set, and a policy
+written for a component list nobody verified is an outage with a security-sounding
+name. Enabled in the Portable Core profiles, where the component list is known.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.namespace }}-default-deny-ingress
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+{{/*
+Egress is allowed everywhere EXCEPT the instance metadata endpoint.
+
+This is the other half of terraform/ec2.tf's metadata_options. The hardening advice
+is hop_limit 1, which keeps IMDS off the pod network entirely — but the backend
+reaches S3, Bedrock and Athena through the node's instance profile from a pod, so
+hop_limit has to stay at 2 and every pod in the cluster can therefore ask
+169.254.169.254 for the node's credentials. An SSRF in any add-on is enough.
+
+Denying it here and re-allowing it only for the pods that need it gets most of that
+back. NetworkPolicies are additive: this rule and the allow below are unioned, so
+backend and litellm keep their access and nothing else has it.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.namespace }}-egress-except-metadata
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: ["169.254.169.254/32"]
+    # DNS is in-cluster and so is not covered by the ipBlock above.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    # Pod-to-pod inside the namespace (backend → litellm, valkey, postgres).
+    - to:
+        - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.namespace }}-allow-metadata-for-aws-callers
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [{{ .Values.backend.name }}, {{ (.Values.litellm).name | default "litellm" }}]
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 169.254.169.254/32
+---
+{{/*
+Ingress allows. Traefik runs in kube-system and is the only path in from outside.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.namespace }}-allow-web
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [{{ .Values.backend.name }}, {{ .Values.frontend.name }}]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+        - podSelector: {}
+---
+{{/*
+Everything else in the namespace accepts connections only from inside it. The
+default-deny above already refuses the outside world; this restores pod-to-pod,
+which is what the product's own traffic is.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.namespace }}-allow-internal
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}
+{{- end }}
