@@ -29,6 +29,9 @@ from pydantic import BaseModel
 
 from app.runtime import is_production, component_secret
 from app.permissions import ASSIGNABLE_ROLES, permissions_for
+from app.service_accounts import (
+    effective_permissions, hash_key, key_matches, looks_like_api_key,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
@@ -215,9 +218,16 @@ async def _recheck_user(uid: str, claims: dict) -> Optional[dict]:
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ) -> Optional[dict]:
-    """Extract current user from Bearer token. Returns None if not authenticated."""
+    """Extract current user from Bearer token. Returns None if not authenticated.
+
+    One header carries either credential: a `dp_sk_` prefix marks a service-account
+    API key, anything else is treated as a JWT. Clients do not have to know which
+    scheme this deployment wants.
+    """
     if not credentials:
         return None
+    if looks_like_api_key(credentials.credentials):
+        return await _resolve_api_key(credentials.credentials)
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError:
@@ -338,7 +348,13 @@ def require_permission(permission: str):
     from app.permissions import has_permission
 
     async def _guard(user: dict = Depends(require_user)) -> dict:
-        if not has_permission(user.get("role"), permission):
+        # A service-account key carries its own effective set (role narrowed by the
+        # key's scopes). When present it is authoritative — including when it is
+        # empty, or a key scoped down to nothing would silently regain its role.
+        granted = user.get("permissions")
+        allowed = (permission in granted) if granted is not None \
+            else has_permission(user.get("role"), permission)
+        if not allowed:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(f"'{permission}' permission required — your role "
@@ -861,3 +877,72 @@ async def my_permissions(user: dict = Depends(require_user)):
         "permissions": sorted(permissions_for(role)),
         "assignable_roles": list(ASSIGNABLE_ROLES),
     }
+
+
+# ── Service-account API keys ──────────────────────────────────────────────────
+# The identity is a `users` row (auth_method='service'); this only resolves the
+# credential. See app/service_accounts.py for why it is not a separate entity.
+
+# Verified on every request, so the lookup is cached briefly. The TTL bounds how long
+# a revoked key keeps working — short enough that revocation is effectively immediate,
+# long enough that a busy agent is not one DB round-trip per call.
+_KEY_CACHE: dict = {}
+_KEY_CACHE_TTL = 30.0
+
+
+def _cache_get(digest: str):
+    entry = _KEY_CACHE.get(digest)
+    if not entry:
+        return None
+    resolved, at = entry
+    if (time.monotonic() - at) > _KEY_CACHE_TTL:
+        _KEY_CACHE.pop(digest, None)
+        return None
+    return resolved
+
+
+async def _resolve_api_key(raw_key: str) -> Optional[dict]:
+    """Identity behind an API key, or None. Never raises."""
+    digest = hash_key(raw_key)
+    cached = _cache_get(digest)
+    if cached is not None:
+        return cached or None
+    try:
+        pool = await _get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT k.id AS key_id, k.key_hash, k.status, k.scopes, k.expires_at,
+                          u.id, u.username, u.role, u.is_active
+                     FROM api_keys k JOIN users u ON u.id = k.user_id
+                    WHERE k.key_hash = $1""",
+                digest,
+            )
+    except Exception as e:
+        logger.warning(f"[auth] api key lookup failed: {e}")
+        return None
+
+    resolved = None
+    if row and row["is_active"] and str(row["status"]) == "active" \
+            and key_matches(raw_key, row["key_hash"]):
+        expires = row["expires_at"]
+        if expires is None or expires > datetime.now(expires.tzinfo):
+            resolved = {
+                "id": str(row["id"]),
+                "username": row["username"],
+                "role": row["role"],
+                "auth_method": "service",
+                "api_key_id": str(row["key_id"]),
+                "permissions": sorted(
+                    effective_permissions(row["role"], list(row["scopes"] or []))),
+            }
+    _KEY_CACHE[digest] = (resolved, time.monotonic())
+    if resolved:
+        # Best-effort usage stamp; never let bookkeeping fail a request.
+        try:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE api_keys SET last_used_at = NOW() WHERE id = $1::uuid",
+                    resolved["api_key_id"])
+        except Exception:
+            pass
+    return resolved

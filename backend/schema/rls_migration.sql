@@ -29,6 +29,44 @@ ALTER TABLE IF EXISTS connector_connections ADD COLUMN IF NOT EXISTS schedule TE
 -- relationship graph, which must not count the assistant's own joins as evidence.
 ALTER TABLE IF EXISTS query_history ADD COLUMN IF NOT EXISTS origin VARCHAR(16) NOT NULL DEFAULT 'ui';
 
+-- Service accounts. auth.sql defined api_keys and the api_key_status enum from the
+-- start but nothing ever implemented them, and auth.sql is sentinel-guarded so an
+-- existing database never got the table. Created here because this migration runs
+-- every startup and is idempotent. The identity is a users row with
+-- auth_method='service' — see app/service_accounts.py for why not a separate entity.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'api_key_status') THEN
+        CREATE TYPE api_key_status AS ENUM ('active', 'revoked', 'expired');
+    END IF;
+END $$;
+
+-- 'service' joins local/ldap/saml/oidc. ADD VALUE IF NOT EXISTS is idempotent.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'auth_method') THEN
+        ALTER TYPE auth_method ADD VALUE IF NOT EXISTS 'service';
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(128) NOT NULL,
+    key_prefix VARCHAR(16) NOT NULL,
+    key_hash VARCHAR(128) NOT NULL UNIQUE,
+    status api_key_status NOT NULL DEFAULT 'active',
+    scopes TEXT[] NOT NULL DEFAULT '{}',
+    expires_at TIMESTAMPTZ,
+    last_used_at TIMESTAMPTZ,
+    last_used_ip INET,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    revoked_at TIMESTAMPTZ,
+    revoked_by UUID REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+
 -- Roles + user-role assignment (loader reads these; falls back to users.role if absent)
 CREATE TABLE IF NOT EXISTS roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -270,6 +270,7 @@ app.include_router(notebooks_router, prefix="/api",
 app.include_router(mlflow_router, prefix="/api",
                    dependencies=[Depends(require_component("MLFLOW", "Experiments (MLflow)"))])
 app.include_router(airflow_router, prefix="/api")
+app.include_router(service_accounts_router, prefix="/api")
 app.include_router(dashboards_router, prefix="/api")
 app.include_router(pipelines_router, prefix="/api")
 app.include_router(storage_router, prefix="/api")
