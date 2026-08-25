@@ -25,7 +25,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
-from app.api.auth import require_admin, require_permission
+from app.api.auth import require_admin, require_permission, require_user
 from app.api.connectors import get_db_pool
 from app.runtime import component_secret
 
@@ -494,6 +494,26 @@ def usage_by_feature(logs) -> list:
                   key=lambda r: r["spend"], reverse=True)
 
 
+@router.get("/settings/ai/usage/me",
+            dependencies=[Depends(require_permission("ai:generate"))])
+async def my_usage(user: dict = Depends(require_user)):
+    """The calling user's own model spend.
+
+    Gated on ai:generate rather than spend:read on purpose: if a role is trusted to
+    spend, it is trusted to see what it spent. spend:read stays what it is — the
+    permission to see *everyone's*, which is an operator's view.
+    """
+    url, key = _gateway()
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.get(f"{url}/spend/logs", headers=_headers(key))
+        logs = r.json() if r.status_code < 400 and isinstance(r.json(), list) else []
+    except Exception as e:
+        logger.warning("my usage failed: %s", e)
+        logs = []
+    return spend_for_user(logs, str(user.get("id") or ""))
+
+
 @router.get("/settings/ai/usage", dependencies=[Depends(require_permission("spend:read"))])
 async def usage_summary():
     """Token + cost usage for the cost dashboard: total spend/budget, per-model spend
@@ -627,3 +647,26 @@ async def budget_alerts(threshold: float = 80.0):
     except Exception as e:
         logger.warning(f"[ai_backends] budget alerts failed: {e}")
     return out
+
+
+def spend_for_user(logs, user_id: str) -> dict:
+    """One caller's spend, tokens and per-feature split.
+
+    Separate from usage_summary because that one answers a different question — what
+    the deployment spent, and how it divides across everyone — which is an operator's
+    question. This is the one a person asks about themselves, and answering it should
+    not require showing them everybody else.
+
+    Rows with no end_user are not folded in. Spend logged against nobody belongs to
+    nobody; attributing it to whoever asks would invent a number they would then act
+    on.
+    """
+    mine = [e for e in logs if (e.get("end_user") or "") == user_id and user_id]
+    return {
+        "user": user_id,
+        "spend": round(sum(float(e.get("spend") or 0) for e in mine), 6),
+        "requests": len(mine),
+        "total_tokens": sum(int(e.get("total_tokens") or 0) for e in mine),
+        "models": sorted({e.get("model") for e in mine if e.get("model")}),
+        "apps": usage_by_feature(mine),
+    }

@@ -19,7 +19,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.api.auth import require_admin, require_user
+from app.api.auth import require_admin, require_user, require_permission
 from app.api.connectors import get_db_pool
 
 logger = logging.getLogger(__name__)
@@ -145,14 +145,21 @@ class ConceptImport(BaseModel):
     concepts: list[dict]
 
 
-@router.get("/ai/concepts")
+@router.get("/ai/concepts",
+            dependencies=[Depends(require_permission("knowledge:read"))])
 async def list_concepts(user: dict = Depends(require_user)):
     _require_enabled()
     return {"concepts": await load_concepts(await get_db_pool())}
 
 
-@router.post("/ai/concepts")
-async def create_concept(body: ConceptIn, user: dict = Depends(require_admin)):
+# Curating the term list is a knowledge-building act, not an administrative one.
+# Expansion rewrites a query before retrieval, so this is a retrieval-quality
+# control — and the role accountable for retrieval quality already creates the
+# collections, ingests into them and schedules their re-embedding. Being unable to
+# say that "refund" and the Korean for it are the same thing was the wrong line.
+@router.post("/ai/concepts",
+             dependencies=[Depends(require_permission("knowledge:write"))])
+async def create_concept(body: ConceptIn, user: dict = Depends(require_user)):
     _require_enabled()
     pool = await get_db_pool()
     await ensure_ontology_schema(pool)
@@ -175,8 +182,9 @@ async def create_concept(body: ConceptIn, user: dict = Depends(require_admin)):
     return {"ok": True, "name": name}
 
 
-@router.delete("/ai/concepts/{name}")
-async def delete_concept(name: str, user: dict = Depends(require_admin)):
+@router.delete("/ai/concepts/{name}",
+               dependencies=[Depends(require_permission("knowledge:write"))])
+async def delete_concept(name: str, user: dict = Depends(require_user)):
     _require_enabled()
     pool = await get_db_pool()
     await ensure_ontology_schema(pool)
@@ -185,8 +193,9 @@ async def delete_concept(name: str, user: dict = Depends(require_admin)):
     return {"ok": True, "deleted": deleted.endswith("1")}
 
 
-@router.post("/ai/concepts/import")
-async def import_concepts(body: ConceptImport, user: dict = Depends(require_admin)):
+@router.post("/ai/concepts/import",
+             dependencies=[Depends(require_permission("knowledge:write"))])
+async def import_concepts(body: ConceptImport, user: dict = Depends(require_user)):
     """Bulk upsert in the PoC bootstrap shape ({name, aliases, parent, pii})."""
     _require_enabled()
     pool = await get_db_pool()

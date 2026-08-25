@@ -64,9 +64,12 @@ ROLE_PERMISSIONS: Dict[str, FrozenSet[str]] = {
         "workbench:read", "workbench:write",
     }),
 
+    # connector:read, because a role that queries a table has to be able to find out
+    # when it was last synced. Without it this role could analyse data of unknown
+    # age — the one question an analyst asks before trusting a number.
     "data_scientist": frozenset(_READ_BASELINE | {
         "query:run", "knowledge:write", "ai:generate", "dashboard:write",
-        "workbench:read", "workbench:write",
+        "connector:read", "workbench:read", "workbench:write",
     }),
 
     "business_analyst": frozenset(_READ_BASELINE | {
