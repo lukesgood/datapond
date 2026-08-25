@@ -214,6 +214,7 @@ function CreateCollection({ onCreated }: { onCreated: () => void }) {
 }
 
 function Workspace({ name, onChange, empty }: { name: string; onChange: () => void; empty: boolean }) {
+  const ontologyOn = useCapability("ontology")
   return (
     <Card>
       <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2">
@@ -225,14 +226,18 @@ function Workspace({ name, onChange, empty }: { name: string; onChange: () => vo
           <TabsList><TabsTrigger value="search"><Search className="h-3.5 w-3.5 mr-1" />Search / RAG</TabsTrigger>
             <TabsTrigger value="ingest"><Upload className="h-3.5 w-3.5 mr-1" />Ingest</TabsTrigger>
             <TabsTrigger value="schedule"><Clock className="h-3.5 w-3.5 mr-1" />Schedule</TabsTrigger>
-            <TabsTrigger value="concepts"><BookMarked className="h-3.5 w-3.5 mr-1" />Concepts</TabsTrigger>
+            {/* Only when the deployment has the capability. Without the flag every
+                concepts call 404s, so an always-present tab would greet everyone with
+                an error for a feature they have not turned on. The Concepts toggle in
+                Search is gated the same way. */}
+            {ontologyOn && <TabsTrigger value="concepts"><BookMarked className="h-3.5 w-3.5 mr-1" />Concepts</TabsTrigger>}
             <TabsTrigger value="compare"><ArrowDownWideNarrow className="h-3.5 w-3.5 mr-1" />Compare</TabsTrigger></TabsList>
           <TabsContent value="search"><SearchPanel name={name} /></TabsContent>
           <TabsContent value="ingest"><IngestPanel name={name} onChange={onChange} /></TabsContent>
           <TabsContent value="schedule"><SchedulePanel name={name} /></TabsContent>
           {/* Deliberately in Knowledge rather than a page of its own: concepts change
               what Search returns, so the cause belongs next to the effect. */}
-          <TabsContent value="concepts"><ConceptsPanel /></TabsContent>
+          {ontologyOn && <TabsContent value="concepts"><ConceptsPanel /></TabsContent>}
           <TabsContent value="compare"><ComparePanel name={name} /></TabsContent>
         </Tabs>
       </CardContent>
