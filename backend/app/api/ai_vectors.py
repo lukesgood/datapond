@@ -119,6 +119,12 @@ async def ensure_vector_schema(pool) -> None:
             # Replace-scope for re-embedding: a logical source group (distinct from
             # per-document `source`, which stays for citations / COUNT(DISTINCT)).
             await c.execute("ALTER TABLE ai_chunks ADD COLUMN IF NOT EXISTS source_group TEXT")
+            # Chunking belongs to the collection, not to each ingest. Two ingests into
+            # one collection used to be able to split differently, which makes the
+            # retrieved passages inconsistent in a way nothing reports.
+            await c.execute("ALTER TABLE ai_collections ADD COLUMN IF NOT EXISTS chunk_preset TEXT")
+            await c.execute("ALTER TABLE ai_collections ADD COLUMN IF NOT EXISTS chunk_size INT")
+            await c.execute("ALTER TABLE ai_collections ADD COLUMN IF NOT EXISTS chunk_overlap INT")
             await c.execute("CREATE INDEX IF NOT EXISTS ai_chunks_coll_idx ON ai_chunks(collection_id)")
             await c.execute("CREATE INDEX IF NOT EXISTS ai_chunks_group_idx ON ai_chunks(collection_id, source_group)")
             await c.execute(
@@ -215,9 +221,61 @@ class EmbedRequest(BaseModel):
     input: List[str]
 
 
+# How a document is split before embedding — the setting that most changes what
+# retrieval returns, and the one that was least visible: a per-request parameter the
+# UI never sent, so every collection got 1000/150 whether it held one-line FAQ
+# entries or contracts.
+#
+# Named rather than free numeric input because the numbers only mean something
+# relative to the documents, and a person choosing "FAQ entries" is making a better
+# decision than a person choosing 480.
+CHUNK_PRESETS = {
+    "short":    (500, 75),    # FAQ entries, chat logs, short notes
+    "standard": (1000, 150),  # articles, wiki pages, reports
+    "long":     (2000, 300),  # contracts, manuals, specifications
+}
+DEFAULT_PRESET = "standard"
+
+
+def resolve_chunking(preset, size, overlap):
+    """(chunk_size, overlap) from a preset name, with explicit numbers overriding.
+
+    An unknown preset falls back rather than failing: a collection created by an
+    older client, or one whose preset was renamed later, must still ingest.
+    """
+    if size is not None or overlap is not None:
+        size = int(size if size is not None else CHUNK_PRESETS[DEFAULT_PRESET][0])
+        overlap = int(overlap if overlap is not None else 0)
+        if size <= 0:
+            raise ValueError("chunk size must be positive")
+        # At or above the chunk size the window advances by zero or goes backwards,
+        # and the ingest never terminates.
+        if overlap >= size or overlap < 0:
+            raise ValueError("overlap must be smaller than the chunk size")
+        return size, overlap
+    return CHUNK_PRESETS.get(preset or DEFAULT_PRESET, CHUNK_PRESETS[DEFAULT_PRESET])
+
+
 class CollectionCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    chunk_preset: Optional[str] = None            # short | standard | long
+    chunk_size: Optional[int] = None              # overrides the preset
+    chunk_overlap: Optional[int] = None
+
+
+class CollectionUpdate(BaseModel):
+    """What can be changed after creation.
+
+    Not the name: it is the key schedules, ingest paths and saved links use, and
+    renaming would strand them. Not the chunking of chunks already stored either —
+    changing the setting affects the next ingest, and the composition view is where
+    you see that two ingests disagree.
+    """
+    description: Optional[str] = None
+    chunk_preset: Optional[str] = None
+    chunk_size: Optional[int] = None
+    chunk_overlap: Optional[int] = None
 
 
 class Document(BaseModel):
@@ -228,8 +286,10 @@ class Document(BaseModel):
 
 class IngestRequest(BaseModel):
     documents: List[Document]
-    chunk_size: int = 1000
-    chunk_overlap: int = 150
+    # None means "use the collection's setting". Hardcoded 1000/150 here meant the
+    # collection's own choice could never take effect.
+    chunk_size: Optional[int] = None
+    chunk_overlap: Optional[int] = None
 
 
 class SearchRequest(BaseModel):
@@ -269,7 +329,8 @@ def _uid(user: dict):
         return None
 
 
-@router.get("/ai/collections")
+@router.get("/ai/collections",
+            dependencies=[Depends(require_permission("knowledge:read"))])
 async def list_collections(user: dict = Depends(require_user)):
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
@@ -304,19 +365,26 @@ async def create_collection(body: CollectionCreate, user: dict = Depends(require
     # Names are used as URL path segments; keep them to a tidy, unambiguous charset.
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,62}[A-Za-z0-9]|[A-Za-z0-9]", name):
         raise HTTPException(400, "name may contain only letters, digits, spaces, underscore or hyphen (1–64 chars, no leading/trailing space).")
+    try:
+        size, overlap = resolve_chunking(body.chunk_preset, body.chunk_size, body.chunk_overlap)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
     async with pool.acquire() as c:
         try:
             await c.execute(
-                """INSERT INTO ai_collections (name, embed_model, dim, description, owner_id)
-                   VALUES ($1, $2, $3, $4, $5)""",
+                """INSERT INTO ai_collections (name, embed_model, dim, description, owner_id,
+                                              chunk_preset, chunk_size, chunk_overlap)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
                 body.name.strip(), _embed_model(), EMBED_DIM(), body.description, _uid(user),
+                body.chunk_preset or DEFAULT_PRESET, size, overlap,
             )
         except asyncpg.UniqueViolationError as exc:
             raise HTTPException(409, f"Collection '{body.name.strip()}' already exists.") from exc
     return {"success": True, "name": body.name.strip(),
-            "embed_model": _embed_model(), "dim": EMBED_DIM()}
+            "embed_model": _embed_model(), "dim": EMBED_DIM(),
+            "chunk_size": size, "chunk_overlap": overlap}
 
 
 @router.delete("/ai/collections/{name}", dependencies=[Depends(require_permission("knowledge:write"))])
@@ -511,10 +579,21 @@ async def ingest(name: str, req: IngestRequest, user: dict = Depends(require_use
     await ensure_vector_schema(pool)
     async with pool.acquire() as c:
         coll_id = await _collection_id(c, name, user, write=True)
+        # The collection's setting is the default, so two ingests into one collection
+        # split the same way unless the caller deliberately says otherwise.
+        row = await c.fetchrow(
+            "SELECT chunk_preset, chunk_size, chunk_overlap FROM ai_collections WHERE id = $1",
+            coll_id)
+    try:
+        size, overlap = resolve_chunking(
+            row["chunk_preset"] if row else None,
+            req.chunk_size if req.chunk_size is not None else (row["chunk_size"] if row else None),
+            req.chunk_overlap if req.chunk_overlap is not None else (row["chunk_overlap"] if row else None))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     res = await _ingest_documents(
-        coll_id, [(d.source, d.text, d.metadata) for d in req.documents],
-        req.chunk_size, req.chunk_overlap)
-    return {"success": True, **res}
+        coll_id, [(d.source, d.text, d.metadata) for d in req.documents], size, overlap)
+    return {"success": True, "chunk_size": size, "chunk_overlap": overlap, **res}
 
 
 # ── Source ingestion (the AI data pipeline: lakehouse / object store → vectors) ──
@@ -695,7 +774,8 @@ async def schedule_ingest(name: str, body: ScheduleRequest, user: dict = Depends
     return {"success": True, "enabled": True, "interval_minutes": minutes}
 
 
-@router.get("/ai/collections/{name}/schedule")
+@router.get("/ai/collections/{name}/schedule",
+            dependencies=[Depends(require_permission("knowledge:read"))])
 async def get_schedule(name: str, user: dict = Depends(require_user)):
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
@@ -856,6 +936,68 @@ async def knowledge_lineage(user: dict = Depends(require_user)):
     for c2 in connections:
         c2["id"] = str(c2["id"])
     return build_lineage(connections, jobs, cols)
+
+
+@router.patch("/ai/collections/{name}",
+              dependencies=[Depends(require_permission("knowledge:write"))])
+async def update_collection(name: str, body: CollectionUpdate,
+                            user: dict = Depends(require_user)):
+    """Change a collection's description or how future ingests are split.
+
+    Chunks already stored keep the split they were made with. Re-chunking them would
+    mean re-embedding everything, which is a job and not a setting — the composition
+    view is where a collection with two different splits becomes visible.
+    """
+    fields, values = [], []
+    if body.description is not None:
+        fields.append("description"); values.append(body.description)
+    if body.chunk_preset or body.chunk_size is not None or body.chunk_overlap is not None:
+        try:
+            size, overlap = resolve_chunking(body.chunk_preset, body.chunk_size,
+                                             body.chunk_overlap)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        fields += ["chunk_preset", "chunk_size", "chunk_overlap"]
+        values += [body.chunk_preset or DEFAULT_PRESET, size, overlap]
+    if not fields:
+        raise HTTPException(400, "Nothing to update.")
+
+    pool = await get_db_pool()
+    async with pool.acquire() as c:
+        coll_id = await _collection_id(c, name, user, write=True)
+        assignments = ", ".join(f"{f} = ${i + 2}" for i, f in enumerate(fields))
+        await c.execute(f"UPDATE ai_collections SET {assignments} WHERE id = $1",
+                        coll_id, *values)
+    return {"success": True, "name": name, "updated": fields}
+
+
+@router.delete("/ai/collections/{name}/sources",
+               dependencies=[Depends(require_permission("knowledge:write"))])
+async def delete_source(name: str, source: str, user: dict = Depends(require_user)):
+    """Remove one source's chunks, leaving the rest of the collection intact.
+
+    The only way to get rid of a bad document used to be deleting the whole
+    collection and rebuilding it. Composition now lists every source by name, and a
+    list of things you cannot act on is half a feature.
+
+    `source` is matched exactly, including the "(pasted text)" placeholder, which maps
+    back to the NULL it stands for.
+    """
+    target = None if source == "(pasted text)" else source
+    pool = await get_db_pool()
+    async with pool.acquire() as c:
+        coll_id = await _collection_id(c, name, user, write=True)
+        if target is None:
+            result = await c.execute(
+                "DELETE FROM ai_chunks WHERE collection_id = $1 AND source IS NULL", coll_id)
+        else:
+            result = await c.execute(
+                "DELETE FROM ai_chunks WHERE collection_id = $1 AND source = $2",
+                coll_id, target)
+    removed = int(result.split()[-1]) if result and result.split()[-1].isdigit() else 0
+    if removed == 0:
+        raise HTTPException(404, f"No chunks in '{name}' from source '{source}'.")
+    return {"success": True, "source": source, "removed": removed}
 
 
 @router.get("/ai/collections/{name}/composition",
