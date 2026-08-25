@@ -24,8 +24,10 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- include "datapond.podSecurity" (dict "enabled" (.Values.podSecurity).enabled "uid" (.Values.podSecurity).frontend.uid "gid" (.Values.podSecurity).frontend.gid) | nindent 6 }}
       containers:
       - name: frontend
+        {{- include "datapond.containerSecurity" (.Values.podSecurity).enabled | nindent 8 }}
         image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
         ports:

@@ -25,8 +25,10 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ .Values.backend.serviceAccountName | default "datapond-backend" }}
+      {{- include "datapond.podSecurity" (dict "enabled" (.Values.podSecurity).enabled "uid" (.Values.podSecurity).backend.uid "gid" (.Values.podSecurity).backend.gid) | nindent 6 }}
       containers:
       - name: backend
+        {{- include "datapond.containerSecurity" (.Values.podSecurity).enabled | nindent 8 }}
         image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
         ports:
