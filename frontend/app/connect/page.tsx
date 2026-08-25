@@ -5,6 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useHasPermission } from "@/lib/permissions"
 import { Loader2, ShieldAlert, Terminal } from "lucide-react"
 import { MySpend } from "@/components/ai/my-spend"
+import { ServiceAccounts } from "@/components/settings/service-accounts"
+import { getUser } from "@/lib/auth"
 
 /** How an application calls this deployment.
  *
@@ -19,6 +21,12 @@ import { MySpend } from "@/components/ai/my-spend"
  */
 export default function ConnectPage() {
   const canUse = useHasPermission("ai:generate")
+  // Issuing a credential is an administrator action — every /service-accounts route
+  // is require_admin. So this page is two things depending on who opens it: the
+  // place an administrator creates and revokes the key an application uses, and for
+  // everyone else the request to make, with the exact scopes to ask for. What it
+  // must not be is a create button that 403s.
+  const [isAdmin] = useState(() => getUser()?.role === "admin")
   const [collections, setCollections] = useState<string[]>([])
   const [picked, setPicked] = useState("")
   const [loading, setLoading] = useState(true)
@@ -114,31 +122,34 @@ for c in answer.get("citations", []):
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Getting a key</CardTitle>
-          <CardDescription>
-            Issuing credentials is an administrator action, so this is what to ask for.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <p className="text-muted-foreground">
-            Ask an administrator for a <b>service account</b> (Settings → Service
-            accounts) with these scopes:
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {["knowledge:read", "ai:generate"].map(s => (
-              <code key={s} className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{s}</code>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            The key is shown once, at creation. It is sent as{" "}
-            <code className="font-mono">Authorization: Bearer &lt;key&gt;</code>, the same
-            header as the examples above. A service account cannot use the assistant
-            panel or change settings, whatever scopes it is given.
-          </p>
-        </CardContent>
-      </Card>
+      {isAdmin ? (
+        <ServiceAccounts />
+      ) : (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Getting a key</CardTitle>
+            <CardDescription>
+              Issuing credentials is an administrator action, so this is what to ask for.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p className="text-muted-foreground">
+              Ask an administrator for a <b>service account</b> with these scopes:
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {["knowledge:read", "ai:generate"].map(scope => (
+                <code key={scope} className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{scope}</code>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              The key is shown once, at creation. It is sent as{" "}
+              <code className="font-mono">Authorization: Bearer &lt;key&gt;</code>, the same
+              header as the examples above. A service account cannot use the assistant
+              panel or change settings, whatever scopes it is given.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <MySpend />
     </div>
