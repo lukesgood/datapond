@@ -9,6 +9,7 @@ Kept separate from `actions.py` (the vocabulary) and `gate.py` (the control) so
 neither depends on every subsystem an action happens to touch.
 """
 import logging
+import re
 from typing import Callable, Dict, List
 
 from app.api.catalog_backend import get_catalog_reader
@@ -29,12 +30,30 @@ async def describe_table(params: dict, user: dict) -> dict:
     }
 
 
+# Tokens shorter than this are dropped: "in", "of", "a" match almost anything, and a
+# query made only of them would return the entire catalog.
+_MIN_TOKEN = 3
+_TOKEN = re.compile(r"[a-z0-9_]+")
+
+
 async def find_tables(params: dict, user: dict) -> dict:
-    """Substring match over qualified names. Deliberately not fuzzy: a diagram of
-    near-misses is worse than an empty result the user can refine."""
-    needle = params["query"].strip().lower()
+    """Find tables by any meaningful word in the query, most matches first.
+
+    Not a whole-string substring match. Observed live: asked "what tables are in
+    planlab?", the model sent `namespace:planlab` — a query syntax it invented — and a
+    substring match found nothing though the namespace has three tables. Models will
+    keep inventing; the tool has to survive what they actually send, which is the same
+    premise the whole design rests on.
+
+    Still returns nothing when nothing matches: an empty result the user can refine
+    beats a list of everything.
+    """
+    tokens = {t for t in _TOKEN.findall(params["query"].lower()) if len(t) >= _MIN_TOKEN}
+    if not tokens:
+        return {"tables": [], "query": params["query"]}
+
     reader = get_catalog_reader()
-    hits: List[str] = []
+    scored = []
     for namespace in reader.list_namespaces():
         try:
             tables = reader.list_tables(namespace)
@@ -42,9 +61,11 @@ async def find_tables(params: dict, user: dict) -> dict:
             continue
         for table in tables:
             qualified = f"{namespace}.{table}"
-            if needle in qualified.lower():
-                hits.append(qualified)
-    return {"tables": hits, "query": params["query"]}
+            hits = sum(1 for t in tokens if t in qualified.lower())
+            if hits:
+                scored.append((hits, qualified))
+    scored.sort(key=lambda pair: (-pair[0], pair[1]))
+    return {"tables": [name for _hits, name in scored], "query": params["query"]}
 
 
 async def explain_relationships(params: dict, user: dict) -> dict:

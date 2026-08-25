@@ -111,3 +111,57 @@ def test_creating_a_collection_previews_the_name_and_whether_it_exists(monkeypat
         {"name": "support"}, USER))
     assert preview["name"] == "support"
     assert preview["already_exists"] is True
+
+
+# ── find_tables must survive what a model actually sends ──────────────────────
+
+class _Catalog:
+    def __init__(self, tables):
+        self._t = tables
+    def list_namespaces(self):
+        return list(self._t)
+    def list_tables(self, ns):
+        return self._t[ns]
+
+
+CATALOG = {"planlab": ["customers", "orders", "shipments"],
+           "sales": ["orders", "returns"]}
+
+
+def _find(monkeypatch, query):
+    monkeypatch.setattr(executors, "get_catalog_reader", lambda: _Catalog(CATALOG))
+    return _run(executors.EXECUTORS["catalog.find_tables"]({"query": query}, USER))["tables"]
+
+
+def test_an_invented_search_syntax_still_finds_the_tables(monkeypatch):
+    """Observed live: asked "what tables are in planlab?", the model sent
+    `namespace:planlab` — a query DSL it made up — and a whole-string substring match
+    returned nothing. The tool has to survive what models actually send."""
+    assert set(_find(monkeypatch, "namespace:planlab")) == {
+        "planlab.customers", "planlab.orders", "planlab.shipments"}
+
+
+def test_a_plain_name_still_works(monkeypatch):
+    assert set(_find(monkeypatch, "planlab")) == {
+        "planlab.customers", "planlab.orders", "planlab.shipments"}
+
+
+def test_a_table_name_matches_across_namespaces(monkeypatch):
+    assert set(_find(monkeypatch, "orders")) == {"planlab.orders", "sales.orders"}
+
+
+def test_a_phrase_matches_on_its_meaningful_words(monkeypatch):
+    assert "planlab.orders" in _find(monkeypatch, "the orders table in planlab")
+
+
+def test_more_specific_matches_rank_first(monkeypatch):
+    assert _find(monkeypatch, "planlab orders")[0] == "planlab.orders"
+
+
+def test_nothing_matching_returns_nothing(monkeypatch):
+    assert _find(monkeypatch, "zzzz") == []
+
+
+def test_a_query_of_only_short_words_returns_nothing_rather_than_everything(monkeypatch):
+    """Otherwise "in the" would list the entire catalog."""
+    assert _find(monkeypatch, "in the of a") == []
