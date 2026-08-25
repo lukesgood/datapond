@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { PermissionProvider } from "@/lib/permissions"
 import { ToastProvider } from "@/lib/toast"
 import { ConfirmProvider } from "@/lib/confirm"
 import { AuthInterceptor } from "@/components/auth-interceptor"
@@ -22,9 +23,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <ConfirmProvider>
             <AuthInterceptor />
             <TooltipProvider>
-              <ConditionalLayout>
-                {children}
-              </ConditionalLayout>
+              <PermissionProvider>
+                <ConditionalLayout>
+                  {children}
+                </ConditionalLayout>
+              </PermissionProvider>
             </TooltipProvider>
           </ConfirmProvider>
         </ToastProvider>

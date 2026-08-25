@@ -30,7 +30,7 @@ from typing import Optional
 
 from app.guardrails import pii_ko
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
-from app.api.auth import require_user
+from app.api.auth import require_permission, require_user
 from app.ai_context import set_actor, actor_payload
 from app.runtime import component_secret
 
@@ -371,7 +371,8 @@ class AskResponse(BaseModel):
 
 # ── Route ─────────────────────────────────────────────────────────────────────
 
-@router.post("/ai/sql", response_model=AskResponse)
+@router.post("/ai/sql", response_model=AskResponse,
+             dependencies=[Depends(require_permission("ai:generate"))])
 async def generate_sql(req: AskRequest, user: dict = Depends(require_user)):
     """Convert a natural language question to a Trino SQL query."""
     set_actor(user)  # attribute LLM spend to this user
