@@ -32,6 +32,7 @@ from app.api.streaming import router as streaming_router
 from app.api.auth import (
     router as auth_router,
     is_internal_automation_request,
+    require_permission,
     require_user_or_internal,
 )
 from app.api.transforms import router as transforms_router
@@ -277,10 +278,16 @@ app.include_router(
     ],
 )
 app.include_router(services_router, prefix="/api")
+# The workbench (Jupyter, MLflow) is gated at the router: reading it needs
+# workbench:read, and each mutating route additionally needs workbench:write. A
+# notebook runs arbitrary code against the cluster, so this surface is not covered
+# by query:run.
 app.include_router(notebooks_router, prefix="/api",
-                   dependencies=[Depends(require_component("JUPYTER", "Notebooks"))])
+                   dependencies=[Depends(require_component("JUPYTER", "Notebooks")),
+                                 Depends(require_permission("workbench:read"))])
 app.include_router(mlflow_router, prefix="/api",
-                   dependencies=[Depends(require_component("MLFLOW", "Experiments (MLflow)"))])
+                   dependencies=[Depends(require_component("MLFLOW", "Experiments (MLflow)")),
+                                 Depends(require_permission("workbench:read"))])
 app.include_router(airflow_router, prefix="/api")
 app.include_router(service_accounts_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")

@@ -147,7 +147,7 @@ async def get_dashboard(
         )
 
 
-@router.patch("/dashboards/{dashboard_id}", response_model=DashboardResponse)
+@router.patch("/dashboards/{dashboard_id}", response_model=DashboardResponse, dependencies=[Depends(require_permission("dashboard:write"))])
 async def update_dashboard(
     dashboard_id: uuid.UUID,
     updates: DashboardUpdate,

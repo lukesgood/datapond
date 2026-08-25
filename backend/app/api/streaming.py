@@ -26,8 +26,10 @@ from datetime import datetime
 
 import psycopg2
 import psycopg2.extras
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
+
+from app.api.auth import require_permission
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["streaming"])
@@ -183,7 +185,7 @@ async def list_sources():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/streaming/sources")
+@router.post("/streaming/sources", dependencies=[Depends(require_permission("pipeline:write"))])
 async def create_source(req: CreateSourceRequest):
     try:
         col_defs = req.columns_sql or "data JSONB"
@@ -211,7 +213,7 @@ FORMAT {req.format.upper()} ENCODE {req.row_encode.upper()}
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.delete("/streaming/sources/{name}")
+@router.delete("/streaming/sources/{name}", dependencies=[Depends(require_permission("pipeline:write"))])
 async def drop_source(name: str):
     try:
         _execute(f"DROP SOURCE {name}", fetch=False)
@@ -235,7 +237,7 @@ async def list_views():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/streaming/views")
+@router.post("/streaming/views", dependencies=[Depends(require_permission("pipeline:write"))])
 async def create_view(req: CreateMvRequest):
     try:
         sql = f"CREATE MATERIALIZED VIEW {req.name} AS {req.definition}"
@@ -245,7 +247,7 @@ async def create_view(req: CreateMvRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.delete("/streaming/views/{name}")
+@router.delete("/streaming/views/{name}", dependencies=[Depends(require_permission("pipeline:write"))])
 async def drop_view(name: str):
     try:
         _execute(f"DROP MATERIALIZED VIEW {name}", fetch=False)
@@ -285,7 +287,7 @@ async def list_sinks():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/streaming/sinks")
+@router.post("/streaming/sinks", dependencies=[Depends(require_permission("pipeline:write"))])
 async def create_sink(req: CreateSinkRequest):
     try:
         target_table = req.iceberg_table or req.name
@@ -319,7 +321,7 @@ WITH (
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.delete("/streaming/sinks/{name}")
+@router.delete("/streaming/sinks/{name}", dependencies=[Depends(require_permission("pipeline:write"))])
 async def drop_sink(name: str):
     try:
         _execute(f"DROP SINK {name}", fetch=False)
@@ -339,7 +341,7 @@ class CdcTestRequest(BaseModel):
     db_schema: str = "public"
 
 
-@router.post("/streaming/cdc-test")
+@router.post("/streaming/cdc-test", dependencies=[Depends(require_permission("pipeline:write"))])
 async def test_cdc_connection(req: CdcTestRequest):
     """Test PostgreSQL CDC connection and return table list."""
     import psycopg2 as _pg
@@ -391,7 +393,7 @@ class CdcPipelineRequest(BaseModel):
     slot_name: str = ""
 
 
-@router.post("/streaming/cdc-pipeline")
+@router.post("/streaming/cdc-pipeline", dependencies=[Depends(require_permission("pipeline:write"))])
 async def create_cdc_pipeline(req: CdcPipelineRequest):
     """
     Create a complete CDC pipeline for each table:
@@ -509,7 +511,7 @@ class EventPipelineRequest(BaseModel):
     columns_sql: str = "data JSONB" # raw column definitions
 
 
-@router.post("/streaming/event-pipeline")
+@router.post("/streaming/event-pipeline", dependencies=[Depends(require_permission("pipeline:write"))])
 async def create_event_pipeline(req: EventPipelineRequest):
     """
     Atomically create an event-stream pipeline (Kafka/Kinesis):
@@ -673,7 +675,7 @@ SELECT * FROM sample_orders_src""",
 ]
 
 
-@router.post("/streaming/sample-streams")
+@router.post("/streaming/sample-streams", dependencies=[Depends(require_permission("pipeline:write"))])
 async def create_sample_streams():
     """Create sample datagen streams for demo/onboarding purposes."""
     results = []
@@ -715,7 +717,7 @@ async def get_ddl_progress():
 
 # ── SQL Console ────────────────────────────────────────────────────────────────
 
-@router.post("/streaming/sql")
+@router.post("/streaming/sql", dependencies=[Depends(require_permission("pipeline:write"))])
 async def execute_sql(req: SqlRequest):
     """Execute arbitrary SQL against RisingWave."""
     sql = req.sql.strip()

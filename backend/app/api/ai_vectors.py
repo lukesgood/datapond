@@ -386,7 +386,7 @@ async def _ingest_documents(coll_id, docs: List[tuple], chunk_size: int, overlap
     return {"chunks": len(items), "pii_masked": pii_masked}
 
 
-@router.post("/ai/collections/{name}/ingest")
+@router.post("/ai/collections/{name}/ingest", dependencies=[Depends(require_permission("knowledge:write"))])
 async def ingest(name: str, req: IngestRequest, user: dict = Depends(require_user)):
     """Ingest inline documents. Chunk → PII-mask → embed → upsert."""
     set_actor(user)
@@ -597,7 +597,7 @@ async def get_schedule(name: str, user: dict = Depends(require_user)):
     }
 
 
-@router.delete("/ai/collections/{name}/schedule")
+@router.delete("/ai/collections/{name}/schedule", dependencies=[Depends(require_permission("knowledge:write"))])
 async def delete_schedule(name: str, user: dict = Depends(require_user)):
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
@@ -697,7 +697,7 @@ def _guard(text: str):
     return pii_ko.apply(text or "")
 
 
-@router.post("/ai/search")
+@router.post("/ai/search", dependencies=[Depends(require_permission("ai:generate"))])
 async def search(req: SearchRequest, user: dict = Depends(require_user)):
     set_actor(user)
     q_text, q_find, q_block = _guard(req.query)
@@ -717,7 +717,7 @@ async def search(req: SearchRequest, user: dict = Depends(require_user)):
             "results": results}
 
 
-@router.post("/ai/rag")
+@router.post("/ai/rag", dependencies=[Depends(require_permission("ai:generate"))])
 async def rag(req: RagRequest, user: dict = Depends(require_user)):
     """Retrieve top-k chunks, then ask the active LiteLLM chat model with that context.
     Returns the answer + the citations it was grounded on."""

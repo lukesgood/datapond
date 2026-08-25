@@ -3,6 +3,44 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-08 — Every mutating route is authorized
+
+**What changed.** The previous entry enforced roles on the routes the core UI calls.
+It did not cover the rest: an inventory of the running application found **67 mutating
+endpoints that required only a login**. Among them, any authenticated user could
+create and delete RLS and column-masking policies — the governance system could be
+switched off by the people it governs — trigger and delete Airflow DAG runs, drop
+streaming sources and sinks, delete pipelines and transforms, and run notebooks.
+
+Every one of them now carries a permission. A test walks the application's own route
+graph and fails the build if a mutating endpoint has no authorization dependency, so
+this cannot reopen quietly; the exceptions are thirteen routes listed by name with a
+reason: four that precede identity (login, logout, and password recovery), two more for
+passwordless login, five that act only on the caller's own account, and the two chat
+approvals, which authorize against the specific invocation rather than the role.
+
+**Who is affected.** Anyone who was using these endpoints with a role that does not
+carry the matching permission — most often `viewer`.
+
+**Two new permissions.** Notebooks and experiment tracking had no permission that
+could describe them. A notebook runs arbitrary code against the cluster, so `query:run`
+does not cover it.
+
+| Permission | Covers | Held by |
+|---|---|---|
+| `workbench:read` | browsing notebooks and tracked experiments | every role except `viewer` |
+| `workbench:write` | running notebooks, kernels, experiment changes | `admin`, `data_engineer`, `ai_engineer`, `data_scientist` |
+
+**One narrowing worth calling out.** `POST /api/ai/search` now requires `ai:generate`,
+not `knowledge:read`. Searching a collection embeds the query, which spends model
+tokens — the same reason `ai:generate` exists at all. A `viewer` and a
+`business_analyst` can still read collections and open cited answers others produced,
+but can no longer run a search themselves. Give them `ai_engineer` or `data_scientist`
+if they should.
+
+**What to do.** Nothing, unless someone reports a 403. The refusal names the permission
+they need, so they can tell you what to grant.
+
 ## 2026-08 — Roles are enforced
 
 **What changed.** Five roles were seeded into the database from the start, but nothing

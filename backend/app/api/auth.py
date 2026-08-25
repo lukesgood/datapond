@@ -363,6 +363,9 @@ def require_permission(permission: str):
             )
         return user
 
+    # Declares what this guard enforces, so the route inventory can verify coverage
+    # from the application's own dependency graph rather than from a hand-kept list.
+    _guard.__datapond_authorization__ = permission
     return _guard
 
 
@@ -971,3 +974,9 @@ async def _resolve_api_key(raw_key: str) -> Optional[dict]:
         except Exception:
             pass
     return resolved
+
+require_admin.__datapond_authorization__ = "role:admin"
+
+require_admin_or_internal.__datapond_authorization__ = "role:admin-or-internal"
+
+require_user_or_internal.__datapond_authorization__ = "role:user-or-internal"

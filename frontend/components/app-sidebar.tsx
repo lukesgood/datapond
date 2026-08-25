@@ -75,8 +75,8 @@ const mainSections: NavSection[] = [
     label: "Data Science",
     hint: "Optional notebooks and ML tracking",
     items: [
-      { title: "Notebooks",   url: "/notebooks",   icon: FileCode,     capability: "notebooks" },
-      { title: "Experiments", url: "/experiments", icon: FlaskConical, capability: "experiments" },
+      { title: "Notebooks",   url: "/notebooks",   icon: FileCode,     capability: "notebooks", permission: "workbench:read" },
+      { title: "Experiments", url: "/experiments", icon: FlaskConical, capability: "experiments", permission: "workbench:read" },
     ],
   },
   {

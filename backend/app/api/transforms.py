@@ -24,6 +24,8 @@ from app.models.transform import SavedTransform
 from app.api.trino_util import trino_conn
 from app.runtime import component_secret
 
+from app.api.auth import require_permission
+
 router = APIRouter()
 
 def ensure_transforms_table() -> None:
@@ -295,7 +297,7 @@ async def _deploy_dag(dag_id: str, dag_code: str) -> bool:
         temporary.unlink(missing_ok=True)
 
 
-@router.post("/transforms")
+@router.post("/transforms", dependencies=[Depends(require_permission("pipeline:write"))])
 async def create_transform(req: TransformCreateRequest, db: Session = Depends(get_db)):
     if req.target_namespace not in NAMESPACES:
         raise HTTPException(400, f"target namespace must be one of {NAMESPACES}")
@@ -448,7 +450,7 @@ async def get_transform(transform_id: str, db: Session = Depends(get_db)):
     }
 
 
-@router.patch("/transforms/{transform_id}")
+@router.patch("/transforms/{transform_id}", dependencies=[Depends(require_permission("pipeline:write"))])
 async def update_transform(
     transform_id: str,
     req: TransformUpdateRequest,
@@ -508,7 +510,7 @@ async def update_transform(
     }
 
 
-@router.post("/transforms/{transform_id}/trigger")
+@router.post("/transforms/{transform_id}/trigger", dependencies=[Depends(require_permission("pipeline:write"))])
 async def trigger_transform(transform_id: str, db: Session = Depends(get_db)):
     row = db.query(SavedTransform).filter(SavedTransform.id == uuid.UUID(transform_id)).first()
     if not row or not row.dag_id:
@@ -571,7 +573,7 @@ async def _remove_remote_dag(dag_id: str) -> None:
         raise HTTPException(503, f"Airflow delete request failed for DAG '{dag_id}': {exc}") from exc
 
 
-@router.delete("/transforms/{transform_id}")
+@router.delete("/transforms/{transform_id}", dependencies=[Depends(require_permission("pipeline:write"))])
 async def delete_transform(transform_id: str, db: Session = Depends(get_db)):
     try:
         transform_uuid = uuid.UUID(transform_id)

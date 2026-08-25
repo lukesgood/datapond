@@ -2,7 +2,7 @@
 Airflow API Integration - Complete pipeline orchestration and DAG management API
 Provides REST API endpoints for Airflow DAG management
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import httpx
@@ -10,6 +10,8 @@ import os
 from datetime import datetime
 
 from app.runtime import component_secret
+
+from app.api.auth import require_permission
 
 router = APIRouter()
 
@@ -376,7 +378,7 @@ async def get_dag(dag_id: str):
     )
 
 
-@router.patch("/airflow/dags/{dag_id}", response_model=DAG)
+@router.patch("/airflow/dags/{dag_id}", response_model=DAG, dependencies=[Depends(require_permission("pipeline:write"))])
 async def update_dag(dag_id: str, request: DAGUpdateRequest):
     """
     Update DAG (pause/unpause)
@@ -663,7 +665,7 @@ async def list_dag_runs_alias(
     return result["dag_runs"]
 
 
-@router.post("/airflow/dags/{dag_id}/dag-runs", response_model=DagRun)
+@router.post("/airflow/dags/{dag_id}/dag-runs", response_model=DagRun, dependencies=[Depends(require_permission("pipeline:write"))])
 async def trigger_dag_run(dag_id: str, request: TriggerDagRequest):
     """
     Trigger a new DAG run (alias: /airflow/dags/{dag_id}/runs)
@@ -707,7 +709,7 @@ async def trigger_dag_run(dag_id: str, request: TriggerDagRequest):
 
 
 # Alias endpoint for backwards compatibility
-@router.post("/airflow/dags/{dag_id}/runs")
+@router.post("/airflow/dags/{dag_id}/runs", dependencies=[Depends(require_permission("pipeline:write"))])
 async def trigger_dag(dag_id: str, request: TriggerDagRequest):
     """
     Trigger a new DAG run (backwards compatibility alias)
@@ -755,7 +757,7 @@ async def get_dag_run_alias(run_id: str, dag_id: str):
     return await get_dag_run(dag_id, run_id)
 
 
-@router.delete("/airflow/dags/{dag_id}/dag-runs/{dag_run_id}")
+@router.delete("/airflow/dags/{dag_id}/dag-runs/{dag_run_id}", dependencies=[Depends(require_permission("pipeline:write"))])
 async def delete_dag_run(dag_id: str, dag_run_id: str):
     """
     Delete a DAG run
@@ -917,7 +919,7 @@ async def get_task_logs_alias(
     return await get_task_logs(dag_id, run_id, task_id, try_number)
 
 
-@router.post("/airflow/dags/{dag_id}/clear-task-instances")
+@router.post("/airflow/dags/{dag_id}/clear-task-instances", dependencies=[Depends(require_permission("pipeline:write"))])
 async def clear_task_instances(dag_id: str, request: TaskInstanceClearRequest):
     """
     Clear task instances (for retry)
@@ -983,7 +985,7 @@ async def list_connections(
     }
 
 
-@router.post("/airflow/connections", response_model=Connection)
+@router.post("/airflow/connections", response_model=Connection, dependencies=[Depends(require_permission("pipeline:write"))])
 async def create_connection(request: ConnectionCreateRequest):
     """
     Create a new Airflow connection
@@ -1033,7 +1035,7 @@ async def get_connection(connection_id: str):
     )
 
 
-@router.delete("/airflow/connections/{connection_id}")
+@router.delete("/airflow/connections/{connection_id}", dependencies=[Depends(require_permission("pipeline:write"))])
 async def delete_connection(connection_id: str):
     """
     Delete a connection

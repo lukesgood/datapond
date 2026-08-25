@@ -16,7 +16,7 @@ import os
 import logging
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
 # transforms의 배포/연결 헬퍼·상수 재사용 (동일 메커니즘)
 from app.api.transforms import (
@@ -24,6 +24,8 @@ from app.api.transforms import (
 )
 
 logger = logging.getLogger(__name__)
+from app.api.auth import require_permission
+
 router = APIRouter()
 
 DAG_ID = "datapond_iceberg_maintenance"
@@ -142,7 +144,7 @@ async def deploy_maintenance_dag() -> bool:
 
 # ── API ───────────────────────────────────────────────────────────────────────
 
-@router.post("/maintenance/deploy")
+@router.post("/maintenance/deploy", dependencies=[Depends(require_permission("service:manage"))])
 async def deploy():
     """유지보수 DAG를 (재)배포한다."""
     try:
@@ -157,7 +159,7 @@ async def deploy():
         raise HTTPException(status_code=500, detail=f"deploy failed: {e}")
 
 
-@router.post("/maintenance/run")
+@router.post("/maintenance/run", dependencies=[Depends(require_permission("service:manage"))])
 async def run_now():
     """유지보수 DAG를 즉시 1회 트리거한다."""
     try:

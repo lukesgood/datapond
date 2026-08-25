@@ -14,7 +14,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from app.api.auth import require_user
+from app.api.auth import require_user, require_permission
 
 # RLS (Layer 1) — gated by RLS_ENABLED (default off). See docs/RLS_DESIGN.md.
 # Query execution itself always requires an authenticated user (for history
@@ -189,7 +189,7 @@ def _catalog_schema_for_graph(max_tables: int = 60) -> dict:
     return out
 
 
-@router.post("/queries/execute", response_model=QueryResult)
+@router.post("/queries/execute", response_model=QueryResult, dependencies=[Depends(require_permission("query:run"))])
 async def execute_query(
     request: QueryExecuteRequest,
     db: Session = Depends(get_db),
@@ -516,7 +516,7 @@ class QueryPlanRequest(BaseModel):
     deep: bool = False   # also fetch TYPE DISTRIBUTED (a second engine round-trip)
 
 
-@router.post("/queries/plan")
+@router.post("/queries/plan", dependencies=[Depends(require_permission("query:run"))])
 async def review_plan(request: QueryPlanRequest, user: dict = Depends(require_user)):
     """Describe a statement without running it: tables read, predicates that reached
     them, and structural findings. Scans no data."""

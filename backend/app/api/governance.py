@@ -21,6 +21,8 @@ from app.models.query import QueryHistory
 
 logger = logging.getLogger(__name__)
 
+from app.api.auth import require_permission
+
 router = APIRouter()
 
 # ── Trino connection config (mirrors queries.py) ──────────────────────────────
@@ -672,7 +674,7 @@ async def list_rls_policies(user: Optional[dict] = Depends(_get_current_user)):
     ]
 
 
-@router.post("/governance/rls/policies")
+@router.post("/governance/rls/policies", dependencies=[Depends(require_permission("governance:write"))])
 async def create_rls_policy(body: RlsPolicyIn, user: Optional[dict] = Depends(_get_current_user)):
     """Create an RLS policy + role mappings."""
     admin = await _require_admin(user)
@@ -704,7 +706,7 @@ async def create_rls_policy(body: RlsPolicyIn, user: Optional[dict] = Depends(_g
     return {"id": str(pid), "message": "RLS policy created"}
 
 
-@router.patch("/governance/rls/policies/{policy_id}")
+@router.patch("/governance/rls/policies/{policy_id}", dependencies=[Depends(require_permission("governance:write"))])
 async def update_rls_policy(policy_id: str, body: dict, user: Optional[dict] = Depends(_get_current_user)):
     """Update enabled / filter_expression / priority of an RLS policy."""
     admin = await _require_admin(user)
@@ -728,7 +730,7 @@ async def update_rls_policy(policy_id: str, body: dict, user: Optional[dict] = D
     return {"message": "RLS policy updated"}
 
 
-@router.delete("/governance/rls/policies/{policy_id}")
+@router.delete("/governance/rls/policies/{policy_id}", dependencies=[Depends(require_permission("governance:write"))])
 async def delete_rls_policy(policy_id: str, user: Optional[dict] = Depends(_get_current_user)):
     admin = await _require_admin(user)
     import uuid as _uuid
@@ -756,7 +758,7 @@ async def list_mask_policies(user: Optional[dict] = Depends(_get_current_user)):
     ]
 
 
-@router.post("/governance/masking/policies")
+@router.post("/governance/masking/policies", dependencies=[Depends(require_permission("governance:write"))])
 async def create_mask_policy(body: MaskPolicyIn, user: Optional[dict] = Depends(_get_current_user)):
     admin = await _require_admin(user)
     valid = {"full", "partial_email", "partial_ssn", "partial_phone", "hash", "null", "custom"}
@@ -783,7 +785,7 @@ async def create_mask_policy(body: MaskPolicyIn, user: Optional[dict] = Depends(
     return {"id": str(mid), "message": "Masking policy created"}
 
 
-@router.delete("/governance/masking/policies/{policy_id}")
+@router.delete("/governance/masking/policies/{policy_id}", dependencies=[Depends(require_permission("governance:write"))])
 async def delete_mask_policy(policy_id: str, user: Optional[dict] = Depends(_get_current_user)):
     admin = await _require_admin(user)
     import uuid as _uuid
@@ -796,7 +798,7 @@ async def delete_mask_policy(policy_id: str, user: Optional[dict] = Depends(_get
     return {"message": "Masking policy deleted"}
 
 
-@router.post("/governance/rls/preview")
+@router.post("/governance/rls/preview", dependencies=[Depends(require_permission("governance:read"))])
 async def preview_rls(body: RlsPreviewIn, user: Optional[dict] = Depends(_get_current_user)):
     """
     Simulate enforcement for a sample query as a hypothetical user
@@ -836,7 +838,7 @@ async def get_sensitive_tables(user: Optional[dict] = Depends(_get_current_user)
     return {"tables": tables, "deny_prefixes": seaweedfs_deny_prefixes(tables, warehouse=warehouse)}
 
 
-@router.post("/governance/rls/check-direct-read")
+@router.post("/governance/rls/check-direct-read", dependencies=[Depends(require_permission("governance:read"))])
 async def check_direct_read_endpoint(body: DirectReadIn):
     """
     Used by the JupyterLab DuckDB helper: returns whether a query touches a sensitive
@@ -868,7 +870,7 @@ async def get_trino_rules(user: Optional[dict] = Depends(_get_current_user)):
             "users": len(users), "policies": len(policies), "masks": len(masks)}
 
 
-@router.post("/governance/rls/trino-rules/apply")
+@router.post("/governance/rls/trino-rules/apply", dependencies=[Depends(require_permission("governance:write"))])
 async def apply_trino_rules(user: Optional[dict] = Depends(_get_current_user)):
     """
     Write the generated rules.json into the Trino access-control ConfigMap so Trino's
