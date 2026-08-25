@@ -873,9 +873,12 @@ async def my_permissions(user: dict = Depends(require_user)):
     menu reflects the same source the API enforces from.
     """
     role = user.get("role") or "viewer"
+    # A service-account key carries its own effective set (role narrowed by scopes).
+    # Reporting the role's full set would overstate what the caller can actually do.
+    granted = user.get("permissions")
     return {
         "role": role,
-        "permissions": sorted(permissions_for(role)),
+        "permissions": sorted(granted) if granted is not None else sorted(permissions_for(role)),
         "assignable_roles": list(ASSIGNABLE_ROLES),
     }
 

@@ -165,3 +165,25 @@ def test_resolving_an_unknown_key_returns_none_instead_of_raising():
     finally:
         auth._get_pool = original
         auth._KEY_CACHE.clear()
+
+
+def test_me_permissions_reports_the_keys_effective_set_not_the_role():
+    """An app introspecting its own access must see what it can actually do. The
+    role's full set would overstate a scoped key — observed live: a key scoped to
+    catalog:read + knowledge:write reported the whole ai_engineer set."""
+    import asyncio
+    from app.api.auth import my_permissions
+
+    scoped = {"id": "svc1", "role": "ai_engineer",
+              "permissions": ["catalog:read", "knowledge:write"]}
+    assert asyncio.run(my_permissions(user=scoped))["permissions"] == [
+        "catalog:read", "knowledge:write"]
+
+
+def test_me_permissions_falls_back_to_the_role_for_a_person():
+    import asyncio
+    from app.api.auth import my_permissions
+    from app.permissions import permissions_for
+
+    out = asyncio.run(my_permissions(user={"id": "u1", "role": "business_analyst"}))
+    assert set(out["permissions"]) == set(permissions_for("business_analyst"))
