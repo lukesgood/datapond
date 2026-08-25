@@ -4,17 +4,38 @@ exec > /var/log/datapond-bootstrap.log 2>&1
 export DEBIAN_FRONTEND=noninteractive
 apt-get update && apt-get install -y curl jq unzip
 
+# Every installer below is pinned to a version and verified against a checksum
+# recorded in terraform/variables.tf before it is allowed to run. This script runs
+# as root on the node that holds the instance profile, so an unverified download
+# here is a full compromise of the deployment. `verify` exits non-zero on mismatch
+# and `set -e` turns that into a failed boot, which is the correct outcome: a node
+# that did not come up beats a node running someone else's code.
+verify() { # verify <file> <expected sha256>
+  echo "$2  $1" | sha256sum -c - || { echo "CHECKSUM MISMATCH: $1" >&2; exit 1; }
+}
+
 # AWS CLI v2 (for ECR login + secret ops)
-curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${awscli_version}.zip" -o /tmp/awscliv2.zip
+verify /tmp/awscliv2.zip "${awscli_sha256}"
 cd /tmp && unzip -q awscliv2.zip && ./aws/install && cd /
 
-# K3s single-node
-curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--write-kubeconfig-mode 644" sh -
+# K3s single-node. The installer is fetched, verified, then run — never piped
+# straight into a shell, which executes bytes nobody has looked at or checked.
+curl -sfL https://get.k3s.io -o /tmp/k3s-install.sh
+verify /tmp/k3s-install.sh "${k3s_installer_sha256}"
+chmod +x /tmp/k3s-install.sh
+INSTALL_K3S_VERSION="${k3s_version}" INSTALL_K3S_EXEC="--write-kubeconfig-mode 644" /tmp/k3s-install.sh
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 until kubectl get nodes | grep -q ' Ready'; do sleep 3; done
 
-# Helm
-curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+# Helm. Replaces the get-helm-3 convenience script, which was fetched from a branch
+# URL (.../helm/main/scripts/get-helm-3) whose contents change without a release,
+# and which then downloaded a binary this script never saw. Straight to the pinned
+# release tarball instead.
+curl -fsSL "https://get.helm.sh/helm-${helm_version}-linux-amd64.tar.gz" -o /tmp/helm.tgz
+verify /tmp/helm.tgz "${helm_sha256}"
+tar -xzf /tmp/helm.tgz -C /tmp
+install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
 
 # ECR pull-secret refresh (tokens expire 12h → refresh every 10h via systemd timer)
 cat > /usr/local/bin/ecr-refresh.sh <<'EOS'

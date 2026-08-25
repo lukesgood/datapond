@@ -103,6 +103,7 @@ spec:
       # database exists — on external, no other component creates it (no init Job),
       # and postgres-init only runs on a fresh self-hosted PG. Idempotent.
       - name: ensure-litellm-db
+        {{- include "datapond.containerSecurity" (dict "enabled" (.Values.podSecurity).enabled "keep" (list "SETUID" "SETGID")) | nindent 8 }}
         image: postgres:16.14-alpine
         env:
         - name: PGUSER
@@ -133,6 +134,7 @@ spec:
       {{- end }}
       containers:
       - name: litellm
+        {{- include "datapond.containerSecurity" (dict "enabled" (.Values.podSecurity).enabled "keep" (list "SETUID" "SETGID")) | nindent 8 }}
         image: "{{ .Values.litellm.image.repository }}:{{ .Values.litellm.image.tag }}"
         imagePullPolicy: {{ .Values.litellm.image.pullPolicy }}
         command:

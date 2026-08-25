@@ -13,22 +13,55 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "pods/log", "services", "persistentvolumeclaims"]
     verbs: ["get", "list", "watch"]
+  # Restarting a service deletes its pod. Pod names are generated, so resourceNames
+  # cannot scope this; the endpoint behind it is admin-only.
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["delete"]
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets"]
     verbs: ["get", "list", "watch"]
+  # Scaling, narrowed to the deployments this chart creates. It was namespace-wide,
+  # which meant the backend could rewrite any Deployment that happened to share the
+  # namespace — including one it did not install. The Services page only ever offers
+  # these, so nothing is lost.
   - apiGroups: ["apps"]
     resources: ["deployments"]
+    resourceNames:
+      - {{ .Values.backend.name }}
+      - {{ .Values.frontend.name }}
+      - litellm
+      - valkey
+      - postgres
+      - trino
+      - polaris
+      - mlflow
+      - jupyterlab
+      - airflow-webserver
+      - airflow-scheduler
+      - spark-master
+      - spark-worker
+      - risingwave-meta
+      - risingwave-compute
+      - risingwave-frontend
+      - risingwave-compactor
+      - openmetadata-server
+      - openmetadata-elasticsearch
     verbs: ["patch", "update"]
   - apiGroups: ["metrics.k8s.io"]
     resources: ["pods", "nodes"]
     verbs: ["get", "list"]
-  # RLS Layer 2: backend patches the Trino access-control ConfigMap (rules.json)
+  # RLS Layer 2 writes exactly one ConfigMap: the Trino access-control rules. Write
+  # was namespace-wide, so the same credential could have rewritten any ConfigMap in
+  # the namespace — every service's configuration. resourceNames does not apply to
+  # list/watch, so those stay separate and read-only.
   - apiGroups: [""]
     resources: ["configmaps"]
-    verbs: ["get", "list", "watch", "update", "patch"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: [{{ dig "trinoAclConfigMap" "trino-access-control" (.Values.governance | default dict) | quote }}]
+    verbs: ["update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

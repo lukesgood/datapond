@@ -19,6 +19,8 @@ from app.database.connection import get_db, engine, Base
 from app.models.pipeline import SavedPipeline
 from app.runtime import component_secret
 
+from app.api.auth import require_permission
+
 router = APIRouter()
 
 def ensure_pipelines_table() -> None:
@@ -114,7 +116,7 @@ class PipelineListResponse(BaseModel):
 
 # === Endpoints ===
 
-@router.post("/pipelines/save")
+@router.post("/pipelines/save", dependencies=[Depends(require_permission("pipeline:write"))])
 async def save_pipeline(request: PipelineSaveRequest, db: Session = Depends(get_db)):
     """Save or update a pipeline definition (draft state)."""
     existing = db.query(SavedPipeline).filter(SavedPipeline.name == request.name).first()
@@ -144,7 +146,7 @@ async def save_pipeline(request: PipelineSaveRequest, db: Session = Depends(get_
     return {"success": True, "id": str(existing.id), "name": existing.name, "status": existing.status}
 
 
-@router.post("/pipelines/validate", response_model=ValidationResult)
+@router.post("/pipelines/validate", response_model=ValidationResult, dependencies=[Depends(require_permission("pipeline:write"))])
 async def validate_pipeline(request: PipelineValidateRequest):
     """
     Validate a pipeline definition without compiling.
@@ -207,7 +209,7 @@ async def validate_pipeline(request: PipelineValidateRequest):
         )
 
 
-@router.post("/pipelines/compile", response_model=CompilationResultResponse)
+@router.post("/pipelines/compile", response_model=CompilationResultResponse, dependencies=[Depends(require_permission("pipeline:write"))])
 async def compile_pipeline(request: PipelineCompileRequest):
     """
     Compile a pipeline definition to Airflow DAG.
@@ -274,7 +276,7 @@ async def compile_pipeline(request: PipelineCompileRequest):
         )
 
 
-@router.post("/pipelines/deploy")
+@router.post("/pipelines/deploy", dependencies=[Depends(require_permission("pipeline:write"))])
 async def deploy_pipeline(request: PipelineDeployRequest, db: Session = Depends(get_db)):
     """
     Deploy a pipeline to Airflow.
@@ -405,7 +407,7 @@ async def get_pipeline(pipeline_name: str, db: Session = Depends(get_db)):
     }
 
 
-@router.put("/pipelines/{pipeline_name}")
+@router.put("/pipelines/{pipeline_name}", dependencies=[Depends(require_permission("pipeline:write"))])
 async def update_pipeline(pipeline_name: str, request: PipelineUpdateRequest):
     """Update pipeline metadata (pause/unpause, description, tags)."""
     dag_id = pipeline_name if pipeline_name.startswith("datapond_") else f"datapond_{pipeline_name}"
@@ -448,7 +450,7 @@ async def get_pipeline_runs(pipeline_name: str, limit: int = 10):
         raise HTTPException(502, f"Airflow connection error: {e}")
 
 
-@router.post("/pipelines/{pipeline_name}/trigger")
+@router.post("/pipelines/{pipeline_name}/trigger", dependencies=[Depends(require_permission("pipeline:write"))])
 async def trigger_pipeline(pipeline_name: str):
     """Manually trigger a pipeline run."""
     dag_id = pipeline_name if pipeline_name.startswith("datapond_") else f"datapond_{pipeline_name}"
@@ -465,7 +467,7 @@ async def trigger_pipeline(pipeline_name: str):
         raise HTTPException(502, f"Airflow connection error: {e}")
 
 
-@router.delete("/pipelines/{pipeline_name}")
+@router.delete("/pipelines/{pipeline_name}", dependencies=[Depends(require_permission("pipeline:write"))])
 async def delete_pipeline(pipeline_name: str):
     """Delete a pipeline: remove DAG file and pause in Airflow."""
     dag_id = pipeline_name if pipeline_name.startswith("datapond_") else f"datapond_{pipeline_name}"
@@ -557,7 +559,7 @@ async def get_pipeline_quality(pipeline_name: str):
 
 # === File upload endpoint ===
 
-@router.post("/pipelines/upload/validate")
+@router.post("/pipelines/upload/validate", dependencies=[Depends(require_permission("pipeline:write"))])
 async def upload_and_validate(file: UploadFile = File(...)):
     """
     Upload and validate a pipeline file.
@@ -580,7 +582,7 @@ async def upload_and_validate(file: UploadFile = File(...)):
         )
 
 
-@router.post("/pipelines/upload/compile")
+@router.post("/pipelines/upload/compile", dependencies=[Depends(require_permission("pipeline:write"))])
 async def upload_and_compile(file: UploadFile = File(...)):
     """
     Upload and compile a pipeline file.

@@ -23,6 +23,8 @@ from typing import Optional
 
 import asyncpg
 from fastapi import APIRouter, HTTPException, Depends, status, Request
+
+from app.rate_limit import LoginThrottle, client_address
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 import bcrypt as _bcrypt
@@ -363,6 +365,9 @@ def require_permission(permission: str):
             )
         return user
 
+    # Declares what this guard enforces, so the route inventory can verify coverage
+    # from the application's own dependency graph rather than from a hand-kept list.
+    _guard.__datapond_authorization__ = permission
     return _guard
 
 
@@ -446,11 +451,48 @@ async def record_auth_event(
         logger.debug("auth audit skipped (%s): %s", event_type, e)
 
 
+_login_throttle: Optional["LoginThrottle"] = None
+
+
+def login_throttle() -> "LoginThrottle":
+    """One throttle per process, built on first use.
+
+    Process-local by design for now. The AWS reference runs one or two backend
+    replicas, so a per-replica counter costs at most a factor of two on the
+    thresholds — a real weakness, but a bounded one, and far better than the nothing
+    that was here. A shared store is the fix when replica counts grow; the decision
+    logic already takes its clock and state as arguments so that swap is local.
+    """
+    global _login_throttle
+    if _login_throttle is None:
+        import time as _time
+        _login_throttle = LoginThrottle(clock=_time.monotonic)
+    return _login_throttle
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @router.post("/auth/login", response_model=TokenResponse)
 async def login(request: LoginRequest, http_request: Request = None):
     """Authenticate and return JWT token."""
+    # Before anything else, and in particular before the bcrypt verify below. An
+    # unthrottled login is not only a guessing oracle: each attempt costs a
+    # deliberately expensive hash, so answering them at all is how a single-node
+    # deployment is taken down from anywhere.
+    address = client_address(http_request)
+    wait = login_throttle().retry_after(request.username, address)
+    if wait is not None:
+        await record_auth_event(
+            "login_failure", user_email=request.username, result="failure",
+            failure_reason="rate limited", request=http_request,
+            details={"username": request.username, "retry_after": wait},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed sign-in attempts. Try again later.",
+            headers={"Retry-After": str(wait)},
+        )
+
     await _ensure_admin_exists()
 
     try:
@@ -499,8 +541,10 @@ async def login(request: LoginRequest, http_request: Request = None):
                 request=http_request,
                 details={"username": request.username},
             )
+            login_throttle().record_failure(request.username, address)
         raise
 
+    login_throttle().record_success(request.username, address)
     token = _create_token(str(row["id"]), row["username"], row["role"])
     await record_auth_event(
         "login_success",
@@ -971,3 +1015,9 @@ async def _resolve_api_key(raw_key: str) -> Optional[dict]:
         except Exception:
             pass
     return resolved
+
+require_admin.__datapond_authorization__ = "role:admin"
+
+require_admin_or_internal.__datapond_authorization__ = "role:admin-or-internal"
+
+require_user_or_internal.__datapond_authorization__ = "role:user-or-internal"

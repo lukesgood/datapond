@@ -317,13 +317,62 @@ def test_streaming_preview_returns_columns_and_array_rows():
     }
 
 
-def test_backend_rbac_mutations_are_narrowly_scoped():
-    rbac = (ROOT / "helm/datapond/templates/rbac-backend.yaml").read_text()
+def _rbac_rules():
+    """The Role's rules, with the template's expressions left as opaque strings.
 
-    assert 'resources: ["pods"]\n    verbs: ["delete"]' in rbac
-    assert 'resources: ["deployments"]\n    verbs: ["patch", "update"]' in rbac
-    assert 'resources: ["deployments", "statefulsets"]\n    verbs: ["get", "list", "watch"]' in rbac
-    assert 'resources: ["pods", "pods/log", "services", "persistentvolumeclaims"]\n    verbs: ["get", "list", "watch"]' in rbac
+    Reading the parsed rules rather than matching source text: the previous version
+    of this test asserted an exact two-line substring, so adding the resourceNames
+    that actually narrowed the rule — the thing the test is named for — broke it.
+    """
+    import re
+    import yaml
+
+    raw = (ROOT / "helm/datapond/templates/rbac-backend.yaml").read_text()
+    # Drop lines that are only a template directive (they carry no YAML), then
+    # replace inline expressions with a placeholder so the rest parses.
+    kept = [ln for ln in raw.split("\n")
+            if not re.fullmatch(r"\s*\{\{-?.*?-?\}\}\s*", ln)]
+    text = re.sub(r"\{\{.*?\}\}", "templated", "\n".join(kept))
+    for doc in yaml.safe_load_all(text):
+        if isinstance(doc, dict) and doc.get("kind") == "Role":
+            return doc["rules"]
+    raise AssertionError("no Role in rbac-backend.yaml")
+
+
+def _rule_for(rules, resource, verb):
+    return [r for r in rules
+            if resource in r.get("resources", []) and verb in r.get("verbs", [])]
+
+
+def test_backend_rbac_mutations_are_narrowly_scoped():
+    rules = _rbac_rules()
+
+    # Write is scoped to named objects. Namespace-wide write on Deployments meant the
+    # backend could rewrite any Deployment sharing the namespace, including ones it
+    # did not install; namespace-wide write on ConfigMaps meant every service's
+    # configuration. Both are now resourceNames-scoped.
+    for resource in ("deployments", "configmaps"):
+        for verb in ("patch", "update"):
+            for rule in _rule_for(rules, resource, verb):
+                assert rule.get("resourceNames"), \
+                    f"{resource}:{verb} is not scoped to named objects"
+
+    # resourceNames cannot apply to list or watch, so reads stay broad — but they
+    # must stay reads.
+    for rule in rules:
+        if not rule.get("resourceNames") and set(rule["verbs"]) - {"get", "list", "watch"}:
+            assert rule["resources"] == ["pods"] and rule["verbs"] == ["delete"], \
+                f"unscoped write outside the known exception: {rule}"
+
+
+def test_pod_deletion_is_the_only_unscoped_write():
+    """Pod names are generated, so resourceNames cannot express this one. It stays,
+    and it stays alone — a second unscoped write should have to argue for itself."""
+    rules = _rbac_rules()
+    unscoped = [r for r in rules
+                if not r.get("resourceNames")
+                and set(r["verbs"]) - {"get", "list", "watch"}]
+    assert unscoped == [{"apiGroups": [""], "resources": ["pods"], "verbs": ["delete"]}]
 
 
 def test_describe_and_explicit_logs_reject_wrong_service_pod_identically():

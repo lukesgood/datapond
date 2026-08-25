@@ -158,3 +158,8 @@ ingress:
   tls:
     enabled: true
     secretName: datapond-tls
+
+# Default-deny ingress plus an egress rule that keeps pods away from the instance
+# metadata endpoint. See helm/datapond/templates/networkpolicy.yaml.
+networkPolicy:
+  enabled: true

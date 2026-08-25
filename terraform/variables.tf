@@ -182,3 +182,51 @@ variable "schedule_timezone" {
   type    = string
   default = "Asia/Seoul" # KST
 }
+
+# ── Bootstrap artifact pinning ────────────────────────────────────────────────
+#
+# The node's user-data used to fetch three installers over the network and run them
+# as root with no verification at all, one of them from a *branch* URL
+# (raw.githubusercontent.com/helm/helm/main/...) whose contents can change at any
+# moment without any release happening. Whoever controls those bytes controls the
+# node, which holds the instance profile and the cluster.
+#
+# Versions match what the live reference node runs, so pinning does not also
+# silently upgrade anything. Checksums were fetched from the publishers, not
+# recalled. To update: change the version, fetch the new checksum from the same
+# source, and change both in one commit.
+variable "k3s_version" {
+  type        = string
+  default     = "v1.36.2+k3s1"
+  description = "K3s release to install. Matches the live reference node."
+}
+
+variable "k3s_installer_sha256" {
+  type        = string
+  default     = "ed01f89fd977bf20ac1516bbebf8370bf3ddbaa55dac8aba610956a4c78cc00b"
+  description = "sha256 of https://get.k3s.io. This script is served from a rolling URL; the pin is what makes it reproducible."
+}
+
+variable "helm_version" {
+  type        = string
+  default     = "v3.21.2"
+  description = "Helm release. Deliberately 3.x — helm 4 is out and untested against this chart."
+}
+
+variable "helm_sha256" {
+  type        = string
+  default     = "0a745198de24545d0055cd8414bc8d2ba10363ef5f5d38369ea1b399671cc083"
+  description = "sha256 of helm-<version>-linux-amd64.tar.gz, from get.helm.sh."
+}
+
+variable "awscli_version" {
+  type        = string
+  default     = "2.35.20"
+  description = "AWS CLI v2 release. Matches the live reference node."
+}
+
+variable "awscli_sha256" {
+  type        = string
+  default     = "a4aa00212a97e6a5abd38cde5524719f7f5f122a6dcfdbc974eefdf741de1be6"
+  description = "sha256 of awscli-exe-linux-x86_64-<version>.zip."
+}

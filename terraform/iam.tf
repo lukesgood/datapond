@@ -79,6 +79,36 @@ data "aws_iam_policy_document" "app" {
     ]
     resources = ["*"] # workgroup-scoped; tighten to the primary workgroup ARN in a follow-up
   }
+  # docs/DISASTER_RECOVERY.md procedure B re-seeds datapond-secrets from this vault
+  # BEFORE the app starts, and it runs on the node (kubectl reaches the cluster from
+  # there, not from an operator laptop). Without this the documented recovery cannot
+  # execute, and an ENCRYPTION_KEY lost with the cluster makes every connector and
+  # provider credential in Aurora permanently undecryptable.
+  #
+  # Read only, and only this vault. Seeding is a deliberate operator act performed
+  # with operator credentials, so PutSecretValue stays off the node.
+  statement {
+    sid       = "CriticalSecretsRecovery"
+    effect    = "Allow"
+    actions   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+    resources = [aws_secretsmanager_secret.critical.arn]
+  }
+
+  # Only when the vault is encrypted with a customer CMK. Under the AWS-managed key
+  # (db_kms_key_id = null, the default) the key policy grants decryption through
+  # Secrets Manager itself and this statement must not exist — an empty resource
+  # list would make the policy invalid. A CMK without it fails at recovery time,
+  # which is the one moment nobody can afford to debug an IAM error.
+  dynamic "statement" {
+    for_each = var.db_kms_key_id == null ? [] : [var.db_kms_key_id]
+    content {
+      sid       = "CriticalSecretsDecrypt"
+      effect    = "Allow"
+      actions   = ["kms:Decrypt"]
+      resources = [statement.value]
+    }
+  }
+
   statement {
     sid       = "CloudWatchMetrics"
     effect    = "Allow"

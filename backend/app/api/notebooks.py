@@ -8,11 +8,13 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
 import httpx
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, Depends
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.runtime import component_secret
+
+from app.api.auth import require_permission
 
 router = APIRouter()
 
@@ -337,7 +339,7 @@ async def check_jupyter_health():
 
 
 # Static POST routes.
-@router.post("/notebooks", response_model=NotebookContent)
+@router.post("/notebooks", response_model=NotebookContent, dependencies=[Depends(require_permission("workbench:write"))])
 async def create_notebook(request: NotebookCreateRequest):
     if request.type != "notebook":
         raise HTTPException(400, "Only notebook content can be created")
@@ -350,7 +352,7 @@ async def create_notebook(request: NotebookCreateRequest):
     return NotebookContent(**result)
 
 
-@router.post("/notebooks/from-template", response_model=NotebookContent)
+@router.post("/notebooks/from-template", response_model=NotebookContent, dependencies=[Depends(require_permission("workbench:write"))])
 async def create_notebook_from_template(request: NotebookTemplateRequest):
     safe_path = _validated_notebook_path(request.path)
     result = await make_jupyter_request(
@@ -361,7 +363,7 @@ async def create_notebook_from_template(request: NotebookTemplateRequest):
     return NotebookContent(**result)
 
 
-@router.post("/notebooks/upload", response_model=NotebookContent)
+@router.post("/notebooks/upload", response_model=NotebookContent, dependencies=[Depends(require_permission("workbench:write"))])
 async def upload_notebook(
     file: UploadFile = File(...),
     path: Optional[str] = Form(default=None),
@@ -384,13 +386,13 @@ async def upload_notebook(
     return NotebookContent(**result)
 
 
-@router.post("/notebooks/kernels/start", response_model=KernelInfo)
+@router.post("/notebooks/kernels/start", response_model=KernelInfo, dependencies=[Depends(require_permission("workbench:write"))])
 async def start_kernel(name: str = Query(default="python3")):
     result = await make_jupyter_request("POST", "/api/kernels", json={"name": name})
     return KernelInfo(**result)
 
 
-@router.post("/notebooks/sessions/create", response_model=SessionInfo)
+@router.post("/notebooks/sessions/create", response_model=SessionInfo, dependencies=[Depends(require_permission("workbench:write"))])
 async def create_session(
     path: str = Query(...),
     name: str = Query(default=""),
@@ -411,7 +413,7 @@ async def create_session(
 
 
 # More-specific dynamic routes must precede the catch-all CRUD routes.
-@router.post("/notebooks/{path:path}/rename", response_model=NotebookContent)
+@router.post("/notebooks/{path:path}/rename", response_model=NotebookContent, dependencies=[Depends(require_permission("workbench:write"))])
 async def rename_notebook(path: str, request: NotebookRenameRequest):
     safe_path = _validated_notebook_path(path)
     new_path = _validated_notebook_path(request.new_path)
@@ -423,7 +425,7 @@ async def rename_notebook(path: str, request: NotebookRenameRequest):
     return NotebookContent(**result)
 
 
-@router.post("/notebooks/{path:path}/duplicate", response_model=NotebookContent)
+@router.post("/notebooks/{path:path}/duplicate", response_model=NotebookContent, dependencies=[Depends(require_permission("workbench:write"))])
 async def duplicate_notebook(path: str):
     safe_path = _validated_notebook_path(path)
     parent = str(PurePosixPath(safe_path).parent)
@@ -436,28 +438,28 @@ async def duplicate_notebook(path: str):
     return NotebookContent(**result)
 
 
-@router.post("/notebooks/kernels/{kernel_id}/interrupt")
+@router.post("/notebooks/kernels/{kernel_id}/interrupt", dependencies=[Depends(require_permission("workbench:write"))])
 async def interrupt_kernel(kernel_id: str):
     encoded = _api_segment(kernel_id, "kernel id")
     await make_jupyter_request("POST", f"/api/kernels/{encoded}/interrupt")
     return {"message": f"Kernel '{kernel_id}' interrupted"}
 
 
-@router.post("/notebooks/kernels/{kernel_id}/restart")
+@router.post("/notebooks/kernels/{kernel_id}/restart", dependencies=[Depends(require_permission("workbench:write"))])
 async def restart_kernel(kernel_id: str):
     encoded = _api_segment(kernel_id, "kernel id")
     await make_jupyter_request("POST", f"/api/kernels/{encoded}/restart")
     return {"message": f"Kernel '{kernel_id}' restarted"}
 
 
-@router.delete("/notebooks/kernels/{kernel_id}")
+@router.delete("/notebooks/kernels/{kernel_id}", dependencies=[Depends(require_permission("workbench:write"))])
 async def stop_kernel(kernel_id: str):
     encoded = _api_segment(kernel_id, "kernel id")
     await make_jupyter_request("DELETE", f"/api/kernels/{encoded}")
     return {"message": f"Kernel '{kernel_id}' stopped successfully"}
 
 
-@router.delete("/notebooks/sessions/{session_id}")
+@router.delete("/notebooks/sessions/{session_id}", dependencies=[Depends(require_permission("workbench:write"))])
 async def delete_session(session_id: str):
     encoded = _api_segment(session_id, "session id")
     await make_jupyter_request("DELETE", f"/api/sessions/{encoded}")
@@ -474,7 +476,7 @@ async def get_notebook(path: str):
     return NotebookContent(**result)
 
 
-@router.put("/notebooks/{path:path}", response_model=NotebookContent)
+@router.put("/notebooks/{path:path}", response_model=NotebookContent, dependencies=[Depends(require_permission("workbench:write"))])
 async def update_notebook(path: str, request: NotebookUpdateRequest):
     safe_path = _validated_notebook_path(path)
     if request.type != "notebook" or request.format != "json":
@@ -488,7 +490,7 @@ async def update_notebook(path: str, request: NotebookUpdateRequest):
     return NotebookContent(**result)
 
 
-@router.delete("/notebooks/{path:path}")
+@router.delete("/notebooks/{path:path}", dependencies=[Depends(require_permission("workbench:write"))])
 async def delete_notebook(path: str):
     safe_path = _validated_notebook_path(path)
     await make_jupyter_request("DELETE", _contents_endpoint(safe_path, notebook=True))

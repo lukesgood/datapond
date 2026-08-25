@@ -9,7 +9,7 @@ import asyncio
 import logging
 from datetime import datetime
 
-from app.api.auth import require_admin
+from app.api.auth import require_admin, require_permission
 
 logger = logging.getLogger(__name__)
 
@@ -248,7 +248,7 @@ async def list_experiments():
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 
-@router.post("/mlflow/experiments", response_model=ExperimentInfo)
+@router.post("/mlflow/experiments", response_model=ExperimentInfo, dependencies=[Depends(require_permission("workbench:write"))])
 async def create_experiment(request: ExperimentCreateRequest):
     """
     Create a new experiment
@@ -519,7 +519,7 @@ async def list_run_artifacts(run_id: str, path: str = ""):
 # Search & Compare Endpoints
 # ============================================================================
 
-@router.post("/mlflow/search", response_model=List[RunDetails])
+@router.post("/mlflow/search", response_model=List[RunDetails], dependencies=[Depends(require_permission("workbench:read"))])
 async def search_runs(request: SearchRunsRequest):
     """
     Search runs with filters
@@ -566,7 +566,7 @@ async def search_runs(request: SearchRunsRequest):
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 
-@router.post("/mlflow/runs/compare", response_model=CompareRunsResponse)
+@router.post("/mlflow/runs/compare", response_model=CompareRunsResponse, dependencies=[Depends(require_permission("workbench:read"))])
 async def compare_runs(request: CompareRunsRequest):
     """
     Compare multiple runs side-by-side
@@ -762,7 +762,7 @@ async def list_model_versions(name: str):
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 
-@router.post("/mlflow/models/{name}/versions/{version}/transition")
+@router.post("/mlflow/models/{name}/versions/{version}/transition", dependencies=[Depends(require_permission("workbench:write"))])
 async def transition_model_version_stage(
     name: str,
     version: str,
@@ -848,7 +848,7 @@ class LogQueryResponse(BaseModel):
     mlflow_url: str
 
 
-@router.post("/mlflow/log-query", response_model=LogQueryResponse)
+@router.post("/mlflow/log-query", response_model=LogQueryResponse, dependencies=[Depends(require_permission("workbench:write"))])
 async def log_query_to_mlflow(request: LogQueryRequest):
     """
     Create an MLflow run from a SQL query execution.
@@ -901,7 +901,7 @@ async def log_query_to_mlflow(request: LogQueryRequest):
         raise HTTPException(status_code=500, detail=f"Failed to log query: {str(e)}")
 
 
-@router.post("/mlflow/experiments", response_model=ExperimentInfo)
+@router.post("/mlflow/experiments", response_model=ExperimentInfo, dependencies=[Depends(require_permission("workbench:write"))])
 async def create_experiment_alias(request: ExperimentCreateRequest):
     """Create a new MLflow experiment (alias for /mlflow/experiments POST)"""
     client = get_mlflow_client()

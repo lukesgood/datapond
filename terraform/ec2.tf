@@ -56,6 +56,41 @@ resource "aws_instance" "node" {
     volume_size           = 60
     volume_type           = "gp3"
     delete_on_termination = true
+    # The root volume holds the K3s datastore, and therefore every Kubernetes Secret
+    # in the deployment — ENCRYPTION_KEY, JWT_SECRET, database credentials. It was
+    # unencrypted. Aurora and S3 were already encrypted, so this was the one copy
+    # sitting in the clear.
+    #
+    # NOTE FOR THE OPERATOR: this cannot be turned on in place. A volume is encrypted
+    # when it is created, so applying this REPLACES the node — and the cluster lives
+    # on that volume. Plan it as a migration, with docs/DISASTER_RECOVERY.md open:
+    # procedure B re-seeds datapond-secrets from the vault, which is what makes the
+    # rebuilt node able to decrypt what is already in Aurora. Everything else in this
+    # file applies in place.
+    encrypted  = true
+    kms_key_id = var.db_kms_key_id # null ⇒ the account's default EBS key
+  }
+
+  # IMDSv2 only. Under IMDSv1 anything that can be made to reach 169.254.169.254
+  # from inside the node — an SSRF in a pod, a misrouted proxy — gets the instance
+  # profile's credentials back. Requiring a token makes that a two-step exchange
+  # that a blind request-forgery cannot complete.
+  #
+  # The live node already runs required/2, but Terraform did not declare it, so the
+  # setting existed only until the next apply decided otherwise. Declaring it is
+  # most of the value here.
+  #
+  # hop_limit stays at 2, and not by oversight. The hardening advice is 1, which
+  # keeps IMDS off the pod network entirely — but the backend reaches S3, Bedrock
+  # and Athena through this instance profile, from a pod on the CNI network (no
+  # AWS_ACCESS_KEY_ID is injected anywhere; verified against the running cluster).
+  # Those packets take one extra hop, so 1 would cut off every AWS call the product
+  # makes. Keeping IMDS off the pod network requires giving the backend its own
+  # credential path first — IRSA, or a node-local proxy — which is a separate change.
+  metadata_options {
+    http_tokens                 = "required"
+    http_endpoint               = "enabled"
+    http_put_response_hop_limit = 2
   }
 
   # Spot (cost-optimized, matches the existing pattern). PERSISTENT + stop-on-interruption
@@ -72,17 +107,33 @@ resource "aws_instance" "node" {
     }
   }
 
+  # The AMI comes from Canonical's `.../stable/current/...` SSM parameter, which
+  # moves whenever they publish. Without this, an apply made for an unrelated reason
+  # destroys and rebuilds the production node on someone else's release schedule —
+  # confirmed by plan, which showed `ami ... # forces replacement` on a stack nobody
+  # had touched. A fresh install still gets the current image; replacing an existing
+  # node becomes a deliberate act (`terraform apply -replace=aws_instance.node`).
+  lifecycle {
+    ignore_changes = [ami]
+  }
+
   user_data = templatefile("${path.module}/templates/user-data.sh.tftpl", {
-    aws_region      = var.aws_region
-    domain          = var.domain
-    acme_email      = var.acme_email
-    route53_zone_id = var.route53_zone_id
-    ecr_registry    = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
-    backend_repo    = aws_ecr_repository.backend.repository_url
-    frontend_repo   = aws_ecr_repository.frontend.repository_url
-    aurora_host     = aws_rds_cluster.aurora.endpoint
-    bucket_name     = aws_s3_bucket.data.bucket
-    app_version     = var.app_version
+    k3s_version          = var.k3s_version
+    k3s_installer_sha256 = var.k3s_installer_sha256
+    helm_version         = var.helm_version
+    helm_sha256          = var.helm_sha256
+    awscli_version       = var.awscli_version
+    awscli_sha256        = var.awscli_sha256
+    aws_region           = var.aws_region
+    domain               = var.domain
+    acme_email           = var.acme_email
+    route53_zone_id      = var.route53_zone_id
+    ecr_registry         = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
+    backend_repo         = aws_ecr_repository.backend.repository_url
+    frontend_repo        = aws_ecr_repository.frontend.repository_url
+    aurora_host          = aws_rds_cluster.aurora.endpoint
+    bucket_name          = aws_s3_bucket.data.bucket
+    app_version          = var.app_version
   })
 
   tags = { Name = "${var.name_prefix}-k3s", managed-by = "terraform" }

@@ -35,6 +35,8 @@ ALL_PERMISSIONS: FrozenSet[str] = frozenset({
     "connector:read",     # see sources and their sync state
     "connector:write",    # create, edit, delete, and run connectors
     "pipeline:write",     # transforms and streaming
+    "workbench:read",     # browse notebooks and tracked experiments
+    "workbench:write",    # run notebooks and mutate experiments
     "governance:read",    # RLS and masking policies, PII reports
     "governance:write",   # change those policies
     "audit:read",         # the audit log and stream
@@ -52,26 +54,30 @@ ROLE_PERMISSIONS: Dict[str, FrozenSet[str]] = {
     # Brings data in. No model spend: ingestion is not a generative workload.
     "data_engineer": frozenset(_READ_BASELINE | {
         "query:run", "connector:read", "connector:write", "pipeline:write",
+        "workbench:read", "workbench:write",
     }),
 
     # The product's stated target user — AI application teams — had no role at all.
     # Builds collections, spends on models, and can see what that spend cost.
     "ai_engineer": frozenset(_READ_BASELINE | {
         "query:run", "knowledge:write", "ai:generate", "connector:read", "spend:read",
+        "workbench:read", "workbench:write",
     }),
 
     "data_scientist": frozenset(_READ_BASELINE | {
         "query:run", "knowledge:write", "ai:generate", "dashboard:write",
+        "workbench:read", "workbench:write",
     }),
 
     "business_analyst": frozenset(_READ_BASELINE | {
-        "query:run", "dashboard:write",
+        "query:run", "dashboard:write", "workbench:read",
     }),
 
     # Reviews the governance system and can verify it by running a query — checking
     # that a masking policy actually masks means selecting the column. Writes nothing.
     "auditor": frozenset(_READ_BASELINE | {
         "query:run", "governance:read", "audit:read", "spend:read",
+        "workbench:read",
     }),
 
     "viewer": frozenset(_READ_BASELINE | {"query:run"}),
