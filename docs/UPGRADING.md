@@ -3,6 +3,38 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-08 — Sign-in is rate limited
+
+**What changed.** Login had no rate limit, no lockout, and no backoff. The endpoint
+is on the public internet and verifies a bcrypt hash on every attempt, so it was both
+a credential-guessing oracle and a way to spend a single-node deployment's CPU from
+anywhere.
+
+Failures are now counted two ways. **Per account**, five failures lock that username
+for a minute, doubling with each further failure up to fifteen. **Per address**,
+twenty failures in five minutes blocks that address — the per-account counter never
+fires against a spray that tries one password against each of many accounts.
+
+Both counters forget: failures older than the window no longer count, so a mistyped
+password last month cannot combine with today's to lock a real user out. A successful
+sign-in clears that account immediately.
+
+**Tunable** if the defaults do not suit you — `LOGIN_MAX_FAILURES`,
+`LOGIN_LOCKOUT_SECONDS`, `LOGIN_LOCKOUT_MAX_SECONDS`, `LOGIN_IP_MAX_FAILURES`,
+`LOGIN_IP_WINDOW_SECONDS`.
+
+**One thing to check if you do not use our ingress.** The per-address counter is only
+correct if the deployment can see the real client address. Helm sets
+`LOGIN_TRUST_PROXY` from `ingress.enabled`, which is the right answer for every
+profile in this chart. If you front the backend with your own proxy and disable our
+ingress, set it yourself — otherwise every request appears to come from the proxy, and
+the per-address budget becomes one bucket shared by everyone, which a single attacker
+can exhaust to lock out your whole organisation.
+
+**Known limit.** The counters are per backend replica. With the one or two replicas
+this product runs, that costs at most a factor of two on the thresholds. A shared
+store is the fix at higher replica counts.
+
 ## 2026-08 — Every mutating route is authorized
 
 **What changed.** The previous entry enforced roles on the routes the core UI calls.

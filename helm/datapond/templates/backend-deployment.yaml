@@ -288,6 +288,14 @@ spec:
         # default_deny (blocks any unregistered table). See backend/app/rls/engine.py.
         - name: RLS_DEFAULT_DENY
           value: {{ dig "defaultDeny" false ((.Values.governance | default dict).rls | default dict) | quote }}
+        # Login throttling counts failures per account and per client address. Which
+        # address is the client's depends on whether a proxy is in front, and that is
+        # exactly what ingress.enabled says. With Traefik on externalTrafficPolicy:
+        # Cluster the socket peer is a cluster-internal address shared by every
+        # request on the internet — counting it would put the whole world in one
+        # budget. See backend/app/rate_limit.py.
+        - name: LOGIN_TRUST_PROXY
+          value: {{ (.Values.ingress | default dict).enabled | default false | quote }}
         - name: ATHENA_OUTPUT_LOCATION
           value: {{ (.Values.catalog | default dict).athenaOutputLocation | default "" | quote }}
         - name: ATHENA_WORKGROUP
