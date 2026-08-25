@@ -30,7 +30,7 @@ type Graph = {
 
 /** Lay nodes on a circle: the graph is small and undirected, and a ring keeps every
  *  edge visible without a force simulation. */
-function ring(nodes: GraphNode[]): Node[] {
+function ring(nodes: GraphNode[], selectedId?: string): Node[] {
   const n = nodes.length
   const radius = Math.max(160, n * 42)
   return nodes.map((node, i) => {
@@ -54,9 +54,13 @@ function ring(nodes: GraphNode[]): Node[] {
         borderRadius: 6,
         padding: "6px 10px",
         fontSize: 12,
+        cursor: "pointer",
         background: "var(--card)",
         color: "var(--card-foreground)",
-        border: "1px solid var(--border)",
+        // Selection has to be visible on the canvas, not only in the side pane.
+        border: node.id === selectedId
+          ? "2px solid var(--primary)"
+          : "1px solid var(--border)",
       },
     }
   })
@@ -81,11 +85,16 @@ export function RelationshipGraph({ days = 30 }: { days?: number }) {
 
   useEffect(() => { void load() }, [load])
 
-  const nodes = useMemo(() => ring(graph?.nodes ?? []), [graph])
+  const selectedNodeId = selected?.kind === "node" ? selected.node.id : undefined
+  const selectedEdgeId = selected?.kind === "edge"
+    ? `${selected.edge.source}-${selected.edge.target}`
+    : undefined
+  const nodes = useMemo(() => ring(graph?.nodes ?? [], selectedNodeId), [graph, selectedNodeId])
   const edges: Edge[] = useMemo(
     () =>
       (graph?.edges ?? []).map((e, i) => {
         const observed = e.evidence === "observed"
+        const isSelected = `${e.source}-${e.target}` === selectedEdgeId
         const j = e.joins[0]
         return {
           id: `${e.source}-${e.target}-${i}`,
@@ -103,15 +112,22 @@ export function RelationshipGraph({ days = 30 }: { days?: number }) {
           data: { reason: e.reason },
           // Solid and thick = people ran it. Dashed and thin = we guessed from column
           // naming. The two must never be mistaken for each other.
-          style: observed
-            ? { strokeWidth: Math.min(1 + Math.log2(e.count + 1), 4) }
-            : { strokeWidth: 1, strokeDasharray: "4 3", opacity: 0.65 },
+          // A hairline is almost impossible to hit; reactflow's default 20px hit area
+          // still missed on a curve. The visible stroke stays thin.
+          interactionWidth: 30,
+          style: {
+            cursor: "pointer",
+            ...(observed
+              ? { strokeWidth: Math.min(1 + Math.log2(e.count + 1), 4) }
+              : { strokeWidth: 1, strokeDasharray: "4 3", opacity: 0.65 }),
+            ...(isSelected ? { stroke: "var(--primary)", strokeWidth: 3, opacity: 1 } : {}),
+          },
           // No arrowhead: source/target are sorted alphabetically to make the edge
           // undirected, so an arrow would assert a direction the data never had.
           animated: false,
         }
       }),
-    [graph],
+    [graph, selectedEdgeId],
   )
 
   if (loading) {
