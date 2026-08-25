@@ -72,10 +72,10 @@ export default function ConnectPage() {
     <div className="flex-1 space-y-5 p-8 pt-6">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">Build AI</p>
-        <h1 className="mt-0.5 text-[23px] font-semibold tracking-tight">Connect your app</h1>
+        <h1 className="mt-0.5 text-[23px] font-semibold tracking-tight">API</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Call the same retrieval and cited-answer endpoints this UI uses, from your
-          own application.
+          Call this deployment from your own application — the same retrieval and
+          cited-answer endpoints this UI uses.
         </p>
       </div>
 

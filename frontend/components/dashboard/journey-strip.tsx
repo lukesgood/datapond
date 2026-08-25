@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
-import { ArrowDownToLine, Database, Sparkles, Bot, ShieldCheck } from "lucide-react"
+import { ArrowDownToLine, Database, Sparkles, Plug, ShieldCheck } from "lucide-react"
 import { useCapabilities } from "@/lib/capabilities"
 
 type Step = {
@@ -26,7 +26,7 @@ export function JourneyStrip() {
     {
       n: "01",
       title: "Connect",
-      sub: sourcesEnabled ? "Sources & sync" : "Files, text & S3",
+      sub: sourcesEnabled ? "Sources" : "Files, text & S3",
       href: sourcesEnabled ? "/connectors" : "/knowledge",
       icon: ArrowDownToLine,
       color: "var(--chart-1)",
@@ -48,11 +48,16 @@ export function JourneyStrip() {
       color: "var(--chart-4)",
     },
     {
+      // The API, not the model gateway. What an application is actually served is
+      // retrieval and cited answers over HTTP; the gateway is the infrastructure
+      // behind that, which is why it sits under Operate with the rest of running
+      // the platform. Pointing this step at /ai left the workflow describing a menu
+      // layout that no longer exists.
       n: "04",
       title: "Serve",
-      sub: "LiteLLM model gateway",
-      href: "/ai",
-      icon: Bot,
+      sub: "Answers over HTTP",
+      href: "/connect",
+      icon: Plug,
       color: "var(--chart-2)",
     },
     {
