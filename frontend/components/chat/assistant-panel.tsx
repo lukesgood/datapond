@@ -36,15 +36,19 @@ export function AssistantPanel() {
   const [input, setInput] = useState("")
   const [busy, setBusy] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
-  const endRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setOpen(localStorage.getItem(STORAGE_KEY) === "1")
   }, [])
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [turns, pending])
+    // Scroll the transcript container itself. scrollIntoView walks up and scrolls
+    // ancestors too, which moved the whole page — the behaviour this panel is
+    // supposed to keep out of.
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [turns, pending, busy])
 
   const toggle = useCallback(() => {
     setOpen(v => {
@@ -133,7 +137,10 @@ export function AssistantPanel() {
   }
 
   return (
-    <aside className="flex h-full w-[360px] shrink-0 flex-col border-l bg-background">
+    /* `h-full` resolved against a parent free to grow (body is min-h-full), so a long
+       conversation stretched the panel and scrolled the whole page instead of the
+       transcript. Pinned to the viewport and made sticky so it stays put. */
+    <aside className="sticky top-0 flex h-dvh w-[360px] shrink-0 flex-col border-l bg-background">
       <div className="flex h-11 shrink-0 items-center justify-between border-b px-3">
         <span className="flex items-center gap-2 text-sm font-medium">
           <Bot className="h-4 w-4 text-primary" /> Assistant
@@ -144,7 +151,7 @@ export function AssistantPanel() {
         </button>
       </div>
 
-      <div className="flex-1 space-y-3 overflow-y-auto p-3 text-sm">
+      <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 text-sm">
         {turns.length === 0 && !pending && (
           <p className="text-xs text-muted-foreground">
             Ask about the data here. I can look things up and, with your approval, run a
@@ -185,7 +192,6 @@ export function AssistantPanel() {
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking…
           </div>
         )}
-        <div ref={endRef} />
       </div>
 
       <div className="shrink-0 border-t p-2">
