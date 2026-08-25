@@ -274,3 +274,49 @@ def test_relationships_endpoint_can_include_ai_history_on_request(monkeypatch):
                                               user={"id": "00000000-0000-0000-0000-0000000000aa"}))
     assert not any("origin" in f for f in filters)
     assert res["includes_ai_generated"] is True
+
+
+# ── detail for a selected node or edge ────────────────────────────────────────
+# The diagram is only worth clicking if selecting something tells you more than the
+# picture already did.
+
+def test_nodes_carry_their_columns_when_the_schema_is_known():
+    g = build_graph([], schema=SCHEMA)
+    orders = next(n for n in g["nodes"] if n["id"] == "sales.orders")
+    assert {c["name"] for c in orders["columns"]} == {"id", "cust_id", "status", "amt"}
+
+
+def test_nodes_without_schema_information_carry_no_columns():
+    g = build_graph(["SELECT * FROM sales.orders o JOIN sales.customers c ON o.cust_id = c.id"])
+    assert all(n["columns"] == [] for n in g["nodes"])
+
+
+def test_edges_offer_a_join_statement_to_start_from():
+    """Reconstructed from the parsed keys, never echoed from history: a stored
+    statement can carry literals in its WHERE clause that the reader should not see."""
+    g = build_graph(["SELECT * FROM sales.orders o JOIN sales.customers c ON o.cust_id = c.id"])
+    sql = g["edges"][0]["join_sql"]
+    assert sql.startswith("SELECT")
+    assert "sales.customers" in sql and "sales.orders" in sql
+    assert "JOIN" in sql and "ON" in sql
+    assert "LIMIT" in sql
+
+
+def test_the_join_statement_never_repeats_a_stored_predicate():
+    g = build_graph([
+        "SELECT * FROM sales.orders o JOIN sales.customers c ON o.cust_id = c.id "
+        "WHERE c.ssn = '123-45-6789'"
+    ])
+    assert "123-45-6789" not in g["edges"][0]["join_sql"]
+    assert "ssn" not in g["edges"][0]["join_sql"]
+
+
+def test_an_edge_lists_every_key_pair_that_was_used():
+    g = build_graph([
+        "SELECT * FROM sales.orders o JOIN sales.customers c ON o.cust_id = c.id",
+        "SELECT * FROM sales.orders o JOIN sales.customers c ON o.alt_id = c.id",
+    ])
+    edge = g["edges"][0]
+    assert {(j["left_column"], j["right_column"]) for j in edge["joins"]} == {
+        ("id", "cust_id"), ("id", "alt_id")
+    }
