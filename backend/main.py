@@ -163,6 +163,16 @@ async def startup():
     except Exception as e:
         logger.warning(f"[startup] Base schema bootstrap skipped: {e}")
 
+    # Pipelines table — moved off module import, where it ran DDL before the app
+    # could even be constructed. best-effort, like the other schema steps.
+    try:
+        from app.api.pipelines import ensure_pipelines_table
+        from app.api.transforms import ensure_transforms_table
+        await asyncio.to_thread(ensure_pipelines_table)
+        await asyncio.to_thread(ensure_transforms_table)
+    except Exception as e:
+        logger.warning(f"[startup] pipelines/transforms table bootstrap skipped: {e}")
+
     # RLS 스키마 마이그레이션 (멱등 — rls_policies/masking/user_roles/attributes). best-effort.
     try:
         from app.api.connectors import get_db_pool

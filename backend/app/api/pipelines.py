@@ -21,8 +21,18 @@ from app.runtime import component_secret
 
 router = APIRouter()
 
-# Ensure pipelines table exists
-Base.metadata.create_all(bind=engine, tables=[SavedPipeline.__table__], checkfirst=True)
+def ensure_pipelines_table() -> None:
+    """Create the pipelines table if it is missing.
+
+    Called from the startup hook, not at import. Running DDL as a side effect of
+    importing a module meant the app could not be imported without a reachable
+    database — so nothing in the test suite could import it, and a router mounted
+    without its import reached production and crash-looped instead of failing a test.
+    Every other schema step in this app already runs at startup; this one was the
+    exception.
+    """
+    Base.metadata.create_all(bind=engine, tables=[SavedPipeline.__table__],
+                             checkfirst=True)
 
 
 def _airflow_auth() -> tuple:

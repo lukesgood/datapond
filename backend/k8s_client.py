@@ -400,5 +400,20 @@ class K8sClient:
         return info
 
 
-# Global instance
-k8s_client = K8sClient()
+# Global instance, constructed on first use.
+#
+# K8sClient() loads kube config in __init__ and re-raises when there is none, so
+# building it at import made `import main` impossible outside a cluster. That is why
+# nothing in the test suite imported the app — and why a router mounted without its
+# import reached production and crash-looped instead of failing a test. Nothing here
+# needs a cluster client until a request arrives.
+class _LazyK8sClient:
+    _instance = None
+
+    def __getattr__(self, item):
+        if _LazyK8sClient._instance is None:
+            _LazyK8sClient._instance = K8sClient()
+        return getattr(_LazyK8sClient._instance, item)
+
+
+k8s_client = _LazyK8sClient()
