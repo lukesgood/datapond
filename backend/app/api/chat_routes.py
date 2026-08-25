@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.api.auth import _get_pool, require_permission, require_user
+from app.api.auth import _get_pool, require_human, require_permission, require_user
 from app.chat import executors
 from app.chat.actions import ActionKind, resolve, tool_definitions
 from app.chat.gate import ActionRefused, approve, propose, reject
@@ -66,7 +66,7 @@ async def _store(user: dict) -> PostgresInvocationStore:
 
 
 @router.get("/chat/actions")
-async def available_actions(page: str = "*", user: dict = Depends(require_user)):
+async def available_actions(page: str = "*", user: dict = Depends(require_human)):
     """What the assistant can do here, for this caller.
 
     The same list the model is given. Exposed so the panel can say what it is capable
@@ -77,7 +77,8 @@ async def available_actions(page: str = "*", user: dict = Depends(require_user))
 
 @router.post("/chat")
 async def chat(request: ChatRequest,
-               user: dict = Depends(require_permission("ai:generate"))):
+               user: dict = Depends(require_permission("ai:generate")),
+               _human: dict = Depends(require_human)):
     """One turn. Returns prose, and at most one action outcome or pending approval."""
     text, findings, blocked = pii_ko.apply(request.message)
     if blocked:
@@ -133,7 +134,7 @@ async def chat(request: ChatRequest,
 
 
 @router.post("/chat/actions/{invocation_id}/approve")
-async def approve_action(invocation_id: str, user: dict = Depends(require_user)):
+async def approve_action(invocation_id: str, user: dict = Depends(require_human)):
     """Run a proposed action. Takes an id — never parameters. See design §5.2."""
     store = await _store(user)
     try:
@@ -148,7 +149,7 @@ async def approve_action(invocation_id: str, user: dict = Depends(require_user))
 
 
 @router.post("/chat/actions/{invocation_id}/reject")
-async def reject_action(invocation_id: str, user: dict = Depends(require_user)):
+async def reject_action(invocation_id: str, user: dict = Depends(require_human)):
     store = await _store(user)
     try:
         invocation = await reject(invocation_id, user=user, store=store)

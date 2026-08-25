@@ -222,6 +222,12 @@ def build_graph(statements: Iterable[str], dialect: str = "trino",
                 schema: Optional[Dict[str, List[dict]]] = None) -> dict:
     """Aggregate a history of statements into {nodes, edges}.
 
+    Known and deliberate: a node can name a table that has since been dropped. History
+    records what was run, and editing it to match today's catalog would be rewriting
+    an audit trail to look tidy. It does read oddly to someone new — dimming nodes
+    absent from `schema`, or filtering them behind a toggle, is the fix when this view
+    is next worked on.
+
     Node `query_count` is how many statements touched the table; edge `count` is how
     many used that relationship. Both are usage evidence, so the diagram can weight
     the paths people actually take.

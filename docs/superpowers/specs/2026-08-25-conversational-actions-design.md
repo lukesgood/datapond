@@ -272,7 +272,14 @@ offers, and — because the model is not in the loop for that decision — canno
 1. ~~Retention default~~ — **resolved 2026-08-25.** Neither a window nor a switch:
    the transcript is not stored, and the message that produced an action is kept with
    that action. See §9.
-2. Should the panel be available to service accounts at all, or is it a human surface?
-   The permission model allows it; the audit story is cleaner if it does not.
+2. ~~Service accounts and the panel~~ — **resolved 2026-08-25: human surface only.**
+   The permission model allowed it, and that turned out to be a hole rather than a
+   choice: a service account is the owner of its own proposals, so it passed the
+   ownership check and could approve them itself — §5.4 defeated exactly. There is
+   also nothing to gain, since an agent already calls the typed endpoints and a model
+   in between only adds nondeterminism, a second round of token spend, and an audit
+   trail that cannot name an approver. Blocked at the routes and again in the gate.
+   Natural language for agents belongs in an MCP surface, which this product does not
+   have.
 3. `query.run` classed as `create` adds an approval step to something Analytics does
    with one click today. Correct, or friction that will be routed around?
