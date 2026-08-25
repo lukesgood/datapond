@@ -328,6 +328,117 @@ async def delete_collection(name: str, user: dict = Depends(require_user)):
     return {"success": True, "deleted": res}
 
 
+def _group_for_config(cfg: Optional[dict]) -> Optional[str]:
+    """The source_group a scheduled refresh writes under.
+
+    Mirrors _source_group() deliberately rather than sharing it: that one takes a
+    SourceIngest model and this takes the jsonb it was persisted as. If the two ever
+    disagree, a scheduled source stops being recognised as scheduled — which is why
+    the composition report also flags a schedule that matches no chunks.
+    """
+    if not cfg:
+        return None
+    if cfg.get("type") == "iceberg":
+        return f"iceberg:{cfg.get('schema')}.{cfg.get('table')}.{cfg.get('text_column')}"
+    if cfg.get("type") == "s3":
+        return f"s3:{cfg.get('bucket')}/{cfg.get('prefix') or ''}"
+    return None
+
+
+def shape_composition(rows, refresh_source: Optional[dict]) -> dict:
+    """What a collection is made of, largest contributor first.
+
+    A scheduled source is marked because it behaves differently from the rest: it is
+    replaced wholesale on each refresh, while everything else was ingested once and
+    stays until someone removes it. Without the distinction, "last ingested three
+    weeks ago" reads as stale for one and as finished for the other.
+    """
+    scheduled_group = _group_for_config(refresh_source)
+    sources, matched = [], False
+    for r in rows:
+        is_scheduled = bool(scheduled_group) and r.get("source_group") == scheduled_group
+        matched = matched or is_scheduled
+        sources.append({
+            # Pasted text has no filename. Dropping it would make the parts disagree
+            # with the total, and the total is the number people trust.
+            "source": r.get("source") or "(pasted text)",
+            "chunks": int(r.get("chunks") or 0),
+            "last_ingested": r.get("last_ingested"),
+            "scheduled": is_scheduled,
+        })
+    sources.sort(key=lambda s: (-s["chunks"], s["source"]))
+    return {
+        "sources": sources,
+        "total_chunks": sum(s["chunks"] for s in sources),
+        # A schedule producing no chunks looks like a working pipeline from the
+        # Schedule tab, which shows only that it is enabled.
+        "scheduled_source_has_no_chunks": bool(scheduled_group) and not matched,
+    }
+
+
+def build_lineage(connections, jobs, collections) -> dict:
+    """connector → namespace.table → collection, from data the product already acts on.
+
+    _invalidate_sink_collections() in app/api/connectors.py marks a collection stale
+    when a sync writes to the table its refresh_source names, and the scheduler then
+    re-embeds it. That dependency runs in production and has never been visible, so
+    "this table changed — which collections are now wrong?" had no answer.
+
+    Only tables that actually feed a collection are drawn. A connector syncing fifty
+    tables nothing consumes would bury the part of the graph that matters.
+    """
+    def table_key(target: str, fallback: str) -> str:
+        # Namespace from the target, not assumed to be `default`: a sync can write
+        # into another namespace, and assuming otherwise breaks the match silently —
+        # which is how a stale collection comes to look fresh.
+        parts = (target or "").split(".")
+        ns = parts[-2] if len(parts) >= 2 else "default"
+        name = parts[-1] if parts and parts[-1] else fallback
+        return f"{ns}.{name}"
+
+    wanted, coll_nodes, edges = {}, [], []
+    for c in collections:
+        coll_nodes.append({"id": f"collection:{c['name']}", "kind": "collection",
+                           "label": c["name"]})
+        src = c.get("refresh_source") or {}
+        if src.get("type") == "iceberg" and src.get("schema") and src.get("table"):
+            key = f"{src['schema']}.{src['table']}"
+            wanted.setdefault(key, []).append(c)
+
+    by_conn = {c["id"]: c for c in connections}
+    table_nodes, conn_nodes = {}, {}
+    for j in jobs:
+        key = table_key(j.get("target_table"), j.get("source_table") or "")
+        if key not in wanted:
+            continue
+        table_nodes.setdefault(key, {"id": f"table:{key}", "kind": "table", "label": key})
+        c = by_conn.get(j.get("connection_id"))
+        if c:
+            node = conn_nodes.setdefault(f"connector:{c['name']}", {
+                "id": f"connector:{c['name']}", "kind": "connector",
+                "label": c["name"], "type": c.get("connector_type"), "status": "ok"})
+            if j.get("last_run_status") == "failed":
+                node["status"] = "failed"
+            edge = {"source": node["id"], "target": f"table:{key}", "active": True}
+            if edge not in edges:
+                edges.append(edge)
+
+    for key, consumers in wanted.items():
+        if key not in table_nodes:
+            continue
+        for c in consumers:
+            edges.append({
+                "source": f"table:{key}", "target": f"collection:{c['name']}",
+                # A paused schedule still has a real upstream — the table does feed
+                # it — but nothing will act on a change. Marking beats hiding, which
+                # would claim the collection has no upstream at all.
+                "active": bool(c.get("refresh_enabled")),
+            })
+
+    nodes = list(conn_nodes.values()) + list(table_nodes.values()) + coll_nodes
+    return {"nodes": nodes, "edges": edges}
+
+
 async def _collection_id(
     c, name: str, user: dict, *, write: bool = False, destroy: bool = False
 ):
@@ -705,6 +816,76 @@ def _guard(text: str):
     path too so RAG/search are covered (not just /ai/sql + ingest)."""
     from app.guardrails import pii_ko
     return pii_ko.apply(text or "")
+
+
+@router.get("/ai/lineage",
+            dependencies=[Depends(require_permission("knowledge:read"))])
+async def knowledge_lineage(user: dict = Depends(require_user)):
+    """Which sources feed which collections.
+
+    Reads the three tables the dependency already lives in. Connector tables belong
+    to an optional adapter, so their absence is a graph of standalone collections
+    rather than an error — which is the correct picture for a deployment that ingests
+    by hand.
+    """
+    pool = await get_db_pool()
+    connections, jobs = [], []
+    async with pool.acquire() as c:
+        try:
+            connections = [dict(r) for r in await c.fetch(
+                "SELECT id, name, connector_type FROM connector_connections")]
+            jobs = [dict(r) for r in await c.fetch(
+                """SELECT connection_id, source_table, target_table, last_run_status
+                   FROM connector_sync_jobs WHERE enabled""")]
+        except Exception as e:
+            logger.debug(f"[lineage] connector tables unavailable: {e}")
+        cols = [dict(r) for r in await c.fetch(
+            """SELECT name, refresh_source, refresh_enabled FROM ai_collections
+               WHERE owner_id IS NULL OR owner_id = $1 OR $2""",
+            _uid(user), user.get("role") == "admin")]
+
+    import json as _json
+    for col in cols:
+        if isinstance(col.get("refresh_source"), str):
+            try:
+                col["refresh_source"] = _json.loads(col["refresh_source"])
+            except Exception:
+                col["refresh_source"] = None
+    for j in jobs:
+        j["connection_id"] = str(j["connection_id"])
+    for c2 in connections:
+        c2["id"] = str(c2["id"])
+    return build_lineage(connections, jobs, cols)
+
+
+@router.get("/ai/collections/{name}/composition",
+            dependencies=[Depends(require_permission("knowledge:read"))])
+async def collection_composition(name: str, user: dict = Depends(require_user)):
+    """Which sources this collection is made of, and how much each contributed.
+
+    The list card could say "3 sources" and nothing could say which three. Goes
+    through _collection_id so the collection ACL applies here exactly as it does to
+    search — the composition of a collection is as much its content as the chunks are.
+    """
+    pool = await get_db_pool()
+    async with pool.acquire() as c:
+        coll_id = await _collection_id(c, name, user)
+        cfg = await c.fetchval(
+            "SELECT refresh_source FROM ai_collections WHERE id = $1", coll_id)
+        rows = await c.fetch(
+            """SELECT source, source_group, COUNT(*) AS chunks,
+                      MAX(created_at) AS last_ingested
+               FROM ai_chunks WHERE collection_id = $1
+               GROUP BY source, source_group""", coll_id)
+    if isinstance(cfg, str):
+        import json as _json
+        try:
+            cfg = _json.loads(cfg)
+        except Exception:
+            cfg = None
+    out = shape_composition([dict(r) for r in rows], cfg)
+    out["collection"] = name
+    return out
 
 
 @router.post("/ai/search", dependencies=[Depends(require_permission("ai:generate"))])

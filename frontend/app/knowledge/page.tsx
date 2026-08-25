@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react"
 import { useToast } from "@/lib/toast"
 import Link from "next/link"
-import { Sparkles, Plus, Trash2, Search, MessageSquare, Database, Upload, AlertCircle, Loader2, FileText, ShieldCheck, Clock, Users, CheckCircle2, ArrowDownWideNarrow, BookMarked } from "lucide-react"
+import { Sparkles, Plus, Trash2, Search, MessageSquare, Database, Upload, AlertCircle, Loader2, FileText, ShieldCheck, Clock, Users, CheckCircle2, ArrowDownWideNarrow, BookMarked, Layers, GitBranch } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,6 +12,8 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ConceptsPanel } from "@/components/knowledge/concepts-panel"
 import { ComparePanel } from "@/components/knowledge/compare-panel"
+import { CompositionPanel } from "@/components/knowledge/composition-panel"
+import { LineagePanel } from "@/components/knowledge/lineage-panel"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -50,6 +52,9 @@ export default function KnowledgePage() {
   const [cols, setCols] = useState<Collection[]>([])
   const [loading, setLoading] = useState(true)
   const [sel, setSel] = useState<string | null>(null)
+  // Collapsed by default: on a deployment that ingests by hand this is a list
+  // of collections with no upstream, which is true but not worth the space.
+  const [showLineage, setShowLineage] = useState(false)
   const [egress, setEgress] = useState<string>("")
   const [err, setErr] = useState<string | null>(null)
   const me = getUser()
@@ -163,6 +168,25 @@ export default function KnowledgePage() {
               </CardContent></Card>}
         </div>
       </div>
+
+      {/* Lineage spans collections, so it belongs to the page rather than to the
+          selected one — the question it answers ("this table changed, what is now
+          stale?") starts from a source, not from a collection. */}
+      <Card>
+        <CardHeader className="pb-2 flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <GitBranch className="h-4 w-4 text-primary" />Lineage
+            </CardTitle>
+            <CardDescription>What feeds each collection, and what a source change makes stale.</CardDescription>
+          </div>
+          <button onClick={() => setShowLineage(v => !v)}
+                  className="text-[11px] text-muted-foreground hover:text-foreground">
+            {showLineage ? "Hide" : "Show"}
+          </button>
+        </CardHeader>
+        {showLineage && <CardContent className="pt-0"><LineagePanel /></CardContent>}
+      </Card>
     </div>
   )
 }
@@ -224,6 +248,7 @@ function Workspace({ name, onChange, empty }: { name: string; onChange: () => vo
         {/* An empty collection has nothing to search — open on Ingest so the first step is obvious. */}
         <Tabs defaultValue={empty ? "ingest" : "search"}>
           <TabsList><TabsTrigger value="search"><Search className="h-3.5 w-3.5 mr-1" />Search / RAG</TabsTrigger>
+            <TabsTrigger value="composition"><Layers className="h-3.5 w-3.5 mr-1" />Composition</TabsTrigger>
             <TabsTrigger value="ingest"><Upload className="h-3.5 w-3.5 mr-1" />Ingest</TabsTrigger>
             <TabsTrigger value="schedule"><Clock className="h-3.5 w-3.5 mr-1" />Schedule</TabsTrigger>
             {/* Only when the deployment has the capability. Without the flag every
@@ -233,6 +258,7 @@ function Workspace({ name, onChange, empty }: { name: string; onChange: () => vo
             {ontologyOn && <TabsTrigger value="concepts"><BookMarked className="h-3.5 w-3.5 mr-1" />Concepts</TabsTrigger>}
             <TabsTrigger value="compare"><ArrowDownWideNarrow className="h-3.5 w-3.5 mr-1" />Compare</TabsTrigger></TabsList>
           <TabsContent value="search"><SearchPanel name={name} /></TabsContent>
+          <TabsContent value="composition"><CompositionPanel name={name} /></TabsContent>
           <TabsContent value="ingest"><IngestPanel name={name} onChange={onChange} /></TabsContent>
           <TabsContent value="schedule"><SchedulePanel name={name} /></TabsContent>
           {/* Deliberately in Knowledge rather than a page of its own: concepts change
