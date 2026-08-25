@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ConceptsPanel } from "@/components/knowledge/concepts-panel"
+import { ComparePanel } from "@/components/knowledge/compare-panel"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -224,13 +225,15 @@ function Workspace({ name, onChange, empty }: { name: string; onChange: () => vo
           <TabsList><TabsTrigger value="search"><Search className="h-3.5 w-3.5 mr-1" />Search / RAG</TabsTrigger>
             <TabsTrigger value="ingest"><Upload className="h-3.5 w-3.5 mr-1" />Ingest</TabsTrigger>
             <TabsTrigger value="schedule"><Clock className="h-3.5 w-3.5 mr-1" />Schedule</TabsTrigger>
-            <TabsTrigger value="concepts"><BookMarked className="h-3.5 w-3.5 mr-1" />Concepts</TabsTrigger></TabsList>
+            <TabsTrigger value="concepts"><BookMarked className="h-3.5 w-3.5 mr-1" />Concepts</TabsTrigger>
+            <TabsTrigger value="compare"><ArrowDownWideNarrow className="h-3.5 w-3.5 mr-1" />Compare</TabsTrigger></TabsList>
           <TabsContent value="search"><SearchPanel name={name} /></TabsContent>
           <TabsContent value="ingest"><IngestPanel name={name} onChange={onChange} /></TabsContent>
           <TabsContent value="schedule"><SchedulePanel name={name} /></TabsContent>
           {/* Deliberately in Knowledge rather than a page of its own: concepts change
               what Search returns, so the cause belongs next to the effect. */}
           <TabsContent value="concepts"><ConceptsPanel /></TabsContent>
+          <TabsContent value="compare"><ComparePanel name={name} /></TabsContent>
         </Tabs>
       </CardContent>
     </Card>
