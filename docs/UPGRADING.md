@@ -3,6 +3,40 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-08 — Two role changes, and where AI Gateway lives now
+
+**`data_scientist` gains `connector:read`.** They could query a table through Catalog
+and Analytics but not see Sources, so "how old is this data?" had no answer for the
+person analysing it. Read-only: nothing about it lets them run a sync or edit a
+connector.
+
+**Curating concepts is `knowledge:write`, no longer admin.** Concept expansion
+rewrites a query before retrieval, which makes the term list a retrieval-quality
+control — and the role accountable for retrieval quality already creates the
+collections, ingests into them, and schedules their re-embedding. Being unable to
+say that two words mean the same thing was the wrong line. Reading the list is
+`knowledge:read`; it used to require only a login, which put it outside the
+permission vocabulary entirely.
+
+If you would rather keep vocabulary changes with administrators, no role other than
+`admin`, `ai_engineer` and `data_scientist` holds `knowledge:write` — restricting it
+further means moving those roles, not changing this.
+
+**AI Gateway moved from "Build AI" to "Operate".** Nothing on that page builds
+anything: it registers providers, issues keys and reports spend. The audience settled
+it — every role that can see it holds `spend:read`, so `data_scientist` and
+`business_analyst` could not, while `auditor`, who builds nothing, could. The URL is
+unchanged.
+
+**New: Build AI → Connect.** How to call the retrieval and cited-answer endpoints
+from your own application, with copyable snippets and the scopes to ask an
+administrator for. Visible to roles holding `ai:generate`.
+
+**New: your own model spend.** `GET /api/settings/ai/usage/me` returns only the
+caller's. The deployment-wide view still needs `spend:read` — which is the permission
+to see *everyone's*, an operator's question — but a role trusted to spend can now see
+what it spent.
+
 ## 2026-08 — Sign-in is rate limited
 
 **What changed.** Login had no rate limit, no lockout, and no backoff. The endpoint

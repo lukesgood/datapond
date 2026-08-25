@@ -3,7 +3,7 @@
 import {
   Home, Database, FlaskConical, Settings,
   BarChart3, HelpCircle, FileCode,
-  HardDrive, Radio, ArrowDownToLine, ShieldCheck, LogOut, User, GitBranch, Server,
+  HardDrive, Radio, ArrowDownToLine, ShieldCheck, LogOut, User, GitBranch, Server, Plug,
   Sparkles, Bot,
 } from "lucide-react"
 import Link from "next/link"
@@ -51,11 +51,11 @@ const mainSections: NavSection[] = [
     hint: "Ground and serve AI applications",
     items: [
       { title: "Knowledge",  url: "/knowledge", icon: Sparkles },
-      // spend:read, not settings:write. The page's cost panels are the reason most
-      // people open it, and the roles that hold spend:read — ai_engineer, auditor —
-      // could not see the only screen that shows what they are accountable for.
-      // Configuring backends and issuing keys stay admin-only at the API.
-      { title: "AI Gateway", url: "/ai",        icon: Bot, permission: "spend:read" },
+      // ai:generate, not knowledge:read. knowledge:read covers viewer,
+      // business_analyst, data_engineer and auditor — none of whom write an
+      // application against the retrieval API. The roles that hold ai:generate are
+      // exactly the ones who do.
+      { title: "Connect",    url: "/connect",   icon: Plug, permission: "ai:generate" },
     ],
   },
   {
@@ -87,6 +87,14 @@ const mainSections: NavSection[] = [
     label: "Operate",
     hint: "Govern and run the foundation",
     items: [
+      // Not in "Build AI", where it sat next to Knowledge. Nobody builds anything on
+      // this page: it registers providers, issues keys, and reports spend — operator
+      // actions, which is what this group is for. The audience settled it. Every role
+      // that can see it (admin, ai_engineer, auditor) holds spend:read, so the two
+      // roles that most obviously build AI applications — data_scientist and
+      // business_analyst — could not see it, while auditor, who builds nothing,
+      // could.
+      { title: "AI Gateway",     url: "/ai",        icon: Bot, permission: "spend:read" },
       { title: "Governance",     url: "/governance", icon: ShieldCheck, permission: "governance:read" },
       { title: "Storage",        url: "/storage",    icon: HardDrive, permission: "service:manage" },
       // Infrastructure = Services (workloads/adapters) + System (node) as one

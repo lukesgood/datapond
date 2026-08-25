@@ -238,6 +238,11 @@ class SearchRequest(BaseModel):
     k: int = 5
     # Phase 0 ontology slice: opt-in concept expansion (no-op unless FEATURE_ONTOLOGY).
     expand_concepts: bool = False
+    # None = use whatever the deployment configured. False turns reranking off for
+    # this request. The person responsible for retrieval quality could not see the
+    # effect of the reranker without an operator changing AI_RERANK_MODEL and
+    # redeploying, which put a tuning decision behind a release.
+    rerank: Optional[bool] = None
 
 
 class RagRequest(BaseModel):
@@ -245,6 +250,7 @@ class RagRequest(BaseModel):
     question: str
     k: int = 5
     expand_concepts: bool = False
+    rerank: Optional[bool] = None
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────────
@@ -641,7 +647,8 @@ async def _rerank(query: str, hits: List[dict], k: int) -> List[dict]:
         return hits[:k]
 
 
-async def _retrieve(name: str, query: str, k: int, user: dict):
+async def _retrieve(name: str, query: str, k: int, user: dict,
+                    rerank: Optional[bool] = None):
     """Vector search top-k chunks, then re-apply the PII guardrail to the stored
     content before it's returned. Defense-in-depth: chunk content is masked at
     ingest (_ingest_documents), but chunks ingested before masking existed, or via
@@ -656,7 +663,8 @@ async def _retrieve(name: str, query: str, k: int, user: dict):
     pool = await get_db_pool()
     qvec = (await _embed([query]))[0]
     # Over-fetch candidates when a reranker is configured, then rerank down to k.
-    fetch_k = min(max(k * 4, k), 50) if _rerank_model() else max(1, min(k, 50))
+    use_rerank = bool(_rerank_model()) and rerank is not False
+    fetch_k = min(max(k * 4, k), 50) if use_rerank else max(1, min(k, 50))
     async with pool.acquire() as c:
         coll_id = await _collection_id(c, name, user)
         rows = await c.fetch(
@@ -687,6 +695,8 @@ async def _retrieve(name: str, query: str, k: int, user: dict):
         })
     # Mask before rerank too: the rerank call ships `content` to a (possibly
     # external) LiteLLM rerank model, so unmasked text must never reach that hop.
+    if not use_rerank:
+        return hits[:k], pii_masked
     return await _rerank(query, hits, k), pii_masked
 
 
@@ -710,7 +720,7 @@ async def search(req: SearchRequest, user: dict = Depends(require_user)):
     if req.expand_concepts:
         from app.api.ontology import expand_for_query
         q_text, concepts_used = await expand_for_query(q_text)
-    results, r_masked = await _retrieve(req.collection, q_text, req.k, user)
+    results, r_masked = await _retrieve(req.collection, q_text, req.k, user, req.rerank)
     return {"collection": req.collection, "query": req.query,
             "pii_masked": len(q_find) + r_masked,
             "concepts": concepts_used,
@@ -739,7 +749,8 @@ async def rag(req: RagRequest, user: dict = Depends(require_user)):
     if req.expand_concepts:
         from app.api.ontology import expand_for_query
         r_text, concepts_used = await expand_for_query(q_text)
-    hits, r_masked = await _retrieve(req.collection, r_text, req.k, user)
+    hits, r_masked = await _retrieve(req.collection, r_text, req.k, user,
+                                     getattr(req, 'rerank', None))
     pii_masked = len(q_find) + r_masked
     if not hits:
         return {"answer": "No relevant documents found. (Collection is empty or has no related content.)",

@@ -3,13 +3,14 @@
 import { useEffect, useState, useCallback } from "react"
 import { useToast } from "@/lib/toast"
 import Link from "next/link"
-import { Sparkles, Plus, Trash2, Search, MessageSquare, Database, Upload, AlertCircle, Loader2, FileText, ShieldCheck, Clock, Users, CheckCircle2 } from "lucide-react"
+import { Sparkles, Plus, Trash2, Search, MessageSquare, Database, Upload, AlertCircle, Loader2, FileText, ShieldCheck, Clock, Users, CheckCircle2, ArrowDownWideNarrow, BookMarked } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { ConceptsPanel } from "@/components/knowledge/concepts-panel"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -222,10 +223,14 @@ function Workspace({ name, onChange, empty }: { name: string; onChange: () => vo
         <Tabs defaultValue={empty ? "ingest" : "search"}>
           <TabsList><TabsTrigger value="search"><Search className="h-3.5 w-3.5 mr-1" />Search / RAG</TabsTrigger>
             <TabsTrigger value="ingest"><Upload className="h-3.5 w-3.5 mr-1" />Ingest</TabsTrigger>
-            <TabsTrigger value="schedule"><Clock className="h-3.5 w-3.5 mr-1" />Schedule</TabsTrigger></TabsList>
+            <TabsTrigger value="schedule"><Clock className="h-3.5 w-3.5 mr-1" />Schedule</TabsTrigger>
+            <TabsTrigger value="concepts"><BookMarked className="h-3.5 w-3.5 mr-1" />Concepts</TabsTrigger></TabsList>
           <TabsContent value="search"><SearchPanel name={name} /></TabsContent>
           <TabsContent value="ingest"><IngestPanel name={name} onChange={onChange} /></TabsContent>
           <TabsContent value="schedule"><SchedulePanel name={name} /></TabsContent>
+          {/* Deliberately in Knowledge rather than a page of its own: concepts change
+              what Search returns, so the cause belongs next to the effect. */}
+          <TabsContent value="concepts"><ConceptsPanel /></TabsContent>
         </Tabs>
       </CardContent>
     </Card>
@@ -334,6 +339,11 @@ function SearchPanel({ name }: { name: string }) {
   const ontologyEnabled = useCapability("ontology")
   const [expand, setExpand] = useState(false)
   const [concepts, setConcepts] = useState<ConceptUse[]>([])
+  // Retrieval knobs. k was hardcoded here (5 for answers, 8 for search) and
+  // reranking was an environment variable, so the role responsible for whether
+  // search works could not change either without a redeploy.
+  const [k, setK] = useState(5)
+  const [rerank, setRerank] = useState<boolean | null>(null)
   const run = async () => {
     if (!q.trim()) return
     setBusy(true); setE(null); setAns(null); setHits([]); setPii(0); setHasAi(true); setConcepts([])
@@ -341,14 +351,14 @@ function SearchPanel({ name }: { name: string }) {
     try {
       if (mode === "rag") {
         const r = await fetch("/api/ai/rag", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ collection: name, question: q, k: 5, expand_concepts: expandOn }) })
+          body: JSON.stringify({ collection: name, question: q, k, expand_concepts: expandOn, rerank }) })
         if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
         // has_ai=false ⇒ no model configured or the LLM call failed; the backend
         // returns search results only. Don't present that as a real answer.
         const d = await r.json(); setAns(d.answer); setHits(d.citations || []); setPii(d.pii_masked || 0); setHasAi(d.has_ai !== false); setConcepts(d.concepts || [])
       } else {
         const r = await fetch("/api/ai/search", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ collection: name, query: q, k: 8, expand_concepts: expandOn }) })
+          body: JSON.stringify({ collection: name, query: q, k, expand_concepts: expandOn, rerank }) })
         if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
         const d = await r.json(); setHits(d.results || []); setPii(d.pii_masked || 0); setConcepts(d.concepts || [])
       }
@@ -374,6 +384,17 @@ function SearchPanel({ name }: { name: string }) {
             <Sparkles className="h-3 w-3" />Concepts
           </button>
         )}
+        <button onClick={() => setRerank(r => (r === false ? null : false))} aria-pressed={rerank !== false}
+          title="Reranking reorders vector hits with a cross-encoder. Turn it off to see what it is contributing."
+          className={`flex items-center gap-1 rounded-md border px-2.5 text-xs transition-colors ${rerank === false ? "bg-background text-muted-foreground hover:text-foreground" : "border-primary/50 bg-primary/10 text-primary"}`}>
+          <ArrowDownWideNarrow className="h-3 w-3" />Rerank
+        </button>
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          k
+          <input type="number" min={1} max={50} value={k}
+            onChange={e => setK(Math.min(50, Math.max(1, Number(e.target.value) || 1)))}
+            className="h-8 w-14 rounded-md border bg-background px-2 text-xs tabular-nums" />
+        </label>
         <Button onClick={run} disabled={!q.trim() || busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}</Button>
       </div>
       {/* PII signal stands alone only for Search (no answer); for a RAG answer it
