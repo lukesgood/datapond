@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ServiceAccounts } from "@/components/settings/service-accounts"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import {
@@ -217,6 +218,7 @@ export default function SettingsPage() {
             <TabsTrigger value="users"     className="text-xs">Users</TabsTrigger>
             <TabsTrigger value="security"  className="text-xs">Security</TabsTrigger>
             <TabsTrigger value="system"    className="text-xs">System</TabsTrigger>
+            <TabsTrigger value="service"   className="text-xs">Service accounts</TabsTrigger>
           </TabsList>
 
           {/* ── Overview ── */}
@@ -360,6 +362,10 @@ export default function SettingsPage() {
           </TabsContent>
 
           {/* ── System ── */}
+          <TabsContent value="service" className="mt-5">
+            <ServiceAccounts />
+          </TabsContent>
+
           <TabsContent value="system" className="mt-5 space-y-5">
             {/* Platform specs and live resource usage are owned by the System page —
                 this tab keeps only operator configuration (Helm ops + SMTP). */}

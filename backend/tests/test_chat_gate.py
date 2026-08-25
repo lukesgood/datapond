@@ -1,0 +1,233 @@
+"""The confirmation gate.
+
+Design §5 and §14. Tested with no model in the loop: the gate is the part that must
+be right, and it is right or wrong independently of what any model says.
+
+The property that matters most: **the approved artifact and the executed artifact are
+the same server-side record**. If a client could re-send parameters at approval time,
+the preview would be decorative.
+"""
+import asyncio
+
+import pytest
+
+from app.chat.actions import ActionKind
+from app.chat.gate import (
+    ActionRefused,
+    InvocationStore,
+    approve,
+    propose,
+    reject,
+)
+
+ADMIN = {"id": "11111111-1111-1111-1111-111111111111", "username": "ada", "role": "admin"}
+READER = {"id": "22222222-2222-2222-2222-222222222222", "username": "bo", "role": "viewer"}
+
+
+class _Store(InvocationStore):
+    """In-memory stand-in; the real one is Postgres."""
+
+    def __init__(self):
+        self.rows = {}
+        self.audit = []
+        self._n = 0
+
+    async def create(self, **fields):
+        self._n += 1
+        inv = {"id": f"inv-{self._n}", **fields}
+        self.rows[inv["id"]] = inv
+        return inv
+
+    async def get(self, invocation_id):
+        return self.rows.get(invocation_id)
+
+    async def update(self, invocation_id, **fields):
+        self.rows[invocation_id].update(fields)
+        return self.rows[invocation_id]
+
+    async def record_audit(self, event, user_id, details):
+        self.audit.append({"event": event, "user_id": user_id, "details": details})
+
+
+def _run(coro):
+    return asyncio.run(coro)
+
+
+# ── proposal ──────────────────────────────────────────────────────────────────
+
+def test_a_read_action_is_executed_without_approval():
+    store = _Store()
+    executed = []
+
+    async def _exec(params, user):
+        executed.append(params)
+        return {"columns": ["id"]}
+
+    inv = _run(propose("catalog.describe_table", {"namespace": "sales", "table": "orders"},
+                       user=ADMIN, page="/catalog", store=store, executor=_exec))
+    assert inv["status"] == "executed"
+    assert executed == [{"namespace": "sales", "table": "orders"}]
+
+
+def test_a_create_action_stops_at_proposed():
+    store = _Store()
+    executed = []
+
+    inv = _run(propose("query.run", {"sql": "SELECT 1"}, user=ADMIN, page="/query",
+                       store=store, executor=lambda p, u: executed.append(p),
+                       previewer=lambda p, u: {"reads": ["sales.orders"]}))
+    assert inv["status"] == "proposed"
+    assert inv["preview"] == {"reads": ["sales.orders"]}
+    assert executed == [], "nothing runs before a human approves"
+
+
+def test_a_fabricated_action_is_refused():
+    store = _Store()
+    with pytest.raises(ActionRefused):
+        _run(propose("catalog.drop_everything", {}, user=ADMIN, page="*", store=store))
+
+
+def test_parameters_that_fail_validation_are_refused():
+    store = _Store()
+    with pytest.raises(ActionRefused):
+        _run(propose("catalog.describe_table", {"namespace": "sales"},
+                     user=ADMIN, page="/catalog", store=store))
+
+
+def test_an_action_the_caller_cannot_use_is_refused_at_proposal():
+    """The second gate. The first is that a viewer's model never sees this action."""
+    store = _Store()
+    with pytest.raises(ActionRefused) as ei:
+        _run(propose("knowledge.create_collection", {"name": "x"},
+                     user=READER, page="/knowledge", store=store))
+    assert "knowledge:write" in str(ei.value)
+
+
+def test_a_service_account_key_is_bounded_by_its_scopes():
+    store = _Store()
+    scoped = {"id": "svc", "role": "admin", "permissions": ["catalog:read"]}
+    with pytest.raises(ActionRefused):
+        _run(propose("dashboard.save", {"name": "n", "sql": "SELECT 1"},
+                     user=scoped, page="/query", store=store))
+
+
+# ── approval ──────────────────────────────────────────────────────────────────
+
+def test_approval_executes_the_parameters_that_were_previewed():
+    """A client cannot approve one thing and have another run."""
+    store = _Store()
+    seen = []
+
+    inv = _run(propose("query.run", {"sql": "SELECT 1"}, user=ADMIN, page="/query",
+                       store=store, previewer=lambda p, u: {"reads": []}))
+    done = _run(approve(inv["id"], user=ADMIN, store=store,
+                        executor=lambda p, u: seen.append(p) or {"rows": 1}))
+
+    assert seen == [{"sql": "SELECT 1"}], "the stored parameters are what runs"
+    assert done["status"] == "executed"
+
+
+def test_approving_rechecks_the_permission():
+    """Time passes between proposal and approval; a role can change in between.
+    dashboard:write is used because a viewer does hold query:run."""
+    store = _Store()
+    inv = _run(propose("dashboard.save", {"name": "n", "sql": "SELECT 1"},
+                       user=ADMIN, page="/query", store=store, previewer=lambda p, u: {}))
+    demoted = {**ADMIN, "role": "viewer"}
+    with pytest.raises(ActionRefused):
+        _run(approve(inv["id"], user=demoted, store=store,
+                     executor=lambda p, u: {"rows": 1}))
+
+
+def test_only_the_person_who_was_offered_the_action_may_approve_it():
+    """Otherwise a colleague with the same role could confirm a change someone else
+    was asked about — and the audit trail would name the wrong person as approver."""
+    store = _Store()
+    executed = []
+    inv = _run(propose("query.run", {"sql": "SELECT 1"}, user=ADMIN, page="/query",
+                       store=store, previewer=lambda p, u: {}))
+    other_admin = {"id": "33333333-3333-3333-3333-333333333333",
+                   "username": "cy", "role": "admin"}
+    with pytest.raises(ActionRefused):
+        _run(approve(inv["id"], user=other_admin, store=store,
+                     executor=lambda p, u: executed.append(p)))
+    assert executed == []
+
+
+def test_only_the_owner_may_reject_it_either():
+    store = _Store()
+    inv = _run(propose("query.run", {"sql": "SELECT 1"}, user=ADMIN, page="/query",
+                       store=store, previewer=lambda p, u: {}))
+    other = {"id": "33333333-3333-3333-3333-333333333333", "role": "admin"}
+    with pytest.raises(ActionRefused):
+        _run(reject(inv["id"], user=other, store=store))
+
+
+def test_a_rejected_invocation_never_executes():
+    store = _Store()
+    executed = []
+    inv = _run(propose("query.run", {"sql": "SELECT 1"}, user=ADMIN, page="/query",
+                       store=store, previewer=lambda p, u: {}))
+    _run(reject(inv["id"], user=ADMIN, store=store))
+
+    with pytest.raises(ActionRefused):
+        _run(approve(inv["id"], user=ADMIN, store=store,
+                     executor=lambda p, u: executed.append(p)))
+    assert executed == []
+
+
+def test_an_invocation_cannot_be_approved_twice():
+    store = _Store()
+    runs = []
+    inv = _run(propose("query.run", {"sql": "SELECT 1"}, user=ADMIN, page="/query",
+                       store=store, previewer=lambda p, u: {}))
+    _run(approve(inv["id"], user=ADMIN, store=store,
+                 executor=lambda p, u: runs.append(1) or {}))
+    with pytest.raises(ActionRefused):
+        _run(approve(inv["id"], user=ADMIN, store=store,
+                     executor=lambda p, u: runs.append(1) or {}))
+    assert len(runs) == 1
+
+
+def test_an_unknown_invocation_is_refused():
+    store = _Store()
+    with pytest.raises(ActionRefused):
+        _run(approve("inv-nope", user=ADMIN, store=store, executor=lambda p, u: {}))
+
+
+def test_a_failing_execution_is_recorded_rather_than_swallowed():
+    store = _Store()
+
+    def _boom(params, user):
+        raise RuntimeError("engine unavailable")
+
+    inv = _run(propose("query.run", {"sql": "SELECT 1"}, user=ADMIN, page="/query",
+                       store=store, previewer=lambda p, u: {}))
+    with pytest.raises(ActionRefused):
+        _run(approve(inv["id"], user=ADMIN, store=store, executor=_boom))
+    assert store.rows[inv["id"]]["status"] == "failed"
+
+
+# ── audit ─────────────────────────────────────────────────────────────────────
+
+def test_every_step_is_audited_against_the_human_not_the_assistant():
+    store = _Store()
+    inv = _run(propose("query.run", {"sql": "SELECT 1"}, user=ADMIN, page="/query",
+                       store=store, previewer=lambda p, u: {}))
+    _run(approve(inv["id"], user=ADMIN, store=store, executor=lambda p, u: {"rows": 1}))
+
+    events = [a["event"] for a in store.audit]
+    assert "chat_action_proposed" in events
+    assert "chat_action_approved" in events
+    assert "chat_action_executed" in events
+    for entry in store.audit:
+        assert entry["user_id"] == ADMIN["id"]
+        assert entry["details"].get("via") == "chat"
+
+
+def test_a_refusal_is_audited_too():
+    store = _Store()
+    with pytest.raises(ActionRefused):
+        _run(propose("knowledge.create_collection", {"name": "x"},
+                     user=READER, page="/knowledge", store=store))
+    assert any(a["event"] == "chat_action_refused" for a in store.audit)
