@@ -153,8 +153,15 @@ class ModelTransitionRequest(BaseModel):
 # Helper Functions
 # ============================================================================
 
-def get_mlflow_client() -> MlflowClient:
-    """Get MLflow client instance"""
+def get_mlflow_client() -> "MlflowClient":
+    """Get MLflow client instance.
+
+    The annotation is quoted because it is evaluated when the function is defined, and
+    `MlflowClient` only exists when the import at the top succeeded. Unquoted, a
+    missing mlflow package raised NameError here and the module could not be imported
+    at all — which made the MLFLOW_AVAILABLE guard right above it a promise of
+    optionality the file did not keep, and took `import main` down with it.
+    """
     if not MLFLOW_AVAILABLE:
         raise HTTPException(
             status_code=503,

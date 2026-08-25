@@ -9,6 +9,7 @@
 | 문서 | 목적 |
 |---|---|
 | [PRODUCT_CONCEPT.md](PRODUCT_CONCEPT.md) | 대상 사용자, 가치 제안, 제품 경계, 경쟁 기준 (v5.0 — **현행 정본**) |
+| [PRODUCTIZATION_READINESS_ASSESSMENT.md](PRODUCTIZATION_READINESS_ASSESSMENT.md) | 현재 구현의 상품화 준비도, 출시 차단 요소, 개선 로드맵 |
 | [CONCEPT_RECONFIRMATION.md](CONCEPT_RECONFIRMATION.md) | v6 방향 **제안** 노트 (에이전트 governed 데이터 접근 계층 · 수요 게이트). v5.0을 대체하지 않으며, 수요 게이트 통과 후에야 정식 개정으로 승격된다 |
 | [ONTOLOGY_FEASIBILITY_REPORT.md](ONTOLOGY_FEASIBILITY_REPORT.md) | 온톨로지 실현가능성·가치 5개 실험 검증 리포트 (연구 기록) · 실험 하네스: [research/ontology-poc/](research/ontology-poc/) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Portable Core, 어댑터 계약, optional add-on 구조 |
@@ -26,6 +27,7 @@
 
 | 문서 | 목적 |
 |---|---|
+| [UPGRADING.md](UPGRADING.md) | 기존 배포의 동작이 바뀌는 변경과 운영자 조치 사항 |
 | [DEPLOY_SINGLE_NODE.md](DEPLOY_SINGLE_NODE.md) | 현재 AWS EC2/K3s 레퍼런스 배포 절차 |
 | [OPERATIONS_PAUSE.md](OPERATIONS_PAUSE.md) | 라이브 환경 정지/재시작 런북 · **현재 상태: 가동 중 (2026-08-24 기동, Helm rev 59)** |
 | [AWS_MVP_RUNBOOK.md](AWS_MVP_RUNBOOK.md) | AWS RAG 경로 acceptance/smoke test |

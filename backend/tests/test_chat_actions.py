@@ -143,3 +143,24 @@ def test_tool_definitions_never_leak_server_internals():
     from app.permissions import ALL_PERMISSIONS
     for tool in tool_definitions(ALL_PERMISSIONS, page="*"):
         assert set(tool) == {"name", "description", "input_schema"}
+
+
+def test_running_a_query_requires_approval():
+    """A product decision, pinned so it cannot be reverted by a one-word edit.
+
+    Analytics runs a query on one click, and this adds a step. Kept because the two
+    are not the same act: there the person wrote the statement, here they did not.
+    Athena bills by bytes scanned, and this product's own plan review exists because a
+    generated query can read the wrong table — asked for a table that did not exist,
+    the model substituted a real one and validation passed.
+    """
+    action = resolve("query.run")
+    assert action.kind is not ActionKind.READ, (
+        "query.run must not execute without approval")
+    assert action.kind is ActionKind.CREATE
+
+
+def test_generating_sql_does_not_require_approval():
+    """The counterpart: writing a statement changes nothing and costs no scan."""
+    assert resolve("query.generate_sql").kind is ActionKind.READ
+    assert resolve("query.explain_plan").kind is ActionKind.READ

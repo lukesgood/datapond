@@ -66,3 +66,38 @@ def test_main_mounts_a_plausible_number_of_routers():
 
 def test_main_parses():
     _module()
+
+
+# ── the test the static check was standing in for ─────────────────────────────
+
+def test_the_application_imports_outside_a_cluster():
+    """`import main` must work with no kube config, no database, and no MLflow.
+
+    It did not: `client.CoreV1Api()` in services.py and `K8sClient()` in k8s_client.py
+    both raise without a kube config, so nothing in the suite could import the app —
+    which is how a router mounted without its import reached production and
+    crash-looped. Nothing needs a cluster client until a request arrives.
+    """
+    import main
+
+    assert main.app is not None
+
+
+def test_every_route_group_is_mounted():
+    import main
+
+    paths = {r.path for r in main.app.routes}
+    for path in ("/api/capabilities", "/api/queries/execute", "/api/service-accounts",
+                 "/api/catalog/relationships", "/api/me/permissions",
+                 "/api/chat", "/api/chat/actions"):
+        assert path in paths, f"{path} is not mounted"
+
+
+def test_importing_the_app_does_not_construct_a_cluster_client():
+    """The lazy wrappers must stay lazy — an eager one reintroduces the whole problem."""
+    import k8s_client
+    import main  # noqa: F401
+    from app.api import services
+
+    assert k8s_client._LazyK8sClient._instance is None
+    assert services._k8s == {} or "CoreV1Api" not in services._k8s

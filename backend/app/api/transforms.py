@@ -26,7 +26,11 @@ from app.runtime import component_secret
 
 router = APIRouter()
 
-Base.metadata.create_all(bind=engine, tables=[SavedTransform.__table__], checkfirst=True)
+def ensure_transforms_table() -> None:
+    """Create the transforms table if missing. Called from startup, not at import —
+    see app/api/pipelines.py for why DDL does not belong in module scope."""
+    Base.metadata.create_all(bind=engine, tables=[SavedTransform.__table__],
+                             checkfirst=True)
 
 AIRFLOW_API  = os.getenv("AIRFLOW_API_URL", "http://airflow-webserver.datapond.svc.cluster.local:8080/airflow/api/v1")
 DAGS_PATH    = Path(os.getenv("AIRFLOW_DAGS_PATH", "/opt/airflow/dags"))

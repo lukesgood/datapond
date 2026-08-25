@@ -22,20 +22,43 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Initialize K8s clients
-try:
-    config.load_incluster_config()
-    logger.info("Loaded in-cluster K8s config")
-except:
-    try:
-        config.load_kube_config()
-        logger.info("Loaded kubeconfig for local development")
-    except Exception as e:
-        logger.error(f"Failed to load K8s config: {e}")
-
-core_v1 = client.CoreV1Api()
-apps_v1 = client.AppsV1Api()
+# K8s clients are built on first use, not at import — see k8s_client.py for why.
 NAMESPACE = os.getenv("DATAPOND_NAMESPACE", "datapond")
+
+_k8s: dict = {}
+
+
+def _load_k8s_config() -> None:
+    try:
+        config.load_incluster_config()
+        logger.info("Loaded in-cluster K8s config")
+    except Exception:
+        try:
+            config.load_kube_config()
+            logger.info("Loaded kubeconfig for local development")
+        except Exception as e:
+            logger.error(f"Failed to load K8s config: {e}")
+
+
+class _LazyApi:
+    """Stands in for a kubernetes API object until something calls it."""
+
+    def __init__(self, factory_name: str):
+        self._factory_name = factory_name
+
+    def __getattr__(self, item):
+        api = _k8s.get(self._factory_name)
+        if api is None:
+            if not _k8s.get("_configured"):
+                _load_k8s_config()
+                _k8s["_configured"] = True
+            api = getattr(client, self._factory_name)()
+            _k8s[self._factory_name] = api
+        return getattr(api, item)
+
+
+core_v1 = _LazyApi("CoreV1Api")
+apps_v1 = _LazyApi("AppsV1Api")
 
 # ==========================================
 # Models
