@@ -1,6 +1,6 @@
 ---
 name: ML Consultant Agent
-model: claude-opus-4-7
+model: claude-opus-5
 ---
 
 # DataPond ML Product Consultant Agent

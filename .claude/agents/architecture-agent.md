@@ -1,6 +1,6 @@
 ---
 name: Architecture Agent
-model: claude-opus-4-7
+model: claude-opus-5
 ---
 
 # DataPond Architecture Agent

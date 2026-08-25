@@ -195,15 +195,15 @@ DataPond uses a **hierarchical AI agent system** for project management. The PM 
 
 | Agent | Model | Agent Tool Param | Specialization | File |
 |-------|-------|------------------|----------------|------|
-| **PM Agent** | Opus 4.7 | `model: "opus"` | Project leadership, strategy, coordination | `pm-agent.md` |
-| **Architecture Agent** | Opus 4.7 | `model: "opus"` | System design, tech decisions, ADRs | `architecture-agent.md` |
-| **ML Consultant Agent** | Opus 4.7 | `model: "opus"` | ML strategy, data science workflows | `ml-consultant-agent.md` |
-| **Backend Agent** | Sonnet 4.6 | `model: "sonnet"` | FastAPI, database, API implementation | `backend-agent.md` |
-| **Frontend Agent** | Sonnet 4.6 | `model: "sonnet"` | Next.js, React, UI implementation | `frontend-agent.md` |
-| **Design Agent** | Sonnet 4.6 | `model: "sonnet"` | UI/UX design, design system | `design-agent.md` |
-| **DevOps Agent** | Sonnet 4.6 | `model: "sonnet"` | Kubernetes, Docker, CI/CD | `devops-agent.md` |
-| **Error Correction Agent** | Sonnet 4.6 | `model: "sonnet"` | Debugging, error fixes, quality assurance | `error-correction-agent.md` |
-| **Technical Writer Agent** | Sonnet 4.6 | `model: "sonnet"` | Documentation, help guides, user manuals | `technical-writer-agent.md` |
+| **PM Agent** | Opus 5 | `model: "opus"` | Project leadership, strategy, coordination | `pm-agent.md` |
+| **Architecture Agent** | Opus 5 | `model: "opus"` | System design, tech decisions, ADRs | `architecture-agent.md` |
+| **ML Consultant Agent** | Opus 5 | `model: "opus"` | ML strategy, data science workflows | `ml-consultant-agent.md` |
+| **Backend Agent** | Sonnet 5 | `model: "sonnet"` | FastAPI, database, API implementation | `backend-agent.md` |
+| **Frontend Agent** | Sonnet 5 | `model: "sonnet"` | Next.js, React, UI implementation | `frontend-agent.md` |
+| **Design Agent** | Sonnet 5 | `model: "sonnet"` | UI/UX design, design system | `design-agent.md` |
+| **DevOps Agent** | Sonnet 5 | `model: "sonnet"` | Kubernetes, Docker, CI/CD | `devops-agent.md` |
+| **Error Correction Agent** | Sonnet 5 | `model: "sonnet"` | Debugging, error fixes, quality assurance | `error-correction-agent.md` |
+| **Technical Writer Agent** | Sonnet 5 | `model: "sonnet"` | Documentation, help guides, user manuals | `technical-writer-agent.md` |
 
 **Model Selection Rationale:**
 - **Opus**: Strategic thinking, architecture decisions, complex reasoning (PM, Architecture, ML)
@@ -240,8 +240,8 @@ For complex work, PM Agent spawns specialized agents using the Agent tool.
 User: "@pm-agent! ui가 별로임. Databricks 수준의 ui로 다시 작성"
 
 Claude (as PM Agent):
-1. Reads frontend-agent.md (model: claude-sonnet-4-6)
-2. Reads design-agent.md (model: claude-sonnet-4-6)
+1. Reads frontend-agent.md (model: claude-sonnet-5)
+2. Reads design-agent.md (model: claude-sonnet-5)
 3. Analyzes scope: Large redesign, data visualization needed
 4. Spawns Frontend Agent with correct model:
 
