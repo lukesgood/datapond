@@ -96,9 +96,11 @@ class PostgresInvocationStore:
                 *values, invocation_id)
         return _row(record)
 
-    async def record_audit(self, event: str, user_id: Optional[str], details: dict) -> None:
+    async def record_audit(self, event: str, user_id: Optional[str],
+                           user_email: Optional[str], details: dict) -> None:
         from app.api.auth import record_auth_event
-        await record_auth_event(event, user_id=user_id, result="success", details=details)
+        await record_auth_event(event, user_id=user_id, user_email=user_email,
+                                result="success", details=details)
 
 
 async def ensure_conversation(pool, user_id: str, page: Optional[str],

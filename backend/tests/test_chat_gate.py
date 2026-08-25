@@ -45,8 +45,9 @@ class _Store(InvocationStore):
         self.rows[invocation_id].update(fields)
         return self.rows[invocation_id]
 
-    async def record_audit(self, event, user_id, details):
-        self.audit.append({"event": event, "user_id": user_id, "details": details})
+    async def record_audit(self, event, user_id, user_email, details):
+        self.audit.append({"event": event, "user_id": user_id,
+                           "user_email": user_email, "details": details})
 
 
 def _run(coro):
@@ -223,6 +224,9 @@ def test_every_step_is_audited_against_the_human_not_the_assistant():
     for entry in store.audit:
         assert entry["user_id"] == ADMIN["id"]
         assert entry["details"].get("via") == "chat"
+        # The audit viewer renders user_email. Without it the trail reads
+        # "someone executed this", which is the one thing it exists to answer.
+        assert entry["user_email"] == ADMIN["username"]
 
 
 def test_a_refusal_is_audited_too():
