@@ -29,9 +29,28 @@ def set_actor(user: Optional[dict]) -> None:
 
 
 def actor_payload(app: str) -> dict:
-    """Fields to merge into a LiteLLM chat/embed payload for per-user attribution.
-    `app` tags the feature (ai_sql / ai_rag / ai_embed) for breakdowns."""
+    """Fields to merge into a LiteLLM chat/embed payload for attribution.
+
+    Two channels, because they behave differently at the gateway.
+
+    `user` becomes `end_user` in spend_logs. It is the only per-caller attribution
+    that survives, which is why a route forgetting `set_actor` produces no
+    attribution rather than a weaker one.
+
+    The feature name goes in `metadata.tags`, landing in `request_tags`. It used to
+    be sent as `metadata.app` — but LiteLLM replaces `metadata` in spend_logs with
+    its own object (status, max_retries, cost_breakdown, …), so the client's value
+    was silently discarded. Thirty-two consecutive live rows carried no feature tag
+    at all. `request_tags` is preserved; the live rows show LiteLLM's own User-Agent
+    entries sitting in it.
+
+    A consequence worth stating: any code reading `metadata.user_id` back out of a
+    spend log is unreachable. It was there as a fallback and could never fire.
+    """
     a = _actor.get()
+    tags = {"tags": [f"app:{app}"]}
     if not a:
-        return {"metadata": {"app": app}}
-    return {"user": a["id"], "metadata": {"app": app, "user_id": a["id"], "username": a["name"]}}
+        # Background work (the re-embedding scheduler) has no user. Its cost still
+        # has to land somewhere nameable.
+        return {"metadata": tags}
+    return {"user": a["id"], "metadata": {**tags, "user_id": a["id"], "username": a["name"]}}
