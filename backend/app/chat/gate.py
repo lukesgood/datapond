@@ -160,6 +160,15 @@ async def approve(invocation_id: str, *, user: dict, store: InvocationStore,
             f"Already {invocation.get('status')}; a request can only be approved once.")
 
     _require_owner(invocation, user)
+    # Belt and braces with require_human on the route. The route is where the answer
+    # should be quick; this is where the guarantee has to hold even if some future
+    # endpoint forgets the dependency — an approval with no human behind it is the one
+    # thing this whole module exists to prevent.
+    if str(user.get("auth_method") or "").lower() == "service":
+        await _audit(store, "chat_action_refused", user,
+                     action=invocation["action_id"], stage="approve",
+                     reason="service_account_cannot_approve")
+        raise ActionRefused("A service account cannot approve an action.")
     action = resolve(invocation["action_id"])
     await _authorize(action, user, invocation.get("page", "*"), store, stage="approve")
 

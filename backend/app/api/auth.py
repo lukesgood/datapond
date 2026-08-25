@@ -366,6 +366,27 @@ def require_permission(permission: str):
     return _guard
 
 
+async def require_human(user: dict = Depends(require_user)) -> dict:
+    """Reject a service-account credential.
+
+    For surfaces that only make sense with a person present. The assistant panel is
+    the case: its confirmation gate exists so a human stands between a proposal and a
+    change, and a service account is the owner of its own proposals — it would approve
+    them itself, which is precisely what the design forbids.
+
+    There is also nothing to gain. An agent already calls the typed endpoints; routing
+    it through a model to pick an action adds nondeterminism and a second round of
+    token spend, and leaves the audit trail unable to name an approver.
+    """
+    if str(user.get("auth_method") or "").lower() == "service":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=("The assistant is available to signed-in people only. "
+                    "Use the REST API directly with this key."),
+        )
+    return user
+
+
 async def require_admin_or_internal(
     user: dict = Depends(require_user_or_internal),
 ) -> dict:
