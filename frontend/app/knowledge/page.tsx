@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ConceptsPanel } from "@/components/knowledge/concepts-panel"
 import { ComparePanel } from "@/components/knowledge/compare-panel"
+import { Markdown } from "@/components/ui/markdown"
 import { CompositionPanel } from "@/components/knowledge/composition-panel"
 import { LineagePanel } from "@/components/knowledge/lineage-panel"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -337,28 +338,12 @@ function SchedulePanel({ name }: { name: string }) {
   )
 }
 
-// Render an answer, styling inline [n] citation markers as chips that echo the
-// numbered source list below — the visible link that makes the answer accountable.
+// Render an answer: [n] citation chips that echo the numbered source list below,
+// plus the Markdown the model routinely returns. It used to handle **bold** and
+// nothing else, so a bulleted answer arrived as lines starting with a hyphen and a
+// heading as a line starting with hashes.
 function renderCitedAnswer(text: string) {
-  // Split on [n] citations → chips. Within the surrounding prose, also render the
-  // **bold** emphasis the model routinely returns, so the literal ** markers don't
-  // leak into the grounded answer.
-  return text.split(/(\[\d+\])/g).map((part, i) => {
-    const m = part.match(/^\[(\d+)\]$/)
-    if (m) return (
-      <sup key={i} className="mx-0.5 inline-flex items-center rounded bg-primary/10 px-1 py-px align-baseline text-[10px] font-semibold text-primary">{m[1]}</sup>
-    )
-    return (
-      <span key={i}>
-        {part.split(/(\*\*[^*]+\*\*)/g).map((seg, j) => {
-          const b = seg.match(/^\*\*([^*]+)\*\*$/)
-          return b
-            ? <strong key={j} className="font-semibold text-foreground">{b[1]}</strong>
-            : <span key={j}>{seg}</span>
-        })}
-      </span>
-    )
-  })
+  return <Markdown text={text} citations />
 }
 
 // Concepts the backend expanded the query with (Phase 0 ontology slice).

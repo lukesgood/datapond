@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useHasPermission } from "@/lib/permissions"
+import { Markdown } from "@/components/ui/markdown"
 import { Bot, Loader2, PanelRightClose, PanelRightOpen, Check, X } from "lucide-react"
 
 type Turn = { role: "user" | "assistant"; content: string }
@@ -170,9 +171,14 @@ export function AssistantPanel() {
         )}
         {turns.map((turn, i) => (
           <div key={i} className={turn.role === "user" ? "text-right" : ""}>
-            <span className={`inline-block max-w-[92%] whitespace-pre-wrap rounded-lg px-2.5 py-1.5 text-left ${
+            <span className={`inline-block max-w-[92%] rounded-lg px-2.5 py-1.5 text-left ${
               turn.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
-              {turn.content}
+              {/* The user's own words go through unparsed — they typed them, and
+                  turning their asterisks into emphasis misquotes them. Only the
+                  model's side is Markdown. */}
+              {turn.role === "user"
+                ? <span className="whitespace-pre-wrap">{turn.content}</span>
+                : <Markdown text={turn.content} />}
             </span>
           </div>
         ))}
