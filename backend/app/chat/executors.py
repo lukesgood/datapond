@@ -138,15 +138,22 @@ async def preview_dashboard_save(params: dict, user: dict) -> dict:
             "sql": params["sql"]}
 
 
+def build_dashboard_create(params: dict):
+    """The schema is `query_text` and a ChartConfig object, not `query` and a string."""
+    from app.schemas.dashboard import ChartConfig, DashboardCreate
+    return DashboardCreate(
+        name=params["name"],
+        query_text=params["sql"],
+        chart_config=ChartConfig(chartType=params.get("chart_type") or "table"),
+    )
+
+
 async def save_dashboard(params: dict, user: dict) -> dict:
-    from app.api.dashboards import DashboardCreate, create_dashboard
+    from app.api.dashboards import create_dashboard
     from app.database.connection import SessionLocal
     db = SessionLocal()
     try:
-        created = await create_dashboard(
-            DashboardCreate(name=params["name"], query=params["sql"],
-                            chart_type=params.get("chart_type", "table")),
-            db=db, user=user)
+        created = await create_dashboard(build_dashboard_create(params), db=db, user=user)
     finally:
         db.close()
     return {"id": str(getattr(created, "id", "")), "name": params["name"]}
@@ -160,18 +167,25 @@ async def _existing_collections(user: dict) -> List[str]:
     return [c.get("name") for c in (collections or []) if isinstance(c, dict)]
 
 
+def build_search_request(params: dict):
+    from app.api.ai_vectors import SearchRequest
+    return SearchRequest(collection=params["collection"], query=params["query"])
+
+
 async def search_knowledge(params: dict, user: dict) -> dict:
-    from app.api.ai_vectors import SearchRequest, search
-    result = await search(SearchRequest(query=params["query"],
-                                        collection=params.get("collection")), user=user)
-    return {"matches": result}
+    from app.api.ai_vectors import search
+    return {"matches": await search(build_search_request(params), user=user)}
+
+
+def build_rag_request(params: dict):
+    from app.api.ai_vectors import RagRequest
+    # `question`, not `query` — the two request models do not use the same name.
+    return RagRequest(collection=params["collection"], question=params["query"])
 
 
 async def answer_with_citations(params: dict, user: dict) -> dict:
-    from app.api.ai_vectors import RagRequest, rag_answer
-    result = await rag_answer(RagRequest(question=params["query"],
-                                         collection=params.get("collection")), user=user)
-    return {"answer": result}
+    from app.api.ai_vectors import rag
+    return {"answer": await rag(build_rag_request(params), user=user)}
 
 
 async def preview_create_collection(params: dict, user: dict) -> dict:
@@ -184,11 +198,14 @@ async def preview_create_collection(params: dict, user: dict) -> dict:
             "already_exists": params["name"] in existing}
 
 
+def build_collection_create(params: dict):
+    from app.api.ai_vectors import CollectionCreate
+    return CollectionCreate(name=params["name"], description=params.get("description"))
+
+
 async def create_collection(params: dict, user: dict) -> dict:
-    from app.api.ai_vectors import CollectionCreate, create_collection as _create
-    created = await _create(CollectionCreate(name=params["name"],
-                                             description=params.get("description")),
-                            user=user)
+    from app.api.ai_vectors import create_collection as _create
+    created = await _create(build_collection_create(params), user=user)
     return {"name": params["name"], "created": bool(created)}
 
 
@@ -211,8 +228,8 @@ async def explain_policy(params: dict, user: dict) -> dict:
 
 
 async def summarize_spend(params: dict, user: dict) -> dict:
-    from app.api.ai_backends import get_spend
-    return {"spend": await get_spend(user=user)}
+    from app.api.ai_backends import spend_summary
+    return {"spend": await spend_summary()}
 
 
 EXECUTORS: Dict[str, Callable] = {
@@ -228,6 +245,35 @@ EXECUTORS: Dict[str, Callable] = {
     "knowledge.create_collection": create_collection,
     "governance.explain_policy": explain_policy,
     "spend.summarize": summarize_spend,
+}
+
+# What each executor reaches for, resolved on demand.
+#
+# `test_every_executor_resolves_its_target_function` calls each of these, so a renamed
+# or moved function fails a test instead of a user's request. Four of these were wrong
+# when first written — `rag_answer` for `rag`, `get_spend` for `spend_summary`, plus
+# two request models with different field names — and every one of them would have
+# surfaced in production, through the assistant, mid-conversation.
+def _r(module: str, name: str):
+    def _resolve():
+        import importlib
+        return getattr(importlib.import_module(module), name)
+    return _resolve
+
+
+RESOLVERS: Dict[str, Callable] = {
+    "catalog.describe_table": _r("app.api.catalog_backend", "get_catalog_reader"),
+    "catalog.find_tables": _r("app.api.catalog_backend", "get_catalog_reader"),
+    "catalog.explain_relationships": _r("app.api.catalog_graph", "build_graph"),
+    "query.generate_sql": _r("app.api.ai_sql", "generate_sql"),
+    "query.explain_plan": _r("app.api.plan_review", "review"),
+    "query.run": _r("app.api.queries", "execute_query"),
+    "dashboard.save": _r("app.api.dashboards", "create_dashboard"),
+    "knowledge.search": _r("app.api.ai_vectors", "search"),
+    "knowledge.answer_with_citations": _r("app.api.ai_vectors", "rag"),
+    "knowledge.create_collection": _r("app.api.ai_vectors", "create_collection"),
+    "governance.explain_policy": _r("app.rls.loader", "load_policies"),
+    "spend.summarize": _r("app.api.ai_backends", "spend_summary"),
 }
 
 # Only non-read actions need one; the gate skips previewing a read.

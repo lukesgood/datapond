@@ -94,8 +94,11 @@ class CollectionCreate(_Strict):
 
 
 class KnowledgeQuery(_Strict):
+    # Required, because SearchRequest.collection and RagRequest.collection are. An
+    # optional field here would let the model omit what the API demands, and the call
+    # would fail after the user had already been told it was happening.
+    collection: str
     query: str
-    collection: Optional[str] = None
 
 
 class PolicyQuery(_Strict):
