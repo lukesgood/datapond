@@ -51,11 +51,16 @@ const mainSections: NavSection[] = [
     hint: "Ground and serve AI applications",
     items: [
       { title: "Knowledge",  url: "/knowledge", icon: Sparkles },
+      // "API", not "Connect". The dashboard's workflow already owns that word for
+      // step 01 — connecting a data *source* — which is what it means everywhere
+      // else in a data platform, and the menu item for it is Sources. Two opposite
+      // ends of the pipeline cannot share a name. The URL stays /connect: /api is
+      // the backend proxy prefix.
+      //
       // ai:generate, not knowledge:read. knowledge:read covers viewer,
       // business_analyst, data_engineer and auditor — none of whom write an
-      // application against the retrieval API. The roles that hold ai:generate are
-      // exactly the ones who do.
-      { title: "Connect",    url: "/connect",   icon: Plug, permission: "ai:generate" },
+      // application against the retrieval API.
+      { title: "API",        url: "/connect",   icon: Plug, permission: "ai:generate" },
     ],
   },
   {
