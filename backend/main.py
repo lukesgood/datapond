@@ -24,6 +24,7 @@ from app.api.notebooks import router as notebooks_router
 from app.api.mlflow_integration import router as mlflow_router
 from app.api.airflow import router as airflow_router
 from app.api.dashboards import router as dashboards_router
+from app.api.service_account_routes import router as service_accounts_router
 from app.api.pipelines import router as pipelines_router
 from app.api.storage import router as storage_router
 from app.api.streaming import router as streaming_router
