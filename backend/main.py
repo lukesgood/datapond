@@ -139,6 +139,34 @@ async def startup():
     from app.medallion_init import init_medallion_namespaces
     init_medallion_namespaces(logger)
 
+    # Say out loud when RLS is on but letting tables through. See
+    # app/rls/coverage.py — this is the state that reads as protection and is not.
+    async def _warn_rls_coverage():
+        try:
+            from app.api.catalog_backend import get_catalog_reader
+            from app.rls import loader as rls_loader
+            from app.rls.coverage import coverage, startup_warning
+
+            enabled = os.getenv("RLS_ENABLED", "false").lower() in ("1", "true", "yes")
+            deny = os.getenv("RLS_DEFAULT_DENY", "false").lower() in ("1", "true", "yes")
+            if not enabled or deny:
+                return
+            cat = os.getenv("RLS_DEFAULT_CATALOG") or os.getenv("TRINO_CATALOG") or "iceberg"
+            reader = get_catalog_reader()
+            tables = [(cat, ns, t) for ns in reader.list_namespaces()
+                      for t in reader.list_tables(ns)]
+            report = coverage(tables, await rls_loader.load_policies(),
+                              await rls_loader.load_masks())
+            message = startup_warning(enabled, deny, report["uncovered_count"])
+            if message:
+                logger.warning("[rls] %s", message)
+        except Exception as e:
+            logger.debug("rls coverage check skipped: %s", e)
+
+    # Off the startup path: reaching the catalog can be slow, and a readiness probe
+    # must not wait on it.
+    asyncio.create_task(_warn_rls_coverage())
+
     # Restore persisted system settings into env (retry — DB may not be ready immediately)
     import asyncio as _asyncio
     for attempt in range(5):
