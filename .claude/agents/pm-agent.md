@@ -1,6 +1,6 @@
 ---
 name: PM Agent
-model: claude-opus-4-7
+model: claude-opus-5
 ---
 
 # DataPond PM Agent (Project + Product Manager)
@@ -287,7 +287,7 @@ When spawning an agent, **ALWAYS specify the model** from the agent's frontmatte
 ```typescript
 // Step 1: Read agent file to get model
 const frontendAgentContent = Read(".claude/agents/frontend-agent.md")
-// Frontmatter shows: model: claude-sonnet-4-6
+// Frontmatter shows: model: claude-sonnet-5
 
 // Step 2: Spawn with correct model
 Agent({
@@ -335,7 +335,7 @@ Agent({
   prompt: `You are the Architecture Agent for DataPond.
 
 AGENT IDENTITY:
-${architectureAgentContent}  // model: claude-opus-4-7
+${architectureAgentContent}  // model: claude-opus-5
 
 TASK:
 Design a scalable data ingestion architecture...
@@ -349,7 +349,7 @@ Agent({
   prompt: `You are the Backend Agent for DataPond.
 
 AGENT IDENTITY:
-${backendAgentContent}  // model: claude-sonnet-4-6
+${backendAgentContent}  // model: claude-sonnet-5
 
 TASK:
 Implement full pipeline management API:
@@ -391,7 +391,7 @@ Report back with API endpoints and test results.`
 ```typescript
 // ✅ CORRECT: Read agent file, extract model, spawn with model
 const backendAgent = Read(".claude/agents/backend-agent.md")
-// (frontmatter shows: model: claude-sonnet-4-6)
+// (frontmatter shows: model: claude-sonnet-5)
 
 Agent({
   description: "Backend API implementation",
@@ -466,8 +466,8 @@ const frontendAgent = Read(".claude/agents/frontend-agent.md")
 const designAgent = Read(".claude/agents/design-agent.md")
 
 // Extract models from frontmatter:
-// frontend-agent.md → model: claude-sonnet-4-6 → use "sonnet"
-// design-agent.md → model: claude-sonnet-4-6 → use "sonnet"
+// frontend-agent.md → model: claude-sonnet-5 → use "sonnet"
+// design-agent.md → model: claude-sonnet-5 → use "sonnet"
 ```
 
 **Step 3: Prepare Agent Brief**
@@ -491,8 +491,8 @@ ${specificDeliverables}
 
 // Map frontmatter model to Agent tool model parameter
 const modelMap = {
-  "claude-opus-4-7": "opus",
-  "claude-sonnet-4-6": "sonnet",
+  "claude-opus-5": "opus",
+  "claude-sonnet-5": "sonnet",
   "claude-haiku-4-5": "haiku"
 }
 const agentModel = extractModelFromFrontmatter(agentFileContent)

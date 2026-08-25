@@ -2,17 +2,22 @@
 
 import { useState } from "react"
 import { ShieldAlert } from "lucide-react"
-import { AiBackends } from "@/components/settings/ai-backends"
+import { AiBackends, UsagePanel } from "@/components/settings/ai-backends"
 import { getUser } from "@/lib/auth"
+import { useHasPermission } from "@/lib/permissions"
 
 // AI Gateway — first-class home for LiteLLM model routing, virtual keys,
 // usage, and budgets. Promoted out of Settings so the model-provider boundary
 // that powers the whole foundation is discoverable, not buried.
 export default function AiGatewayPage() {
-  // Every backend this page calls (/settings/ai/{backends,keys,usage,spend}) is
-  // admin-only. Gate the page so a non-admin sees an explicit notice instead of
-  // editable forms that 403 on save.
+  // Two audiences. Configuring the model boundary — which backends exist, who
+  // holds a key — is admin, and those endpoints still refuse anyone else. Reading
+  // what was spent is `spend:read`, held by ai_engineer and auditor: the roles most
+  // accountable for model cost, who until now could not open the only screen that
+  // shows it. Showing them a menu item that leads to "permission required" would
+  // have been worse than hiding it, so they get the usage panel itself.
   const [isAdmin] = useState(() => getUser()?.role === "admin")
+  const canSeeSpend = useHasPermission("spend:read")
   return (
     <div className="flex-1 space-y-5 p-8 pt-6">
       <div>
@@ -24,6 +29,13 @@ export default function AiGatewayPage() {
       </div>
       {isAdmin ? (
         <AiBackends />
+      ) : canSeeSpend ? (
+        <>
+          <UsagePanel />
+          <p className="text-xs text-muted-foreground">
+            Model backends and virtual keys are managed by an administrator.
+          </p>
+        </>
       ) : (
         <div className="flex flex-col items-center justify-center gap-3 rounded-lg border bg-muted/30 p-16 text-center">
           <ShieldAlert className="h-6 w-6 text-muted-foreground" />

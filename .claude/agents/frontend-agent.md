@@ -1,6 +1,6 @@
 ---
 name: Frontend Agent
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 ---
 
 # DataPond Frontend Agent

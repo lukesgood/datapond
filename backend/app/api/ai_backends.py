@@ -25,7 +25,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
-from app.api.auth import require_admin
+from app.api.auth import require_admin, require_permission
 from app.api.connectors import get_db_pool
 from app.runtime import component_secret
 
@@ -443,7 +443,7 @@ async def delete_key(token: str):
     return {"success": True}
 
 
-@router.get("/settings/ai/spend", dependencies=[Depends(require_admin)])
+@router.get("/settings/ai/spend", dependencies=[Depends(require_permission("spend:read"))])
 async def spend_summary():
     """Aggregate spend across all virtual keys (USD)."""
     url, key = _gateway()
@@ -464,7 +464,37 @@ async def spend_summary():
     return {"total_spend": round(total, 4), "keys_with_spend": n}
 
 
-@router.get("/settings/ai/usage", dependencies=[Depends(require_admin)])
+_APP_TAG = "app:"
+
+
+def usage_by_feature(logs) -> list:
+    """Spend and tokens per product feature, biggest first.
+
+    The usage endpoint could group by model, by end-user and by key, but not by what
+    the spend was *for* — so there was no way to ask what the assistant costs, or
+    Ask AI, or RAG. The tag comes from app/ai_context.py.
+
+    Untagged rows are reported as "untagged" rather than dropped. Discarding them
+    would make the per-feature figures disagree with the overall total, and a reader
+    comparing the two would believe the smaller one.
+    """
+    from collections import defaultdict
+
+    buckets = defaultdict(lambda: {"spend": 0.0, "requests": 0, "total_tokens": 0})
+    for entry in logs:
+        tags = entry.get("request_tags") or []
+        app = next((t[len(_APP_TAG):] for t in tags
+                    if isinstance(t, str) and t.startswith(_APP_TAG)), "untagged")
+        b = buckets[app]
+        b["spend"] += float(entry.get("spend") or 0)
+        b["requests"] += 1
+        b["total_tokens"] += int(entry.get("total_tokens") or 0)
+    return sorted(({"app": k, **v, "spend": round(v["spend"], 6)}
+                   for k, v in buckets.items()),
+                  key=lambda r: r["spend"], reverse=True)
+
+
+@router.get("/settings/ai/usage", dependencies=[Depends(require_permission("spend:read"))])
 async def usage_summary():
     """Token + cost usage for the cost dashboard: total spend/budget, per-model spend
     and tokens, and per-key budget consumption. Aggregated from LiteLLM
@@ -499,15 +529,20 @@ async def usage_summary():
                     t["total_tokens"] += int(e.get("total_tokens") or 0)
                     t["prompt_tokens"] += int(e.get("prompt_tokens") or 0)
                     t["completion_tokens"] += int(e.get("completion_tokens") or 0)
-                    # attribute to the calling DataPond user (set via the `user` payload field)
-                    meta = e.get("metadata") or {}
-                    eu = e.get("end_user") or meta.get("user_id") or "unattributed"
+                    # Attribution comes from `end_user` and nowhere else. This used
+                    # to fall back to metadata.user_id, which cannot ever be set:
+                    # LiteLLM replaces the client's metadata with its own object in
+                    # spend_logs. A fallback that can never fire hides the fact that
+                    # a route forgetting set_actor loses attribution completely.
+                    eu = e.get("end_user") or "unattributed"
                     u = users.setdefault(eu, {"user": eu, "spend": 0.0, "requests": 0, "total_tokens": 0})
                     u["spend"] += float(e.get("spend") or 0)
                     u["requests"] += 1
                     u["total_tokens"] += int(e.get("total_tokens") or 0)
             out["users"] = sorted(({**u, "spend": round(u["spend"], 6)} for u in users.values()),
                                   key=lambda x: x["spend"], reverse=True)
+            # What the spend was FOR — the assistant, Ask AI, RAG, embedding.
+            out["apps"] = usage_by_feature(lg.json() if lg.status_code < 400 else [])
             models = set(spend_by_model) | set(tok)
             for m in sorted(models):
                 t = tok.get(m, {})
@@ -539,7 +574,7 @@ async def usage_summary():
     return out
 
 
-@router.get("/settings/ai/spend/report", dependencies=[Depends(require_admin)])
+@router.get("/settings/ai/spend/report", dependencies=[Depends(require_permission("spend:read"))])
 async def spend_report(start_date: Optional[str] = None, end_date: Optional[str] = None):
     """Date-ranged spend breakdown (by model/key/team) from LiteLLM /global/spend/report.
     Defaults to the last 30 days."""
@@ -560,7 +595,7 @@ async def spend_report(start_date: Optional[str] = None, end_date: Optional[str]
         raise HTTPException(502, f"Cannot reach LiteLLM gateway: {_short(str(e), 200)}")
 
 
-@router.get("/settings/ai/budget-alerts", dependencies=[Depends(require_admin)])
+@router.get("/settings/ai/budget-alerts", dependencies=[Depends(require_permission("spend:read"))])
 async def budget_alerts(threshold: float = 80.0):
     """Virtual keys (and the global budget) at/over `threshold`% of their budget —
     for near-limit alerting on external-LLM spend."""

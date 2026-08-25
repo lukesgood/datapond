@@ -54,7 +54,7 @@ litellm:
           aws_region_name: "us-east-1"
       - model_name: "chat"
         litellm_params:
-          model: "bedrock/us.anthropic.claude-sonnet-4-6"
+          model: "bedrock/us.anthropic.claude-sonnet-5"
           aws_region_name: "us-east-1"
   # EKS Bedrock access (keyless): set to `terraform output -raw litellm_bedrock_role_arn`
   serviceAccount:

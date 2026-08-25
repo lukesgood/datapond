@@ -51,7 +51,11 @@ const mainSections: NavSection[] = [
     hint: "Ground and serve AI applications",
     items: [
       { title: "Knowledge",  url: "/knowledge", icon: Sparkles },
-      { title: "AI Gateway", url: "/ai",        icon: Bot, permission: "settings:write" },
+      // spend:read, not settings:write. The page's cost panels are the reason most
+      // people open it, and the roles that hold spend:read — ai_engineer, auditor —
+      // could not see the only screen that shows what they are accountable for.
+      // Configuring backends and issuing keys stay admin-only at the API.
+      { title: "AI Gateway", url: "/ai",        icon: Bot, permission: "spend:read" },
     ],
   },
   {

@@ -135,7 +135,12 @@ def test_main_wires_scoped_helper_in_middleware_and_connector_dependency():
     )
 
 
-def test_sensitive_routes_have_admin_dependencies():
+def test_configuring_the_model_boundary_requires_admin():
+    """Which models exist, and who holds a key against them.
+
+    Deliberately separate from reading what was spent (below). Loosening either set
+    should have to move a line here.
+    """
     for path, method in (
         ("/settings/ai/backends", "GET"),
         ("/settings/ai/backends", "POST"),
@@ -145,12 +150,26 @@ def test_sensitive_routes_have_admin_dependencies():
         ("/settings/ai/keys", "GET"),
         ("/settings/ai/keys", "POST"),
         ("/settings/ai/keys/{token}", "DELETE"),
-        ("/settings/ai/spend", "GET"),
-        ("/settings/ai/usage", "GET"),
-        ("/settings/ai/spend/report", "GET"),
-        ("/settings/ai/budget-alerts", "GET"),
     ):
         assert auth.require_admin in _route_dependencies(ai_backends.router, path, method)
+
+
+def test_reading_ai_cost_requires_spend_read():
+    """`spend:read` was in the permission matrix and no route used it, so every
+    question about AI cost required admin. The Governance page already fetches
+    /settings/ai/usage, and an auditor — who holds governance:read and spend:read —
+    could open that page and watch the panel 403.
+
+    Reading a cost is not configuring a model. All four move together: leaving two
+    on admin would mean the same question answered differently depending on which
+    endpoint the UI happened to call.
+    """
+    for path in ("/settings/ai/spend", "/settings/ai/usage",
+                 "/settings/ai/spend/report", "/settings/ai/budget-alerts"):
+        gates = {getattr(d, "__datapond_authorization__", None)
+                 for d in _route_dependencies(ai_backends.router, path, "GET")}
+        assert "spend:read" in gates, f"{path} gates were {gates}"
+        assert auth.require_admin not in _route_dependencies(ai_backends.router, path, "GET")
 
     for path, method in (
         ("/storage/buckets/{bucket_name}", "POST"),

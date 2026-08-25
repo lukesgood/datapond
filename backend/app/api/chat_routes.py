@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.ai_context import set_actor
 from app.api.auth import _get_pool, require_human, require_permission, require_user
 from app.chat import executors
 from app.chat.actions import ActionKind, resolve, tool_definitions
@@ -90,6 +91,13 @@ async def chat(request: ChatRequest,
     messages = [{"role": t.role, "content": t.content}
                 for t in request.history[-_MAX_TURNS:]]
     messages.append({"role": "user", "content": text})
+
+    # Attribute this call's spend to the caller before it is made. Every other AI
+    # route does; this one did not, so fourteen of thirty-two live gateway calls
+    # were logged against nobody. `user` is the only per-caller channel that
+    # survives into spend_logs, so forgetting it costs the attribution entirely
+    # rather than degrading it.
+    set_actor(user)
 
     try:
         reply, call = await _ask_model(_system_prompt(request.page, request.context),

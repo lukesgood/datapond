@@ -1,6 +1,6 @@
 ---
 name: Design Agent
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 ---
 
 # DataPond UI/UX Design Agent

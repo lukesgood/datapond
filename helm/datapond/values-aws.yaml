@@ -79,7 +79,7 @@ litellm:
           aws_region_name: "us-east-1"
       - model_name: "chat"
         litellm_params:
-          model: "bedrock/us.anthropic.claude-sonnet-4-6"
+          model: "bedrock/us.anthropic.claude-sonnet-5"
           aws_region_name: "us-east-1"
 
 # Ollama disabled on AWS — use Bedrock instead

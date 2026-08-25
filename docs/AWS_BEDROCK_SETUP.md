@@ -158,7 +158,7 @@ litellm:
       # Chat model (conversational)
       - model_name: "chat"
         litellm_params:
-          model: "bedrock/us.anthropic.claude-sonnet-4-6-20250514-v1:0"
+          model: "bedrock/us.anthropic.claude-sonnet-5"
           aws_region_name: "us-east-1"
 
   # Backend environment variables
@@ -175,7 +175,12 @@ Bedrock uses regional inference profiles for multi-region deployments:
 | Region | Claude Model ID | Titan Embed |
 |--------|-----------------|-------------|
 | **us-east-1** (N. Virginia) | `bedrock/us.anthropic.claude-*` | ✅ v2 |
-| **ap-northeast-2** (Seoul) | `bedrock/apac.anthropic.claude-*` | ✅ v2 |
+| **ap-northeast-2** (Seoul) | `bedrock/apac.anthropic.claude-*`, or `global.` for the newest models | ✅ v2 |
+
+> Newer Claude releases do not always get an `apac.` inference profile. Sonnet 5, for
+> example, is published in Seoul only as `global.anthropic.claude-sonnet-5`. Check with
+> `aws bedrock list-inference-profiles --region <region>` before pinning an ID rather
+> than assuming the regional prefix exists.
 
 **To enable Seoul region:**
 ```yaml
@@ -189,7 +194,7 @@ litellm:
       
       - model_name: "chat-apac"
         litellm_params:
-          model: "bedrock/apac.anthropic.claude-sonnet-4-6-20250514-v1:0"
+          model: "bedrock/global.anthropic.claude-sonnet-5"
           aws_region_name: "ap-northeast-2"
 ```
 
@@ -200,7 +205,7 @@ litellm:
 **Steps:**
 1. AWS Console → Bedrock → Model access (left sidebar)
 2. For each region you use (us-east-1, ap-northeast-2):
-   - Search for "Anthropic Claude" (Sonnet 4.6 + Haiku 4.5) → Request access → Approve
+   - Search for "Anthropic Claude" (Sonnet 5 + Haiku 4.5) → Request access → Approve
    - Search for "Amazon Titan Text Embeddings V2" → Request access → Approve
 3. Wait for "Access Granted" status (usually immediate, sometimes 5-10 min)
 
@@ -218,7 +223,7 @@ Without model access, requests to unavailable models return 403 `ModelNotFound`.
 2. **Click** "+ Add Backend"
 3. **Fill form:**
    - **Provider**: `bedrock`
-   - **Model ID**: (e.g., `bedrock/us.anthropic.claude-sonnet-4-6-20250514-v1:0`)
+   - **Model ID**: (e.g., `bedrock/us.anthropic.claude-sonnet-5`)
    - **AWS Region**: `us-east-1` (or `ap-northeast-2`)
    - **Access Key / Secret Key**: Leave blank (uses IRSA/instance role)
 4. **Save** → Backend added to `ai_backends` table
@@ -236,7 +241,7 @@ curl -X POST http://localhost:8000/api/settings/ai/backends \
   -H "Content-Type: application/json" \
   -d '{
     "provider": "bedrock",
-    "model_id": "bedrock/us.anthropic.claude-sonnet-4-6-20250514-v1:0",
+    "model_id": "bedrock/us.anthropic.claude-sonnet-5",
     "aws_region_name": "us-east-1",
     "access_key": "",
     "secret_key": ""
@@ -293,7 +298,7 @@ litellm:
     model_list:
       - model_name: "chat"
         litellm_params:
-          model: "bedrock/us.anthropic.claude-sonnet-4-6-20250514-v1:0"
+          model: "bedrock/us.anthropic.claude-sonnet-5"
           aws_region_name: "us-east-1"
           # Optional: guardrails config
           guardrail_identifier: "arn:aws:bedrock:us-east-1:ACCOUNT:guardrail/G123"

@@ -516,7 +516,18 @@ export function AiBackends() {
 interface ModelUsage { model: string; spend: number; requests: number; total_tokens: number; prompt_tokens: number; completion_tokens: number }
 interface KeyUsage { key_alias: string | null; spend: number; max_budget: number | null; pct: number | null }
 interface UserUsage { user: string; spend: number; requests: number; total_tokens: number }
-interface Usage { total_spend: number; max_budget: number | null; total_tokens: number; models: ModelUsage[]; keys: KeyUsage[]; users?: UserUsage[]; egress_policy?: string }
+/** What the spend was FOR. `app` is the product feature — ai_chat (the assistant),
+ *  ai_sql (Ask AI), ai_rag, ai_embed — or "untagged" for calls that carry no tag. */
+const APP_LABELS: Record<string, string> = {
+  ai_chat: "Assistant",
+  ai_sql: "Ask AI",
+  ai_rag: "Cited answers",
+  ai_embed: "Embedding",
+  untagged: "Untagged",
+}
+
+interface AppUsage { app: string; spend: number; requests: number; total_tokens: number }
+interface Usage { total_spend: number; max_budget: number | null; total_tokens: number; models: ModelUsage[]; keys: KeyUsage[]; users?: UserUsage[]; apps?: AppUsage[]; egress_policy?: string }
 
 const fmt$ = (n: number) => "$" + (n < 0.01 ? n.toFixed(6) : n.toFixed(4))
 const fmtN = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n)
@@ -527,7 +538,12 @@ interface KeyBudgetAlert { key_alias: string | null; spend: number; max_budget: 
 interface GlobalBudget { spend: number; max_budget: number; pct: number; alert: boolean }
 interface BudgetAlerts { threshold: number; global: GlobalBudget | null; alerts: KeyBudgetAlert[] }
 
-function UsagePanel() {
+/** Cost and token usage. Split out and exported so the page can show it to anyone
+ *  holding spend:read without also rendering the admin-only configuration around
+ *  it. Every endpoint it calls — usage, budget-alerts, spend/report — is gated on
+ *  spend:read, so this panel works for those roles rather than 403-ing panel by
+ *  panel. */
+export function UsagePanel() {
   const [u, setU] = useState<Usage | null>(null)
   const [ba, setBa] = useState<BudgetAlerts | null>(null)
   const [loading, setLoading] = useState(true)
@@ -590,6 +606,40 @@ function UsagePanel() {
             <div className="text-lg font-semibold">{u.models.length}</div>
           </div>
         </div>
+
+        {(u.apps?.length ?? 0) > 0 && (() => {
+          // By feature, not by model. Two features can share one model, so the
+          // model table cannot answer "what does the assistant cost" — the
+          // question that has no other place to be asked.
+          const ranked = [...(u.apps ?? [])].sort((a, b) => b.spend - a.spend)
+          const top = Math.max(...ranked.map(a => a.spend), 0)
+          return (
+            <div className="rounded-lg border">
+              <div className="border-b px-3 py-2 text-xs font-medium">By feature</div>
+              <div className="divide-y">
+                {ranked.map(a => (
+                  <div key={a.app} className="relative flex items-center justify-between px-3 py-2 text-xs">
+                    <div className="absolute inset-y-0 left-0 bg-primary/5"
+                         style={{ width: top > 0 ? `${(a.spend / top) * 100}%` : "0%" }} />
+                    <span className="relative font-medium">{APP_LABELS[a.app] ?? a.app}</span>
+                    <span className="relative flex gap-4 tabular-nums text-muted-foreground">
+                      <span>{fmtN(a.requests)} req</span>
+                      <span>{fmtN(a.total_tokens)} tok</span>
+                      <span className="w-16 text-right font-medium text-foreground">{fmt$(a.spend)}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {ranked.some(a => a.app === "untagged") && (
+                <p className="border-t px-3 py-1.5 text-[10px] text-muted-foreground">
+                  “Untagged” is spend recorded before feature tagging, or from a caller
+                  that does not set one. It is shown rather than dropped so these rows
+                  add up to the total above.
+                </p>
+              )}
+            </div>
+          )
+        })()}
 
         {u.models.length > 0 && (() => {
           // Rank by spend so the biggest cost driver reads first, and back each

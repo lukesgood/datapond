@@ -24,7 +24,7 @@ Before touching Terraform, have these ready:
    per-region). AWS console → Bedrock → Model access → enable:
    - Amazon Titan Text Embeddings V2 (`amazon.titan-embed-text-v2:0`)
    - Anthropic Claude Haiku (`us.anthropic.claude-haiku-4-5-20251001-v1:0`)
-   - Anthropic Claude Sonnet (`us.anthropic.claude-sonnet-4-6`)
+   - Anthropic Claude Sonnet (`us.anthropic.claude-sonnet-5`)
 
    See `docs/AWS_BEDROCK_SETUP.md` for details. Without this, litellm's Bedrock calls
    fail with an access-denied error at request time (Terraform apply succeeds regardless
