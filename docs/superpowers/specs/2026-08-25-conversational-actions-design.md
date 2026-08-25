@@ -167,23 +167,50 @@ check as the UI.
 
 ## 9. Data model
 
+Three different things could be persisted, and they do not carry the same weight:
+
+1. **Audit entries** — who approved what, when. Already exists in `auth_audit_log`.
+2. **Invocations** — action, parameters, preview, outcome. The record of what changed.
+3. **The transcript** — everything anyone typed, verbatim.
+
+The first two are the governance requirement itself: without them, the confirmation
+gate has no point, because nothing could answer *why does this collection exist*. They
+are always stored.
+
+**The transcript is not stored.** It lives in the session and is gone on reload. What
+is kept is the single message that produced an action, alongside that action:
+
+```
+"show me the orders table"                     → nothing persisted
+"create a collection called support"  [Approve] → this message stored on the invocation
+```
+
+A request that changed something is worth a record. A question that changed nothing is
+not, and keeping it only creates a liability — every stray paste of customer data,
+every internal name, sitting in a table for as long as the retention window. The
+guardrail masks Korean PII before anything is written, but it catches the categories
+it knows; a project code name or a customer's name is not one of them.
+
+This also removes a setting. A retention window is a promise that is hard to keep
+honestly — Aurora's automated backups hold rows past any application-level purge, so
+"kept for 30 days" would not be true — and an opt-in switch is a thing an operator can
+turn on and forget. Neither exists here.
+
 ```sql
-chat_conversations(id, user_id → users, page, created_at, updated_at)
-chat_messages(id, conversation_id, role, content, created_at)
+chat_conversations(id, user_id → users, page, created_at, last_activity_at)
+
 chat_action_invocations(
-    id, message_id, action_id, params JSONB, preview JSONB,
+    id, conversation_id → chat_conversations,
+    action_id, params JSONB, preview JSONB,
+    request_text,                     -- the message that asked for it, PII-masked
     status: proposed|approved|rejected|executed|failed,
-    approved_by → users, approved_at, executed_at, result_summary, error
+    approved_by → users, approved_at, executed_at, result_summary, error,
+    created_at
 )
 ```
 
-`user_id` references `users(id)`, so a service account holds conversations the same
-way a person does, and spend and audit stay consistent with §6.
-
-Message content is stored after PII masking. Retention is a deployment setting; the
-default keeps conversations for 30 days, because an assistant that acts needs a record
-of what it was asked, and an indefinite transcript of everything anyone typed is a
-liability rather than an asset.
+There is no `chat_messages` table. `user_id` references `users(id)`, so a service
+account holds conversations the same way a person does.
 
 ## 10. Audit
 
@@ -242,8 +269,9 @@ offers, and — because the model is not in the loop for that decision — canno
 
 ## 15. Open questions
 
-1. Retention default of 30 days — right for a governed deployment, or should it be
-   opt-in storage with no retention by default?
+1. ~~Retention default~~ — **resolved 2026-08-25.** Neither a window nor a switch:
+   the transcript is not stored, and the message that produced an action is kept with
+   that action. See §9.
 2. Should the panel be available to service accounts at all, or is it a human surface?
    The permission model allows it; the audit story is cleaner if it does not.
 3. `query.run` classed as `create` adds an approval step to something Analytics does
