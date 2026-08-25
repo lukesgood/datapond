@@ -125,3 +125,43 @@ def test_an_empty_permission_list_grants_nothing():
     with _pytest.raises(HTTPException):
         asyncio.run(require_permission("catalog:read")(
             user={"id": "svc1", "role": "admin", "permissions": []}))
+
+
+def test_resolving_an_unknown_key_returns_none_instead_of_raising():
+    """The middleware turns any exception here into a bare 401, so a bug in the
+    resolver is indistinguishable from a wrong credential. It cost a live debugging
+    round: a missing `import time` made every key 401 with nothing in the logs.
+
+    The lookup has to succeed and find nothing, so the path reaches the cache write
+    at the end — an early return on a database error skips it.
+    """
+    import asyncio
+    from app.api import auth
+
+    class _Conn:
+        async def fetchrow(self, *a, **k):
+            return None
+        async def execute(self, *a, **k):
+            return "UPDATE 0"
+
+    class _Acquire:
+        async def __aenter__(self):
+            return _Conn()
+        async def __aexit__(self, *a):
+            return False
+
+    class _Pool:
+        def acquire(self):
+            return _Acquire()
+
+    async def _pool():
+        return _Pool()
+
+    original = auth._get_pool
+    auth._get_pool = _pool
+    auth._KEY_CACHE.clear()
+    try:
+        assert asyncio.run(auth._resolve_api_key("dp_sk_definitely-not-a-key")) is None
+    finally:
+        auth._get_pool = original
+        auth._KEY_CACHE.clear()
