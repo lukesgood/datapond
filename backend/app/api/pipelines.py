@@ -307,6 +307,16 @@ async def deploy_pipeline(request: PipelineDeployRequest, db: Session = Depends(
         finally:
             Path(temp_file).unlink(missing_ok=True)
 
+    # A DAG made of placeholders must not be written, unpaused, and reported as
+    # deployed — every run would go green having done nothing. See
+    # app/pipelines/dag_generator.py.
+    from app.pipelines.dag_generator import refuse_placeholder_deploy
+    _allow = os.getenv("PIPELINES_ALLOW_PLACEHOLDER_DEPLOY", "false").lower() \
+        in ("1", "true", "yes")
+    _refusal = refuse_placeholder_deploy(dag_code, allow=_allow)
+    if _refusal:
+        raise HTTPException(status_code=501, detail=_refusal)
+
     dag_filename = f"datapond_{request.pipeline_name}.py"
     dag_path = DAGS_PATH / dag_filename
 
