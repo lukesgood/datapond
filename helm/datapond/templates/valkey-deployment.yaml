@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
       - name: valkey
-        {{- include "datapond.containerSecurity" (.Values.podSecurity).enabled | nindent 8 }}
+        {{- include "datapond.containerSecurity" (dict "enabled" (.Values.podSecurity).enabled "keep" (list "SETUID" "SETGID")) | nindent 8 }}
         image: "{{ .Values.valkey.image.repository }}:{{ .Values.valkey.image.tag }}"
         ports:
         - containerPort: {{ .Values.valkey.service.port }}
