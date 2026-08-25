@@ -657,6 +657,46 @@ async def list_roles(user: Optional[dict] = Depends(_get_current_user)):
         return []
 
 
+@router.get("/governance/rls/coverage",
+            dependencies=[Depends(require_permission("governance:read"))])
+async def rls_coverage(user: Optional[dict] = Depends(_get_current_user)):
+    """Which catalog tables RLS governs, and what default_deny would block.
+
+    RLS_DEFAULT_DENY is off by default, so a table with no policy passes through
+    unfiltered and the governed state looks exactly like the ungoverned one. This is
+    the readout that separates them — the list an operator needs in hand before
+    turning strict mode on, rather than flipping it and finding out.
+    """
+    import os
+
+    from app.api.catalog_backend import get_catalog_reader
+    from app.rls import loader as rls_loader
+    from app.rls.coverage import coverage as _coverage
+
+    catalog = os.getenv("RLS_DEFAULT_CATALOG") or os.getenv("TRINO_CATALOG") or "iceberg"
+    tables = []
+    catalog_error = None
+    try:
+        reader = get_catalog_reader()
+        for namespace in reader.list_namespaces():
+            try:
+                for table in reader.list_tables(namespace):
+                    tables.append((catalog, namespace, table))
+            except Exception as e:
+                logger.warning("rls coverage: namespace %s unreadable: %s", namespace, e)
+    except Exception as e:
+        # Say so rather than reporting zero uncovered tables, which reads as "all
+        # clear" and is the most dangerous thing this endpoint could return.
+        catalog_error = str(e)
+        logger.warning("rls coverage: catalog unreadable: %s", e)
+
+    out = _coverage(tables, await rls_loader.load_policies(), await rls_loader.load_masks())
+    out["rls_enabled"] = os.getenv("RLS_ENABLED", "false").lower() in ("1", "true", "yes")
+    out["default_deny"] = os.getenv("RLS_DEFAULT_DENY", "false").lower() in ("1", "true", "yes")
+    out["catalog_error"] = catalog_error
+    return out
+
+
 @router.get("/governance/rls/policies")
 async def list_rls_policies(user: Optional[dict] = Depends(_get_current_user)):
     """List RLS policies with their role mappings."""

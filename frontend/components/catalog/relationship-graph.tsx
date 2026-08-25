@@ -83,6 +83,11 @@ export function RelationshipGraph({ days = 30 }: { days?: number }) {
     }
   }, [days])
 
+  // A fetch on mount that shows a spinner while it runs. `load` sets `loading`
+  // before its first await, which the rule reads as a synchronous setState — the
+  // cascade it guards against does not happen here, because `loading` starts true
+  // and the initial set is a no-op.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load() }, [load])
 
   const selectedNodeId = selected?.kind === "node" ? selected.node.id : undefined

@@ -10,6 +10,32 @@ from .models import Pipeline, DependencyGraph, TableDefinition, QualityCheck, Qu
 from .dependency_graph import DependencyGraphBuilder
 
 
+UNIMPLEMENTED_MARKER = "DATAPOND_UNIMPLEMENTED_TASKS"
+
+
+def unimplemented_tasks(dag_code: str) -> List[str]:
+    """Task ids in `dag_code` that stand in for work nobody has written.
+
+    Read from a marker the generator emits rather than guessed from the operator
+    names: the question is what this DAG will actually do, and a regex over source
+    text answers a different, easier question.
+
+    Fails closed. A marker that cannot be parsed returns a non-empty list, because a
+    marker we cannot read is not evidence that the tasks work.
+    """
+    import ast
+
+    for line in dag_code.splitlines():
+        if line.startswith(UNIMPLEMENTED_MARKER):
+            try:
+                value = ast.literal_eval(line.split("=", 1)[1].strip())
+                return list(value)
+            except Exception:
+                return ["<unparseable>"]
+    return []
+
+
+
 class AirflowDagGenerator:
     """
     Generates Airflow DAG Python code from pipeline definitions.
@@ -65,7 +91,16 @@ class AirflowDagGenerator:
         # Dependencies
         lines.extend(self._generate_dependencies(graph))
 
-        return "\n".join(lines)
+        code = "\n".join(lines)
+        # Declare, at module level, which tasks stand in for work nobody wrote. The
+        # deploy endpoint reads this rather than inferring from operator names: what
+        # matters is whether this DAG will do anything, and that is a claim the
+        # generator is the only thing in a position to make honestly.
+        import re as _re
+        placeholders = sorted(set(_re.findall(
+            r'op_args=\["([^"]+)", "(?:source ingestion|quality checks|transform|'
+            r'incremental checkpoint)"\]', code)))
+        return f"{UNIMPLEMENTED_MARKER} = {placeholders!r}\n\n{code}"
 
     def _generate_header(
         self,
@@ -97,8 +132,21 @@ class AirflowDagGenerator:
             "from airflow import DAG",
             "from airflow.utils.dates import days_ago",
             "from airflow.operators.python import PythonOperator",
-            "from airflow.operators.empty import EmptyOperator",
             "from datetime import timedelta",
+            "",
+            "",
+            "def _not_implemented(task, detail):",
+            "    \"\"\"Stand-in for a DataPond operator that does not exist yet.",
+            "",
+            "    Deliberately raises. The previous generator emitted EmptyOperator,",
+            "    which succeeds — so every run went green having moved no data and",
+            "    checked no quality rule, and Airflow's own status page became the",
+            "    thing telling the operator it had worked.",
+            "    \"\"\"",
+            "    raise NotImplementedError(",
+            "        f\"{task}: {detail}. This pipeline was compiled with placeholder \"",
+            "        f\"tasks; the DataPond operator it needs is not implemented.\")",
+            "",
             "",
             "# DataPond operators (to be implemented)",
             "# from datapond.operators import (",
@@ -148,8 +196,10 @@ class AirflowDagGenerator:
             task_id = f"ingest__{source_name}"
 
             lines.append(f"    # Source: {source_name}")
-            lines.append(f"    {task_id} = EmptyOperator(")
+            lines.append(f"    {task_id} = PythonOperator(")
             lines.append(f'        task_id="{task_id}",')
+            lines.append(f'        python_callable=_not_implemented,')
+            lines.append(f'        op_args=["{task_id}", "source ingestion"],')
             lines.append(f'        # TODO: Replace with SourceIngestOperator')
             lines.append(f'        # connection_id="{source_def.connection_id}",')
             lines.append(f'        # source_table="{source_def.table}",')
@@ -209,8 +259,10 @@ class AirflowDagGenerator:
         """Generate quality check task"""
         task_id = f"quality__{table_name}"
 
-        lines = [f"    {task_id} = EmptyOperator("]
+        lines = [f"    {task_id} = PythonOperator("]
         lines.append(f'        task_id="{task_id}",')
+        lines.append(f'        python_callable=_not_implemented,')
+        lines.append(f'        op_args=["{task_id}", "quality checks"],')
         lines.append(f'        # TODO: Replace with QualityCheckOperator')
 
         # Add quality checks as comments for now
@@ -233,8 +285,10 @@ class AirflowDagGenerator:
         """Generate main transformation task"""
         task_id = f"transform__{table_name}"
 
-        lines = [f"    {task_id} = EmptyOperator("]
+        lines = [f"    {task_id} = PythonOperator("]
         lines.append(f'        task_id="{task_id}",')
+        lines.append(f'        python_callable=_not_implemented,')
+        lines.append(f'        op_args=["{task_id}", "transform"],')
         lines.append(f'        # TODO: Replace with TrinoOperator or PythonTransformOperator')
         lines.append(f'        # engine="{table_def.engine.value}",')
         lines.append(f'        # target_table="{table_def.get_fqn()}",')
@@ -258,8 +312,10 @@ class AirflowDagGenerator:
         """Generate checkpoint task for incremental tables"""
         task_id = f"checkpoint__{table_name}"
 
-        lines = [f"    {task_id} = EmptyOperator("]
+        lines = [f"    {task_id} = PythonOperator("]
         lines.append(f'        task_id="{task_id}",')
+        lines.append(f'        python_callable=_not_implemented,')
+        lines.append(f'        op_args=["{task_id}", "incremental checkpoint"],')
         lines.append(f'        # TODO: Replace with IncrementalCheckpointOperator')
         lines.append(f'        # table="{table_def.get_fqn()}",')
         if table_def.watermark_column:
@@ -310,3 +366,23 @@ class AirflowDagGenerator:
 
         lines.append("")
         return lines
+
+
+def refuse_placeholder_deploy(dag_code: str, allow: bool) -> Optional[str]:
+    """Why this DAG must not be deployed, or None if it may be.
+
+    The deploy endpoint wrote the DAG, unpaused it in Airflow, marked the pipeline
+    "deployed" and returned 200 — for a DAG whose every task was an EmptyOperator.
+    Each run then went green having moved no data, which is worse than a failure
+    because the operator's own dashboard reports success.
+
+    Deploying a skeleton to check the scheduling shape is a real thing to want. This
+    only requires saying so.
+    """
+    pending = unimplemented_tasks(dag_code)
+    if not pending or allow:
+        return None
+    return (f"This pipeline compiles to {len(pending)} placeholder task(s) that do "
+            f"nothing: {', '.join(pending)}. Deploying it would produce successful "
+            f"Airflow runs that move no data. Set "
+            f"PIPELINES_ALLOW_PLACEHOLDER_DEPLOY=true to deploy it anyway.")

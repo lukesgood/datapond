@@ -416,7 +416,10 @@ spec:
           failureThreshold: 6
         readinessProbe:
           httpGet:
-            path: /health
+            # Not /health: that says the process is running, which is the liveness
+            # question. This one refuses traffic when a required schema bootstrap
+            # failed or the database is unreachable. See backend/app/readiness.py.
+            path: /health/ready
             port: {{ .Values.backend.service.targetPort }}
           initialDelaySeconds: 30
           periodSeconds: 10
