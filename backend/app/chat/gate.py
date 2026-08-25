@@ -99,7 +99,8 @@ async def propose(
     store: InvocationStore,
     executor: Optional[Callable] = None,
     previewer: Optional[Callable] = None,
-    message_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+    request_text: Optional[str] = None,
 ) -> dict:
     """Validate a proposal and either run it (read) or park it for approval (write).
 
@@ -131,7 +132,10 @@ async def propose(
 
     invocation = await store.create(
         action_id=action.id, params=clean, preview=preview, page=page,
-        message_id=message_id, user_id=user.get("id"), status="proposed",
+        conversation_id=conversation_id, user_id=user.get("id"), status="proposed",
+        # The message that asked for this — the only transcript kept, and only
+        # because a change needs a reason on record. See design §9.
+        request_text=(request_text or "")[:2000] or None,
     )
     await _audit(store, "chat_action_proposed", user, action=action.id,
                  invocation=invocation["id"], kind=action.kind.value)

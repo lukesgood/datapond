@@ -25,6 +25,7 @@ from app.api.mlflow_integration import router as mlflow_router
 from app.api.airflow import router as airflow_router
 from app.api.dashboards import router as dashboards_router
 from app.api.service_account_routes import router as service_accounts_router
+from app.api.chat_routes import router as chat_router
 from app.api.pipelines import router as pipelines_router
 from app.api.storage import router as storage_router
 from app.api.streaming import router as streaming_router
@@ -272,6 +273,7 @@ app.include_router(mlflow_router, prefix="/api",
                    dependencies=[Depends(require_component("MLFLOW", "Experiments (MLflow)"))])
 app.include_router(airflow_router, prefix="/api")
 app.include_router(service_accounts_router, prefix="/api")
+app.include_router(chat_router, prefix="/api")
 app.include_router(dashboards_router, prefix="/api")
 app.include_router(pipelines_router, prefix="/api")
 app.include_router(storage_router, prefix="/api")

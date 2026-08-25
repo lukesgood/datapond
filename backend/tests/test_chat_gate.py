@@ -231,3 +231,29 @@ def test_a_refusal_is_audited_too():
         _run(propose("knowledge.create_collection", {"name": "x"},
                      user=READER, page="/knowledge", store=store))
     assert any(a["event"] == "chat_action_refused" for a in store.audit)
+
+
+# ── what is kept (design §9) ──────────────────────────────────────────────────
+
+def test_the_request_that_produced_an_action_is_stored_with_it():
+    """The only transcript kept: a change needs a reason on record."""
+    store = _Store()
+    inv = _run(propose("query.run", {"sql": "SELECT 1"}, user=ADMIN, page="/query",
+                       store=store, previewer=lambda p, u: {},
+                       request_text="run the daily totals for me"))
+    assert inv["request_text"] == "run the daily totals for me"
+
+
+def test_an_overlong_request_is_truncated_rather_than_rejected():
+    store = _Store()
+    inv = _run(propose("query.run", {"sql": "SELECT 1"}, user=ADMIN, page="/query",
+                       store=store, previewer=lambda p, u: {},
+                       request_text="x" * 5000))
+    assert len(inv["request_text"]) == 2000
+
+
+def test_no_request_text_stores_null_rather_than_an_empty_string():
+    store = _Store()
+    inv = _run(propose("query.run", {"sql": "SELECT 1"}, user=ADMIN, page="/query",
+                       store=store, previewer=lambda p, u: {}))
+    assert inv["request_text"] is None

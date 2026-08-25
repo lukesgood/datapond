@@ -67,6 +67,61 @@ CREATE TABLE IF NOT EXISTS api_keys (
 CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
 
+-- Conversational actions (docs/superpowers/specs/2026-08-25-conversational-actions-design.md).
+-- There is no messages table on purpose: the transcript is not stored. Only the
+-- request that produced an action is kept, on the invocation, because a change needs
+-- a reason on record and a question that changed nothing does not.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'chat_invocation_status') THEN
+        CREATE TYPE chat_invocation_status AS ENUM
+            ('proposed', 'approved', 'rejected', 'executed', 'failed');
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS chat_conversations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    page VARCHAR(128),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_chat_conversations_user ON chat_conversations(user_id);
+
+CREATE TABLE IF NOT EXISTS chat_action_invocations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id UUID REFERENCES chat_conversations(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    action_id VARCHAR(64) NOT NULL,
+    page VARCHAR(128),
+    params JSONB NOT NULL DEFAULT '{}',
+    preview JSONB,
+    request_text TEXT,
+    status chat_invocation_status NOT NULL DEFAULT 'proposed',
+    approved_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    approved_at TIMESTAMPTZ,
+    executed_at TIMESTAMPTZ,
+    result JSONB,
+    error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_chat_invocations_user ON chat_action_invocations(user_id, created_at DESC);
+
+-- Audit vocabulary for the gate. ADD VALUE IF NOT EXISTS is idempotent; the enum only
+-- exists when auth.sql was applied, so guard on that.
+DO $$
+DECLARE v TEXT;
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'audit_event_type') THEN
+        FOREACH v IN ARRAY ARRAY['chat_action_proposed','chat_action_approved',
+                                 'chat_action_rejected','chat_action_executed',
+                                 'chat_action_failed','chat_action_refused']
+        LOOP
+            EXECUTE format('ALTER TYPE audit_event_type ADD VALUE IF NOT EXISTS %L', v);
+        END LOOP;
+    END IF;
+END $$;
+
 -- Roles + user-role assignment (loader reads these; falls back to users.role if absent)
 CREATE TABLE IF NOT EXISTS roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
