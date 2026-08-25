@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field
 
 from app.api.connectors import get_db_pool
 from app.api.auth import require_admin_or_internal, require_admin, require_user
+from app.api.auth import require_permission
 from app.ai_context import set_actor, actor_payload
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
 from app.runtime import component_secret
@@ -248,7 +249,7 @@ class RagRequest(BaseModel):
 
 # ── Routes ───────────────────────────────────────────────────────────────────────
 
-@router.post("/ai/embed")
+@router.post("/ai/embed", dependencies=[Depends(require_permission("ai:generate"))])
 async def embed(req: EmbedRequest, user: dict = Depends(require_user)):
     set_actor(user)
     vecs = await _embed(req.input)
@@ -289,7 +290,7 @@ async def list_collections(user: dict = Depends(require_user)):
     ]}
 
 
-@router.post("/ai/collections")
+@router.post("/ai/collections", dependencies=[Depends(require_permission("knowledge:write"))])
 async def create_collection(body: CollectionCreate, user: dict = Depends(require_user)):
     name = body.name.strip()
     if not name:
@@ -312,7 +313,7 @@ async def create_collection(body: CollectionCreate, user: dict = Depends(require
             "embed_model": _embed_model(), "dim": EMBED_DIM()}
 
 
-@router.delete("/ai/collections/{name}")
+@router.delete("/ai/collections/{name}", dependencies=[Depends(require_permission("knowledge:write"))])
 async def delete_collection(name: str, user: dict = Depends(require_user)):
     pool = await get_db_pool()
     async with pool.acquire() as c:

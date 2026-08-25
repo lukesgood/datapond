@@ -16,6 +16,7 @@ from app.schemas.dashboard import (
     DashboardListResponse
 )
 from app.api.auth import require_user
+from app.api.auth import require_permission
 
 router = APIRouter()
 
@@ -25,7 +26,7 @@ def _uid(user: dict) -> uuid.UUID:
     return uuid.UUID(user["id"])
 
 
-@router.post("/dashboards", response_model=DashboardResponse, status_code=201)
+@router.post("/dashboards", response_model=DashboardResponse, status_code=201, dependencies=[Depends(require_permission("dashboard:write"))])
 async def create_dashboard(
     dashboard: DashboardCreate,
     db: Session = Depends(get_db),
@@ -201,7 +202,7 @@ async def update_dashboard(
         )
 
 
-@router.delete("/dashboards/{dashboard_id}", status_code=204)
+@router.delete("/dashboards/{dashboard_id}", status_code=204, dependencies=[Depends(require_permission("dashboard:write"))])
 async def delete_dashboard(
     dashboard_id: uuid.UUID,
     db: Session = Depends(get_db),

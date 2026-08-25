@@ -256,8 +256,30 @@ def build_graph(statements: Iterable[str], dialect: str = "trino",
         for t in (c["source"], c["target"]):
             nodes.setdefault(t, 0)
 
+    schema = schema or {}
     return {
-        "nodes": [{"id": name, "query_count": n}
-                  for name, n in sorted(nodes.items(), key=lambda kv: (-kv[1], kv[0]))],
-        "edges": observed + candidates,
+        "nodes": [{
+            "id": name,
+            "query_count": n,
+            # Carried so selecting a table can show its shape without another
+            # round-trip; empty when the catalog was not read.
+            "columns": [{"name": c.get("name", ""), "type": c.get("type", "")}
+                        for c in schema.get(name, [])],
+        } for name, n in sorted(nodes.items(), key=lambda kv: (-kv[1], kv[0]))],
+        "edges": [dict(e, join_sql=_join_sql(e)) for e in observed + candidates],
     }
+
+
+def _join_sql(edge: dict) -> str:
+    """A statement to start from, rebuilt from the parsed keys.
+
+    Never echoed from history. A stored statement can carry literals in its WHERE
+    clause — an id, an account number — that the person reading a diagram has no
+    reason to see, and reconstructing gives the useful half without the risk.
+    """
+    src, dst = edge["source"], edge["target"]
+    joins = edge.get("joins") or []
+    if not joins:
+        return ""
+    on = " AND ".join(f"a.{j['left_column']} = b.{j['right_column']}" for j in joins[:1])
+    return (f"SELECT *\nFROM {src} a\nJOIN {dst} b ON {on}\nLIMIT 100")

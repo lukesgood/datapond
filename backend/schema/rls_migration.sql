@@ -123,6 +123,10 @@ INSERT INTO roles (name, display_name, description, is_system) VALUES
     ('data_engineer', 'Data Engineer', 'Pipelines, tables, connectors.', true),
     ('data_scientist', 'Data Scientist', 'Queries, experiments, notebooks.', true),
     ('business_analyst', 'Business Analyst', 'SELECT queries, dashboards.', true),
+    -- Added 2026-08: the product's own target user (AI application teams) and the
+    -- read-only reviewer a governance-led product needs. See app/permissions.py.
+    ('ai_engineer', 'AI Engineer', 'Knowledge collections, RAG, model usage.', true),
+    ('auditor', 'Auditor', 'Read-only governance, audit log, and spend review.', true),
     ('viewer', 'Viewer', 'Read-only access.', true)
 ON CONFLICT (name) DO NOTHING;
 

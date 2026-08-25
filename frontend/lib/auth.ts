@@ -11,7 +11,9 @@ export interface AuthUser {
   username: string
   display_name: string
   email: string
-  role: "admin" | "viewer"
+  // Seeded roles; see backend/app/permissions.py for what each may do. An unknown
+  // string is treated as "viewer" server-side rather than locking the account out.
+  role: string
   require_password_change?: boolean
 }
 

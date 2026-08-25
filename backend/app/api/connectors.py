@@ -15,6 +15,7 @@ Endpoints:
 """
 
 from fastapi import APIRouter, HTTPException, Depends
+from app.api.auth import require_permission
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 from typing import List, Optional, Dict, Any, AsyncGenerator
@@ -929,7 +930,7 @@ INSERT INTO page_events (customer_id,event_type,page,device,session_id) VALUES
         raise HTTPException(status_code=500, detail=f"Failed to create sample DB: {str(e)}")
 
 
-@router.delete("/connectors/{connection_id}/draft")
+@router.delete("/connectors/{connection_id}/draft", dependencies=[Depends(require_permission("connector:write"))])
 async def discard_draft_connection(connection_id: str):
     """Discard a connection created during setup wizard (no sync history).
     Used when user clicks Back/Cancel after Step 1 to prevent orphan records."""
@@ -958,7 +959,7 @@ async def discard_draft_connection(connection_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/connectors/create", response_model=ConnectionResponse)
+@router.post("/connectors/create", response_model=ConnectionResponse, dependencies=[Depends(require_permission("connector:write"))])
 async def create_connection(request: ConnectionCreateRequest):
     """
     Create and save a new connector connection.
@@ -1115,7 +1116,7 @@ class ConnectionUpdateRequest(BaseModel):
     description: Optional[str] = None
 
 
-@router.patch("/connectors/{connection_id}")
+@router.patch("/connectors/{connection_id}", dependencies=[Depends(require_permission("connector:write"))])
 async def update_connection(connection_id: str, request: ConnectionUpdateRequest):
     """Update connection name and/or config"""
     try:
@@ -1210,7 +1211,7 @@ with DAG(
 '''
 
 
-@router.patch("/connectors/{connection_id}/schedule")
+@router.patch("/connectors/{connection_id}/schedule", dependencies=[Depends(require_permission("connector:write"))])
 async def set_schedule(connection_id: str, request: ScheduleRequest):
     """Set or remove a sync schedule. Stores in connector_connections.schedule (single source of truth)."""
     try:
@@ -1307,7 +1308,7 @@ async def get_schedule(connection_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/connectors/{connection_id}")
+@router.delete("/connectors/{connection_id}", dependencies=[Depends(require_permission("connector:write"))])
 async def delete_connection(connection_id: str):
     """Delete a connection"""
     try:
@@ -1382,7 +1383,7 @@ async def list_tables(connection_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to list tables: {str(e)}")
 
 
-@router.patch("/connectors/{connection_id}/tables/{table_name}/enabled")
+@router.patch("/connectors/{connection_id}/tables/{table_name}/enabled", dependencies=[Depends(require_permission("connector:write"))])
 async def set_table_enabled(connection_id: str, table_name: str, body: dict):
     """Enable/disable a table and optionally set incremental_column / key_columns(upsert PK)."""
     try:
@@ -1435,7 +1436,7 @@ async def set_table_enabled(connection_id: str, table_name: str, body: dict):
 _PARTITION_TRANSFORMS = {"day", "month", "year", "identity", "bucket"}
 
 
-@router.patch("/connectors/{connection_id}/tables/{table_name}/partition")
+@router.patch("/connectors/{connection_id}/tables/{table_name}/partition", dependencies=[Depends(require_permission("connector:write"))])
 async def set_table_partition(connection_id: str, table_name: str, body: dict):
     """
     테이블별 파티션 spec 설정.
@@ -1480,7 +1481,7 @@ async def set_table_partition(connection_id: str, table_name: str, body: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.patch("/connectors/{connection_id}/sync-mode")
+@router.patch("/connectors/{connection_id}/sync-mode", dependencies=[Depends(require_permission("connector:write"))])
 async def set_connection_sync_mode(connection_id: str, body: dict):
     """Set sync_mode — for a specific table or all tables of a connection."""
     try:
@@ -2060,7 +2061,7 @@ async def _persist_sync_session(pool, connection_id: str, job_id: str,
     return history_id
 
 
-@router.post("/connectors/{connection_id}/sync")
+@router.post("/connectors/{connection_id}/sync", dependencies=[Depends(require_permission("connector:write"))])
 async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None):
     """Trigger a data sync job"""
     if request is None:

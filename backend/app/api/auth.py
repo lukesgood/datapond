@@ -28,6 +28,7 @@ import bcrypt as _bcrypt
 from pydantic import BaseModel
 
 from app.runtime import is_production, component_secret
+from app.permissions import ASSIGNABLE_ROLES, permissions_for
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
@@ -320,6 +321,32 @@ async def require_admin(user: dict = Depends(require_user)) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
     return user
+
+
+def require_permission(permission: str):
+    """FastAPI dependency factory: require `permission` for the calling user's role.
+
+    Hiding a menu is not access control — the API is where a role has to hold. Use
+    this on write endpoints that were previously guarded by nothing more than
+    authentication. `require_admin` stays where it is: it is equivalent to a
+    permission only the admin role carries, and rewriting those call sites would be
+    churn without a change in behaviour.
+
+    The refusal names the permission, so a user can tell an administrator what to
+    grant instead of guessing.
+    """
+    from app.permissions import has_permission
+
+    async def _guard(user: dict = Depends(require_user)) -> dict:
+        if not has_permission(user.get("role"), permission):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(f"'{permission}' permission required — your role "
+                        f"({user.get('role') or 'viewer'}) does not have it."),
+            )
+        return user
+
+    return _guard
 
 
 async def require_admin_or_internal(
@@ -750,7 +777,7 @@ async def update_user(user_id: str, body: dict, admin: dict = Depends(require_ad
     values = []
     idx = 1
 
-    if "role" in body and body["role"] in ("admin", "viewer"):
+    if "role" in body and body["role"] in ASSIGNABLE_ROLES:
         updates.append(f"role = ${idx}"); values.append(body["role"]); idx += 1
     if "is_active" in body:
         updates.append(f"is_active = ${idx}"); values.append(bool(body["is_active"])); idx += 1
@@ -772,7 +799,7 @@ async def update_user(user_id: str, body: dict, admin: dict = Depends(require_ad
             *values
         )
         # Keep user_roles in sync with the minimal users.role so RLS resolution matches.
-        if "role" in body and body["role"] in ("admin", "viewer"):
+        if "role" in body and body["role"] in ASSIGNABLE_ROLES:
             try:
                 await conn.execute("DELETE FROM user_roles WHERE user_id = $1", uuid.UUID(user_id))
                 await conn.execute(
@@ -815,3 +842,22 @@ async def update_me(body: dict, user: dict = Depends(require_user)):
     async with pool.acquire() as conn:
         await conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ${idx}", *values)
     return {"message": "Profile updated"}
+
+
+@router.get("/me/permissions")
+async def my_permissions(user: dict = Depends(require_user)):
+    """What this user may do.
+
+    Separate from /api/capabilities on purpose: that endpoint is unauthenticated and
+    must never fail, so it cannot answer a per-user question. The UI intersects the
+    two — a menu appears when the deployment has the feature AND this role may use it.
+
+    Served from the server rather than read off the token the browser holds, so the
+    menu reflects the same source the API enforces from.
+    """
+    role = user.get("role") or "viewer"
+    return {
+        "role": role,
+        "permissions": sorted(permissions_for(role)),
+        "assignable_roles": list(ASSIGNABLE_ROLES),
+    }

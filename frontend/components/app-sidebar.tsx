@@ -11,6 +11,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { getUser, logout, type AuthUser } from "@/lib/auth"
 import { useCapabilities } from "@/lib/capabilities"
+import { usePermissions } from "@/lib/permissions"
 import { getProductProfile } from "@/lib/product-profile"
 
 import {
@@ -30,8 +31,10 @@ type NavItem = {
   url: string
   icon: React.ComponentType<{ className?: string }>
   capability?: string
+  /** Permission required to see this item, per backend/app/permissions.py. The API
+   *  enforces it regardless; this keeps people out of screens they cannot use. */
+  permission?: string
   external?: boolean
-  adminOnly?: boolean
 }
 
 type NavSection = {
@@ -48,24 +51,24 @@ const mainSections: NavSection[] = [
     hint: "Ground and serve AI applications",
     items: [
       { title: "Knowledge",  url: "/knowledge", icon: Sparkles },
-      { title: "AI Gateway", url: "/ai",        icon: Bot, adminOnly: true },
+      { title: "AI Gateway", url: "/ai",        icon: Bot, permission: "settings:write" },
     ],
   },
   {
     label: "Data",
     hint: "Optional ingestion, catalog, and query adapters",
     items: [
-      { title: "Sources",   url: "/connectors", icon: ArrowDownToLine, capability: "connectors" },
+      { title: "Sources",   url: "/connectors", icon: ArrowDownToLine, capability: "connectors", permission: "connector:read" },
       { title: "Catalog",   url: "/catalog",    icon: Database,        capability: "catalog" },
-      { title: "Analytics", url: "/query",      icon: BarChart3,       capability: "query" },
+      { title: "Analytics", url: "/query",      icon: BarChart3,       capability: "query", permission: "query:run" },
     ],
   },
   {
     label: "Pipelines",
     hint: "Optional transform and streaming workloads",
     items: [
-      { title: "Transforms", url: "/pipelines", icon: GitBranch, capability: "pipelines" },
-      { title: "Streaming",  url: "/streaming", icon: Radio,     capability: "streaming" },
+      { title: "Transforms", url: "/pipelines", icon: GitBranch, capability: "pipelines", permission: "pipeline:write" },
+      { title: "Streaming",  url: "/streaming", icon: Radio,     capability: "streaming", permission: "pipeline:write" },
     ],
   },
   {
@@ -80,12 +83,12 @@ const mainSections: NavSection[] = [
     label: "Operate",
     hint: "Govern and run the foundation",
     items: [
-      { title: "Governance",     url: "/governance", icon: ShieldCheck },
-      { title: "Storage",        url: "/storage",    icon: HardDrive },
+      { title: "Governance",     url: "/governance", icon: ShieldCheck, permission: "governance:read" },
+      { title: "Storage",        url: "/storage",    icon: HardDrive, permission: "service:manage" },
       // Infrastructure = Services (workloads/adapters) + System (node) as one
       // workspace at /services with tabs; /system redirects into it.
-      { title: "Infrastructure", url: "/services",   icon: Server },
-      { title: "Settings",       url: "/settings",   icon: Settings, adminOnly: true },
+      { title: "Infrastructure", url: "/services",   icon: Server, permission: "service:manage" },
+      { title: "Settings",       url: "/settings",   icon: Settings, permission: "settings:write" },
     ],
   },
 ]
@@ -102,6 +105,7 @@ export function AppSidebar() {
   const [user] = useState<AuthUser | null>(() => getUser())
   const { setOpenMobile } = useSidebar()
   const caps = useCapabilities()
+  const { permissions, loaded: permsLoaded } = usePermissions()
   const profile = getProductProfile(caps)
 
   // Mobile: close the offcanvas sheet after navigating — otherwise the open
@@ -159,7 +163,8 @@ export function AppSidebar() {
             const visibleItems = section.items.filter(
               (item) =>
                 (item.capability === undefined || caps[item.capability] === true) &&
-                (!item.adminOnly || user?.role === "admin")
+                (item.permission === undefined || (permsLoaded && permissions.has(item.permission))) &&
+                true
             )
             if (visibleItems.length === 0) return null
             return (
