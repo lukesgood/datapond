@@ -91,10 +91,15 @@ jobs:
   security-scan:
     name: Trivy filesystem scan (dependency vulns / SBOM)
     runs-on: ubuntu-latest
-    # Report-only for now (exit-code: 0) — surfaces HIGH/CRITICAL CVEs in
-    # backend/requirements.txt + frontend/package-lock.json without blocking builds.
-    # P0-2/P0-3 deferred full SBOM/vuln coverage to this job; flip exit-code to 1 once
-    # the baseline below is triaged/clean, to make this a real merge gate.
+    # A real merge gate as of 2026-08-25. It was report-only, with a note saying to
+    # flip it "once the baseline is clean" — and the baseline had grown to 41
+    # HIGH/CRITICAL findings, among them an algorithm-confusion bug in the JWT
+    # library this product authenticates with and a SQL injection in a database
+    # driver it ships. A scan nobody has to act on records vulnerabilities; it does
+    # not prevent them.
+    #
+    # The baseline is now zero. If this job fails, the fix is to raise the pinned
+    # version, not to lower this back to 0.
     steps:
       - uses: actions/checkout@v4
       - name: Trivy vulnerability scan (fs mode — no image build required)
@@ -105,7 +110,7 @@ jobs:
           scanners: vuln
           severity: HIGH,CRITICAL
           format: table
-          exit-code: "0"
+          exit-code: "1"
           # Both dependency files are picked up automatically by fs-mode's
           # lockfile detection (backend/requirements.txt, frontend/package-lock.json).
 
@@ -119,7 +124,7 @@ jobs:
         run: helm lint helm/datapond --values helm/datapond/values-quicktest.yaml
       - name: Template render (모든 프로파일 — 구문 검증)
         run: |
-          for v in values-quicktest values-onprem values-aws values-dev values-prod values-foundation; do
+          for v in values-quicktest values-onprem values-aws values-dev values-prod values-foundation values-prod-single; do
             f="helm/datapond/$v.yaml"
             [ -f "$f" ] && { echo "== render $v =="; helm template datapond helm/datapond --values "$f" >/dev/null; }
           done

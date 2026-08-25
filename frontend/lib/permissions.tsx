@@ -32,10 +32,10 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
     // 401, which the fetch interceptor reads as an expired session — and /forgot is
     // not on the interceptor's suppression list, so password recovery bounced the
     // user back to the login screen.
-    if (!getToken()) {
-      setState(s => (s.loaded ? { role: "viewer", permissions: new Set(), loaded: false } : s))
-      return
-    }
+    // Nothing to reset: the initial state is already this, and the effect runs once
+    // on mount. Writing it back was a synchronous setState inside an effect that
+    // could only ever set what was already there.
+    if (!getToken()) return
     fetch("/api/me/permissions")
       .then(r => (r.ok ? r.json() : null))
       .then(d => {

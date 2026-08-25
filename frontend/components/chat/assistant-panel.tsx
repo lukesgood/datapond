@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -21,6 +21,17 @@ type ActionCard = {
 
 const STORAGE_KEY = "datapond_assistant_open"
 
+const panelListeners = new Set<() => void>()
+
+function subscribeToPanelState(onChange: () => void) {
+  panelListeners.add(onChange)
+  return () => { panelListeners.delete(onChange) }
+}
+
+function readPanelOpen() {
+  return localStorage.getItem(STORAGE_KEY) === "1"
+}
+
 /** The assistant panel.
  *
  *  Turns live in this component and nowhere else — the transcript is not persisted
@@ -30,17 +41,17 @@ const STORAGE_KEY = "datapond_assistant_open"
 export function AssistantPanel() {
   const pathname = usePathname()
   const canUse = useHasPermission("ai:generate")
-  const [open, setOpen] = useState(false)
+  // localStorage is state living outside React, so it is read the way external
+  // state is read. Setting it from an effect meant a synchronous setState on every
+  // mount, and a lazy useState initialiser cannot be used either: the server has no
+  // localStorage, so it would render a different value than it hydrates to.
+  const open = useSyncExternalStore(subscribeToPanelState, readPanelOpen, () => false)
   const [turns, setTurns] = useState<Turn[]>([])
   const [pending, setPending] = useState<ActionCard | null>(null)
   const [input, setInput] = useState("")
   const [busy, setBusy] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    setOpen(localStorage.getItem(STORAGE_KEY) === "1")
-  }, [])
 
   useEffect(() => {
     // Scroll the transcript container itself. scrollIntoView walks up and scrolls
@@ -51,10 +62,8 @@ export function AssistantPanel() {
   }, [turns, pending, busy])
 
   const toggle = useCallback(() => {
-    setOpen(v => {
-      localStorage.setItem(STORAGE_KEY, v ? "0" : "1")
-      return !v
-    })
+    localStorage.setItem(STORAGE_KEY, readPanelOpen() ? "0" : "1")
+    panelListeners.forEach(fn => fn())
   }, [])
 
   const send = async () => {

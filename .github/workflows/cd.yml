@@ -19,8 +19,45 @@ env:
   IMAGE_BASE: ghcr.io/${{ github.repository_owner }}/datapond
 
 jobs:
+  require-ci:
+    name: Require CI green for this commit
+    runs-on: ubuntu-latest
+    permissions:
+      checks: read
+      contents: read
+    steps:
+      # CI and CD ran independently: a commit whose tests failed still built and
+      # pushed images tagged with its SHA, and could be deployed from them. This job
+      # asks the Checks API what actually happened to THIS commit and refuses to
+      # continue otherwise. Waiting rather than failing immediately, because on a
+      # push both workflows start at once.
+      - name: Wait for CI, then require success
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            runs=$(gh api "repos/${{ github.repository }}/actions/runs?head_sha=${{ github.sha }}" \
+                     --jq '[.workflow_runs[] | select(.name == "CI")] | .[0] // empty')
+            [ -n "$runs" ] || { echo "no CI run yet (attempt $attempt)"; sleep 20; continue; }
+            status=$(echo "$runs" | jq -r .status)
+            conclusion=$(echo "$runs" | jq -r .conclusion)
+            echo "CI: status=$status conclusion=$conclusion"
+            if [ "$status" = "completed" ]; then
+              [ "$conclusion" = "success" ] || {
+                echo "::error::CI concluded '$conclusion' for ${{ github.sha }} — not building or deploying it."
+                exit 1
+              }
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::error::timed out waiting for CI on ${{ github.sha }}"
+          exit 1
+
   build-and-push:
     name: Build & push images (GHCR)
+    needs: require-ci
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -52,7 +89,8 @@ jobs:
           file: backend/Dockerfile
           target: enterprise
           push: true
-          provenance: false
+          provenance: true
+          sbom: true
           tags: |
             ${{ env.IMAGE_BASE }}-backend:${{ steps.meta.outputs.tag }}
             ${{ env.IMAGE_BASE }}-backend:${{ steps.meta.outputs.appversion }}
@@ -61,7 +99,8 @@ jobs:
         with:
           context: frontend
           push: true
-          provenance: false
+          provenance: true
+          sbom: true
           tags: |
             ${{ env.IMAGE_BASE }}-frontend:${{ steps.meta.outputs.tag }}
             ${{ env.IMAGE_BASE }}-frontend:${{ steps.meta.outputs.appversion }}
@@ -92,4 +131,4 @@ jobs:
             --set frontend.image.repository=${{ env.IMAGE_BASE }}-frontend \
             --set frontend.image.tag="$TAG" \
             --set frontend.image.pullPolicy=Always \
-            --wait=false
+            --atomic --wait --timeout 10m
