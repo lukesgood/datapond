@@ -125,12 +125,18 @@ jobs:
   acceptance:
     name: Portable Core acceptance (deployed target)
     runs-on: ubuntu-latest
-    # Runs only where a deployment exists to run it against. The suite is written so
-    # it can gate a release; wiring it to one needs a target, which is a decision
-    # about which environment a merge is allowed to touch.
+    # Pointed at the live reference deployment. The suite writes: it creates a
+    # collection under a per-run name, ingests a few hundred bytes, and removes them
+    # however the run ends. It also spends a small amount on embeddings each run,
+    # which is the price of knowing the path still works.
     #
-    # Set repo variable ACCEPTANCE_BASE_URL and secret ACCEPTANCE_TOKEN (an admin JWT)
-    # to enable. DATAPOND_VIEWER_TOKEN additionally checks the read-only boundary.
+    # ACCEPTANCE_TOKEN is a service-account key, not a session JWT. A JWT in a CI
+    # secret expires and turns into a mystery failure weeks later; a service account
+    # is the credential built for a non-human caller and can be revoked on its own
+    # without touching a person's account. It holds ai_engineer — enough for
+    # knowledge:write and ai:generate, and nothing administrative.
+    #
+    # ACCEPTANCE_VIEWER_TOKEN is optional and adds the read-only boundary check.
     if: ${{ vars.ACCEPTANCE_BASE_URL != '' }}
     steps:
       - uses: actions/checkout@v4
@@ -139,7 +145,25 @@ jobs:
           python-version: "3.11"
       - name: Install test dependencies
         run: pip install pytest httpx
+      # The reference deployment is stopped outside weekday hours to save money. An
+      # unreachable target is not a failed acceptance, and failing the run for it
+      # would block merges at night for a reason unrelated to the change. It is
+      # announced rather than passed over quietly, so nobody reads a green tick as
+      # "acceptance ran".
+      - name: Is the target up
+        id: probe
+        env:
+          BASE: ${{ vars.ACCEPTANCE_BASE_URL }}
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 "$BASE/api/health/ready" || echo 000)
+          if [ "$code" = "200" ]; then
+            echo "up=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "up=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Acceptance not run::$BASE did not answer (HTTP $code). The deployment is likely stopped; acceptance did NOT run for this commit."
+          fi
       - name: Acceptance
+        if: steps.probe.outputs.up == 'true'
         working-directory: backend
         env:
           DATAPOND_BASE_URL: ${{ vars.ACCEPTANCE_BASE_URL }}
