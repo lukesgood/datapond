@@ -60,6 +60,8 @@ class Readiness:
 
 # Bootstraps without which the product cannot answer a request correctly. Optional
 # add-on schemas are deliberately absent.
-REQUIRED = {"base_schema"}
+# A partially-migrated database is exactly the state this exists to keep traffic
+# away from, so migrations join base_schema as required.
+REQUIRED = {"base_schema", "migrations"}
 
 readiness = Readiness(required=REQUIRED)
