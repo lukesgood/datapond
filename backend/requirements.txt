@@ -6,6 +6,7 @@ httpx==0.26.0
 python-multipart==0.0.30
 psycopg2-binary==2.9.9
 sqlalchemy==2.0.25
+alembic==1.19.1
 redis==5.0.1
 kubernetes==29.0.0
 trino==0.328.0

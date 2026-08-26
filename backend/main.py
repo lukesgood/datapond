@@ -194,6 +194,21 @@ async def startup():
             else:
                 logger.warning(f"[startup] Settings load skipped after retries: {e}")
 
+    # Versioned migrations, before the bootstraps. The baseline is a stamp, so this
+    # is a no-op on every database that exists today; what it establishes is a place
+    # for the next schema change to go. See app/migrations.py.
+    try:
+        from app.api.connectors import get_db_pool
+        from app import migrations as _migrations
+        outcome = await _migrations.apply(await get_db_pool())
+        readiness.record("migrations", ok=True)
+        logger.info(f"[startup] migrations: {outcome}")
+    except Exception as e:
+        # Required: a partially-migrated database is the state readiness exists to
+        # keep traffic away from.
+        readiness.record("migrations", ok=False, detail=str(e))
+        logger.warning(f"[startup] migrations failed: {e}")
+
     # 기반 스키마 부트스트랩 (auth.sql/queries.sql — users/roles/sessions/dashboards 등).
     # 빈 DB 1회 적용(센티넬 가드), 기존 DB는 skip. rls_migration이 users에 의존하므로 먼저 실행.
     try:
