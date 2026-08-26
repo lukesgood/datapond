@@ -230,9 +230,18 @@ class EmbedRequest(BaseModel):
 # relative to the documents, and a person choosing "FAQ entries" is making a better
 # decision than a person choosing 480.
 CHUNK_PRESETS = {
-    "short":    (500, 75),    # FAQ entries, chat logs, short notes
-    "standard": (1000, 150),  # articles, wiki pages, reports
-    "long":     (2000, 300),  # contracts, manuals, specifications
+    "short":    (500, 75),
+    "standard": (1000, 150),
+    "long":     (2000, 300),
+}
+
+# What each preset is for, in the words someone choosing would use. Kept beside the
+# numbers so the UI can render the choice without restating either — a copy of this
+# list in the frontend is a copy that goes stale.
+CHUNK_PRESET_LABELS = {
+    "short":    ("Short passages", "FAQ entries, chat logs, short notes"),
+    "standard": ("Standard", "articles, wiki pages, reports"),
+    "long":     ("Long documents", "contracts, manuals, specifications"),
 }
 DEFAULT_PRESET = "standard"
 
@@ -329,24 +338,90 @@ def _uid(user: dict):
         return None
 
 
+MAX_LIST_PAGE = 500
+
+
+def listing_window(limit, offset):
+    """(limit, offset) for a collection listing, or (None, offset) for all of them.
+
+    No default limit, deliberately. This endpoint is how the assistant's executors and
+    the API page enumerate collections, and a default cutoff would make them silently
+    forget whatever fell past it — the kind of bug that only appears once someone has
+    enough data to hit it.
+
+    An explicit limit is capped: paging exists to bound one response, and a caller
+    asking for a hundred thousand is not paging.
+    """
+    off = max(0, int(offset or 0))
+    if limit is None:
+        return None, off
+    return max(1, min(int(limit), MAX_LIST_PAGE)), off
+
+
+@router.get("/ai/chunk-presets",
+            dependencies=[Depends(require_permission("knowledge:read"))])
+async def chunk_presets():
+    """The chunking choices, with what each is for.
+
+    Served rather than restated in the frontend: the numbers and the descriptions
+    belong together, and a second copy is a copy that goes stale.
+    """
+    return {"default": DEFAULT_PRESET, "presets": [
+        {"name": name, "chunk_size": size, "chunk_overlap": overlap,
+         "label": CHUNK_PRESET_LABELS[name][0], "hint": CHUNK_PRESET_LABELS[name][1]}
+        for name, (size, overlap) in CHUNK_PRESETS.items()]}
+
+
 @router.get("/ai/collections",
             dependencies=[Depends(require_permission("knowledge:read"))])
-async def list_collections(user: dict = Depends(require_user)):
+async def list_collections(user: dict = Depends(require_user),
+                           q: Optional[str] = None,
+                           limit: Optional[int] = None,
+                           offset: Optional[int] = None):
+    """Collections visible to the caller, newest first.
+
+    `q` filters by name, `limit`/`offset` page. Neither defaults on: the assistant's
+    executors and the API page enumerate through here, and a silent cutoff would make
+    them forget whatever fell past it.
+    """
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
     is_admin = user.get("role") == "admin"
+    lim, off = listing_window(limit, offset)
+
+    where, args = [], []
+    if not is_admin:
+        args.append(_uid(user))
+        where.append(f"(col.owner_id = ${len(args)} OR col.owner_id IS NULL)")
+    if q and q.strip():
+        args.append(f"%{q.strip()}%")
+        where.append(f"col.name ILIKE ${len(args)}")
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+
+    paging = ""
+    if lim is not None:
+        args.append(lim); paging += f" LIMIT ${len(args)}"
+    if off:
+        args.append(off); paging += f" OFFSET ${len(args)}"
+
     async with pool.acquire() as c:
-        # Admins see all collections; everyone else sees their own + shared (no owner).
+        total = await c.fetchval(f"SELECT COUNT(*) FROM ai_collections col {clause}",
+                                 *args[:len(where)])
+        # Per-collection subqueries rather than one LEFT JOIN + GROUP BY over the whole
+        # chunk table. The join aggregated every chunk in the deployment on every page
+        # load; these hit ai_chunks_group_idx, which leads with collection_id, and only
+        # for the rows this page returns.
         rows = await c.fetch(f"""
             SELECT col.name, col.embed_model, col.dim, col.description, col.created_at,
-                   col.owner_id, COUNT(ch.id) AS chunks,
-                   COUNT(DISTINCT ch.source) AS sources, MAX(ch.created_at) AS last_ingested
+                   col.owner_id,
+                   (SELECT COUNT(*) FROM ai_chunks ch WHERE ch.collection_id = col.id) AS chunks,
+                   (SELECT COUNT(DISTINCT ch.source) FROM ai_chunks ch WHERE ch.collection_id = col.id) AS sources,
+                   (SELECT MAX(ch.created_at) FROM ai_chunks ch WHERE ch.collection_id = col.id) AS last_ingested
             FROM ai_collections col
-            LEFT JOIN ai_chunks ch ON ch.collection_id = col.id
-            {"" if is_admin else "WHERE col.owner_id = $1 OR col.owner_id IS NULL"}
-            GROUP BY col.id ORDER BY col.created_at DESC
-        """, *([] if is_admin else [_uid(user)]))
-    return {"collections": [
+            {clause}
+            ORDER BY col.created_at DESC{paging}
+        """, *args)
+    return {"total": total, "collections": [
         {"name": r["name"], "embed_model": r["embed_model"], "dim": r["dim"],
          "description": r["description"], "chunks": r["chunks"],
          "sources": r["sources"], "index": "HNSW · cosine",
@@ -1012,8 +1087,10 @@ async def collection_composition(name: str, user: dict = Depends(require_user)):
     pool = await get_db_pool()
     async with pool.acquire() as c:
         coll_id = await _collection_id(c, name, user)
-        cfg = await c.fetchval(
-            "SELECT refresh_source FROM ai_collections WHERE id = $1", coll_id)
+        meta = await c.fetchrow(
+            """SELECT refresh_source, description, chunk_preset, chunk_size, chunk_overlap
+               FROM ai_collections WHERE id = $1""", coll_id)
+        cfg = meta["refresh_source"] if meta else None
         rows = await c.fetch(
             """SELECT source, source_group, COUNT(*) AS chunks,
                       MAX(created_at) AS last_ingested
@@ -1027,6 +1104,8 @@ async def collection_composition(name: str, user: dict = Depends(require_user)):
             cfg = None
     out = shape_composition([dict(r) for r in rows], cfg)
     out["collection"] = name
+    for field in ("description", "chunk_preset", "chunk_size", "chunk_overlap"):
+        out[field] = meta[field] if meta else None
     return out
 
 
