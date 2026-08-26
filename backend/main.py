@@ -194,20 +194,39 @@ async def startup():
             else:
                 logger.warning(f"[startup] Settings load skipped after retries: {e}")
 
-    # Versioned migrations, before the bootstraps. The baseline is a stamp, so this
-    # is a no-op on every database that exists today; what it establishes is a place
-    # for the next schema change to go. See app/migrations.py.
+    # Check, never migrate. A Helm pre-upgrade Job runs the migrations — one pod,
+    # before this image starts. This hook runs in every replica, and Alembic does not
+    # lock, so migrating here would have two backends issuing DDL at once during a
+    # rolling upgrade. It also tied readiness to how long a migration takes, which
+    # turns a slow CREATE INDEX into a rolled-back release.
+    #
+    # What it does catch: an image upgraded without the Job having run. See
+    # app/migrations.py.
     try:
         from app.api.connectors import get_db_pool
         from app import migrations as _migrations
-        outcome = await _migrations.apply(await get_db_pool())
-        readiness.record("migrations", ok=True)
-        logger.info(f"[startup] migrations: {outcome}")
+
+        pool = await get_db_pool()
+        head = _migrations.head_revision()
+        current = await _migrations.current_revision(pool)
+        state = _migrations.startup_check(current, head)
+        if state == "stamp":
+            # Never managed here: a local run, or a first install. Record where it is
+            # rather than leaving the next deploy unable to tell.
+            await _migrations.apply(pool)
+            readiness.record("migrations", ok=True)
+            logger.info(f"[startup] migrations: stamped {head}")
+        elif state == "ok":
+            readiness.record("migrations", ok=True)
+            logger.info(f"[startup] migrations: at {head}")
+        else:
+            detail = (f"database is at {current}, this image expects {head} "
+                      f"({state}) — run the migration job")
+            readiness.record("migrations", ok=False, detail=detail)
+            logger.error(f"[startup] {detail}")
     except Exception as e:
-        # Required: a partially-migrated database is the state readiness exists to
-        # keep traffic away from.
         readiness.record("migrations", ok=False, detail=str(e))
-        logger.warning(f"[startup] migrations failed: {e}")
+        logger.warning(f"[startup] migration check failed: {e}")
 
     # 기반 스키마 부트스트랩 (auth.sql/queries.sql — users/roles/sessions/dashboards 등).
     # 빈 DB 1회 적용(센티넬 가드), 기존 DB는 skip. rls_migration이 users에 의존하므로 먼저 실행.
