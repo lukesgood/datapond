@@ -214,11 +214,9 @@ async def startup():
             # Never managed here: a local run, or a first install. Record where it is
             # rather than leaving the next deploy unable to tell.
             await _migrations.apply(pool)
-            readiness.record("migrations", ok=True)
-            logger.info(f"[startup] migrations: stamped {head}")
+            readiness.record("migrations", ok=True, detail=f"stamped {head}")
         elif state == "ok":
-            readiness.record("migrations", ok=True)
-            logger.info(f"[startup] migrations: at {head}")
+            readiness.record("migrations", ok=True, detail=f"at {head}")
         else:
             detail = (f"database is at {current}, this image expects {head} "
                       f"({state}) — run the migration job")
