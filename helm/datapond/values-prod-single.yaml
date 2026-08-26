@@ -168,3 +168,9 @@ ingress:
 # metadata endpoint. See helm/datapond/templates/networkpolicy.yaml.
 networkPolicy:
   enabled: true
+
+# Concept expansion (Phase 0 ontology slice). Enabled on the live reference
+# deployment; recorded here so a redeploy from this profile does not silently turn it
+# off again. Opt-in per query — nothing expands unless Search asks it to.
+ontology:
+  enabled: true

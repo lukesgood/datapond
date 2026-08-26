@@ -122,6 +122,31 @@ jobs:
           # Both dependency files are picked up automatically by fs-mode's
           # lockfile detection (backend/requirements.txt, frontend/package-lock.json).
 
+  acceptance:
+    name: Portable Core acceptance (deployed target)
+    runs-on: ubuntu-latest
+    # Runs only where a deployment exists to run it against. The suite is written so
+    # it can gate a release; wiring it to one needs a target, which is a decision
+    # about which environment a merge is allowed to touch.
+    #
+    # Set repo variable ACCEPTANCE_BASE_URL and secret ACCEPTANCE_TOKEN (an admin JWT)
+    # to enable. DATAPOND_VIEWER_TOKEN additionally checks the read-only boundary.
+    if: ${{ vars.ACCEPTANCE_BASE_URL != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        run: pip install pytest httpx
+      - name: Acceptance
+        working-directory: backend
+        env:
+          DATAPOND_BASE_URL: ${{ vars.ACCEPTANCE_BASE_URL }}
+          DATAPOND_TOKEN: ${{ secrets.ACCEPTANCE_TOKEN }}
+          DATAPOND_VIEWER_TOKEN: ${{ secrets.ACCEPTANCE_VIEWER_TOKEN }}
+        run: pytest tests/acceptance -v
+
   helm-lint:
     name: Helm chart lint
     runs-on: ubuntu-latest
