@@ -119,6 +119,12 @@ async def ensure_vector_schema(pool) -> None:
             # Replace-scope for re-embedding: a logical source group (distinct from
             # per-document `source`, which stays for citations / COUNT(DISTINCT)).
             await c.execute("ALTER TABLE ai_chunks ADD COLUMN IF NOT EXISTS source_group TEXT")
+            # Chunking belongs to the collection, not to each ingest. Two ingests into
+            # one collection used to be able to split differently, which makes the
+            # retrieved passages inconsistent in a way nothing reports.
+            await c.execute("ALTER TABLE ai_collections ADD COLUMN IF NOT EXISTS chunk_preset TEXT")
+            await c.execute("ALTER TABLE ai_collections ADD COLUMN IF NOT EXISTS chunk_size INT")
+            await c.execute("ALTER TABLE ai_collections ADD COLUMN IF NOT EXISTS chunk_overlap INT")
             await c.execute("CREATE INDEX IF NOT EXISTS ai_chunks_coll_idx ON ai_chunks(collection_id)")
             await c.execute("CREATE INDEX IF NOT EXISTS ai_chunks_group_idx ON ai_chunks(collection_id, source_group)")
             await c.execute(
@@ -215,9 +221,70 @@ class EmbedRequest(BaseModel):
     input: List[str]
 
 
+# How a document is split before embedding — the setting that most changes what
+# retrieval returns, and the one that was least visible: a per-request parameter the
+# UI never sent, so every collection got 1000/150 whether it held one-line FAQ
+# entries or contracts.
+#
+# Named rather than free numeric input because the numbers only mean something
+# relative to the documents, and a person choosing "FAQ entries" is making a better
+# decision than a person choosing 480.
+CHUNK_PRESETS = {
+    "short":    (500, 75),
+    "standard": (1000, 150),
+    "long":     (2000, 300),
+}
+
+# What each preset is for, in the words someone choosing would use. Kept beside the
+# numbers so the UI can render the choice without restating either — a copy of this
+# list in the frontend is a copy that goes stale.
+CHUNK_PRESET_LABELS = {
+    "short":    ("Short passages", "FAQ entries, chat logs, short notes"),
+    "standard": ("Standard", "articles, wiki pages, reports"),
+    "long":     ("Long documents", "contracts, manuals, specifications"),
+}
+DEFAULT_PRESET = "standard"
+
+
+def resolve_chunking(preset, size, overlap):
+    """(chunk_size, overlap) from a preset name, with explicit numbers overriding.
+
+    An unknown preset falls back rather than failing: a collection created by an
+    older client, or one whose preset was renamed later, must still ingest.
+    """
+    if size is not None or overlap is not None:
+        size = int(size if size is not None else CHUNK_PRESETS[DEFAULT_PRESET][0])
+        overlap = int(overlap if overlap is not None else 0)
+        if size <= 0:
+            raise ValueError("chunk size must be positive")
+        # At or above the chunk size the window advances by zero or goes backwards,
+        # and the ingest never terminates.
+        if overlap >= size or overlap < 0:
+            raise ValueError("overlap must be smaller than the chunk size")
+        return size, overlap
+    return CHUNK_PRESETS.get(preset or DEFAULT_PRESET, CHUNK_PRESETS[DEFAULT_PRESET])
+
+
 class CollectionCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    chunk_preset: Optional[str] = None            # short | standard | long
+    chunk_size: Optional[int] = None              # overrides the preset
+    chunk_overlap: Optional[int] = None
+
+
+class CollectionUpdate(BaseModel):
+    """What can be changed after creation.
+
+    Not the name: it is the key schedules, ingest paths and saved links use, and
+    renaming would strand them. Not the chunking of chunks already stored either —
+    changing the setting affects the next ingest, and the composition view is where
+    you see that two ingests disagree.
+    """
+    description: Optional[str] = None
+    chunk_preset: Optional[str] = None
+    chunk_size: Optional[int] = None
+    chunk_overlap: Optional[int] = None
 
 
 class Document(BaseModel):
@@ -228,8 +295,10 @@ class Document(BaseModel):
 
 class IngestRequest(BaseModel):
     documents: List[Document]
-    chunk_size: int = 1000
-    chunk_overlap: int = 150
+    # None means "use the collection's setting". Hardcoded 1000/150 here meant the
+    # collection's own choice could never take effect.
+    chunk_size: Optional[int] = None
+    chunk_overlap: Optional[int] = None
 
 
 class SearchRequest(BaseModel):
@@ -269,23 +338,90 @@ def _uid(user: dict):
         return None
 
 
-@router.get("/ai/collections")
-async def list_collections(user: dict = Depends(require_user)):
+MAX_LIST_PAGE = 500
+
+
+def listing_window(limit, offset):
+    """(limit, offset) for a collection listing, or (None, offset) for all of them.
+
+    No default limit, deliberately. This endpoint is how the assistant's executors and
+    the API page enumerate collections, and a default cutoff would make them silently
+    forget whatever fell past it — the kind of bug that only appears once someone has
+    enough data to hit it.
+
+    An explicit limit is capped: paging exists to bound one response, and a caller
+    asking for a hundred thousand is not paging.
+    """
+    off = max(0, int(offset or 0))
+    if limit is None:
+        return None, off
+    return max(1, min(int(limit), MAX_LIST_PAGE)), off
+
+
+@router.get("/ai/chunk-presets",
+            dependencies=[Depends(require_permission("knowledge:read"))])
+async def chunk_presets():
+    """The chunking choices, with what each is for.
+
+    Served rather than restated in the frontend: the numbers and the descriptions
+    belong together, and a second copy is a copy that goes stale.
+    """
+    return {"default": DEFAULT_PRESET, "presets": [
+        {"name": name, "chunk_size": size, "chunk_overlap": overlap,
+         "label": CHUNK_PRESET_LABELS[name][0], "hint": CHUNK_PRESET_LABELS[name][1]}
+        for name, (size, overlap) in CHUNK_PRESETS.items()]}
+
+
+@router.get("/ai/collections",
+            dependencies=[Depends(require_permission("knowledge:read"))])
+async def list_collections(user: dict = Depends(require_user),
+                           q: Optional[str] = None,
+                           limit: Optional[int] = None,
+                           offset: Optional[int] = None):
+    """Collections visible to the caller, newest first.
+
+    `q` filters by name, `limit`/`offset` page. Neither defaults on: the assistant's
+    executors and the API page enumerate through here, and a silent cutoff would make
+    them forget whatever fell past it.
+    """
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
     is_admin = user.get("role") == "admin"
+    lim, off = listing_window(limit, offset)
+
+    where, args = [], []
+    if not is_admin:
+        args.append(_uid(user))
+        where.append(f"(col.owner_id = ${len(args)} OR col.owner_id IS NULL)")
+    if q and q.strip():
+        args.append(f"%{q.strip()}%")
+        where.append(f"col.name ILIKE ${len(args)}")
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+
+    paging = ""
+    if lim is not None:
+        args.append(lim); paging += f" LIMIT ${len(args)}"
+    if off:
+        args.append(off); paging += f" OFFSET ${len(args)}"
+
     async with pool.acquire() as c:
-        # Admins see all collections; everyone else sees their own + shared (no owner).
+        total = await c.fetchval(f"SELECT COUNT(*) FROM ai_collections col {clause}",
+                                 *args[:len(where)])
+        # Per-collection subqueries rather than one LEFT JOIN + GROUP BY over the whole
+        # chunk table. The join aggregated every chunk in the deployment on every page
+        # load; these hit ai_chunks_group_idx, which leads with collection_id, and only
+        # for the rows this page returns.
         rows = await c.fetch(f"""
             SELECT col.name, col.embed_model, col.dim, col.description, col.created_at,
-                   col.owner_id, COUNT(ch.id) AS chunks,
-                   COUNT(DISTINCT ch.source) AS sources, MAX(ch.created_at) AS last_ingested
+                   col.owner_id,
+                   (SELECT COUNT(*) FROM ai_chunks ch WHERE ch.collection_id = col.id) AS chunks,
+                   (SELECT COUNT(DISTINCT ch.source) FROM ai_chunks ch WHERE ch.collection_id = col.id) AS sources,
+                   (SELECT MAX(ch.created_at) FROM ai_chunks ch WHERE ch.collection_id = col.id) AS last_ingested
             FROM ai_collections col
-            LEFT JOIN ai_chunks ch ON ch.collection_id = col.id
-            {"" if is_admin else "WHERE col.owner_id = $1 OR col.owner_id IS NULL"}
-            GROUP BY col.id ORDER BY col.created_at DESC
-        """, *([] if is_admin else [_uid(user)]))
-    return {"collections": [
+            {clause}
+            ORDER BY col.created_at DESC{paging}
+        """, *args)
+    return {"total": total, "collections": [
         {"name": r["name"], "embed_model": r["embed_model"], "dim": r["dim"],
          "description": r["description"], "chunks": r["chunks"],
          "sources": r["sources"], "index": "HNSW · cosine",
@@ -304,19 +440,26 @@ async def create_collection(body: CollectionCreate, user: dict = Depends(require
     # Names are used as URL path segments; keep them to a tidy, unambiguous charset.
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,62}[A-Za-z0-9]|[A-Za-z0-9]", name):
         raise HTTPException(400, "name may contain only letters, digits, spaces, underscore or hyphen (1–64 chars, no leading/trailing space).")
+    try:
+        size, overlap = resolve_chunking(body.chunk_preset, body.chunk_size, body.chunk_overlap)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
     async with pool.acquire() as c:
         try:
             await c.execute(
-                """INSERT INTO ai_collections (name, embed_model, dim, description, owner_id)
-                   VALUES ($1, $2, $3, $4, $5)""",
+                """INSERT INTO ai_collections (name, embed_model, dim, description, owner_id,
+                                              chunk_preset, chunk_size, chunk_overlap)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
                 body.name.strip(), _embed_model(), EMBED_DIM(), body.description, _uid(user),
+                body.chunk_preset or DEFAULT_PRESET, size, overlap,
             )
         except asyncpg.UniqueViolationError as exc:
             raise HTTPException(409, f"Collection '{body.name.strip()}' already exists.") from exc
     return {"success": True, "name": body.name.strip(),
-            "embed_model": _embed_model(), "dim": EMBED_DIM()}
+            "embed_model": _embed_model(), "dim": EMBED_DIM(),
+            "chunk_size": size, "chunk_overlap": overlap}
 
 
 @router.delete("/ai/collections/{name}", dependencies=[Depends(require_permission("knowledge:write"))])
@@ -326,6 +469,117 @@ async def delete_collection(name: str, user: dict = Depends(require_user)):
         await _collection_id(c, name, user, destroy=True)   # 404/403 gate (owner/admin only)
         res = await c.execute("DELETE FROM ai_collections WHERE name = $1", name)
     return {"success": True, "deleted": res}
+
+
+def _group_for_config(cfg: Optional[dict]) -> Optional[str]:
+    """The source_group a scheduled refresh writes under.
+
+    Mirrors _source_group() deliberately rather than sharing it: that one takes a
+    SourceIngest model and this takes the jsonb it was persisted as. If the two ever
+    disagree, a scheduled source stops being recognised as scheduled — which is why
+    the composition report also flags a schedule that matches no chunks.
+    """
+    if not cfg:
+        return None
+    if cfg.get("type") == "iceberg":
+        return f"iceberg:{cfg.get('schema')}.{cfg.get('table')}.{cfg.get('text_column')}"
+    if cfg.get("type") == "s3":
+        return f"s3:{cfg.get('bucket')}/{cfg.get('prefix') or ''}"
+    return None
+
+
+def shape_composition(rows, refresh_source: Optional[dict]) -> dict:
+    """What a collection is made of, largest contributor first.
+
+    A scheduled source is marked because it behaves differently from the rest: it is
+    replaced wholesale on each refresh, while everything else was ingested once and
+    stays until someone removes it. Without the distinction, "last ingested three
+    weeks ago" reads as stale for one and as finished for the other.
+    """
+    scheduled_group = _group_for_config(refresh_source)
+    sources, matched = [], False
+    for r in rows:
+        is_scheduled = bool(scheduled_group) and r.get("source_group") == scheduled_group
+        matched = matched or is_scheduled
+        sources.append({
+            # Pasted text has no filename. Dropping it would make the parts disagree
+            # with the total, and the total is the number people trust.
+            "source": r.get("source") or "(pasted text)",
+            "chunks": int(r.get("chunks") or 0),
+            "last_ingested": r.get("last_ingested"),
+            "scheduled": is_scheduled,
+        })
+    sources.sort(key=lambda s: (-s["chunks"], s["source"]))
+    return {
+        "sources": sources,
+        "total_chunks": sum(s["chunks"] for s in sources),
+        # A schedule producing no chunks looks like a working pipeline from the
+        # Schedule tab, which shows only that it is enabled.
+        "scheduled_source_has_no_chunks": bool(scheduled_group) and not matched,
+    }
+
+
+def build_lineage(connections, jobs, collections) -> dict:
+    """connector → namespace.table → collection, from data the product already acts on.
+
+    _invalidate_sink_collections() in app/api/connectors.py marks a collection stale
+    when a sync writes to the table its refresh_source names, and the scheduler then
+    re-embeds it. That dependency runs in production and has never been visible, so
+    "this table changed — which collections are now wrong?" had no answer.
+
+    Only tables that actually feed a collection are drawn. A connector syncing fifty
+    tables nothing consumes would bury the part of the graph that matters.
+    """
+    def table_key(target: str, fallback: str) -> str:
+        # Namespace from the target, not assumed to be `default`: a sync can write
+        # into another namespace, and assuming otherwise breaks the match silently —
+        # which is how a stale collection comes to look fresh.
+        parts = (target or "").split(".")
+        ns = parts[-2] if len(parts) >= 2 else "default"
+        name = parts[-1] if parts and parts[-1] else fallback
+        return f"{ns}.{name}"
+
+    wanted, coll_nodes, edges = {}, [], []
+    for c in collections:
+        coll_nodes.append({"id": f"collection:{c['name']}", "kind": "collection",
+                           "label": c["name"]})
+        src = c.get("refresh_source") or {}
+        if src.get("type") == "iceberg" and src.get("schema") and src.get("table"):
+            key = f"{src['schema']}.{src['table']}"
+            wanted.setdefault(key, []).append(c)
+
+    by_conn = {c["id"]: c for c in connections}
+    table_nodes, conn_nodes = {}, {}
+    for j in jobs:
+        key = table_key(j.get("target_table"), j.get("source_table") or "")
+        if key not in wanted:
+            continue
+        table_nodes.setdefault(key, {"id": f"table:{key}", "kind": "table", "label": key})
+        c = by_conn.get(j.get("connection_id"))
+        if c:
+            node = conn_nodes.setdefault(f"connector:{c['name']}", {
+                "id": f"connector:{c['name']}", "kind": "connector",
+                "label": c["name"], "type": c.get("connector_type"), "status": "ok"})
+            if j.get("last_run_status") == "failed":
+                node["status"] = "failed"
+            edge = {"source": node["id"], "target": f"table:{key}", "active": True}
+            if edge not in edges:
+                edges.append(edge)
+
+    for key, consumers in wanted.items():
+        if key not in table_nodes:
+            continue
+        for c in consumers:
+            edges.append({
+                "source": f"table:{key}", "target": f"collection:{c['name']}",
+                # A paused schedule still has a real upstream — the table does feed
+                # it — but nothing will act on a change. Marking beats hiding, which
+                # would claim the collection has no upstream at all.
+                "active": bool(c.get("refresh_enabled")),
+            })
+
+    nodes = list(conn_nodes.values()) + list(table_nodes.values()) + coll_nodes
+    return {"nodes": nodes, "edges": edges}
 
 
 async def _collection_id(
@@ -400,10 +654,21 @@ async def ingest(name: str, req: IngestRequest, user: dict = Depends(require_use
     await ensure_vector_schema(pool)
     async with pool.acquire() as c:
         coll_id = await _collection_id(c, name, user, write=True)
+        # The collection's setting is the default, so two ingests into one collection
+        # split the same way unless the caller deliberately says otherwise.
+        row = await c.fetchrow(
+            "SELECT chunk_preset, chunk_size, chunk_overlap FROM ai_collections WHERE id = $1",
+            coll_id)
+    try:
+        size, overlap = resolve_chunking(
+            row["chunk_preset"] if row else None,
+            req.chunk_size if req.chunk_size is not None else (row["chunk_size"] if row else None),
+            req.chunk_overlap if req.chunk_overlap is not None else (row["chunk_overlap"] if row else None))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     res = await _ingest_documents(
-        coll_id, [(d.source, d.text, d.metadata) for d in req.documents],
-        req.chunk_size, req.chunk_overlap)
-    return {"success": True, **res}
+        coll_id, [(d.source, d.text, d.metadata) for d in req.documents], size, overlap)
+    return {"success": True, "chunk_size": size, "chunk_overlap": overlap, **res}
 
 
 # ── Source ingestion (the AI data pipeline: lakehouse / object store → vectors) ──
@@ -584,7 +849,8 @@ async def schedule_ingest(name: str, body: ScheduleRequest, user: dict = Depends
     return {"success": True, "enabled": True, "interval_minutes": minutes}
 
 
-@router.get("/ai/collections/{name}/schedule")
+@router.get("/ai/collections/{name}/schedule",
+            dependencies=[Depends(require_permission("knowledge:read"))])
 async def get_schedule(name: str, user: dict = Depends(require_user)):
     pool = await get_db_pool()
     await ensure_vector_schema(pool)
@@ -705,6 +971,142 @@ def _guard(text: str):
     path too so RAG/search are covered (not just /ai/sql + ingest)."""
     from app.guardrails import pii_ko
     return pii_ko.apply(text or "")
+
+
+@router.get("/ai/lineage",
+            dependencies=[Depends(require_permission("knowledge:read"))])
+async def knowledge_lineage(user: dict = Depends(require_user)):
+    """Which sources feed which collections.
+
+    Reads the three tables the dependency already lives in. Connector tables belong
+    to an optional adapter, so their absence is a graph of standalone collections
+    rather than an error — which is the correct picture for a deployment that ingests
+    by hand.
+    """
+    pool = await get_db_pool()
+    connections, jobs = [], []
+    async with pool.acquire() as c:
+        try:
+            connections = [dict(r) for r in await c.fetch(
+                "SELECT id, name, connector_type FROM connector_connections")]
+            jobs = [dict(r) for r in await c.fetch(
+                """SELECT connection_id, source_table, target_table, last_run_status
+                   FROM connector_sync_jobs WHERE enabled""")]
+        except Exception as e:
+            logger.debug(f"[lineage] connector tables unavailable: {e}")
+        cols = [dict(r) for r in await c.fetch(
+            """SELECT name, refresh_source, refresh_enabled FROM ai_collections
+               WHERE owner_id IS NULL OR owner_id = $1 OR $2""",
+            _uid(user), user.get("role") == "admin")]
+
+    import json as _json
+    for col in cols:
+        if isinstance(col.get("refresh_source"), str):
+            try:
+                col["refresh_source"] = _json.loads(col["refresh_source"])
+            except Exception:
+                col["refresh_source"] = None
+    for j in jobs:
+        j["connection_id"] = str(j["connection_id"])
+    for c2 in connections:
+        c2["id"] = str(c2["id"])
+    return build_lineage(connections, jobs, cols)
+
+
+@router.patch("/ai/collections/{name}",
+              dependencies=[Depends(require_permission("knowledge:write"))])
+async def update_collection(name: str, body: CollectionUpdate,
+                            user: dict = Depends(require_user)):
+    """Change a collection's description or how future ingests are split.
+
+    Chunks already stored keep the split they were made with. Re-chunking them would
+    mean re-embedding everything, which is a job and not a setting — the composition
+    view is where a collection with two different splits becomes visible.
+    """
+    fields, values = [], []
+    if body.description is not None:
+        fields.append("description"); values.append(body.description)
+    if body.chunk_preset or body.chunk_size is not None or body.chunk_overlap is not None:
+        try:
+            size, overlap = resolve_chunking(body.chunk_preset, body.chunk_size,
+                                             body.chunk_overlap)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        fields += ["chunk_preset", "chunk_size", "chunk_overlap"]
+        values += [body.chunk_preset or DEFAULT_PRESET, size, overlap]
+    if not fields:
+        raise HTTPException(400, "Nothing to update.")
+
+    pool = await get_db_pool()
+    async with pool.acquire() as c:
+        coll_id = await _collection_id(c, name, user, write=True)
+        assignments = ", ".join(f"{f} = ${i + 2}" for i, f in enumerate(fields))
+        await c.execute(f"UPDATE ai_collections SET {assignments} WHERE id = $1",
+                        coll_id, *values)
+    return {"success": True, "name": name, "updated": fields}
+
+
+@router.delete("/ai/collections/{name}/sources",
+               dependencies=[Depends(require_permission("knowledge:write"))])
+async def delete_source(name: str, source: str, user: dict = Depends(require_user)):
+    """Remove one source's chunks, leaving the rest of the collection intact.
+
+    The only way to get rid of a bad document used to be deleting the whole
+    collection and rebuilding it. Composition now lists every source by name, and a
+    list of things you cannot act on is half a feature.
+
+    `source` is matched exactly, including the "(pasted text)" placeholder, which maps
+    back to the NULL it stands for.
+    """
+    target = None if source == "(pasted text)" else source
+    pool = await get_db_pool()
+    async with pool.acquire() as c:
+        coll_id = await _collection_id(c, name, user, write=True)
+        if target is None:
+            result = await c.execute(
+                "DELETE FROM ai_chunks WHERE collection_id = $1 AND source IS NULL", coll_id)
+        else:
+            result = await c.execute(
+                "DELETE FROM ai_chunks WHERE collection_id = $1 AND source = $2",
+                coll_id, target)
+    removed = int(result.split()[-1]) if result and result.split()[-1].isdigit() else 0
+    if removed == 0:
+        raise HTTPException(404, f"No chunks in '{name}' from source '{source}'.")
+    return {"success": True, "source": source, "removed": removed}
+
+
+@router.get("/ai/collections/{name}/composition",
+            dependencies=[Depends(require_permission("knowledge:read"))])
+async def collection_composition(name: str, user: dict = Depends(require_user)):
+    """Which sources this collection is made of, and how much each contributed.
+
+    The list card could say "3 sources" and nothing could say which three. Goes
+    through _collection_id so the collection ACL applies here exactly as it does to
+    search — the composition of a collection is as much its content as the chunks are.
+    """
+    pool = await get_db_pool()
+    async with pool.acquire() as c:
+        coll_id = await _collection_id(c, name, user)
+        meta = await c.fetchrow(
+            """SELECT refresh_source, description, chunk_preset, chunk_size, chunk_overlap
+               FROM ai_collections WHERE id = $1""", coll_id)
+        cfg = meta["refresh_source"] if meta else None
+        rows = await c.fetch(
+            """SELECT source, source_group, COUNT(*) AS chunks,
+                      MAX(created_at) AS last_ingested
+               FROM ai_chunks WHERE collection_id = $1
+               GROUP BY source, source_group""", coll_id)
+    if isinstance(cfg, str):
+        import json as _json
+        try:
+            cfg = _json.loads(cfg)
+        except Exception:
+            cfg = None
+    out = shape_composition([dict(r) for r in rows], cfg)
+    out["collection"] = name
+    for field in ("description", "chunk_preset", "chunk_size", "chunk_overlap"):
+        out[field] = meta[field] if meta else None
+    return out
 
 
 @router.post("/ai/search", dependencies=[Depends(require_permission("ai:generate"))])

@@ -185,6 +185,11 @@ export function ServiceAccounts() {
                   </span>
                 </CardTitle>
                 <div className="flex items-center gap-2">
+                  {/* What this application has cost. The question a developer has is
+                      not "what have I spent" but "what is my integration spending",
+                      and the integration is this account — a distinct user id, so its
+                      spend is exactly measurable. */}
+                  <AccountSpend accountId={a.id} />
                   <Badge variant="secondary">{a.role}</Badge>
                   <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
                           disabled={busy} onClick={() => issueKey(a)}>
@@ -238,5 +243,28 @@ export function ServiceAccounts() {
         ))
       )}
     </div>
+  )
+}
+
+
+function AccountSpend({ accountId }: { accountId: string }) {
+  const [s, setS] = useState<{ spend: number; requests: number } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/service-accounts/${accountId}/usage`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && d) setS({ spend: d.spend, requests: d.requests }) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [accountId])
+
+  if (!s) return null
+  return (
+    <span className="text-[11px] tabular-nums text-muted-foreground">
+      {s.requests === 0
+        ? "no calls yet"
+        : `${s.requests} call${s.requests === 1 ? "" : "s"} · $${s.spend.toFixed(s.spend >= 0.01 ? 4 : 6)}`}
+    </span>
   )
 }

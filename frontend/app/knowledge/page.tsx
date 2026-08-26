@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react"
 import { useToast } from "@/lib/toast"
 import Link from "next/link"
-import { Sparkles, Plus, Trash2, Search, MessageSquare, Database, Upload, AlertCircle, Loader2, FileText, ShieldCheck, Clock, Users, CheckCircle2, ArrowDownWideNarrow, BookMarked } from "lucide-react"
+import { Sparkles, Plus, Trash2, Search, MessageSquare, Database, Upload, AlertCircle, Loader2, FileText, ShieldCheck, Clock, Users, CheckCircle2, ArrowDownWideNarrow, BookMarked, Layers, GitBranch } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,6 +12,10 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ConceptsPanel } from "@/components/knowledge/concepts-panel"
 import { ComparePanel } from "@/components/knowledge/compare-panel"
+import { Markdown } from "@/components/ui/markdown"
+import { MySpend } from "@/components/ai/my-spend"
+import { CompositionPanel } from "@/components/knowledge/composition-panel"
+import { LineagePanel } from "@/components/knowledge/lineage-panel"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -37,7 +41,8 @@ function timeAgo(iso: string | null | undefined): string {
   return `${Math.floor(s / 86400)} d ago`
 }
 interface Hit { source: string | null; content: string; score: number; rerank_score?: number }
-interface CollectionsResponse { collections?: Collection[] }
+interface ChunkPreset { name: string; label: string; hint: string; chunk_size: number; chunk_overlap: number }
+interface CollectionsResponse { collections?: Collection[]; total?: number }
 interface AiStatusResponse { egress_policy?: string }
 interface CatalogColumn { name: string; type: string }
 interface CatalogResponse {
@@ -50,6 +55,13 @@ export default function KnowledgePage() {
   const [cols, setCols] = useState<Collection[]>([])
   const [loading, setLoading] = useState(true)
   const [sel, setSel] = useState<string | null>(null)
+  // Collapsed by default: on a deployment that ingests by hand this is a list
+  // of collections with no upstream, which is true but not worth the space.
+  const [showLineage, setShowLineage] = useState(false)
+  // Filtering server-side rather than in the browser: with a page limit the client
+  // only holds a window, so filtering what it holds would search the wrong set.
+  const [filter, setFilter] = useState("")
+  const [total, setTotal] = useState(0)
   const [egress, setEgress] = useState<string>("")
   const [err, setErr] = useState<string | null>(null)
   const me = getUser()
@@ -58,20 +70,36 @@ export default function KnowledgePage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const r = await fetch("/api/ai/collections")
+      const params = new URLSearchParams({ limit: "100" })
+      if (filter.trim()) params.set("q", filter.trim())
+      const r = await fetch(`/api/ai/collections?${params}`)
       const d: CollectionsResponse = await r.json()
       const list = d.collections ?? []
       setCols(list)
+      setTotal(d.total ?? list.length)
+      // Keep the selection when it survives the filter; otherwise fall to the first
+      // match, so typing never leaves the workspace showing something not in the list.
       setSel(s => s && list.some(c => c.name === s) ? s : (list[0]?.name ?? null))
     } catch { setErr("Failed to load collections") }
     setLoading(false)
-  }, [])
+  }, [filter])
 
+  // Debounced, because `load` now changes with the filter text: without this every
+  // keystroke is a request, and the last one to arrive wins rather than the last one
+  // typed.
   useEffect(() => {
-    const initial = window.setTimeout(() => void load(), 0)
-    fetch("/api/settings/ai/status").then(r => r.json() as Promise<AiStatusResponse>).then(d => setEgress(d.egress_policy ?? "")).catch(() => {})
-    return () => window.clearTimeout(initial)
+    const t = window.setTimeout(() => void load(), 250)
+    return () => window.clearTimeout(t)
   }, [load])
+
+  // Once. It used to refetch alongside the collection list, which had nothing to do
+  // with it.
+  useEffect(() => {
+    fetch("/api/settings/ai/status")
+      .then(r => r.json() as Promise<AiStatusResponse>)
+      .then(d => setEgress(d.egress_policy ?? ""))
+      .catch(() => {})
+  }, [])
 
   return (
     <div className="p-6 space-y-5">
@@ -102,8 +130,20 @@ export default function KnowledgePage() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-5">
-        {/* Collections list */}
+        {/* Collections list. Bounded and filterable: it used to render every
+            collection into an unbounded column, so a deployment with a few hundred
+            stretched the page far below the workspace it sits beside, with no way to
+            find one but to read them all. */}
         <div className="space-y-2">
+          {(cols.length > 8 || filter) && (
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input value={filter} onChange={e => setFilter(e.target.value)}
+                     placeholder={`Filter ${total || cols.length} collections…`}
+                     className="h-8 pl-7 text-xs" />
+            </div>
+          )}
+          <div className="max-h-[calc(100vh-16rem)] space-y-2 overflow-y-auto pr-1">
           {loading ? [0, 1, 2].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)
             : cols.length === 0 ? (
               <Card><CardContent>
@@ -149,6 +189,12 @@ export default function KnowledgePage() {
                 </CardContent>
               </Card>
             ))}
+          </div>
+          {total > cols.length && (
+            <p className="text-center text-[11px] text-muted-foreground">
+              Showing {cols.length} of {total}. Narrow the filter to find the rest.
+            </p>
+          )}
         </div>
 
         {/* Selected collection workspace */}
@@ -163,6 +209,31 @@ export default function KnowledgePage() {
               </CardContent></Card>}
         </div>
       </div>
+
+      {/* Personal model spend lives here rather than on the API page, which is about
+          what an *application* costs, and rather than AI Gateway, which reports the
+          whole deployment and needs a permission data_scientist does not hold.
+          Knowledge is where a person spends tokens, so it is where they see it. */}
+      <MySpend />
+
+      {/* Lineage spans collections, so it belongs to the page rather than to the
+          selected one — the question it answers ("this table changed, what is now
+          stale?") starts from a source, not from a collection. */}
+      <Card>
+        <CardHeader className="pb-2 flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <GitBranch className="h-4 w-4 text-primary" />Lineage
+            </CardTitle>
+            <CardDescription>What feeds each collection, and what a source change makes stale.</CardDescription>
+          </div>
+          <button onClick={() => setShowLineage(v => !v)}
+                  className="text-[11px] text-muted-foreground hover:text-foreground">
+            {showLineage ? "Hide" : "Show"}
+          </button>
+        </CardHeader>
+        {showLineage && <CardContent className="pt-0"><LineagePanel /></CardContent>}
+      </Card>
     </div>
   )
 }
@@ -179,13 +250,26 @@ function CreateCollection({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState(""); const [desc, setDesc] = useState("")
   const [busy, setBusy] = useState(false); const [e, setE] = useState<string | null>(null)
+  // Presets come from the server, with their numbers and what each is for. A copy of
+  // that list here is a copy that goes stale.
+  const [presets, setPresets] = useState<ChunkPreset[]>([])
+  const [preset, setPreset] = useState("standard")
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/ai/chunk-presets").then(r => (r.ok ? r.json() : null)).then(d => {
+      if (cancelled || !d) return
+      setPresets(d.presets || []); setPreset(d.default || "standard")
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
   const submit = async () => {
     if (!name.trim()) return
     setBusy(true); setE(null)
     try {
       const r = await fetch("/api/ai/collections", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), description: desc || undefined }),
+        body: JSON.stringify({ name: name.trim(), description: desc || undefined,
+                               chunk_preset: preset }),
       })
       if (!r.ok) throw new Error((await r.json()).detail || "Create failed")
       setOpen(false); toast(`Collection "${name.trim()}" created`, "success"); setName(""); setDesc(""); onCreated()
@@ -203,6 +287,31 @@ function CreateCollection({ onCreated }: { onCreated: () => void }) {
             <Input value={name} onChange={e => setName(e.target.value)} placeholder="kb_docs" className="font-mono" /></div>
           <div className="space-y-1.5"><Label className="text-xs">Description</Label>
             <Input value={desc} onChange={e => setDesc(e.target.value)} placeholder="optional" /></div>
+          {presets.length > 0 && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">How documents are split</Label>
+              <div className="grid gap-1.5">
+                {presets.map(p => (
+                  <button key={p.name} type="button" onClick={() => setPreset(p.name)}
+                    aria-pressed={preset === p.name}
+                    className={`flex items-center justify-between rounded-md border px-2.5 py-2 text-left text-xs transition-colors ${
+                      preset === p.name ? "border-primary/50 bg-primary/5" : "hover:bg-muted/40"}`}>
+                    <span>
+                      <span className="font-medium">{p.label}</span>
+                      <span className="ml-1.5 text-muted-foreground">{p.hint}</span>
+                    </span>
+                    <span className="dp-num shrink-0 text-[10px] text-muted-foreground">
+                      {p.chunk_size}/{p.chunk_overlap}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Changeable later, but only for what you ingest after — chunks already
+                stored keep the split they were made with.
+              </p>
+            </div>
+          )}
           {e && <ErrorBox msg={e} />}
           <Button onClick={submit} disabled={!name.trim() || busy} className="w-full">
             {busy && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}Create</Button>
@@ -224,6 +333,7 @@ function Workspace({ name, onChange, empty }: { name: string; onChange: () => vo
         {/* An empty collection has nothing to search — open on Ingest so the first step is obvious. */}
         <Tabs defaultValue={empty ? "ingest" : "search"}>
           <TabsList><TabsTrigger value="search"><Search className="h-3.5 w-3.5 mr-1" />Search / RAG</TabsTrigger>
+            <TabsTrigger value="composition"><Layers className="h-3.5 w-3.5 mr-1" />Composition</TabsTrigger>
             <TabsTrigger value="ingest"><Upload className="h-3.5 w-3.5 mr-1" />Ingest</TabsTrigger>
             <TabsTrigger value="schedule"><Clock className="h-3.5 w-3.5 mr-1" />Schedule</TabsTrigger>
             {/* Only when the deployment has the capability. Without the flag every
@@ -233,6 +343,7 @@ function Workspace({ name, onChange, empty }: { name: string; onChange: () => vo
             {ontologyOn && <TabsTrigger value="concepts"><BookMarked className="h-3.5 w-3.5 mr-1" />Concepts</TabsTrigger>}
             <TabsTrigger value="compare"><ArrowDownWideNarrow className="h-3.5 w-3.5 mr-1" />Compare</TabsTrigger></TabsList>
           <TabsContent value="search"><SearchPanel name={name} /></TabsContent>
+          <TabsContent value="composition"><CompositionPanel name={name} onChange={onChange} /></TabsContent>
           <TabsContent value="ingest"><IngestPanel name={name} onChange={onChange} /></TabsContent>
           <TabsContent value="schedule"><SchedulePanel name={name} /></TabsContent>
           {/* Deliberately in Knowledge rather than a page of its own: concepts change
@@ -311,28 +422,12 @@ function SchedulePanel({ name }: { name: string }) {
   )
 }
 
-// Render an answer, styling inline [n] citation markers as chips that echo the
-// numbered source list below — the visible link that makes the answer accountable.
+// Render an answer: [n] citation chips that echo the numbered source list below,
+// plus the Markdown the model routinely returns. It used to handle **bold** and
+// nothing else, so a bulleted answer arrived as lines starting with a hyphen and a
+// heading as a line starting with hashes.
 function renderCitedAnswer(text: string) {
-  // Split on [n] citations → chips. Within the surrounding prose, also render the
-  // **bold** emphasis the model routinely returns, so the literal ** markers don't
-  // leak into the grounded answer.
-  return text.split(/(\[\d+\])/g).map((part, i) => {
-    const m = part.match(/^\[(\d+)\]$/)
-    if (m) return (
-      <sup key={i} className="mx-0.5 inline-flex items-center rounded bg-primary/10 px-1 py-px align-baseline text-[10px] font-semibold text-primary">{m[1]}</sup>
-    )
-    return (
-      <span key={i}>
-        {part.split(/(\*\*[^*]+\*\*)/g).map((seg, j) => {
-          const b = seg.match(/^\*\*([^*]+)\*\*$/)
-          return b
-            ? <strong key={j} className="font-semibold text-foreground">{b[1]}</strong>
-            : <span key={j}>{seg}</span>
-        })}
-      </span>
-    )
-  })
+  return <Markdown text={text} citations />
 }
 
 // Concepts the backend expanded the query with (Phase 0 ontology slice).

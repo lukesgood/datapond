@@ -494,6 +494,40 @@ def usage_by_feature(logs) -> list:
                   key=lambda r: r["spend"], reverse=True)
 
 
+@router.get("/api-surface", dependencies=[Depends(require_permission("ai:generate"))])
+async def api_surface():
+    """What an application can call, generated from the running routes.
+
+    Not the whole OpenAPI document: 218 paths, most of them operational, would bury
+    the fourteen an integration actually uses. See app/api/api_surface.py.
+    """
+    import main
+
+    from app.api.api_surface import build_api_surface
+    return {"endpoints": build_api_surface(main.app)}
+
+
+@router.get("/service-accounts/{account_id}/usage",
+            dependencies=[Depends(require_permission("ai:generate"))])
+async def service_account_usage(account_id: str):
+    """What one service account — one application — has spent.
+
+    The question a developer has is "what is my integration costing", and the
+    integration is the service account: it is a distinct user id, so its spend is
+    exactly measurable. Their own personal spend is a different question with a
+    different answer.
+    """
+    url, key = _gateway()
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.get(f"{url}/spend/logs", headers=_headers(key))
+        logs = r.json() if r.status_code < 400 and isinstance(r.json(), list) else []
+    except Exception as e:
+        logger.warning("service account usage failed: %s", e)
+        logs = []
+    return spend_for_user(logs, account_id)
+
+
 @router.get("/settings/ai/usage/me",
             dependencies=[Depends(require_permission("ai:generate"))])
 async def my_usage(user: dict = Depends(require_user)):
