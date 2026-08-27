@@ -114,3 +114,42 @@ def test_the_probe_targets_the_readiness_path_not_the_liveness_one():
              / "helm/datapond/templates/backend-deployment.yaml").read_text()
     readiness_block = chart.split("readinessProbe:", 1)[1][:400]
     assert "path: /health/ready" in readiness_block
+
+
+# ── reporting state, not just failure ─────────────────────────────────────────
+#
+# The startup hook logs its outcomes at INFO and the root logger is WARNING, so none
+# of them reach the log. "[startup] migrations: at 0001_baseline" — the one line an
+# operator wants when a deploy looks wrong — is invisible, and I nearly concluded from
+# its absence that the check had not run.
+#
+# Readiness already reports failure. Reporting the successful state too costs nothing
+# and does not depend on a log level nobody set deliberately.
+
+def test_a_successful_check_can_carry_a_note():
+    from app.readiness import Readiness
+    r = Readiness(required={"migrations"})
+    r.record("migrations", ok=True, detail="at 0001_baseline")
+    assert r.status()["state"]["migrations"] == "at 0001_baseline"
+
+
+def test_a_note_does_not_make_a_check_fail():
+    from app.readiness import Readiness
+    r = Readiness(required={"migrations"})
+    r.record("migrations", ok=True, detail="at 0001_baseline")
+    assert r.status()["ready"] is True
+
+
+def test_a_check_recorded_without_a_note_still_reports_ok():
+    from app.readiness import Readiness
+    r = Readiness(required={"base_schema"})
+    r.record("base_schema", ok=True)
+    assert r.status()["state"]["base_schema"] == "ok"
+
+
+def test_a_failure_note_stays_where_failures_are_reported():
+    from app.readiness import Readiness
+    r = Readiness(required={"base_schema"})
+    r.record("base_schema", ok=False, detail="relation does not exist")
+    assert "relation does not exist" in r.status()["detail"]["base_schema"]
+    assert "base_schema" not in r.status()["state"]

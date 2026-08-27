@@ -1,0 +1,85 @@
+{{- if and .Values.backend.enabled (.Values.migrations | default dict).enabled }}
+{{/*
+Schema migrations, before the new image is rolled out.
+
+They used to run in the application's startup hook, which runs in every replica —
+two backends starting during a rolling upgrade would both issue DDL, and Alembic does
+not lock. It also tied readiness to how long a migration takes, so a slow CREATE INDEX
+would hold pods NotReady until `helm --wait` gave up and rolled back a release that
+was working.
+
+A hook Job is one pod, once, before anything else moves. If it fails the release stops
+here, which is the ordering that makes a schema change safe: the schema moves first,
+or nothing does.
+
+hook-weight is negative so this runs before any other pre-upgrade hook. The Job is
+kept on failure — deleting the evidence of the thing that stopped a release is how an
+outage becomes a mystery.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.backend.name }}-migrate
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.backend.name }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  # A migration is not a thing to retry blindly: a partial failure retried can leave
+  # a worse state than the first attempt. One try, then a human reads the log.
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.backend.name }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- include "datapond.podSecurity" (dict "enabled" (.Values.podSecurity).enabled "uid" (.Values.podSecurity).backend.uid "gid" (.Values.podSecurity).backend.gid) | nindent 6 }}
+      containers:
+      - name: migrate
+        {{- include "datapond.containerSecurity" (.Values.podSecurity).enabled | nindent 8 }}
+        image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+        command: ["python", "-m", "app.migrations"]
+        env:
+        # The same database the application uses, from the same secret. A second way
+        # to say where the database is would be a second way to get it wrong.
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_DB
+        - name: POSTGRES_HOST
+          value: "{{ if .Values.externalDatabase.enabled }}{{ .Values.externalDatabase.host }}{{ else }}postgres{{ end }}"
+        - name: POSTGRES_PORT
+          value: "{{ if .Values.externalDatabase.enabled }}{{ .Values.externalDatabase.port | default 5432 }}{{ else }}5432{{ end }}"
+        {{- if .Values.externalDatabase.enabled }}
+        - name: POSTGRES_SSLMODE
+          value: "{{ .Values.externalDatabase.sslmode | default "require" }}"
+        {{- end }}
+        - name: DATABASE_URL
+          value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)"
+        resources:
+          requests: {cpu: 50m, memory: 128Mi}
+          limits: {memory: 512Mi}
+{{- end }}

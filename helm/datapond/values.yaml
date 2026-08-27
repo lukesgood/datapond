@@ -221,6 +221,16 @@ postgres:
 #
 # UIDs come from the Dockerfiles and were confirmed against the running containers:
 # backend 1000:1000, frontend 1001:65533.
+# Schema migrations run as a pre-install/pre-upgrade hook Job rather than in the
+# application's startup. See helm/datapond/templates/migrate-job.yaml for why.
+#
+# Turning this off does not make the application migrate instead — it checks and
+# refuses traffic when the database is behind. Off is for an operator who runs
+# `python -m app.migrations` themselves.
+migrations:
+  enabled: true
+
+
 podSecurity:
   enabled: true
   backend:

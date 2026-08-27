@@ -28,7 +28,10 @@ class Readiness:
     def __init__(self, required: Set[str]):
         self._required: FrozenSet[str] = frozenset(required)
         self._lock = threading.Lock()
-        self._ok: Set[str] = set()
+        # name -> note, for checks that succeeded. The startup hook logs at INFO and
+        # the root logger is WARNING, so none of those lines reach the log; this is
+        # where "at 0001_baseline" becomes visible to whoever is diagnosing a deploy.
+        self._ok: Dict[str, str] = {}
         self._failed: Dict[str, str] = {}
 
     def record(self, name: str, ok: bool, detail: Optional[str] = None) -> None:
@@ -37,16 +40,16 @@ class Readiness:
         is not up yet."""
         with self._lock:
             if ok:
-                self._ok.add(name)
+                self._ok[name] = detail or "ok"
                 self._failed.pop(name, None)
             else:
-                self._ok.discard(name)
+                self._ok.pop(name, None)
                 self._failed[name] = detail or "failed"
 
     def status(self) -> dict:
         with self._lock:
             failed = sorted(n for n in self._failed if n in self._required)
-            pending = sorted(self._required - self._ok - set(self._failed))
+            pending = sorted(self._required - set(self._ok) - set(self._failed))
             return {
                 # Not ready until every required bootstrap has actually reported
                 # success. Starting from ready would serve traffic during precisely
@@ -55,6 +58,7 @@ class Readiness:
                 "failed": failed,
                 "pending": pending,
                 "detail": dict(self._failed),
+                "state": dict(self._ok),
             }
 
 
