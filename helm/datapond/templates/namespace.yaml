@@ -1,23 +1,25 @@
 {{- if .Values.createNamespace }}
 {{/*
-Also a pre-install hook, because the migration Job is one and Helm runs hooks before
-the ordinary manifests. On a fresh install the Job had nowhere to go — "namespaces
-\"datapond\" not found" — and every first-time install of this chart would have failed
-that way. The live deployment never saw it: the namespace was already there.
+An ordinary resource, and it must stay one.
 
-Found the first time the ephemeral-install job ran, which is what that job is for.
+It was briefly a pre-install hook, so that the migration Job — which is one — would
+have somewhere to run on a first install. That deleted the live namespace on the next
+upgrade, on 2026-08-27. A hook is not part of the release manifest, so Helm saw a
+resource that had left the manifest and removed it: pods, secrets, the TLS
+certificate, and the release history, which Helm 3 keeps as secrets inside the very
+namespace it was deleting. Nothing could be rolled back, because rollback needs that
+history.
 
-hook-weight -20 puts it before the Job's -10. It is not deleted afterwards: it holds
-everything the release creates.
+The fresh-install ordering is Helm's own `--create-namespace`, which runs before any
+hook. That belongs in the install command, and the profile that uses it sets
+createNamespace: false so the chart does not render a second one on top.
+
+tests/test_helm_namespace_ownership.py holds this shut.
 */}}
 apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ .Values.namespace }}
-  annotations:
-    "helm.sh/hook": pre-install
-    "helm.sh/hook-weight": "-20"
-    "helm.sh/hook-delete-policy": before-hook-creation
   labels:
     name: {{ .Values.namespace }}
     app.kubernetes.io/name: datapond

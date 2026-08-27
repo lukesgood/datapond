@@ -9,7 +9,11 @@
 # installing today.
 
 namespace: datapond
-createNamespace: true
+# Helm's --create-namespace makes it before any hook runs, which is what the
+# pre-install migration Job needs. The chart must not render a second one on top:
+# it would collide on ownership metadata, and a Namespace in the manifest is what
+# a later upgrade can decide to delete. See tests/test_helm_namespace_ownership.py.
+createNamespace: false
 
 # The model gateway is replaced by a deterministic stand-in. See
 # backend/app/testing/mock_model.py — same text embeds the same way, so retrieval is

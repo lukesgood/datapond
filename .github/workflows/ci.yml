@@ -205,6 +205,7 @@ jobs:
       - name: Install from nothing
         run: |
           helm install datapond helm/datapond \
+            --namespace datapond --create-namespace \
             -f helm/datapond/values-ephemeral.yaml \
             --set-string backend.image.repository=datapond-backend \
             --set-string backend.image.tag=ci \
@@ -248,6 +249,7 @@ jobs:
           # to undo. The migration Job runs again on the upgrade; the schema is at the
           # same revision, which is what a no-op upgrade should look like.
           helm upgrade datapond helm/datapond \
+            --namespace datapond \
             -f helm/datapond/values-ephemeral.yaml \
             --set-string backend.image.repository=datapond-backend \
             --set-string backend.image.tag=ci \
@@ -257,8 +259,8 @@ jobs:
             --set frontend.image.pullPolicy=Never \
             --set backend.replicas=2 \
             --atomic --wait --timeout 12m
-          helm -n default history datapond || helm history datapond
-          helm rollback datapond 1 --wait --timeout 10m
+          helm -n datapond history datapond
+          helm -n datapond rollback datapond 1 --wait --timeout 10m
           kubectl -n datapond rollout status deploy/backend --timeout=5m
 
       - name: Still working after the rollback
