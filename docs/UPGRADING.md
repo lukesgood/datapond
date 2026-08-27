@@ -3,6 +3,39 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-08 — Infrastructure keeps an event history
+
+**What changed.** Infrastructure has a third tab, **Events**, backed by a new
+`system_events` table and an in-process collector.
+
+Before this, the only event surface read live Kubernetes Events for pods that
+currently exist. That loses everything twice: the apiserver expires Events after an
+hour, and a pod that has been replaced cannot be queried at all — which makes the pod
+worth asking about the one you cannot ask about. On 2026-08-27 the live node had
+rebooted four hours and fifty-two minutes earlier and `kubectl get events` held
+twenty-seven minutes of history.
+
+**What it records.** Pod restarts, OOMKills, probe failures, image-pull and mount
+failures, crash loops, evictions, and node reboots. Not request logs, not pod stdout,
+not authentication, not queries — those have their own homes and stay there.
+
+A condition that repeats is one row with a count and a first/last seen, not one row
+per occurrence.
+
+**One limit worth knowing.** Nothing is collected while the backend is down. A node
+reboot is therefore detected after the fact, and the reboot row says the cause is not
+recorded rather than inferring one. An empty window is not proof that nothing
+happened, and the empty state says so.
+
+**Who can see it.** `service:manage`, the same permission as the rest of
+Infrastructure. No new permission was added. `auditor` holds `audit:read` but not
+`service:manage`, so it cannot reach Infrastructure at all — unchanged by this, and a
+separate decision if you want it.
+
+**Tunable** via `backend.systemEvents`: `enabled` (default true), `tickSeconds`
+(120), `retentionDays` (30). Retention has a floor of one day rather than an off
+switch — unbounded growth is not acceptable on a single node.
+
 ## 2026-08 — Two role changes, and where AI Gateway lives now
 
 **`data_scientist` gains `connector:read`.** They could query a table through Catalog

@@ -130,6 +130,14 @@ spec:
           value: {{ dig "enabled" true (.Values.backend.ragScheduler | default dict) | quote }}
         - name: RAG_SCHEDULER_TICK_SECONDS
           value: {{ dig "tickSeconds" 300 (.Values.backend.ragScheduler | default dict) | quote }}
+        # System event history (Infrastructure → Events). Kubernetes Events expire
+        # after an hour; this keeps what mattered. `dig` for the bool-false case.
+        - name: SYSTEM_EVENTS_ENABLED
+          value: {{ dig "enabled" true (.Values.backend.systemEvents | default dict) | quote }}
+        - name: SYSTEM_EVENTS_TICK_SECONDS
+          value: {{ dig "tickSeconds" 120 (.Values.backend.systemEvents | default dict) | quote }}
+        - name: SYSTEM_EVENTS_RETENTION_DAYS
+          value: {{ dig "retentionDays" 30 (.Values.backend.systemEvents | default dict) | quote }}
         # Connector → RAG sink: re-embed fresh collections when their source table syncs
         - name: RAG_SINK_ENABLED
           value: {{ dig "sinkEnabled" true (.Values.backend.ragScheduler | default dict) | quote }}

@@ -130,6 +130,13 @@ backend:
   ragScheduler:
     enabled: true
     tickSeconds: 300
+  # Infrastructure → Events. Kubernetes Events expire after an hour and are reachable
+  # only through pods that still exist; this keeps a durable record of what changed and
+  # what died. Retention has a floor of one day, not an off switch.
+  systemEvents:
+    enabled: true
+    tickSeconds: 120
+    retentionDays: 30
     # Connector → RAG sink: on a connector sync, mark matching fresh collections
     # stale so the scheduler re-embeds them promptly (event-driven freshness).
     sinkEnabled: true
