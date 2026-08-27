@@ -1,8 +1,23 @@
 {{- if .Values.createNamespace }}
+{{/*
+Also a pre-install hook, because the migration Job is one and Helm runs hooks before
+the ordinary manifests. On a fresh install the Job had nowhere to go — "namespaces
+\"datapond\" not found" — and every first-time install of this chart would have failed
+that way. The live deployment never saw it: the namespace was already there.
+
+Found the first time the ephemeral-install job ran, which is what that job is for.
+
+hook-weight -20 puts it before the Job's -10. It is not deleted afterwards: it holds
+everything the release creates.
+*/}}
 apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ .Values.namespace }}
+  annotations:
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation
   labels:
     name: {{ .Values.namespace }}
     app.kubernetes.io/name: datapond
