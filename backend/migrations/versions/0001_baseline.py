@@ -1,19 +1,24 @@
-"""baseline — the schema as it already exists
+"""baseline — the Portable Core schema
 
-Deliberately empty. This application builds its schema at startup: 44 tables across
-four SQL files and thirty-odd CREATE/ALTER/INDEX statements in Python, each catching
-its own exception. Recreating any of that here would fail against every database that
-already has it, and on this product the deploy is --atomic, so it would roll back a
-release for a reason nobody could see in the output.
+Executes 0001_baseline.sql, a pg_dump of the schema the application produces. Reading
+it from a file rather than embedding it: 933 lines of DDL inside a Python string is
+unreadable, and unreadable is how a schema definition goes wrong without anyone
+noticing.
 
-What this revision does is mark where every existing database already is, so the next
-schema change has somewhere to go. Converting the existing bootstraps happens one at a
-time after this, each with its own revision and its own review.
+Runs only against a database with no application tables. One that already has them is
+stamped at this revision — it is already here, and re-creating what exists would fail
+every deployment that has ever run. app/migrations.py makes that decision.
+
+There is no downgrade. Below a baseline is an empty database, and a migration that
+drops 41 tables is not a thing to leave lying where someone can run it.
 
 Revision ID: 0001_baseline
 Revises:
 """
+from pathlib import Path
 from typing import Sequence, Union
+
+from alembic import op
 
 revision: str = "0001_baseline"
 down_revision: Union[str, None] = None
@@ -22,8 +27,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """No-op by design — see the module docstring."""
+    sql = (Path(__file__).with_suffix(".sql")).read_text()
+    # As one script, not statement by statement: splitting on semicolons breaks the
+    # $$-quoted function bodies, which is exactly what happened on the first attempt.
+    op.get_bind().exec_driver_sql(sql)
 
 
 def downgrade() -> None:
-    """There is nothing below a baseline."""
+    raise NotImplementedError(
+        "There is no downgrade from the baseline. Dropping 41 tables is a restore, "
+        "not a migration — see docs/DISASTER_RECOVERY.md."
+    )

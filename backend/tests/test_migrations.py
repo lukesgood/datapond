@@ -24,11 +24,23 @@ def test_a_populated_database_is_stamped_not_migrated():
     assert baseline_action(has_tables=True, has_version_table=False) == "stamp"
 
 
-def test_an_empty_database_lets_the_bootstraps_create_it():
-    """Fresh installs are still built by the startup bootstraps, unchanged. The
-    baseline records that state afterwards rather than duplicating it — two things
-    creating the same table is the failure this is meant to end, not start."""
-    assert baseline_action(has_tables=False, has_version_table=False) == "stamp"
+def test_an_empty_database_is_built_by_the_baseline():
+    """This flipped when the baseline stopped being a no-op. It used to be stamped
+    because the bootstraps created everything a moment later; now the schema has one
+    definition that runs first. The bootstraps still run and their
+    CREATE TABLE IF NOT EXISTS makes them harmless."""
+    assert baseline_action(has_tables=False, has_version_table=False) == "upgrade"
+
+
+def test_the_baseline_sql_is_present_and_is_the_real_schema():
+    """A baseline whose file went missing would exec an empty string and report
+    success, leaving a database with no tables and a version stamp saying otherwise."""
+    from pathlib import Path
+    sql = (Path(__file__).resolve().parents[1]
+           / "migrations/versions/0001_baseline.sql").read_text()
+    assert sql.count("CREATE TABLE") >= 40, sql.count("CREATE TABLE")
+    assert "CREATE EXTENSION IF NOT EXISTS vector" in sql
+    assert "ai_chunks" in sql and "users" in sql
 
 
 def test_a_database_already_under_alembic_is_left_alone():
@@ -37,7 +49,7 @@ def test_a_database_already_under_alembic_is_left_alone():
 
 def test_the_action_is_never_a_silent_no_op():
     """Every combination resolves to something that leaves the version table correct.
-    A fourth outcome would mean a database whose migration state nobody recorded."""
+    A third outcome would mean a database whose migration state nobody recorded."""
     for tables in (True, False):
         for version in (True, False):
             assert baseline_action(tables, version) in ("stamp", "upgrade")
@@ -102,3 +114,32 @@ def test_the_check_never_issues_ddl():
     body = ast.unparse(fn)
     for forbidden in ("upgrade", "stamp(", "CREATE", "ALTER", "command."):
         assert forbidden not in body, f"{forbidden} appears in the body:\n{body}"
+
+
+def test_only_real_revisions_are_in_the_versions_directory():
+    """Alembic loads every .py under versions/ as a revision, so anything else there
+    is parsed as Python and fails the whole migration.
+
+    Found the hard way: a macOS tarball carried AppleDouble companions (`._name.py`)
+    into a container, and Alembic tried to import 163 bytes of binary — "source code
+    string cannot contain null bytes", with nothing in the message to suggest where
+    it came from.
+    """
+    import re
+    from pathlib import Path
+
+    versions = Path(__file__).resolve().parents[1] / "migrations/versions"
+    stray = [f.name for f in versions.glob("*.py")
+             if not re.fullmatch(r"\d{4}_[a-z0-9_]+\.py", f.name)]
+    assert not stray, f"not revision files: {stray}"
+
+
+def test_every_revision_has_the_sql_it_executes():
+    """A revision whose .sql went missing would exec an empty string and report
+    success, leaving a stamped version number on a database with no tables."""
+    from pathlib import Path
+
+    versions = Path(__file__).resolve().parents[1] / "migrations/versions"
+    for py in versions.glob("*.py"):
+        if "op.execute" in py.read_text() or "exec_driver_sql" in py.read_text():
+            assert py.with_suffix(".sql").exists(), f"{py.name} has no .sql beside it"
