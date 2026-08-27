@@ -25,20 +25,24 @@ StartupState = Literal["ok", "stamp", "behind", "ahead"]
 
 
 def baseline_action(has_tables: bool, has_version_table: bool) -> Action:
-    """What to do with this database before the app serves traffic.
+    """What the migration Job does with this database.
 
     `has_tables` — does the application schema already exist here.
     `has_version_table` — has Alembic been here before.
 
-    Both paths without a version table stamp, for different reasons that reach the
-    same place: an existing schema must not be recreated, and a fresh one is built by
-    the bootstraps a moment later. Either way the version table ends up recording
-    where the database actually is, which is the state every later migration relies
-    on being true.
+    An existing schema is **stamped**: it is already at the baseline, and running a
+    baseline that creates 41 tables against a database that has them fails every
+    deployment that has ever run.
+
+    An empty database is **migrated**: the baseline builds the schema. This changed
+    when the baseline stopped being a no-op — before, an empty database was stamped
+    because the startup bootstraps created everything a moment later. They still do,
+    and their CREATE TABLE IF NOT EXISTS makes them harmless either way, but the
+    schema now has one definition that runs first.
     """
     if has_version_table:
         return "upgrade"
-    return "stamp"
+    return "stamp" if has_tables else "upgrade"
 
 
 def _paths():
