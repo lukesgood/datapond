@@ -141,6 +141,51 @@ async def chat(request: ChatRequest,
     }
 
 
+class ProposeRequest(BaseModel):
+    action_id: str
+    params: Dict[str, Any] = Field(default_factory=dict)
+    page: str = "*"
+
+
+@router.post("/chat/actions/propose")
+async def propose_action(request: ProposeRequest,
+                         user: dict = Depends(require_permission("ai:generate")),
+                         _human: dict = Depends(require_human)):
+    """An action the person chose, rather than one the model chose.
+
+    Asking a data question produced SQL and stopped there. The model cannot chain —
+    one tool per turn, so it cannot run work past a human — and there was no way for
+    the panel to say "yes, that one" except typing another sentence and hoping the
+    model rebuilt the same statement.
+
+    This is a narrower trust boundary than the model proposing, not a wider one: a
+    person read what it would do and chose it. Everything downstream is identical —
+    the same permission check, the same server-computed preview, and for anything that
+    writes, the same approval by invocation id. Nothing here can run a write.
+    """
+    pool = await _get_pool()
+    conversation_id = await ensure_conversation(pool, user["id"], request.page, None)
+    store = PostgresInvocationStore(pool)
+    try:
+        action = resolve(request.action_id)
+        invocation = await propose(
+            request.action_id, request.params,
+            user=user, page=request.page, store=store,
+            executor=executors.EXECUTORS.get(request.action_id),
+            previewer=executors.PREVIEWERS.get(request.action_id),
+            conversation_id=conversation_id,
+            request_text=f"(chosen from the panel) {request.action_id}",
+        )
+    except ActionRefused as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    return {
+        "id": invocation["id"], "action_id": action.id, "label": action.label,
+        "kind": action.kind.value, "status": invocation["status"],
+        "preview": invocation.get("preview"), "result": invocation.get("result"),
+        "needs_approval": action.kind is not ActionKind.READ,
+    }
+
+
 @router.post("/chat/actions/{invocation_id}/approve")
 async def approve_action(invocation_id: str, user: dict = Depends(require_human)):
     """Run a proposed action. Takes an id — never parameters. See design §5.2."""
