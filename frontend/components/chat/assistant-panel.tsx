@@ -99,15 +99,19 @@ export function AssistantPanel() {
       const data = await res.json()
       if (data.conversation_id) setConversationId(data.conversation_id)
       if (data.reply) setTurns(t => [...t, { role: "assistant", content: data.reply }])
-      if (data.action) {
-        if (data.action.needs_approval && data.action.status === "proposed") {
-          setPending(data.action)
+
+      // Every step the turn took, in order. A turn now continues while the model
+      // keeps choosing reads — asking about data used to end at "found the table"
+      // — so a single message can produce a search, then the SQL it led to.
+      const steps: ActionCard[] = data.steps?.length ? data.steps
+        : data.action ? [data.action] : []
+      for (const step of steps) {
+        if (step.needs_approval && step.status === "proposed") {
+          setPending(step)
         } else {
           setTurns(t => [...t, {
-            role: "assistant",
-            content: "",
-            action: { id: data.action.action_id, label: data.action.label,
-                      result: data.action.result },
+            role: "assistant", content: "",
+            action: { id: step.action_id, label: step.label, result: step.result },
           }])
         }
       }
