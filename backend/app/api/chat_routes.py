@@ -7,7 +7,9 @@ choice is allowed to become.
 The transcript is not stored — the client holds the turns it wants to show and sends
 them back. Only the request that produced an action is persisted, on that invocation.
 """
+import json
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,6 +20,7 @@ from app.api.auth import _get_pool, require_human, require_permission, require_u
 from app.chat import executors
 from app.chat.actions import ActionKind, resolve, tool_definitions
 from app.chat.gate import ActionRefused, approve, propose, reject
+from app.chat.turn import should_continue
 from app.chat.store import PostgresInvocationStore, ensure_conversation
 from app.guardrails import pii_ko
 from app.permissions import permissions_for
@@ -26,6 +29,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _MAX_TURNS = 12
+# How many model calls one message may make. See app/chat/turn.py.
+_TURN_STEPS = int(os.getenv("CHAT_TURN_STEPS", "4") or 4)
 
 
 class Turn(BaseModel):
@@ -99,45 +104,130 @@ async def chat(request: ChatRequest,
     # rather than degrading it.
     set_actor(user)
 
-    try:
-        reply, call = await _ask_model(_system_prompt(request.page, request.context),
-                                       messages, tools)
-    except Exception as e:
-        logger.warning(f"[chat] model call failed: {e}")
-        raise HTTPException(status_code=503, detail="The assistant is unavailable.")
-
-    if not call:
-        return {"reply": reply, "pii_masked": len(findings)}
-
     pool = await _get_pool()
     conversation_id = await ensure_conversation(
         pool, user["id"], request.page, request.conversation_id)
     store = PostgresInvocationStore(pool)
 
-    try:
-        action = resolve(call["name"])
-        invocation = await propose(
-            call["name"], call.get("input") or {},
-            user=user, page=request.page, store=store,
-            executor=executors.EXECUTORS.get(call["name"]),
-            previewer=executors.PREVIEWERS.get(call["name"]),
-            conversation_id=conversation_id,
-            request_text=text,
-        )
-    except ActionRefused as e:
-        return {"reply": str(e), "conversation_id": conversation_id,
-                "pii_masked": len(findings)}
+    # A turn may take several steps while the model keeps choosing reads, and stops
+    # the moment it proposes anything else. See app/chat/turn.py: "one tool per turn"
+    # was written so the assistant could not chain work past a human, and that reason
+    # is about approval — a read has no approval, so stopping after one protected
+    # nothing and cost the answer. Asked "how many products are there", the assistant
+    # used to call catalog.find_tables, find the table, and say nothing more.
+    steps: List[dict] = []
+    reply, action, invocation = "", None, None
+    for step in range(_TURN_STEPS):
+        try:
+            reply, call = await _ask_model(
+                _system_prompt(request.page, request.context), messages, tools)
+        except Exception as e:
+            logger.warning(f"[chat] model call failed: {e}")
+            if steps:
+                break  # keep what already ran rather than discarding the turn
+            raise HTTPException(status_code=503, detail="The assistant is unavailable.")
+
+        if not call:
+            action = invocation = None
+            break
+
+        try:
+            action = resolve(call["name"])
+            invocation = await propose(
+                call["name"], call.get("input") or {},
+                user=user, page=request.page, store=store,
+                executor=executors.EXECUTORS.get(call["name"]),
+                previewer=executors.PREVIEWERS.get(call["name"]),
+                conversation_id=conversation_id,
+                request_text=text,
+            )
+        except ActionRefused as e:
+            return {"reply": str(e), "conversation_id": conversation_id,
+                    "steps": steps, "pii_masked": len(findings)}
+
+        record = {
+            "id": invocation["id"], "action_id": action.id, "label": action.label,
+            "kind": action.kind.value, "status": invocation["status"],
+            "preview": invocation.get("preview"), "result": invocation.get("result"),
+            "needs_approval": action.kind is not ActionKind.READ,
+        }
+        steps.append(record)
+
+        if not should_continue(action.kind.value, invocation["status"], step + 1,
+                               _TURN_STEPS):
+            break
+
+        # Feed what the read returned back, so the next step builds on it rather than
+        # guessing at it. Truncated: a wide result would crowd out the conversation
+        # and the model only needs enough to choose what to do next.
+        messages.append({"role": "assistant",
+                         "content": reply or f"(used {action.id})"})
+        messages.append({"role": "user",
+                         "content": f"Result of {action.id}: "
+                                    f"{json.dumps(invocation.get('result'), ensure_ascii=False)[:2000]}"})
+
+    if action is None or invocation is None:
+        return {"reply": reply, "conversation_id": conversation_id,
+                "steps": steps, "pii_masked": len(findings)}
 
     return {
         "reply": reply,
         "conversation_id": conversation_id,
         "pii_masked": len(findings),
+        # Every step this turn took, in order. The last one is also "action", which
+        # older clients read.
+        "steps": steps,
         "action": {
             "id": invocation["id"], "action_id": action.id, "label": action.label,
             "kind": action.kind.value, "status": invocation["status"],
             "preview": invocation.get("preview"), "result": invocation.get("result"),
             "needs_approval": action.kind is not ActionKind.READ,
         },
+    }
+
+
+class ProposeRequest(BaseModel):
+    action_id: str
+    params: Dict[str, Any] = Field(default_factory=dict)
+    page: str = "*"
+
+
+@router.post("/chat/actions/propose")
+async def propose_action(request: ProposeRequest,
+                         user: dict = Depends(require_permission("ai:generate")),
+                         _human: dict = Depends(require_human)):
+    """An action the person chose, rather than one the model chose.
+
+    Asking a data question produced SQL and stopped there. The model cannot chain —
+    one tool per turn, so it cannot run work past a human — and there was no way for
+    the panel to say "yes, that one" except typing another sentence and hoping the
+    model rebuilt the same statement.
+
+    This is a narrower trust boundary than the model proposing, not a wider one: a
+    person read what it would do and chose it. Everything downstream is identical —
+    the same permission check, the same server-computed preview, and for anything that
+    writes, the same approval by invocation id. Nothing here can run a write.
+    """
+    pool = await _get_pool()
+    conversation_id = await ensure_conversation(pool, user["id"], request.page, None)
+    store = PostgresInvocationStore(pool)
+    try:
+        action = resolve(request.action_id)
+        invocation = await propose(
+            request.action_id, request.params,
+            user=user, page=request.page, store=store,
+            executor=executors.EXECUTORS.get(request.action_id),
+            previewer=executors.PREVIEWERS.get(request.action_id),
+            conversation_id=conversation_id,
+            request_text=f"(chosen from the panel) {request.action_id}",
+        )
+    except ActionRefused as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    return {
+        "id": invocation["id"], "action_id": action.id, "label": action.label,
+        "kind": action.kind.value, "status": invocation["status"],
+        "preview": invocation.get("preview"), "result": invocation.get("result"),
+        "needs_approval": action.kind is not ActionKind.READ,
     }
 
 

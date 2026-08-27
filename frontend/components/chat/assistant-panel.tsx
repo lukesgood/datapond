@@ -6,9 +6,16 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useHasPermission } from "@/lib/permissions"
 import { Markdown } from "@/components/ui/markdown"
-import { Bot, Loader2, PanelRightClose, PanelRightOpen, Check, X } from "lucide-react"
+import { Bot, Loader2, PanelRightClose, PanelRightOpen, Check, X, Play } from "lucide-react"
 
-type Turn = { role: "user" | "assistant"; content: string }
+type Turn = {
+  role: "user" | "assistant"
+  content: string
+  /** The action's own result, kept whole. It used to be flattened into a sentence by
+   *  summarise(), which had no case for SQL — so asking a data question printed
+   *  "Generate SQL: done" and the statement itself was never shown at all. */
+  action?: { id: string; label: string; result: Record<string, unknown> | null }
+}
 type ActionCard = {
   id: string
   action_id: string
@@ -92,16 +99,47 @@ export function AssistantPanel() {
       const data = await res.json()
       if (data.conversation_id) setConversationId(data.conversation_id)
       if (data.reply) setTurns(t => [...t, { role: "assistant", content: data.reply }])
-      if (data.action) {
-        if (data.action.needs_approval && data.action.status === "proposed") {
-          setPending(data.action)
+
+      // Every step the turn took, in order. A turn now continues while the model
+      // keeps choosing reads — asking about data used to end at "found the table"
+      // — so a single message can produce a search, then the SQL it led to.
+      const steps: ActionCard[] = data.steps?.length ? data.steps
+        : data.action ? [data.action] : []
+      for (const step of steps) {
+        if (step.needs_approval && step.status === "proposed") {
+          setPending(step)
         } else {
           setTurns(t => [...t, {
-            role: "assistant",
-            content: `${data.action.label}: ${summarise(data.action.result)}`,
+            role: "assistant", content: "",
+            action: { id: step.action_id, label: step.label, result: step.result },
           }])
         }
       }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Propose an action the person chose from a result — "run this SQL". Goes through
+   *  the same gate as anything the model proposes: a write still parks for approval,
+   *  and the preview is still computed on the server. */
+  const propose = async (actionId: string, params: Record<string, unknown>) => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const res = await fetch("/api/chat/actions/propose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action_id: actionId, params, page: pathname }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setTurns(t => [...t, { role: "assistant", content: data.detail || "That could not be started." }])
+        return
+      }
+      if (data.needs_approval && data.status === "proposed") setPending(data)
+      else setTurns(t => [...t, { role: "assistant", content: "",
+                                  action: { id: data.action_id, label: data.label, result: data.result } }])
     } finally {
       setBusy(false)
     }
@@ -116,14 +154,12 @@ export function AssistantPanel() {
         { method: "POST" },
       )
       const data = await res.json().catch(() => ({}))
-      setTurns(t => [...t, {
-        role: "assistant",
-        content: !res.ok
-          ? (data.detail || "That could not be completed.")
-          : accept
-            ? `${pending.label}: ${summarise(data.result)}`
-            : `${pending.label} — dismissed.`,
-      }])
+      setTurns(t => [...t, !res.ok
+        ? { role: "assistant" as const, content: data.detail || "That could not be completed." }
+        : accept
+          ? { role: "assistant" as const, content: "",
+              action: { id: pending.action_id, label: pending.label, result: data.result } }
+          : { role: "assistant" as const, content: `${pending.label} — dismissed.` }])
       setPending(null)
     } finally {
       setBusy(false)
@@ -169,7 +205,9 @@ export function AssistantPanel() {
             change settings.
           </p>
         )}
-        {turns.map((turn, i) => (
+        {turns.map((turn, i) => turn.action ? (
+          <ActionResult key={i} action={turn.action} onPropose={propose} busy={busy} />
+        ) : (
           <div key={i} className={turn.role === "user" ? "text-right" : ""}>
             <span className={`inline-block max-w-[92%] rounded-lg px-2.5 py-1.5 text-left ${
               turn.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
@@ -265,6 +303,87 @@ function PreviewBody({ preview }: { preview: Record<string, unknown> | null }) {
   )
 }
 
+/** What an action produced, rendered rather than flattened.
+ *
+ *  The previous version turned every result into one sentence and had no case for a
+ *  SQL string, so asking a data question printed "Generate SQL: done" — the statement
+ *  invisible, and no way to reach an answer from it. A question about data should end
+ *  in rows, and each step of getting there should be legible.
+ */
+function ActionResult({ action, onPropose, busy }: {
+  action: { id: string; label: string; result: Record<string, unknown> | null }
+  onPropose: (id: string, params: Record<string, unknown>) => void
+  busy: boolean
+}) {
+  const r = action.result ?? {}
+
+  if (typeof r.sql === "string" && r.sql.trim()) {
+    return (
+      <div className="rounded-lg border bg-muted/30 p-2.5 text-xs">
+        {typeof r.explanation === "string" && r.explanation && (
+          <p className="mb-1.5 text-muted-foreground">{r.explanation}</p>
+        )}
+        <pre className="overflow-x-auto rounded border bg-background p-2 font-mono text-[10.5px] leading-relaxed">
+{String(r.sql)}
+        </pre>
+        {r.validated === false ? (
+          <p className="mt-1.5 text-[11px] text-destructive">
+            The catalog rejected this statement, so it is not offered to run.
+          </p>
+        ) : (
+          <Button size="sm" className="mt-2 h-7 gap-1.5 text-xs" disabled={busy}
+                  onClick={() => onPropose("query.run", { sql: String(r.sql) })}>
+            <Play className="h-3.5 w-3.5" />Run this
+          </Button>
+        )}
+        {r.needs_input === true && (
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
+            The question was ambiguous — check the statement before running it.
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  if (Array.isArray(r.columns) && Array.isArray(r.rows)) {
+    const cols = r.columns as string[]
+    const rows = r.rows as unknown[][]
+    return (
+      <div className="rounded-lg border text-xs">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="border-b bg-muted/40">
+              <tr>{cols.map(c => (
+                <th key={c} className="px-2 py-1 text-left text-[10.5px] font-medium">{c}</th>
+              ))}</tr>
+            </thead>
+            <tbody className="divide-y">
+              {rows.slice(0, 20).map((row, i) => (
+                <tr key={i}>{row.map((cell, j) => (
+                  <td key={j} className="px-2 py-1 font-mono text-[10.5px] tabular-nums">
+                    {cell === null ? <span className="text-muted-foreground">null</span> : String(cell)}
+                  </td>
+                ))}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="border-t px-2 py-1 text-[10px] text-muted-foreground">
+          {typeof r.row_count === "number" ? `${r.row_count} row(s)` : `${rows.length} row(s)`}
+          {rows.length > 20 && " · showing the first 20"}
+          {r.truncated === true && " · the result was truncated"}
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <p className="text-xs text-muted-foreground">
+      {action.label}: {summarise(action.result)}
+    </p>
+  )
+}
+
 function summarise(result: unknown): string {
   if (!result || typeof result !== "object") return "done"
   const r = result as Record<string, unknown>
@@ -274,5 +393,6 @@ function summarise(result: unknown): string {
   if (Array.isArray(r.columns)) return `${r.columns.length} column(s)`
   if (typeof r.row_count === "number") return `${r.row_count} row(s)`
   if (typeof r.name === "string") return `${r.name} created`
+  if (typeof r.answer === "string") return r.answer
   return "done"
 }

@@ -125,17 +125,21 @@ _ACTIONS: Sequence[Action] = (
            "How tables are joined, from observed query history and column naming.",
            ("/catalog",), "catalog:read", ActionKind.READ, RelationshipQuery),
 
+    # Offered everywhere, like catalog.find_tables. These were scoped to /query, so
+    # the assistant had no SQL tool on any other page — and the panel is on every
+    # page. "What does the data say" does not depend on which screen you are looking
+    # at, and the permission gate is what decides who may ask.
     Action("query.generate_sql", "Generate SQL",
            "Turn a question into SQL, checked against the catalog. Does not run it.",
-           ("/query",), "ai:generate", ActionKind.READ, NaturalQuestion),
+           ("*",), "ai:generate", ActionKind.READ, NaturalQuestion),
     Action("query.explain_plan", "Explain the plan",
            "What a statement will read, and anything worth knowing before running it.",
-           ("/query",), "query:run", ActionKind.READ, SqlText),
+           ("*",), "query:run", ActionKind.READ, SqlText),
     # Classed CREATE, not READ: Athena bills by bytes scanned, and a query the user
     # did not write can read the wrong table. It gets an approval step.
     Action("query.run", "Run query",
            "Execute a statement and return rows.",
-           ("/query",), "query:run", ActionKind.CREATE, SqlText),
+           ("*",), "query:run", ActionKind.CREATE, SqlText),
 
     Action("dashboard.save", "Save dashboard",
            "Save a statement and its chart as a dashboard.",
