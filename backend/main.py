@@ -20,6 +20,7 @@ from app.api.queries import router as queries_router
 from app.api.catalog import router as catalog_router
 from app.api.connectors import router as connectors_router
 from app.api.services import router as services_router
+from app.api.system_events_routes import router as system_events_router
 from app.api.notebooks import router as notebooks_router
 from app.api.mlflow_integration import router as mlflow_router
 from app.api.airflow import router as airflow_router
@@ -290,6 +291,19 @@ async def startup():
     except Exception as e:
         logger.warning(f"[startup] RAG scheduler not started: {e}")
 
+    # System event collector — durable infrastructure event history (Infrastructure →
+    # Events). Same shape as the RAG scheduler: one asyncio loop, single leader via a
+    # Postgres advisory lock. Nothing is collected while this is down, which is why
+    # node reboots are detected after the fact from persisted state rather than memory.
+    try:
+        if os.getenv("SYSTEM_EVENTS_ENABLED", "true").lower() in ("1", "true", "yes"):
+            from app.api.connectors import get_db_pool
+            from app.system_events import run_collector
+            app.state.system_events_task = asyncio.create_task(run_collector(await get_db_pool()))
+            logger.info("[startup] system event collector started")
+    except Exception as e:
+        logger.warning(f"[startup] system event collector not started: {e}")
+
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
@@ -330,6 +344,7 @@ app.include_router(
     ],
 )
 app.include_router(services_router, prefix="/api")
+app.include_router(system_events_router, prefix="/api")
 # The workbench (Jupyter, MLflow) is gated at the router: reading it needs
 # workbench:read, and each mutating route additionally needs workbench:write. A
 # notebook runs arbitrary code against the cluster, so this surface is not covered
