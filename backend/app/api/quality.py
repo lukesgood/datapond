@@ -165,7 +165,6 @@ async def run_and_store_quality_checks(
     import asyncio
     import json as _json
 
-    await ensure_quality_table(pool)
     statuses: dict = {}
 
     for table, target, ok, rows_current, _ in table_results:

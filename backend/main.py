@@ -226,52 +226,36 @@ async def startup():
         readiness.record("migrations", ok=False, detail=str(e))
         logger.warning(f"[startup] migration check failed: {e}")
 
-    # 기반 스키마 부트스트랩 (auth.sql/queries.sql — users/roles/sessions/dashboards 등).
-    # 빈 DB 1회 적용(센티넬 가드), 기존 DB는 skip. rls_migration이 users에 의존하므로 먼저 실행.
+    # The schema is the migrations' job now. It used to be built here as well —
+    # eight bootstraps issuing CREATE TABLE IF NOT EXISTS and ALTER TABLE ADD COLUMN
+    # IF NOT EXISTS, each catching its own exception — so two definitions of the same
+    # 41 tables lived in the repository and nothing compared them.
+    #
+    # They were removed only after that comparison was made: a database built from
+    # 0001_baseline, then subjected to all eight bootstraps, differed by zero lines.
+    # The two definitions agreed, which is exactly the moment to delete one and the
+    # last moment it is safe to.
+    #
+    # base_schema stays a readiness check, satisfied by the migration state, because
+    # "is the schema there" is still the question readiness has to answer.
+    # Not "the migration ran" — "the tables are there". alembic_version records a
+    # decision; stamping a legacy database asserted it was at the baseline without
+    # looking. With the lazy CREATE TABLE IF NOT EXISTS gone from request paths,
+    # nothing else would notice a database that is missing one.
     try:
         from app.api.connectors import get_db_pool
-        from app.schema_bootstrap import ensure_base_schema
-        await ensure_base_schema(await get_db_pool())
-        readiness.record("base_schema", ok=True)
+        from app import migrations as _m
+
+        gone = _m.missing_tables(await _m.present_tables(await get_db_pool()))
+        if gone:
+            readiness.record("base_schema", ok=False,
+                             detail=f"core tables missing: {', '.join(gone)}")
+            logger.error(f"[startup] core tables missing: {gone}")
+        else:
+            readiness.record("base_schema", ok=True, detail="core tables present")
     except Exception as e:
-        # Recorded, not just logged. Without the base schema the product cannot
-        # answer a request correctly, so the pod must stay out of service instead of
-        # failing one endpoint at a time. See app/readiness.py.
         readiness.record("base_schema", ok=False, detail=str(e))
-        logger.warning(f"[startup] Base schema bootstrap skipped: {e}")
-
-    # Pipelines table — moved off module import, where it ran DDL before the app
-    # could even be constructed. best-effort, like the other schema steps.
-    try:
-        from app.api.pipelines import ensure_pipelines_table
-        from app.api.transforms import ensure_transforms_table
-        await asyncio.to_thread(ensure_pipelines_table)
-        await asyncio.to_thread(ensure_transforms_table)
-        readiness.record("pipelines_tables", ok=True)
-    except Exception as e:
-        readiness.record("pipelines_tables", ok=False, detail=str(e))
-        logger.warning(f"[startup] pipelines/transforms table bootstrap skipped: {e}")
-
-    # RLS 스키마 마이그레이션 (멱등 — rls_policies/masking/user_roles/attributes). best-effort.
-    try:
-        from app.api.connectors import get_db_pool
-        from app.rls.migrate import ensure_rls_schema
-        await ensure_rls_schema(await get_db_pool())
-        readiness.record("rls_schema", ok=True)
-    except Exception as e:
-        readiness.record("rls_schema", ok=False, detail=str(e))
-        logger.warning(f"[startup] RLS schema migration skipped: {e}")
-
-    # WebAuthn/passkey credentials table (idempotent — every startup). best-effort.
-    try:
-        from app.api.connectors import get_db_pool
-        from app.webauthn_schema import ensure_webauthn_schema
-        await ensure_webauthn_schema(await get_db_pool())
-        readiness.record("webauthn_schema", ok=True)
-        logger.info("[startup] webauthn schema ready")
-    except Exception as e:
-        readiness.record("webauthn_schema", ok=False, detail=str(e))
-        logger.warning(f"[startup] webauthn schema skipped: {e}")
+        logger.warning(f"[startup] schema presence check failed: {e}")
 
     # Iceberg 유지보수 DAG 배포 (best-effort — Airflow/PVC 미준비 시 건너뜀)
     try:
@@ -289,24 +273,10 @@ async def startup():
     except Exception as e:
         logger.warning(f"[startup] AI SQL schema prewarm skipped: {e}")
 
-    # pgvector schema (ai_collections / ai_chunks) — best-effort (needs pgvector image)
-    try:
-        from app.api.connectors import get_db_pool
-        from app.api.ai_vectors import ensure_vector_schema
-        await ensure_vector_schema(await get_db_pool())
-        logger.info("[startup] pgvector schema ready")
-    except Exception as e:
-        logger.warning(f"[startup] pgvector schema skipped: {e}")
+    # pgvector and the concept store come from 0001_baseline too. Their bootstraps
+    # were removed with the rest, once a baseline-built database proved to differ by
+    # nothing after all eight had run against it.
 
-    # Ontology concept store (Phase 0 slice) — only when the capability is enabled
-    try:
-        from app.api.ontology import ensure_ontology_schema, ontology_enabled
-        if ontology_enabled():
-            from app.api.connectors import get_db_pool
-            await ensure_ontology_schema(await get_db_pool())
-            logger.info("[startup] ontology concept store ready")
-    except Exception as e:
-        logger.warning(f"[startup] ontology schema skipped: {e}")
 
     # RAG freshness scheduler — periodic re-embedding of scheduled collections
     # (Airflow-free; multi-replica safe via pg advisory lock).

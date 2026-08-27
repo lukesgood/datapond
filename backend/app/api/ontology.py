@@ -106,7 +106,6 @@ def expand_query_text(query: str, concepts: list[dict]) -> tuple[str, list[dict]
 
 async def load_concepts(pool) -> list[dict]:
     """Concept list with terms, shaped for expand_query_text."""
-    await ensure_ontology_schema(pool)
     async with pool.acquire() as c:
         rows = await c.fetch("""
             SELECT oc.name, oc.pii, oc.parent, oc.description,
@@ -162,7 +161,6 @@ async def list_concepts(user: dict = Depends(require_user)):
 async def create_concept(body: ConceptIn, user: dict = Depends(require_user)):
     _require_enabled()
     pool = await get_db_pool()
-    await ensure_ontology_schema(pool)
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "Concept name is required.")
@@ -187,7 +185,6 @@ async def create_concept(body: ConceptIn, user: dict = Depends(require_user)):
 async def delete_concept(name: str, user: dict = Depends(require_user)):
     _require_enabled()
     pool = await get_db_pool()
-    await ensure_ontology_schema(pool)
     async with pool.acquire() as c:
         deleted = await c.execute("DELETE FROM ontology_concepts WHERE name = $1", name)
     return {"ok": True, "deleted": deleted.endswith("1")}
@@ -199,7 +196,6 @@ async def import_concepts(body: ConceptImport, user: dict = Depends(require_user
     """Bulk upsert in the PoC bootstrap shape ({name, aliases, parent, pii})."""
     _require_enabled()
     pool = await get_db_pool()
-    await ensure_ontology_schema(pool)
     n = 0
     async with pool.acquire() as c:
         for item in body.concepts:
