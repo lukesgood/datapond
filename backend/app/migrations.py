@@ -154,3 +154,33 @@ def main() -> int:
 if __name__ == "__main__":
     import sys
     sys.exit(main())
+
+
+# The tables the product cannot answer a request without. Deliberately short: listing
+# all 41 would fail on any deployment with an optional feature switched off, and a
+# check that cries wolf is a check nobody reads.
+CORE_TABLES = (
+    "users",
+    "ai_collections",
+    "ai_chunks",
+    "api_keys",
+    "auth_audit_log",
+)
+
+
+def missing_tables(present) -> list:
+    """Which core tables are absent, sorted.
+
+    alembic_version says migrations ran; it does not say the tables exist. A
+    deployment where a bootstrap silently failed before this retrofit was stamped at
+    the baseline anyway, because stamping records a decision rather than an
+    inspection. This looks.
+    """
+    return sorted(set(CORE_TABLES) - set(present or ()))
+
+
+async def present_tables(pool) -> set:
+    async with pool.acquire() as c:
+        rows = await c.fetch(
+            "SELECT tablename FROM pg_tables WHERE schemaname = current_schema()")
+    return {r["tablename"] for r in rows}

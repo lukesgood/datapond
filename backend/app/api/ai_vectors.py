@@ -385,7 +385,6 @@ async def list_collections(user: dict = Depends(require_user),
     them forget whatever fell past it.
     """
     pool = await get_db_pool()
-    await ensure_vector_schema(pool)
     is_admin = user.get("role") == "admin"
     lim, off = listing_window(limit, offset)
 
@@ -445,7 +444,6 @@ async def create_collection(body: CollectionCreate, user: dict = Depends(require
     except ValueError as e:
         raise HTTPException(400, str(e))
     pool = await get_db_pool()
-    await ensure_vector_schema(pool)
     async with pool.acquire() as c:
         try:
             await c.execute(
@@ -651,7 +649,6 @@ async def ingest(name: str, req: IngestRequest, user: dict = Depends(require_use
     """Ingest inline documents. Chunk → PII-mask → embed → upsert."""
     set_actor(user)
     pool = await get_db_pool()
-    await ensure_vector_schema(pool)
     async with pool.acquire() as c:
         coll_id = await _collection_id(c, name, user, write=True)
         # The collection's setting is the default, so two ingests into one collection
@@ -796,7 +793,6 @@ async def ingest_source(name: str, req: SourceIngest, user: dict = Depends(requi
     replaces the source's prior chunks (no duplication)."""
     set_actor(user)
     pool = await get_db_pool()
-    await ensure_vector_schema(pool)
     async with pool.acquire() as c:
         coll_id = await _collection_id(c, name, user, write=True)
     res = await _refresh_from_source(pool, coll_id, req)
@@ -837,7 +833,6 @@ async def schedule_ingest(name: str, body: ScheduleRequest, user: dict = Depends
     The backend in-process scheduler (rag_scheduler) runs due collections — no Airflow."""
     minutes = _preset_to_minutes(body.schedule, body.interval_minutes)
     pool = await get_db_pool()
-    await ensure_vector_schema(pool)
     async with pool.acquire() as c:
         coll_id = await _collection_id(c, name, user, write=True)  # 404/403 gate
         source_json = json.dumps(body.source.model_dump(by_alias=True, exclude_none=True))
@@ -853,7 +848,6 @@ async def schedule_ingest(name: str, body: ScheduleRequest, user: dict = Depends
             dependencies=[Depends(require_permission("knowledge:read"))])
 async def get_schedule(name: str, user: dict = Depends(require_user)):
     pool = await get_db_pool()
-    await ensure_vector_schema(pool)
     async with pool.acquire() as c:
         coll_id = await _collection_id(c, name, user)
         row = await c.fetchrow(
@@ -872,7 +866,6 @@ async def get_schedule(name: str, user: dict = Depends(require_user)):
 @router.delete("/ai/collections/{name}/schedule", dependencies=[Depends(require_permission("knowledge:write"))])
 async def delete_schedule(name: str, user: dict = Depends(require_user)):
     pool = await get_db_pool()
-    await ensure_vector_schema(pool)
     async with pool.acquire() as c:
         coll_id = await _collection_id(c, name, user, write=True)
         await c.execute("UPDATE ai_collections SET refresh_enabled = false WHERE id = $1", coll_id)
