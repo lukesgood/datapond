@@ -1,0 +1,55 @@
+# Ephemeral test install — an empty cluster, no cloud account, no credentials.
+#
+# This profile is not a deployment anyone runs. It exists so CI can install the chart
+# from nothing and check the two things the live acceptance cannot: that a fresh
+# install works, and that an upgrade and a rollback both leave a working system.
+#
+# The live deployment has been running for weeks and repaired by hand along the way,
+# so it proves the path works *there*. It cannot prove the path works for someone
+# installing today.
+
+namespace: datapond
+createNamespace: true
+
+# The model gateway is replaced by a deterministic stand-in. See
+# backend/app/testing/mock_model.py — same text embeds the same way, so retrieval is
+# testable without a model, a credential, or a bill.
+mockModelProvider:
+  enabled: true
+  embedDim: 1024
+
+litellm:
+  enabled: false
+
+ingress:
+  enabled: false
+
+# In-cluster Postgres with pgvector, which the chart already uses by default.
+externalDatabase:
+  enabled: false
+postgres:
+  enabled: true
+
+# Everything optional stays off: this profile tests the Portable Core, and each add-on
+# it starts is another thing that can fail for reasons unrelated to the release.
+connectors: {enabled: false}
+catalog: {enabled: false}
+trino: {enabled: false}
+polaris: {enabled: false}
+airflow: {enabled: false}
+spark: {enabled: false}
+risingwave: {enabled: false}
+openmetadata: {enabled: false}
+jupyter: {enabled: false}
+mlflow: {enabled: false}
+minio: {enabled: false}
+ollama: {enabled: false}
+vllm: {enabled: false}
+monitoring: {enabled: false}
+
+# The gateway the backend talks to is the mock.
+ai:
+  litellmUrl: "http://mock-model:4000"
+
+networkPolicy:
+  enabled: false

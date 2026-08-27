@@ -231,6 +231,12 @@ migrations:
   enabled: true
 
 
+# A deterministic stand-in for the model gateway, used only by values-ephemeral.yaml
+# so CI can install into an empty cluster. Never enable this anywhere real: every
+# answer it gives is fabricated, and it says so.
+mockModelProvider:
+  enabled: false
+
 podSecurity:
   enabled: true
   backend:
