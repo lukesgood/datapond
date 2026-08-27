@@ -35,6 +35,17 @@ interface ChartRendererProps {
 // Draw from the design-system chart ramp (deep-pond tokens) so query
 // visualizations stay cohesive with the rest of the console. The ramp has
 // five stops; series beyond that wrap back through it.
+// recharts 3.8.1 renders an animated <Bar> or <Pie> as nothing at all — no element
+// in the DOM, or one frozen at its first frame, which is what Analytics was showing:
+// axes, grid and legend correct, the series absent. Reproduced outside this app, with
+// no ResponsiveContainer, no margin, no CSS variables: animation on gives zero bars,
+// animation off gives three with the right geometry. Line and Area are unaffected.
+//
+// Turning it off is the fix rather than pinning a different recharts, because these
+// charts read better without the animation anyway and the dependency scan is a merge
+// gate — a version change here is a decision, not a workaround.
+const ANIMATE = false
+
 const DEFAULT_COLORS = [
   "var(--chart-1)",
   "var(--chart-2)",
@@ -136,7 +147,7 @@ export function ChartRenderer({
             }}
           />
           {showLegend && <Legend />}
-          <Bar dataKey={yAxis} fill={colors[0]} radius={[4, 4, 0, 0]} />
+          <Bar dataKey={yAxis} fill={colors[0]} radius={[4, 4, 0, 0]} isAnimationActive={ANIMATE} />
         </BarChart>
       </ResponsiveContainer>
     )
@@ -193,6 +204,7 @@ export function ChartRenderer({
             cx="50%"
             cy="50%"
             outerRadius={120}
+            isAnimationActive={ANIMATE}
             label={({ name, percent }) =>
               `${name}: ${percent ? (percent * 100).toFixed(0) : 0}%`
             }
