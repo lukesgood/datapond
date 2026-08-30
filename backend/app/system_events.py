@@ -294,18 +294,59 @@ def read_uptime() -> str:
         return ""
 
 
-def observe(now: datetime) -> dict:
-    """One read of the cluster and the node. Never raises: a tick that cannot see the
-    cluster should record nothing, not kill the loop."""
-    events, restarts = [], {}
+def _read_cluster() -> dict:
+    from app.api.services import NAMESPACE, core_v1
+    return {
+        "events": core_v1.list_namespaced_event(namespace=NAMESPACE).items,
+        "restarts": adapt_pod_restarts(core_v1.list_namespaced_pod(namespace=NAMESPACE).items),
+    }
+
+
+def degraded_event(error: str, now: datetime) -> dict:
+    """The collector reporting that it cannot see.
+
+    This belongs in the very list it would otherwise leave empty. Live, the collector
+    recorded three node reboots and nothing else, because listing Kubernetes events
+    403'd — `events` was missing from the backend Role — and the failure went to
+    logger.debug. Valkey had crash-looped 158 times over three days behind an event
+    list that said nothing was wrong.
+
+    A history that cannot say "I was not watching" is worse than no history, because
+    empty reads as "nothing happened".
+
+    One row however long it lasts: two minutes of blindness and two days of it are the
+    same condition, distinguished by first_seen and last_seen.
+    """
+    reason = str(error)[:200]
+    return {
+        "dedup_key": dedup_key("backend", "collector_degraded", "kubernetes", reason),
+        "kind": "collector_degraded",
+        "severity": "warning",
+        "source": "backend",
+        "object": "kubernetes",
+        "message": (f"Cannot read the cluster: {reason}. Pod restarts and Kubernetes "
+                    f"warnings are not being recorded."),
+        "details": {"error": reason},
+        "last_seen": now,
+    }
+
+
+def observe(now: datetime, reader=None) -> dict:
+    """One read of the cluster and the node.
+
+    Never raises — a tick that cannot see the cluster must not kill the loop — but it
+    does not stay quiet about it either. `cluster_error` is what tick() turns into an
+    event of its own.
+    """
+    events, restarts, error = [], {}, None
     try:
-        from app.api.services import NAMESPACE, core_v1
-        events = adapt_k8s_events(
-            core_v1.list_namespaced_event(namespace=NAMESPACE).items, now=now)
-        restarts = adapt_pod_restarts(core_v1.list_namespaced_pod(namespace=NAMESPACE).items)
+        raw = (reader or _read_cluster)()
+        events = adapt_k8s_events(raw.get("events"), now=now)
+        restarts = raw.get("restarts") or {}
     except Exception as e:
-        logger.debug("cluster read failed: %s", e)
-    return {"events": events, "restarts": restarts,
+        error = f"{type(e).__name__}: {e}"[:300] if not isinstance(e, RuntimeError) else str(e)[:300]
+        logger.warning("cluster read failed: %s", error)
+    return {"events": events, "restarts": restarts, "cluster_error": error,
             "boot_time": boot_time_from_uptime(read_uptime(), now)}
 
 
@@ -330,6 +371,9 @@ async def tick(pool) -> int:
                     classified["occurrences"] = raw["count"]
                     pending.append(classified)
 
+            if seen["cluster_error"]:
+                pending.append(degraded_event(seen["cluster_error"], now))
+
             previous = await load_state(c, "pod_restarts") or {}
             pending += restart_events(previous, seen["restarts"], now)
 
@@ -352,7 +396,11 @@ async def tick(pool) -> int:
 
             # Saved after the comparison, not before: a crash between the two costs one
             # tick of detection, while the reverse would drop the restart entirely.
-            await save_state(c, "pod_restarts", seen["restarts"])
+            # Skipped entirely when the cluster could not be read, because an empty
+            # read is not an observation — storing it would make every pod look new
+            # afterwards and suppress the first restart of each.
+            if not seen["cluster_error"]:
+                await save_state(c, "pod_restarts", seen["restarts"])
             await prune(c, retention_cutoff(now, retention_days()))
             return recorded
         finally:

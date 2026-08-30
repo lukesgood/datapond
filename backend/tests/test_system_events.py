@@ -335,3 +335,57 @@ def test_empty_strings_are_not_filters():
 
     _where, args = build_filters(hours=24, severity="", kind=None)
     assert args == ["24"]
+
+
+# ── the collector says when it cannot see ─────────────────────────────────────
+# Found live: the collector recorded three node reboots and nothing else, because
+# listing Kubernetes events 403'd — `events` was missing from the backend Role. Valkey
+# had crash-looped 158 times over three days and the history was silent about it.
+#
+# A history that cannot say "I was not watching" is worse than no history: the empty
+# list reads as "nothing happened", which is the one thing it must never imply.
+
+def test_a_cluster_read_failure_is_reported_rather_than_swallowed():
+    from app.system_events import observe
+
+    def _explode():
+        raise RuntimeError("(403) Forbidden")
+
+    seen = observe(_now(), reader=_explode)
+    assert seen["cluster_error"], "the failure vanished"
+    assert "403" in seen["cluster_error"]
+
+
+def test_a_healthy_read_reports_no_error():
+    from app.system_events import observe
+
+    seen = observe(_now(), reader=lambda: ({"events": [], "restarts": {}}))
+    assert seen["cluster_error"] is None
+
+
+def test_the_failure_becomes_an_event_of_its_own():
+    """It belongs in the list it would otherwise leave empty."""
+    from app.system_events import degraded_event
+
+    event = degraded_event("(403) Forbidden", _now())
+    assert event["kind"] == "collector_degraded"
+    assert event["severity"] == "warning"
+    assert "403" in event["message"]
+    assert "not being recorded" in event["message"]
+
+
+def test_the_degraded_event_is_one_row_however_long_it_lasts():
+    """Two minutes of blindness and two days of it are the same condition."""
+    from app.system_events import degraded_event
+
+    a = degraded_event("(403) Forbidden", _now())
+    b = degraded_event("(403) Forbidden", _now() + timedelta(days=2))
+    assert a["dedup_key"] == b["dedup_key"]
+
+
+def test_a_different_failure_is_a_different_row():
+    from app.system_events import degraded_event
+
+    a = degraded_event("(403) Forbidden", _now())
+    b = degraded_event("connection refused", _now())
+    assert a["dedup_key"] != b["dedup_key"]

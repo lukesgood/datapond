@@ -47,6 +47,9 @@ const KIND_LABEL: Record<string, string> = {
   node_not_ready: "Node not ready",
   node_reboot: "Node restarted",
   container_failure: "Container failed",
+  // The collector reporting that it cannot see. It belongs in the very list it
+  // would otherwise leave empty — see degraded_event in app/system_events.py.
+  collector_degraded: "Event collection degraded",
   unknown: "Warning",
 }
 
