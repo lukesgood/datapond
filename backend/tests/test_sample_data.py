@@ -277,3 +277,35 @@ def test_qualifying_leaves_result_column_names_alone():
 
     for query in catalog_join_queries():
         assert " AS " in query.sql or " as " in query.sql
+
+
+# ── seeding into a database that is not empty ─────────────────────────────────
+# Live, first run: "Key (customer_id)=(29) is not present in table customers".
+#
+# The tests above proved the dataset's own integrity, which held. What broke was
+# seeding *into an existing one*: the route skipped any table that already had rows,
+# so `customers` kept ten rows from an older seed while `support_tickets`, empty,
+# received rows referencing forty. Per-table skipping cannot preserve a constraint
+# that spans tables.
+
+def test_parents_are_seeded_before_the_rows_that_reference_them():
+    """Insert order is the only thing making a foreign key satisfiable mid-run.
+
+    It happened to be right. Nothing said so, and appending a table in the wrong place
+    would have failed at the database rather than here.
+    """
+    seen = set()
+    for t in DATASET:
+        for fk in t.references:
+            assert fk.parent in seen or fk.parent == t.name, (
+                f"{t.name} is seeded before {fk.parent}, which it references")
+        seen.add(t.name)
+
+
+def test_the_insert_tolerates_rows_that_are_already_there():
+    """Every table is inserted on every run — a table is never skipped for having
+    rows, because skipping one and not another is what broke the constraint between
+    them. Conflicts are the expected case, not an error."""
+    for t in DATASET:
+        sql, _args = insert_statement(t)
+        assert "ON CONFLICT DO NOTHING" in sql, t.name

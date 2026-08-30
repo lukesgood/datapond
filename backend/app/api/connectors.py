@@ -796,14 +796,19 @@ async def create_sample_db():
             for statement in column_backfill_statements():
                 await sample_conn.execute(statement)
 
+            # Every table on every run, never skipping one for already having rows.
+            # Skipping per table cannot preserve a constraint that spans tables: live,
+            # `customers` kept ten rows from an older seed while `support_tickets`,
+            # empty, was given rows referencing forty — "Key (customer_id)=(29) is not
+            # present in table customers". ON CONFLICT DO NOTHING makes the repeat
+            # harmless and fills in what an older seed left missing.
             seeded = {}
             for t in DATASET:
-                if await sample_conn.fetchval(f"SELECT COUNT(*) FROM {t.name}"):
-                    seeded[t.name] = "already present"
-                    continue
+                before = await sample_conn.fetchval(f"SELECT COUNT(*) FROM {t.name}")
                 sql, args = insert_statement(t)
                 await sample_conn.execute(sql, *args)
-                seeded[t.name] = len(t.rows)
+                after = await sample_conn.fetchval(f"SELECT COUNT(*) FROM {t.name}")
+                seeded[t.name] = {"added": after - before, "total": after}
             # Rows carry explicit ids so the foreign keys could be checked before
             # insert, which leaves every sequence at 1.
             for statement in sequence_reset_statements():
