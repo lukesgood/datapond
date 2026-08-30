@@ -3,6 +3,36 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-08 — Migrations move out of Helm hooks
+
+**What changed.** The migration Job was a `pre-install,pre-upgrade` hook. It is now an
+ordinary manifest resource, and the backend waits for it in an init container.
+
+**Why.** A pre-install hook cannot work on a first install. The Secret it reads its
+credentials from is created in the main phase, so the Job pod sat in
+`CreateContainerConfigError`; and with an in-cluster database there is no database yet,
+because hooks run before the Postgres the same release creates. Moving it to
+`post-install` is worse: readiness records `base_schema` once at startup, so a backend
+that starts before the tables exist is not slow — it is permanently NotReady.
+
+Both failures were found by the ephemeral install job, which exists to catch what an
+upgrade of a running deployment never exercises.
+
+**What is unchanged.** The migration still runs exactly once, in one pod, before the
+backend serves anything. The application still never migrates — the init container
+waits and applies nothing. `backoffLimit` is still 0: one attempt, then a human reads
+the log. Waiting for the database to accept connections is separate and happens inside
+the container, because a closed socket is not a failed migration.
+
+**What to expect.** Backend pods spend a few seconds in `Init` on every rollout. The
+Job is named `backend-migrate-<release revision>` — a Job's pod template is immutable,
+so a fixed name would fail the second upgrade with `field is immutable`. Successful
+Jobs clear themselves after an hour; a failed one is kept.
+
+**If you install with your own command**, add `--namespace <ns> --create-namespace`.
+The chart no longer renders a Namespace on the profile that uses it — see the note
+below on why nothing may leave the manifest.
+
 ## 2026-08 — Infrastructure keeps an event history
 
 **What changed.** Infrastructure has a third tab, **Events**, backed by a new

@@ -143,3 +143,69 @@ def test_every_revision_has_the_sql_it_executes():
     for py in versions.glob("*.py"):
         if "op.execute" in py.read_text() or "exec_driver_sql" in py.read_text():
             assert py.with_suffix(".sql").exists(), f"{py.name} has no .sql beside it"
+
+
+# ── waiting, which is not the same as retrying ────────────────────────────────
+# The migration Job stopped being a pre-install hook: with an in-cluster database the
+# database does not exist yet when pre-install hooks run, and the Secret the Job reads
+# its credentials from is a main-phase resource too. Both were found by the ephemeral
+# install job, one after the other.
+#
+# As an ordinary manifest resource the Job starts alongside Postgres rather than
+# before it, so it has to wait for the database to accept connections. That is not a
+# retry of the migration - backoffLimit stays 0, one attempt, then a human reads the
+# log. Waiting for a socket and retrying DDL are different things and only one of them
+# is dangerous.
+
+def test_waiting_continues_while_the_database_is_unreachable():
+    from app.migrations import should_keep_waiting
+
+    assert should_keep_waiting(reachable=False, elapsed=5, timeout=300)
+
+
+def test_waiting_stops_the_moment_it_is_reachable():
+    from app.migrations import should_keep_waiting
+
+    assert not should_keep_waiting(reachable=True, elapsed=5, timeout=300)
+
+
+def test_waiting_gives_up_rather_than_hanging_a_release_forever():
+    """A Job that never exits is worse than one that fails: nothing reports it, and
+    `helm --wait` sits there until its own timeout with no reason recorded."""
+    from app.migrations import should_keep_waiting
+
+    assert not should_keep_waiting(reachable=False, elapsed=301, timeout=300)
+
+
+def test_the_boundary_belongs_to_waiting_not_to_giving_up():
+    from app.migrations import should_keep_waiting
+
+    assert should_keep_waiting(reachable=False, elapsed=300, timeout=300)
+
+
+# ── the backend waits for the schema, it does not create it ───────────────────
+
+def test_the_schema_is_ready_when_no_core_table_is_missing():
+    from app.migrations import CORE_TABLES, schema_ready
+
+    assert schema_ready(set(CORE_TABLES))
+    assert schema_ready(set(CORE_TABLES) | {"anything_else"})
+
+
+def test_the_schema_is_not_ready_while_a_core_table_is_absent():
+    from app.migrations import CORE_TABLES, schema_ready
+
+    assert not schema_ready(set(CORE_TABLES) - {"users"})
+    assert not schema_ready(set())
+
+
+def test_the_wait_entry_point_never_applies_a_migration():
+    """The backend's init container waits; it must not migrate. Every replica runs it,
+    Alembic does not lock, and that is the whole reason the Job exists."""
+    import inspect
+
+    from app import migrations
+
+    body = inspect.getsource(migrations.wait_for_schema)
+    for forbidden in ("apply(", "command.upgrade", "stamp"):
+        assert forbidden not in body, f"{forbidden} appears in wait_for_schema"
