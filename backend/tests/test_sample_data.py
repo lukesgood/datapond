@@ -206,3 +206,74 @@ def test_seeding_the_sample_database_requires_a_write_permission():
     markers = [getattr(d.call, "__datapond_authorization__", None)
                for d in route.dependant.dependencies]
     assert "connector:write" in markers, f"markers on the route: {markers}"
+
+
+# ── activation: making the loaded data visible ────────────────────────────────
+# Seeding PostgreSQL is half the job. The tables reach the catalog through a connector
+# sync; the relationship graph draws solid edges only from joins in query_history; and
+# Knowledge shows a source only once a collection has ingested one. Each step depends
+# on the one before, and each can be half-done, so the plan is data and is checked.
+
+def test_the_activation_plan_runs_the_steps_in_the_only_order_that_works():
+    from app.sample_data import activation_steps
+
+    steps = [s.key for s in activation_steps()]
+    assert steps.index("sync") < steps.index("queries"), (
+        "the join queries read catalog tables, which the sync creates")
+    assert steps.index("sync") < steps.index("knowledge"), (
+        "ingest reads a catalog column, which the sync creates")
+
+
+def test_every_activation_step_says_what_it_needs_first():
+    from app.sample_data import activation_steps
+
+    for step in activation_steps():
+        assert step.requires is None or step.requires in {s.key for s in activation_steps()}
+
+
+def test_the_knowledge_step_carries_one_request_per_collection():
+    from app.sample_data import knowledge_ingest_requests
+
+    requests = knowledge_ingest_requests()
+    assert len(requests) == len(KNOWLEDGE_SOURCES)
+    for request, source in zip(requests, KNOWLEDGE_SOURCES):
+        assert request["collection"] == source.collection
+        assert request["source"]["table"] == source.table
+        assert request["source"]["text_column"] == source.column
+
+
+def test_the_ingest_request_names_the_schema_the_sync_writes_into():
+    """A collection pointed at the wrong schema ingests nothing and reports success."""
+    from app.sample_data import CATALOG_SCHEMA, knowledge_ingest_requests
+
+    for request in knowledge_ingest_requests():
+        assert request["source"]["schema"] == CATALOG_SCHEMA
+        assert request["source"]["type"] == "iceberg"
+
+
+def test_the_join_queries_are_qualified_for_the_catalog_not_for_postgres():
+    """They ran against sampledb when seeded; they run against the catalog afterwards,
+    and an unqualified name resolves to whatever the engine's default schema is."""
+    from app.sample_data import CATALOG_SCHEMA, catalog_join_queries
+
+    for query in catalog_join_queries():
+        for referenced in query.tables:
+            assert f"{CATALOG_SCHEMA}.{referenced}" in query.sql, (
+                f"{query.name} leaves {referenced} unqualified")
+
+
+def test_qualifying_does_not_disturb_the_aliases():
+    """`FROM support_tickets t` must become `FROM <schema>.support_tickets t` — losing
+    the alias breaks every column reference in the statement."""
+    from app.sample_data import catalog_join_queries
+
+    query = next(q for q in catalog_join_queries() if q.name == "tickets_by_customer_tier")
+    assert " t JOIN " in query.sql or " t\nJOIN " in query.sql
+    assert "t.customer_id = c.id" in query.sql
+
+
+def test_qualifying_leaves_result_column_names_alone():
+    from app.sample_data import catalog_join_queries
+
+    for query in catalog_join_queries():
+        assert " AS " in query.sql or " as " in query.sql

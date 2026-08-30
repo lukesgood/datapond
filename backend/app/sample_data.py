@@ -536,3 +536,82 @@ KNOWLEDGE_SOURCES: List[KnowledgeSource] = [
                     "캠페인 기획 의도, 대상 세그먼트, 성공 지표",
                     "campaigns", "brief"),
 ]
+
+
+# ── activation ────────────────────────────────────────────────────────────────
+# Seeding PostgreSQL is half the job. The tables reach the catalog through a connector
+# sync; the relationship graph draws a solid edge only from a join in query_history;
+# and Knowledge shows a source only once a collection has ingested one.
+#
+# Each step depends on the one before and each can be half-done, so the plan is data
+# rather than a sequence of calls buried in a handler — which is how the order gets
+# quietly wrong and the failure shows up as an empty graph nobody can explain.
+
+# Where the connector sync writes. The ingest and the join queries both have to name
+# it: a collection pointed at the wrong schema ingests nothing and reports success.
+CATALOG_SCHEMA = "default"
+
+
+@dataclass(frozen=True)
+class ActivationStep:
+    key: str
+    label: str
+    detail: str
+    requires: Optional[str] = None
+
+
+def activation_steps() -> List[ActivationStep]:
+    return [
+        ActivationStep("sync", "Sync into the catalog",
+                       "Runs the sample connector so the 13 tables become catalog "
+                       "tables. Everything below reads them."),
+        ActivationStep("queries", "Run the demo joins",
+                       "Puts real joins in query_history, which is the only thing "
+                       "that makes a relationship edge solid rather than a guess "
+                       "from column names.", requires="sync"),
+        ActivationStep("knowledge", "Ingest the prose columns",
+                       "Creates the collections and embeds the three columns that "
+                       "hold prose, so Knowledge has a real source to show.",
+                       requires="sync"),
+    ]
+
+
+def _qualify(sql: str, tables) -> str:
+    """Prefix each table name with the catalog schema, in FROM and JOIN only.
+
+    Only after FROM/JOIN, so an alias, a column, or a word that happens to match a
+    table name is left alone — `SELECT p.category ... JOIN products p` must keep both
+    halves intact.
+    """
+    import re
+    out = sql
+    for name in tables:
+        out = re.sub(rf"\b(FROM|JOIN)\s+{re.escape(name)}\b",
+                     rf"\1 {CATALOG_SCHEMA}.{name}", out)
+    return out
+
+
+def catalog_join_queries() -> List[JoinQuery]:
+    """The demo joins, addressed to the catalog rather than to sampledb.
+
+    They were written against the seed database, where an unqualified name resolves
+    correctly. Through the query engine it resolves to whatever the session's default
+    schema happens to be, which is not necessarily this one.
+    """
+    return [JoinQuery(q.name, q.tables, _qualify(q.sql, q.tables), q.question)
+            for q in JOIN_QUERIES]
+
+
+def knowledge_ingest_requests() -> List[Dict[str, Any]]:
+    """One ingest per collection, in the shape /ai/collections/{name}/ingest-source takes."""
+    return [{
+        "collection": source.collection,
+        "description": source.description,
+        "source": {
+            "type": "iceberg",
+            "schema": CATALOG_SCHEMA,
+            "table": source.table,
+            "text_column": source.column,
+            "limit": 1000,
+        },
+    } for source in KNOWLEDGE_SOURCES]

@@ -9,6 +9,7 @@ Everything decidable without a cluster or a database is a pure function here, te
 tests/test_system_events.py. The impure edges live at the bottom and stay thin.
 """
 import hashlib
+from dataclasses import dataclass
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -116,25 +117,135 @@ def restart_events(previous: dict, current: dict, now: datetime) -> list:
     return events
 
 
-def reboot_event(previous_boot: "datetime | None", current_boot: datetime) -> "dict | None":
-    """A node reboot, inferred from boot time moving forward.
+# A deployment may be stopped and started on a schedule — the AWS reference node is,
+# on weekdays, to save money on a spot instance. Declaring those windows is what keeps
+# the expected starts out of `critical`. Fail-closed: nothing declared means nothing is
+# expected, and every restart stays critical.
+_DAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+
+# The scheduler fires, EC2 provisions, the kernel boots. Demanding the exact minute
+# would classify every real scheduled start as unexpected.
+_START_TOLERANCE_MINUTES = 15
+
+
+@dataclass(frozen=True)
+class ExpectedStart:
+    days: frozenset          # weekday numbers, Monday = 0
+    hour: int
+    minute: int
+    timezone_name: str
+
+
+def _days_from(token: str) -> "frozenset | None":
+    names = []
+    for part in token.split(","):
+        part = part.strip().upper()
+        if "-" in part:
+            first, last = (p.strip() for p in part.split("-", 1))
+            if first not in _DAYS or last not in _DAYS:
+                return None
+            span = _DAYS[_DAYS.index(first):_DAYS.index(last) + 1]
+            if not span:
+                return None
+            names.extend(span)
+        elif part in _DAYS:
+            names.append(part)
+        else:
+            return None
+    return frozenset(_DAYS.index(n) for n in names)
+
+
+def parse_expected_starts(spec: str) -> "list[ExpectedStart]":
+    """`"MON-FRI 07:30 Asia/Seoul, SAT 09:00 Asia/Seoul"` → windows.
+
+    Anything unparseable is dropped rather than approximated. A window that matched
+    more than it should would silently downgrade a real incident to information, which
+    is the one direction this must never fail in.
+    """
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    windows = []
+    for entry in (spec or "").split(","):
+        # A day list may itself contain commas, so re-join what splitting broke.
+        entry = entry.strip()
+        if not entry:
+            continue
+        parts = entry.split()
+        if len(parts) != 3:
+            continue
+        day_token, clock, zone = parts
+        days = _days_from(day_token)
+        if days is None:
+            continue
+        try:
+            hour, minute = (int(p) for p in clock.split(":", 1))
+            ZoneInfo(zone)
+        except (ValueError, ZoneInfoNotFoundError, KeyError):
+            continue
+        if not (0 <= hour < 24 and 0 <= minute < 60):
+            continue
+        windows.append(ExpectedStart(days, hour, minute, zone))
+    return windows
+
+
+def expected_starts() -> "list[ExpectedStart]":
+    return parse_expected_starts(os.getenv("SYSTEM_EVENTS_EXPECTED_STARTS", ""))
+
+
+def is_expected_start(boot_time: datetime, windows) -> bool:
+    from zoneinfo import ZoneInfo
+
+    for window in windows or ():
+        local = boot_time.astimezone(ZoneInfo(window.timezone_name))
+        if local.weekday() not in window.days:
+            continue
+        scheduled = local.replace(hour=window.hour, minute=window.minute,
+                                  second=0, microsecond=0)
+        if abs((local - scheduled).total_seconds()) <= _START_TOLERANCE_MINUTES * 60:
+            return True
+    return False
+
+
+def reboot_event(previous_boot: "datetime | None", current_boot: datetime,
+                 expected=()) -> "dict | None":
+    """A node coming back up, inferred from boot time moving forward.
 
     Detected after the fact by construction: nothing collects while the backend is
-    down. The cause is therefore not ours to give, and the row says so — inferring one
-    would be worse than its absence, because it would be believed.
+    down. For an unscheduled restart the cause is therefore not ours to give, and the
+    row says so — inferring one would be worse than its absence, because it would be
+    believed.
+
+    A start that matches a declared window is a different event, and information
+    rather than a failure. Reporting an expected weekday start as critical is how a
+    severity column stops being read, and the unscheduled restart in the same week is
+    what gets missed when it does.
     """
     if previous_boot is None:
         return None
     if current_boot - previous_boot <= _BOOT_TOLERANCE:
         return None
+
+    stamp = current_boot.isoformat(timespec="seconds")
+    if is_expected_start(current_boot, expected):
+        return {
+            "dedup_key": dedup_key("node", "node_start_scheduled", "node",
+                                   current_boot.isoformat()),
+            "kind": "node_start_scheduled",
+            "severity": "info",
+            "source": "node",
+            "object": "node",
+            "message": f"Node started at {stamp}, matching a scheduled start window",
+            "details": {"scheduled": True, "booted_at": current_boot.isoformat(),
+                        "previous_boot": previous_boot.isoformat()},
+            "last_seen": current_boot,
+        }
     return {
         "dedup_key": dedup_key("node", "node_reboot", "node", current_boot.isoformat()),
         "kind": "node_reboot",
         "severity": "critical",
         "source": "node",
         "object": "node",
-        "message": f"Node restarted at {current_boot.isoformat(timespec='seconds')} "
-                   f"— cause not recorded",
+        "message": f"Node restarted at {stamp} — cause not recorded",
         "details": {"cause_recorded": False, "booted_at": current_boot.isoformat(),
                     "previous_boot": previous_boot.isoformat()},
         "last_seen": current_boot,
@@ -381,7 +492,7 @@ async def tick(pool) -> int:
             if seen["boot_time"] is not None:
                 if previous_boot:
                     reboot = reboot_event(datetime.fromisoformat(previous_boot),
-                                          seen["boot_time"])
+                                          seen["boot_time"], expected_starts())
                     if reboot:
                         pending.append(reboot)
                 await save_state(c, "boot_time", seen["boot_time"].isoformat())

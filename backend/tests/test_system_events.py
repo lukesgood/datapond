@@ -389,3 +389,100 @@ def test_a_different_failure_is_a_different_row():
     a = degraded_event("(403) Forbidden", _now())
     b = degraded_event("connection refused", _now())
     assert a["dedup_key"] != b["dedup_key"]
+
+
+# ── expected restarts ─────────────────────────────────────────────────────────
+# The live node is stopped at 18:00 and started at 07:30 on weekdays by an EventBridge
+# schedule, to save money on a spot instance. The collector reported each morning start
+# as `critical — cause not recorded`, which is both wrong and expensive: two expected
+# events per week train whoever reads this list to ignore the severity, and the one
+# unscheduled restart in the same window is what they then miss.
+
+def _kst(spec="MON-FRI 07:30 Asia/Seoul"):
+    from app.system_events import parse_expected_starts
+    return parse_expected_starts(spec)
+
+
+def test_a_start_at_the_scheduled_time_is_expected():
+    from app.system_events import is_expected_start
+
+    # 2026-08-31 07:30 KST — a Monday — is 2026-08-30 22:30 UTC.
+    boot = datetime(2026, 8, 30, 22, 30, tzinfo=timezone.utc)
+    assert is_expected_start(boot, _kst())
+
+
+def test_a_start_two_hours_later_is_not_expected():
+    from app.system_events import is_expected_start
+
+    boot = datetime(2026, 8, 28, 0, 32, tzinfo=timezone.utc)   # 09:32 KST, Friday
+    assert not is_expected_start(boot, _kst())
+
+
+def test_a_few_minutes_of_slack_still_counts_as_the_scheduled_start():
+    """The scheduler fires, then EC2 provisions, then the kernel boots. Demanding the
+    exact minute would classify every real scheduled start as unexpected."""
+    from app.system_events import is_expected_start
+
+    assert is_expected_start(datetime(2026, 8, 30, 22, 33, tzinfo=timezone.utc), _kst())
+    assert is_expected_start(datetime(2026, 8, 30, 22, 27, tzinfo=timezone.utc), _kst())
+
+
+def test_the_same_time_on_a_day_the_schedule_excludes_is_not_expected():
+    from app.system_events import is_expected_start
+
+    # 2026-08-29 07:30 KST is a Saturday; the schedule is MON-FRI.
+    assert not is_expected_start(datetime(2026, 8, 28, 22, 30, tzinfo=timezone.utc), _kst())
+
+
+def test_no_configured_schedule_means_nothing_is_expected():
+    """Fail loud, not quiet: with no schedule declared, every restart stays critical."""
+    from app.system_events import is_expected_start, parse_expected_starts
+
+    assert parse_expected_starts("") == []
+    assert not is_expected_start(_now(), [])
+
+
+def test_an_unparseable_schedule_is_ignored_rather_than_silently_matching_everything():
+    from app.system_events import parse_expected_starts
+
+    assert parse_expected_starts("every morning-ish") == []
+    assert parse_expected_starts("MON-FRI 07:30 Not/AZone") == []
+
+
+def test_several_windows_can_be_declared():
+    from app.system_events import parse_expected_starts
+
+    assert len(parse_expected_starts("MON-FRI 07:30 Asia/Seoul, SAT 09:00 Asia/Seoul")) == 2
+
+
+def test_an_expected_start_is_recorded_as_information_not_as_a_failure():
+    from app.system_events import reboot_event
+
+    event = reboot_event(datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc),
+                         datetime(2026, 8, 30, 22, 30, tzinfo=timezone.utc),
+                         expected=_kst())
+    assert event["kind"] == "node_start_scheduled"
+    assert event["severity"] == "info"
+    assert "scheduled" in event["message"].lower()
+    assert "cause not recorded" not in event["message"]
+
+
+def test_an_unscheduled_restart_stays_critical_and_still_says_the_cause_is_unknown():
+    from app.system_events import reboot_event
+
+    event = reboot_event(datetime(2026, 8, 27, 12, 0, tzinfo=timezone.utc),
+                         datetime(2026, 8, 28, 0, 32, tzinfo=timezone.utc),
+                         expected=_kst())
+    assert event["kind"] == "node_reboot"
+    assert event["severity"] == "critical"
+    assert event["details"]["cause_recorded"] is False
+
+
+def test_an_expected_start_and_an_unexpected_one_are_different_rows():
+    from app.system_events import reboot_event
+
+    a = reboot_event(_now() - timedelta(days=1),
+                     datetime(2026, 8, 30, 22, 30, tzinfo=timezone.utc), expected=_kst())
+    b = reboot_event(_now() - timedelta(days=1),
+                     datetime(2026, 8, 28, 0, 32, tzinfo=timezone.utc), expected=_kst())
+    assert a["dedup_key"] != b["dedup_key"]

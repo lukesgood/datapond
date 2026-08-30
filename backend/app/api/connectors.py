@@ -15,7 +15,7 @@ Endpoints:
 """
 
 from fastapi import APIRouter, HTTPException, Depends
-from app.api.auth import require_permission
+from app.api.auth import require_permission, require_user
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 from typing import List, Optional, Dict, Any, AsyncGenerator
@@ -858,6 +858,85 @@ async def create_sample_db():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create sample DB: {str(e)}")
+
+
+@router.post("/connectors/sample-db/activate",
+             dependencies=[Depends(require_permission("connector:write"))])
+async def activate_sample_db(user: dict = Depends(require_user)):
+    """Make the seeded data visible: catalog, relationship graph, Knowledge.
+
+    Seeding PostgreSQL is half the job. The tables reach the catalog through a sync;
+    the relationship graph draws an edge solid only when the join appears in
+    query_history, dashed when it is only a guess from column names; and Knowledge
+    shows a source only once a collection has ingested one.
+
+    Every step reports what happened rather than failing the request. A partial result
+    an operator can read beats a 500 that says nothing about which half worked — and
+    the first step depends on a catalog sync that can legitimately take minutes.
+    """
+    from app.sample_data import (
+        activation_steps, catalog_join_queries, knowledge_ingest_requests,
+    )
+
+    outcome: Dict[str, Any] = {"steps": [s.__dict__ for s in activation_steps()],
+                               "sync": None, "queries": [], "knowledge": []}
+
+    # ── sync ──────────────────────────────────────────────────────────────────
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        connection_id = await conn.fetchval(
+            "SELECT id FROM connector_connections WHERE name='Sample E-Commerce DB'")
+    if not connection_id:
+        raise HTTPException(status_code=409,
+                            detail="Seed the sample database first (POST /connectors/sample-db).")
+    try:
+        outcome["sync"] = await trigger_sync(str(connection_id))
+    except Exception as e:
+        outcome["sync"] = {"error": str(e)[:300]}
+
+    # ── the joins that make edges observed ────────────────────────────────────
+    from app.api.queries import QueryExecuteRequest, execute_query
+    from app.database.connection import SessionLocal
+    for query in catalog_join_queries():
+        db = SessionLocal()
+        try:
+            # origin is left at its default: `ai_sql` is excluded from the
+            # relationship graph by design, and these are not AI-generated.
+            result = await execute_query(
+                QueryExecuteRequest(query=query.sql, save_history=True),
+                db=db, user=user)
+            outcome["queries"].append({"name": query.name, "question": query.question,
+                                       "rows": result.row_count})
+        except Exception as e:
+            outcome["queries"].append({"name": query.name, "error": str(e)[:200]})
+        finally:
+            db.close()
+
+    # ── knowledge ─────────────────────────────────────────────────────────────
+    from app.api.ai_vectors import (
+        CollectionCreate, SourceIngest, create_collection, ingest_source,
+    )
+    for request in knowledge_ingest_requests():
+        entry: Dict[str, Any] = {"collection": request["collection"]}
+        try:
+            try:
+                await create_collection(
+                    CollectionCreate(name=request["collection"],
+                                     description=request["description"]), user=user)
+                entry["created"] = True
+            except HTTPException as e:
+                # Already there is the normal case on a second run.
+                entry["created"] = False
+                if e.status_code not in (400, 409):
+                    raise
+            ingested = await ingest_source(
+                request["collection"], SourceIngest(**request["source"]), user=user)
+            entry["chunks"] = (ingested or {}).get("chunks")
+        except Exception as e:
+            entry["error"] = str(e)[:200]
+        outcome["knowledge"].append(entry)
+
+    return outcome
 
 
 @router.delete("/connectors/{connection_id}/draft", dependencies=[Depends(require_permission("connector:write"))])

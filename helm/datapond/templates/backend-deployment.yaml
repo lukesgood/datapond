@@ -138,6 +138,12 @@ spec:
           value: {{ dig "tickSeconds" 120 (.Values.backend.systemEvents | default dict) | quote }}
         - name: SYSTEM_EVENTS_RETENTION_DAYS
           value: {{ dig "retentionDays" 30 (.Values.backend.systemEvents | default dict) | quote }}
+        # Windows in which a restart is expected rather than an incident, e.g. a node
+        # stopped overnight to save money. Empty means nothing is expected and every
+        # restart stays critical — fail-closed, because the other direction silently
+        # downgrades a real one.
+        - name: SYSTEM_EVENTS_EXPECTED_STARTS
+          value: {{ dig "expectedStarts" "" (.Values.backend.systemEvents | default dict) | quote }}
         # Connector → RAG sink: re-embed fresh collections when their source table syncs
         - name: RAG_SINK_ENABLED
           value: {{ dig "sinkEnabled" true (.Values.backend.ragScheduler | default dict) | quote }}

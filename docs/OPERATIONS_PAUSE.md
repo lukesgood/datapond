@@ -1,10 +1,22 @@
 # Operations — Live Environment Stop / Restart Runbook
 
-> **State as of 2026-08-24: RUNNING.** The EC2 node was started on 2026-08-24 and the
-> release is at Helm revision 59 (backend `2.3.0-0a5fbfa`). The Aurora cluster was already
-> `available` — AWS force-started it under the 7-day rule described in caveat 1 below.
-> The EventBridge schedulers remain **DISABLED**, so nothing will stop the node
-> automatically; stopping is a manual action (see "Stop procedure").
+> **State as of 2026-08-31: RUNNING on a weekday schedule.** The EventBridge schedulers
+> are **ENABLED** again, so the node stops and starts on its own:
+>
+> | Schedule | Cron (Asia/Seoul) | Effect |
+> |---|---|---|
+> | `datapond-node-start` | `cron(30 7 ? * MON-FRI *)` | node up at 07:30 on weekdays |
+> | `datapond-node-stop` | `cron(0 18 ? * MON-FRI *)` | node down at 18:00 on weekdays |
+>
+> The environment is therefore **down outside 07:30–18:00 KST on weekdays, and all
+> weekend**. That is deliberate — it is a spot instance and evenings cost money for
+> nothing — but it means a health check outside those hours is not evidence of a fault.
+>
+> The same schedule is declared to the application in `values-prod-single.yaml` as
+> `backend.systemEvents.expectedStarts`, so Infrastructure → Events records the morning
+> start as information rather than as a critical restart with no known cause. **If the
+> schedule changes, change it in both places** — otherwise every scheduled start
+> reappears as an incident, and the real ones stop standing out.
 >
 > **History.** The environment was intentionally stopped on 2026-07-27 to halt run cost
 > while the product concept was re-confirmed (`CONCEPT_RECONFIRMATION.md`). Nothing was
