@@ -615,3 +615,20 @@ def knowledge_ingest_requests() -> List[Dict[str, Any]]:
             "limit": 1000,
         },
     } for source in KNOWLEDGE_SOURCES]
+
+
+def connector_action(exists: bool, decryptable: bool) -> str:
+    """What to do with the sample connector: create it, repair it, or leave it.
+
+    Repair exists because of a live failure: an incident regenerated ENCRYPTION_KEY,
+    the connector's stored config could no longer be decrypted, and every sync failed
+    with "Decryption failed". The seed route saw a row with the right name and left it
+    alone, so re-running the seed — the obvious thing to try — fixed nothing.
+
+    This is the one credential the product can rebuild by itself; host, port, database,
+    user and password all come from the deployment's own configuration. Repair rather
+    than recreate: the row keeps its id, and sync history and schedules point at it.
+    """
+    if not exists:
+        return "create"
+    return "keep" if decryptable else "repair"

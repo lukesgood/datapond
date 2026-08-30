@@ -761,8 +761,8 @@ async def create_sample_db():
     import asyncpg as _asyncpg
 
     from app.sample_data import (
-        DATASET, KNOWLEDGE_SOURCES, column_backfill_statements, ddl_statement,
-        insert_statement, sequence_reset_statements,
+        DATASET, KNOWLEDGE_SOURCES, column_backfill_statements, connector_action,
+        ddl_statement, insert_statement, sequence_reset_statements,
     )
 
     try:
@@ -818,30 +818,50 @@ async def create_sample_db():
 
         pool = await get_db_pool()
         async with pool.acquire() as conn:
-            existing = await conn.fetchval(
-                "SELECT id FROM connector_connections WHERE name='Sample E-Commerce DB'"
-            )
+            row = await conn.fetchrow(
+                "SELECT id, config_encrypted FROM connector_connections "
+                "WHERE name='Sample E-Commerce DB'")
 
-        if not existing:
+        decryptable = False
+        if row:
+            try:
+                vault.decrypt_credentials(row["config_encrypted"])
+                decryptable = True
+            except Exception:
+                decryptable = False
+
+        action = connector_action(exists=bool(row), decryptable=decryptable)
+        sample_config = {
+            "host": os.getenv("POSTGRES_HOST", "postgres"),
+            "port": 5432,
+            "database": "sampledb",
+            "username": os.getenv("POSTGRES_USER", "datapond"),
+            "password": component_secret("POSTGRES_PASSWORD", "dev_password",
+                                         component="postgres"),
+            "ssl": False,
+        }
+        if action == "create":
             connection_id = str(uuid.uuid4())
-            sample_config = {
-                "host": os.getenv("POSTGRES_HOST", "postgres"),
-                "port": 5432,
-                "database": "sampledb",
-                "username": os.getenv("POSTGRES_USER", "datapond"),
-                "password": component_secret("POSTGRES_PASSWORD", "dev_password",
-                                             component="postgres"),
-                "ssl": False,
-            }
-            encrypted = vault.encrypt_credentials(sample_config)
             async with pool.acquire() as conn:
                 await conn.execute("""
                     INSERT INTO connector_connections
                     (id, name, connector_type, config_encrypted, status, created_at, updated_at)
                     VALUES ($1,$2,'postgresql',$3,'active',$4,$4)
-                """, connection_id, "Sample E-Commerce DB", encrypted, datetime.utcnow())
+                """, connection_id, "Sample E-Commerce DB",
+                     vault.encrypt_credentials(sample_config), datetime.utcnow())
+        elif action == "repair":
+            # Re-encrypt in place. The row keeps its id, which sync history and
+            # schedules point at; a new row would orphan all of it.
+            connection_id = str(row["id"])
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE connector_connections SET config_encrypted=$2, "
+                    "status='active', updated_at=$3 WHERE id=$1",
+                    row["id"], vault.encrypt_credentials(sample_config), datetime.utcnow())
+            logger.warning("[sample-db] sample connector credentials could not be "
+                           "decrypted; re-encrypted with the current key")
         else:
-            connection_id = str(existing)
+            connection_id = str(row["id"])
 
         return {
             "id": connection_id,
@@ -849,7 +869,7 @@ async def create_sample_db():
             "connector_type": "postgresql",
             "status": "active",
             "created_at": datetime.utcnow(),
-            "already_existed": bool(existing),
+            "connector_action": action,
             "tables": [t.name for t in DATASET],
             "domains": sorted({t.domain for t in DATASET}),
             "seeded": seeded,

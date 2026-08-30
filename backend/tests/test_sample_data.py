@@ -309,3 +309,39 @@ def test_the_insert_tolerates_rows_that_are_already_there():
     for t in DATASET:
         sql, _args = insert_statement(t)
         assert "ON CONFLICT DO NOTHING" in sql, t.name
+
+
+# ── a connector whose credentials can no longer be read ───────────────────────
+# Live: "Sync failed: Decryption failed:". The sample connector was registered before
+# an incident regenerated ENCRYPTION_KEY, so its stored config could not be decrypted
+# and every sync failed. The seed route saw a row with the right name and left it
+# alone, so re-running the seed — the obvious thing to try — fixed nothing.
+#
+# The sample connector is the one credential this product can rebuild by itself:
+# host, port, database, user and password all come from the deployment's own
+# configuration. Leaving it broken serves nobody.
+
+def test_a_missing_connector_is_created():
+    from app.sample_data import connector_action
+
+    assert connector_action(exists=False, decryptable=False) == "create"
+
+
+def test_a_working_connector_is_left_alone():
+    from app.sample_data import connector_action
+
+    assert connector_action(exists=True, decryptable=True) == "keep"
+
+
+def test_a_connector_whose_credentials_cannot_be_read_is_repaired():
+    from app.sample_data import connector_action
+
+    assert connector_action(exists=True, decryptable=False) == "repair"
+
+
+def test_repair_is_not_deletion():
+    """The row keeps its id. Sync history, schedules and anything else pointing at
+    this connector reference that id, and a new one would orphan all of it."""
+    from app.sample_data import connector_action
+
+    assert connector_action(exists=True, decryptable=False) != "recreate"
