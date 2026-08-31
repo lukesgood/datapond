@@ -79,7 +79,7 @@ spec:
     spec:
       accessModes: ["ReadWriteOnce"]
       {{- if .Values.openmetadata.elasticsearch.persistence.storageClass }}
-      storageClassName: {{ .Values.openmetadata.elasticsearch.persistence.storageClass }}
+      {{- include "datapond.storageClassName" (dict "value" .Values.openmetadata.elasticsearch.persistence.storageClass "indent" 6) }}
       {{- end }}
       resources:
         requests:

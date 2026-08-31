@@ -102,7 +102,7 @@ metadata:
 spec:
   accessModes: ["ReadWriteOnce"]
   {{- $sc := .Values.vllm.persistence.storageClass }}
-  storageClassName: {{ if $sc }}{{ $sc | quote }}{{ else }}{{ .Values.global.storageClass | quote }}{{ end }}
+  {{- include "datapond.storageClassName" (dict "value" (default .Values.global.storageClass $sc) "indent" 2) }}
   resources:
     requests:
       storage: {{ .Values.vllm.persistence.size }}

@@ -223,7 +223,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: {{ .Values.global.storageClass }}
+  {{- include "datapond.storageClassName" (dict "value" .Values.global.storageClass "indent" 2) }}
   resources:
     requests:
       storage: {{ .Values.airflow.persistence.dags.size }}
@@ -236,7 +236,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: {{ .Values.global.storageClass }}
+  {{- include "datapond.storageClassName" (dict "value" .Values.global.storageClass "indent" 2) }}
   resources:
     requests:
       storage: {{ .Values.airflow.persistence.logs.size }}

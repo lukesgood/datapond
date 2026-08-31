@@ -114,7 +114,7 @@ spec:
       name: postgres-data
     spec:
       accessModes: [ "ReadWriteOnce" ]
-      storageClassName: {{ .Values.postgres.persistence.storageClass }}
+      {{- include "datapond.storageClassName" (dict "value" .Values.postgres.persistence.storageClass "indent" 6) }}
       resources:
         requests:
           storage: {{ .Values.postgres.persistence.size }}
