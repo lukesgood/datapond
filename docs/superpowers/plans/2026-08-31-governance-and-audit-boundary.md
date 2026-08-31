@@ -57,7 +57,7 @@ denies everything, and that is a decision with data behind it, not a default.
 
 Commit: `feat(governance): say which tables default-deny would block, where it is read`
 
-### [ ] A2 — collection membership: schema
+### [x] A2 — collection membership: schema
 
 `ai_collections.owner_id` plus "owner NULL means everyone" is the whole access model.
 There is no way to share a collection with three named people.
