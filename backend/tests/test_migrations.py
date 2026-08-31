@@ -246,3 +246,60 @@ def test_waiting_says_why_it_is_still_waiting():
     body = inspect.getsource(migrations.wait_for_schema)
     assert "except Exception" not in body or "log" in body, "the reason is swallowed"
     assert "logger" in body or "log." in body
+
+
+# ── opening the pool is the thing that has to wait ────────────────────────────
+# The Job waited for the database *after* connecting to it. get_db_pool() raised on
+# the first refused connection, before the wait loop it was supposed to protect, and
+# with backoffLimit 0 the Job was then permanently Error — so the schema was never
+# created and the backend's init container waited out its whole timeout for something
+# that would never arrive. One misplaced line, and every symptom pointed elsewhere.
+
+def test_the_pool_is_retried_until_the_database_accepts_connections():
+    import asyncio
+
+    from app.migrations import open_pool
+
+    attempts = []
+
+    async def acquire():
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise ConnectionRefusedError("Connect call failed")
+        return "pool"
+
+    assert asyncio.run(open_pool(acquire, timeout=60, interval=0)) == "pool"
+    assert len(attempts) == 3
+
+
+def test_a_pool_that_opens_at_once_is_not_delayed():
+    import asyncio
+
+    from app.migrations import open_pool
+
+    async def acquire():
+        return "pool"
+
+    assert asyncio.run(open_pool(acquire, timeout=60, interval=0)) == "pool"
+
+
+def test_it_returns_nothing_rather_than_retrying_forever():
+    import asyncio
+
+    from app.migrations import open_pool
+
+    async def acquire():
+        raise ConnectionRefusedError("Connect call failed")
+
+    assert asyncio.run(open_pool(acquire, timeout=0, interval=0)) is None
+
+
+def test_the_job_opens_its_pool_through_the_waiting_helper():
+    """Not `await get_db_pool()` directly — that is the line that failed."""
+    import inspect
+
+    from app import migrations
+
+    body = inspect.getsource(migrations.main)
+    assert "open_pool" in body
+    assert "await get_db_pool()" not in body

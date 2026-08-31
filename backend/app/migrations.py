@@ -143,13 +143,34 @@ def schema_ready(present) -> bool:
     return not missing_tables(present)
 
 
-async def _reachable(pool) -> bool:
-    try:
-        async with pool.acquire() as c:
-            await c.fetchval("SELECT 1")
-        return True
-    except Exception:
-        return False
+async def open_pool(acquire=None, timeout: float = 300.0, interval: float = 3.0):
+    """A connection pool, once the database will give one. None if it never does.
+
+    The retry has to wrap the connect. The Job used to wait for the database *after*
+    calling get_db_pool(), which raises on a refused connection — so with backoffLimit
+    0 the Job went straight to Error, the schema was never created, and the backend's
+    init container then waited out its whole timeout for something that would never
+    arrive. One misplaced line, and every symptom pointed somewhere else.
+    """
+    import asyncio
+    import logging
+    import time
+
+    if acquire is None:
+        from app.api.connectors import get_db_pool as acquire
+    log = logging.getLogger("migrate")
+    started = time.monotonic()
+    while True:
+        try:
+            return await acquire()
+        except Exception as e:
+            elapsed = time.monotonic() - started
+            if not should_keep_waiting(reachable=False, elapsed=elapsed, timeout=timeout):
+                log.error("database did not accept connections within %.0fs: %s",
+                          timeout, str(e)[:200])
+                return None
+            log.info("waiting for the database (%.0fs): %s", elapsed, str(e)[:120])
+        await asyncio.sleep(interval)
 
 
 async def wait_for_schema(timeout: float = 600.0, interval: float = 3.0) -> int:
@@ -216,21 +237,11 @@ def main() -> int:
         return code
 
     async def run() -> int:
-        from app.api.connectors import get_db_pool
-
-        pool = await get_db_pool()
-
-        # Wait for the socket, not for a second chance at the migration. The Job is an
-        # ordinary manifest resource, so Postgres may still be starting beside it.
-        import time
-        started = time.monotonic()
-        wait = float(os.getenv("MIGRATE_DB_WAIT_SECONDS", "300"))
-        while should_keep_waiting(await _reachable(pool),
-                                  time.monotonic() - started, wait):
-            log.info("waiting for the database...")
-            await asyncio.sleep(3)
-        if not await _reachable(pool):
-            log.error("database did not accept connections within %ss", wait)
+        # Wait for the database, not for a second chance at the migration. The Job is
+        # an ordinary manifest resource now, so Postgres may still be starting beside
+        # it, and a refused connection is not a failed migration.
+        pool = await open_pool(timeout=float(os.getenv("MIGRATE_DB_WAIT_SECONDS", "300")))
+        if pool is None:
             return 1
 
         try:
