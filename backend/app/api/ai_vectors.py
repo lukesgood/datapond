@@ -14,8 +14,17 @@ Endpoints (all under /api):
   POST   /ai/collections                    create a collection
   DELETE /ai/collections/{name}             drop a collection (+ its chunks)
   POST   /ai/collections/{name}/ingest      chunk → PII-mask → embed → upsert
+  GET    /ai/collections/{name}/members     who this collection is shared with
+  POST   /ai/collections/{name}/members     share it with one more person
+  DELETE /ai/collections/{name}/members     revoke one person's access
   POST   /ai/search                         semantic (vector) search
   POST   /ai/rag                            retrieve → LiteLLM chat → cited answer
+
+Access to an existing collection — read or write, on every route above that takes a
+`name` — goes through app.knowledge_access.may_read/may_write via _collection_id()
+below: admin, then owner, then an explicit ai_collection_members grant, then (read
+only) the legacy owner_id IS NULL "global" collection. See that module's docstring
+for the full precedence.
 """
 import os
 import re
@@ -35,6 +44,7 @@ from app.api.auth import require_admin_or_internal, require_admin, require_user
 from app.api.auth import require_permission
 from app.ai_context import set_actor, actor_payload
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
+from app.knowledge_access import may_read, may_write
 from app.runtime import component_secret
 
 logger = logging.getLogger(__name__)
@@ -391,7 +401,16 @@ async def list_collections(user: dict = Depends(require_user),
     where, args = [], []
     if not is_admin:
         args.append(_uid(user))
-        where.append(f"(col.owner_id = ${len(args)} OR col.owner_id IS NULL)")
+        # Own it, it's global (owner_id IS NULL — the route above already required
+        # knowledge:read to get here, so that matches may_read's legacy-global
+        # branch), or an ai_collection_members row names this user directly. One
+        # EXISTS per row rather than a join-then-DISTINCT, so a collection shared
+        # with three people still lists once, not three times.
+        where.append(
+            f"(col.owner_id = ${len(args)} OR col.owner_id IS NULL "
+            f"OR EXISTS (SELECT 1 FROM ai_collection_members m "
+            f"WHERE m.collection_id = col.id AND m.user_id = ${len(args)}))"
+        )
     if q and q.strip():
         args.append(f"%{q.strip()}%")
         where.append(f"col.name ILIKE ${len(args)}")
@@ -464,9 +483,102 @@ async def create_collection(body: CollectionCreate, user: dict = Depends(require
 async def delete_collection(name: str, user: dict = Depends(require_user)):
     pool = await get_db_pool()
     async with pool.acquire() as c:
-        await _collection_id(c, name, user, destroy=True)   # 404/403 gate (owner/admin only)
+        await _collection_id(c, name, user, destroy=True)   # 404/403 gate (may_write)
         res = await c.execute("DELETE FROM ai_collections WHERE name = $1", name)
     return {"success": True, "deleted": res}
+
+
+# ── Membership (share a collection with named people, A2/A3) ────────────────────
+
+class MemberGrant(BaseModel):
+    username: str
+    role: str   # "reader" | "editor"
+
+
+@router.get("/ai/collections/{name}/members",
+            dependencies=[Depends(require_permission("knowledge:write"))])
+async def list_members(name: str, user: dict = Depends(require_user)):
+    """Who this collection is explicitly shared with.
+
+    Gated on knowledge:write AND may_write for THIS collection, not just the
+    permission — the permission says the caller may manage membership somewhere,
+    _collection_id(write=True) is what says they may manage it on this collection.
+    Without the second check, any knowledge:write holder could list (and, on the
+    routes below, change) the membership of a collection they neither own nor were
+    granted access to.
+    """
+    pool = await get_db_pool()
+    async with pool.acquire() as c:
+        coll_id = await _collection_id(c, name, user, write=True)
+        rows = await c.fetch(
+            """SELECT u.username, m.role, m.granted_by, m.granted_at
+               FROM ai_collection_members m
+               JOIN users u ON u.id = m.user_id
+               WHERE m.collection_id = $1
+               ORDER BY u.username""",
+            coll_id,
+        )
+    return {"collection": name, "members": [
+        {"username": r["username"], "role": r["role"],
+         "granted_at": r["granted_at"].isoformat() if r["granted_at"] else None}
+        for r in rows
+    ]}
+
+
+@router.post("/ai/collections/{name}/members",
+             dependencies=[Depends(require_permission("knowledge:write"))])
+async def add_member(name: str, body: MemberGrant, user: dict = Depends(require_user)):
+    """Share this collection with one more person.
+
+    Same may_write(write=True) gate as list_members above — this is the mutation
+    the module docstring's warning is about. A viewer holding knowledge:write who
+    is neither the owner nor an existing editor of `name` must not be able to grant
+    themselves (or anyone else) access by POSTing here; _collection_id raises 403
+    before the INSERT below ever runs for exactly that caller.
+
+    Re-granting an existing member changes their role rather than erroring or
+    duplicating the row — ai_collection_members' composite primary key on
+    (collection_id, user_id) is what makes ON CONFLICT well-defined here.
+    """
+    if body.role not in ("reader", "editor"):
+        raise HTTPException(400, "role must be 'reader' or 'editor'.")
+    pool = await get_db_pool()
+    async with pool.acquire() as c:
+        coll_id = await _collection_id(c, name, user, write=True)
+        target = await c.fetchrow(
+            "SELECT id FROM users WHERE username = $1", body.username.strip())
+        if not target:
+            raise HTTPException(404, f"No user '{body.username}'.")
+        await c.execute(
+            """INSERT INTO ai_collection_members (collection_id, user_id, role, granted_by)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (collection_id, user_id)
+               DO UPDATE SET role = EXCLUDED.role, granted_by = EXCLUDED.granted_by,
+                             granted_at = now()""",
+            coll_id, target["id"], body.role, _uid(user),
+        )
+    return {"success": True, "collection": name, "username": body.username, "role": body.role}
+
+
+@router.delete("/ai/collections/{name}/members",
+               dependencies=[Depends(require_permission("knowledge:write"))])
+async def remove_member(name: str, username: str, user: dict = Depends(require_user)):
+    """Revoke one person's access. Same may_write gate as the two routes above."""
+    pool = await get_db_pool()
+    async with pool.acquire() as c:
+        coll_id = await _collection_id(c, name, user, write=True)
+        target = await c.fetchrow(
+            "SELECT id FROM users WHERE username = $1", username.strip())
+        if not target:
+            raise HTTPException(404, f"No user '{username}'.")
+        result = await c.execute(
+            "DELETE FROM ai_collection_members WHERE collection_id = $1 AND user_id = $2",
+            coll_id, target["id"],
+        )
+    removed = int(result.split()[-1]) if result and result.split()[-1].isdigit() else 0
+    if removed == 0:
+        raise HTTPException(404, f"'{username}' is not a member of '{name}'.")
+    return {"success": True, "collection": name, "username": username}
 
 
 def _group_for_config(cfg: Optional[dict]) -> Optional[str]:
@@ -583,23 +695,38 @@ def build_lineage(connections, jobs, collections) -> dict:
 async def _collection_id(
     c, name: str, user: dict, *, write: bool = False, destroy: bool = False
 ):
-    """Resolve a collection id and enforce read/write ownership boundaries.
+    """Resolve a collection id and enforce read/write access — the one gate every
+    route in this module that touches an existing collection calls before it does
+    anything else with it.
 
-    Non-admins may read their own collections and legacy shared collections. Writes
-    and destructive operations require explicit ownership; ``owner_id IS NULL`` is
-    read-only unless the caller is an administrator (including scoped automation).
+    The decision itself lives in app/knowledge_access.py (may_read / may_write) so it
+    is asked the same way here as it is by list_collections and knowledge_lineage,
+    which cannot go through this function (they resolve many collections at once).
+    `destroy` is treated exactly like `write`: today nothing distinguishes "may
+    change the contents" from "may delete the whole collection", so an editor grant
+    covers both, same as it always implicitly did for an owner.
+
+    One query, not two: the LEFT JOIN pulls this caller's membership row (if any)
+    alongside the collection row, so a caller who already has no matching row (every
+    collection that predates A2) sees `member_role` come back NULL/None and behaves
+    exactly as before membership existed.
     """
-    row = await c.fetchrow("SELECT id, owner_id FROM ai_collections WHERE name = $1", name)
+    row = await c.fetchrow(
+        """SELECT col.id, col.owner_id, m.role AS member_role
+           FROM ai_collections col
+           LEFT JOIN ai_collection_members m
+             ON m.collection_id = col.id AND m.user_id = $2
+           WHERE col.name = $1""",
+        name, _uid(user),
+    )
     if not row:
         raise HTTPException(404, f"Collection '{name}' not found.")
-    if user.get("role") != "admin":
-        owner = row["owner_id"]
-        if write or destroy:
-            allowed = owner is not None and owner == _uid(user)
-        else:
-            allowed = owner is None or owner == _uid(user)
-        if not allowed:
-            raise HTTPException(403, f"Not authorized for collection '{name}'.")
+    collection = {"owner_id": row["owner_id"]}
+    member_role = row.get("member_role")
+    allowed = may_write(collection, user, member_role) if (write or destroy) \
+        else may_read(collection, user, member_role)
+    if not allowed:
+        raise HTTPException(403, f"Not authorized for collection '{name}'.")
     return row["id"]
 
 
@@ -987,9 +1114,15 @@ async def knowledge_lineage(user: dict = Depends(require_user)):
                    FROM connector_sync_jobs WHERE enabled""")]
         except Exception as e:
             logger.debug(f"[lineage] connector tables unavailable: {e}")
+        # Same visibility rule as list_collections (own it, it's global, or a
+        # membership row names this user) — a collection shared with someone who
+        # is neither its owner nor an admin used to vanish from its own lineage.
         cols = [dict(r) for r in await c.fetch(
-            """SELECT name, refresh_source, refresh_enabled FROM ai_collections
-               WHERE owner_id IS NULL OR owner_id = $1 OR $2""",
+            """SELECT col.name, col.refresh_source, col.refresh_enabled
+               FROM ai_collections col
+               WHERE col.owner_id IS NULL OR col.owner_id = $1 OR $2
+                  OR EXISTS (SELECT 1 FROM ai_collection_members m
+                             WHERE m.collection_id = col.id AND m.user_id = $1)""",
             _uid(user), user.get("role") == "admin")]
 
     import json as _json

@@ -69,7 +69,7 @@ There is no way to share a collection with three named people.
 
 Commit: `feat(knowledge): a collection can be shared with named people — schema`
 
-### [ ] A3 — collection membership: enforcement
+### [x] A3 — collection membership: enforcement
 
 - Pure function `may_read(collection, user, members)` / `may_write(...)` with the
   precedence written down: admin, then owner, then explicit membership, then the
