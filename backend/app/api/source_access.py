@@ -204,6 +204,9 @@ async def _list_members(kind: Kind, resource_id: str, user: dict):
         ) if row["owner_id"] else None
     return {
         "id": str(row["id"]),
+        # Both: the id is what a client compares against its own identity ("is this
+        # mine?"), the username is what it can show to anyone else.
+        "owner_id": str(row["owner_id"]) if row["owner_id"] else None,
         "owner": owner["username"] if owner else None,
         "members": [
             {"username": r["username"], "role": r["role"],

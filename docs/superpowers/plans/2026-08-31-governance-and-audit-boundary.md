@@ -224,7 +224,7 @@ Commit: `feat(connectors): a source can belong to someone, and be shared`
 
 Commit: `feat(connectors): enforce source ownership on every path that touches one`
 
-### [ ] D3 — manage it from the UI
+### [x] D3 — manage it from the UI
 
 - Owner and members in the connector detail view, following what A4 built for
   collections. Presentation logic in `frontend/lib/`, tested with `node --test`.
