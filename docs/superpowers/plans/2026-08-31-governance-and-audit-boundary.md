@@ -83,7 +83,7 @@ Commit: `feat(knowledge): a collection can be shared with named people — schem
 
 Commit: `feat(knowledge): enforce collection membership on every path that reads one`
 
-### [ ] A4 — collection membership: UI
+### [x] A4 — collection membership: UI
 
 - Members section in the collection settings dialog: who has access, add by username,
   remove, and the reader/editor distinction.

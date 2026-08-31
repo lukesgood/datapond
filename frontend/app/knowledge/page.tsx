@@ -16,6 +16,7 @@ import { Markdown } from "@/components/ui/markdown"
 import { MySpend } from "@/components/ai/my-spend"
 import { CompositionPanel } from "@/components/knowledge/composition-panel"
 import { LineagePanel } from "@/components/knowledge/lineage-panel"
+import { MembersPanel } from "@/components/knowledge/members-panel"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -199,7 +200,9 @@ export default function KnowledgePage() {
 
         {/* Selected collection workspace */}
         <div>
-          {sel ? <Workspace key={sel} name={sel} onChange={load} empty={(cols.find(c => c.name === sel)?.chunks ?? 0) === 0} />
+          {sel ? <Workspace key={sel} name={sel} onChange={load}
+                            empty={(cols.find(c => c.name === sel)?.chunks ?? 0) === 0}
+                            ownerId={cols.find(c => c.name === sel)?.owner_id ?? null} />
             : <Card><CardContent>
                 <EmptyState
                   icon={Sparkles}
@@ -322,7 +325,7 @@ function CreateCollection({ onCreated }: { onCreated: () => void }) {
   )
 }
 
-function Workspace({ name, onChange, empty }: { name: string; onChange: () => void; empty: boolean }) {
+function Workspace({ name, onChange, empty, ownerId }: { name: string; onChange: () => void; empty: boolean; ownerId: string | null }) {
   const ontologyOn = useCapability("ontology")
   return (
     <Card>
@@ -336,6 +339,7 @@ function Workspace({ name, onChange, empty }: { name: string; onChange: () => vo
             <TabsTrigger value="composition"><Layers className="h-3.5 w-3.5 mr-1" />Composition</TabsTrigger>
             <TabsTrigger value="ingest"><Upload className="h-3.5 w-3.5 mr-1" />Ingest</TabsTrigger>
             <TabsTrigger value="schedule"><Clock className="h-3.5 w-3.5 mr-1" />Schedule</TabsTrigger>
+            <TabsTrigger value="members"><Users className="h-3.5 w-3.5 mr-1" />Members</TabsTrigger>
             {/* Only when the deployment has the capability. Without the flag every
                 concepts call 404s, so an always-present tab would greet everyone with
                 an error for a feature they have not turned on. The Concepts toggle in
@@ -346,6 +350,7 @@ function Workspace({ name, onChange, empty }: { name: string; onChange: () => vo
           <TabsContent value="composition"><CompositionPanel name={name} onChange={onChange} /></TabsContent>
           <TabsContent value="ingest"><IngestPanel name={name} onChange={onChange} /></TabsContent>
           <TabsContent value="schedule"><SchedulePanel name={name} /></TabsContent>
+          <TabsContent value="members"><MembersPanel name={name} ownerId={ownerId} /></TabsContent>
           {/* Deliberately in Knowledge rather than a page of its own: concepts change
               what Search returns, so the cause belongs next to the effect. */}
           {ontologyOn && <TabsContent value="concepts"><ConceptsPanel /></TabsContent>}
