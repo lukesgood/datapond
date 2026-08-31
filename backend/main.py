@@ -153,25 +153,34 @@ async def startup():
 
     # Say out loud when RLS is on but letting tables through. See
     # app/rls/coverage.py — this is the state that reads as protection and is not.
+    # Also record the posture in the readiness `state` dict, next to `migrations`
+    # and `base_schema`, so it is visible without grepping logs. It is recorded
+    # ok=True regardless of posture: "advisory" describes a real, legitimate
+    # deployment state, not a bootstrap failure, and must never hold the pod back.
     async def _warn_rls_coverage():
         try:
             from app.api.catalog_backend import get_catalog_reader
             from app.rls import loader as rls_loader
-            from app.rls.coverage import coverage, startup_warning
+            from app.rls.coverage import coverage, rls_posture, startup_warning
 
             enabled = os.getenv("RLS_ENABLED", "false").lower() in ("1", "true", "yes")
             deny = os.getenv("RLS_DEFAULT_DENY", "false").lower() in ("1", "true", "yes")
-            if not enabled or deny:
-                return
-            cat = os.getenv("RLS_DEFAULT_CATALOG") or os.getenv("TRINO_CATALOG") or "iceberg"
-            reader = get_catalog_reader()
-            tables = [(cat, ns, t) for ns in reader.list_namespaces()
-                      for t in reader.list_tables(ns)]
-            report = coverage(tables, await rls_loader.load_policies(),
-                              await rls_loader.load_masks())
-            message = startup_warning(enabled, deny, report["uncovered_count"])
+            uncovered = 0
+            if enabled and not deny:
+                cat = os.getenv("RLS_DEFAULT_CATALOG") or os.getenv("TRINO_CATALOG") or "iceberg"
+                reader = get_catalog_reader()
+                tables = [(cat, ns, t) for ns in reader.list_namespaces()
+                          for t in reader.list_tables(ns)]
+                report = coverage(tables, await rls_loader.load_policies(),
+                                  await rls_loader.load_masks())
+                uncovered = report["uncovered_count"]
+            posture = rls_posture(enabled, deny, uncovered)
+            readiness.record("rls", ok=True, detail=posture)
+            message = startup_warning(enabled, deny, uncovered)
             if message:
                 logger.warning("[rls] %s", message)
+            else:
+                logger.info("[rls] %s", posture)
         except Exception as e:
             logger.debug("rls coverage check skipped: %s", e)
 

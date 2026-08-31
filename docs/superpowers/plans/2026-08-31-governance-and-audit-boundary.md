@@ -40,7 +40,7 @@ Naming these matters as much as the list above — an unbounded plan finishes no
 
 ## A. Governance boundary
 
-### [ ] A1 — say when default-deny is safe, and warn while it is not
+### [x] A1 — say when default-deny is safe, and warn while it is not
 
 `RLS_DEFAULT_DENY=false` means a table with no policy passes through unfiltered.
 `app/rls/coverage.py` already knows which tables those are; nothing surfaces it where

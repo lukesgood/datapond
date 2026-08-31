@@ -56,6 +56,25 @@ def coverage(tables: Sequence[Tuple[str, str, str]],
     }
 
 
+def rls_posture(rls_enabled: bool, default_deny: bool, uncovered: int) -> str:
+    """The one-word (or one-phrase) answer to "is default-deny safe to flip yet",
+    meant for `/health/ready`'s `state` dict beside `migrations` and `base_schema`.
+
+    Three states, not two: "off" and "enforcing" are stable — nothing left to
+    decide — but "advisory" always names the uncovered count, including zero.
+    Zero uncovered is not the same claim as `default_deny=true`: it says every
+    table *currently* has a policy, not that an unlisted one would be refused. The
+    next table added without a policy would pass through here and be blocked
+    there. Collapsing "advisory, 0 uncovered" into "enforcing" would erase that
+    difference right when it matters least — because nothing is currently wrong.
+    """
+    if not rls_enabled:
+        return "off"
+    if default_deny:
+        return "enforcing"
+    return f"advisory ({uncovered} tables uncovered)"
+
+
 def startup_warning(rls_enabled: bool, default_deny: bool,
                     uncovered: int) -> "str | None":
     """The one sentence worth logging at boot, or None when there is nothing to say.
