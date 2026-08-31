@@ -109,7 +109,7 @@ the code wins.
 
 Commit: `fix(governance): the auditor role could not read what it is defined to read`
 
-### [ ] B2 — a security audit log the caller cannot switch off
+### [x] B2 — a security audit log the caller cannot switch off
 
 `query_history` is the closest thing to an audit trail and `save_history=false` turns
 it off. Authorization denials are recorded nowhere.

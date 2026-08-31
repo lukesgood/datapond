@@ -347,21 +347,39 @@ def require_permission(permission: str):
 
     The refusal names the permission, so a user can tell an administrator what to
     grant instead of guessing.
+
+    Every denial is written to `security_audit_log` (app/security_audit.py) before
+    the 403 is raised, and there is no argument here — or on `record()` itself — a
+    caller can use to suppress that. Allows are written too, but only for
+    write-shaped permissions; see app/security_audit.py's docstring for why.
     """
     from app.permissions import has_permission
+    import app.security_audit as security_audit
 
-    async def _guard(user: dict = Depends(require_user)) -> dict:
+    async def _guard(request: Request = None,
+                      user: dict = Depends(require_user)) -> dict:
         # A service-account key carries its own effective set (role narrowed by the
         # key's scopes). When present it is authoritative — including when it is
         # empty, or a key scoped down to nothing would silently regain its role.
         granted = user.get("permissions")
         allowed = (permission in granted) if granted is not None \
             else has_permission(user.get("role"), permission)
+        route = getattr(getattr(request, "url", None), "path", "") or ""
+        method = getattr(request, "method", "") or ""
+        addr = client_address(request)
         if not allowed:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(f"'{permission}' permission required — your role "
-                        f"({user.get('role') or 'viewer'}) does not have it."),
+            reason = (f"'{permission}' permission required — your role "
+                      f"({user.get('role') or 'viewer'}) does not have it.")
+            await security_audit.record(
+                actor=user, permission=permission, route=route, method=method,
+                outcome="denied", reason=reason, client_address=addr,
+            )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
+        if security_audit.is_privileged(permission):
+            await security_audit.record(
+                actor=user, permission=permission, route=route, method=method,
+                outcome="allowed", reason="privileged permission granted",
+                client_address=addr,
             )
         return user
 
