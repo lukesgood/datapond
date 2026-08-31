@@ -21,6 +21,14 @@ from typing import Literal
 
 BASELINE_REVISION = "0001_baseline"
 
+# Only one replica may build an empty database. `apply()` is called from the startup
+# hook, which runs in every replica, and Alembic takes no lock of its own — so two
+# pods issuing the baseline's CREATE TABLEs at the same moment is a race the tooling
+# does nothing about. Distinct from system_events.LOCK_KEY (…965),
+# rag_scheduler.LOCK_KEY (…964) and audit_retention.LOCK_KEY (…971): two features
+# sharing a key means one of them silently never runs.
+MIGRATION_LOCK_KEY = 7233183143331076972
+
 Action = Literal["stamp", "upgrade"]
 StartupState = Literal["ok", "stamp", "behind", "ahead"]
 
@@ -77,10 +85,71 @@ async def apply(pool) -> str:
 
     action = baseline_action(bool(has_tables), bool(has_version))
     if action == "stamp":
+        # Recording where a database already is changes nothing in it, so it needs no
+        # lock: two processes stamping the same revision write the same row.
         await asyncio.to_thread(command.stamp, cfg, BASELINE_REVISION)
         return f"stamped {BASELINE_REVISION}"
-    await asyncio.to_thread(command.upgrade, cfg, "head")
+
+    # An upgrade issues DDL, and this function has two callers: the migration Job, and
+    # the startup hook in every replica when the database has never been migrated.
+    # Alembic takes no lock, so two of them at once is a race nothing else prevents.
+    # Waiting rather than skipping, because the Job must never report success on a
+    # migration it did not run — the loser waits, acquires, and finds the work already
+    # done, which makes `upgrade head` a no-op rather than a silent no-migration.
+    wait = float(os.getenv("MIGRATE_LOCK_WAIT_SECONDS", "300"))
+    async with pool.acquire() as c:
+        if not await _hold_migration_lock(c, wait):
+            raise TimeoutError(
+                f"another process has held the migration lock for {wait:.0f}s — "
+                "not migrating on top of it")
+        try:
+            await asyncio.to_thread(command.upgrade, cfg, "head")
+        finally:
+            await c.execute("SELECT pg_advisory_unlock($1)", MIGRATION_LOCK_KEY)
     return "upgraded to head"
+
+
+async def _hold_migration_lock(c, timeout: float) -> bool:
+    """Take MIGRATION_LOCK_KEY, waiting up to `timeout` seconds. False if it timed out.
+
+    Polling try-lock rather than the blocking `pg_advisory_lock`: a blocking call has
+    no timeout of its own, so a holder that hangs takes the release with it and there
+    is nothing in the logs to say what it is waiting for.
+    """
+    import asyncio as _asyncio
+    import time as _time
+
+    deadline = _time.monotonic() + timeout
+    while True:
+        if await c.fetchval("SELECT pg_try_advisory_lock($1)", MIGRATION_LOCK_KEY):
+            return True
+        if _time.monotonic() >= deadline:
+            return False
+        await _asyncio.sleep(1.0)
+
+
+def state_after_apply(current: "str | None", head: str) -> "tuple[bool, str]":
+    """(ready, detail) once `apply()` has run — the honest version of what it did.
+
+    `apply()` stamps `BASELINE_REVISION`, not head, whenever the tables exist and
+    Alembic has never been here: an installation that predates migrations is at 0001,
+    and every revision since is still unapplied. The startup hook used to record
+    `stamped {head}` and mark itself ready, which is two claims the database does not
+    support — so a pod upgraded without the migration Job having run served traffic
+    against a schema several revisions behind. That is not a slow failure: connector
+    routes 500 on the missing column and authorization denials cannot write their
+    audit row, which is the one record that must not be lost quietly.
+
+    `CORE_TABLES` does not catch it either — those five tables all predate the gap.
+    The revision is the only thing that knows, so it is what decides readiness, and
+    unknown counts as behind: fail closed, exactly as the `behind` state already does.
+    """
+    if current is not None and current == head:
+        return True, f"at {head}"
+    return False, (
+        f"database is at {current or 'no revision'}, this image expects {head} — "
+        "run the migration job for this release"
+    )
 
 
 def startup_check(current: "str | None", head: str) -> StartupState:

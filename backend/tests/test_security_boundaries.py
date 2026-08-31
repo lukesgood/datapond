@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from app.api import ai_backends, ai_vectors, auth, storage, system_settings
+from app.permissions import KNOWN_ROLES, has_permission
 
 
 USER_ID = "00000000-0000-0000-0000-000000000001"
@@ -182,7 +183,22 @@ def test_reading_ai_cost_requires_spend_read():
         ("/settings/system", "PATCH"),
         ("/settings/system/ai", "GET"),
     ):
-        assert auth.require_admin in _route_dependencies(system_settings.router, path, method)
+        # Still administrative — but PATCH now says so by naming `settings:write`
+        # instead of the admin role, which is what lets a service-account key's scopes
+        # apply to it (app/service_accounts.py withholds exactly that permission from
+        # every key). So the assertion is the property, not the mechanism: reachable
+        # only by a caller holding something no non-admin role has.
+        deps = _route_dependencies(system_settings.router, path, method)
+        if auth.require_admin in deps:
+            continue
+        declared = {getattr(d, "__datapond_authorization__", None) for d in deps}
+        admin_only = {
+            perm for perm in declared if perm
+            and {role for role in KNOWN_ROLES if has_permission(role, perm)} == {"admin"}
+        }
+        assert admin_only, (
+            f"{method} {path} is neither admin-gated nor gated on an admin-only "
+            f"permission — its gates were {declared}")
 
 
 def test_knowledge_write_routes_have_intended_dependencies():

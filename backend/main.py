@@ -224,9 +224,23 @@ async def startup():
         state = _migrations.startup_check(current, head)
         if state == "stamp":
             # Never managed here: a local run, or a first install. Record where it is
-            # rather than leaving the next deploy unable to tell.
-            await _migrations.apply(pool)
-            readiness.record("migrations", ok=True, detail=f"stamped {head}")
+            # rather than leaving the next deploy unable to tell — then report where
+            # that actually left it, which is not the same thing.
+            #
+            # apply() stamps 0001_baseline when the tables already exist, so an
+            # installation that predates migrations lands several revisions behind this
+            # image. Recording ok=True and "stamped {head}" (as this did) told two
+            # untruths and let the pod serve: connector routes 500 on a column the
+            # migration would have added, and authorization denials cannot write their
+            # audit row. state_after_apply() re-reads the revision and answers on what
+            # the database says, so this case now refuses traffic exactly as `behind`
+            # already did — it is the same situation.
+            outcome = await _migrations.apply(pool)
+            current = await _migrations.current_revision(pool)
+            ok, why = _migrations.state_after_apply(current, head)
+            readiness.record("migrations", ok=ok, detail=f"{outcome}; {why}")
+            if not ok:
+                logger.error(f"[startup] {outcome}; {why}")
         elif state == "ok":
             readiness.record("migrations", ok=True, detail=f"at {head}")
         else:

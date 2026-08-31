@@ -263,3 +263,100 @@ def test_the_key_cache_cannot_be_grown_without_bound(monkeypatch):
             f"{auth._KEY_CACHE_MAX * 3} distinct tokens")
     finally:
         auth._KEY_CACHE.clear()
+
+
+# ── what a key may never do, enforced rather than declared ──────────────────
+
+def test_a_key_cannot_reach_an_admin_route_at_all(monkeypatch):
+    """`NEVER_FOR_SERVICE_ACCOUNTS` says a credential living in a config file must not
+    reshape the deployment "no matter which role its account holds". It was a
+    declaration only: the routes it describes are guarded by require_admin, which
+    compares `role` and never looks at the key's effective set — so a key issued on an
+    admin service account could create and delete users and rewrite system settings,
+    even when scoped down to `catalog:read`. Creating a user is a full escalation:
+    make a human admin, log in as them.
+
+    require_admin is the one place that covers every such route, including ones added
+    later, so the refusal goes there — the permission gates below are the second layer,
+    not the only one.
+    """
+    import asyncio as _asyncio
+
+    from fastapi import HTTPException as _HTTPException
+
+    from app.api.auth import require_admin
+
+    key_identity = {"id": "svc-1", "role": "admin", "auth_method": "service",
+                    "permissions": ["catalog:read"]}
+    with pytest.raises(_HTTPException) as exc:
+        _asyncio.run(require_admin(user=key_identity))
+    assert exc.value.status_code == 403
+
+    person = {"id": "u-1", "role": "admin"}
+    assert _asyncio.run(require_admin(user=person)) is person
+
+
+def test_the_routes_that_manage_users_and_settings_ask_for_those_permissions():
+    """The second layer, and what makes NEVER_FOR_SERVICE_ACCOUNTS load-bearing:
+    gated on the permission itself, a key is refused because effective_permissions()
+    withholds it — independently of what require_admin does about service identities.
+
+    Read from each guard's `__datapond_authorization__`, the declaration the route
+    inventory already uses, rather than from the source text: it survives the gate
+    moving between the decorator and the signature.
+    """
+    import inspect
+
+    from fastapi import routing
+
+    import main
+
+    def _permissions_on(path: str, method: str) -> set:
+        declared = set()
+        for route in main.app.routes:
+            if not isinstance(route, routing.APIRoute):
+                continue
+            if route.path != path or method not in route.methods:
+                continue
+            for dependency in route.dependant.dependencies:
+                call = dependency.call
+                declared.add(getattr(call, "__datapond_authorization__", None))
+            for parameter in inspect.signature(route.endpoint).parameters.values():
+                call = getattr(parameter.default, "dependency", None)
+                if call is not None:
+                    declared.add(getattr(call, "__datapond_authorization__", None))
+        return declared
+
+    for path, method in (("/api/auth/users/{user_id}", "PATCH"),
+                         ("/api/auth/users/{user_id}", "DELETE"),
+                         ("/api/auth/users", "GET"),
+                         ("/api/auth/setup", "POST")):
+        assert "user:manage" in _permissions_on(path, method), (
+            f"{method} {path} does not require user:manage, so a key's scopes never "
+            "apply to it")
+
+    assert "settings:write" in _permissions_on("/api/settings/system", "PATCH")
+
+
+def test_a_service_account_cannot_be_created_with_the_admin_role():
+    """The listing already advertises `[r for r in ASSIGNABLE_ROLES if r != "admin"]`.
+    The handler validated against the full list, so the API accepted exactly the thing
+    its own response said was not on offer — and an admin key is both the widest
+    credential in the product and the shape most likely to end up in a config file.
+
+    Driven through the handler, not read out of its source: the role check runs before
+    anything touches the database, so no fixture is needed and the assertion is about
+    behaviour rather than about the text that produces it.
+    """
+    import asyncio as _asyncio
+
+    from fastapi import HTTPException as _HTTPException
+
+    from app.api.service_account_routes import ServiceAccountCreate, create_service_account
+
+    person = {"id": "u-1", "role": "admin"}
+    with pytest.raises(_HTTPException) as exc:
+        _asyncio.run(create_service_account(
+            ServiceAccountCreate(name="ci", role="admin"), admin=person))
+    assert exc.value.status_code == 400
+    assert "admin" in exc.value.detail

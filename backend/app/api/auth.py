@@ -330,7 +330,28 @@ async def require_user_or_internal(
 
 
 async def require_admin(user: dict = Depends(require_user)) -> dict:
-    """Require admin role."""
+    """Require admin role, and a person rather than a stored credential.
+
+    `app/service_accounts.py` states the rule this enforces: a credential that lives in
+    a config file or an environment variable must not be able to reshape the
+    deployment, no matter which role its account holds. It withheld `user:manage` and
+    `settings:write` from every key's effective set — and then the routes that do those
+    things were guarded by this function, which compared `role` and never looked at the
+    key's set at all. A key issued on an admin service account could therefore create
+    and delete users and rewrite system settings while scoped to `catalog:read`, and
+    creating a user is a complete escalation: make a human admin, then sign in as them.
+
+    The refusal belongs here rather than only on those routes, because this is the one
+    place that covers every administrative route, including the ones added after this
+    was written. Routes an automation legitimately needs are gated on a permission
+    instead, where the key's scopes decide.
+    """
+    if str(user.get("auth_method") or "").lower() == "service":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=("This action needs a signed-in administrator; an API key cannot "
+                    "perform it."),
+        )
     if user.get("role") != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
     return user
@@ -638,7 +659,7 @@ async def get_me(user: dict = Depends(require_user)):
 
 
 @router.post("/auth/setup")
-async def setup_password(request: SetupRequest, user: dict = Depends(require_admin)):
+async def setup_password(request: SetupRequest, user: dict = Depends(require_permission("user:manage"))):
     """Admin: set password for a user (or create user)."""
     if len(request.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
@@ -833,7 +854,7 @@ async def reset_password(body: ResetPasswordRequest):
 # ── User management endpoints ──────────────────────────────────────────────────
 
 @router.get("/auth/users")
-async def list_users(admin: dict = Depends(require_admin)):
+async def list_users(admin: dict = Depends(require_permission("user:manage"))):
     """Admin: list all users."""
     pool = await _get_pool()
     async with pool.acquire() as conn:
@@ -870,7 +891,7 @@ async def list_users(admin: dict = Depends(require_admin)):
 
 
 @router.patch("/auth/users/{user_id}")
-async def update_user(user_id: str, body: dict, admin: dict = Depends(require_admin)):
+async def update_user(user_id: str, body: dict, admin: dict = Depends(require_permission("user:manage"))):
     """Admin: update user role, active status, display_name."""
     pool = await _get_pool()
     updates = []
@@ -912,7 +933,7 @@ async def update_user(user_id: str, body: dict, admin: dict = Depends(require_ad
 
 
 @router.delete("/auth/users/{user_id}")
-async def delete_user(user_id: str, admin: dict = Depends(require_admin)):
+async def delete_user(user_id: str, admin: dict = Depends(require_permission("user:manage"))):
     """Admin: delete a user. Cannot delete yourself."""
     if user_id == admin["id"]:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")

@@ -78,6 +78,15 @@ async def list_service_accounts(admin: dict = Depends(require_admin)):
 async def create_service_account(body: ServiceAccountCreate, admin: dict = Depends(require_admin)):
     if body.role not in ASSIGNABLE_ROLES:
         raise HTTPException(status_code=400, detail=f"Unknown role '{body.role}'")
+    # The listing above offers every assignable role except this one, and the handler
+    # accepted it anyway — the API took exactly what its own response said was not on
+    # offer. An admin key is the widest credential in the product, and it is the one
+    # shape of credential that gets copied into a config file.
+    if body.role == "admin":
+        raise HTTPException(
+            status_code=400,
+            detail="A service account cannot hold the admin role. Grant the "
+                   "permissions it needs through its key's scopes instead.")
 
     username = _account_username(body.name)
     pool = await _get_pool()
