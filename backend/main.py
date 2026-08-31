@@ -45,6 +45,7 @@ from app.api.system_settings import router as system_settings_router, load_setti
 from app.api.governance import router as governance_router
 from app.api.maintenance import router as maintenance_router, deploy_maintenance_dag
 from app.api.webauthn import router as webauthn_router
+from app.api.audit_export import router as audit_export_router
 from app.capabilities import compute_capabilities
 
 app = FastAPI(
@@ -313,6 +314,19 @@ async def startup():
     except Exception as e:
         logger.warning(f"[startup] system event collector not started: {e}")
 
+    # Audit retention (B4) — prunes security_audit_log/auth_audit_log through B3's
+    # sanctioned prune_*_audit_log() functions on its own loop and its own advisory
+    # lock key; see app/audit_retention.py's module docstring for why it is not
+    # folded into the system event collector's tick above.
+    try:
+        if os.getenv("AUDIT_RETENTION_ENABLED", "true").lower() in ("1", "true", "yes"):
+            from app.api.connectors import get_db_pool
+            from app.audit_retention import run_retention
+            app.state.audit_retention_task = asyncio.create_task(run_retention(await get_db_pool()))
+            logger.info("[startup] audit retention loop started")
+    except Exception as e:
+        logger.warning(f"[startup] audit retention loop not started: {e}")
+
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
@@ -383,6 +397,7 @@ app.include_router(governance_router, prefix="/api")
 app.include_router(maintenance_router, prefix="/api",
                    dependencies=[Depends(require_component("AIRFLOW", "Maintenance (Airflow)"))])
 app.include_router(webauthn_router, prefix="/api")
+app.include_router(audit_export_router, prefix="/api")
 
 from app.service_registry import service_registry as _service_registry_pure
 

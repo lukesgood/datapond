@@ -182,6 +182,14 @@ spec:
         # Connector → RAG sink: re-embed fresh collections when their source table syncs
         - name: RAG_SINK_ENABLED
           value: {{ dig "sinkEnabled" true (.Values.backend.ragScheduler | default dict) | quote }}
+        # Audit table retention (security_audit_log / auth_audit_log — B4). `dig` for
+        # the bool-false case, same reasoning as SYSTEM_EVENTS_ENABLED above.
+        - name: AUDIT_RETENTION_ENABLED
+          value: {{ dig "enabled" true (.Values.backend.audit | default dict) | quote }}
+        - name: AUDIT_RETENTION_TICK_SECONDS
+          value: {{ dig "tickSeconds" 3600 (.Values.backend.audit | default dict) | quote }}
+        - name: AUDIT_RETENTION_DAYS
+          value: {{ dig "retentionDays" 365 (.Values.backend.audit | default dict) | quote }}
         # AWS-native observability: emit ops + cost metrics to CloudWatch (namespace DataPond).
         # Default off — needs cloudwatch:PutMetricData on the node/IRSA role.
         - name: CLOUDWATCH_METRICS_ENABLED

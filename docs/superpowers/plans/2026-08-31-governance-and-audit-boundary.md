@@ -129,7 +129,7 @@ Commit: `feat(audit): record authorization decisions where the caller cannot rea
 
 Commit: `feat(audit): the application may write the audit log and may not rewrite it`
 
-### [ ] B4 — retention, and a way to get it out
+### [x] B4 — retention, and a way to get it out
 
 - Retention window with a floor, pruned on a schedule, same shape as
   `app/system_events.py`.
