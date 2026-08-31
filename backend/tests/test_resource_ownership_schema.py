@@ -36,44 +36,37 @@ from pathlib import Path
 VERSIONS = Path(__file__).resolve().parents[1] / "migrations/versions"
 
 
-def _previous_head() -> str:
-    """The revision this one must chain from is whichever `.py` file in the versions
-    directory is not itself named as anyone's `down_revision` — i.e. the current
-    head, read from the files rather than hardcoded, because another agent may add a
-    migration before this one lands."""
-    revisions = {}
-    down_revisions = set()
+def _chain() -> dict:
+    """{revision: down_revision} read from every migration in the versions directory."""
+    chain = {}
     for py in VERSIONS.glob("*.py"):
-        if py.stem == "0006_resource_ownership":
-            continue
         body = py.read_text()
-        rev_match = re.search(r'revision:\s*str\s*=\s*"([^"]+)"', body)
-        down_match = re.search(r'down_revision.*=\s*"([^"]+)"', body)
-        if rev_match:
-            revisions[rev_match.group(1)] = py.stem
-        if down_match:
-            down_revisions.add(down_match.group(1))
-    heads = set(revisions) - down_revisions
-    assert len(heads) == 1, f"expected exactly one head, found {heads}"
-    return next(iter(heads))
+        rev = re.search(r'revision:\s*str\s*=\s*"([^"]+)"', body)
+        down = re.search(r'down_revision.*=\s*"([^"]+)"', body)
+        if rev:
+            chain[rev.group(1)] = down.group(1) if down else None
+    return chain
 
 
 PY = VERSIONS / "0006_resource_ownership.py"
 SQL = VERSIONS / "0006_resource_ownership.sql"
 
 
-def test_the_revision_chains_from_the_actual_head():
-    """A migration that names the wrong predecessor is not part of the chain Alembic
-    walks to head — it either strands itself off the tree or collides with whatever
-    else claims the same down_revision. Reading the head from the other files, rather
-    than assuming `0005_audit_append_only`, is what keeps this test honest if another
-    agent's migration lands first."""
-    head = _previous_head()
+def test_the_revision_is_part_of_the_chain_alembic_walks():
+    """A migration that names a predecessor which does not exist is not on the tree
+    Alembic walks to head — it never runs, and nothing says so.
+
+    Originally written as "chains from whatever is currently head", which was true on
+    the day this landed and stopped being true the moment a later migration chained
+    onto it. The durable property is membership of the chain, not being its tip; the
+    single-head rule belongs to every migration equally and lives in
+    tests/test_migrations.py.
+    """
+    chain = _chain()
     body = PY.read_text()
     assert re.search(r'revision:\s*str\s*=\s*"0006_resource_ownership"', body)
-    assert re.search(rf'down_revision.*=\s*"{re.escape(head)}"', body), (
-        f"down_revision does not name the actual head ({head})"
-    )
+    down = chain.get("0006_resource_ownership")
+    assert down in chain, f"down_revision '{down}' names no migration in the directory"
 
 
 def test_the_sql_file_exists_beside_the_python():

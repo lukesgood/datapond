@@ -187,3 +187,79 @@ def test_me_permissions_falls_back_to_the_role_for_a_person():
 
     out = asyncio.run(my_permissions(user={"id": "u1", "role": "business_analyst"}))
     assert set(out["permissions"]) == set(permissions_for("business_analyst"))
+
+
+# ── the cache in front of that lookup ───────────────────────────────────────
+
+def _fake_pool(monkeypatch, lookups):
+    """A pool whose fetchrow finds nothing, counting how often it was asked."""
+    import asyncio as _asyncio
+
+    from app.api import auth
+
+    class _Conn:
+        async def fetchrow(self, *a, **k):
+            lookups.append(1)
+            return None
+
+        async def execute(self, *a, **k):
+            return "UPDATE 0"
+
+    class _Acquire:
+        async def __aenter__(self):
+            return _Conn()
+
+        async def __aexit__(self, *a):
+            return False
+
+    class _Pool:
+        def acquire(self):
+            return _Acquire()
+
+    async def _pool():
+        return _Pool()
+
+    monkeypatch.setattr(auth, "_get_pool", _pool)
+    return _asyncio
+
+
+def test_an_invalid_key_is_remembered_as_invalid(monkeypatch):
+    """Negative caching was written and never worked: `_cache_get` returned the cached
+    value itself, which is None for a failed lookup, and the caller read that as a
+    miss. So every request bearing an invalid or revoked key hit the database — the
+    one case an attacker can generate at will, and the one the cache was there to
+    absorb."""
+    from app.api import auth
+
+    lookups = []
+    asyncio = _fake_pool(monkeypatch, lookups)
+    auth._KEY_CACHE.clear()
+    try:
+        for _ in range(3):
+            assert asyncio.run(auth._resolve_api_key("dp_sk_nope")) is None
+        assert len(lookups) == 1, (
+            f"an invalid key was looked up {len(lookups)} times — negative caching "
+            "is not working")
+    finally:
+        auth._KEY_CACHE.clear()
+
+
+def test_the_key_cache_cannot_be_grown_without_bound(monkeypatch):
+    """The keys of this dict are digests of attacker-chosen strings: anything
+    presented as a bearer token gets an entry, and entries were only ever removed when
+    the *same* digest was read again after expiry — which never happens for random
+    ones. app/rate_limit.py makes this argument for its own store and evicts; this one
+    did not."""
+    from app.api import auth
+
+    lookups = []
+    asyncio = _fake_pool(monkeypatch, lookups)
+    auth._KEY_CACHE.clear()
+    try:
+        for i in range(auth._KEY_CACHE_MAX * 3):
+            asyncio.run(auth._resolve_api_key(f"dp_sk_{i}"))
+        assert len(auth._KEY_CACHE) <= auth._KEY_CACHE_MAX, (
+            f"{len(auth._KEY_CACHE)} entries retained from "
+            f"{auth._KEY_CACHE_MAX * 3} distinct tokens")
+    finally:
+        auth._KEY_CACHE.clear()

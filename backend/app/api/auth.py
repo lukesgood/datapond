@@ -975,16 +975,43 @@ async def my_permissions(user: dict = Depends(require_user)):
 # long enough that a busy agent is not one DB round-trip per call.
 _KEY_CACHE: dict = {}
 _KEY_CACHE_TTL = 30.0
+# The keys of this dict are digests of attacker-chosen strings: anything presented as
+# a bearer token gets an entry. Eviction used to happen only when the *same* digest
+# was read again after expiry, which never happens for random ones — so the store grew
+# for as long as someone kept sending them. app/rate_limit.py makes this argument for
+# its own store; the cap and the sweep below are the same answer.
+_KEY_CACHE_MAX = 4096
+
+# "No entry" has to be distinguishable from "an entry that says this key is invalid",
+# and None cannot be both. It used to be: _cache_get returned the cached value, the
+# caller tested `is not None`, and every negative entry read as a miss — so an invalid
+# key hit the database on every single request, which is exactly the traffic an
+# attacker controls.
+_CACHE_MISS = object()
+
+
+def _cache_sweep(now: float) -> None:
+    """Drop what can no longer be returned, then, if still over the cap, the oldest.
+
+    Called on write rather than on a timer, so it runs under the traffic that causes
+    the growth. Insertion order is age order here: an entry is only ever written once
+    per TTL, never updated in place.
+    """
+    for digest in [d for d, (_, at) in _KEY_CACHE.items() if (now - at) > _KEY_CACHE_TTL]:
+        _KEY_CACHE.pop(digest, None)
+    while len(_KEY_CACHE) > _KEY_CACHE_MAX:
+        _KEY_CACHE.pop(next(iter(_KEY_CACHE)), None)
 
 
 def _cache_get(digest: str):
+    """The cached identity, None for a key known to be invalid, or `_CACHE_MISS`."""
     entry = _KEY_CACHE.get(digest)
     if not entry:
-        return None
+        return _CACHE_MISS
     resolved, at = entry
     if (time.monotonic() - at) > _KEY_CACHE_TTL:
         _KEY_CACHE.pop(digest, None)
-        return None
+        return _CACHE_MISS
     return resolved
 
 
@@ -992,8 +1019,10 @@ async def _resolve_api_key(raw_key: str) -> Optional[dict]:
     """Identity behind an API key, or None. Never raises."""
     digest = hash_key(raw_key)
     cached = _cache_get(digest)
-    if cached is not None:
-        return cached or None
+    if cached is not _CACHE_MISS:
+        # Including a cached None: a key we already know is invalid must not cost a
+        # database round-trip on every request that presents it.
+        return cached
     try:
         pool = await _get_pool()
         async with pool.acquire() as conn:
@@ -1022,7 +1051,9 @@ async def _resolve_api_key(raw_key: str) -> Optional[dict]:
                 "permissions": sorted(
                     effective_permissions(row["role"], list(row["scopes"] or []))),
             }
-    _KEY_CACHE[digest] = (resolved, time.monotonic())
+    now = time.monotonic()
+    _KEY_CACHE[digest] = (resolved, now)
+    _cache_sweep(now)
     if resolved:
         # Best-effort usage stamp; never let bookkeeping fail a request.
         try:

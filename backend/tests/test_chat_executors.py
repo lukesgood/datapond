@@ -165,3 +165,52 @@ def test_nothing_matching_returns_nothing(monkeypatch):
 def test_a_query_of_only_short_words_returns_nothing_rather_than_everything(monkeypatch):
     """Otherwise "in the" would list the entire catalog."""
     assert _find(monkeypatch, "in the of a") == []
+
+
+# ── the preview describes the statement that will actually run ──────────────
+
+def test_the_preview_explains_the_same_sql_the_execution_will_run(monkeypatch):
+    """`run_query` goes through execute_query, which rewrites bare table names against
+    the catalog before running them. The preview used to EXPLAIN the raw string.
+
+    For `SELECT * FROM orders` where `orders` lives in `sales`, that meant the preview
+    failed to resolve and showed the approver nothing — no tables read, no filters —
+    while approving it ran `sales.orders`. A preview that describes a different
+    statement than the one that runs is worse than no preview: it is a wrong answer
+    with the authority of a real one.
+    """
+    seen = []
+
+    monkeypatch.setattr(executors, "qualify_for_preview",
+                        lambda sql: (True, "sales.orders_qualified", None))
+
+    def fake_explain(sql, mode):
+        seen.append(sql)
+        return False, "engine unavailable", ""
+
+    monkeypatch.setattr(executors, "explain_statement", fake_explain)
+
+    _run(executors.preview_query_run({"sql": "SELECT * FROM orders"}, USER))
+    _run(executors.explain_plan({"sql": "SELECT * FROM orders"}, USER))
+
+    assert seen == ["sales.orders_qualified", "sales.orders_qualified"], (
+        "the preview explained the unqualified SQL")
+
+
+def test_a_preview_that_cannot_resolve_the_tables_says_so_rather_than_guessing(monkeypatch):
+    """execute_query fails closed when the catalog cannot resolve a bare name. The
+    preview cannot raise — it is what the approval card renders — so it reports
+    validated: false with the reason instead of quietly explaining SQL that will be
+    rewritten into something else."""
+    monkeypatch.setattr(executors, "qualify_for_preview",
+                        lambda sql: (False, sql, "no table named 'orders'"))
+
+    def must_not_explain(sql, mode):
+        raise AssertionError("explained SQL that could not be resolved")
+
+    monkeypatch.setattr(executors, "explain_statement", must_not_explain)
+
+    out = _run(executors.preview_query_run({"sql": "SELECT * FROM orders"}, USER))
+    assert out["validated"] is False
+    assert "orders" in out["error"]
+    assert out["reads"] == []

@@ -303,3 +303,51 @@ def test_the_job_opens_its_pool_through_the_waiting_helper():
     body = inspect.getsource(migrations.main)
     assert "open_pool" in body
     assert "await get_db_pool()" not in body
+
+
+# ── the chain itself ────────────────────────────────────────────────────────
+
+def _revision_chain() -> dict:
+    """{revision: down_revision} for every migration in the versions directory."""
+    import re as _re
+    from pathlib import Path
+
+    versions = Path(__file__).resolve().parents[1] / "migrations/versions"
+    chain = {}
+    for py in versions.glob("*.py"):
+        body = py.read_text()
+        rev = _re.search(r'revision:\s*str\s*=\s*"([^"]+)"', body)
+        down = _re.search(r'down_revision.*=\s*"([^"]+)"', body)
+        if rev:
+            chain[rev.group(1)] = down.group(1) if down else None
+    return chain
+
+
+def test_there_is_exactly_one_head_and_one_root():
+    """Two heads is a branched history: `alembic upgrade head` fails outright, and
+    the release fails with it. Two roots means a migration chains from nothing and is
+    never reached. Neither is visible by reading one file, which is why this reads all
+    of them — and it belongs here rather than in whichever migration happened to be
+    the tip when it was written."""
+    chain = _revision_chain()
+    assert chain, "no migrations found"
+    heads = set(chain) - {down for down in chain.values() if down}
+    roots = [rev for rev, down in chain.items() if down is None]
+    assert len(heads) == 1, f"expected one head, found {sorted(heads)}"
+    assert len(roots) == 1, f"expected one root, found {sorted(roots)}"
+
+
+def test_every_predecessor_exists_and_the_chain_terminates():
+    """A down_revision naming a revision that is not there strands everything after
+    it; a cycle hangs the walk. Both are silent until a deploy."""
+    chain = _revision_chain()
+    for revision, down in chain.items():
+        assert down is None or down in chain, (
+            f"{revision} chains from '{down}', which no migration defines")
+
+    for start in chain:
+        seen, current = set(), start
+        while current is not None:
+            assert current not in seen, f"cycle in the revision chain at {current}"
+            seen.add(current)
+            current = chain[current]

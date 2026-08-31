@@ -89,9 +89,40 @@ async def generate_sql(params: dict, user: dict) -> dict:
             "validated": result.validated, "needs_input": result.needs_input}
 
 
+def qualify_for_preview(sql: str):
+    """(ok, sql, error) — the statement as `execute_query` will actually run it.
+
+    `run_query` below goes through execute_query, which rewrites bare table names
+    against the catalog before running them (app/api/table_resolver.py). EXPLAINing the
+    raw string instead describes a different statement: `SELECT * FROM orders` fails to
+    resolve here and shows the approver no tables and no filters, while approving it
+    runs `sales.orders`. The preview is the whole basis on which someone approves, so it
+    has to be the same text.
+
+    Failure is reported, not raised: execute_query answers a bad resolution with a 400,
+    but this is the content of an approval card and there is no request to fail. Saying
+    "could not resolve" is the honest version of the same refusal.
+    """
+    from app.api.query_engine import get_engine
+    from app.api.table_resolver import (TableResolutionError, get_catalog_index,
+                                        qualify_tables)
+    try:
+        return True, qualify_tables(sql, dialect=get_engine().rls_dialect,
+                                    load_index=get_catalog_index), None
+    except TableResolutionError as e:
+        return False, sql, str(e)
+    except Exception as e:                      # catalog unreachable, engine unknown
+        logger.warning("[chat] preview could not resolve table names: %s", e)
+        return False, sql, "Could not resolve table names against the catalog."
+
+
 async def explain_plan(params: dict, user: dict) -> dict:
     from app.api.plan_review import review
-    ok, error, io_text = explain_statement(params["sql"], "TYPE IO, FORMAT JSON")
+    resolved, sql, resolution_error = qualify_for_preview(params["sql"])
+    if not resolved:
+        return {"validated": False, "error": resolution_error,
+                "accessed": [], "problems": []}
+    ok, error, io_text = explain_statement(sql, "TYPE IO, FORMAT JSON")
     if not ok:
         return {"validated": False, "error": error, "accessed": [], "problems": []}
     out = review(io_text, None)
@@ -101,7 +132,10 @@ async def explain_plan(params: dict, user: dict) -> dict:
 
 async def preview_query_run(params: dict, user: dict) -> dict:
     """What this statement will read, before the user approves running it."""
-    ok, error, io_text = explain_statement(params["sql"], "TYPE IO, FORMAT JSON")
+    resolved, sql, resolution_error = qualify_for_preview(params["sql"])
+    if not resolved:
+        return {"validated": False, "error": resolution_error, "reads": []}
+    ok, error, io_text = explain_statement(sql, "TYPE IO, FORMAT JSON")
     if not ok:
         return {"validated": False, "error": error, "reads": []}
     plan = parse_io_plan(io_text)

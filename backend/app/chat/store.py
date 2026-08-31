@@ -96,6 +96,32 @@ class PostgresInvocationStore:
                 *values, invocation_id)
         return _row(record)
 
+    async def claim_for_approval(self, invocation_id: str,
+                                 approved_by: Optional[str]) -> Optional[dict]:
+        """Take a proposed invocation for execution, or return None to the loser.
+
+        `WHERE status = 'proposed'` is what makes this safe: PostgreSQL serialises the
+        two UPDATEs on the row, the second sees `approved` and matches nothing, and
+        RETURNING gives back no row. A read-then-update in the caller cannot do this —
+        both readers see `proposed` and both proceed.
+        """
+        try:
+            async with self._pool.acquire() as conn:
+                record = await conn.fetchrow(
+                    f"""UPDATE chat_action_invocations
+                           SET status = 'approved'::chat_invocation_status,
+                               approved_at = NOW(),
+                               approved_by = $2::uuid
+                         WHERE id = $1::uuid
+                           AND status = 'proposed'::chat_invocation_status
+                     RETURNING {_COLUMNS}""",
+                    invocation_id, approved_by)
+        except Exception as e:
+            # A malformed id is a refusal, not a 500 — same rule as get().
+            logger.debug(f"[chat] approval claim failed: {e}")
+            return None
+        return _row(record) if record else None
+
     async def record_audit(self, event: str, user_id: Optional[str],
                            user_email: Optional[str], details: dict) -> None:
         from app.api.auth import record_auth_event
