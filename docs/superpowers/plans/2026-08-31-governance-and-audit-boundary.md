@@ -201,7 +201,7 @@ running their own scenarios today. Not the single catalog: the missing owner.
 The pattern is already built. A2, A3 and A4 did exactly this for collections, and
 these three tasks copy it.
 
-### [ ] D1 — connectors and transforms get an owner, and can be shared
+### [x] D1 — connectors and transforms get an owner, and can be shared
 
 - Migration `0006_resource_ownership`: `owner_id` on `connector_connections` and
   `saved_transforms`, plus `connector_members` and `transform_members` mirroring
