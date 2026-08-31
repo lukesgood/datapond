@@ -15,6 +15,19 @@ namespace: datapond
 # a later upgrade can decide to delete. See tests/test_helm_namespace_ownership.py.
 createNamespace: false
 
+# No storage class. `local-path` is the base default because the AWS reference node
+# runs k3s, which ships a StorageClass by that name; kind does not — its default is
+# `standard`. Pinning k3s's name left postgres-0 and valkey Pending for twelve
+# minutes, which surfaced as a failed migration Job and an init container waiting for
+# a schema nobody could create. One unavailable StorageClass, three symptoms, none of
+# them mentioning storage.
+#
+# Empty renders `storageClassName:` as null, which Kubernetes reads as "use this
+# cluster's default" — the only portable answer for a profile whose whole purpose is
+# running on a cluster nobody configured.
+global:
+  storageClass: ""
+
 # The model gateway is replaced by a deterministic stand-in. See
 # backend/app/testing/mock_model.py — same text embeds the same way, so retrieval is
 # testable without a model, a credential, or a bill.
@@ -33,6 +46,11 @@ externalDatabase:
   enabled: false
 postgres:
   enabled: true
+  # postgres does not inherit global.storageClass; it carries its own default of
+  # local-path, and that is the one that actually held the database Pending.
+  persistence:
+    storageClass: ""
+
 
 # Everything optional stays off: this profile tests the Portable Core, and each add-on
 # it starts is another thing that can fail for reasons unrelated to the release.

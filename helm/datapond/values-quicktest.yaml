@@ -81,6 +81,10 @@ postgres:
   persistence:
     enabled: true
     size: 20Gi
+  auth:
+    database: datapond
+    username: datapond
+    password: dev_password
 
 # Valkey - Minimal (Redis-compatible)
 valkey:
@@ -115,6 +119,8 @@ jupyter:
   gitConfig:
     defaultUser: "DataPond User"
     defaultEmail: "user@datapond.local"
+  auth:
+    token: "jupyter"   # known dev token (explicit-wins; docs reference it)
 
 # MLflow - Minimal
 mlflow:
@@ -323,16 +329,6 @@ monitoring:
   enabled: false
 
 # Auth - Simple dev credentials
-postgres:
-  auth:
-    database: datapond
-    username: datapond
-    password: dev_password
-
-jupyter:
-  auth:
-    token: "jupyter"   # known dev token (explicit-wins; docs reference it)
-
 storage:
   provider: minio
   endpoint: "minio:9000"
