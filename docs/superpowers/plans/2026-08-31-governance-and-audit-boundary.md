@@ -139,7 +139,7 @@ Commit: `feat(audit): the application may write the audit log and may not rewrit
 
 Commit: `feat(audit): retention with a floor, and an export that does not need the DB`
 
-### [ ] B5 — two governance endpoints have no authentication at all
+### [x] B5 — two governance endpoints have no authentication at all
 
 Found by B1 while doing something else, and deliberately left alone so that task
 stayed one task. It listed them by name in an `OPEN_BY_DESIGN` exemption rather than

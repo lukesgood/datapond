@@ -309,7 +309,8 @@ def _iso(dt) -> str:
     return dt.isoformat() if dt else ""
 
 
-@router.get("/governance/stats", response_model=GovernanceStats)
+@router.get("/governance/stats", response_model=GovernanceStats,
+            dependencies=[Depends(require_permission("governance:read"))])
 def get_governance_stats(db: Session = Depends(get_db)):
     """
     Return high-level governance statistics.
@@ -320,6 +321,11 @@ def get_governance_stats(db: Session = Depends(get_db)):
     counter (AI SQL execution count, blocked-query count) are intentionally
     omitted rather than reported as a fabricated 0 — see the frontend, which
     drops those stat cards accordingly.
+
+    Gated on `governance:read` (B5): this carried no authorization dependency at
+    all before — not even a wrong one — which is a plainer gap than the
+    body-level-admin-check-versus-declared-permission mismatch the rest of this
+    module was written to fix (see test_governance_auditor_access.py).
     """
     try:
         today = date.today()
@@ -488,7 +494,8 @@ def _scan_pii_tables() -> Optional[List[PiiTableEntry]]:
         return None
 
 
-@router.get("/governance/pii-report", response_model=PiiReport)
+@router.get("/governance/pii-report", response_model=PiiReport,
+            dependencies=[Depends(require_permission("governance:read"))])
 def get_pii_report():
     """
     Scan columns of recently queried tables for PII patterns.
@@ -497,6 +504,10 @@ def get_pii_report():
     Returns {tables: []} when no genuine scan can run (e.g. the live
     Athena/Glue foundation profile, which has no Trino information_schema
     to scan) or when the scan finds nothing.
+
+    Gated on `governance:read` (B5): this carried no authorization dependency at
+    all before. A PII report is precisely the thing that must not be readable by an
+    unauthenticated caller — see test_governance_auditor_access.py.
     """
     scanned = _scan_pii_tables()
     return PiiReport(tables=scanned or [], scanned=scanned is not None)
@@ -856,9 +867,13 @@ async def delete_mask_policy(policy_id: str, user: Optional[dict] = Depends(_get
 async def preview_rls(body: RlsPreviewIn, user: Optional[dict] = Depends(_get_current_user)):
     """
     Simulate enforcement for a sample query as a hypothetical user
-    (admin tool — pick roles + attributes, see the rewritten SQL or denial).
+    (pick roles + attributes, see the rewritten SQL or denial). Changes nothing, so
+    it is gated like the other governance reads on `governance:read` (B5) — the
+    route dependency already enforced that; a leftover admin-only body check used to
+    sit here and override it for every caller who was not `admin`, the same
+    dependency/body mismatch B1 fixed for the GET reads (see
+    test_governance_auditor_access.py).
     """
-    await _require_admin(user)
     ctx = _UserCtx(user_id="preview", username="preview",
                    roles=body.roles or [], attributes=body.attributes or {})
     policies = await _rls_loader.load_policies()
