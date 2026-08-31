@@ -50,10 +50,19 @@ externalDatabase:
 # model, so the upgrade's surge pod sat Pending for twenty-four minutes while Helm
 # waited for a readiness that could not arrive, and --atomic then timed out rolling
 # back as well.
+# `replicas` is not the only authority over how many pods run: autoscaling defaults to
+# enabled with minReplicas 2, so pinning replicas alone changed nothing — the HPA put
+# the second one straight back and the surge still had nowhere to go. There is no
+# metrics-server here either, so the HPA could not scale even if asked; all it did was
+# hold the floor up.
 backend:
   replicas: 1
+  autoscaling:
+    enabled: false
 frontend:
   replicas: 1
+  autoscaling:
+    enabled: false
 
 postgres:
   enabled: true

@@ -16,12 +16,32 @@ EPHEMERAL = (CHART / "values-ephemeral.yaml").read_text()
 CI = (Path(__file__).resolve().parents[2] / ".github/workflows/ci.yml").read_text()
 
 
+def _block(component: str) -> str:
+    match = re.search(rf'^{component}:\n((?:[ \t].*\n|\n)*)', EPHEMERAL, re.M)
+    assert match, f"{component} is not overridden at all — it inherits replicas: 2"
+    return match.group(1)
+
+
 def test_the_profile_runs_one_of_each():
     for component in ("backend", "frontend"):
-        block = re.search(rf'^{component}:\n((?:[ \t].*\n|\n)*)', EPHEMERAL, re.M)
-        assert block, f"{component} is not overridden at all — it inherits replicas: 2"
-        assert re.search(r'^\s+replicas:\s*1\s*$', block.group(1), re.M), (
+        assert re.search(r'^\s+replicas:\s*1\s*$', _block(component), re.M), (
             f"{component} does not pin one replica")
+
+
+def test_nothing_else_puts_the_second_replica_back():
+    """`replicas` is not the only thing that decides how many pods run.
+
+    Pinning it to 1 changed nothing the first time: autoscaling defaults to enabled
+    with minReplicas 2, so the HPA restored the second replica and the surge still had
+    nowhere to go. Fixing one of two authorities over the same number is fixing
+    neither — and on a cluster with no metrics-server the HPA cannot scale anyway, so
+    all it does here is hold the floor up.
+    """
+    for component in ("backend", "frontend"):
+        block = _block(component)
+        assert "autoscaling:" in block, f"{component} leaves autoscaling at its default"
+        assert re.search(r'^\s+enabled:\s*false\s*$', block, re.M), (
+            f"{component} autoscaling is not disabled; minReplicas will win")
 
 
 def test_the_upgrade_step_does_not_add_a_pod():
