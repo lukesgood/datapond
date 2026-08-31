@@ -20,6 +20,8 @@ from typing import Sequence, Union
 
 from alembic import op
 
+from app.migrations import run_sql, run_sql_file
+
 revision: str = "0001_baseline"
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
@@ -30,7 +32,7 @@ def upgrade() -> None:
     sql = (Path(__file__).with_suffix(".sql")).read_text()
     # As one script, not statement by statement: splitting on semicolons breaks the
     # $$-quoted function bodies, which is exactly what happened on the first attempt.
-    op.get_bind().exec_driver_sql(sql)
+    run_sql(op.get_bind(), sql)
 
 
 def downgrade() -> None:

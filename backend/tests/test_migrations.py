@@ -141,7 +141,7 @@ def test_every_revision_has_the_sql_it_executes():
 
     versions = Path(__file__).resolve().parents[1] / "migrations/versions"
     for py in versions.glob("*.py"):
-        if "op.execute" in py.read_text() or "exec_driver_sql" in py.read_text():
+        if "op.execute" in py.read_text() or "run_sql_file" in py.read_text():
             assert py.with_suffix(".sql").exists(), f"{py.name} has no .sql beside it"
 
 

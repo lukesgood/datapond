@@ -70,7 +70,9 @@ def test_the_migration_file_exists_and_is_named_like_a_revision():
 
 def test_it_has_the_sql_it_executes_beside_it():
     body = _py_text()
-    assert "op.execute" in body or "exec_driver_sql" in body
+    # run_sql_file since the deploy that found the psycopg2 %-interpolation trap;
+    # see tests/test_migration_execution_path.py for why exec_driver_sql is gone.
+    assert "op.execute" in body or "run_sql_file" in body
     assert SQL_PATH.exists(), f"expected {SQL_PATH}"
 
 

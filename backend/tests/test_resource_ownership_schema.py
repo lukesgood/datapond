@@ -71,7 +71,7 @@ def test_the_revision_is_part_of_the_chain_alembic_walks():
 
 def test_the_sql_file_exists_beside_the_python():
     assert SQL.exists(), "0006_resource_ownership.py has no .sql beside it"
-    assert "exec_driver_sql" in PY.read_text()
+    assert "run_sql_file" in PY.read_text()   # see test_migration_execution_path.py
 
 
 def test_owner_id_is_nullable_on_connector_connections():

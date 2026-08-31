@@ -34,6 +34,8 @@ from typing import Sequence, Union
 
 from alembic import op
 
+from app.migrations import run_sql, run_sql_file
+
 revision: str = "0006_resource_ownership"
 down_revision: Union[str, None] = "0005_audit_append_only"
 branch_labels: Union[str, Sequence[str], None] = None
@@ -41,14 +43,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.get_bind().exec_driver_sql((Path(__file__).with_suffix(".sql")).read_text())
+    run_sql_file(op.get_bind(), Path(__file__).with_suffix(".sql"))
 
 
 def downgrade() -> None:
     # Additive, so this reverses cleanly: dropping the tables loses only the grants
     # this feature itself recorded, and dropping the columns loses only ownership
     # this feature itself assigned. Nothing else depends on either.
-    op.get_bind().exec_driver_sql(
+    run_sql(op.get_bind(),
         """
         DROP TABLE IF EXISTS public.transform_members;
         DROP TABLE IF EXISTS public.connector_members;

@@ -11,7 +11,12 @@ from sqlalchemy import engine_from_config, pool
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False, deliberately. The default is True, and it
+    # switched off the `[migrate]` logger the entry point creates before Alembic is
+    # imported — so when 0005 failed against Aurora, the Job exited 1 after two
+    # seconds with a clean log and no reason in it. The migration's own output is the
+    # only account of what a release did to the database.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 
 def _url() -> str:

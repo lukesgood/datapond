@@ -54,6 +54,37 @@ def baseline_action(has_tables: bool, has_version_table: bool) -> Action:
     return "stamp" if has_tables else "upgrade"
 
 
+def run_sql(bind, statement: str) -> None:
+    """Execute one migration statement block on the raw DBAPI cursor.
+
+    Not `Connection.exec_driver_sql`, which is what every version file used until a
+    live deploy failed on it. SQLAlchemy hands psycopg2 a parameter mapping, and
+    psycopg2 given *any* parameters treats `%` in the statement as a placeholder — so
+    `0005_audit_append_only`'s trigger message,
+    `'audit_append_only: % on %.% is not permitted…'`, was read as a format string and
+    the migration died with `TypeError: immutabledict is not a sequence`. 0003 and 0004
+    contain no `%` and applied cleanly, which is why the break looked like something
+    specific to one revision.
+
+    Escaping the SQL instead (`%%`) would put the escape in the file that the
+    application's own asyncpg path also reads, where `%` is an ordinary character. The
+    statement is not the thing that is wrong; the way it was being handed over was.
+
+    Runs on the connection Alembic is already using, so it stays inside the migration's
+    transaction and rolls back with it.
+    """
+    raw = bind.connection.driver_connection
+    with raw.cursor() as cur:
+        cur.execute(statement)
+
+
+def run_sql_file(bind, path) -> None:
+    """`run_sql` for the `.sql` beside a version file."""
+    from pathlib import Path as _Path
+
+    run_sql(bind, _Path(path).read_text())
+
+
 def _paths():
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
@@ -316,7 +347,11 @@ def main() -> int:
         try:
             outcome = await apply(pool)
         except Exception as e:
-            log.error("failed: %s", e)
+            # exc_info: a one-line str() is what this printed when 0005 failed against
+            # Aurora, and even that was swallowed because alembic's fileConfig() had
+            # disabled this logger (see migrations/env.py). A Job that exits 1 with a
+            # clean log turns a bug into a mystery.
+            log.error("failed: %s", e, exc_info=True)
             return 1
         log.info("%s (head=%s)", outcome, head_revision())
         return 0

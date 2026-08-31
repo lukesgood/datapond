@@ -42,7 +42,7 @@ def test_the_sql_file_exists_beside_the_python():
     this repo-wide; this is the local version so this file fails on its own if the
     pairing breaks, without waiting on the other test module."""
     assert SQL.exists(), "0003_collection_members.py has no .sql beside it"
-    assert "exec_driver_sql" in PY.read_text()
+    assert "run_sql_file" in PY.read_text()   # see test_migration_execution_path.py
 
 
 def test_a_deleted_collection_takes_its_membership_rows_with_it():
