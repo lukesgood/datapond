@@ -31,6 +31,9 @@ import httpx
 
 from app.runtime import component_secret
 from app.api.om_util import OPENMETADATA_URL, om_token as _om_token
+# D2: every route below that names an existing connection goes through this
+# gate before it does anything with it. See app/api/source_access.py.
+from app.api.source_access import CONNECTOR, require_access, visible_clause, caller_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -965,9 +968,10 @@ async def activate_sample_db(user: dict = Depends(require_user)):
 
 
 @router.delete("/connectors/{connection_id}/draft", dependencies=[Depends(require_permission("connector:write"))])
-async def discard_draft_connection(connection_id: str):
+async def discard_draft_connection(connection_id: str, user: dict = Depends(require_user)):
     """Discard a connection created during setup wizard (no sync history).
     Used when user clicks Back/Cancel after Step 1 to prevent orphan records."""
+    await require_access(CONNECTOR, connection_id, user, write=True)
     try:
         pool = await get_db_pool()
         async with pool.acquire() as conn:
@@ -994,7 +998,8 @@ async def discard_draft_connection(connection_id: str):
 
 
 @router.post("/connectors/create", response_model=ConnectionResponse, dependencies=[Depends(require_permission("connector:write"))])
-async def create_connection(request: ConnectionCreateRequest):
+async def create_connection(request: ConnectionCreateRequest,
+                            user: dict = Depends(require_user)):
     """
     Create and save a new connector connection.
 
@@ -1023,8 +1028,9 @@ async def create_connection(request: ConnectionCreateRequest):
         async with pool.acquire() as conn:
             await conn.execute('''
                 INSERT INTO connector_connections
-                (id, name, connector_type, config_encrypted, status, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                (id, name, connector_type, config_encrypted, status, created_at, updated_at,
+                 owner_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ''',
                 connection_id,
                 request.name,
@@ -1032,7 +1038,11 @@ async def create_connection(request: ConnectionCreateRequest):
                 encrypted_config,
                 status,
                 datetime.utcnow(),
-                datetime.utcnow()
+                datetime.utcnow(),
+                # The one line that makes ownership mean anything: without it every
+                # new connector is created unowned, and unowned means visible and
+                # editable by everyone — which is the state D2 exists to end.
+                caller_uuid(user),
             )
 
         return ConnectionResponse(
@@ -1048,20 +1058,29 @@ async def create_connection(request: ConnectionCreateRequest):
 
 
 @router.get("/connectors/connections")
-async def list_connections():
+async def list_connections(user: dict = Depends(require_user)):
     """
-    List all saved connections.
+    Saved connections this caller may see.
 
     Does not include credentials in response.
+
+    Filtered in SQL rather than fetched and dropped afterwards: the predicate is the
+    twin of resource_access.may_read (own it, unowned, or named in a grant), so a
+    connector a caller cannot reach never leaves the database. An admin gets no
+    predicate at all.
     """
     try:
+        clause, args = visible_clause(CONNECTOR, user, "c", 1)
+        where = f"WHERE {clause}" if clause else ""
         pool = await get_db_pool()
         async with pool.acquire() as conn:
-            rows = await conn.fetch('''
-                SELECT id, name, connector_type, status, created_at, last_sync_at, schedule
-                FROM connector_connections
-                ORDER BY created_at DESC
-            ''')
+            rows = await conn.fetch(f'''
+                SELECT c.id, c.name, c.connector_type, c.status, c.created_at,
+                       c.last_sync_at, c.schedule, c.owner_id
+                FROM connector_connections c
+                {where}
+                ORDER BY c.created_at DESC
+            ''', *args)
 
         connections = []
         for row in rows:
@@ -1073,6 +1092,7 @@ async def list_connections():
                 "created_at": row['created_at'].isoformat() + "Z",
                 "last_sync_at": row['last_sync_at'].isoformat() + "Z" if row['last_sync_at'] else None,
                 "schedule": row['schedule'],
+                "owner_id": str(row['owner_id']) if row['owner_id'] else None,
             })
 
         return connections
@@ -1082,13 +1102,15 @@ async def list_connections():
 
 
 @router.get("/connectors/{connection_id}")
-async def get_connection(connection_id: str):
+async def get_connection(connection_id: str, user: dict = Depends(require_user)):
     """Get connection details by ID"""
+    await require_access(CONNECTOR, connection_id, user)
     try:
         pool = await get_db_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow('''
-                SELECT id, name, connector_type, status, created_at, last_sync_at, schedule
+                SELECT id, name, connector_type, status, created_at, last_sync_at, schedule,
+                       owner_id
                 FROM connector_connections
                 WHERE id = $1
             ''', uuid.UUID(connection_id))
@@ -1104,6 +1126,7 @@ async def get_connection(connection_id: str):
             "created_at": row['created_at'].isoformat() + "Z",
             "last_sync_at": row['last_sync_at'].isoformat() + "Z" if row['last_sync_at'] else None,
             "schedule": row['schedule'],
+            "owner_id": str(row['owner_id']) if row['owner_id'] else None,
         }
 
     except (HTTPException, ValueError) as e:
@@ -1115,8 +1138,9 @@ async def get_connection(connection_id: str):
 
 
 @router.get("/connectors/{connection_id}/config")
-async def get_connection_config(connection_id: str):
+async def get_connection_config(connection_id: str, user: dict = Depends(require_user)):
     """Get decrypted config for a connection (for editing)"""
+    await require_access(CONNECTOR, connection_id, user)
     try:
         pool = await get_db_pool()
         async with pool.acquire() as conn:
@@ -1151,8 +1175,10 @@ class ConnectionUpdateRequest(BaseModel):
 
 
 @router.patch("/connectors/{connection_id}", dependencies=[Depends(require_permission("connector:write"))])
-async def update_connection(connection_id: str, request: ConnectionUpdateRequest):
+async def update_connection(connection_id: str, request: ConnectionUpdateRequest,
+                            user: dict = Depends(require_user)):
     """Update connection name and/or config"""
+    await require_access(CONNECTOR, connection_id, user, write=True)
     try:
         pool = await get_db_pool()
         async with pool.acquire() as conn:
@@ -1246,8 +1272,10 @@ with DAG(
 
 
 @router.patch("/connectors/{connection_id}/schedule", dependencies=[Depends(require_permission("connector:write"))])
-async def set_schedule(connection_id: str, request: ScheduleRequest):
+async def set_schedule(connection_id: str, request: ScheduleRequest,
+                       user: dict = Depends(require_user)):
     """Set or remove a sync schedule. Stores in connector_connections.schedule (single source of truth)."""
+    await require_access(CONNECTOR, connection_id, user, write=True)
     try:
         pool = await get_db_pool()
         async with pool.acquire() as conn:
@@ -1303,8 +1331,9 @@ async def set_schedule(connection_id: str, request: ScheduleRequest):
 
 
 @router.get("/connectors/{connection_id}/schedule")
-async def get_schedule(connection_id: str):
+async def get_schedule(connection_id: str, user: dict = Depends(require_user)):
     """Get current schedule from connector_connections (single source of truth)."""
+    await require_access(CONNECTOR, connection_id, user)
     try:
         pool = await get_db_pool()
         async with pool.acquire() as conn:
@@ -1343,8 +1372,9 @@ async def get_schedule(connection_id: str):
 
 
 @router.delete("/connectors/{connection_id}", dependencies=[Depends(require_permission("connector:write"))])
-async def delete_connection(connection_id: str):
+async def delete_connection(connection_id: str, user: dict = Depends(require_user)):
     """Delete a connection"""
+    await require_access(CONNECTOR, connection_id, user, write=True)
     try:
         pool = await get_db_pool()
         async with pool.acquire() as conn:
@@ -1367,8 +1397,9 @@ async def delete_connection(connection_id: str):
 
 
 @router.get("/connectors/{connection_id}/tables")
-async def list_tables(connection_id: str):
+async def list_tables(connection_id: str, user: dict = Depends(require_user)):
     """List tables with enabled status from connector_sync_jobs."""
+    await require_access(CONNECTOR, connection_id, user)
     try:
         connector = await _get_connector_instance(connection_id)
         tables = await connector.get_tables()
@@ -1418,8 +1449,10 @@ async def list_tables(connection_id: str):
 
 
 @router.patch("/connectors/{connection_id}/tables/{table_name}/enabled", dependencies=[Depends(require_permission("connector:write"))])
-async def set_table_enabled(connection_id: str, table_name: str, body: dict):
+async def set_table_enabled(connection_id: str, table_name: str, body: dict,
+                            user: dict = Depends(require_user)):
     """Enable/disable a table and optionally set incremental_column / key_columns(upsert PK)."""
+    await require_access(CONNECTOR, connection_id, user, write=True)
     try:
         enabled             = bool(body.get("enabled", True))
         incremental_column  = body.get("incremental_column")   # None = don't change
@@ -1471,11 +1504,13 @@ _PARTITION_TRANSFORMS = {"day", "month", "year", "identity", "bucket"}
 
 
 @router.patch("/connectors/{connection_id}/tables/{table_name}/partition", dependencies=[Depends(require_permission("connector:write"))])
-async def set_table_partition(connection_id: str, table_name: str, body: dict):
+async def set_table_partition(connection_id: str, table_name: str, body: dict,
+                              user: dict = Depends(require_user)):
     """
     테이블별 파티션 spec 설정.
     body: {"partition_spec": [{"column":"created_at","transform":"day"}, ...]}  · null/[] = 무파티션(자동추론 해제)
     """
+    await require_access(CONNECTOR, connection_id, user, write=True)
     try:
         spec = body.get("partition_spec")
         if spec is not None:
@@ -1516,8 +1551,10 @@ async def set_table_partition(connection_id: str, table_name: str, body: dict):
 
 
 @router.patch("/connectors/{connection_id}/sync-mode", dependencies=[Depends(require_permission("connector:write"))])
-async def set_connection_sync_mode(connection_id: str, body: dict):
+async def set_connection_sync_mode(connection_id: str, body: dict,
+                                   user: dict = Depends(require_user)):
     """Set sync_mode — for a specific table or all tables of a connection."""
+    await require_access(CONNECTOR, connection_id, user, write=True)
     try:
         mode = body.get("sync_mode", "full")
         table_name = body.get("table_name")  # Optional: specific table only
@@ -1558,8 +1595,10 @@ async def set_connection_sync_mode(connection_id: str, body: dict):
 
 
 @router.get("/connectors/{connection_id}/schema/{table_name}")
-async def get_table_schema(connection_id: str, table_name: str):
+async def get_table_schema(connection_id: str, table_name: str,
+                           user: dict = Depends(require_user)):
     """Get schema for a specific table"""
+    await require_access(CONNECTOR, connection_id, user)
     try:
         connector = await _get_connector_instance(connection_id)
 
@@ -1574,8 +1613,12 @@ async def get_table_schema(connection_id: str, table_name: str):
 
 
 @router.get("/connectors/{connection_id}/sync/stream")
-async def sync_stream(connection_id: str, sync_mode: str = "full"):
+async def sync_stream(connection_id: str, sync_mode: str = "full",
+                      user: dict = Depends(require_user)):
     """SSE endpoint — streams sync progress step by step."""
+    # Before the generator, not inside it: a refusal has to be an HTTP 403, not a
+    # 200 whose body's first SSE frame happens to say "error".
+    await require_access(CONNECTOR, connection_id, user, write=True)
 
     def sse(event: str, data: dict) -> str:
         return f"event: {event}\ndata: {json.dumps(data)}\n\n"
@@ -2096,8 +2139,10 @@ async def _persist_sync_session(pool, connection_id: str, job_id: str,
 
 
 @router.post("/connectors/{connection_id}/sync", dependencies=[Depends(require_permission("connector:write"))])
-async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None):
+async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None,
+                       user: dict = Depends(require_user)):
     """Trigger a data sync job"""
+    await require_access(CONNECTOR, connection_id, user, write=True)
     if request is None:
         request = SyncRequest()
     try:
@@ -2233,8 +2278,9 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
 
 
 @router.get("/connectors/{connection_id}/status")
-async def get_sync_status(connection_id: str):
+async def get_sync_status(connection_id: str, user: dict = Depends(require_user)):
     """Get status of sync jobs for a connection"""
+    await require_access(CONNECTOR, connection_id, user)
     try:
         pool = await get_db_pool()
         async with pool.acquire() as conn:
@@ -2266,8 +2312,10 @@ async def get_sync_status(connection_id: str):
 
 
 @router.get("/connectors/{connection_id}/history")
-async def get_sync_history(connection_id: str, limit: int = 20):
+async def get_sync_history(connection_id: str, limit: int = 20,
+                           user: dict = Depends(require_user)):
     """Get sync session history — one row per Sync Now click."""
+    await require_access(CONNECTOR, connection_id, user)
     try:
         pool = await get_db_pool()
         async with pool.acquire() as conn:
@@ -2366,8 +2414,10 @@ async def _get_connector_instance(connection_id: str):
 
 
 @router.get("/connectors/{connection_id}/quality")
-async def get_quality_checks(connection_id: str, limit: int = 20):
+async def get_quality_checks(connection_id: str, limit: int = 20,
+                             user: dict = Depends(require_user)):
     """Get latest data quality check results for a connection."""
+    await require_access(CONNECTOR, connection_id, user)
     pool = await get_db_pool()
     from .quality import ensure_quality_table
     async with pool.acquire() as conn:

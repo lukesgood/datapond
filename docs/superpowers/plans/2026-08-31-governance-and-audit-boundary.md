@@ -213,7 +213,7 @@ these three tasks copy it.
 
 Commit: `feat(connectors): a source can belong to someone, and be shared`
 
-### [ ] D2 — enforce it on every path that touches a source
+### [x] D2 — enforce it on every path that touches a source
 
 - Reuse `app/knowledge_access.py`'s precedence rather than inventing a second one, or
   extract the shared decision if the shapes differ. Two access models that are nearly

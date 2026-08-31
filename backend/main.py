@@ -46,6 +46,7 @@ from app.api.governance import router as governance_router
 from app.api.maintenance import router as maintenance_router, deploy_maintenance_dag
 from app.api.webauthn import router as webauthn_router
 from app.api.audit_export import router as audit_export_router
+from app.api.source_access import router as source_members_router
 from app.capabilities import compute_capabilities
 
 app = FastAPI(
@@ -398,6 +399,9 @@ app.include_router(maintenance_router, prefix="/api",
                    dependencies=[Depends(require_component("AIRFLOW", "Maintenance (Airflow)"))])
 app.include_router(webauthn_router, prefix="/api")
 app.include_router(audit_export_router, prefix="/api")
+# Sharing a connector or a transform with named people (D2). One router for both
+# kinds — see app/api/source_access.py for why they are not written twice.
+app.include_router(source_members_router, prefix="/api")
 
 from app.service_registry import service_registry as _service_registry_pure
 

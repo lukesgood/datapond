@@ -176,6 +176,11 @@ class _StoreConn:
         s = " ".join(sql.split())
         if "SELECT incremental_column, last_value" in s:
             return self.store.get("watermark_row")
+        if "FROM connector_connections" in s:
+            # D2's ownership gate (app/api/source_access.resolve) runs before the sync
+            # does. owner_id NULL is the state of every connector that predates 0006,
+            # which is what the caller below is exercising.
+            return {"id": args[0], "owner_id": None, "member_role": None}
         return None
 
     async def fetch(self, sql, *args):
@@ -203,6 +208,11 @@ class _FakePool:
 
     def acquire(self):
         return _Acquire(_StoreConn(self.store))
+
+
+# Holds connector:write, is not an admin — the role that manages connectors, and the
+# one D2 must keep working on an unowned (pre-0006) connector.
+SYNC_USER = {"id": "00000000-0000-0000-0000-0000000000e1", "role": "data_engineer"}
 
 
 def _afn(retval):
@@ -237,7 +247,7 @@ def test_non_sse_incremental_loads_watermark_and_updates(monkeypatch):
     C = _patch_api(monkeypatch, store, capture)
 
     req = C.SyncRequest(source_table="events", sync_mode=SyncMode.INCREMENTAL)
-    res = _run(C.trigger_sync("11111111-1111-1111-1111-111111111111", req))
+    res = _run(C.trigger_sync("11111111-1111-1111-1111-111111111111", req, SYNC_USER))
 
     assert res["rows_processed"] == 7
     # the stored watermark is loaded and forwarded to the sync (was never loaded before)
@@ -264,7 +274,7 @@ def test_non_sse_incremental_without_column_falls_back_to_full(monkeypatch):
     C = _patch_api(monkeypatch, store, capture)
 
     req = C.SyncRequest(source_table="events", sync_mode=SyncMode.INCREMENTAL)
-    _run(C.trigger_sync("11111111-1111-1111-1111-111111111111", req))
+    _run(C.trigger_sync("11111111-1111-1111-1111-111111111111", req, SYNC_USER))
 
     assert capture["sync_mode"] == SyncMode.FULL
     assert capture["last_value"] is None

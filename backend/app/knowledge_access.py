@@ -1,7 +1,7 @@
 """Who may read or change a collection — one decision, independent of the several
 places that ask it.
 
-Design: docs/superpowers/plans/2026-08-31-governance-and-audit-boundary.md (A3)
+Design: docs/superpowers/plans/2026-08-31-governance-and-audit-boundary.md (A3, D2)
 
 `ai_collections.owner_id` plus "owner_id IS NULL means everyone may read" used to be
 the whole access model, and it was checked inline wherever a route happened to touch
@@ -10,65 +10,37 @@ and knowledge_lineage each rebuilt a second and third version of the same rule
 straight in SQL. `ai_collection_members` (0003_collection_members.sql, A2) adds a
 fourth state — named people, not just the owner or the world — and landing it without
 a single shared answer would have meant four places to get the new state wrong
-instead of one. This module is that one place.
+instead of one.
 
-Precedence, high to low:
-  1. admin               — sees and changes everything, same as everywhere else in
-                            the product.
-  2. owner                — created it, keeps full control of it.
-  3. explicit membership — `editor` may read and write; `reader` may only read.
-                            Checked before the legacy-global fallback below, so a
-                            membership row is meaningful even on an owner_id IS NULL
-                            collection (an editor grant there still grants write,
-                            which the fallback alone would not).
-  4. owner_id IS NULL    — the legacy "global" collection predates membership
-     (legacy global)       entirely. Anyone holding `knowledge:read` may read it —
-                            the same permission the caller already needed to reach
-                            any route this gates — but nobody may write to it except
-                            an admin, because there is no owner left to delegate
-                            write from.
-  5. otherwise           — no. A private collection with no grant is exactly that:
-                            private.
+D2 then gave connectors and transforms the same three columns, and asking the same
+question about them from a second copy of this rule is the same mistake one level up.
+So the precedence itself now lives in `app/resource_access.py`, parameterised by what
+an *unowned* resource means for a given kind, and this module is the collection's
+answer to that parameter: `resource_access.KNOWLEDGE`.
 
-Both functions take the same three arguments so a caller cannot accidentally check
-read where it meant write: `collection` is anything carrying `owner_id` (a dict or an
-asyncpg Record both work); `user` is anything carrying `id` and `role`; `member_role`
-is `None`, `"reader"`, or `"editor"` — whatever `ai_collection_members.role` holds for
-this exact (collection, user) pair, resolved by the caller before either function
-runs. Neither function does I/O: the membership lookup is the caller's job precisely
-so a caller listing many collections can load every grant once and call these in a
-loop, rather than paying a query per collection.
+The precedence is unchanged — admin, then owner, then an explicit `ai_collection_members`
+grant (`editor` reads and writes, `reader` only reads), then the legacy
+`owner_id IS NULL` global collection, which anyone holding `knowledge:read` may read
+and only an admin may write. `app/resource_access.py`'s docstring carries the full
+reasoning, including why the unowned *write* rule differs between a collection and a
+connector.
+
+Both functions keep the signature A3's call sites use: `collection` is anything
+carrying `owner_id` (a dict or an asyncpg Record both work); `user` is anything
+carrying `id` and `role`; `member_role` is `None`, `"reader"` or `"editor"` — whatever
+`ai_collection_members.role` holds for this exact (collection, user) pair, resolved by
+the caller. Neither does I/O, so a caller listing many collections can load every
+grant once and call these in a loop.
 """
 from typing import Optional
 
-from app.permissions import has_permission
-
-
-def _is_admin(user: Optional[dict]) -> bool:
-    return (user or {}).get("role") == "admin"
-
-
-def _is_owner(collection: Optional[dict], user: Optional[dict]) -> bool:
-    owner_id = (collection or {}).get("owner_id")
-    if owner_id is None:
-        return False
-    uid = (user or {}).get("id")
-    if uid is None:
-        return False
-    return str(owner_id) == str(uid)
+from app import resource_access
+from app.resource_access import KNOWLEDGE
 
 
 def may_read(collection: dict, user: dict, member_role: Optional[str]) -> bool:
     """May `user` read `collection`? See the module docstring for the precedence."""
-    if _is_admin(user):
-        return True
-    if _is_owner(collection, user):
-        return True
-    if member_role in ("reader", "editor"):
-        return True
-    if (collection or {}).get("owner_id") is None:
-        return has_permission((user or {}).get("role"), "knowledge:read")
-    return False
+    return resource_access.may_read(collection, user, member_role, KNOWLEDGE)
 
 
 def may_write(collection: dict, user: dict, member_role: Optional[str]) -> bool:
@@ -80,10 +52,4 @@ def may_write(collection: dict, user: dict, member_role: Optional[str]) -> bool:
     existed, and what keeps a shared collection from becoming a free-for-all the
     moment it stops having a single owner.
     """
-    if _is_admin(user):
-        return True
-    if _is_owner(collection, user):
-        return True
-    if member_role == "editor":
-        return True
-    return False
+    return resource_access.may_write(collection, user, member_role, KNOWLEDGE)

@@ -251,6 +251,14 @@ class _Db:
         return None
 
 
+async def _allow_everything(*args, **kwargs):
+    return {"id": None, "owner_id": None, "member_role": None}
+
+
+async def _no_grants(*args, **kwargs):
+    return {}
+
+
 def _load_transform_function(name: str, extra: dict[str, Any]):
     tree = ast.parse(TRANSFORMS_PATH.read_text())
     node = next(
@@ -272,6 +280,16 @@ def _load_transform_function(name: str, extra: dict[str, Any]):
         "SimpleNamespace": SimpleNamespace,
         "NAMESPACES": ["raw", "refined", "serving"],
         "uuid": uuid,
+        # D2's ownership seams. These functions now ask app/api/source_access.py who
+        # the caller is before they touch a transform; that gate has its own tests
+        # (tests/test_source_ownership_enforcement.py), and these tests are about
+        # Airflow/DB rollback behaviour, so here it is a stub that always allows.
+        "require_user": object(),
+        "TRANSFORM_KIND": object(),
+        "require_access": _allow_everything,
+        "caller_uuid": lambda user: None,
+        "granted_roles": _no_grants,
+        "may_see": lambda kind, row, user, member_role=None: True,
         **extra,
     }
     exec(compile(module, str(TRANSFORMS_PATH), "exec"), scope)

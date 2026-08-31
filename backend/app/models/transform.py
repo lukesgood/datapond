@@ -22,3 +22,6 @@ class SavedTransform(Base):
     dag_id           = Column(String(255), nullable=True)
     created_at       = Column(DateTime, default=datetime.utcnow)
     updated_at       = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # 0006_resource_ownership (D1). Nullable, and NULL keeps meaning "visible to
+    # everyone" — every transform that predates the column is in that state.
+    owner_id         = Column(UUID(as_uuid=True), nullable=True)

@@ -56,9 +56,12 @@ def test_legacy_global_collection_is_readable_by_anyone_holding_knowledge_read()
 
 
 def test_legacy_global_collection_read_actually_consults_the_permission(monkeypatch):
-    import app.knowledge_access as knowledge_access
+    # Patched on app.resource_access, where the precedence now lives (D2): this
+    # module keeps the question and the collection's answer to "what does unowned
+    # mean", and delegates the deciding.
+    import app.resource_access as resource_access
 
-    monkeypatch.setattr(knowledge_access, "has_permission", lambda role, perm: False)
+    monkeypatch.setattr(resource_access, "has_permission", lambda role, perm: False)
     assert may_read(GLOBAL, OTHER, None) is False
 
 
