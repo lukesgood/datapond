@@ -186,6 +186,53 @@ Commit: `test(auth): a role claim cannot exceed what the database says`
 
 ---
 
+## D. Isolation — the half that is missing
+
+Measured, not assumed. `ai_collections`, `dashboards`, `query_history` and
+`rls_policies` all carry an owner. `connector_connections` and `saved_transforms`
+carry none.
+
+So the analysis side of this product is per-user and the **data-source side is
+shared by everyone**. If one person connects their S3 bucket and another connects
+their Postgres, each sees the other's connector and — holding `connector:write`,
+which `data_engineer` does — can edit or delete it. That is what stops several people
+running their own scenarios today. Not the single catalog: the missing owner.
+
+The pattern is already built. A2, A3 and A4 did exactly this for collections, and
+these three tasks copy it.
+
+### [ ] D1 — connectors and transforms get an owner, and can be shared
+
+- Migration `0006_resource_ownership`: `owner_id` on `connector_connections` and
+  `saved_transforms`, plus `connector_members` and `transform_members` mirroring
+  `ai_collection_members` (0003).
+- `owner_id` must be **nullable**, and NULL must keep meaning what it means for
+  collections: visible to everyone. Every connector that exists today has no owner,
+  and a migration that makes them all invisible is an outage.
+- A test that the backfill leaves existing rows readable.
+
+Commit: `feat(connectors): a source can belong to someone, and be shared`
+
+### [ ] D2 — enforce it on every path that touches a source
+
+- Reuse `app/knowledge_access.py`'s precedence rather than inventing a second one, or
+  extract the shared decision if the shapes differ. Two access models that are nearly
+  the same is how one of them ends up wrong.
+- Wire into list, read, test-connection, sync, schedule, edit, delete, and the
+  transform routes. A loop test over the paths, as A3 wrote.
+- Sharing API mirroring `/ai/collections/{name}/members`.
+
+Commit: `feat(connectors): enforce source ownership on every path that touches one`
+
+### [ ] D3 — manage it from the UI
+
+- Owner and members in the connector detail view, following what A4 built for
+  collections. Presentation logic in `frontend/lib/`, tested with `node --test`.
+
+Commit: `feat(connectors): manage who can reach a source, from the source itself`
+
+---
+
 ## Finish
 
 After the last task: `/code-review high` over the whole branch, then a fix pass. The
