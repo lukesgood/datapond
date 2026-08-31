@@ -623,14 +623,21 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
   // When a table is picked, lazily fetch its columns to populate the text-column select.
   useEffect(() => {
     if (sourceType !== "iceberg" || !schema || !table) return
+    // Guarded like the chunk-preset fetch above: pick a second table before the first
+    // one's columns arrive and the older response can land last, leaving the column
+    // list — and the auto-selected text_column that feeds the ingest request — naming
+    // a column the selected table does not have.
+    let cancelled = false
     const qs = new URLSearchParams({ catalog: "iceberg", schema, table })
     fetch(`/api/catalog/columns?${qs}`).then(r => r.json() as Promise<CatalogColumn[]>)
       .then((payload) => {
+        if (cancelled) return
         const columns = Array.isArray(payload) ? payload : []
         setCols(columns)
         setCol(current => columns.length > 0 && !columns.some(column => column.name === current) ? columns[0].name : current)
       })
-      .catch(() => setCols([]))
+      .catch(() => { if (!cancelled) setCols([]) })
+    return () => { cancelled = true }
   }, [schema, sourceType, table])
   const sourceBody = () => sourceType === "iceberg"
     ? { type: "iceberg", schema, table, text_column: col }
