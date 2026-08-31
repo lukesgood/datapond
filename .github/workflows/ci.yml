@@ -248,6 +248,11 @@ jobs:
           # A second release with a visible difference, so the rollback has something
           # to undo. The migration Job runs again on the upgrade; the schema is at the
           # same revision, which is what a no-op upgrade should look like.
+          #
+          # The difference must not be a replica count. A rolling update already needs
+          # one pod more than the release runs, and raising the count on top of that is
+          # a surge this node cannot schedule — see
+          # backend/tests/test_helm_ephemeral_sizing.py.
           helm upgrade datapond helm/datapond \
             --namespace datapond \
             -f helm/datapond/values-ephemeral.yaml \
@@ -257,7 +262,7 @@ jobs:
             --set-string frontend.image.repository=datapond-frontend \
             --set-string frontend.image.tag=ci \
             --set frontend.image.pullPolicy=Never \
-            --set backend.replicas=2 \
+            --set backend.systemEvents.tickSeconds=60 \
             --atomic --wait --timeout 12m
           helm -n datapond history datapond
           helm -n datapond rollback datapond 1 --wait --timeout 10m

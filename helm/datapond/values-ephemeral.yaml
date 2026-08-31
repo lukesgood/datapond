@@ -44,6 +44,17 @@ ingress:
 # In-cluster Postgres with pgvector, which the chart already uses by default.
 externalDatabase:
   enabled: false
+# One replica of each. The profile proves install, upgrade and rollback — not
+# availability — and a rolling update needs one pod more than it runs. At two apiece,
+# a two-CPU runner already held backend×2, frontend×2, Postgres, Valkey and the mock
+# model, so the upgrade's surge pod sat Pending for twenty-four minutes while Helm
+# waited for a readiness that could not arrive, and --atomic then timed out rolling
+# back as well.
+backend:
+  replicas: 1
+frontend:
+  replicas: 1
+
 postgres:
   enabled: true
   # postgres does not inherit global.storageClass; it carries its own default of
