@@ -121,7 +121,7 @@ it off. Authorization denials are recorded nowhere.
 
 Commit: `feat(audit): record authorization decisions where the caller cannot reach them`
 
-### [ ] B3 — append-only in the database, not by convention
+### [x] B3 — append-only in the database, not by convention
 
 - Migration `0005`: revoke UPDATE and DELETE on the audit tables from the application
   role; retention deletes run as a separate role or a `SECURITY DEFINER` function.
