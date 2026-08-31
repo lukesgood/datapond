@@ -1323,6 +1323,9 @@ export default function GovernancePage() {
                           outerRadius={85}
                           paddingAngle={3}
                           dataKey="value"
+                          // recharts 3.8.1 draws an animated Pie as nothing at all.
+                          // See components/query/chart-renderer.tsx.
+                          isAnimationActive={false}
                         >
                           {pieData.map((entry, index) => (
                             <Cell key={index} fill={entry.color} />

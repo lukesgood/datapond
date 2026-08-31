@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { Boxes, Server } from "lucide-react"
+import { Boxes, ScrollText, Server } from "lucide-react"
 
 // Shared tab switcher for the Infrastructure workspace. Rendered in both the
 // Services grid toolbar and the System page top bar so the two halves read as
@@ -10,9 +10,10 @@ import { Boxes, Server } from "lucide-react"
 const TABS = [
   { key: "services", label: "Services", icon: Boxes,  href: "/services" },
   { key: "system",   label: "System",   icon: Server, href: "/services?tab=system" },
+  { key: "events",   label: "Events",   icon: ScrollText, href: "/services?tab=events" },
 ] as const
 
-export function InfraTabs({ active }: { active: "services" | "system" }) {
+export function InfraTabs({ active }: { active: "services" | "system" | "events" }) {
   const router = useRouter()
   return (
     <div className="flex items-center gap-2 min-w-0">

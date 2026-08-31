@@ -14,13 +14,15 @@ Two templates rather than one, because the images differ in what they can take:
                                 default seccomp filter. Use for third-party images
                                 whose user we do not control. Takes an optional
                                 `keep` list, because "drop ALL" is not in fact safe
-                                for any image: valkey's entrypoint starts as root
-                                and drops to its own user with setpriv, which needs
-                                SETUID and SETGID. Removing them turned a hardening
-                                change into a CrashLoop — observed live, not
-                                theorised. Keeping exactly the two capabilities an
-                                image uses to become non-root is still a drop from
-                                fourteen to two.
+                                for any image: valkey's entrypoint starts as root and
+                                lowers itself in steps, and each step needs one —
+                                setpriv needs SETUID and SETGID, and the chown of its
+                                data directory needs CHOWN. Both were found the same
+                                way, as a CrashLoop, the second hiding behind the
+                                first: with setpriv already failing the entrypoint
+                                never reached the chown. Keeping exactly the
+                                capabilities an image uses to become non-root is still
+                                a drop from fourteen to three.
 
 runAsNonRoot without runAsUser is a trap: both Dockerfiles say `USER <name>`, and
 kubelet refuses to start a container it cannot prove is non-root from a name alone

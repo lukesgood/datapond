@@ -171,6 +171,117 @@ jobs:
           DATAPOND_VIEWER_TOKEN: ${{ secrets.ACCEPTANCE_VIEWER_TOKEN }}
         run: pytest tests/acceptance -v
 
+  fresh-install:
+    name: Fresh install, upgrade and rollback (ephemeral cluster)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The live acceptance proves the path works on a deployment that has been running
+    # for weeks and repaired by hand along the way. It cannot prove that someone
+    # installing today gets a working system, and it cannot test upgrade or rollback
+    # without doing that to production.
+    #
+    # So: an empty cluster, the chart installed from nothing, the model replaced by a
+    # deterministic stand-in (backend/app/testing/mock_model.py) because a cluster
+    # like this has no Bedrock credentials and should not need any.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create a cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: datapond
+          wait: 120s
+
+      - name: Build the backend image
+        run: |
+          docker build -f backend/Dockerfile --target enterprise -t datapond-backend:ci .
+          kind load docker-image datapond-backend:ci --name datapond
+
+      - name: Build the frontend image
+        run: |
+          docker build -f frontend/Dockerfile -t datapond-frontend:ci frontend
+          kind load docker-image datapond-frontend:ci --name datapond
+
+      - name: Install from nothing
+        run: |
+          helm install datapond helm/datapond \
+            --namespace datapond --create-namespace \
+            -f helm/datapond/values-ephemeral.yaml \
+            --set-string backend.image.repository=datapond-backend \
+            --set-string backend.image.tag=ci \
+            --set backend.image.pullPolicy=Never \
+            --set-string frontend.image.repository=datapond-frontend \
+            --set-string frontend.image.tag=ci \
+            --set frontend.image.pullPolicy=Never \
+            --wait --timeout 12m
+
+      - name: The schema came from migrations, not from bootstraps
+        run: |
+          kubectl -n datapond exec deploy/backend -- python -c "
+          import asyncio, json, urllib.request
+          d = json.load(urllib.request.urlopen('http://localhost:8000/health/ready', timeout=10))
+          print(json.dumps(d, indent=1))
+          assert d['ready'] is True, d
+          assert d['state'].get('migrations', '').startswith('at '), d['state']
+          assert d['state'].get('base_schema') == 'core tables present', d['state']
+          "
+
+      - name: Acceptance against the fresh install
+        run: |
+          pip install pytest httpx
+          kubectl -n datapond port-forward svc/backend 8000:8000 &
+          for i in $(seq 1 30); do curl -sf localhost:8000/health/ready >/dev/null && break; sleep 2; done
+          TOKEN=$(kubectl -n datapond exec deploy/backend -- python -c "
+          import asyncio
+          from app.api.auth import _create_token, _get_pool
+          async def m():
+              p = await _get_pool()
+              async with p.acquire() as c:
+                  r = await c.fetchrow(\"SELECT id,username,role FROM users WHERE role='admin' LIMIT 1\")
+              print(_create_token(str(r['id']), r['username'], r['role']))
+          asyncio.run(m())" | tail -1)
+          cd backend && DATAPOND_BASE_URL=http://localhost:8000 DATAPOND_TOKEN="$TOKEN" \
+            pytest tests/acceptance -v
+
+      - name: Upgrade, then roll back
+        run: |
+          # A second release with a visible difference, so the rollback has something
+          # to undo. The migration Job runs again on the upgrade; the schema is at the
+          # same revision, which is what a no-op upgrade should look like.
+          #
+          # The difference must not be a replica count. A rolling update already needs
+          # one pod more than the release runs, and raising the count on top of that is
+          # a surge this node cannot schedule — see
+          # backend/tests/test_helm_ephemeral_sizing.py.
+          helm upgrade datapond helm/datapond \
+            --namespace datapond \
+            -f helm/datapond/values-ephemeral.yaml \
+            --set-string backend.image.repository=datapond-backend \
+            --set-string backend.image.tag=ci \
+            --set backend.image.pullPolicy=Never \
+            --set-string frontend.image.repository=datapond-frontend \
+            --set-string frontend.image.tag=ci \
+            --set frontend.image.pullPolicy=Never \
+            --set backend.systemEvents.tickSeconds=60 \
+            --atomic --wait --timeout 12m
+          helm -n datapond history datapond
+          helm -n datapond rollback datapond 1 --wait --timeout 10m
+          kubectl -n datapond rollout status deploy/backend --timeout=5m
+
+      - name: Still working after the rollback
+        run: |
+          kubectl -n datapond port-forward svc/backend 8001:8000 &
+          for i in $(seq 1 30); do curl -sf localhost:8001/health/ready >/dev/null && break; sleep 2; done
+          curl -sf localhost:8001/health/ready | tee /dev/stderr | grep -q '"ready": *true'
+
+      - name: What went wrong
+        if: failure()
+        run: |
+          kubectl -n datapond get pods -o wide || true
+          kubectl -n datapond describe pods || true
+          kubectl -n datapond logs -l app=backend --tail=100 || true
+          kubectl -n datapond logs -l app.kubernetes.io/component=migrate --tail=50 || true
+
   helm-lint:
     name: Helm chart lint
     runs-on: ubuntu-latest

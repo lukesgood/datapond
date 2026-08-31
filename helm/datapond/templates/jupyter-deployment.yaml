@@ -169,7 +169,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: {{ .Values.global.storageClass }}
+  {{- include "datapond.storageClassName" (dict "value" .Values.global.storageClass "indent" 2) }}
   resources:
     requests:
       storage: {{ .Values.jupyter.persistence.size }}

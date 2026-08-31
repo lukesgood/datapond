@@ -15,6 +15,6 @@ spec:
     requests:
       storage: {{ .Values.trino.persistence.size | default "50Gi" }}
   {{- if .Values.global.storageClass }}
-  storageClassName: {{ .Values.global.storageClass }}
+  {{- include "datapond.storageClassName" (dict "value" .Values.global.storageClass "indent" 2) }}
   {{- end }}
 {{- end }}

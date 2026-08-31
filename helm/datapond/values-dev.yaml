@@ -66,6 +66,10 @@ postgres:
   persistence:
     enabled: true
     size: 20Gi  # Smaller for dev
+  auth:
+    database: datapond
+    username: datapond
+    password: dev_password
 
 # Valkey - Minimal (Redis-compatible)
 valkey:
@@ -94,6 +98,13 @@ jupyter:
   persistence:
     enabled: true
     size: 10Gi
+  env:
+    - name: JUPYTER_ENABLE_LAB
+      value: "yes"
+  auth:
+    token: "jupyter"   # known dev token (explicit-wins; docs reference it)
+
+# RisingWave - Minimal resources for dev
 
 # MLflow - Minimal
 mlflow:
@@ -139,6 +150,9 @@ airflow:
       size: 5Gi
     logs:
       size: 5Gi
+  auth:
+    username: admin
+    password: admin
 
 # Spark - Minimal cluster
 spark:
@@ -182,17 +196,6 @@ podSecurityPolicy:
   enabled: false
 
 # Auth - Simple dev credentials (CHANGE IN PRODUCTION!)
-postgres:
-  auth:
-    database: datapond
-    username: datapond
-    password: dev_password
-
-airflow:
-  auth:
-    username: admin
-    password: admin
-
 storage:
   provider: minio
   endpoint: "minio:9000"
@@ -207,14 +210,6 @@ minio:
   persistence:
     size: 20Gi
 
-jupyter:
-  env:
-    - name: JUPYTER_ENABLE_LAB
-      value: "yes"
-  auth:
-    token: "jupyter"   # known dev token (explicit-wins; docs reference it)
-
-# RisingWave - Minimal resources for dev
 risingwave:
   enabled: true
   meta:

@@ -3,6 +3,69 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-08 — Migrations move out of Helm hooks
+
+**What changed.** The migration Job was a `pre-install,pre-upgrade` hook. It is now an
+ordinary manifest resource, and the backend waits for it in an init container.
+
+**Why.** A pre-install hook cannot work on a first install. The Secret it reads its
+credentials from is created in the main phase, so the Job pod sat in
+`CreateContainerConfigError`; and with an in-cluster database there is no database yet,
+because hooks run before the Postgres the same release creates. Moving it to
+`post-install` is worse: readiness records `base_schema` once at startup, so a backend
+that starts before the tables exist is not slow — it is permanently NotReady.
+
+Both failures were found by the ephemeral install job, which exists to catch what an
+upgrade of a running deployment never exercises.
+
+**What is unchanged.** The migration still runs exactly once, in one pod, before the
+backend serves anything. The application still never migrates — the init container
+waits and applies nothing. `backoffLimit` is still 0: one attempt, then a human reads
+the log. Waiting for the database to accept connections is separate and happens inside
+the container, because a closed socket is not a failed migration.
+
+**What to expect.** Backend pods spend a few seconds in `Init` on every rollout. The
+Job is named `backend-migrate-<release revision>` — a Job's pod template is immutable,
+so a fixed name would fail the second upgrade with `field is immutable`. Successful
+Jobs clear themselves after an hour; a failed one is kept.
+
+**If you install with your own command**, add `--namespace <ns> --create-namespace`.
+The chart no longer renders a Namespace on the profile that uses it — see the note
+below on why nothing may leave the manifest.
+
+## 2026-08 — Infrastructure keeps an event history
+
+**What changed.** Infrastructure has a third tab, **Events**, backed by a new
+`system_events` table and an in-process collector.
+
+Before this, the only event surface read live Kubernetes Events for pods that
+currently exist. That loses everything twice: the apiserver expires Events after an
+hour, and a pod that has been replaced cannot be queried at all — which makes the pod
+worth asking about the one you cannot ask about. On 2026-08-27 the live node had
+rebooted four hours and fifty-two minutes earlier and `kubectl get events` held
+twenty-seven minutes of history.
+
+**What it records.** Pod restarts, OOMKills, probe failures, image-pull and mount
+failures, crash loops, evictions, and node reboots. Not request logs, not pod stdout,
+not authentication, not queries — those have their own homes and stay there.
+
+A condition that repeats is one row with a count and a first/last seen, not one row
+per occurrence.
+
+**One limit worth knowing.** Nothing is collected while the backend is down. A node
+reboot is therefore detected after the fact, and the reboot row says the cause is not
+recorded rather than inferring one. An empty window is not proof that nothing
+happened, and the empty state says so.
+
+**Who can see it.** `service:manage`, the same permission as the rest of
+Infrastructure. No new permission was added. `auditor` holds `audit:read` but not
+`service:manage`, so it cannot reach Infrastructure at all — unchanged by this, and a
+separate decision if you want it.
+
+**Tunable** via `backend.systemEvents`: `enabled` (default true), `tickSeconds`
+(120), `retentionDays` (30). Retention has a floor of one day rather than an off
+switch — unbounded growth is not acceptable on a single node.
+
 ## 2026-08 — Two role changes, and where AI Gateway lives now
 
 **`data_scientist` gains `connector:read`.** They could query a table through Catalog

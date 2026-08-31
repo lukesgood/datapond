@@ -130,6 +130,18 @@ backend:
   ragScheduler:
     enabled: true
     tickSeconds: 300
+  # Infrastructure → Events. Kubernetes Events expire after an hour and are reachable
+  # only through pods that still exist; this keeps a durable record of what changed and
+  # what died. Retention has a floor of one day, not an off switch.
+  systemEvents:
+    enabled: true
+    tickSeconds: 120
+    retentionDays: 30
+    # "MON-FRI 07:30 Asia/Seoul, SAT 09:00 Asia/Seoul" — restarts inside these windows
+    # are recorded as information rather than as an unexplained incident. Empty by
+    # default: a deployment that has not declared its schedule must keep reporting
+    # every restart as critical.
+    expectedStarts: ""
     # Connector → RAG sink: on a connector sync, mark matching fresh collections
     # stale so the scheduler re-embeds them promptly (event-driven freshness).
     sinkEnabled: true
@@ -230,6 +242,12 @@ postgres:
 migrations:
   enabled: true
 
+
+# A deterministic stand-in for the model gateway, used only by values-ephemeral.yaml
+# so CI can install into an empty cluster. Never enable this anywhere real: every
+# answer it gives is fabricated, and it says so.
+mockModelProvider:
+  enabled: false
 
 podSecurity:
   enabled: true

@@ -1,36 +1,46 @@
 {{- if and .Values.backend.enabled (.Values.migrations | default dict).enabled }}
 {{/*
-Schema migrations, before the new image is rolled out.
+Schema migrations: one pod, once, before the backend serves anything.
 
-They used to run in the application's startup hook, which runs in every replica —
-two backends starting during a rolling upgrade would both issue DDL, and Alembic does
-not lock. It also tied readiness to how long a migration takes, so a slow CREATE INDEX
-would hold pods NotReady until `helm --wait` gave up and rolled back a release that
-was working.
+Not in the application's startup hook, which runs in every replica — two backends
+starting during a rolling upgrade would both issue DDL, and Alembic does not lock. And
+not tied to readiness, so a slow CREATE INDEX cannot hold pods NotReady until
+`helm --wait` rolls back a release that was working.
 
-A hook Job is one pod, once, before anything else moves. If it fails the release stops
-here, which is the ordering that makes a schema change safe: the schema moves first,
-or nothing does.
+**Not a hook, either.** It was a pre-install one, and that cannot work: the Secret it
+reads its credentials from is a main-phase resource (the Job pod sat in
+CreateContainerConfigError), and with an in-cluster database there is no database yet
+— hooks run before the Postgres the same release creates. Both were found by the
+ephemeral install job, one after the other. Moving it to post-install is worse:
+readiness records `base_schema` once at startup, so a backend that starts first is not
+slow, it is permanently NotReady.
 
-hook-weight is negative so this runs before any other pre-upgrade hook. The Job is
-kept on failure — deleting the evidence of the thing that stopped a release is how an
-outage becomes a mystery.
+So it is an ordinary manifest resource, and the backend waits for it in an init
+container. Nothing leaves the manifest — see templates/namespace.yaml for what that
+costs — the migration still runs exactly once, and the application still never
+migrates.
+
+The name carries .Release.Revision because a Job's pod template is immutable: without
+it the second upgrade fails with `field is immutable` instead of migrating. Old Jobs
+clear themselves through ttlSecondsAfterFinished; a failed one is kept, because
+deleting the evidence of the thing that stopped a release is how an outage becomes a
+mystery.
 */}}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ .Values.backend.name }}-migrate
+  name: {{ .Values.backend.name }}-migrate-{{ .Release.Revision }}
   namespace: {{ .Values.namespace }}
   labels:
     app: {{ .Values.backend.name }}
     app.kubernetes.io/component: migrate
-  annotations:
-    "helm.sh/hook": pre-install,pre-upgrade
-    "helm.sh/hook-weight": "-10"
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
   # A migration is not a thing to retry blindly: a partial failure retried can leave
   # a worse state than the first attempt. One try, then a human reads the log.
+  #
+  # Waiting for the database is separate and lives inside the container — the Job now
+  # starts alongside Postgres rather than after it, and a closed socket is not a failed
+  # migration. See app/migrations.py:should_keep_waiting.
   backoffLimit: 0
   ttlSecondsAfterFinished: 3600
   template:

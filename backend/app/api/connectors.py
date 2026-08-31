@@ -15,7 +15,7 @@ Endpoints:
 """
 
 from fastapi import APIRouter, HTTPException, Depends
-from app.api.auth import require_permission
+from app.api.auth import require_permission, require_user
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 from typing import List, Optional, Dict, Any, AsyncGenerator
@@ -745,50 +745,27 @@ async def introspect_connection(request: ConnectionIntrospectRequest):
         raise HTTPException(status_code=500, detail=f"Failed to introspect: {str(e)}")
 
 
-@router.post("/connectors/sample-db")
+@router.post("/connectors/sample-db",
+             dependencies=[Depends(require_permission("connector:write"))])
 async def create_sample_db():
-    """
-    Create sample e-commerce DB in local PostgreSQL and register as a connector.
-    Idempotent — safe to call multiple times.
+    """Create the sample dataset in local PostgreSQL and register it as a connector.
+
+    Idempotent — safe to call repeatedly. The dataset itself lives in app/sample_data.py
+    and is checked there: every foreign key resolves, in the schema and in the rows,
+    before anything reaches a database.
+
+    Four domains rather than one, because the point of sample data in this product is
+    that things join. Commerce alone gives the relationship graph nothing to draw and
+    Knowledge no prose to embed.
     """
     import asyncpg as _asyncpg
 
-    SAMPLE_DDL = """
-CREATE TABLE IF NOT EXISTS customers (
-    id SERIAL PRIMARY KEY, email VARCHAR(255) UNIQUE NOT NULL,
-    full_name VARCHAR(100) NOT NULL, country VARCHAR(50) DEFAULT 'KR',
-    tier VARCHAR(20) DEFAULT 'standard', signup_date DATE DEFAULT CURRENT_DATE,
-    is_active BOOLEAN DEFAULT true, created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE TABLE IF NOT EXISTS products (
-    id SERIAL PRIMARY KEY, sku VARCHAR(50) UNIQUE NOT NULL,
-    name VARCHAR(255) NOT NULL, category VARCHAR(50) NOT NULL,
-    price NUMERIC(10,2) NOT NULL, cost NUMERIC(10,2),
-    stock_qty INTEGER DEFAULT 0, is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE TABLE IF NOT EXISTS orders (
-    id SERIAL PRIMARY KEY, customer_id INTEGER REFERENCES customers(id),
-    status VARCHAR(20) DEFAULT 'pending', total_amount NUMERIC(10,2) NOT NULL,
-    discount NUMERIC(10,2) DEFAULT 0, channel VARCHAR(30) DEFAULT 'web',
-    ordered_at TIMESTAMPTZ DEFAULT NOW(), shipped_at TIMESTAMPTZ, delivered_at TIMESTAMPTZ
-);
-CREATE TABLE IF NOT EXISTS order_items (
-    id SERIAL PRIMARY KEY, order_id INTEGER REFERENCES orders(id),
-    product_id INTEGER REFERENCES products(id),
-    quantity INTEGER NOT NULL DEFAULT 1, unit_price NUMERIC(10,2) NOT NULL
-);
-CREATE TABLE IF NOT EXISTS page_events (
-    id BIGSERIAL PRIMARY KEY, customer_id INTEGER,
-    event_type VARCHAR(50) NOT NULL, page VARCHAR(255),
-    device VARCHAR(20) DEFAULT 'desktop', session_id VARCHAR(64),
-    occurred_at TIMESTAMPTZ DEFAULT NOW()
-);
-"""
+    from app.sample_data import (
+        DATASET, KNOWLEDGE_SOURCES, column_backfill_statements, connector_action,
+        ddl_statement, insert_statement, sequence_reset_statements,
+    )
 
     try:
-        # 1. Create sampledb if not exists (connect to postgres db first)
         sys_conn = await _asyncpg.connect(
             host=os.getenv("POSTGRES_HOST", "postgres"),
             port=5432,
@@ -803,7 +780,6 @@ CREATE TABLE IF NOT EXISTS page_events (
             await sys_conn.execute("CREATE DATABASE sampledb")
         await sys_conn.close()
 
-        # 2. Connect to sampledb and create schema + seed data
         sample_conn = await _asyncpg.connect(
             host=os.getenv("POSTGRES_HOST", "postgres"),
             port=5432,
@@ -811,109 +787,81 @@ CREATE TABLE IF NOT EXISTS page_events (
             user=os.getenv("POSTGRES_USER", "datapond"),
             password=component_secret("POSTGRES_PASSWORD", "dev_password", component="postgres"),
         )
-        await sample_conn.execute(SAMPLE_DDL)
+        try:
+            for t in DATASET:
+                await sample_conn.execute(ddl_statement(t))
+            # CREATE TABLE IF NOT EXISTS does nothing to a table that already exists,
+            # so an environment seeded before a column was added never gets it and the
+            # insert below fails on exactly that column.
+            for statement in column_backfill_statements():
+                await sample_conn.execute(statement)
 
-        # Check if data already exists
-        cust_count = await sample_conn.fetchval("SELECT COUNT(*) FROM customers")
-        if cust_count == 0:
-            await sample_conn.execute("""
-INSERT INTO customers (email,full_name,country,tier,signup_date) VALUES
-  ('alice@acme.com','Alice Kim','KR','vip','2023-01-15'),
-  ('bob@example.com','Bob Lee','KR','premium','2023-03-20'),
-  ('carol@corp.io','Carol Park','US','standard','2023-06-01'),
-  ('dave@startup.kr','Dave Choi','KR','premium','2023-08-12'),
-  ('eve@finance.co','Eve Jung','KR','vip','2024-01-05'),
-  ('frank@bank.com','Frank Oh','JP','standard','2024-02-18'),
-  ('grace@health.io','Grace Shin','KR','standard','2024-03-30'),
-  ('henry@mfg.com','Henry Han','KR','premium','2024-05-10'),
-  ('iris@defense.kr','Iris Yoon','KR','vip','2024-07-22'),
-  ('jake@data.com','Jake Kwon','SG','standard','2024-09-01')
-ON CONFLICT DO NOTHING
-""")
-            await sample_conn.execute("""
-INSERT INTO products (sku,name,category,price,cost,stock_qty) VALUES
-  ('SKU-001','DataPond Enterprise License','software',4990000,500000,999),
-  ('SKU-002','AI Analytics Add-on','software',1990000,200000,999),
-  ('SKU-003','On-Prem Support Package','service',2500000,800000,50),
-  ('SKU-004','GPU Compute Node 4xA100','hardware',45000000,35000000,10),
-  ('SKU-005','NVMe Storage Array 100TB','hardware',12000000,9000000,20),
-  ('SKU-006','Training and Onboarding','service',3000000,500000,100),
-  ('SKU-007','Migration Consulting','service',5000000,1000000,30),
-  ('SKU-008','Streaming Module License','software',1500000,150000,999)
-ON CONFLICT DO NOTHING
-""")
-            await sample_conn.execute("""
-INSERT INTO orders (customer_id,status,total_amount,discount,channel,ordered_at,shipped_at,delivered_at) VALUES
-  (1,'delivered',4990000,0,'direct',NOW()-'90 days'::interval,NOW()-'88 days'::interval,NOW()-'85 days'::interval),
-  (1,'delivered',1990000,199000,'web',NOW()-'60 days'::interval,NOW()-'58 days'::interval,NOW()-'55 days'::interval),
-  (2,'delivered',7490000,0,'direct',NOW()-'75 days'::interval,NOW()-'73 days'::interval,NOW()-'70 days'::interval),
-  (3,'shipped',2500000,0,'web',NOW()-'5 days'::interval,NOW()-'3 days'::interval,NULL),
-  (4,'confirmed',6490000,649000,'partner',NOW()-'2 days'::interval,NULL,NULL),
-  (5,'delivered',45000000,4500000,'direct',NOW()-'45 days'::interval,NOW()-'42 days'::interval,NOW()-'38 days'::interval),
-  (6,'pending',1500000,0,'web',NOW()-'1 day'::interval,NULL,NULL),
-  (7,'delivered',3000000,0,'partner',NOW()-'30 days'::interval,NOW()-'28 days'::interval,NOW()-'25 days'::interval),
-  (8,'delivered',12000000,600000,'direct',NOW()-'20 days'::interval,NOW()-'18 days'::interval,NOW()-'15 days'::interval),
-  (9,'confirmed',8490000,0,'web',NOW()-'3 days'::interval,NULL,NULL),
-  (10,'delivered',4990000,0,'web',NOW()-'10 days'::interval,NOW()-'8 days'::interval,NOW()-'5 days'::interval),
-  (1,'pending',5000000,0,'direct',NOW()-'1 day'::interval,NULL,NULL),
-  (2,'cancelled',2500000,0,'web',NOW()-'15 days'::interval,NULL,NULL)
-""")
-            await sample_conn.execute("""
-INSERT INTO order_items (order_id,product_id,quantity,unit_price) VALUES
-  (1,1,1,4990000),(2,2,1,1990000),(3,1,1,4990000),(3,3,1,2500000),
-  (4,3,1,2500000),(5,1,1,4990000),(5,2,1,1990000),(5,8,1,1500000),
-  (6,4,1,45000000),(7,8,1,1500000),(8,6,1,3000000),(9,5,1,12000000),
-  (10,1,1,4990000),(10,7,1,5000000),(11,1,1,4990000),(12,1,1,4990000)
-""")
-            await sample_conn.execute("""
-INSERT INTO page_events (customer_id,event_type,page,device,session_id) VALUES
-  (1,'page_view','/pricing','desktop','sess_001'),
-  (1,'click','/pricing','desktop','sess_001'),
-  (2,'page_view','/features','mobile','sess_002'),
-  (3,'page_view','/docs','desktop','sess_003'),
-  (4,'signup','/register','desktop','sess_004'),
-  (5,'page_view','/dashboard','desktop','sess_005'),
-  (NULL,'page_view','/landing','mobile','sess_006'),
-  (NULL,'page_view','/landing','desktop','sess_007'),
-  (6,'page_view','/pricing','tablet','sess_008'),
-  (7,'page_view','/blog','desktop','sess_009')
-""")
-        await sample_conn.close()
+            # Every table on every run, never skipping one for already having rows.
+            # Skipping per table cannot preserve a constraint that spans tables: live,
+            # `customers` kept ten rows from an older seed while `support_tickets`,
+            # empty, was given rows referencing forty — "Key (customer_id)=(29) is not
+            # present in table customers". ON CONFLICT DO NOTHING makes the repeat
+            # harmless and fills in what an older seed left missing.
+            seeded = {}
+            for t in DATASET:
+                before = await sample_conn.fetchval(f"SELECT COUNT(*) FROM {t.name}")
+                sql, args = insert_statement(t)
+                await sample_conn.execute(sql, *args)
+                after = await sample_conn.fetchval(f"SELECT COUNT(*) FROM {t.name}")
+                seeded[t.name] = {"added": after - before, "total": after}
+            # Rows carry explicit ids so the foreign keys could be checked before
+            # insert, which leaves every sequence at 1.
+            for statement in sequence_reset_statements():
+                await sample_conn.execute(statement)
+        finally:
+            await sample_conn.close()
 
-        # 3. Register as connector (idempotent)
         pool = await get_db_pool()
         async with pool.acquire() as conn:
-            existing = await conn.fetchval(
-                "SELECT id FROM connector_connections WHERE name='Sample E-Commerce DB'"
-            )
+            row = await conn.fetchrow(
+                "SELECT id, config_encrypted FROM connector_connections "
+                "WHERE name='Sample E-Commerce DB'")
 
-        if existing:
-            return {
-                "id": str(existing),
-                "name": "Sample E-Commerce DB",
-                "connector_type": "postgresql",
-                "status": "active",
-                "created_at": datetime.utcnow(),
-                "already_existed": True,
-            }
+        decryptable = False
+        if row:
+            try:
+                vault.decrypt_credentials(row["config_encrypted"])
+                decryptable = True
+            except Exception:
+                decryptable = False
 
-        # Create new connector entry
-        connection_id = str(uuid.uuid4())
+        action = connector_action(exists=bool(row), decryptable=decryptable)
         sample_config = {
             "host": os.getenv("POSTGRES_HOST", "postgres"),
             "port": 5432,
             "database": "sampledb",
             "username": os.getenv("POSTGRES_USER", "datapond"),
-            "password": component_secret("POSTGRES_PASSWORD", "dev_password", component="postgres"),
+            "password": component_secret("POSTGRES_PASSWORD", "dev_password",
+                                         component="postgres"),
             "ssl": False,
         }
-        encrypted = vault.encrypt_credentials(sample_config)
-        async with pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO connector_connections
-                (id, name, connector_type, config_encrypted, status, created_at, updated_at)
-                VALUES ($1,$2,'postgresql',$3,'active',$4,$4)
-            """, connection_id, "Sample E-Commerce DB", encrypted, datetime.utcnow())
+        if action == "create":
+            connection_id = str(uuid.uuid4())
+            async with pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO connector_connections
+                    (id, name, connector_type, config_encrypted, status, created_at, updated_at)
+                    VALUES ($1,$2,'postgresql',$3,'active',$4,$4)
+                """, connection_id, "Sample E-Commerce DB",
+                     vault.encrypt_credentials(sample_config), datetime.utcnow())
+        elif action == "repair":
+            # Re-encrypt in place. The row keeps its id, which sync history and
+            # schedules point at; a new row would orphan all of it.
+            connection_id = str(row["id"])
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE connector_connections SET config_encrypted=$2, "
+                    "status='active', updated_at=$3 WHERE id=$1",
+                    row["id"], vault.encrypt_credentials(sample_config), datetime.utcnow())
+            logger.warning("[sample-db] sample connector credentials could not be "
+                           "decrypted; re-encrypted with the current key")
+        else:
+            connection_id = str(row["id"])
 
         return {
             "id": connection_id,
@@ -921,13 +869,99 @@ INSERT INTO page_events (customer_id,event_type,page,device,session_id) VALUES
             "connector_type": "postgresql",
             "status": "active",
             "created_at": datetime.utcnow(),
-            "already_existed": False,
-            "tables": ["customers", "products", "orders", "order_items", "page_events"],
-            "message": "Sample DB created with 5 tables and demo data",
+            "connector_action": action,
+            "tables": [t.name for t in DATASET],
+            "domains": sorted({t.domain for t in DATASET}),
+            "seeded": seeded,
+            "knowledge_sources": [
+                {"collection": k.collection, "table": k.table, "column": k.column}
+                for k in KNOWLEDGE_SOURCES
+            ],
+            "message": (f"{len(DATASET)} tables across "
+                        f"{len({t.domain for t in DATASET})} domains"),
         }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create sample DB: {str(e)}")
+
+
+@router.post("/connectors/sample-db/activate",
+             dependencies=[Depends(require_permission("connector:write"))])
+async def activate_sample_db(user: dict = Depends(require_user)):
+    """Make the seeded data visible: catalog, relationship graph, Knowledge.
+
+    Seeding PostgreSQL is half the job. The tables reach the catalog through a sync;
+    the relationship graph draws an edge solid only when the join appears in
+    query_history, dashed when it is only a guess from column names; and Knowledge
+    shows a source only once a collection has ingested one.
+
+    Every step reports what happened rather than failing the request. A partial result
+    an operator can read beats a 500 that says nothing about which half worked — and
+    the first step depends on a catalog sync that can legitimately take minutes.
+    """
+    from app.sample_data import (
+        activation_steps, catalog_join_queries, knowledge_ingest_requests,
+    )
+
+    outcome: Dict[str, Any] = {"steps": [s.__dict__ for s in activation_steps()],
+                               "sync": None, "queries": [], "knowledge": []}
+
+    # ── sync ──────────────────────────────────────────────────────────────────
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        connection_id = await conn.fetchval(
+            "SELECT id FROM connector_connections WHERE name='Sample E-Commerce DB'")
+    if not connection_id:
+        raise HTTPException(status_code=409,
+                            detail="Seed the sample database first (POST /connectors/sample-db).")
+    try:
+        outcome["sync"] = await trigger_sync(str(connection_id))
+    except Exception as e:
+        outcome["sync"] = {"error": str(e)[:300]}
+
+    # ── the joins that make edges observed ────────────────────────────────────
+    from app.api.queries import QueryExecuteRequest, execute_query
+    from app.database.connection import SessionLocal
+    for query in catalog_join_queries():
+        db = SessionLocal()
+        try:
+            # origin is left at its default: `ai_sql` is excluded from the
+            # relationship graph by design, and these are not AI-generated.
+            result = await execute_query(
+                QueryExecuteRequest(query=query.sql, save_history=True),
+                db=db, user=user)
+            outcome["queries"].append({"name": query.name, "question": query.question,
+                                       "rows": result.row_count})
+        except Exception as e:
+            outcome["queries"].append({"name": query.name, "error": str(e)[:200]})
+        finally:
+            db.close()
+
+    # ── knowledge ─────────────────────────────────────────────────────────────
+    from app.api.ai_vectors import (
+        CollectionCreate, SourceIngest, create_collection, ingest_source,
+    )
+    for request in knowledge_ingest_requests():
+        entry: Dict[str, Any] = {"collection": request["collection"]}
+        try:
+            try:
+                await create_collection(
+                    CollectionCreate(name=request["collection"],
+                                     description=request["description"]), user=user)
+                entry["created"] = True
+            except HTTPException as e:
+                # Already there is the normal case on a second run.
+                entry["created"] = False
+                if e.status_code not in (400, 409):
+                    raise
+            ingested = await ingest_source(
+                request["collection"], SourceIngest(**request["source"]), user=user)
+            entry["chunks"] = (ingested or {}).get("chunks")
+        except Exception as e:
+            entry["error"] = str(e)[:200]
+        outcome["knowledge"].append(entry)
+
+    return outcome
 
 
 @router.delete("/connectors/{connection_id}/draft", dependencies=[Depends(require_permission("connector:write"))])

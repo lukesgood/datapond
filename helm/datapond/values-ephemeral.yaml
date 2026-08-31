@@ -1,0 +1,97 @@
+# Ephemeral test install — an empty cluster, no cloud account, no credentials.
+#
+# This profile is not a deployment anyone runs. It exists so CI can install the chart
+# from nothing and check the two things the live acceptance cannot: that a fresh
+# install works, and that an upgrade and a rollback both leave a working system.
+#
+# The live deployment has been running for weeks and repaired by hand along the way,
+# so it proves the path works *there*. It cannot prove the path works for someone
+# installing today.
+
+namespace: datapond
+# Helm's --create-namespace makes it before any hook runs, which is what the
+# pre-install migration Job needs. The chart must not render a second one on top:
+# it would collide on ownership metadata, and a Namespace in the manifest is what
+# a later upgrade can decide to delete. See tests/test_helm_namespace_ownership.py.
+createNamespace: false
+
+# No storage class. `local-path` is the base default because the AWS reference node
+# runs k3s, which ships a StorageClass by that name; kind does not — its default is
+# `standard`. Pinning k3s's name left postgres-0 and valkey Pending for twelve
+# minutes, which surfaced as a failed migration Job and an init container waiting for
+# a schema nobody could create. One unavailable StorageClass, three symptoms, none of
+# them mentioning storage.
+#
+# Empty renders `storageClassName:` as null, which Kubernetes reads as "use this
+# cluster's default" — the only portable answer for a profile whose whole purpose is
+# running on a cluster nobody configured.
+global:
+  storageClass: ""
+
+# The model gateway is replaced by a deterministic stand-in. See
+# backend/app/testing/mock_model.py — same text embeds the same way, so retrieval is
+# testable without a model, a credential, or a bill.
+mockModelProvider:
+  enabled: true
+  embedDim: 1024
+
+litellm:
+  enabled: false
+
+ingress:
+  enabled: false
+
+# In-cluster Postgres with pgvector, which the chart already uses by default.
+externalDatabase:
+  enabled: false
+# One replica of each. The profile proves install, upgrade and rollback — not
+# availability — and a rolling update needs one pod more than it runs. At two apiece,
+# a two-CPU runner already held backend×2, frontend×2, Postgres, Valkey and the mock
+# model, so the upgrade's surge pod sat Pending for twenty-four minutes while Helm
+# waited for a readiness that could not arrive, and --atomic then timed out rolling
+# back as well.
+# `replicas` is not the only authority over how many pods run: autoscaling defaults to
+# enabled with minReplicas 2, so pinning replicas alone changed nothing — the HPA put
+# the second one straight back and the surge still had nowhere to go. There is no
+# metrics-server here either, so the HPA could not scale even if asked; all it did was
+# hold the floor up.
+backend:
+  replicas: 1
+  autoscaling:
+    enabled: false
+frontend:
+  replicas: 1
+  autoscaling:
+    enabled: false
+
+postgres:
+  enabled: true
+  # postgres does not inherit global.storageClass; it carries its own default of
+  # local-path, and that is the one that actually held the database Pending.
+  persistence:
+    storageClass: ""
+
+
+# Everything optional stays off: this profile tests the Portable Core, and each add-on
+# it starts is another thing that can fail for reasons unrelated to the release.
+connectors: {enabled: false}
+catalog: {enabled: false}
+trino: {enabled: false}
+polaris: {enabled: false}
+airflow: {enabled: false}
+spark: {enabled: false}
+risingwave: {enabled: false}
+openmetadata: {enabled: false}
+jupyter: {enabled: false}
+mlflow: {enabled: false}
+minio: {enabled: false}
+ollama: {enabled: false}
+vllm: {enabled: false}
+monitoring: {enabled: false}
+
+# The gateway the backend talks to is the mock.
+ai:
+  litellmUrl: "http://mock-model:4000"
+
+networkPolicy:
+  enabled: false

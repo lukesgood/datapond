@@ -73,6 +73,14 @@ externalDatabase:
 backend:
   enabled: true
   serviceAccountName: datapond-backend
+  # This node is stopped at 18:00 and started at 07:30 on weekdays by the EventBridge
+  # schedules datapond-node-start / datapond-node-stop (Asia/Seoul), because it is a
+  # spot instance and evenings cost money for nothing. Declaring the start window is
+  # what keeps Infrastructure → Events from reporting every Monday morning as a
+  # critical restart with no known cause — two expected events a week is all it takes
+  # for a severity column to stop being read.
+  systemEvents:
+    expectedStarts: "MON-FRI 07:30 Asia/Seoul"
   image:
     repository: ""  # deploy time: terraform output -raw ecr_backend_repo_url
     pullPolicy: IfNotPresent

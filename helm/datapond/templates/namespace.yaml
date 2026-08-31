@@ -1,4 +1,21 @@
 {{- if .Values.createNamespace }}
+{{/*
+An ordinary resource, and it must stay one.
+
+It was briefly a pre-install hook, so that the migration Job — which is one — would
+have somewhere to run on a first install. That deleted the live namespace on the next
+upgrade, on 2026-08-27. A hook is not part of the release manifest, so Helm saw a
+resource that had left the manifest and removed it: pods, secrets, the TLS
+certificate, and the release history, which Helm 3 keeps as secrets inside the very
+namespace it was deleting. Nothing could be rolled back, because rollback needs that
+history.
+
+The fresh-install ordering is Helm's own `--create-namespace`, which runs before any
+hook. That belongs in the install command, and the profile that uses it sets
+createNamespace: false so the chart does not render a second one on top.
+
+tests/test_helm_namespace_ownership.py holds this shut.
+*/}}
 apiVersion: v1
 kind: Namespace
 metadata:

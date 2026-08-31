@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
       - name: valkey
-        {{- include "datapond.containerSecurity" (dict "enabled" (.Values.podSecurity).enabled "keep" (list "SETUID" "SETGID")) | nindent 8 }}
+        {{- include "datapond.containerSecurity" (dict "enabled" (.Values.podSecurity).enabled "keep" (list "SETUID" "SETGID" "CHOWN")) | nindent 8 }}
         image: "{{ .Values.valkey.image.repository }}:{{ .Values.valkey.image.tag }}"
         ports:
         - containerPort: {{ .Values.valkey.service.port }}
@@ -113,7 +113,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: {{ .Values.global.storageClass }}
+  {{- include "datapond.storageClassName" (dict "value" .Values.global.storageClass "indent" 2) }}
   resources:
     requests:
       storage: {{ .Values.valkey.persistence.size }}

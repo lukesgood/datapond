@@ -1,0 +1,68 @@
+{{- if (.Values.mockModelProvider).enabled }}
+{{/*
+A stand-in for the model gateway, for testing an install nobody has touched.
+
+Never enabled in a profile anyone deploys — only in values-ephemeral.yaml, which
+exists so CI can install this chart into an empty cluster and check upgrade and
+rollback. A cluster like that has no Bedrock credentials, so it has no model.
+
+The image is the backend's: the mock lives in app/testing so it ships with the code it
+stands in for and cannot drift from the request shapes the application actually sends.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-model
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: mock-model
+    app.kubernetes.io/component: mock-model
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: mock-model}
+  template:
+    metadata:
+      labels: {app: mock-model}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: mock-model
+        image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+        command: ["python", "-m", "app.testing.mock_gateway"]
+        env:
+        - name: MOCK_MODEL_PROVIDER
+          value: "true"
+        - name: PORT
+          value: "4000"
+        - name: AI_EMBED_DIM
+          value: "{{ .Values.mockModelProvider.embedDim | default 1024 }}"
+        ports:
+        - containerPort: 4000
+          name: http
+        readinessProbe:
+          httpGet: {path: /health/readiness, port: 4000}
+          initialDelaySeconds: 3
+          periodSeconds: 5
+        resources:
+          requests: {cpu: 25m, memory: 96Mi}
+          limits: {memory: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-model
+  namespace: {{ .Values.namespace }}
+  labels: {app: mock-model}
+spec:
+  selector: {app: mock-model}
+  ports:
+  - port: 4000
+    targetPort: 4000
+    name: http
+{{- end }}

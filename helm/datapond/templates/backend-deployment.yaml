@@ -26,6 +26,41 @@ spec:
       {{- end }}
       serviceAccountName: {{ .Values.backend.serviceAccountName | default "datapond-backend" }}
       {{- include "datapond.podSecurity" (dict "enabled" (.Values.podSecurity).enabled "uid" (.Values.podSecurity).backend.uid "gid" (.Values.podSecurity).backend.gid) | nindent 6 }}
+      # The schema has to exist before this pod starts, because readiness records
+      # `base_schema` once at startup — a backend that starts first is not slow, it is
+      # permanently NotReady. This waits for the Job; it never migrates. Every replica
+      # runs it, Alembic does not lock, and removing that race is why the Job exists.
+      initContainers:
+      - name: wait-for-schema
+        {{- include "datapond.containerSecurity" (.Values.podSecurity).enabled | nindent 8 }}
+        image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+        command: ["python", "-m", "app.migrations", "--wait-for-schema"]
+        env:
+        # The same database as the Job and the application, from the same secret. A
+        # wait against a different one would pass while the real schema was missing.
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef: {name: datapond-secrets, key: POSTGRES_USER}
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef: {name: datapond-secrets, key: POSTGRES_PASSWORD}
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef: {name: datapond-secrets, key: POSTGRES_DB}
+        - name: POSTGRES_HOST
+          value: "{{ if .Values.externalDatabase.enabled }}{{ .Values.externalDatabase.host }}{{ else }}postgres{{ end }}"
+        - name: POSTGRES_PORT
+          value: "{{ if .Values.externalDatabase.enabled }}{{ .Values.externalDatabase.port | default 5432 }}{{ else }}5432{{ end }}"
+        {{- if .Values.externalDatabase.enabled }}
+        - name: POSTGRES_SSLMODE
+          value: "{{ .Values.externalDatabase.sslmode | default "require" }}"
+        {{- end }}
+        - name: DATABASE_URL
+          value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)"
+        resources:
+          requests: {cpu: 25m, memory: 96Mi}
+          limits: {memory: 256Mi}
       containers:
       - name: backend
         {{- include "datapond.containerSecurity" (.Values.podSecurity).enabled | nindent 8 }}
@@ -130,6 +165,20 @@ spec:
           value: {{ dig "enabled" true (.Values.backend.ragScheduler | default dict) | quote }}
         - name: RAG_SCHEDULER_TICK_SECONDS
           value: {{ dig "tickSeconds" 300 (.Values.backend.ragScheduler | default dict) | quote }}
+        # System event history (Infrastructure → Events). Kubernetes Events expire
+        # after an hour; this keeps what mattered. `dig` for the bool-false case.
+        - name: SYSTEM_EVENTS_ENABLED
+          value: {{ dig "enabled" true (.Values.backend.systemEvents | default dict) | quote }}
+        - name: SYSTEM_EVENTS_TICK_SECONDS
+          value: {{ dig "tickSeconds" 120 (.Values.backend.systemEvents | default dict) | quote }}
+        - name: SYSTEM_EVENTS_RETENTION_DAYS
+          value: {{ dig "retentionDays" 30 (.Values.backend.systemEvents | default dict) | quote }}
+        # Windows in which a restart is expected rather than an incident, e.g. a node
+        # stopped overnight to save money. Empty means nothing is expected and every
+        # restart stays critical — fail-closed, because the other direction silently
+        # downgrades a real one.
+        - name: SYSTEM_EVENTS_EXPECTED_STARTS
+          value: {{ dig "expectedStarts" "" (.Values.backend.systemEvents | default dict) | quote }}
         # Connector → RAG sink: re-embed fresh collections when their source table syncs
         - name: RAG_SINK_ENABLED
           value: {{ dig "sinkEnabled" true (.Values.backend.ragScheduler | default dict) | quote }}

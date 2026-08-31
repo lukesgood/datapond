@@ -143,3 +143,163 @@ def test_every_revision_has_the_sql_it_executes():
     for py in versions.glob("*.py"):
         if "op.execute" in py.read_text() or "exec_driver_sql" in py.read_text():
             assert py.with_suffix(".sql").exists(), f"{py.name} has no .sql beside it"
+
+
+# ── waiting, which is not the same as retrying ────────────────────────────────
+# The migration Job stopped being a pre-install hook: with an in-cluster database the
+# database does not exist yet when pre-install hooks run, and the Secret the Job reads
+# its credentials from is a main-phase resource too. Both were found by the ephemeral
+# install job, one after the other.
+#
+# As an ordinary manifest resource the Job starts alongside Postgres rather than
+# before it, so it has to wait for the database to accept connections. That is not a
+# retry of the migration - backoffLimit stays 0, one attempt, then a human reads the
+# log. Waiting for a socket and retrying DDL are different things and only one of them
+# is dangerous.
+
+def test_waiting_continues_while_the_database_is_unreachable():
+    from app.migrations import should_keep_waiting
+
+    assert should_keep_waiting(reachable=False, elapsed=5, timeout=300)
+
+
+def test_waiting_stops_the_moment_it_is_reachable():
+    from app.migrations import should_keep_waiting
+
+    assert not should_keep_waiting(reachable=True, elapsed=5, timeout=300)
+
+
+def test_waiting_gives_up_rather_than_hanging_a_release_forever():
+    """A Job that never exits is worse than one that fails: nothing reports it, and
+    `helm --wait` sits there until its own timeout with no reason recorded."""
+    from app.migrations import should_keep_waiting
+
+    assert not should_keep_waiting(reachable=False, elapsed=301, timeout=300)
+
+
+def test_the_boundary_belongs_to_waiting_not_to_giving_up():
+    from app.migrations import should_keep_waiting
+
+    assert should_keep_waiting(reachable=False, elapsed=300, timeout=300)
+
+
+# ── the backend waits for the schema, it does not create it ───────────────────
+
+def test_the_schema_is_ready_when_no_core_table_is_missing():
+    from app.migrations import CORE_TABLES, schema_ready
+
+    assert schema_ready(set(CORE_TABLES))
+    assert schema_ready(set(CORE_TABLES) | {"anything_else"})
+
+
+def test_the_schema_is_not_ready_while_a_core_table_is_absent():
+    from app.migrations import CORE_TABLES, schema_ready
+
+    assert not schema_ready(set(CORE_TABLES) - {"users"})
+    assert not schema_ready(set())
+
+
+def test_the_wait_entry_point_never_applies_a_migration():
+    """The backend's init container waits; it must not migrate. Every replica runs it,
+    Alembic does not lock, and that is the whole reason the Job exists."""
+    import inspect
+
+    from app import migrations
+
+    body = inspect.getsource(migrations.wait_for_schema)
+    for forbidden in ("apply(", "command.upgrade", "stamp"):
+        assert forbidden not in body, f"{forbidden} appears in wait_for_schema"
+
+
+def test_nothing_is_defined_after_the_script_entry_point():
+    """`if __name__ == "__main__"` has to be the last thing in the module.
+
+    It was in the middle. Run as `python -m app.migrations`, execution reaches that
+    guard and calls main() before the names below it exist — so present_tables and
+    missing_tables were simply undefined, and only for the script path. Importing the
+    module normally ran the whole file and looked fine, which is why nothing caught it
+    until an init container waited ten minutes for a schema that was already there.
+    """
+    import ast
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "app/migrations.py").read_text()
+    body = ast.parse(source).body
+    guards = [i for i, node in enumerate(body)
+              if isinstance(node, ast.If) and "__main__" in ast.dump(node.test)]
+    assert guards, "no __main__ guard"
+    assert guards[-1] == len(body) - 1, (
+        "definitions follow the __main__ guard; they do not exist when run as a script")
+
+
+def test_waiting_says_why_it_is_still_waiting():
+    """The loop swallowed a NameError into `ready = False` and waited in silence.
+
+    That is the same failure this codebase has now hit three times: an exception
+    turned into an empty result, and an empty result read as "not yet". A wait that
+    cannot say what it is waiting for is indistinguishable from a hang.
+    """
+    import inspect
+
+    from app import migrations
+
+    body = inspect.getsource(migrations.wait_for_schema)
+    assert "except Exception" not in body or "log" in body, "the reason is swallowed"
+    assert "logger" in body or "log." in body
+
+
+# ── opening the pool is the thing that has to wait ────────────────────────────
+# The Job waited for the database *after* connecting to it. get_db_pool() raised on
+# the first refused connection, before the wait loop it was supposed to protect, and
+# with backoffLimit 0 the Job was then permanently Error — so the schema was never
+# created and the backend's init container waited out its whole timeout for something
+# that would never arrive. One misplaced line, and every symptom pointed elsewhere.
+
+def test_the_pool_is_retried_until_the_database_accepts_connections():
+    import asyncio
+
+    from app.migrations import open_pool
+
+    attempts = []
+
+    async def acquire():
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise ConnectionRefusedError("Connect call failed")
+        return "pool"
+
+    assert asyncio.run(open_pool(acquire, timeout=60, interval=0)) == "pool"
+    assert len(attempts) == 3
+
+
+def test_a_pool_that_opens_at_once_is_not_delayed():
+    import asyncio
+
+    from app.migrations import open_pool
+
+    async def acquire():
+        return "pool"
+
+    assert asyncio.run(open_pool(acquire, timeout=60, interval=0)) == "pool"
+
+
+def test_it_returns_nothing_rather_than_retrying_forever():
+    import asyncio
+
+    from app.migrations import open_pool
+
+    async def acquire():
+        raise ConnectionRefusedError("Connect call failed")
+
+    assert asyncio.run(open_pool(acquire, timeout=0, interval=0)) is None
+
+
+def test_the_job_opens_its_pool_through_the_waiting_helper():
+    """Not `await get_db_pool()` directly — that is the line that failed."""
+    import inspect
+
+    from app import migrations
+
+    body = inspect.getsource(migrations.main)
+    assert "open_pool" in body
+    assert "await get_db_pool()" not in body

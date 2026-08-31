@@ -11,7 +11,7 @@ metadata:
     app.kubernetes.io/component: backend
 rules:
   - apiGroups: [""]
-    resources: ["pods", "pods/log", "services", "persistentvolumeclaims"]
+    resources: ["pods", "pods/log", "services", "persistentvolumeclaims", "events"]
     verbs: ["get", "list", "watch"]
   # Restarting a service deletes its pod. Pod names are generated, so resourceNames
   # cannot scope this; the endpoint behind it is admin-only.

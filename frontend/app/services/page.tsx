@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 import { InfraTabs } from "@/components/infra/infra-tabs"
 import { SystemPanel } from "@/components/infra/system-panel"
+import { EventsPanel } from "@/components/infra/events-panel"
 
 interface Service {
   name: string
@@ -403,7 +404,9 @@ function ServicesPanel() {
 // capability-gated (like Services/System have always been).
 function InfraWorkspace() {
   const tab = useSearchParams().get("tab")
-  return tab === "system" ? <SystemPanel /> : <ServicesPanel />
+  if (tab === "system") return <SystemPanel />
+  if (tab === "events") return <EventsPanel />
+  return <ServicesPanel />
 }
 
 export default function ServicesPage() {

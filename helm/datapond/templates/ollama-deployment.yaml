@@ -107,9 +107,9 @@ spec:
       accessModes: ["ReadWriteOnce"]
       {{- $sc := .Values.ollama.persistence.storageClass }}
       {{- if $sc }}
-      storageClassName: {{ $sc | quote }}
+      {{- include "datapond.storageClassName" (dict "value" $sc "indent" 6) }}
       {{- else }}
-      storageClassName: {{ .Values.global.storageClass | quote }}
+      {{- include "datapond.storageClassName" (dict "value" .Values.global.storageClass "indent" 6) }}
       {{- end }}
       resources:
         requests:

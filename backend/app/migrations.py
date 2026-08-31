@@ -16,6 +16,7 @@ tables is stamped, never migrated. Running a baseline that creates tables agains
 database that has them fails the deploy — and on this product the deploy is now
 `--atomic`, so it would roll back a release for a reason nobody could see.
 """
+import os
 from typing import Literal
 
 BASELINE_REVISION = "0001_baseline"
@@ -122,12 +123,105 @@ async def current_revision(pool) -> "str | None":
         return await c.fetchval("SELECT version_num FROM alembic_version LIMIT 1")
 
 
-def main() -> int:
-    """Entry point for the pre-upgrade Job: `python -m app.migrations`.
+def should_keep_waiting(reachable: bool, elapsed: float, timeout: float) -> bool:
+    """Whether to keep waiting for the database to accept connections.
 
-    Exits non-zero on failure so the Job fails, which stops the release before the
-    new image is rolled out. That is the ordering the whole split exists for: the
-    schema moves first, once, and if it cannot then nothing else happens.
+    Waiting is not retrying. The migration itself gets one attempt — backoffLimit is 0,
+    and a partial failure retried can leave a worse state than the first. But the Job
+    is an ordinary manifest resource now, so it starts alongside Postgres rather than
+    after it, and a closed socket is not a failed migration.
+
+    It gives up rather than hanging: a Job that never exits is worse than one that
+    fails, because nothing reports it and `helm --wait` sits there until its own
+    timeout with no reason recorded.
+    """
+    return (not reachable) and elapsed <= timeout
+
+
+def schema_ready(present) -> bool:
+    """Whether the core tables are all there. See CORE_TABLES."""
+    return not missing_tables(present)
+
+
+async def open_pool(acquire=None, timeout: float = 300.0, interval: float = 3.0):
+    """A connection pool, once the database will give one. None if it never does.
+
+    The retry has to wrap the connect. The Job used to wait for the database *after*
+    calling get_db_pool(), which raises on a refused connection — so with backoffLimit
+    0 the Job went straight to Error, the schema was never created, and the backend's
+    init container then waited out its whole timeout for something that would never
+    arrive. One misplaced line, and every symptom pointed somewhere else.
+    """
+    import asyncio
+    import logging
+    import time
+
+    if acquire is None:
+        from app.api.connectors import get_db_pool as acquire
+    log = logging.getLogger("migrate")
+    started = time.monotonic()
+    while True:
+        try:
+            return await acquire()
+        except Exception as e:
+            elapsed = time.monotonic() - started
+            if not should_keep_waiting(reachable=False, elapsed=elapsed, timeout=timeout):
+                log.error("database did not accept connections within %.0fs: %s",
+                          timeout, str(e)[:200])
+                return None
+            log.info("waiting for the database (%.0fs): %s", elapsed, str(e)[:120])
+        await asyncio.sleep(interval)
+
+
+async def wait_for_schema(timeout: float = 600.0, interval: float = 3.0) -> int:
+    """Block until the core tables exist. Used by the backend's init container.
+
+    It waits; it never migrates. Every replica runs this, Alembic does not lock, and
+    removing that race is the entire reason the migration lives in its own Job.
+
+    Readiness records `base_schema` once, at startup. A backend that starts before the
+    schema exists is therefore not merely slow — it is permanently NotReady until
+    something restarts it. Waiting here is what makes the ordering hold without the
+    application ever touching a migration.
+    """
+    import asyncio
+    import logging
+    import time
+
+    from app.api.connectors import get_db_pool
+
+    log = logging.getLogger("migrate")
+    started = time.monotonic()
+    reason = "not started"
+    while True:
+        elapsed = time.monotonic() - started
+        try:
+            pool = await get_db_pool()
+            present = await present_tables(pool)
+            if schema_ready(present):
+                log.info("schema present after %.0fs", elapsed)
+                return 0
+            reason = f"missing {', '.join(missing_tables(present))}"
+        except Exception as e:
+            # Named, never swallowed. This loop once turned a NameError into "not yet"
+            # and waited ten minutes in silence for a schema that was already there.
+            reason = f"{type(e).__name__}: {e}"[:200]
+        log.info("waiting for the schema (%.0fs): %s", elapsed, reason)
+        if not should_keep_waiting(reachable=False, elapsed=elapsed, timeout=timeout):
+            log.error("gave up after %.0fs: %s", elapsed, reason)
+            return 1
+        await asyncio.sleep(interval)
+
+
+def main() -> int:
+    """Entry point for the migration Job: `python -m app.migrations`.
+
+    `--wait-for-schema` instead blocks until the tables exist and applies nothing —
+    that mode is the backend's init container.
+
+    Exits non-zero on failure so the Job fails, which stops the release before the new
+    image serves anything. That is the ordering the whole split exists for: the schema
+    moves first, once, and if it cannot then nothing else happens.
     """
     import asyncio
     import logging
@@ -136,10 +230,20 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="[migrate] %(message)s")
     log = logging.getLogger("migrate")
 
-    async def run() -> int:
-        from app.api.connectors import get_db_pool
+    if "--wait-for-schema" in sys.argv:
+        timeout = float(os.getenv("MIGRATE_WAIT_SECONDS", "600"))
+        code = asyncio.run(wait_for_schema(timeout))
+        log.info("schema wait %s", "satisfied" if code == 0 else "timed out")
+        return code
 
-        pool = await get_db_pool()
+    async def run() -> int:
+        # Wait for the database, not for a second chance at the migration. The Job is
+        # an ordinary manifest resource now, so Postgres may still be starting beside
+        # it, and a refused connection is not a failed migration.
+        pool = await open_pool(timeout=float(os.getenv("MIGRATE_DB_WAIT_SECONDS", "300")))
+        if pool is None:
+            return 1
+
         try:
             outcome = await apply(pool)
         except Exception as e:
@@ -149,11 +253,6 @@ def main() -> int:
         return 0
 
     return asyncio.run(run())
-
-
-if __name__ == "__main__":
-    import sys
-    sys.exit(main())
 
 
 # The tables the product cannot answer a request without. Deliberately short: listing
@@ -184,3 +283,13 @@ async def present_tables(pool) -> set:
         rows = await c.fetch(
             "SELECT tablename FROM pg_tables WHERE schemaname = current_schema()")
     return {r["tablename"] for r in rows}
+
+
+# Last, and it has to stay last: run as `python -m app.migrations`, execution reaches
+# this and calls main() before anything below it is defined. It used to sit in the
+# middle of the file, so present_tables and missing_tables did not exist on the script
+# path — and only on the script path, which is why importing the module looked fine.
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(main())
