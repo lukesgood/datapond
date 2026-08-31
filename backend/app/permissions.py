@@ -27,7 +27,8 @@ from typing import Dict, FrozenSet, Optional
 
 ALL_PERMISSIONS: FrozenSet[str] = frozenset({
     "catalog:read",       # browse the catalog
-    "query:run",          # execute SQL
+    "query:run",          # run a statement that only reads
+    "query:write",        # run one that changes data or schema (INSERT/DDL/…)
     "dashboard:write",    # save and delete dashboards
     "knowledge:read",     # read collections and cited answers
     "knowledge:write",    # create, ingest into, and delete collections
@@ -53,8 +54,8 @@ ROLE_PERMISSIONS: Dict[str, FrozenSet[str]] = {
 
     # Brings data in. No model spend: ingestion is not a generative workload.
     "data_engineer": frozenset(_READ_BASELINE | {
-        "query:run", "connector:read", "connector:write", "pipeline:write",
-        "workbench:read", "workbench:write",
+        "query:run", "query:write", "connector:read", "connector:write",
+        "pipeline:write", "workbench:read", "workbench:write",
     }),
 
     # The product's stated target user — AI application teams — had no role at all.

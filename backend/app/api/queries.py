@@ -189,6 +189,13 @@ def _catalog_schema_for_graph(max_tables: int = 60) -> dict:
     return out
 
 
+def _may_write(user: dict) -> bool:
+    from app.permissions import permissions_for
+    granted = user.get("permissions")
+    held = set(granted) if granted is not None else set(permissions_for(user.get("role")))
+    return "query:write" in held
+
+
 @router.post("/queries/execute", response_model=QueryResult, dependencies=[Depends(require_permission("query:run"))])
 async def execute_query(
     request: QueryExecuteRequest,
@@ -212,6 +219,23 @@ async def execute_query(
 
     if not effective_query:
         raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+    # What kind of statement this is decides whether `query:run` is enough. It used to
+    # be enough for everything, so every role that could query could also DROP TABLE —
+    # `viewer` included. The classifier fails closed: anything it cannot parse counts
+    # as a write, because refusing a SELECT is an annoyance and allowing a DROP is a
+    # restore. See app/sql_kind.py.
+    #
+    # Classified before RLS rewriting and before the LIMIT is appended, so the verdict
+    # is on what the caller actually sent.
+    from app.sql_kind import statement_kind
+    if statement_kind(effective_query, dialect=get_engine().rls_dialect) == "write":
+        if not _may_write(user):
+            raise HTTPException(
+                status_code=403,
+                detail="This statement changes data or schema, which needs the "
+                       "'query:write' permission. Ask an administrator for a role "
+                       "that holds it, or run a SELECT.")
 
     try:
         user_id = uuid.UUID(user["id"])
