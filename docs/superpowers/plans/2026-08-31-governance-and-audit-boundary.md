@@ -143,7 +143,7 @@ Commit: `feat(audit): retention with a floor, and an export that does not need t
 
 ## C. Runtime boundary
 
-### [ ] C1 — pod security for the workload that holds the data
+### [x] C1 — pod security for the workload that holds the data
 
 `postgres` has no security context. Neither do the optional add-ons, which matters
 less. Apply what each image can take; `valkey` is the precedent — three capabilities,
