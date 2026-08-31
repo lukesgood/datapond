@@ -189,6 +189,24 @@ def test_me_permissions_falls_back_to_the_role_for_a_person():
     assert set(out["permissions"]) == set(permissions_for("business_analyst"))
 
 
+def test_me_permissions_assignable_roles_are_objects_not_bare_strings():
+    """An admin choosing between data_scientist and ai_engineer from two bare words is
+    guessing. assignable_roles must carry a name, a label, and the permissions each
+    role holds — and the set of names must still equal ASSIGNABLE_ROLES, so a client
+    that only reads .name is unaffected by the richer shape."""
+    import asyncio
+    from app.api.auth import my_permissions
+    from app.permissions import ASSIGNABLE_ROLES, ROLE_PERMISSIONS
+
+    out = asyncio.run(my_permissions(user={"id": "u1", "role": "viewer"}))
+    roles = out["assignable_roles"]
+
+    assert {r["name"] for r in roles} == set(ASSIGNABLE_ROLES)
+    for r in roles:
+        assert isinstance(r["label"], str) and r["label"].strip()
+        assert set(r["permissions"]) == set(ROLE_PERMISSIONS[r["name"]])
+
+
 # ── the cache in front of that lookup ───────────────────────────────────────
 
 def _fake_pool(monkeypatch, lookups):

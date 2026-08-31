@@ -3,6 +3,12 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
 import { getToken } from "@/lib/auth"
 
+/** One role the caller could be given, as served by GET /api/me/permissions'
+ *  `assignable_roles` — a name, a one-line human label, and the permissions that
+ *  role holds. See backend/app/permissions.py `ROLE_LABELS` / `ROLE_PERMISSIONS`:
+ *  that module is the only place the label text is written down. */
+export type AssignableRole = { name: string; label: string; permissions: string[] }
+
 /** What the signed-in user may do, per backend/app/permissions.py.
  *
  *  Served from /api/me/permissions rather than read off the token in localStorage:
@@ -10,12 +16,21 @@ import { getToken } from "@/lib/auth"
  *  browser owns is not that source. Hiding a menu is never the control anyway — the
  *  API refuses regardless — this only keeps people out of screens they cannot use.
  */
-type PermissionState = { role: string; permissions: Set<string>; loaded: boolean }
+type PermissionState = {
+  role: string
+  permissions: Set<string>
+  loaded: boolean
+  /** Every role the console may offer for someone else — same response, same fetch,
+   *  so the settings page's role picker and this sidebar gate can never disagree
+   *  about what the server currently accepts. */
+  assignableRoles: AssignableRole[]
+}
 
 const PermissionContext = createContext<PermissionState>({
   role: "viewer",
   permissions: new Set(),
   loaded: false,
+  assignableRoles: [],
 })
 
 export function PermissionProvider({ children }: { children: ReactNode }) {
@@ -23,6 +38,7 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
     role: "viewer",
     permissions: new Set(),
     loaded: false,
+    assignableRoles: [],
   })
 
   useEffect(() => {
@@ -40,7 +56,12 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
         if (cancelled || !d) return
-        setState({ role: d.role, permissions: new Set<string>(d.permissions), loaded: true })
+        setState({
+          role: d.role,
+          permissions: new Set<string>(d.permissions),
+          loaded: true,
+          assignableRoles: Array.isArray(d.assignable_roles) ? d.assignable_roles : [],
+        })
       })
       .catch(() => {
         // Leave `loaded` false so gated items stay hidden — the same fail-closed

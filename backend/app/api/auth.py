@@ -31,7 +31,7 @@ import bcrypt as _bcrypt
 from pydantic import BaseModel
 
 from app.runtime import is_production, component_secret
-from app.permissions import ASSIGNABLE_ROLES, permissions_for
+from app.permissions import ASSIGNABLE_ROLES, ROLE_LABELS, ROLE_PERMISSIONS, permissions_for
 from app.service_accounts import (
     effective_permissions, hash_key, key_matches, looks_like_api_key,
 )
@@ -983,7 +983,17 @@ async def my_permissions(user: dict = Depends(require_user)):
     return {
         "role": role,
         "permissions": sorted(granted) if granted is not None else sorted(permissions_for(role)),
-        "assignable_roles": list(ASSIGNABLE_ROLES),
+        # Objects, not bare names: an admin choosing between data_scientist and
+        # ai_engineer from two words is guessing. Built from ROLE_PERMISSIONS /
+        # ROLE_LABELS — the single copy of that vocabulary — not a second list.
+        "assignable_roles": [
+            {
+                "name": r,
+                "label": ROLE_LABELS.get(r, r),
+                "permissions": sorted(ROLE_PERMISSIONS[r]),
+            }
+            for r in ASSIGNABLE_ROLES
+        ],
     }
 
 
