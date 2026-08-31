@@ -209,3 +209,40 @@ def test_the_wait_entry_point_never_applies_a_migration():
     body = inspect.getsource(migrations.wait_for_schema)
     for forbidden in ("apply(", "command.upgrade", "stamp"):
         assert forbidden not in body, f"{forbidden} appears in wait_for_schema"
+
+
+def test_nothing_is_defined_after_the_script_entry_point():
+    """`if __name__ == "__main__"` has to be the last thing in the module.
+
+    It was in the middle. Run as `python -m app.migrations`, execution reaches that
+    guard and calls main() before the names below it exist — so present_tables and
+    missing_tables were simply undefined, and only for the script path. Importing the
+    module normally ran the whole file and looked fine, which is why nothing caught it
+    until an init container waited ten minutes for a schema that was already there.
+    """
+    import ast
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "app/migrations.py").read_text()
+    body = ast.parse(source).body
+    guards = [i for i, node in enumerate(body)
+              if isinstance(node, ast.If) and "__main__" in ast.dump(node.test)]
+    assert guards, "no __main__ guard"
+    assert guards[-1] == len(body) - 1, (
+        "definitions follow the __main__ guard; they do not exist when run as a script")
+
+
+def test_waiting_says_why_it_is_still_waiting():
+    """The loop swallowed a NameError into `ready = False` and waited in silence.
+
+    That is the same failure this codebase has now hit three times: an exception
+    turned into an empty result, and an empty result read as "not yet". A wait that
+    cannot say what it is waiting for is indistinguishable from a hang.
+    """
+    import inspect
+
+    from app import migrations
+
+    body = inspect.getsource(migrations.wait_for_schema)
+    assert "except Exception" not in body or "log" in body, "the reason is swallowed"
+    assert "logger" in body or "log." in body

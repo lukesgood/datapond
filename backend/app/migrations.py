@@ -164,21 +164,30 @@ async def wait_for_schema(timeout: float = 600.0, interval: float = 3.0) -> int:
     application ever touching a migration.
     """
     import asyncio
+    import logging
     import time
 
     from app.api.connectors import get_db_pool
 
+    log = logging.getLogger("migrate")
     started = time.monotonic()
+    reason = "not started"
     while True:
         elapsed = time.monotonic() - started
         try:
             pool = await get_db_pool()
-            if schema_ready(await present_tables(pool)):
+            present = await present_tables(pool)
+            if schema_ready(present):
+                log.info("schema present after %.0fs", elapsed)
                 return 0
-            ready = False
-        except Exception:
-            ready = False
-        if not should_keep_waiting(reachable=ready, elapsed=elapsed, timeout=timeout):
+            reason = f"missing {', '.join(missing_tables(present))}"
+        except Exception as e:
+            # Named, never swallowed. This loop once turned a NameError into "not yet"
+            # and waited ten minutes in silence for a schema that was already there.
+            reason = f"{type(e).__name__}: {e}"[:200]
+        log.info("waiting for the schema (%.0fs): %s", elapsed, reason)
+        if not should_keep_waiting(reachable=False, elapsed=elapsed, timeout=timeout):
+            log.error("gave up after %.0fs: %s", elapsed, reason)
             return 1
         await asyncio.sleep(interval)
 
@@ -235,11 +244,6 @@ def main() -> int:
     return asyncio.run(run())
 
 
-if __name__ == "__main__":
-    import sys
-    sys.exit(main())
-
-
 # The tables the product cannot answer a request without. Deliberately short: listing
 # all 41 would fail on any deployment with an optional feature switched off, and a
 # check that cries wolf is a check nobody reads.
@@ -268,3 +272,13 @@ async def present_tables(pool) -> set:
         rows = await c.fetch(
             "SELECT tablename FROM pg_tables WHERE schemaname = current_schema()")
     return {r["tablename"] for r in rows}
+
+
+# Last, and it has to stay last: run as `python -m app.migrations`, execution reaches
+# this and calls main() before anything below it is defined. It used to sit in the
+# middle of the file, so present_tables and missing_tables did not exist on the script
+# path — and only on the script path, which is why importing the module looked fine.
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(main())
