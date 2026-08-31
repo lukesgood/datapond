@@ -366,3 +366,48 @@ def test_overwriting_someone_elses_transform_by_name_is_refused(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         _run(transforms.create_transform(req, _Db(), STRANGER))
     assert exc.value.status_code == 403
+
+
+# ── the callers inside the process ──────────────────────────────────────────
+
+def test_activating_the_sample_database_forwards_the_caller_to_the_sync(monkeypatch):
+    """D2 gave every connector route a `user`, and one caller of one of those routes
+    is not HTTP: activate_sample_db calls trigger_sync() in-process. A call that
+    leaves `user` at its FastAPI default hands the gate a `Depends` object, which
+    fails inside `except Exception` — a 200 whose sample tables never reach the
+    catalog, which is the entire job of that endpoint.
+
+    So the pin is on the argument, not the outcome: whatever the sync does next, the
+    identity it decides with has to be the caller's.
+    """
+    seen = {}
+
+    async def recording_sync(connection_id, request=None, user=None):
+        seen["connection_id"], seen["user"] = connection_id, user
+        return {"status": "success"}
+
+    class _LookupConn:
+        async def fetchval(self, sql, *args):
+            return uuid.UUID(RESOURCE_ID)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(connectors, "get_db_pool", lambda: _aval(_Pool(_LookupConn())))
+    monkeypatch.setattr(connectors, "trigger_sync", recording_sync)
+
+    import app.sample_data as sample_data
+    monkeypatch.setattr(sample_data, "catalog_join_queries", lambda: [])
+    monkeypatch.setattr(sample_data, "knowledge_ingest_requests", lambda: [])
+
+    outcome = _run(connectors.activate_sample_db(ADMIN))
+
+    assert seen.get("connection_id") == RESOURCE_ID
+    assert seen.get("user") == ADMIN, (
+        "activate_sample_db did not forward its caller to trigger_sync — the gate "
+        "would receive a Depends object, not a user"
+    )
+    assert outcome["sync"] == {"status": "success"}

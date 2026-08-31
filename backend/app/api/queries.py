@@ -556,7 +556,17 @@ async def review_plan(request: QueryPlanRequest, user: dict = Depends(require_us
     except HTTPException:
         raise
     except Exception as e:
-        logger.warning(f"[plan] table resolution failed: {e}")
+        # Fail closed, exactly as execute_query does above: a plan built from SQL we
+        # could not resolve describes a different statement than the one that would
+        # run, and this endpoint's whole value is that the two match. The two paths
+        # disagreeing on a rule this file documents as security-relevant is worse
+        # than either answer.
+        logger.warning(f"[plan] table resolution failed, blocking: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail="Could not resolve table names against the catalog. "
+                   "Qualify tables as <namespace>.<table> and retry.",
+        )
 
     ok, err, io_text = await asyncio.to_thread(explain_statement, sql, "TYPE IO, FORMAT JSON")
     if not ok:

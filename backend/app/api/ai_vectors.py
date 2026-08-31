@@ -262,8 +262,14 @@ def resolve_chunking(preset, size, overlap):
     An unknown preset falls back rather than failing: a collection created by an
     older client, or one whose preset was renamed later, must still ingest.
     """
+    base = CHUNK_PRESETS.get(preset or DEFAULT_PRESET, CHUNK_PRESETS[DEFAULT_PRESET])
     if size is not None or overlap is not None:
-        size = int(size if size is not None else CHUNK_PRESETS[DEFAULT_PRESET][0])
+        # The half that was not given comes from the preset the caller actually
+        # chose. Falling back to the default preset instead would let "long" plus an
+        # overlap silently ingest at standard's chunk size, while the collection is
+        # stored saying "long" — the stored preset and the stored numbers have to
+        # describe the same thing.
+        size = int(size if size is not None else base[0])
         overlap = int(overlap if overlap is not None else 0)
         if size <= 0:
             raise ValueError("chunk size must be positive")
@@ -272,7 +278,7 @@ def resolve_chunking(preset, size, overlap):
         if overlap >= size or overlap < 0:
             raise ValueError("overlap must be smaller than the chunk size")
         return size, overlap
-    return CHUNK_PRESETS.get(preset or DEFAULT_PRESET, CHUNK_PRESETS[DEFAULT_PRESET])
+    return base
 
 
 class CollectionCreate(BaseModel):

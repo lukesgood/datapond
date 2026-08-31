@@ -918,7 +918,11 @@ async def activate_sample_db(user: dict = Depends(require_user)):
         raise HTTPException(status_code=409,
                             detail="Seed the sample database first (POST /connectors/sample-db).")
     try:
-        outcome["sync"] = await trigger_sync(str(connection_id))
+        # `user`, explicitly: this is an in-process call to a route function whose
+        # `user` parameter is a FastAPI dependency. Left to its default it is a
+        # `Depends` object, and the ownership gate would fail on it inside the
+        # `except` below — a 200 whose sample tables never reach the catalog.
+        outcome["sync"] = await trigger_sync(str(connection_id), user=user)
     except Exception as e:
         outcome["sync"] = {"error": str(e)[:300]}
 
