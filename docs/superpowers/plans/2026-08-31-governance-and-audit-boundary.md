@@ -139,6 +139,23 @@ Commit: `feat(audit): the application may write the audit log and may not rewrit
 
 Commit: `feat(audit): retention with a floor, and an export that does not need the DB`
 
+### [ ] B5 — two governance endpoints have no authentication at all
+
+Found by B1 while doing something else, and deliberately left alone so that task
+stayed one task. It listed them by name in an `OPEN_BY_DESIGN` exemption rather than
+quietly widening its own scope, which is why they are here instead of lost.
+
+- `GET /governance/stats` and `GET /governance/pii-report` carry no auth dependency.
+  A PII report is exactly the thing that must not be readable by an unauthenticated
+  caller. Gate both on `governance:read`.
+- `POST /governance/rls/preview` calls `_require_admin` although it only previews a
+  rewrite. It should follow the same rule B1 applied to the reads.
+- Extend `test_governance_auditor_access.py`'s exemption list: once these are gated,
+  the list should shrink, and the test should fail if anything is added back to it
+  without a reason written down.
+
+Commit: `fix(governance): the PII report needed no login at all`
+
 ---
 
 ## C. Runtime boundary
