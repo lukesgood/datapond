@@ -2,9 +2,14 @@
 Unit tests for the unified audit stream (/governance/audit-stream).
 
 Merges query_history + auth_audit_log + connector_sync_history into one
-time-ordered feed. Pins: admin-only gate, cross-source time ordering, per-source
-best-effort (a failing source is omitted from `sources`, the rest still return,
-session rolled back), the source filter, and input validation.
+time-ordered feed. Pins: cross-source time ordering, per-source best-effort (a
+failing source is omitted from `sources`, the rest still return, session rolled
+back), the source filter, and input validation.
+
+The route's authorization gate moved from a body-level `_require_admin` call to a
+`require_permission("audit:read")` route dependency (see
+test_governance_auditor_access.py) — a FastAPI dependency, not something a direct
+call to `gov.get_audit_stream(...)` exercises, so it is no longer pinned here.
 """
 import asyncio
 from datetime import datetime, timezone
@@ -14,24 +19,9 @@ from fastapi import HTTPException
 
 import app.api.governance as gov
 
-ADMIN = {"id": "u1", "role": "admin"}
-VIEWER = {"id": "u2", "role": "viewer"}
-
 
 def _run(coro):
     return asyncio.new_event_loop().run_until_complete(coro)
-
-
-@pytest.fixture(autouse=True)
-def _stub_admin_gate(monkeypatch):
-    """Replace the RLS-coupled _require_admin with a role check, so stream tests
-    don't depend on the RLS loader / _RLS_ADMIN_OK. (Real gate covered by the
-    non-admin test, which asserts a role!=admin is rejected.)"""
-    async def _fake(user):
-        if not user or user.get("role") != "admin":
-            raise HTTPException(status_code=403, detail="Admin privileges required")
-        return user
-    monkeypatch.setattr(gov, "_require_admin", _fake)
 
 
 class _Row:
@@ -87,14 +77,8 @@ def _db(fail=None):
                     "connector_sync_history": CONN_ROWS}, fail_tables=fail)
 
 
-def _call(source=None, limit=100, user=ADMIN, db=None):
-    return _run(gov.get_audit_stream(source=source, limit=limit, user=user, db=db or _db()))
-
-
-def test_requires_admin():
-    with pytest.raises(HTTPException) as e:
-        _call(user=VIEWER)
-    assert e.value.status_code == 403
+def _call(source=None, limit=100, db=None):
+    return _run(gov.get_audit_stream(source=source, limit=limit, db=db or _db()))
 
 
 def test_merges_all_sources_time_ordered():

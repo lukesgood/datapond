@@ -96,7 +96,7 @@ Commit: `feat(knowledge): manage collection members from the collection dialog`
 
 ## B. Audit
 
-### [ ] B1 — let the auditor read what its permissions name
+### [x] B1 — let the auditor read what its permissions name
 
 `_require_admin` guards endpoints whose route dependency already says
 `governance:read` or `audit:read`. The permission matrix and the code disagree, and

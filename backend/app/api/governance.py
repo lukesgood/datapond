@@ -159,10 +159,13 @@ class AiSafetyReport(BaseModel):
 
 
 # ── Auth / admin gate ─────────────────────────────────────────────────────────
-# Governance reads expose other users' SQL text plus auth telemetry, so every
-# read endpoint below is admin-only (mirrors the auth.sql `view_audit_log`
-# permission). Defined here so the legacy audit-log/ai-safety reads and the
-# RLS/mask management + audit-stream endpoints share one gate.
+# _require_admin remains the gate for every endpoint that WRITES an RLS or masking
+# policy (role == 'admin' only — see app/permissions.py's ROLE_PERMISSIONS, where
+# `governance:write` and `admin` currently coincide). Read endpoints are gated by
+# `require_permission("governance:read")` / `"audit:read")` route dependencies
+# instead: `_require_admin` checks only role == 'admin', so a body-level call to it
+# on a read route silently overrides whatever permission the dependency already
+# promised — that mismatch is what test_governance_auditor_access.py guards.
 
 try:
     from app.rls import loader as _rls_loader
@@ -196,24 +199,25 @@ async def _require_admin(user: Optional[dict]) -> dict:
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
-@router.get("/governance/audit-log", response_model=AuditLogResponse)
+@router.get("/governance/audit-log", response_model=AuditLogResponse,
+            dependencies=[Depends(require_permission("audit:read"))])
 async def get_audit_log(
     event_type: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
-    user: Optional[dict] = Depends(_get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Return paginated audit log entries derived from query_history.
 
-    Admin-only: the log exposes every user's query text (mirrors the auth.sql
-    `view_audit_log` permission and the unified /governance/audit-stream gate).
+    Gated on `audit:read` (mirrors the auth.sql `view_audit_log` permission and the
+    unified /governance/audit-stream gate) rather than an admin-only body check —
+    the `auditor` role holds this permission and previously got a 403 anyway
+    because the check and the permission matrix disagreed.
 
     event_type filter (optional): 'query_executed', 'query_error', 'query_timeout'
     maps to the status column values ('success', 'error', 'timeout').
     """
-    await _require_admin(user)
     if limit < 1 or limit > 200:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
     if offset < 0:
@@ -537,23 +541,23 @@ class RlsPreviewIn(BaseModel):
     attributes: dict = {}
 
 
-@router.get("/governance/audit-stream", response_model=AuditStreamResponse)
+@router.get("/governance/audit-stream", response_model=AuditStreamResponse,
+            dependencies=[Depends(require_permission("audit:read"))])
 async def get_audit_stream(
     source: Optional[str] = None,
     limit: int = 100,
-    user: Optional[dict] = Depends(_get_current_user),
     db: Session = Depends(get_db),
 ):
     """Unified, time-ordered audit feed across query / auth / connector sources.
 
-    Admin-only (mirrors the RLS/mask governance endpoints + the auth.sql
-    `view_audit_log` permission): the feed exposes auth telemetry (login failures,
-    emails) and other users' query text. `source` optionally restricts to one of
-    query|auth|connector. Each source is best-effort: one failing (e.g. table
-    absent) is logged and omitted from `sources`, the rest still return. Never
-    fabricates.
+    Gated on `audit:read` (mirrors the auth.sql `view_audit_log` permission): the
+    feed exposes auth telemetry (login failures, emails) and other users' query
+    text, but the `auditor` role is defined to hold exactly this permission, so an
+    admin-only body check that ignored it was the bug, not a stricter reading of
+    the requirement. `source` optionally restricts to one of query|auth|connector.
+    Each source is best-effort: one failing (e.g. table absent) is logged and
+    omitted from `sources`, the rest still return. Never fabricates.
     """
-    await _require_admin(user)
     if limit < 1 or limit > 500:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
     if source is not None and source not in _AUDIT_SOURCES:
@@ -641,10 +645,14 @@ def _validate_bool_expr(expr: str) -> None:
         raise HTTPException(status_code=400, detail=f"filter_expression failed to parse: {e}")
 
 
-@router.get("/governance/roles")
-async def list_roles(user: Optional[dict] = Depends(_get_current_user)):
-    """List role names for policy assignment UI."""
-    await _require_admin(user)
+@router.get("/governance/roles", dependencies=[Depends(require_permission("governance:read"))])
+async def list_roles():
+    """List role names for policy assignment UI.
+
+    Gated on `governance:read`, not an admin-only body check — this is a read of
+    role metadata for the policy UI, the same permission the RLS/masking policy
+    lists below already require.
+    """
     try:
         pool = await _rls_loader._get_pool()
         async with pool.acquire() as conn:
@@ -697,10 +705,13 @@ async def rls_coverage(user: Optional[dict] = Depends(_get_current_user)):
     return out
 
 
-@router.get("/governance/rls/policies")
-async def list_rls_policies(user: Optional[dict] = Depends(_get_current_user)):
-    """List RLS policies with their role mappings."""
-    await _require_admin(user)
+@router.get("/governance/rls/policies", dependencies=[Depends(require_permission("governance:read"))])
+async def list_rls_policies():
+    """List RLS policies with their role mappings.
+
+    Gated on `governance:read`, matching /governance/rls/coverage above — reading
+    policy definitions is a governance read, not something only `admin` may do.
+    """
     pols = await _rls_loader.load_policies()
     return [
         {
@@ -783,9 +794,12 @@ async def delete_rls_policy(policy_id: str, user: Optional[dict] = Depends(_get_
     return {"message": "RLS policy deleted"}
 
 
-@router.get("/governance/masking/policies")
-async def list_mask_policies(user: Optional[dict] = Depends(_get_current_user)):
-    await _require_admin(user)
+@router.get("/governance/masking/policies", dependencies=[Depends(require_permission("governance:read"))])
+async def list_mask_policies():
+    """List column masking policies with their role mappings.
+
+    Gated on `governance:read`, matching the RLS policy list above.
+    """
     masks = await _rls_loader.load_masks()
     return [
         {
@@ -891,13 +905,15 @@ async def check_direct_read_endpoint(body: DirectReadIn):
     return check_direct_read(body.sql, policies)
 
 
-@router.get("/governance/rls/trino-rules")
-async def get_trino_rules(user: Optional[dict] = Depends(_get_current_user)):
+@router.get("/governance/rls/trino-rules", dependencies=[Depends(require_permission("governance:read"))])
+async def get_trino_rules():
     """
     Generate the Trino file-based access control rules.json (Layer 2) from current
     users + policies + masks. Read-only preview — does not apply. See docs/RLS_DESIGN.md.
+
+    Gated on `governance:read`, matching /governance/rls/trino-rules/apply's
+    `governance:write` for the mutating counterpart.
     """
-    await _require_admin(user)
     from app.rls.trino_acl import generate_rules, rules_summary
     users = await _rls_loader.load_all_users()
     policies = await _rls_loader.load_policies()
@@ -967,21 +983,22 @@ async def _audit_policy_event(conn, admin: dict, event_type: str, target: str, n
         logger.debug("policy audit skipped: %s", e)
 
 
-@router.get("/governance/ai-safety", response_model=AiSafetyReport)
+@router.get("/governance/ai-safety", response_model=AiSafetyReport,
+            dependencies=[Depends(require_permission("audit:read"))])
 async def get_ai_safety(
-    user: Optional[dict] = Depends(_get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Evaluate recent query history for SQL safety risk.
 
-    Admin-only: the flagged samples embed other users' query text (mirrors the
-    auth.sql `view_audit_log` permission and the /governance/audit-stream gate).
+    Gated on `audit:read`: the flagged samples embed other users' query text
+    (mirrors the auth.sql `view_audit_log` permission and the
+    /governance/audit-stream gate), and the `auditor` role holds this permission —
+    an admin-only body check disagreeing with that was the bug this fixes.
 
     Classifies each query as high / medium / low risk and returns
     distribution counts plus the 5 most recent flagged queries.
     """
-    await _require_admin(user)
     try:
         # Fetch last 200 queries for analysis
         recent = (
