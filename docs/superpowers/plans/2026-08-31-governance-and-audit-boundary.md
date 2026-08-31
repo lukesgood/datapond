@@ -155,7 +155,7 @@ found one CrashLoop at a time.
 
 Commit: `fix(helm): the database ran with every Linux capability`
 
-### [ ] C2 — prove the recheck covers every high-risk route
+### [x] C2 — prove the recheck covers every high-risk route
 
 `_recheck_user` refreshes the role from the database on every authenticated request,
 which is what made a forged role claim harmless. That property is worth a test rather
