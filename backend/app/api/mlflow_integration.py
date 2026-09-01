@@ -901,32 +901,6 @@ async def log_query_to_mlflow(request: LogQueryRequest):
         raise HTTPException(status_code=500, detail=f"Failed to log query: {str(e)}")
 
 
-@router.post("/mlflow/experiments", response_model=ExperimentInfo, dependencies=[Depends(require_permission("workbench:write"))])
-async def create_experiment_alias(request: ExperimentCreateRequest):
-    """Create a new MLflow experiment (alias for /mlflow/experiments POST)"""
-    client = get_mlflow_client()
-    try:
-        experiment_id = client.create_experiment(
-            name=request.name,
-            artifact_location=request.artifact_location,
-            tags=request.tags
-        )
-        experiment = client.get_experiment(experiment_id)
-        return ExperimentInfo(
-            experiment_id=experiment.experiment_id,
-            name=experiment.name,
-            lifecycle_stage=experiment.lifecycle_stage,
-            artifact_location=experiment.artifact_location,
-            tags=dict(experiment.tags) if experiment.tags else {},
-            creation_time=experiment.creation_time,
-            last_update_time=experiment.last_update_time
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create experiment: {str(e)}")
-
-
 # ============================================================================
 # Health Check
 # ============================================================================
