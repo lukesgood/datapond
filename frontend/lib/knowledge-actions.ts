@@ -46,13 +46,14 @@ export interface Viewer {
   permissions: Set<string>
 }
 
-/** May `viewer` ingest into, or schedule a refresh for, `collection`? The
- *  client-side twin of knowledge_access.may_write for the two routes B1 moved
- *  onto it. knowledge:write is checked first because both routes gate on it
- *  before ever resolving the collection — a caller who lacks it is refused
- *  before ownership/membership is even asked, same as `_collection_id` never
- *  runs for them. */
-export function mayIngest(collection: CollectionOwnership, viewer: Viewer): boolean {
+/** May `viewer` change `collection` at all? The client-side twin of
+ *  `knowledge_access.may_write`, for the routes that take `knowledge:write` and
+ *  nothing more: DELETE a collection, DELETE its schedule, add or remove a
+ *  member, delete one source's chunks. knowledge:write is checked first because
+ *  those routes gate on it before ever resolving the collection — a caller who
+ *  lacks it is refused before ownership/membership is even asked, same as
+ *  `_collection_id` never runs for them. */
+export function mayWriteCollection(collection: CollectionOwnership, viewer: Viewer): boolean {
   if (!viewer.permissions.has("knowledge:write")) return false
   if (viewer.role === "admin") return true
   if (collection.owner_id === null) {
@@ -62,6 +63,24 @@ export function mayIngest(collection: CollectionOwnership, viewer: Viewer): bool
     return false
   }
   return collection.owner_id === viewer.id || collection.member_role === "editor"
+}
+
+/** May `viewer` ingest into, or schedule a refresh for, `collection`? Writing
+ *  the collection is necessary and no longer sufficient: `ingest` (E1),
+ *  `ingest-source` and `schedule` each require `ai:generate` as well, because
+ *  each one spends model tokens — the first two by calling `_embed` during the
+ *  request, `schedule` by arming `app/rag_scheduler.py` to re-embed unattended
+ *  on every tick from then on.
+ *
+ *  One function still covers all three, rather than a mayIngestText /
+ *  mayIngestSource pair, because the three routes now require exactly the same
+ *  pair of permissions and the same `_collection_id(write=True)` — two names for
+ *  one answer. The split that the routes *do* justify is this one, against
+ *  `mayWriteCollection`: delete and cancel-schedule embed nothing, and gating
+ *  them on `ai:generate` would hide "stop the recurring re-embed that is costing
+ *  us money" from precisely the caller who most wants it. */
+export function mayIngest(collection: CollectionOwnership, viewer: Viewer): boolean {
+  return mayWriteCollection(collection, viewer) && viewer.permissions.has("ai:generate")
 }
 
 /** May `viewer` search or ask a question (spend a model call) against a

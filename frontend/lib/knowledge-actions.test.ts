@@ -4,12 +4,17 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 
-import { mayAskQuestions, mayIngest } from "./knowledge-actions.ts"
+import { mayAskQuestions, mayIngest, mayWriteCollection } from "./knowledge-actions.ts"
 
-const ADMIN = { id: "u-admin", role: "admin", permissions: new Set(["knowledge:write"]) }
-const OWNER = { id: "u-owner", role: "ai_engineer", permissions: new Set(["knowledge:write"]) }
-const EDITOR = { id: "u-editor", role: "ai_engineer", permissions: new Set(["knowledge:write"]) }
-const READER = { id: "u-reader", role: "ai_engineer", permissions: new Set(["knowledge:write"]) }
+// Every ingest route requires knowledge:write AND ai:generate — the second because
+// all three of them spend model tokens. These four callers hold both, so the tests
+// below are about ownership and membership, which is what they were written for; the
+// caller who holds only the first has its own test at the bottom of the file.
+const BOTH = ["knowledge:write", "ai:generate"]
+const ADMIN = { id: "u-admin", role: "admin", permissions: new Set(BOTH) }
+const OWNER = { id: "u-owner", role: "ai_engineer", permissions: new Set(BOTH) }
+const EDITOR = { id: "u-editor", role: "ai_engineer", permissions: new Set(BOTH) }
+const READER = { id: "u-reader", role: "ai_engineer", permissions: new Set(BOTH) }
 const VIEWER_NO_WRITE = { id: "u-viewer", role: "viewer", permissions: new Set<string>() }
 
 test("an admin may ingest into any collection, owned or not", () => {
@@ -55,4 +60,34 @@ test("mayAskQuestions follows ai:generate, independent of knowledge:write", () =
   assert.equal(mayAskQuestions(analyst), false)
   const withGenerate = { id: "u-ba2", role: "business_analyst", permissions: new Set(["ai:generate"]) }
   assert.equal(mayAskQuestions(withGenerate), true)
+})
+
+test("a knowledge:write holder without ai:generate may not ingest — every ingest route embeds", () => {
+  // E1 put ai:generate on POST /ai/collections/{name}/ingest, and the final-review
+  // fix put it on ingest-source and schedule too: all three spend model tokens, one
+  // of them (schedule) forever. A caller holding knowledge:write and not ai:generate
+  // — a service-account key scoped to the first alone — gets a 403 from the API, so
+  // offering them the control is offering a button that cannot work.
+  const scoped = { id: "u-scoped", role: "ai_engineer", permissions: new Set(["knowledge:write"]) }
+  assert.equal(mayIngest({ owner_id: scoped.id }, scoped), false)
+  const admin = { id: "u-a", role: "admin", permissions: new Set(["knowledge:write"]) }
+  assert.equal(mayIngest({ owner_id: null }, admin), false)
+})
+
+test("mayWriteCollection is knowledge:write plus ownership, without the spend permission", () => {
+  // Deleting a collection, cancelling its schedule, and managing its members are all
+  // knowledge:write alone on the API — none of them embeds anything. Folding
+  // ai:generate into those controls would hide "cancel the schedule that is costing
+  // us money" from exactly the caller most likely to want it.
+  const scoped = { id: "u-scoped", role: "ai_engineer", permissions: new Set(["knowledge:write"]) }
+  assert.equal(mayWriteCollection({ owner_id: scoped.id }, scoped), true)
+  assert.equal(mayIngest({ owner_id: scoped.id }, scoped), false)
+})
+
+test("mayWriteCollection still refuses a caller without knowledge:write, and a stranger", () => {
+  assert.equal(mayWriteCollection({ owner_id: VIEWER_NO_WRITE.id }, VIEWER_NO_WRITE), false)
+  assert.equal(mayWriteCollection({ owner_id: OWNER.id }, READER), false)
+  assert.equal(mayWriteCollection({ owner_id: OWNER.id, member_role: "editor" }, EDITOR), true)
+  assert.equal(mayWriteCollection({ owner_id: null }, ADMIN), true)
+  assert.equal(mayWriteCollection({ owner_id: null }, OWNER), false)
 })

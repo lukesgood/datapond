@@ -83,6 +83,8 @@ function CatalogPageInner() {
   // one decision both pages now share; a brand-new collection has no owner yet, so
   // this asks about one the viewer would own themselves — the case every
   // knowledge:write holder can always reach via "create new" in the dialog below.
+  // ingest-source also requires ai:generate (it embeds the table's rows); mayIngest
+  // carries that, so this stays one shared decision rather than two drifting ones.
   const viewer = getUser()
   const { role, permissions, loaded: permsLoaded, error: permsError, refetch: refetchPerms } = usePermissions()
   const canSendToKnowledge = !!viewer &&
@@ -240,7 +242,7 @@ function CatalogPageInner() {
         </p>
         {sendToKnowledgeAccess === "denied" && (
           <p className="mt-1 text-xs text-muted-foreground">
-            Sending a table to Knowledge (RAG) needs the knowledge:write permission — ask an administrator for access.
+            Sending a table to Knowledge (RAG) needs the knowledge:write and ai:generate permissions — ask an administrator for access.
           </p>
         )}
         {sendToKnowledgeAccess === "unknown" && (

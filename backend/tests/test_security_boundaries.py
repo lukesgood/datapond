@@ -210,8 +210,14 @@ def test_knowledge_write_routes_have_intended_dependencies():
     ingest_source_deps = _route_dependencies(
         ai_vectors.router, "/ai/collections/{name}/ingest-source", "POST"
     )
+    # ai:generate sits beside it because this route embeds an entire S3 prefix or
+    # Iceberg column through _refresh_from_source — the same reason /ai/collections/
+    # {name}/ingest, /ai/search, /ai/rag and /ai/embed all carry it. Both are the
+    # _or_internal variant: a plain require_permission resolves Depends(require_user)
+    # first and would 401 the allowlisted X-Internal-Key callback before it could
+    # identify itself as internal.
     assert {getattr(d, "__datapond_authorization__", None) for d in ingest_source_deps} \
-        == {"knowledge:write"}
+        == {"knowledge:write", "ai:generate"}
     assert all(d.__qualname__.startswith("require_permission_or_internal")
                for d in ingest_source_deps)
 
@@ -223,8 +229,12 @@ def test_knowledge_write_routes_have_intended_dependencies():
         ai_vectors.router, "/ai/collections/{name}/schedule", "POST"
     )
     assert auth.require_user in schedule_deps
+    # ai:generate here too: nothing embeds during this request, but the row it writes
+    # (refresh_enabled = true) arms app/rag_scheduler.py to re-embed the source on
+    # every tick, unattended — a caller who may not spend in the foreground must not
+    # be able to commit the deployment to spending in the background.
     assert {getattr(d, "__datapond_authorization__", None) for d in schedule_deps} \
-        == {"knowledge:write", None}
+        == {"knowledge:write", "ai:generate", None}
     assert all(d.__qualname__.startswith("require_permission.")
                for d in schedule_deps if getattr(d, "__datapond_authorization__", None))
     assert auth.require_admin not in schedule_deps

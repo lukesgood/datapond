@@ -332,3 +332,188 @@ def test_ingest_refuses_knowledge_write_without_ai_generate_before_any_embed_cal
     )
     assert resp.status_code == 403, resp.text
     assert "ai:generate" in resp.json()["detail"]
+
+
+# ── Final review, item 1: ingest-source and schedule spend too, and said nothing ──
+#
+# E1 (above) put `ai:generate` on POST /ai/collections/{name}/ingest because that
+# route calls `_embed`. Its two siblings do the same spending and were left behind:
+#
+#   * `ingest-source` reaches `_embed` through `_refresh_from_source` →
+#     `_ingest_documents` — an entire S3 prefix or Iceberg column, embedded in one
+#     call, which is a far larger bill than the inline paste E1 closed.
+#   * `schedule` writes `refresh_enabled = true` on the collection row, and
+#     `app/rag_scheduler.py` then re-embeds that source on every tick, unattended
+#     and forever. The spend does not happen inside the request, which is exactly
+#     why it is worse: nobody is watching when it starts.
+#
+# Both were `require_admin_or_internal` / `require_admin` before B1 moved them to
+# `knowledge:write`, and `require_admin` refuses any `auth_method == "service"`
+# credential outright (app/api/auth.py). So the caller these tests model — a
+# service-account key on an `ai_engineer` account scoped to `knowledge:write`
+# alone, which `app/service_accounts.py` permits because it withholds only
+# `user:manage` and `settings:write` — could not reach either route before this
+# branch and can now. That makes it a regression of this branch, not a
+# pre-existing hole.
+#
+# tests/test_knowledge_lifecycle_roles.py cannot see the spend: its autouse
+# fixture stubs `_refresh_from_source` out, because the authorization gate is all
+# it is testing. These tests deliberately leave that path in place and stub only
+# the source read, so that a caller who gets past the gate really does reach
+# `_embed` — the fake raises if it is ever invoked.
+
+class _OwnedCollConn:
+    """Answers `_collection_id`'s join for one collection owned by `owner_id`, and
+    records every statement executed against it — so a test can assert that the
+    schedule UPDATE never ran."""
+
+    def __init__(self, owner_id):
+        self.row = {"id": "coll-id", "owner_id": owner_id, "member_role": None}
+        self.executed = []
+
+    async def fetchrow(self, query, *args):
+        return self.row
+
+    async def fetch(self, query, *args):
+        return []
+
+    async def execute(self, query, *args):
+        self.executed.append(query)
+        return "UPDATE 1"
+
+    async def executemany(self, query, rows):
+        self.executed.append(query)
+
+    def transaction(self):
+        outer = self
+
+        class _Tx:
+            async def __aenter__(self_):
+                return outer
+
+            async def __aexit__(self_, *a):
+                return False
+
+        return _Tx()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+
+class _OwnedPool:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def acquire(self):
+        return self.conn
+
+
+def _spend_gate_client(monkeypatch, user, conn):
+    """A TestClient over the real router with the source read stubbed, the pool
+    faked, and `_embed` armed to fail the test if the request ever reaches it."""
+    import uuid as _uuid
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.api import ai_vectors, auth
+
+    async def _boom_embed(texts):
+        raise AssertionError("_embed must not be called when ai:generate is missing")
+
+    monkeypatch.setattr(ai_vectors, "_embed", _boom_embed)
+    # A real document, so a caller who passes the gate genuinely reaches _embed.
+    monkeypatch.setattr(ai_vectors, "_read_s3_docs",
+                        lambda bucket, prefix, max_files: [("s3://docs/a.txt", "hello", {})])
+    monkeypatch.setattr(ai_vectors, "get_db_pool", lambda: _aval(_OwnedPool(conn)))
+
+    async def _fake_require_user(request=None, credentials=None):
+        return user
+    monkeypatch.setattr(auth, "require_user", _fake_require_user)
+
+    app = FastAPI()
+    app.include_router(ai_vectors.router, prefix="/api")
+
+    async def _override():
+        return user
+    app.dependency_overrides[ai_vectors.require_user] = _override
+    return TestClient(app), _uuid
+
+
+SCOPED_KEY_ID = "00000000-0000-0000-0000-0000000000e2"
+
+
+def _scoped_key_user():
+    """An ai_engineer service-account key narrowed to knowledge:write. Its
+    `permissions` set is what `require_permission`'s guard reads, so the role's own
+    ai:generate never enters into it."""
+    return {"id": SCOPED_KEY_ID, "username": "svc-source-ingest",
+            "role": "ai_engineer", "auth_method": "service",
+            "permissions": frozenset({"knowledge:write"})}
+
+
+def test_ingest_source_refuses_knowledge_write_without_ai_generate_before_any_embed(monkeypatch):
+    import uuid
+    user = _scoped_key_user()
+    conn = _OwnedCollConn(uuid.UUID(SCOPED_KEY_ID))
+    client, _ = _spend_gate_client(monkeypatch, user, conn)
+
+    resp = client.post("/api/ai/collections/mine/ingest-source",
+                       json={"type": "s3", "bucket": "docs"})
+    assert resp.status_code == 403, resp.text
+    assert "ai:generate" in resp.json()["detail"]
+
+
+def test_schedule_refuses_knowledge_write_without_ai_generate_before_enabling_refresh(monkeypatch):
+    """The schedule route spends later, through the scheduler, not during the
+    request — so the proof is that `refresh_enabled` was never written."""
+    import uuid
+    user = _scoped_key_user()
+    conn = _OwnedCollConn(uuid.UUID(SCOPED_KEY_ID))
+    client, _ = _spend_gate_client(monkeypatch, user, conn)
+
+    resp = client.post("/api/ai/collections/mine/schedule",
+                       json={"source": {"type": "s3", "bucket": "docs"}})
+    assert resp.status_code == 403, resp.text
+    assert "ai:generate" in resp.json()["detail"]
+    assert not [q for q in conn.executed if "refresh_enabled" in q], \
+        "the collection was armed for unattended re-embedding despite the refusal"
+
+
+def test_ai_generate_holder_still_ingests_a_source(monkeypatch):
+    """The gate must refuse the narrowed key and nobody else: the same caller
+    holding both permissions still gets through and does embed."""
+    import uuid
+    user = {"id": SCOPED_KEY_ID, "username": "eng", "role": "ai_engineer",
+            "permissions": frozenset({"knowledge:write", "ai:generate"})}
+    conn = _OwnedCollConn(uuid.UUID(SCOPED_KEY_ID))
+    client, _ = _spend_gate_client(monkeypatch, user, conn)
+    # This caller is allowed to spend, so _embed must not be the booby-trapped one.
+    from app.api import ai_vectors
+    monkeypatch.setattr(ai_vectors, "_embed", lambda texts: _aval([[0.0] for _ in texts]))
+
+    resp = client.post("/api/ai/collections/mine/ingest-source",
+                       json={"type": "s3", "bucket": "docs"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["documents"] == 1
+
+
+def test_internal_automation_principal_still_reaches_ingest_source_after_the_spend_gate(monkeypatch):
+    """`ai:generate` has to be the `_or_internal` variant. The internal principal
+    never resolves as a user, so a plain `require_permission` in front of it would
+    401 the allowlisted callback before it could identify itself — silently
+    stopping every scheduled re-embed."""
+    import uuid
+    monkeypatch.setenv("INTERNAL_API_KEY", "scheduler-secret")
+    conn = _OwnedCollConn(uuid.UUID(SCOPED_KEY_ID))
+    # No signed-in user at all: the key is the whole credential.
+    client, _ = _spend_gate_client(monkeypatch, {"id": None, "role": "nobody",
+                                                 "permissions": frozenset()}, conn)
+    from app.api import ai_vectors
+    monkeypatch.setattr(ai_vectors, "_embed", lambda texts: _aval([[0.0] for _ in texts]))
+
+    resp = client.post("/api/ai/collections/mine/ingest-source",
+                       json={"type": "s3", "bucket": "docs"},
+                       headers={"X-Internal-Key": "scheduler-secret"})
+    assert resp.status_code == 200, resp.text

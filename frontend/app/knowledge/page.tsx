@@ -25,7 +25,7 @@ import { useConfirm } from "@/lib/confirm"
 import { ErrorBox, EmptyState } from "@/components/ui/error-box"
 import { useCapability } from "@/lib/capabilities"
 import { usePermissions } from "@/lib/permissions"
-import { mayAskQuestions, mayIngest } from "@/lib/knowledge-actions"
+import { mayAskQuestions, mayIngest, mayWriteCollection } from "@/lib/knowledge-actions"
 
 interface Collection {
   name: string; embed_model: string; dim: number
@@ -181,7 +181,9 @@ export default function KnowledgePage() {
                           ? <Badge variant="outline" className="text-[9px]">other</Badge>
                           : null}
                     </div>
-                    {!!me && mayIngest({ owner_id: c.owner_id }, { id: me.id, role, permissions }) && (
+                    {/* DELETE /ai/collections/{name} is knowledge:write alone — it
+                        embeds nothing, so mayWriteCollection, not mayIngest. */}
+                    {!!me && mayWriteCollection({ owner_id: c.owner_id }, { id: me.id, role, permissions }) && (
                       <button aria-label={`Delete collection ${c.name}`} onClick={e => { e.stopPropagation(); deleteCol(c.name, load, confirm, toast) }}
                         className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
                     )}
@@ -379,9 +381,15 @@ interface ScheduleState {
 function SchedulePanel({ name, ownerId }: { name: string; ownerId: string | null }) {
   const viewer = getUser()
   const { role, permissions } = usePermissions()
-  // Same gate ingest-source uses (B1: knowledge:write + _collection_id(write=True))
-  // — schedule is the recurring form of the same action.
+  // Same gate ingest-source uses (B1: knowledge:write + _collection_id(write=True),
+  // plus ai:generate since the final-review fix) — schedule is the recurring form of
+  // the same action, and arming it commits the deployment to unattended spend.
   const canSchedule = !!viewer && mayIngest({ owner_id: ownerId }, { id: viewer.id, role, permissions })
+  // Cancelling is DELETE .../schedule, which is knowledge:write alone. Someone who
+  // may write this collection but may not spend must still be able to turn off a
+  // schedule that is spending — gating the off switch on ai:generate would be
+  // exactly backwards.
+  const canCancelSchedule = !!viewer && mayWriteCollection({ owner_id: ownerId }, { id: viewer.id, role, permissions })
   const { toast } = useToast()
   const confirm = useConfirm()
   const [state, setState] = useState<ScheduleState | null>(null)
@@ -433,7 +441,7 @@ function SchedulePanel({ name, ownerId }: { name: string; ownerId: string | null
           </div>
         )}
       </div>
-      {canSchedule && (
+      {canCancelSchedule && (
         <Button variant="outline" size="sm" onClick={cancel} disabled={busy}>
           {busy ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5 mr-1.5" />}Cancel schedule</Button>
       )}
@@ -622,8 +630,10 @@ function IngestPanel({ name, ownerId, onChange }: { name: string; ownerId: strin
   const viewer = getUser()
   const { role, permissions } = usePermissions()
   // ingest (paste text) and ingest-source both resolve through
-  // _collection_id(write=True) (knowledge_access.may_write) — same gate,
-  // whichever sub-tab is used, since B1 moved ingest-source off require_admin.
+  // _collection_id(write=True) (knowledge_access.may_write) and both require
+  // knowledge:write + ai:generate — same gate, whichever sub-tab is used, since
+  // B1 moved ingest-source off require_admin and the final-review fix put the
+  // spend permission on it and on schedule, where E1 had already put it on ingest.
   const canIngest = !!viewer && mayIngest({ owner_id: ownerId }, { id: viewer.id, role, permissions })
   const { toast } = useToast()
   const [tab, setTab] = useState<"text" | "source">("text")

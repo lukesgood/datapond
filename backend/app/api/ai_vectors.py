@@ -920,7 +920,8 @@ async def _refresh_from_source(pool, coll_id, src: "SourceIngest") -> dict:
 
 @router.post("/ai/collections/{name}/ingest-source")
 async def ingest_source(name: str, req: SourceIngest,
-                        user: dict = Depends(require_permission_or_internal("knowledge:write"))):
+                        user: dict = Depends(require_permission_or_internal("knowledge:write")),
+                        _spend: dict = Depends(require_permission_or_internal("ai:generate"))):
     """Feed the vector store from a lakehouse/object-store source — the AI data
     pipeline over DataPond's own data (Iceberg table column, or S3 text files).
 
@@ -936,7 +937,19 @@ async def ingest_source(name: str, req: SourceIngest,
     `_collection_id(write=True)` below still enforces that this particular caller
     may write *this* collection — the permission is
     necessary, not sufficient. Re-embedding replaces the source's prior chunks (no
-    duplication)."""
+    duplication).
+
+    `ai:generate` sits beside it for the reason `/ai/collections/{name}/ingest`,
+    `/ai/search`, `/ai/rag` and `/ai/embed` all carry it: this route reaches
+    `_embed` through `_refresh_from_source` → `_ingest_documents` and spends model
+    tokens on an entire S3 prefix or Iceberg column. It is declared as a second
+    parameter dependency rather than a route-level one so it is resolved *after*
+    `knowledge:write` — a caller holding neither should be told about the coarser
+    permission first, which is what tests/test_knowledge_lifecycle_roles.py pins.
+    Both are the `_or_internal` variant: this guard returns the internal principal
+    before it ever touches `require_user`, and a plain `require_permission` here
+    would 401 the allowlisted X-Internal-Key callback before it could identify
+    itself."""
     set_actor(user)
     pool = await get_db_pool()
     async with pool.acquire() as c:
@@ -972,7 +985,8 @@ class ScheduleRequest(BaseModel):
 
 
 @router.post("/ai/collections/{name}/schedule",
-            dependencies=[Depends(require_permission("knowledge:write"))])
+            dependencies=[Depends(require_permission("knowledge:write")),
+                          Depends(require_permission("ai:generate"))])
 async def schedule_ingest(name: str, body: ScheduleRequest, user: dict = Depends(require_user)):
     """Save a recurring re-embed schedule for this collection. Gated on
     `knowledge:write`, same as `ingest-source` above — an `ai_engineer` who may
@@ -981,7 +995,13 @@ async def schedule_ingest(name: str, body: ScheduleRequest, user: dict = Depends
     `require_user` + `require_permission`, not `require_permission_or_internal`,
     whose internal branch would be unreachable here anyway: it isn't on
     `_INTERNAL_AUTOMATION_ROUTES`. The backend in-process scheduler
-    (rag_scheduler) runs due collections — no Airflow."""
+    (rag_scheduler) runs due collections — no Airflow.
+
+    `ai:generate` is required too. Nothing is embedded during this request, which
+    is precisely why it matters: setting `refresh_enabled = true` arms
+    `app/rag_scheduler.py` to re-embed this source on every tick from now on,
+    unattended, and a caller who may not spend a token in the foreground must not
+    be able to commit the deployment to spending them in the background."""
     minutes = _preset_to_minutes(body.schedule, body.interval_minutes)
     pool = await get_db_pool()
     async with pool.acquire() as c:
