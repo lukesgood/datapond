@@ -68,6 +68,12 @@ export default function KnowledgePage() {
   const [egress, setEgress] = useState<string>("")
   const [err, setErr] = useState<string | null>(null)
   const me = getUser()
+  // DELETE /ai/collections/{name} resolves through the same _collection_id(destroy=True)
+  // -> may_write gate as ingest/schedule (B1) — an editor grant deletes too, same as it
+  // always implicitly did for an owner. This used to gate on getUser()'s admin role
+  // plus a hand-rolled owner comparison, sourced from the token in localStorage and
+  // missing the editor-membership case mayIngest already knows about.
+  const { role, permissions } = usePermissions()
   const confirm = useConfirm()
 
   const load = useCallback(async () => {
@@ -175,7 +181,7 @@ export default function KnowledgePage() {
                           ? <Badge variant="outline" className="text-[9px]">other</Badge>
                           : null}
                     </div>
-                    {(me?.role === "admin" || (c.owner_id !== null && me?.id === c.owner_id)) && (
+                    {!!me && mayIngest({ owner_id: c.owner_id }, { id: me.id, role, permissions }) && (
                       <button aria-label={`Delete collection ${c.name}`} onClick={e => { e.stopPropagation(); deleteCol(c.name, load, confirm, toast) }}
                         className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
                     )}

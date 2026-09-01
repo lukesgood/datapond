@@ -13,6 +13,16 @@ export interface AuthUser {
   email: string
   // Seeded roles; see backend/app/permissions.py for what each may do. An unknown
   // string is treated as "viewer" server-side rather than locking the account out.
+  //
+  // Present for display only (Account, the user-management table) — never branch
+  // the console's own access decisions on it. This value lives in localStorage,
+  // the browser's own JWT payload, so it carries no permissions and cannot express
+  // a service account key's narrowed scopes; the API enforces from
+  // GET /api/me/permissions, and lib/permissions.tsx's usePermissions()/
+  // useHasPermission() read that same endpoint so the console can't disagree with
+  // what the server will actually do. See lib/permission-source.test.ts, which
+  // fails any page under app/ that compares this field with ===/!== to decide
+  // what to render.
   role: string
   require_password_change?: boolean
 }

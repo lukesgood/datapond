@@ -25,7 +25,9 @@ import {
 import { getUser } from "@/lib/auth"
 import NextLink from "next/link"
 import { useCapabilityStrict, useCapability, useCapabilities } from "@/lib/capabilities"
-import { usePermissions } from "@/lib/permissions"
+import { usePermissions, useHasPermission } from "@/lib/permissions"
+import { permissionState } from "@/lib/permission-state"
+import { PermissionUnknown } from "@/components/ui/permission-state"
 import { roleOptions } from "@/lib/user-roles"
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -153,21 +155,32 @@ export default function SettingsPage() {
     return () => window.clearTimeout(initial)
   }, [load])
 
-  const [isAdmin] = useState(() => getUser()?.role === "admin")
+  // Settings is platform administration — admin only. Personal credentials
+  // (password, passkeys) live on /account, available to every user. Every tab this
+  // page composes (Users, Security, System, Service accounts) is itself admin-only
+  // on the backend, so this reads the role rather than a fabricated permission name
+  // — sourced from /api/me/permissions rather than the token in localStorage.
+  const { role, loaded, error, refetch } = usePermissions()
+  const isAdmin = role === "admin"
+  const access = permissionState({ loaded, error, allowed: isAdmin })
   const healthCheckedServices = services.filter(s => s.status !== "managed")
   const healthy = healthCheckedServices.filter(s => s.status === "healthy").length
 
-  // Settings is platform administration — admin only. Personal credentials
-  // (password, passkeys) live on /account, available to every user.
-  if (!isAdmin) {
+  if (access !== "allowed") {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 p-16 text-center">
-        <ShieldCheck className="h-6 w-6 text-muted-foreground" />
-        <h2 className="text-lg font-semibold">Admin permission required</h2>
-        <p className="max-w-md text-sm text-muted-foreground">
-          Settings is for platform administration. Manage your own password and passkeys in{" "}
-          <a className="font-medium text-primary hover:underline" href="/account">Account</a>.
-        </p>
+        {access === "unknown" ? (
+          <PermissionUnknown onRetry={refetch} />
+        ) : (
+          <>
+            <ShieldCheck className="h-6 w-6 text-muted-foreground" />
+            <h2 className="text-lg font-semibold">Admin permission required</h2>
+            <p className="max-w-md text-sm text-muted-foreground">
+              Settings is for platform administration. Manage your own password and passkeys in{" "}
+              <a className="font-medium text-primary hover:underline" href="/account">Account</a>.
+            </p>
+          </>
+        )}
       </div>
     )
   }
@@ -491,8 +504,16 @@ function roleTitle(role: string): string {
 }
 
 function UserManagement() {
+  // getUser() stays the identity source here (username, id, for "this row is you"
+  // and the My Profile dialog) — never the access decision. list_users/update_user/
+  // delete_user (backend/app/api/auth.py) are all `require_permission("user:manage")`,
+  // so that is what gates the management UI, sourced from /api/me/permissions like
+  // the parent page's own admin gate rather than the token in localStorage. The
+  // parent SettingsPage already refuses anyone but an admin before this component
+  // ever mounts, so in practice this is always true — it names the actual route
+  // dependency anyway, rather than re-deriving it from role.
   const currentUser = getUser()
-  const isAdmin     = currentUser?.role === "admin"
+  const isAdmin     = useHasPermission("user:manage")
 
   // Server-described roles, not a hard-coded admin/viewer pair — see
   // frontend/lib/user-roles.ts. /api/me/permissions is one fetch shared with the
