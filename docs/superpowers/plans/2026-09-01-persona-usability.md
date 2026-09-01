@@ -472,7 +472,7 @@ Still true after the fix, and out of its scope: `dag_generator._generate_quality
 binds `_not_implemented` and lists the checks as comments, and `/pipelines/deploy`
 refuses with 501. The check reaches the compiled artifact; nothing executes it yet.
 
-### [ ] F2 — `business_analyst` and the Search/Ask tabs
+### [x] F2 — `business_analyst` and the Search/Ask tabs — decided: no change
 
 Not a defect, and already argued in "Out of scope" above: the role has no `ai:generate`
 because unattended spend is the thing it must not incur. C2 and B2 mean that persona
@@ -481,7 +481,31 @@ which is the whole of what this plan owed it. Whether the role should hold the
 permission at all is a product decision about who pays for tokens — it needs an owner,
 not an implementation.
 
-### [ ] F3 — nothing asserts that a route which spends is gated on spending
+**Decided 2026-09-01: `business_analyst` does not get `ai:generate`, and the answer for
+an analyst who needs to ask documents is a different role, not a wider one.**
+
+The argument turns on what the product can and cannot enforce. It attributes spend per
+user, reports it, and raises budget alerts — all after the money is spent. There is no
+per-role or per-user cap that refuses a request at the gateway. Granting the permission
+to the broadest non-viewer role therefore hands unattended spend to the largest group of
+accounts in a typical deployment, with detection rather than prevention behind it.
+
+The escape hatch already exists and, as of this run, is actually reachable:
+`data_scientist` holds `catalog:read`, `knowledge:read`, `knowledge:write`, `query:run`,
+`ai:generate`, `dashboard:write`, `connector:read` and the workbench pair — an analyst
+who must ask questions of documents is given that role instead. Until A1 landed, an
+administrator could not assign it at all (the console offered `admin` and `viewer`),
+which is a large part of why this looked like a matrix problem rather than an
+assignment problem. A2 then made the difference visible at the moment of choosing: the
+role picker lists each role's permissions, so `ai:generate` is the line that separates
+the two.
+
+Revisit this if a per-user spend cap that refuses at the gateway is ever implemented —
+at that point the objection above is gone, and granting the permission becomes cheap to
+reverse. Recorded here rather than closed silently, because "no change" is a decision
+and the next person deserves the reasoning rather than the absence of a task.
+
+### [x] F3 — nothing asserts that a route which spends is gated on spending
 
 The final review of this run turned on one question — which routes reach `_embed` — and
 the answer was found by reading, not by a test. `tests/test_security_boundaries.py`
@@ -500,3 +524,20 @@ spend functions and drives each route, both have precedent in this repo.
 
 Filed by the re-review of the final fix wave, which judged it a coverage gap rather
 than a live defect: every spend route carries the permission today.
+
+**Done** — commit `5d09bef`, `backend/tests/test_spend_routes_declare_ai_generate.py`.
+It seeds on the three gateway endpoints that bill (`/v1/embeddings`, `/v1/rerank`,
+`/v1/chat/completions`), walks the call graph backwards across modules, and requires
+every route whose handler reaches one to declare `ai:generate`. Two guard tests keep it
+from passing vacuously.
+
+It found two routes on its first run, and the first was a live hole of the same shape as
+the one that prompted this item: `POST /connectors/sample-db/activate` required
+`connector:write` and embedded the entire sample corpus into Knowledge collections — a
+`data_engineer` holds that permission and not `ai:generate`, and the spend is two calls
+away through an in-process handler call, which is why nobody had connected the two.
+`POST /settings/ai/backends/{model_name}/test` sends a real completion under
+`require_admin`, which already implies the permission; it now says so.
+
+Its blind spots are in the module docstring: a call through a variable, a registry
+lookup, `getattr`, or a task with no direct call edge.
