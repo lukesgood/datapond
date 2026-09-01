@@ -466,3 +466,23 @@ now gets an honest "your role does not include ai:generate" instead of a dead co
 which is the whole of what this plan owed it. Whether the role should hold the
 permission at all is a product decision about who pays for tokens — it needs an owner,
 not an implementation.
+
+### [ ] F3 — nothing asserts that a route which spends is gated on spending
+
+The final review of this run turned on one question — which routes reach `_embed` — and
+the answer was found by reading, not by a test. `tests/test_security_boundaries.py`
+pins `/ai/search`, `/ai/rag` and `/ai/embed` by name, and `tests/test_rag_ingest.py`
+now pins the three ingest routes the same way. A fourth path to `_embed`, or to the
+LiteLLM chat call, carries no permission until someone notices — which is exactly how
+`ingest-source` and `schedule` shipped this run requiring `knowledge:write` and nothing
+else, six commits after the sibling route was fixed for that precise reason.
+
+The property is structural and testable the way `tests/test_route_uniqueness.py` and
+`test_every_permission_marked_write_shaped_reaches_require_user` already are: walk
+`main.app.routes`, find every handler whose call graph reaches `_embed`, `_rerank` or
+the chat completion, and assert each declares `ai:generate`. The call-graph half is the
+work — an import-time walk of the module's AST, or a runtime probe that patches the
+spend functions and drives each route, both have precedent in this repo.
+
+Filed by the re-review of the final fix wave, which judged it a coverage gap rather
+than a live defect: every spend route carries the permission today.
