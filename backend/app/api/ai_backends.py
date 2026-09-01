@@ -332,7 +332,12 @@ async def _provider_of_registered_model(url: str, key: str, model_name: str) -> 
     return None
 
 
-@router.post("/settings/ai/backends/{model_name}/test", dependencies=[Depends(require_admin)])
+# The completion this sends is billed like any other. require_admin already implies
+# the permission — admin holds every one — so this changes nothing about who may call
+# it; it makes the route say what it does, which is what the spend walker checks.
+@router.post("/settings/ai/backends/{model_name}/test",
+             dependencies=[Depends(require_admin),
+                           Depends(require_permission("ai:generate"))])
 async def test_backend(model_name: str):
     """Send a tiny completion through the gateway to verify a backend works."""
     url, key = _gateway()

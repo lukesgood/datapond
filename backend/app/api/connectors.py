@@ -888,8 +888,13 @@ async def create_sample_db():
         raise HTTPException(status_code=500, detail=f"Failed to create sample DB: {str(e)}")
 
 
+# ai:generate as well as connector:write: this route ingests the sample corpus into
+# Knowledge collections, which embeds it — see the knowledge step at the end of the
+# handler. Found by tests/test_spend_routes_declare_ai_generate.py, which walks the
+# call graph rather than trusting a list of routes someone remembered to update.
 @router.post("/connectors/sample-db/activate",
-             dependencies=[Depends(require_permission("connector:write"))])
+             dependencies=[Depends(require_permission("connector:write")),
+                           Depends(require_permission("ai:generate"))])
 async def activate_sample_db(user: dict = Depends(require_user)):
     """Make the seeded data visible: catalog, relationship graph, Knowledge.
 
