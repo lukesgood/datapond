@@ -48,6 +48,7 @@ import {
 } from "lucide-react"
 import { PIPELINE_TEMPLATES, PipelineTemplate } from "@/components/pipelines/pipeline-templates"
 import { pipelineValidationNotice } from "@/lib/pipeline-validation-notes"
+import { qualityDecorator } from "@/lib/pipeline-quality"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -337,15 +338,15 @@ function generateCode(nodes: Node<NodeData>[], edges: Edge[], pipeline: Pipeline
     if (d.partitionBy)  lines.push(`    partition_by=["${d.partitionBy}"],`)
     if (d.description)  lines.push(`    description="${d.description}",`)
     lines.push(`)`)
+    // Directly under @live_table and directly above the def: decorators apply
+    // bottom-up, so this is what puts the check on the table rather than on a
+    // function nothing reads. See frontend/lib/pipeline-quality.ts.
+    const silverQuality = qualityDecorator(d.name, d.qualityCheck)
+    if (silverQuality) lines.push(silverQuality)
     lines.push(`def ${d.name}():`)
     lines.push(`    return """`)
     d.sql.split("\n").forEach((l) => lines.push(`    ${l}`))
     lines.push(`    """`)
-    if (d.qualityCheck.trim()) {
-      lines.push(``)
-      lines.push(`@quality(table="${d.name}")`)
-      lines.push(`def check_${d.name}(): return "${d.qualityCheck.replace(/"/g, '\\"')}"`)
-    }
   }
 
   lines.push(``, `# ── Gold Layer (Aggregate & Serve) ──────────────────────────`)

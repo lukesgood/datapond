@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import { qualityDecorator } from "@/lib/pipeline-quality"
 import {
   CheckCircle2, XCircle, Loader2, AlertCircle,
   Code2, Play, Rocket, ChevronRight, Wand2,
@@ -112,22 +113,20 @@ function generateCode(w: WizardState): string {
 
   for (const tr of w.transforms) {
     const deps = tr.dependsOn ? `["${tr.dependsOn}"]` : "[]"
+    // The quality decorator goes between @live_table and the def — bottom-up
+    // application is what attaches the check to this table. See
+    // frontend/lib/pipeline-quality.ts for what the old separate check_* function
+    // did instead, which was nothing.
+    const quality = qualityDecorator(tr.name, tr.qualityCheck)
     lines.push(
       ``,
       `@live_table(mode="${tr.mode}", depends_on=${deps})`,
+      ...(quality ? [quality] : []),
       `def ${tr.name}():`,
       `    return """`,
       ...tr.sql.split("\n").map(l => `    ${l}`),
       `    """`,
     )
-    if (tr.qualityCheck.trim()) {
-      lines.push(
-        ``,
-        `@quality(table="${tr.name}")`,
-        `def check_${tr.name}():`,
-        `    return "${tr.qualityCheck.replace(/"/g, '\\"')}"`,
-      )
-    }
   }
 
   return lines.join("\n")
