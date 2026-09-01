@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react"
 import { getToken } from "@/lib/auth"
 
 /** One role the caller could be given, as served by GET /api/me/permissions'
@@ -20,26 +20,38 @@ type PermissionState = {
   role: string
   permissions: Set<string>
   loaded: boolean
+  /** True once a fetch of /api/me/permissions has come back failed — a bad status or
+   *  a network error, as opposed to simply not having answered yet. `loaded` stays
+   *  false in both cases (fail-closed: a gated control stays hidden either way), so
+   *  this is the only thing that lets a caller tell "we asked and you may not" from
+   *  "we could not ask" — see lib/permission-state.ts's permissionState, which is
+   *  the rule that reads this field. */
+  error: boolean
   /** Every role the console may offer for someone else — same response, same fetch,
    *  so the settings page's role picker and this sidebar gate can never disagree
    *  about what the server currently accepts. */
   assignableRoles: AssignableRole[]
 }
 
-const PermissionContext = createContext<PermissionState>({
+const INITIAL_STATE: PermissionState = {
   role: "viewer",
   permissions: new Set(),
   loaded: false,
+  error: false,
   assignableRoles: [],
+}
+
+const PermissionContext = createContext<PermissionState & { refetch: () => void }>({
+  ...INITIAL_STATE,
+  refetch: () => {},
 })
 
 export function PermissionProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<PermissionState>({
-    role: "viewer",
-    permissions: new Set(),
-    loaded: false,
-    assignableRoles: [],
-  })
+  const [state, setState] = useState<PermissionState>(INITIAL_STATE)
+  // Bumping this re-runs the effect below with the same token, so the "could not
+  // check your permissions" state (components/ui/permission-state.tsx) has
+  // something to retry into rather than a dead button.
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -53,24 +65,30 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
     // could only ever set what was already there.
     if (!getToken()) return
     fetch("/api/me/permissions")
-      .then(r => (r.ok ? r.json() : null))
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(d => {
-        if (cancelled || !d) return
+        if (cancelled) return
         setState({
           role: d.role,
           permissions: new Set<string>(d.permissions),
           loaded: true,
+          error: false,
           assignableRoles: Array.isArray(d.assignable_roles) ? d.assignable_roles : [],
         })
       })
       .catch(() => {
+        if (cancelled) return
         // Leave `loaded` false so gated items stay hidden — the same fail-closed
-        // posture the capability gate uses when its fetch fails.
+        // posture the capability gate uses when its fetch fails. `error` is the new
+        // part: it is what lets the UI say "we could not ask" instead of nothing.
+        setState(s => ({ ...s, loaded: false, error: true }))
       })
     return () => { cancelled = true }
-  }, [])
+  }, [attempt])
 
-  return <PermissionContext.Provider value={state}>{children}</PermissionContext.Provider>
+  const refetch = useCallback(() => setAttempt(a => a + 1), [])
+
+  return <PermissionContext.Provider value={{ ...state, refetch }}>{children}</PermissionContext.Provider>
 }
 
 export function usePermissions() {
