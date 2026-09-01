@@ -35,26 +35,28 @@ allow, and the API must allow what the role matrix promises.*
 
 ## Where the audit stands today
 
-Checked against the code on 2026-09-01. This is half the deliverable: most of what the
-audit found has been closed since it was written, and a plan that re-litigated those
-would waste the reader's time.
+Checked against the code on 2026-09-01, and re-checked after the run finished. This is
+half the deliverable: most of what the audit found had been closed before this plan was
+written, and a plan that re-litigated those would waste the reader's time. The rows this
+run closed name the task and the commit; the remaining "Deferred" row is the only one
+still open, and it is out of scope by design (see below).
 
 | Audit finding | Status | Evidence |
 |---|---|---|
 | P0-1 `viewer` runs arbitrary SQL — `query:run` not split | **Closed** | `/queries/execute` requires `query:run`; `app/sql_kind.py` classifies the statement and a write needs `query:write` (`queries.py:196,231`) |
 | P0-3 optional workload mutation with no role check | **Closed** | notebooks 13/13, streaming 11/11, airflow 7/7, transforms and pipelines all carry `require_permission`; the two ungated MLflow routes are `require_admin` |
-| P0-4 Search/RAG spend without `ai:generate` | **Closed** | `/ai/search`, `/ai/rag`, `/ai/embed` all gated (`ai_vectors.py:1244,1264,343`) — except inline ingest, see Task 6 |
+| P0-4 Search/RAG spend without `ai:generate` | **Closed** | `/ai/search`, `/ai/rag`, `/ai/embed` were already gated; E1 (`b36ea36`) added `ai:generate` to `POST …/ingest`, and the final-review fix (`1ed0c71`) added it to `ingest-source` and `schedule` — every path that reaches `_embed`, or arms `rag_scheduler` to reach it, now carries it |
 | P0-5 admin service-account key passes `require_admin` | **Closed** | `require_admin` refuses a service identity; `user:manage` / `settings:write` gate their own routes; creating an admin service account is refused |
 | P1-1 auditor's and ai_engineer's declared reads are admin-only | **Closed** | read-only governance and audit routes check the permission; `/audit/export` is `audit:read`; spend routes are `spend:read` and a service account's usage is owner-or-admin |
 | Audit log is not append-only, no retention, no SIEM export (§4.5-1) | **Closed** | migration 0005 (trigger + sanctioned prune), `app/audit_retention.py`, `GET /audit/export` |
 | Knowledge sharing is owner-or-world, no named people (§4.1) | **Closed** | `ai_collection_members` (0003) + `app/knowledge_access.py` + the Members tab |
 | Connectors and transforms have no owner (§6-3) | **Closed** | 0006 + `app/api/source_access.py` + the Access panel |
 | `roles` table empty on a migrations-built database | **Closed** | migration 0007 seeds it; `PATCH /auth/users/{id}` can now actually populate `user_roles` |
-| **P1-4 the console can only assign `admin` or `viewer`** | **Open** | `frontend/app/settings/page.tsx:477,493,805` — five of seven roles cannot be given to anyone |
-| **P1-2 `ai_engineer` cannot ingest a source or schedule freshness** | **Open** | `ingest_source` is `require_admin_or_internal`, `schedule_ingest` is `require_admin` (`ai_vectors.py:920,962`) |
-| **P1-4 page actions ignore the caller's permissions** | **Open** | eight pages branch on `getUser()?.role` from the token; `useHasPermission` is used in seven files and not on the pages that mutate |
-| **P0-2 residual: the compiler imports submitted Python** | **Open** | `pipeline:write` now gates it, but `app/pipelines/compiler.py:134` still runs `spec.loader.exec_module` in the backend process |
-| **P2 duplicate `POST /mlflow/experiments`** | **Open** | declared at `mlflow_integration.py:251` and again at `:904`; the second is unreachable |
+| P1-4 the console can only assign `admin` or `viewer` | **Closed** (A1, A2) | `frontend/lib/user-roles.ts` renders one option per `assignable_roles`, fed from `/api/me/permissions` through `PermissionState.assignableRoles`; the response now carries `name`/`label`/permissions per role (`55685dc`, `30981f1`, `f5ace13`) |
+| P1-2 `ai_engineer` cannot ingest a source or schedule freshness | **Closed** (B1, B2) | both routes are `knowledge:write` + `ai:generate` + `_collection_id(write=True)`, and the X-Internal-Key callback still reaches `ingest-source` (`8b3b6d4`, `1ed0c71`); the console's Ingest/Schedule tabs read the same decision from `frontend/lib/knowledge-actions.ts` (`bf0e74f`) |
+| P1-4 page actions ignore the caller's permissions | **Closed** (C1, C2) | no file under `app/` branches on `getUser()?.role` any more, and `frontend/lib/permission-source.test.ts` walks the directory so a ninth page cannot quietly join them; "you may not" and "we could not ask" are now distinct states (`f143a06`, `dbf7178`) |
+| P0-2 residual: the compiler imports submitted Python | **Closed** (D1) | `spec.loader.exec_module` is gone; `app/pipelines/ast_reader.py` reads the declaration and `tests/test_pipeline_compiler_safety.py` keeps the marker-file reproduction as a test (`700d05e`, `6eaaa94`) |
+| P2 duplicate `POST /mlflow/experiments` | **Closed** (D2) | the second declaration is deleted and `tests/test_route_uniqueness.py` now asserts the whole-application property across every router (`53dfe39`) |
 | RAG quality — PDF/DOCX, semantic chunking, hybrid retrieval, citation validation (§4.1, §6-5) | **Deferred** | its own plan; weeks of work and it needs real documents to evaluate against |
 
 ## Out of scope, and why
@@ -80,7 +82,7 @@ would waste the reader's time.
 
 ## A. The roles have to be reachable
 
-### [ ] A1 — the console can assign every role the API accepts
+### [x] A1 — the console can assign every role the API accepts
 
 `app/permissions.py` defines seven roles and `PATCH /auth/users/{id}` accepts all of
 them. The console offers two. So `data_engineer`, `ai_engineer`, `data_scientist`,
@@ -126,7 +128,7 @@ Steps:
 
 Commit: `feat(settings): a person can be given any role the product defines`
 
-### [ ] A2 — the role list comes from the server, and says what each role can do
+### [x] A2 — the role list comes from the server, and says what each role can do
 
 An administrator choosing between `data_scientist` and `ai_engineer` from two words is
 guessing. `/api/me/permissions` returns `assignable_roles` as bare strings today.
@@ -154,7 +156,7 @@ Commit: `feat(auth): the role picker can say what each role is for`
 
 ## B. The AI engineer's own loop
 
-### [ ] B1 — ingesting a source and scheduling it are `knowledge:write`, not admin
+### [x] B1 — ingesting a source and scheduling it are `knowledge:write`, not admin
 
 `ai_engineer` is, in the product's own words, the target user. It holds
 `knowledge:write` and `ai:generate`, can create a collection, ingest text into it,
@@ -196,7 +198,7 @@ Steps:
 
 Commit: `feat(knowledge): the role that builds collections can also feed them`
 
-### [ ] B2 — the Ingest tab stops offering what the caller cannot do
+### [x] B2 — the Ingest tab stops offering what the caller cannot do
 
 With B1 landed the API allows it; the console still decides what to show from
 `getUser()?.role`. A `viewer` is offered an Ingest tab whose every button 403s, and an
@@ -229,7 +231,7 @@ Commit: `feat(knowledge): the tabs match what this person may actually do`
 
 ## C. The console tells the truth
 
-### [ ] C1 — one source of what the caller may do
+### [x] C1 — one source of what the caller may do
 
 Eight pages read `getUser()?.role` out of the token in `localStorage`. That is a value
 the browser owns, it carries a role and no permissions, and it cannot express a service
@@ -257,7 +259,7 @@ Steps:
 
 Commit: `fix(ui): what you may do comes from the server, not from your token`
 
-### [ ] C2 — a refusal reads as a refusal
+### [x] C2 — a refusal reads as a refusal
 
 `usePermissions()` leaves `loaded` false when its fetch fails, and gated items stay
 hidden — correct, and indistinguishable from "you do not have this". A person who
@@ -287,7 +289,7 @@ Commit: `feat(ui): "you may not" and "we could not ask" stop looking the same`
 
 ## D. Remove what cannot be made safe
 
-### [ ] D1 — the pipeline compiler stops importing what it was sent
+### [x] D1 — the pipeline compiler stops importing what it was sent
 
 `/pipelines/validate` and `/pipelines/compile` now require `pipeline:write`, which
 closed the audit's "every authenticated role" finding. What is left is narrower and
@@ -324,7 +326,7 @@ Steps:
 
 Commit: `fix(pipelines): validating a pipeline stops running it`
 
-### [ ] D2 — one route, one declaration
+### [x] D2 — one route, one declaration
 
 `POST /mlflow/experiments` is declared twice (`mlflow_integration.py:251` and `:904`).
 FastAPI serves the first; the second is dead code that a reader will nonetheless edit.
@@ -350,7 +352,7 @@ Commit: `fix(mlflow): the same route was declared twice`
 
 ## E. Small, and paid for by the same reasoning
 
-### [ ] E1 — inline ingest spends model tokens under a spending permission
+### [x] E1 — inline ingest spends model tokens under a spending permission
 
 `POST /ai/collections/{name}/ingest` requires `knowledge:write` and calls `_embed`,
 which spends. Search, RAG and embed all carry `ai:generate`; this one path does not, so
@@ -384,3 +386,83 @@ batch.
 Then re-check this plan's own status table against the code and update
 `docs/PERSONA_WORKFLOW_AUDIT.md` §5 with what is closed — an audit whose findings are
 fixed but still written as open is a document that costs its next reader an afternoon.
+
+### What the finish pass actually found
+
+Eleven commits (`8ac7d5d..53dfe39`) implemented the nine tasks. The review over the
+branch then found six things, and the prediction above held: the two that mattered
+crossed task boundaries rather than living inside one.
+
+- **The spend permission stopped one route short.** E1 added `ai:generate` to
+  `POST …/ingest` because it embeds. B1 had already moved `ingest-source` and
+  `schedule` from `require_admin*` to `knowledge:write`, and E1 did not come back to
+  them — so B1 opened the door and E1 closed only one of the three behind it. Worse
+  for `schedule`, which spends nothing during the request and instead arms
+  `rag_scheduler` to spend on every tick, unattended. Fixed in `1ed0c71`, with the
+  console's `mayIngest` split against a new `mayWriteCollection` so that the controls
+  that embed nothing — delete a collection, cancel a schedule — do not inherit a
+  spending permission they never needed.
+- **A red test reported as environmental.** C1 replaced the exact line
+  `test_operational_flows.py` pinned by string, and the failure was written off as
+  local environment noise. It was this branch. Fixed in `bcf461f`.
+- **The two permission guards were verbatim copies.** `require_permission_or_internal`
+  duplicated the whole of `require_permission` — audit records, refusal wording and
+  all — for the sake of three lines of difference. Extracted in `c4eae96`.
+
+## Follow-ups filed by this run
+
+Found while working, real, and out of this plan's scope. Recorded here rather than
+fixed, because neither belongs to a persona-usability task and neither should be
+discovered a third time.
+
+### [ ] F1 — quality checks configured in the pipeline builder have never reached a pipeline
+
+Both pipeline builders in the console emit a decorator the DSL does not define:
+
+```python
+@quality(table="bronze_orders")
+def check_bronze_orders(): return "id IS NOT NULL"
+```
+
+— `frontend/app/pipelines/new/page.tsx:346` and
+`frontend/components/pipelines/create-pipeline-modal.tsx:126`. But
+`backend/app/pipelines/decorators.py:270` defines `quality` as a *namespace class*
+whose members are `quality.expect(name, condition)`, `quality.expect_or_drop(...)` and
+so on, applied **below** `@live_table` on the same function. There is no `quality(...)`
+call form and no `table=` keyword anywhere in the DSL. So every quality check a user
+configures in the builder is dropped, and the compiled pipeline's
+`table_def.quality_checks` is empty.
+
+This is pre-existing — it predates this plan — but D1 changed how it fails, which is
+why it is worth writing down now. When the compiler imported the submitted module,
+`quality(table=...)` raised `TypeError: quality() takes no arguments` and validation
+failed loudly. Since D1 the source is parsed rather than executed, so
+`app/pipelines/ast_reader.py` records a note — *"'@quality' on 'check_x' is not a
+DataPond pipeline decorator and was ignored"* — and validation succeeds. A user who
+adds a quality check now gets a green validation and no quality check. Reproduced on
+2026-09-01 against `read_pipeline_source`: one table, zero `quality_checks`, one note.
+
+Whoever picks this up has to decide which side is wrong before writing anything:
+
+- If the builder is wrong, it should emit the decorator the DSL actually has —
+  `@live_table(...)` above `@quality.expect("name", "condition")` on the same function
+  — and `ast_reader` should read `quality.expect` attribute calls into
+  `table_def.quality_checks`.
+- If the DSL is wrong, `quality(table=...)` should become a real decorator form and
+  the namespace class keeps working alongside it.
+
+Either way the acceptance is the same: a check configured in the builder appears in the
+compiled pipeline's `quality_checks`, with a test that fails if it does not — and the
+`ast_reader` note stops being the only thing standing between a user and a silently
+dropped rule. Consider also whether an ignored-decorator note should be surfaced in the
+validation response the Pipelines page renders, rather than only in the compiler's
+notes: a warning nobody sees is the mechanism that let this survive.
+
+### [ ] F2 — `business_analyst` and the Search/Ask tabs
+
+Not a defect, and already argued in "Out of scope" above: the role has no `ai:generate`
+because unattended spend is the thing it must not incur. C2 and B2 mean that persona
+now gets an honest "your role does not include ai:generate" instead of a dead control,
+which is the whole of what this plan owed it. Whether the role should hold the
+permission at all is a product decision about who pays for tokens — it needs an owner,
+not an implementation.

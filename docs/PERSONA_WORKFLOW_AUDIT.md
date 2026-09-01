@@ -110,6 +110,12 @@ DataPond에는 7개 역할과 역할별 permission matrix가 존재하며, Knowl
 
 ## 5. 우선순위별 발견 사항
 
+> **읽는 법 (2026-09-01 추가).** 아래 발견 사항의 본문·판단·근거는 감사 시점(2026-08-25)
+> 그대로 두고, 각 항목 끝에 **상태** 문단만 덧붙였다. 감사가 무엇을 보고 무엇을 근거로
+> 그렇게 판정했는지는 기록이므로 고쳐 쓰지 않는다. 상태 문단은 그 판정이 지금 코드에서
+> 어떻게 되었는지, 무엇이 닫았는지(commit 또는 파일)를 말한다. 계획과 작업 단위는
+> `docs/superpowers/plans/2026-09-01-persona-usability.md`에 있다.
+
 ### P0-1. viewer read-only를 깨는 임의 SQL 실행
 
 - `backend/app/permissions.py:76-78`은 viewer에게 `query:run`을 주면서 write permission은 주지 않는다.
@@ -120,6 +126,8 @@ DataPond에는 7개 역할과 역할별 permission matrix가 존재하며, Knowl
 
 **영향:** engine/IAM이 허용하는 경우 viewer, auditor, analyst가 INSERT/UPDATE/DELETE/DDL을 실행할 수 있다. `query:run`을 최소 `query:select`와 별도 write/admin permission으로 분리하고 AST 기반 single-statement SELECT allowlist를 적용해야 한다.
 
+**상태 (2026-09-01): 해소.** `/queries/execute`는 `query:run`을 요구하고, `backend/app/sql_kind.py`가 statement를 분류해 write는 `query:write`를 추가로 요구한다(`backend/app/api/queries.py:196,231`). 엔진/IAM credential을 read/write로 분리하는 나머지 절반은 커넥터 credential 작업으로 이관됐다 — `docs/superpowers/plans/2026-09-01-persona-usability.md`의 "Out of scope, and why" 참고.
+
 ### P0-2. Pipeline validate/compile을 통한 인증 사용자 임의 backend Python 실행
 
 - `/pipelines/validate`와 `/pipelines/compile`은 요청의 Python code를 임시 파일로 저장해 `PipelineCompiler`에 넘긴다(`backend/app/api/pipelines.py:137-236`).
@@ -128,6 +136,10 @@ DataPond에는 7개 역할과 역할별 permission matrix가 존재하며, Knowl
 - 안전한 임시 marker smoke test에서 `top_level_code_executed=True`가 재현됐다. pipeline 정의가 유효하지 않아 `validation_success=False`여도 code는 이미 실행됐다.
 
 **영향:** viewer, auditor, business analyst 등 모든 인증 역할이 backend pod의 파일·네트워크·credential 권한으로 Python을 실행할 수 있다. Pipeline API를 즉시 비활성화하거나 admin/data_engineer permission 및 capability 뒤로 이동하는 것만으로는 충분하지 않으며, 제출 코드를 backend에서 import하지 않는 안전한 parser/sandbox 구조로 교체해야 한다.
+
+**상태 (2026-09-01): 해소.** 두 단계로 닫혔다. route는 `pipeline:write`로 게이트됐고, 이번 실행의 D1(`700d05e`)이 `spec.loader.exec_module`을 제거해 `backend/app/pipelines/ast_reader.py`의 AST 읽기로 대체했다 — 제출된 코드는 더 이상 backend 프로세스에서 실행되지 않는다. 이 항목의 marker smoke test는 `backend/tests/test_pipeline_compiler_safety.py`에 회귀 테스트로 남아 있다.
+
+**파생 결함 (미해소):** 실행이 사라지면서 실패 방식이 바뀌었다. builder가 생성하는 `@quality(table="…")`는 DSL에 없는 호출 형식이라 예전에는 import 시 `TypeError`로 시끄럽게 실패했지만, 지금은 ast_reader가 note 하나를 남기고 validation은 성공한다 — quality check가 조용히 사라진다. 기존 결함이며 이번 계획의 범위 밖이라 `docs/superpowers/plans/2026-09-01-persona-usability.md`의 "Follow-ups filed by this run" F1로 등록했다.
 
 ### P0-3. optional workload mutation이 인증만으로 실행됨
 
@@ -139,6 +151,8 @@ DataPond에는 7개 역할과 역할별 permission matrix가 존재하며, Knowl
 
 **영향:** 해당 capability가 활성화된 프로필에서 viewer를 포함한 인증 사용자가 workload와 데이터를 변경할 수 있다. 모든 side-effect route를 중앙 action inventory에 등록하고 API dependency로 강제해야 한다.
 
+**상태 (2026-09-01): 해소.** notebooks 13/13, streaming 11/11, airflow 7/7, transforms·pipelines 전 route가 `require_permission`을 갖고, 게이트가 없던 MLflow 두 route는 `require_admin`이다. 중앙 inventory는 하드코딩된 목록이 아니라 애플리케이션 자신의 dependency graph에서 읽는다 — `backend/tests/test_route_authorization_inventory.py`.
+
 ### P0-4. `ai:generate` 비용 경계 우회
 
 - `backend/app/permissions.py:33-35`는 model token을 쓰는 모든 action을 `ai:generate`로 정의한다.
@@ -147,6 +161,8 @@ DataPond에는 7개 역할과 역할별 permission matrix가 존재하며, Knowl
 - RAG는 retrieval과 chat completion을 호출하지만 permission이 없다(`backend/app/api/ai_vectors.py:720-784`).
 
 **영향:** viewer, data_engineer, business_analyst, auditor가 허용 collection에서 비용을 발생시킬 수 있다. 비용 호출 전에 403이 발생하고 `_embed`, rerank, chat HTTP가 한 번도 호출되지 않았음을 테스트해야 한다.
+
+**상태 (2026-09-01): 해소.** `/ai/search`, `/ai/rag`, `/ai/embed`에 이어 inline ingest(E1, `b36ea36`), 그리고 `ingest-source`와 `schedule`(`1ed0c71`)까지 `ai:generate`를 요구한다. `schedule`은 요청 중에는 아무것도 embed하지 않지만 `refresh_enabled = true`로 `app/rag_scheduler.py`가 tick마다 무인 재임베딩하도록 무장시키므로 동일하게 게이트했다. 이 항목이 요구한 테스트 형태 — 호출되면 테스트를 실패시키는 가짜 `_embed` — 그대로 `backend/tests/test_rag_ingest.py`에 있다.
 
 ### P0-5. admin-role service account의 scope 우회
 
@@ -157,6 +173,8 @@ DataPond에는 7개 역할과 역할별 permission matrix가 존재하며, Knowl
 
 **영향:** 제한 scope 또는 empty scope의 admin-role key가 user/settings/storage/services/governance 등 `require_admin` route를 통과할 수 있다. service account 생성 시 admin을 서버에서 거부하고, 사람 전용 dependency 또는 effective-permission 기반 dependency로 통일해야 한다.
 
+**상태 (2026-09-01): 해소.** `require_admin`이 `auth_method == "service"` credential을 먼저 거부한다(`backend/app/api/auth.py`). admin service account 생성은 서버에서 거부되고, `user:manage`/`settings:write`는 각자의 route를 게이트한다.
+
 ### P1-1. 선언된 read permission과 admin-only endpoint 충돌
 
 - `auditor`: governance/audit/spend read, `ai_engineer`: spend read가 선언되어 있다.
@@ -165,6 +183,8 @@ DataPond에는 7개 역할과 역할별 permission matrix가 존재하며, Knowl
 
 **개선:** 민감 필드 redaction 범위를 정한 뒤 read endpoint에 `governance:read`, `audit:read`, `spend:read`를 각각 적용하고 write는 별도 permission으로 유지한다.
 
+**상태 (2026-09-01): 해소.** read-only governance/audit route가 각 permission을 확인하고, `/audit/export`는 `audit:read`, spend route는 `spend:read`이며 service account의 usage는 owner-or-admin이다.
+
 ### P1-2. AI engineer의 Knowledge lifecycle 단절
 
 - AI engineer는 `knowledge:write`와 `ai:generate`를 갖지만 S3/Iceberg source ingest와 schedule create는 admin-only다.
@@ -172,11 +192,15 @@ DataPond에는 7개 역할과 역할별 permission matrix가 존재하며, Knowl
 
 **개선:** owner + `knowledge:write` + 필요한 `ai:generate`를 조합하고, automation principal은 별도의 exact-route scope로 유지한다.
 
+**상태 (2026-09-01): 해소 — 이 항목의 개선안 문장 그대로.** B1(`8b3b6d4`)이 `ingest-source`/`schedule`을 `knowledge:write` + `_collection_id(write=True)`로 옮겼고, 최종 리뷰 수정(`1ed0c71`)이 여기에 `ai:generate`를 더했다. automation principal은 `_INTERNAL_AUTOMATION_ROUTES`의 exact-route scope로 남아 있으며, `require_permission_or_internal`이 user 해석 이전에 그 분기를 처리한다. 반대편(ownership만 보던 inline ingest/schedule delete)도 같은 조합으로 정리됐다. 콘솔 쪽은 B2(`bf0e74f`) + `frontend/lib/knowledge-actions.ts`.
+
 ### P1-3. permission vocabulary가 optional 업무를 표현하지 못함
 
 Notebook, experiment/run, model registry, pipeline read/operate, query statement class가 분리되어 있지 않다. 현재 permission만으로 data scientist, operator, viewer의 차이를 API에서 표현할 수 없다.
 
 **개선 예시:** `query:select`, `query:write`, `pipeline:read`, `pipeline:operate`, `notebook:read`, `notebook:write`, `experiment:read`, `experiment:write`, `model:promote`. 실제 제품 정책을 먼저 확정한 뒤 최소 vocabulary로 적용한다.
+
+**상태 (2026-09-01): 부분 해소, 나머지는 열려 있음.** query statement class는 분리됐다(`query:run` + `query:write`). notebook/experiment/model/pipeline read-vs-operate 구분은 여전히 없다 — 이 항목이 스스로 말하듯 제품 정책 결정이 먼저이고, 강제할 route 없이 permission 이름만 추가하는 것은 `app/permissions.py`가 금지하는 일이다.
 
 ### P1-4. 프론트 역할 UX 불일치
 
@@ -188,6 +212,8 @@ Notebook, experiment/run, model registry, pipeline read/operate, query statement
 
 **개선:** API가 최종 강제한 뒤, 동일 permission source로 버튼·탭·empty/403 state를 제어한다. 사용자 역할 select는 `/api/me/permissions.assignable_roles` 또는 admin 전용 roles endpoint를 사용한다.
 
+**상태 (2026-09-01): 해소.** 역할 select는 `/api/me/permissions`의 `assignable_roles`에서 옵션을 만들고 각 역할이 무엇을 할 수 있는지 함께 보여준다(A1/A2 — `55685dc`, `30981f1`). `app/` 아래 어떤 파일도 `getUser()?.role`로 분기하지 않으며, 이 규칙 자체를 `frontend/lib/permission-source.test.ts`가 디렉터리 전체를 걸어 다니며 강제한다(C1 — `f143a06`). "권한 없음"과 "권한을 확인하지 못함"은 이제 다른 상태로 렌더링된다(C2 — `dbf7178`).
+
 ### P2. 테스트와 진단 공백
 
 - 세분화 `require_permission` 사용은 4개 API 파일의 15개 route에만 존재한다.
@@ -195,6 +221,8 @@ Notebook, experiment/run, model registry, pipeline read/operate, query statement
 - Frontend에는 test script와 `*.test.*`/`*.spec.*`가 없다.
 - permission fetch 실패는 권한 없음과 구분되는 오류/retry 상태가 없다.
 - 동일한 `POST /mlflow/experiments` route가 두 번 선언되어 있다.
+
+**상태 (2026-09-01): 해소.** `require_permission`은 side-effect route 전반으로 확산됐고, `backend/tests/test_route_authorization_inventory.py`가 애플리케이션의 dependency graph에서 전체 route inventory를 검사한다. Frontend에는 `npm test`(node:test)와 `lib/*.test.ts`가 있으며 그중 `permission-source.test.ts`는 페이지 하나가 아니라 `app/` 전체를 검사한다. permission fetch 실패는 C2에서 별도 상태·retry가 됐다(`dbf7178`). 중복 `POST /mlflow/experiments`는 삭제됐고, 같은 (method, path)가 두 번 선언되지 않는다는 애플리케이션 전체 속성을 `backend/tests/test_route_uniqueness.py`가 고정한다(D2 — `53dfe39`).
 
 ## 6. 확인된 양호 항목
 
