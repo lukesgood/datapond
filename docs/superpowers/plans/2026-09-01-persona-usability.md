@@ -415,7 +415,7 @@ Found while working, real, and out of this plan's scope. Recorded here rather th
 fixed, because neither belongs to a persona-usability task and neither should be
 discovered a third time.
 
-### [ ] F1 — quality checks configured in the pipeline builder have never reached a pipeline
+### [x] F1 — quality checks configured in the pipeline builder have never reached a pipeline
 
 Both pipeline builders in the console emit a decorator the DSL does not define:
 
@@ -457,6 +457,20 @@ compiled pipeline's `quality_checks`, with a test that fails if it does not — 
 dropped rule. Consider also whether an ignored-decorator note should be surfaced in the
 validation response the Pipelines page renders, rather than only in the compiler's
 notes: a warning nobody sees is the mechanism that let this survive.
+
+**Done** — commit `34144cc`. Both builders now write the decorator through
+`frontend/lib/pipeline-quality.ts`, which emits `@quality.expect_or_fail(name, condition)`
+between `@live_table(...)` and the `def`, where the DSL reads it. `expect_or_fail`
+because the field's help text says "halts on failure"; `expect` logs and
+`expect_or_drop` filters rows, which are different promises.
+`backend/tests/test_pipeline_quality_checks.py` runs the emitted string through the real
+compiler and asserts the check reaches the table, carries `QualityAction.FAIL` and
+appears in the generated DAG — and keeps the old shape as a test that compiles
+successfully and produces nothing, which is why nobody noticed it for months.
+
+Still true after the fix, and out of its scope: `dag_generator._generate_quality_task`
+binds `_not_implemented` and lists the checks as comments, and `/pipelines/deploy`
+refuses with 501. The check reaches the compiled artifact; nothing executes it yet.
 
 ### [ ] F2 — `business_analyst` and the Search/Ask tabs
 
