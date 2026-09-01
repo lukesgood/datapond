@@ -3,6 +3,40 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-08 — `query:run` no longer means "may change the database"
+
+**What changed.** Running a statement that changes data or schema now needs a new
+permission, `query:write`. `query:run` narrows to statements that only read.
+
+**Why.** Nothing in the execute path had ever looked at what the statement was, so
+every role holding `query:run` could also `DROP TABLE` — `viewer` included. The only
+sign it had been considered was a comment reading "Don't add LIMIT to DDL or SHOW
+commands", written on the assumption that DDL flows through. It did.
+
+**Who has it.** `admin` and `data_engineer` — the roles that already own the data
+plane through connectors. Everyone else keeps `query:run` and loses nothing they were
+supposed to have: `viewer`, `business_analyst`, `auditor`, `ai_engineer` and
+`data_scientist` are SELECT-only.
+
+**How statements are judged.** By parsing, not by pattern-matching the text. SELECT,
+WITH, SHOW, DESCRIBE, USE and plain EXPLAIN read. Everything else writes, including
+`CREATE TABLE … AS SELECT`, and including `EXPLAIN ANALYZE`, which executes what it
+claims to describe.
+
+It fails closed: anything unparseable counts as a write. The two errors are not
+symmetric — refusing a legitimate SELECT is an annoyance a permission grant fixes, and
+allowing a DROP is a restore. If a valid read is refused, that is a parser gap worth
+reporting rather than a policy to relax.
+
+**One layer, not two.** This is enforced in the application. It is *not* enforced in
+IAM, because the same credential the application queries with is the one connector
+syncs write Iceberg tables through — a read-only policy would break ingestion.
+Separating those is a second credential and a separate change. Until then, anything
+that reaches Athena or Trino outside this application is not covered.
+
+**What to do.** Nothing, unless someone reports a 403. The refusal names the
+permission, so they can tell you what to grant.
+
 ## 2026-08 — Migrations move out of Helm hooks
 
 **What changed.** The migration Job was a `pre-install,pre-upgrade` hook. It is now an

@@ -47,6 +47,18 @@ def test_an_unknown_preset_falls_back_to_standard_rather_than_failing():
     assert resolve_chunking("no-such-preset", None, None) == (1000, 150)
 
 
+def test_overriding_one_number_keeps_the_preset_it_was_chosen_with():
+    """The half that was not given comes from the preset the caller picked, not from
+    the default one. Otherwise choosing "long" and nudging the overlap silently
+    halves the chunk size to standard's, and the collection is then stored claiming
+    a preset its numbers do not match — the UI says "Long documents" while ingest
+    splits at 1000."""
+    assert resolve_chunking("long", None, 250) == (2000, 250)
+    assert resolve_chunking("short", 400, None) == (400, 0)
+    # An unknown preset still falls back to the default, as above.
+    assert resolve_chunking("no-such-preset", None, 250) == (1000, 250)
+
+
 def test_nothing_specified_is_standard():
     assert resolve_chunking(None, None, None) == (1000, 150)
 

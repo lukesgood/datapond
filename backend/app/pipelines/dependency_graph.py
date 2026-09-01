@@ -48,8 +48,10 @@ class DependencyGraphBuilder:
         for table_name, table_def in pipeline.tables.items():
             graph.add_node(table_name, "table", table_def)
 
-            # Extract SQL from transform function
-            sql = extract_sql_from_function(table_def.transform_fn)
+            # The transform's SQL. Already present when the definition was read from
+            # source with `ast`; otherwise read out of the live function the same way.
+            sql = table_def.transform_sql or extract_sql_from_function(
+                table_def.transform_fn)
             if sql:
                 # Parse template dependencies
                 dependencies = template_engine.extract_dependencies(sql)

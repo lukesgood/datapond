@@ -71,6 +71,15 @@ class _Store:
         self.rows[invocation_id].update(f)
         return self.rows[invocation_id]
 
+    async def claim_for_approval(self, invocation_id, approved_by):
+        """One winner, decided here — the same conditional the Postgres store does in
+        SQL. See tests/test_chat_gate.py for the concurrency pin."""
+        row = self.rows.get(invocation_id)
+        if not row or row.get("status") != "proposed":
+            return None
+        row.update(status="approved", approved_by=approved_by)
+        return row
+
     async def record_audit(self, event, user_id, user_email, details):
         self.audit.append(event)
 

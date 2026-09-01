@@ -509,14 +509,22 @@ async def api_surface():
 
 @router.get("/service-accounts/{account_id}/usage",
             dependencies=[Depends(require_permission("ai:generate"))])
-async def service_account_usage(account_id: str):
+async def service_account_usage(account_id: str, user: dict = Depends(require_user)):
     """What one service account — one application — has spent.
 
     The question a developer has is "what is my integration costing", and the
     integration is the service account: it is a distinct user id, so its spend is
     exactly measurable. Their own personal spend is a different question with a
     different answer.
+
+    The id comes from the path, and ai:generate is held by most roles — so the
+    permission alone would let anyone holding it read any account's (or any
+    colleague's) spend by naming their UUID. Every other service-account route is
+    admin-only; this one admits the account itself as well, because "what am I
+    costing" is the question it exists to answer, and refuses everyone else.
     """
+    if user.get("role") != "admin" and str(user.get("id")) != str(account_id):
+        raise HTTPException(403, "Not authorized for this service account's spend.")
     url, key = _gateway()
     try:
         async with httpx.AsyncClient(timeout=20) as c:

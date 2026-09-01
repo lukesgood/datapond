@@ -31,7 +31,7 @@ import bcrypt as _bcrypt
 from pydantic import BaseModel
 
 from app.runtime import is_production, component_secret
-from app.permissions import ASSIGNABLE_ROLES, permissions_for
+from app.permissions import ASSIGNABLE_ROLES, ROLE_LABELS, ROLE_PERMISSIONS, permissions_for
 from app.service_accounts import (
     effective_permissions, hash_key, key_matches, looks_like_api_key,
 )
@@ -330,9 +330,79 @@ async def require_user_or_internal(
 
 
 async def require_admin(user: dict = Depends(require_user)) -> dict:
-    """Require admin role."""
+    """Require admin role, and a person rather than a stored credential.
+
+    `app/service_accounts.py` states the rule this enforces: a credential that lives in
+    a config file or an environment variable must not be able to reshape the
+    deployment, no matter which role its account holds. It withheld `user:manage` and
+    `settings:write` from every key's effective set — and then the routes that do those
+    things were guarded by this function, which compared `role` and never looked at the
+    key's set at all. A key issued on an admin service account could therefore create
+    and delete users and rewrite system settings while scoped to `catalog:read`, and
+    creating a user is a complete escalation: make a human admin, then sign in as them.
+
+    The refusal belongs here rather than only on those routes, because this is the one
+    place that covers every administrative route, including the ones added after this
+    was written. Routes an automation legitimately needs are gated on a permission
+    instead, where the key's scopes decide.
+    """
+    if str(user.get("auth_method") or "").lower() == "service":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=("This action needs a signed-in administrator; an API key cannot "
+                    "perform it."),
+        )
     if user.get("role") != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
+    return user
+
+
+async def _enforce_permission(permission: str, user: dict, request) -> dict:
+    """Decide `permission` for an already-identified `user`, audit the decision, and
+    either return the user or raise 403.
+
+    This is the whole body both `require_permission` and
+    `require_permission_or_internal` run once they have a caller. It lives here, once,
+    because the two guards were a verbatim fork of each other: the granted/allowed
+    resolution, the route/method/address extraction, the denial record, the refusal
+    sentence and the privileged-allow record were all duplicated, and a change to the
+    audit contract or the wording could be made in one and missed in the other with
+    nothing to catch it. The only thing the two guards may legitimately differ on is
+    *who* the caller is — which is why that, and only that, is left to them.
+
+    A service-account key carries its own effective set (its role narrowed by the
+    key's scopes). When present it is authoritative — including when it is empty, or a
+    key scoped down to nothing would silently regain its role.
+
+    Every denial is written to `security_audit_log` (app/security_audit.py) before the
+    403 is raised, and there is no argument here — or on `record()` itself — a caller
+    can use to suppress that. Allows are written too, but only for write-shaped
+    permissions; see app/security_audit.py's docstring for why. The refusal names the
+    permission, so a user can tell an administrator what to grant instead of guessing.
+    """
+    from app.permissions import has_permission
+    import app.security_audit as security_audit
+
+    granted = user.get("permissions")
+    allowed = (permission in granted) if granted is not None \
+        else has_permission(user.get("role"), permission)
+    route = getattr(getattr(request, "url", None), "path", "") or ""
+    method = getattr(request, "method", "") or ""
+    addr = client_address(request)
+    if not allowed:
+        reason = (f"'{permission}' permission required — your role "
+                  f"({user.get('role') or 'viewer'}) does not have it.")
+        await security_audit.record(
+            actor=user, permission=permission, route=route, method=method,
+            outcome="denied", reason=reason, client_address=addr,
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
+    if security_audit.is_privileged(permission):
+        await security_audit.record(
+            actor=user, permission=permission, route=route, method=method,
+            outcome="allowed", reason="privileged permission granted",
+            client_address=addr,
+        )
     return user
 
 
@@ -347,26 +417,56 @@ def require_permission(permission: str):
 
     The refusal names the permission, so a user can tell an administrator what to
     grant instead of guessing.
-    """
-    from app.permissions import has_permission
 
-    async def _guard(user: dict = Depends(require_user)) -> dict:
-        # A service-account key carries its own effective set (role narrowed by the
-        # key's scopes). When present it is authoritative — including when it is
-        # empty, or a key scoped down to nothing would silently regain its role.
-        granted = user.get("permissions")
-        allowed = (permission in granted) if granted is not None \
-            else has_permission(user.get("role"), permission)
-        if not allowed:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(f"'{permission}' permission required — your role "
-                        f"({user.get('role') or 'viewer'}) does not have it."),
-            )
-        return user
+    The decision itself, and the audit records around it, are `_enforce_permission`
+    above — shared verbatim with `require_permission_or_internal`, which differs only
+    in how it identifies the caller.
+    """
+    async def _guard(request: Request = None,
+                      user: dict = Depends(require_user)) -> dict:
+        return await _enforce_permission(permission, user, request)
 
     # Declares what this guard enforces, so the route inventory can verify coverage
     # from the application's own dependency graph rather than from a hand-kept list.
+    _guard.__datapond_authorization__ = permission
+    return _guard
+
+
+def require_permission_or_internal(permission: str):
+    """FastAPI dependency factory: `require_permission`, but also admits the scoped
+    internal automation principal — for a route a trusted in-cluster (or otherwise
+    allowlisted) caller reaches through `X-Internal-Key` instead of a user session.
+
+    `ingest-source` used to be `require_admin_or_internal`: any admin, or the
+    internal key. Moving it to a permission check so `ai_engineer` — the product's
+    own stated target user, which holds `knowledge:write` but not `admin` — can
+    reach it too is not a plain swap to `require_permission("knowledge:write")`,
+    because that guard's own resolution is `Depends(require_user)`: FastAPI
+    resolves that *before* the guard body runs, so an internal-key request (which
+    never has `request.state.user` set — see `AuthMiddleware` in `main.py`) would
+    be rejected with 401 before it ever got a chance to identify itself as
+    internal. Silently breaking that allowlisted callback — whatever process is
+    behind the key today — for the sake of a role check is the exact regression
+    this guard exists to avoid.
+
+    So this guard takes the raw `request`/`credentials` FastAPI always injects —
+    the same shape `require_user_or_internal` uses — and checks
+    `is_internal_automation_request` first. `_INTERNAL_AUTOMATION_ROUTES` still
+    bounds which routes a key can reach; this only changes who else may pass once
+    the request isn't using the key. Everything after that first check is
+    literally the body `require_permission` runs — `_enforce_permission` above — on
+    the same authenticated user: the same decision, the same `security_audit` denial
+    and privileged-allow writes, the same refusal sentence.
+    """
+    async def _guard(
+        request: Request,
+        credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    ) -> dict:
+        if is_internal_automation_request(request):
+            return {"id": None, "username": "system", "role": "admin", "internal": True}
+        user = await require_user(request, credentials)
+        return await _enforce_permission(permission, user, request)
+
     _guard.__datapond_authorization__ = permission
     return _guard
 
@@ -620,7 +720,7 @@ async def get_me(user: dict = Depends(require_user)):
 
 
 @router.post("/auth/setup")
-async def setup_password(request: SetupRequest, user: dict = Depends(require_admin)):
+async def setup_password(request: SetupRequest, user: dict = Depends(require_permission("user:manage"))):
     """Admin: set password for a user (or create user)."""
     if len(request.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
@@ -815,7 +915,7 @@ async def reset_password(body: ResetPasswordRequest):
 # ── User management endpoints ──────────────────────────────────────────────────
 
 @router.get("/auth/users")
-async def list_users(admin: dict = Depends(require_admin)):
+async def list_users(admin: dict = Depends(require_permission("user:manage"))):
     """Admin: list all users."""
     pool = await _get_pool()
     async with pool.acquire() as conn:
@@ -852,7 +952,7 @@ async def list_users(admin: dict = Depends(require_admin)):
 
 
 @router.patch("/auth/users/{user_id}")
-async def update_user(user_id: str, body: dict, admin: dict = Depends(require_admin)):
+async def update_user(user_id: str, body: dict, admin: dict = Depends(require_permission("user:manage"))):
     """Admin: update user role, active status, display_name."""
     pool = await _get_pool()
     updates = []
@@ -894,7 +994,7 @@ async def update_user(user_id: str, body: dict, admin: dict = Depends(require_ad
 
 
 @router.delete("/auth/users/{user_id}")
-async def delete_user(user_id: str, admin: dict = Depends(require_admin)):
+async def delete_user(user_id: str, admin: dict = Depends(require_permission("user:manage"))):
     """Admin: delete a user. Cannot delete yourself."""
     if user_id == admin["id"]:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
@@ -944,7 +1044,17 @@ async def my_permissions(user: dict = Depends(require_user)):
     return {
         "role": role,
         "permissions": sorted(granted) if granted is not None else sorted(permissions_for(role)),
-        "assignable_roles": list(ASSIGNABLE_ROLES),
+        # Objects, not bare names: an admin choosing between data_scientist and
+        # ai_engineer from two words is guessing. Built from ROLE_PERMISSIONS /
+        # ROLE_LABELS — the single copy of that vocabulary — not a second list.
+        "assignable_roles": [
+            {
+                "name": r,
+                "label": ROLE_LABELS.get(r, r),
+                "permissions": sorted(ROLE_PERMISSIONS[r]),
+            }
+            for r in ASSIGNABLE_ROLES
+        ],
     }
 
 
@@ -957,16 +1067,43 @@ async def my_permissions(user: dict = Depends(require_user)):
 # long enough that a busy agent is not one DB round-trip per call.
 _KEY_CACHE: dict = {}
 _KEY_CACHE_TTL = 30.0
+# The keys of this dict are digests of attacker-chosen strings: anything presented as
+# a bearer token gets an entry. Eviction used to happen only when the *same* digest
+# was read again after expiry, which never happens for random ones — so the store grew
+# for as long as someone kept sending them. app/rate_limit.py makes this argument for
+# its own store; the cap and the sweep below are the same answer.
+_KEY_CACHE_MAX = 4096
+
+# "No entry" has to be distinguishable from "an entry that says this key is invalid",
+# and None cannot be both. It used to be: _cache_get returned the cached value, the
+# caller tested `is not None`, and every negative entry read as a miss — so an invalid
+# key hit the database on every single request, which is exactly the traffic an
+# attacker controls.
+_CACHE_MISS = object()
+
+
+def _cache_sweep(now: float) -> None:
+    """Drop what can no longer be returned, then, if still over the cap, the oldest.
+
+    Called on write rather than on a timer, so it runs under the traffic that causes
+    the growth. Insertion order is age order here: an entry is only ever written once
+    per TTL, never updated in place.
+    """
+    for digest in [d for d, (_, at) in _KEY_CACHE.items() if (now - at) > _KEY_CACHE_TTL]:
+        _KEY_CACHE.pop(digest, None)
+    while len(_KEY_CACHE) > _KEY_CACHE_MAX:
+        _KEY_CACHE.pop(next(iter(_KEY_CACHE)), None)
 
 
 def _cache_get(digest: str):
+    """The cached identity, None for a key known to be invalid, or `_CACHE_MISS`."""
     entry = _KEY_CACHE.get(digest)
     if not entry:
-        return None
+        return _CACHE_MISS
     resolved, at = entry
     if (time.monotonic() - at) > _KEY_CACHE_TTL:
         _KEY_CACHE.pop(digest, None)
-        return None
+        return _CACHE_MISS
     return resolved
 
 
@@ -974,8 +1111,10 @@ async def _resolve_api_key(raw_key: str) -> Optional[dict]:
     """Identity behind an API key, or None. Never raises."""
     digest = hash_key(raw_key)
     cached = _cache_get(digest)
-    if cached is not None:
-        return cached or None
+    if cached is not _CACHE_MISS:
+        # Including a cached None: a key we already know is invalid must not cost a
+        # database round-trip on every request that presents it.
+        return cached
     try:
         pool = await _get_pool()
         async with pool.acquire() as conn:
@@ -1004,7 +1143,9 @@ async def _resolve_api_key(raw_key: str) -> Optional[dict]:
                 "permissions": sorted(
                     effective_permissions(row["role"], list(row["scopes"] or []))),
             }
-    _KEY_CACHE[digest] = (resolved, time.monotonic())
+    now = time.monotonic()
+    _KEY_CACHE[digest] = (resolved, now)
+    _cache_sweep(now)
     if resolved:
         # Best-effort usage stamp; never let bookkeeping fail a request.
         try:

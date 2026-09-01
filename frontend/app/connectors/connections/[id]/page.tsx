@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { SyncHistory, SyncSession } from "@/components/connectors/sync-history"
+import { SourceAccessPanel } from "@/components/connectors/access-panel"
 import {
   ChevronLeft, RefreshCw, Database, Rows3, Trash2,
   AlertTriangle, Pencil, X, Check, BarChart2, Calendar,
@@ -1278,6 +1279,11 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           pipelinesEnabled={pipelinesEnabled}
         />
       </div>{/* end 2-col grid */}
+
+      {/* ── Access: who can reach this source (D2/D3) ──
+           Above Tables deliberately: "whose source is this, and who else can touch
+           it" is a question about the connector itself, not about one sync run. */}
+      <SourceAccessPanel kind="connectors" id={id} />
 
       {/* ── Tables: defines sync scope (cause) ── */}
       <TablesCard

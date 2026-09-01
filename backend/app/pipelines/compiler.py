@@ -2,16 +2,15 @@
 Pipeline compiler - converts decorated pipeline definitions into Airflow DAGs.
 Main orchestrator for compilation process.
 """
-import importlib.util
-import sys
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
 
 from .models import Pipeline, CompilationResult, DependencyGraph
-from .decorators import LiveTableRegistry, get_pipeline_state
+from .decorators import LiveTableRegistry
 from .dependency_graph import DependencyGraphBuilder, PipelineValidationError
 from .dag_generator import AirflowDagGenerator
+from .ast_reader import read_pipeline_source
 
 
 class PipelineCompiler:
@@ -36,15 +35,18 @@ class PipelineCompiler:
         # Reset registry
         LiveTableRegistry.reset()
 
-        # Load pipeline module
+        # Read the pipeline definition (parsed, never executed)
         try:
-            pipeline = self._load_pipeline_module(pipeline_file)
+            pipeline, notes = self._read_pipeline_definition(pipeline_file)
         except Exception as e:
             result = CompilationResult(pipeline_name="unknown")
             result.add_error(f"Failed to load pipeline: {e}")
             return result
 
-        return self.compile_pipeline(pipeline, pipeline_file)
+        result = self.compile_pipeline(pipeline, pipeline_file)
+        for note in notes:
+            result.add_warning(note)
+        return result
 
     def compile_pipeline(
         self,
@@ -107,36 +109,35 @@ class PipelineCompiler:
 
         return result
 
-    def _load_pipeline_module(self, pipeline_file: str) -> Pipeline:
+    def _read_pipeline_definition(
+        self,
+        pipeline_file: str
+    ) -> tuple[Pipeline, list[str]]:
         """
-        Load pipeline module and extract definitions.
+        Read the pipeline a file declares, without running the file.
+
+        This used to import the file — `spec.loader.exec_module` — so every top-level
+        statement in it ran inside this process. `/pipelines/validate` and
+        `/pipelines/compile` accept that file in a request body, which made "describe
+        this pipeline" and "execute arbitrary code as the backend" the same operation.
+        The DSL is declarative, so the definition is read with `ast` instead; see
+        `app/pipelines/ast_reader.py`.
 
         Args:
             pipeline_file: Path to pipeline Python file
 
         Returns:
-            Pipeline definition
+            (Pipeline definition, notes about anything the reader could not use)
 
         Raises:
-            Exception: If loading fails
+            Exception: If the file cannot be read or does not declare a pipeline
         """
         file_path = Path(pipeline_file)
         if not file_path.exists():
             raise FileNotFoundError(f"Pipeline file not found: {pipeline_file}")
 
-        # Load module
-        spec = importlib.util.spec_from_file_location("pipeline_module", file_path)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"Cannot load module from {pipeline_file}")
-
-        module = importlib.util.module_from_spec(spec)
-        sys.modules["pipeline_module"] = module
-        spec.loader.exec_module(module)
-
-        # Get pipeline state from registry
-        pipeline = get_pipeline_state()
-
-        return pipeline
+        return read_pipeline_source(
+            file_path.read_text(encoding="utf-8"), str(file_path))
 
     def _check_warnings(self, pipeline: Pipeline, graph: DependencyGraph) -> list[str]:
         """
@@ -196,10 +197,12 @@ class PipelineCompiler:
 
         result = CompilationResult(pipeline_name="validation")
 
-        # Load pipeline
+        # Read the pipeline definition (parsed, never executed)
         try:
-            pipeline = self._load_pipeline_module(pipeline_file)
+            pipeline, notes = self._read_pipeline_definition(pipeline_file)
             result.pipeline_name = pipeline.pipeline.name
+            for note in notes:
+                result.add_warning(note)
         except Exception as e:
             result.add_error(f"Failed to load pipeline: {e}")
             return result

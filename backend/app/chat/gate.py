@@ -44,6 +44,12 @@ class InvocationStore(Protocol):
     async def create(self, **fields) -> dict: ...
     async def get(self, invocation_id: str) -> Optional[dict]: ...
     async def update(self, invocation_id: str, **fields) -> dict: ...
+    async def claim_for_approval(self, invocation_id: str,
+                                 approved_by: Optional[str]) -> Optional[dict]:
+        """Move `proposed` → `approved` and return the row, or None if it was not
+        `proposed` any more. One winner, decided by the store, because that is the
+        only place the decision can be atomic."""
+        ...
     async def record_audit(self, event: str, user_id: Optional[str],
                            user_email: Optional[str], details: dict) -> None: ...
 
@@ -172,9 +178,19 @@ async def approve(invocation_id: str, *, user: dict, store: InvocationStore,
     action = resolve(invocation["action_id"])
     await _authorize(action, user, invocation.get("page", "*"), store, stage="approve")
 
+    # The status check above is a read, and everything between it and this line is a
+    # sequence of awaits — so two approvals of the same invocation (a double-click, a
+    # client retry) can both pass it and both execute, running the query or saving the
+    # dashboard twice. The claim is the decision: one conditional write, one winner,
+    # and the loser is told the same thing it would have been told a moment earlier.
+    claimed = await store.claim_for_approval(invocation_id, user.get("id"))
+    if claimed is None:
+        raise ActionRefused(
+            "Already resolved; a request can only be approved once.")
+    # Audited after the claim, not before: an approval record for a call that never
+    # ran would put an event in the log that did not happen.
     await _audit(store, "chat_action_approved", user,
                  action=action.id, invocation=invocation_id)
-    await store.update(invocation_id, status="approved", approved_by=user.get("id"))
     return await _execute(invocation, action, user, store, executor)
 
 

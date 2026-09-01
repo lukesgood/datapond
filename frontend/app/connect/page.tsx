@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { useHasPermission } from "@/lib/permissions"
-import { getUser } from "@/lib/auth"
+import { useHasPermission, usePermissions } from "@/lib/permissions"
+import { permissionState } from "@/lib/permission-state"
+import { PermissionUnknown } from "@/components/ui/permission-state"
 import { ServiceAccounts } from "@/components/settings/service-accounts"
 import { Loader2, Play, ShieldAlert, Terminal } from "lucide-react"
 
@@ -29,8 +30,13 @@ type Endpoint = {
  *  long-lived credential into a form is the wrong habit to teach.
  */
 export default function ApiPage() {
+  const { role, loaded, error, refetch } = usePermissions()
   const canUse = useHasPermission("ai:generate")
-  const [isAdmin] = useState(() => getUser()?.role === "admin")
+  // Service account issuance (components/settings/service-accounts.tsx) is
+  // require_admin on the backend (backend/app/api/service_account_routes.py) — a
+  // role, not a permission — so this reads the role itself rather than a
+  // fabricated permission name, sourced from /api/me/permissions like canUse is.
+  const isAdmin = role === "admin"
   const [endpoints, setEndpoints] = useState<Endpoint[]>([])
   const [loading, setLoading] = useState(true)
   const [origin, setOrigin] = useState("")
@@ -49,16 +55,23 @@ export default function ApiPage() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load() }, [load])
 
-  if (!canUse) {
+  const access = permissionState({ loaded, error, allowed: canUse })
+  if (access !== "allowed") {
     return (
       <div className="flex-1 p-8 pt-6">
         <div className="flex flex-col items-center gap-3 rounded-lg border bg-muted/30 p-16 text-center">
-          <ShieldAlert className="h-6 w-6 text-muted-foreground" />
-          <h2 className="text-lg font-semibold">Not available for your role</h2>
-          <p className="max-w-md text-sm text-muted-foreground">
-            This page is for calling the API from an application, which needs the
-            permission to spend model tokens.
-          </p>
+          {access === "unknown" ? (
+            <PermissionUnknown onRetry={refetch} />
+          ) : (
+            <>
+              <ShieldAlert className="h-6 w-6 text-muted-foreground" />
+              <h2 className="text-lg font-semibold">Not available for your role</h2>
+              <p className="max-w-md text-sm text-muted-foreground">
+                This page is for calling the API from an application, which needs the
+                permission to spend model tokens.
+              </p>
+            </>
+          )}
         </div>
       </div>
     )

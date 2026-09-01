@@ -60,3 +60,38 @@ def test_the_waiting_container_carries_the_same_database_credentials():
     one would pass while the real schema was still missing."""
     block = BACKEND.split("wait-for-schema", 1)[1].split("containers:", 1)[0]
     assert "datapond-secrets" in block or "envFrom" in block
+
+
+# ── TLS: the DDL connection has to obey the same setting as the app's ───────
+
+def _database_urls() -> list:
+    """Every DATABASE_URL these two templates build."""
+    import re
+    urls = []
+    for text in (JOB, BACKEND):
+        # Comment lines may sit between the name and the value; skip them rather than
+        # matching only the shape this file happened to have on the day it was written.
+        urls += re.findall(
+            r'- name: DATABASE_URL\n(?:\s*#[^\n]*\n)*\s*value: "([^"]+)"', text)
+    return urls
+
+
+def test_the_migration_connection_carries_the_configured_sslmode():
+    """POSTGRES_SSLMODE (default `require` for an external database) is read only by
+    the application's asyncpg pool. Alembic connects through psycopg2 with
+    DATABASE_URL, so a URL without sslmode silently falls back to libpq's `prefer` —
+    the DDL connection to Aurora is then allowed to be plaintext while the operator
+    asked for TLS, and nothing says so.
+
+    Both templates build that URL, so both are checked: the Job that runs the
+    migration and the init container that waits for it.
+    """
+    urls = _database_urls()
+    assert len(urls) >= 2, "expected the Job and the wait-for-schema init container"
+    for url in urls:
+        assert "sslmode=$(POSTGRES_SSLMODE)" in url, (
+            f"DATABASE_URL ignores POSTGRES_SSLMODE: {url}")
+        # Only when there is an external database — the in-cluster Postgres branch
+        # never defines POSTGRES_SSLMODE, and an unresolved $(…) would land in the
+        # connection string verbatim.
+        assert "externalDatabase.enabled" in url

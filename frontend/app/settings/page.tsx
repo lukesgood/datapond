@@ -25,6 +25,10 @@ import {
 import { getUser } from "@/lib/auth"
 import NextLink from "next/link"
 import { useCapabilityStrict, useCapability, useCapabilities } from "@/lib/capabilities"
+import { usePermissions, useHasPermission } from "@/lib/permissions"
+import { permissionState } from "@/lib/permission-state"
+import { PermissionUnknown } from "@/components/ui/permission-state"
+import { roleOptions } from "@/lib/user-roles"
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -151,21 +155,32 @@ export default function SettingsPage() {
     return () => window.clearTimeout(initial)
   }, [load])
 
-  const [isAdmin] = useState(() => getUser()?.role === "admin")
+  // Settings is platform administration — admin only. Personal credentials
+  // (password, passkeys) live on /account, available to every user. Every tab this
+  // page composes (Users, Security, System, Service accounts) is itself admin-only
+  // on the backend, so this reads the role rather than a fabricated permission name
+  // — sourced from /api/me/permissions rather than the token in localStorage.
+  const { role, loaded, error, refetch } = usePermissions()
+  const isAdmin = role === "admin"
+  const access = permissionState({ loaded, error, allowed: isAdmin })
   const healthCheckedServices = services.filter(s => s.status !== "managed")
   const healthy = healthCheckedServices.filter(s => s.status === "healthy").length
 
-  // Settings is platform administration — admin only. Personal credentials
-  // (password, passkeys) live on /account, available to every user.
-  if (!isAdmin) {
+  if (access !== "allowed") {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 p-16 text-center">
-        <ShieldCheck className="h-6 w-6 text-muted-foreground" />
-        <h2 className="text-lg font-semibold">Admin permission required</h2>
-        <p className="max-w-md text-sm text-muted-foreground">
-          Settings is for platform administration. Manage your own password and passkeys in{" "}
-          <a className="font-medium text-primary hover:underline" href="/account">Account</a>.
-        </p>
+        {access === "unknown" ? (
+          <PermissionUnknown onRetry={refetch} />
+        ) : (
+          <>
+            <ShieldCheck className="h-6 w-6 text-muted-foreground" />
+            <h2 className="text-lg font-semibold">Admin permission required</h2>
+            <p className="max-w-md text-sm text-muted-foreground">
+              Settings is for platform administration. Manage your own password and passkeys in{" "}
+              <a className="font-medium text-primary hover:underline" href="/account">Account</a>.
+            </p>
+          </>
+        )}
       </div>
     )
   }
@@ -474,14 +489,38 @@ export default function SettingsPage() {
 
 interface UserRecord {
   id: string; username: string; email: string; display_name: string
-  role: "admin" | "viewer"; is_active: boolean
+  // Any of app/permissions.py's seven roles, not just "admin" | "viewer" — the
+  // console can assign every role the API accepts (PATCH /auth/users/{id}).
+  role: string; is_active: boolean
   require_password_change: boolean; created_at: string | null
   attributes?: Record<string, string>
 }
 
+// Pure formatting, not a role description — "data_scientist" -> "Data Scientist" —
+// so the closed role select stays one short word wide regardless of how long the
+// server's descriptive label is. See lib/user-roles.ts for the actual label/description.
+function roleTitle(role: string): string {
+  return role.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+}
+
 function UserManagement() {
+  // getUser() stays the identity source here (username, id, for "this row is you"
+  // and the My Profile dialog) — never the access decision. list_users/update_user/
+  // delete_user (backend/app/api/auth.py) are all `require_permission("user:manage")`,
+  // so that is what gates the management UI, sourced from /api/me/permissions like
+  // the parent page's own admin gate rather than the token in localStorage. The
+  // parent SettingsPage already refuses anyone but an admin before this component
+  // ever mounts, so in practice this is always true — it names the actual route
+  // dependency anyway, rather than re-deriving it from role.
   const currentUser = getUser()
-  const isAdmin     = currentUser?.role === "admin"
+  const isAdmin     = useHasPermission("user:manage")
+
+  // Server-described roles, not a hard-coded admin/viewer pair — see
+  // frontend/lib/user-roles.ts. /api/me/permissions is one fetch shared with the
+  // sidebar's permission gate (frontend/lib/permissions.tsx), so this list can never
+  // disagree with what PATCH /auth/users/{id} actually accepts.
+  const { assignableRoles } = usePermissions()
+  const roleSelectOptions = roleOptions(assignableRoles)
 
   const [users, setUsers]         = useState<UserRecord[]>([])
   const [loading, setLoading]     = useState(true)
@@ -490,7 +529,7 @@ function UserManagement() {
   const [newUsername, setNewUsername] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [newDisplayName, setNewDisplayName] = useState("")
-  const [newRole, setNewRole]         = useState<"admin"|"viewer">("viewer")
+  const [newRole, setNewRole]         = useState<string>("viewer")
   const [showNewPw, setShowNewPw]     = useState(false)
   const [creating, setCreating]       = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -549,12 +588,16 @@ function UserManagement() {
         body: JSON.stringify({ username: newUsername, password: newPassword, display_name: newDisplayName || undefined }),
       })
       if (!r.ok) { const d = await r.json(); throw new Error(d.detail) }
-      if (newRole === "admin") {
+      // POST /api/auth/setup always creates the account as 'viewer' — it has no
+      // role field of its own — so any other choice, not just admin, needs this
+      // follow-up PATCH. Before the console offered seven roles this only mattered
+      // for admin, because viewer was the only other option and needed no patch.
+      if (newRole !== "viewer") {
         const list: UserRecord[] = await (await fetch("/api/auth/users")).json()
         const created = list.find(u => u.username === newUsername)
         if (created) await fetch(`/api/auth/users/${created.id}`, {
           method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role: "admin" }),
+          body: JSON.stringify({ role: newRole }),
         })
       }
       setShowCreate(false); setNewUsername(""); setNewPassword(""); setNewDisplayName(""); setNewRole("viewer")
@@ -591,23 +634,29 @@ function UserManagement() {
   }
 
   const confirmDialog = useConfirm()
-  const handleToggleRole = async (u: UserRecord) => {
-    const r = u.role === "admin" ? "viewer" : "admin"
-    const promoting = r === "admin"
-    const ok = await confirmDialog({
-      title: promoting ? "Promote to admin" : "Demote to viewer",
-      message: promoting
-        ? `Grant '${u.username}' full admin access — including user management, governance policies, and all collections.`
-        : `Remove admin access from '${u.username}'. They'll keep viewer access.`,
-      destructive: promoting,
-      confirmText: promoting ? "Promote to admin" : "Demote to viewer",
-    })
-    if (!ok) return
+  // Any of the seven roles, not a two-way toggle — see lib/user-roles.ts. Admin is
+  // still confirmed on the way in and on the way out: it is the one role that grants
+  // user management and every collection, so granting or removing it keeps the same
+  // confirm step handleToggleRole used to have for its only transition.
+  const handleRoleChange = async (u: UserRecord, role: string) => {
+    if (role === u.role) return
+    if (role === "admin" || u.role === "admin") {
+      const promoting = role === "admin"
+      const ok = await confirmDialog({
+        title: promoting ? "Promote to admin" : "Remove admin access",
+        message: promoting
+          ? `Grant '${u.username}' full admin access — including user management, governance policies, and all collections.`
+          : `Remove admin access from '${u.username}'. They'll be given the '${role}' role instead.`,
+        destructive: promoting,
+        confirmText: promoting ? "Promote to admin" : "Change role",
+      })
+      if (!ok) return
+    }
     await fetch(`/api/auth/users/${u.id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role: r }),
+      body: JSON.stringify({ role }),
     })
-    notify(`${u.username} role changed to ${r}`)
+    notify(`${u.username} role changed to ${role}`)
     fetchUsers()
   }
   const handleDelete = async (u: UserRecord) => {
@@ -719,10 +768,33 @@ function UserManagement() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-[10px] gap-1">
-                        {u.role === "admin" && <Shield className="h-2.5 w-2.5" />}
-                        {u.role}
-                      </Badge>
+                      {u.id === currentUser?.id ? (
+                        // A person can't change their own role here — same rule the
+                        // old toggle button enforced by hiding itself for this row.
+                        <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-[10px] gap-1">
+                          {u.role === "admin" && <Shield className="h-2.5 w-2.5" />}
+                          {u.role}
+                        </Badge>
+                      ) : (
+                        <Select value={u.role} onValueChange={v => v && handleRoleChange(u, v)}>
+                          <SelectTrigger className="h-7 w-auto min-w-[8rem] text-xs" aria-label={`Role for ${u.username}`}>
+                            {/* Rendered independently of each item's (longer) body, so
+                                the closed trigger stays one short word regardless of
+                                how much detail the open list shows. */}
+                            <SelectValue>{(value: string) => roleTitle(value)}</SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {roleSelectOptions.map(o => (
+                              <SelectItem key={o.value} value={o.value} className="text-xs">
+                                <div className="flex flex-col items-start gap-0.5 py-0.5 max-w-xs">
+                                  <span className="whitespace-normal">{o.label}</span>
+                                  <span className="text-[10px] text-muted-foreground font-normal">{o.description}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {u.is_active
@@ -741,11 +813,6 @@ function UserManagement() {
                           <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Reset password" title="Reset password"
                             onClick={() => { setResetTarget(u); setResetPw(""); setResetError(null) }}>
                             <KeyRound className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7"
-                            title={u.role === "admin" ? "Demote to viewer" : "Promote to admin"}
-                            onClick={() => handleToggleRole(u)}>
-                            <Shield className="h-3.5 w-3.5" />
                           </Button>
                           <Button variant="ghost" size="icon" className="h-7 w-7"
                             aria-label="RLS attributes (department/region/clearance)" title="RLS attributes (department/region/clearance)"
@@ -802,11 +869,17 @@ function UserManagement() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Role</Label>
-              <Select value={newRole} onValueChange={v => setNewRole((v || "viewer") as "admin"|"viewer")}>
-                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+              <Select value={newRole} onValueChange={v => setNewRole(v || "viewer")}>
+                <SelectTrigger className="h-9"><SelectValue>{(value: string) => roleTitle(value)}</SelectValue></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="viewer">Viewer — read-only access</SelectItem>
-                  <SelectItem value="admin">Admin — full access</SelectItem>
+                  {roleSelectOptions.map(o => (
+                    <SelectItem key={o.value} value={o.value}>
+                      <div className="flex flex-col items-start gap-0.5 py-0.5 max-w-xs">
+                        <span className="whitespace-normal">{o.label}</span>
+                        <span className="text-[10px] text-muted-foreground font-normal">{o.description}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

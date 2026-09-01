@@ -23,6 +23,13 @@ jobs:
     name: Require CI green for this commit
     runs-on: ubuntu-latest
     permissions:
+      # actions: read is what the query below actually needs — it asks
+      # /repos/{repo}/actions/runs, not the Checks API. A job-level permissions block
+      # is exhaustive: every scope not named here is `none`, so without this line the
+      # first `gh api` call 403s, `set -euo pipefail` ends the step on that failed
+      # command substitution before the retry loop, and no push or tag ever publishes
+      # an image.
+      actions: read
       checks: read
       contents: read
     steps:

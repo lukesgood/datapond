@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
-import { getUser } from "@/lib/auth"
+import { usePermissions } from "@/lib/permissions"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -73,7 +73,13 @@ export default function StoragePage() {
   const [uploading, setUploading] = useState(false)
   const [objectFilter, setObjectFilter] = useState("")
   const [dragging, setDragging] = useState(false)
-  const [isAdmin] = useState(() => getUser()?.role === "admin")
+  // Bucket create/delete/upload are all `require_admin` on the backend
+  // (backend/app/api/storage.py) — a role, not a permission — so this reads the
+  // role itself, sourced from /api/me/permissions rather than the token in
+  // localStorage. Fails closed the same way it always did: `role` stays "viewer"
+  // until /api/me/permissions answers.
+  const { role: viewerRole } = usePermissions()
+  const isAdmin = viewerRole === "admin"
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   // The objects endpoint caps at 100; when the page is full there may be more

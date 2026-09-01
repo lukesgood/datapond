@@ -187,3 +187,194 @@ def test_me_permissions_falls_back_to_the_role_for_a_person():
 
     out = asyncio.run(my_permissions(user={"id": "u1", "role": "business_analyst"}))
     assert set(out["permissions"]) == set(permissions_for("business_analyst"))
+
+
+def test_me_permissions_assignable_roles_are_objects_not_bare_strings():
+    """An admin choosing between data_scientist and ai_engineer from two bare words is
+    guessing. assignable_roles must carry a name, a label, and the permissions each
+    role holds — and the set of names must still equal ASSIGNABLE_ROLES, so a client
+    that only reads .name is unaffected by the richer shape."""
+    import asyncio
+    from app.api.auth import my_permissions
+    from app.permissions import ASSIGNABLE_ROLES, ROLE_PERMISSIONS
+
+    out = asyncio.run(my_permissions(user={"id": "u1", "role": "viewer"}))
+    roles = out["assignable_roles"]
+
+    assert {r["name"] for r in roles} == set(ASSIGNABLE_ROLES)
+    for r in roles:
+        assert isinstance(r["label"], str) and r["label"].strip()
+        assert set(r["permissions"]) == set(ROLE_PERMISSIONS[r["name"]])
+
+
+# ── the cache in front of that lookup ───────────────────────────────────────
+
+def _fake_pool(monkeypatch, lookups):
+    """A pool whose fetchrow finds nothing, counting how often it was asked."""
+    import asyncio as _asyncio
+
+    from app.api import auth
+
+    class _Conn:
+        async def fetchrow(self, *a, **k):
+            lookups.append(1)
+            return None
+
+        async def execute(self, *a, **k):
+            return "UPDATE 0"
+
+    class _Acquire:
+        async def __aenter__(self):
+            return _Conn()
+
+        async def __aexit__(self, *a):
+            return False
+
+    class _Pool:
+        def acquire(self):
+            return _Acquire()
+
+    async def _pool():
+        return _Pool()
+
+    monkeypatch.setattr(auth, "_get_pool", _pool)
+    return _asyncio
+
+
+def test_an_invalid_key_is_remembered_as_invalid(monkeypatch):
+    """Negative caching was written and never worked: `_cache_get` returned the cached
+    value itself, which is None for a failed lookup, and the caller read that as a
+    miss. So every request bearing an invalid or revoked key hit the database — the
+    one case an attacker can generate at will, and the one the cache was there to
+    absorb."""
+    from app.api import auth
+
+    lookups = []
+    asyncio = _fake_pool(monkeypatch, lookups)
+    auth._KEY_CACHE.clear()
+    try:
+        for _ in range(3):
+            assert asyncio.run(auth._resolve_api_key("dp_sk_nope")) is None
+        assert len(lookups) == 1, (
+            f"an invalid key was looked up {len(lookups)} times — negative caching "
+            "is not working")
+    finally:
+        auth._KEY_CACHE.clear()
+
+
+def test_the_key_cache_cannot_be_grown_without_bound(monkeypatch):
+    """The keys of this dict are digests of attacker-chosen strings: anything
+    presented as a bearer token gets an entry, and entries were only ever removed when
+    the *same* digest was read again after expiry — which never happens for random
+    ones. app/rate_limit.py makes this argument for its own store and evicts; this one
+    did not."""
+    from app.api import auth
+
+    lookups = []
+    asyncio = _fake_pool(monkeypatch, lookups)
+    auth._KEY_CACHE.clear()
+    try:
+        for i in range(auth._KEY_CACHE_MAX * 3):
+            asyncio.run(auth._resolve_api_key(f"dp_sk_{i}"))
+        assert len(auth._KEY_CACHE) <= auth._KEY_CACHE_MAX, (
+            f"{len(auth._KEY_CACHE)} entries retained from "
+            f"{auth._KEY_CACHE_MAX * 3} distinct tokens")
+    finally:
+        auth._KEY_CACHE.clear()
+
+
+# ── what a key may never do, enforced rather than declared ──────────────────
+
+def test_a_key_cannot_reach_an_admin_route_at_all(monkeypatch):
+    """`NEVER_FOR_SERVICE_ACCOUNTS` says a credential living in a config file must not
+    reshape the deployment "no matter which role its account holds". It was a
+    declaration only: the routes it describes are guarded by require_admin, which
+    compares `role` and never looks at the key's effective set — so a key issued on an
+    admin service account could create and delete users and rewrite system settings,
+    even when scoped down to `catalog:read`. Creating a user is a full escalation:
+    make a human admin, log in as them.
+
+    require_admin is the one place that covers every such route, including ones added
+    later, so the refusal goes there — the permission gates below are the second layer,
+    not the only one.
+    """
+    import asyncio as _asyncio
+
+    from fastapi import HTTPException as _HTTPException
+
+    from app.api.auth import require_admin
+
+    key_identity = {"id": "svc-1", "role": "admin", "auth_method": "service",
+                    "permissions": ["catalog:read"]}
+    with pytest.raises(_HTTPException) as exc:
+        _asyncio.run(require_admin(user=key_identity))
+    assert exc.value.status_code == 403
+
+    person = {"id": "u-1", "role": "admin"}
+    assert _asyncio.run(require_admin(user=person)) is person
+
+
+def test_the_routes_that_manage_users_and_settings_ask_for_those_permissions():
+    """The second layer, and what makes NEVER_FOR_SERVICE_ACCOUNTS load-bearing:
+    gated on the permission itself, a key is refused because effective_permissions()
+    withholds it — independently of what require_admin does about service identities.
+
+    Read from each guard's `__datapond_authorization__`, the declaration the route
+    inventory already uses, rather than from the source text: it survives the gate
+    moving between the decorator and the signature.
+    """
+    import inspect
+
+    from fastapi import routing
+
+    import main
+
+    def _permissions_on(path: str, method: str) -> set:
+        declared = set()
+        for route in main.app.routes:
+            if not isinstance(route, routing.APIRoute):
+                continue
+            if route.path != path or method not in route.methods:
+                continue
+            for dependency in route.dependant.dependencies:
+                call = dependency.call
+                declared.add(getattr(call, "__datapond_authorization__", None))
+            for parameter in inspect.signature(route.endpoint).parameters.values():
+                call = getattr(parameter.default, "dependency", None)
+                if call is not None:
+                    declared.add(getattr(call, "__datapond_authorization__", None))
+        return declared
+
+    for path, method in (("/api/auth/users/{user_id}", "PATCH"),
+                         ("/api/auth/users/{user_id}", "DELETE"),
+                         ("/api/auth/users", "GET"),
+                         ("/api/auth/setup", "POST")):
+        assert "user:manage" in _permissions_on(path, method), (
+            f"{method} {path} does not require user:manage, so a key's scopes never "
+            "apply to it")
+
+    assert "settings:write" in _permissions_on("/api/settings/system", "PATCH")
+
+
+def test_a_service_account_cannot_be_created_with_the_admin_role():
+    """The listing already advertises `[r for r in ASSIGNABLE_ROLES if r != "admin"]`.
+    The handler validated against the full list, so the API accepted exactly the thing
+    its own response said was not on offer — and an admin key is both the widest
+    credential in the product and the shape most likely to end up in a config file.
+
+    Driven through the handler, not read out of its source: the role check runs before
+    anything touches the database, so no fixture is needed and the assertion is about
+    behaviour rather than about the text that produces it.
+    """
+    import asyncio as _asyncio
+
+    from fastapi import HTTPException as _HTTPException
+
+    from app.api.service_account_routes import ServiceAccountCreate, create_service_account
+
+    person = {"id": "u-1", "role": "admin"}
+    with pytest.raises(_HTTPException) as exc:
+        _asyncio.run(create_service_account(
+            ServiceAccountCreate(name="ci", role="admin"), admin=person))
+    assert exc.value.status_code == 400
+    assert "admin" in exc.value.detail

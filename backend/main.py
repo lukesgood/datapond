@@ -45,6 +45,8 @@ from app.api.system_settings import router as system_settings_router, load_setti
 from app.api.governance import router as governance_router
 from app.api.maintenance import router as maintenance_router, deploy_maintenance_dag
 from app.api.webauthn import router as webauthn_router
+from app.api.audit_export import router as audit_export_router
+from app.api.source_access import router as source_members_router
 from app.capabilities import compute_capabilities
 
 app = FastAPI(
@@ -153,25 +155,34 @@ async def startup():
 
     # Say out loud when RLS is on but letting tables through. See
     # app/rls/coverage.py — this is the state that reads as protection and is not.
+    # Also record the posture in the readiness `state` dict, next to `migrations`
+    # and `base_schema`, so it is visible without grepping logs. It is recorded
+    # ok=True regardless of posture: "advisory" describes a real, legitimate
+    # deployment state, not a bootstrap failure, and must never hold the pod back.
     async def _warn_rls_coverage():
         try:
             from app.api.catalog_backend import get_catalog_reader
             from app.rls import loader as rls_loader
-            from app.rls.coverage import coverage, startup_warning
+            from app.rls.coverage import coverage, rls_posture, startup_warning
 
             enabled = os.getenv("RLS_ENABLED", "false").lower() in ("1", "true", "yes")
             deny = os.getenv("RLS_DEFAULT_DENY", "false").lower() in ("1", "true", "yes")
-            if not enabled or deny:
-                return
-            cat = os.getenv("RLS_DEFAULT_CATALOG") or os.getenv("TRINO_CATALOG") or "iceberg"
-            reader = get_catalog_reader()
-            tables = [(cat, ns, t) for ns in reader.list_namespaces()
-                      for t in reader.list_tables(ns)]
-            report = coverage(tables, await rls_loader.load_policies(),
-                              await rls_loader.load_masks())
-            message = startup_warning(enabled, deny, report["uncovered_count"])
+            uncovered = 0
+            if enabled and not deny:
+                cat = os.getenv("RLS_DEFAULT_CATALOG") or os.getenv("TRINO_CATALOG") or "iceberg"
+                reader = get_catalog_reader()
+                tables = [(cat, ns, t) for ns in reader.list_namespaces()
+                          for t in reader.list_tables(ns)]
+                report = coverage(tables, await rls_loader.load_policies(),
+                                  await rls_loader.load_masks())
+                uncovered = report["uncovered_count"]
+            posture = rls_posture(enabled, deny, uncovered)
+            readiness.record("rls", ok=True, detail=posture)
+            message = startup_warning(enabled, deny, uncovered)
             if message:
                 logger.warning("[rls] %s", message)
+            else:
+                logger.info("[rls] %s", posture)
         except Exception as e:
             logger.debug("rls coverage check skipped: %s", e)
 
@@ -213,9 +224,23 @@ async def startup():
         state = _migrations.startup_check(current, head)
         if state == "stamp":
             # Never managed here: a local run, or a first install. Record where it is
-            # rather than leaving the next deploy unable to tell.
-            await _migrations.apply(pool)
-            readiness.record("migrations", ok=True, detail=f"stamped {head}")
+            # rather than leaving the next deploy unable to tell — then report where
+            # that actually left it, which is not the same thing.
+            #
+            # apply() stamps 0001_baseline when the tables already exist, so an
+            # installation that predates migrations lands several revisions behind this
+            # image. Recording ok=True and "stamped {head}" (as this did) told two
+            # untruths and let the pod serve: connector routes 500 on a column the
+            # migration would have added, and authorization denials cannot write their
+            # audit row. state_after_apply() re-reads the revision and answers on what
+            # the database says, so this case now refuses traffic exactly as `behind`
+            # already did — it is the same situation.
+            outcome = await _migrations.apply(pool)
+            current = await _migrations.current_revision(pool)
+            ok, why = _migrations.state_after_apply(current, head)
+            readiness.record("migrations", ok=ok, detail=f"{outcome}; {why}")
+            if not ok:
+                logger.error(f"[startup] {outcome}; {why}")
         elif state == "ok":
             readiness.record("migrations", ok=True, detail=f"at {head}")
         else:
@@ -304,6 +329,19 @@ async def startup():
     except Exception as e:
         logger.warning(f"[startup] system event collector not started: {e}")
 
+    # Audit retention (B4) — prunes security_audit_log/auth_audit_log through B3's
+    # sanctioned prune_*_audit_log() functions on its own loop and its own advisory
+    # lock key; see app/audit_retention.py's module docstring for why it is not
+    # folded into the system event collector's tick above.
+    try:
+        if os.getenv("AUDIT_RETENTION_ENABLED", "true").lower() in ("1", "true", "yes"):
+            from app.api.connectors import get_db_pool
+            from app.audit_retention import run_retention
+            app.state.audit_retention_task = asyncio.create_task(run_retention(await get_db_pool()))
+            logger.info("[startup] audit retention loop started")
+    except Exception as e:
+        logger.warning(f"[startup] audit retention loop not started: {e}")
+
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
@@ -374,6 +412,10 @@ app.include_router(governance_router, prefix="/api")
 app.include_router(maintenance_router, prefix="/api",
                    dependencies=[Depends(require_component("AIRFLOW", "Maintenance (Airflow)"))])
 app.include_router(webauthn_router, prefix="/api")
+app.include_router(audit_export_router, prefix="/api")
+# Sharing a connector or a transform with named people (D2). One router for both
+# kinds — see app/api/source_access.py for why they are not written twice.
+app.include_router(source_members_router, prefix="/api")
 
 from app.service_registry import service_registry as _service_registry_pure
 

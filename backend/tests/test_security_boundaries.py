@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from app.api import ai_backends, ai_vectors, auth, storage, system_settings
+from app.permissions import KNOWN_ROLES, has_permission
 
 
 USER_ID = "00000000-0000-0000-0000-000000000001"
@@ -182,22 +183,63 @@ def test_reading_ai_cost_requires_spend_read():
         ("/settings/system", "PATCH"),
         ("/settings/system/ai", "GET"),
     ):
-        assert auth.require_admin in _route_dependencies(system_settings.router, path, method)
+        # Still administrative — but PATCH now says so by naming `settings:write`
+        # instead of the admin role, which is what lets a service-account key's scopes
+        # apply to it (app/service_accounts.py withholds exactly that permission from
+        # every key). So the assertion is the property, not the mechanism: reachable
+        # only by a caller holding something no non-admin role has.
+        deps = _route_dependencies(system_settings.router, path, method)
+        if auth.require_admin in deps:
+            continue
+        declared = {getattr(d, "__datapond_authorization__", None) for d in deps}
+        admin_only = {
+            perm for perm in declared if perm
+            and {role for role in KNOWN_ROLES if has_permission(role, perm)} == {"admin"}
+        }
+        assert admin_only, (
+            f"{method} {path} is neither admin-gated nor gated on an admin-only "
+            f"permission — its gates were {declared}")
 
 
 def test_knowledge_write_routes_have_intended_dependencies():
-    assert auth.require_admin_or_internal in _route_dependencies(
+    # ingest-source: knowledge:write (not admin) via require_permission_or_internal,
+    # so an ai_engineer reaches it — and the guard's own internal-automation branch
+    # (checked before it ever resolves a user) keeps the freshness scheduler's
+    # X-Internal-Key callback working. Identified by __datapond_authorization__
+    # rather than function identity: the factory returns a fresh closure per call.
+    ingest_source_deps = _route_dependencies(
         ai_vectors.router, "/ai/collections/{name}/ingest-source", "POST"
     )
-    # /schedule is NOT in the internal-automation allowlist, so it uses plain
-    # require_admin (not require_admin_or_internal, whose internal branch would be
-    # unreachable here).
-    assert auth.require_admin in _route_dependencies(
+    # ai:generate sits beside it because this route embeds an entire S3 prefix or
+    # Iceberg column through _refresh_from_source — the same reason /ai/collections/
+    # {name}/ingest, /ai/search, /ai/rag and /ai/embed all carry it. Both are the
+    # _or_internal variant: a plain require_permission resolves Depends(require_user)
+    # first and would 401 the allowlisted X-Internal-Key callback before it could
+    # identify itself as internal.
+    assert {getattr(d, "__datapond_authorization__", None) for d in ingest_source_deps} \
+        == {"knowledge:write", "ai:generate"}
+    assert all(d.__qualname__.startswith("require_permission_or_internal")
+               for d in ingest_source_deps)
+
+    # /schedule is NOT in the internal-automation allowlist (only ingest-source and
+    # connector sync are), so it uses plain require_permission + require_user, not
+    # require_permission_or_internal, whose internal branch would be unreachable
+    # here.
+    schedule_deps = _route_dependencies(
         ai_vectors.router, "/ai/collections/{name}/schedule", "POST"
     )
-    assert auth.require_admin_or_internal not in _route_dependencies(
-        ai_vectors.router, "/ai/collections/{name}/schedule", "POST"
-    )
+    assert auth.require_user in schedule_deps
+    # ai:generate here too: nothing embeds during this request, but the row it writes
+    # (refresh_enabled = true) arms app/rag_scheduler.py to re-embed the source on
+    # every tick, unattended — a caller who may not spend in the foreground must not
+    # be able to commit the deployment to spending in the background.
+    assert {getattr(d, "__datapond_authorization__", None) for d in schedule_deps} \
+        == {"knowledge:write", "ai:generate", None}
+    assert all(d.__qualname__.startswith("require_permission.")
+               for d in schedule_deps if getattr(d, "__datapond_authorization__", None))
+    assert auth.require_admin not in schedule_deps
+    assert auth.require_admin_or_internal not in schedule_deps
+
     assert auth.require_user in _route_dependencies(
         ai_vectors.router, "/ai/collections/{name}/ingest", "POST"
     )

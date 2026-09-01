@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -72,7 +72,14 @@ export function EventsPanel() {
   const [hours, setHours] = useState<number>(168)
   const [severity, setSeverity] = useState<string | null>(null)
 
+  // Which request the panel is currently showing. Changing severity or the time span
+  // re-fires load() without cancelling the one in flight, and a 30s refresh can overlap
+  // one too — so an older response could land last and repaint the list with results
+  // for a filter the buttons no longer show. Only the newest request writes.
+  const latestRequest = useRef(0)
+
   const load = useCallback(async () => {
+    const request = ++latestRequest.current
     setLoading(true)
     setError(null)
     try {
@@ -80,13 +87,18 @@ export function EventsPanel() {
       if (severity) params.set("severity", severity)
       const res = await fetch(`/api/system/events?${params}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      setData(await res.json())
+      const payload = await res.json()
+      if (request !== latestRequest.current) return
+      setData(payload)
     } catch (requestError) {
+      if (request !== latestRequest.current) return
       setData(null)
       setError(requestError instanceof Error
         ? `Failed to load system events (${requestError.message})`
         : "Failed to load system events")
-    } finally { setLoading(false) }
+    } finally {
+      if (request === latestRequest.current) setLoading(false)
+    }
   }, [hours, severity])
 
   useEffect(() => {

@@ -96,3 +96,424 @@ def test_preset_to_minutes():
     assert v._preset_to_minutes(None, None) == 1440
     with pytest.raises(Exception):
         v._preset_to_minutes(None, 0)
+
+
+# ── FIX #5: block mode must not store/embed raw PII ──────────────────────────────
+
+def test_ingest_documents_block_mode_redacts_pii(monkeypatch):
+    """PII_GUARDRAIL_MODE=block: pii_ko.apply() returns the ORIGINAL text + blocked=True,
+    but _ingest_documents must redact before it embeds/persists — raw PII must never
+    reach the embedding provider nor land in ai_chunks."""
+    import app.api.ai_vectors as v
+    monkeypatch.setenv("PII_GUARDRAIL_MODE", "block")
+    sink = []
+    captured = {}
+    pool = _FakePool(); pool.acquire = lambda: _FakeConn(sink)
+    monkeypatch.setattr(v, "get_db_pool", lambda: _aval(pool))
+
+    def fake_embed(texts):
+        captured["texts"] = list(texts)
+        return _aval([[0.0] for _ in texts])
+    monkeypatch.setattr(v, "_embed", fake_embed)
+
+    docs = [("s", "reach me at hong@example.com anytime", {})]
+    res = asyncio.run(v._ingest_documents("cid", docs, 1000, 150))
+
+    # raw email must not be embedded ...
+    assert captured["texts"] and all("hong@example.com" not in t for t in captured["texts"])
+    assert any("[이메일]" in t for t in captured["texts"])
+    # ... nor persisted to ai_chunks
+    inserts = [s for s in sink if isinstance(s, tuple) and s[0] == "many"]
+    assert inserts, "expected an executemany INSERT"
+    stored = [row[3] for row in inserts[0][2]]   # content column
+    assert all("hong@example.com" not in c for c in stored)
+    assert res["pii_masked"] >= 1
+
+
+def test_ingest_documents_mask_mode_unchanged(monkeypatch):
+    """Default mask mode behaviour is preserved: content is masked, still stored/embedded."""
+    import app.api.ai_vectors as v
+    monkeypatch.setenv("PII_GUARDRAIL_MODE", "mask")
+    sink = []
+    captured = {}
+    pool = _FakePool(); pool.acquire = lambda: _FakeConn(sink)
+    monkeypatch.setattr(v, "get_db_pool", lambda: _aval(pool))
+
+    def fake_embed(texts):
+        captured["texts"] = list(texts)
+        return _aval([[0.0] for _ in texts])
+    monkeypatch.setattr(v, "_embed", fake_embed)
+
+    res = asyncio.run(v._ingest_documents("cid", [("s", "mail hong@example.com", {})], 1000, 150))
+    assert captured["texts"] and "[이메일]" in captured["texts"][0]
+    assert "hong@example.com" not in captured["texts"][0]
+    assert res["pii_masked"] >= 1
+
+
+# ── FIX #9: embed-dimension validation ───────────────────────────────────────────
+
+class _FakeResp:
+    def __init__(self, status, payload):
+        self.status_code = status
+        self._payload = payload
+        self.text = ""
+
+    def json(self):
+        return self._payload
+
+
+class _FakeAsyncClient:
+    def __init__(self, payload, status=200):
+        self._payload = payload
+        self._status = status
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def post(self, *a, **k):
+        return _FakeResp(self._status, self._payload)
+
+    async def get(self, *a, **k):
+        return _FakeResp(self._status, self._payload)
+
+
+def test_embed_rejects_dimension_mismatch(monkeypatch):
+    import pytest
+    import app.api.ai_vectors as v
+    monkeypatch.setattr(v, "_assert_embed_egress_ok", lambda: _aval(None))
+    monkeypatch.setattr(v, "_gateway", lambda: ("http://gw", ""))
+    monkeypatch.setenv("AI_EMBED_DIM", "1024")
+    payload = {"data": [{"index": 0, "embedding": [0.1, 0.2, 0.3]}]}  # 3-dim, not 1024
+    monkeypatch.setattr(v.httpx, "AsyncClient", lambda *a, **k: _FakeAsyncClient(payload))
+    with pytest.raises(v.HTTPException) as ei:
+        asyncio.run(v._embed(["hello"]))
+    assert ei.value.status_code == 502
+    assert "dimension" in ei.value.detail.lower()
+
+
+def test_embed_accepts_matching_dimension(monkeypatch):
+    import app.api.ai_vectors as v
+    monkeypatch.setattr(v, "_assert_embed_egress_ok", lambda: _aval(None))
+    monkeypatch.setattr(v, "_gateway", lambda: ("http://gw", ""))
+    monkeypatch.setenv("AI_EMBED_DIM", "3")
+    payload = {"data": [{"index": 0, "embedding": [0.1, 0.2, 0.3]}]}
+    monkeypatch.setattr(v.httpx, "AsyncClient", lambda *a, **k: _FakeAsyncClient(payload))
+    assert asyncio.run(v._embed(["hello"])) == [[0.1, 0.2, 0.3]]
+
+
+# ── FIX #6: local-only embed egress guard fails closed ───────────────────────────
+
+class _BoomClient:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, *a, **k):
+        raise RuntimeError("gateway unreachable")
+
+
+def test_embed_egress_fails_closed_on_introspection_error(monkeypatch):
+    import pytest
+    import app.api.ai_vectors as v
+    monkeypatch.setattr(v, "egress_policy", lambda: "local-only")
+    monkeypatch.setattr(v, "_gateway", lambda: ("http://gw", ""))
+    monkeypatch.setattr(v.httpx, "AsyncClient", lambda *a, **k: _BoomClient())
+    with pytest.raises(v.HTTPException) as ei:
+        asyncio.run(v._assert_embed_egress_ok())
+    assert ei.value.status_code == 403
+
+
+def test_embed_egress_fails_closed_when_model_not_registered(monkeypatch):
+    import pytest
+    import app.api.ai_vectors as v
+    monkeypatch.setattr(v, "egress_policy", lambda: "local-only")
+    monkeypatch.setattr(v, "_gateway", lambda: ("http://gw", ""))
+    monkeypatch.setenv("AI_EMBED_MODEL", "embed")
+    payload = {"data": [{"model_name": "other", "litellm_params": {"model": "ollama/bge-m3"}}]}
+    monkeypatch.setattr(v.httpx, "AsyncClient", lambda *a, **k: _FakeAsyncClient(payload))
+    with pytest.raises(v.HTTPException) as ei:
+        asyncio.run(v._assert_embed_egress_ok())
+    assert ei.value.status_code == 403
+
+
+def test_embed_egress_blocks_external_model(monkeypatch):
+    import pytest
+    import app.api.ai_vectors as v
+    monkeypatch.setattr(v, "egress_policy", lambda: "local-only")
+    monkeypatch.setattr(v, "_gateway", lambda: ("http://gw", ""))
+    monkeypatch.setenv("AI_EMBED_MODEL", "embed")
+    payload = {"data": [{"model_name": "embed",
+                         "litellm_params": {"model": "bedrock/amazon.titan-embed-text-v2:0"}}]}
+    monkeypatch.setattr(v.httpx, "AsyncClient", lambda *a, **k: _FakeAsyncClient(payload))
+    with pytest.raises(v.HTTPException) as ei:
+        asyncio.run(v._assert_embed_egress_ok())
+    assert ei.value.status_code == 403
+
+
+def test_embed_egress_allows_local_model(monkeypatch):
+    import app.api.ai_vectors as v
+    monkeypatch.setattr(v, "egress_policy", lambda: "local-only")
+    monkeypatch.setattr(v, "_gateway", lambda: ("http://gw", ""))
+    monkeypatch.setenv("AI_EMBED_MODEL", "embed")
+    payload = {"data": [{"model_name": "embed", "litellm_params": {"model": "ollama/bge-m3"}}]}
+    monkeypatch.setattr(v.httpx, "AsyncClient", lambda *a, **k: _FakeAsyncClient(payload))
+    asyncio.run(v._assert_embed_egress_ok())   # must not raise
+
+
+def test_embed_egress_noop_when_cloud_allowed(monkeypatch):
+    import app.api.ai_vectors as v
+    monkeypatch.setattr(v, "egress_policy", lambda: "cloud-allowed")
+    # _gateway / httpx must not even be consulted under cloud-allowed
+    monkeypatch.setattr(v, "_gateway", lambda: (_ for _ in ()).throw(AssertionError("gateway consulted")))
+    asyncio.run(v._assert_embed_egress_ok())   # must not raise
+
+
+# ── E1: inline ingest spends model tokens — knowledge:write alone must not reach it ──
+#
+# knowledge:write lets a caller create/own/delete a collection; ai:generate is the
+# separate permission that gates spending model tokens (Ask AI, RAG, embed — see
+# app/permissions.py). /ai/collections/{name}/ingest chunks, PII-masks, then calls
+# _embed — which spends — but until this fix its route only required knowledge:write.
+#
+# As of the current app/permissions.py, no built-in *role* actually holds
+# knowledge:write without also holding ai:generate (ai_engineer and data_scientist
+# are the only roles with knowledge:write, and both carry ai:generate too) — so
+# data_engineer, named in this task's brief, does not itself reach this route today.
+# The real, currently-exploitable path is a service-account API key: `require_permission`
+# treats `user["permissions"]` as authoritative when present (app/api/auth.py's
+# `_guard`), and service_account_routes.py lets a key be issued with `scopes` that
+# narrow its role's permission set arbitrarily — so an ai_engineer-role account can
+# mint a key scoped to knowledge:write alone. That is the caller this test models:
+# a user carrying an explicit `permissions` set with knowledge:write and no
+# ai:generate, exactly what `_guard` reads for a scoped key. This is a route-level
+# (HTTP, via TestClient) test of the dependency gate, the same shape
+# tests/test_knowledge_lifecycle_roles.py uses: the fake _embed raises AssertionError
+# if it is ever invoked, so the test only passes if the 403 happens strictly before
+# any embedding call is attempted.
+
+def test_ingest_refuses_knowledge_write_without_ai_generate_before_any_embed_call(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.api import ai_vectors, auth
+
+    async def _boom_embed(texts):
+        raise AssertionError("_embed must not be called when ai:generate is missing")
+
+    monkeypatch.setattr(ai_vectors, "_embed", _boom_embed)
+
+    # A service-account key scoped down to knowledge:write only — role ai_engineer
+    # would otherwise also hold ai:generate, but the key's own `permissions` set
+    # (mirroring api_keys.scopes narrowing) is what `require_permission` actually
+    # checks, per app/api/auth.py's `_guard`.
+    user = {"id": "00000000-0000-0000-0000-0000000000e1",
+            "username": "svc-ingest-only", "role": "ai_engineer",
+            "permissions": frozenset({"knowledge:write"})}
+
+    async def _fake_require_user(request=None, credentials=None):
+        return user
+    monkeypatch.setattr(auth, "require_user", _fake_require_user)
+
+    app = FastAPI()
+    app.include_router(ai_vectors.router, prefix="/api")
+
+    async def _override():
+        return user
+    app.dependency_overrides[ai_vectors.require_user] = _override
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/ai/collections/mine/ingest",
+        json={"documents": [{"source": "inline", "text": "hello world"}]},
+    )
+    assert resp.status_code == 403, resp.text
+    assert "ai:generate" in resp.json()["detail"]
+
+
+# ── Final review, item 1: ingest-source and schedule spend too, and said nothing ──
+#
+# E1 (above) put `ai:generate` on POST /ai/collections/{name}/ingest because that
+# route calls `_embed`. Its two siblings do the same spending and were left behind:
+#
+#   * `ingest-source` reaches `_embed` through `_refresh_from_source` →
+#     `_ingest_documents` — an entire S3 prefix or Iceberg column, embedded in one
+#     call, which is a far larger bill than the inline paste E1 closed.
+#   * `schedule` writes `refresh_enabled = true` on the collection row, and
+#     `app/rag_scheduler.py` then re-embeds that source on every tick, unattended
+#     and forever. The spend does not happen inside the request, which is exactly
+#     why it is worse: nobody is watching when it starts.
+#
+# Both were `require_admin_or_internal` / `require_admin` before B1 moved them to
+# `knowledge:write`, and `require_admin` refuses any `auth_method == "service"`
+# credential outright (app/api/auth.py). So the caller these tests model — a
+# service-account key on an `ai_engineer` account scoped to `knowledge:write`
+# alone, which `app/service_accounts.py` permits because it withholds only
+# `user:manage` and `settings:write` — could not reach either route before this
+# branch and can now. That makes it a regression of this branch, not a
+# pre-existing hole.
+#
+# tests/test_knowledge_lifecycle_roles.py cannot see the spend: its autouse
+# fixture stubs `_refresh_from_source` out, because the authorization gate is all
+# it is testing. These tests deliberately leave that path in place and stub only
+# the source read, so that a caller who gets past the gate really does reach
+# `_embed` — the fake raises if it is ever invoked.
+
+class _OwnedCollConn:
+    """Answers `_collection_id`'s join for one collection owned by `owner_id`, and
+    records every statement executed against it — so a test can assert that the
+    schedule UPDATE never ran."""
+
+    def __init__(self, owner_id):
+        self.row = {"id": "coll-id", "owner_id": owner_id, "member_role": None}
+        self.executed = []
+
+    async def fetchrow(self, query, *args):
+        return self.row
+
+    async def fetch(self, query, *args):
+        return []
+
+    async def execute(self, query, *args):
+        self.executed.append(query)
+        return "UPDATE 1"
+
+    async def executemany(self, query, rows):
+        self.executed.append(query)
+
+    def transaction(self):
+        outer = self
+
+        class _Tx:
+            async def __aenter__(self_):
+                return outer
+
+            async def __aexit__(self_, *a):
+                return False
+
+        return _Tx()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+
+class _OwnedPool:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def acquire(self):
+        return self.conn
+
+
+def _spend_gate_client(monkeypatch, user, conn):
+    """A TestClient over the real router with the source read stubbed, the pool
+    faked, and `_embed` armed to fail the test if the request ever reaches it."""
+    import uuid as _uuid
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.api import ai_vectors, auth
+
+    async def _boom_embed(texts):
+        raise AssertionError("_embed must not be called when ai:generate is missing")
+
+    monkeypatch.setattr(ai_vectors, "_embed", _boom_embed)
+    # A real document, so a caller who passes the gate genuinely reaches _embed.
+    monkeypatch.setattr(ai_vectors, "_read_s3_docs",
+                        lambda bucket, prefix, max_files: [("s3://docs/a.txt", "hello", {})])
+    monkeypatch.setattr(ai_vectors, "get_db_pool", lambda: _aval(_OwnedPool(conn)))
+
+    async def _fake_require_user(request=None, credentials=None):
+        return user
+    monkeypatch.setattr(auth, "require_user", _fake_require_user)
+
+    app = FastAPI()
+    app.include_router(ai_vectors.router, prefix="/api")
+
+    async def _override():
+        return user
+    app.dependency_overrides[ai_vectors.require_user] = _override
+    return TestClient(app), _uuid
+
+
+SCOPED_KEY_ID = "00000000-0000-0000-0000-0000000000e2"
+
+
+def _scoped_key_user():
+    """An ai_engineer service-account key narrowed to knowledge:write. Its
+    `permissions` set is what `require_permission`'s guard reads, so the role's own
+    ai:generate never enters into it."""
+    return {"id": SCOPED_KEY_ID, "username": "svc-source-ingest",
+            "role": "ai_engineer", "auth_method": "service",
+            "permissions": frozenset({"knowledge:write"})}
+
+
+def test_ingest_source_refuses_knowledge_write_without_ai_generate_before_any_embed(monkeypatch):
+    import uuid
+    user = _scoped_key_user()
+    conn = _OwnedCollConn(uuid.UUID(SCOPED_KEY_ID))
+    client, _ = _spend_gate_client(monkeypatch, user, conn)
+
+    resp = client.post("/api/ai/collections/mine/ingest-source",
+                       json={"type": "s3", "bucket": "docs"})
+    assert resp.status_code == 403, resp.text
+    assert "ai:generate" in resp.json()["detail"]
+
+
+def test_schedule_refuses_knowledge_write_without_ai_generate_before_enabling_refresh(monkeypatch):
+    """The schedule route spends later, through the scheduler, not during the
+    request — so the proof is that `refresh_enabled` was never written."""
+    import uuid
+    user = _scoped_key_user()
+    conn = _OwnedCollConn(uuid.UUID(SCOPED_KEY_ID))
+    client, _ = _spend_gate_client(monkeypatch, user, conn)
+
+    resp = client.post("/api/ai/collections/mine/schedule",
+                       json={"source": {"type": "s3", "bucket": "docs"}})
+    assert resp.status_code == 403, resp.text
+    assert "ai:generate" in resp.json()["detail"]
+    assert not [q for q in conn.executed if "refresh_enabled" in q], \
+        "the collection was armed for unattended re-embedding despite the refusal"
+
+
+def test_ai_generate_holder_still_ingests_a_source(monkeypatch):
+    """The gate must refuse the narrowed key and nobody else: the same caller
+    holding both permissions still gets through and does embed."""
+    import uuid
+    user = {"id": SCOPED_KEY_ID, "username": "eng", "role": "ai_engineer",
+            "permissions": frozenset({"knowledge:write", "ai:generate"})}
+    conn = _OwnedCollConn(uuid.UUID(SCOPED_KEY_ID))
+    client, _ = _spend_gate_client(monkeypatch, user, conn)
+    # This caller is allowed to spend, so _embed must not be the booby-trapped one.
+    from app.api import ai_vectors
+    monkeypatch.setattr(ai_vectors, "_embed", lambda texts: _aval([[0.0] for _ in texts]))
+
+    resp = client.post("/api/ai/collections/mine/ingest-source",
+                       json={"type": "s3", "bucket": "docs"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["documents"] == 1
+
+
+def test_internal_automation_principal_still_reaches_ingest_source_after_the_spend_gate(monkeypatch):
+    """`ai:generate` has to be the `_or_internal` variant. The internal principal
+    never resolves as a user, so a plain `require_permission` in front of it would
+    401 the allowlisted callback before it could identify itself — silently
+    stopping every scheduled re-embed."""
+    import uuid
+    monkeypatch.setenv("INTERNAL_API_KEY", "scheduler-secret")
+    conn = _OwnedCollConn(uuid.UUID(SCOPED_KEY_ID))
+    # No signed-in user at all: the key is the whole credential.
+    client, _ = _spend_gate_client(monkeypatch, {"id": None, "role": "nobody",
+                                                 "permissions": frozenset()}, conn)
+    from app.api import ai_vectors
+    monkeypatch.setattr(ai_vectors, "_embed", lambda texts: _aval([[0.0] for _ in texts]))
+
+    resp = client.post("/api/ai/collections/mine/ingest-source",
+                       json={"type": "s3", "bucket": "docs"},
+                       headers={"X-Internal-Key": "scheduler-secret"})
+    assert resp.status_code == 200, resp.text

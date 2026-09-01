@@ -24,7 +24,11 @@ from app.models.transform import SavedTransform
 from app.api.trino_util import trino_conn
 from app.runtime import component_secret
 
-from app.api.auth import require_permission
+from app.api.auth import require_permission, require_user
+# D2: a transform belongs to whoever created it, and is reachable only by them,
+# their grantees, an admin — or anyone, while it has no owner at all.
+from app.api.source_access import (TRANSFORM_KIND, caller_uuid, granted_roles,
+                                   may_see, require_access)
 
 router = APIRouter()
 
@@ -298,7 +302,8 @@ async def _deploy_dag(dag_id: str, dag_code: str) -> bool:
 
 
 @router.post("/transforms", dependencies=[Depends(require_permission("pipeline:write"))])
-async def create_transform(req: TransformCreateRequest, db: Session = Depends(get_db)):
+async def create_transform(req: TransformCreateRequest, db: Session = Depends(get_db),
+                           user: dict = Depends(require_user)):
     if req.target_namespace not in NAMESPACES:
         raise HTTPException(400, f"target namespace must be one of {NAMESPACES}")
     if req.source_namespace == req.target_namespace:
@@ -319,6 +324,11 @@ async def create_transform(req: TransformCreateRequest, db: Session = Depends(ge
     existing = db.query(SavedTransform).filter(SavedTransform.name == req.name).first()
     if existing and not req.overwrite:
         raise HTTPException(409, f"Transform '{req.name}' already exists")
+    if existing:
+        # overwrite=true against a name that already exists is a write to *that*
+        # transform, whoever owns it — the one path where creating something can
+        # destroy someone else's. Gated like an edit, because it is one.
+        await require_access(TRANSFORM_KIND, existing.id, user, write=True)
 
     candidate = SimpleNamespace(
         name=req.name,
@@ -354,6 +364,9 @@ async def create_transform(req: TransformCreateRequest, db: Session = Depends(ge
             target_table=req.target_table,
             sql=req.sql,
             schedule=req.schedule,
+            # Without this the transform is created unowned, which means editable by
+            # everyone holding pipeline:write — the state D2 exists to end.
+            owner_id=caller_uuid(user),
         )
         db.add(row)
     row.status = "deployed"
@@ -403,8 +416,18 @@ async def _last_runs(dag_ids: list) -> dict:
 
 
 @router.get("/transforms")
-async def list_transforms(db: Session = Depends(get_db)):
-    rows = db.query(SavedTransform).order_by(SavedTransform.updated_at.desc()).all()
+async def list_transforms(db: Session = Depends(get_db),
+                          user: dict = Depends(require_user)):
+    """Transforms this caller may see.
+
+    Filtered in Python rather than in SQL: this listing goes through SQLAlchemy, and
+    the grants live in a table the ORM does not model. `granted_roles` loads them in
+    one query and `may_see` asks the same question `resolve()` asks per row, so the
+    listing and the detail route cannot disagree about who may see what.
+    """
+    roles = await granted_roles(TRANSFORM_KIND, user)
+    rows = [r for r in db.query(SavedTransform).order_by(SavedTransform.updated_at.desc()).all()
+            if may_see(TRANSFORM_KIND, r, user, roles.get(str(r.id)))]
     runs = await _last_runs([r.dag_id for r in rows if r.dag_id])
     return {
         "transforms": [
@@ -422,6 +445,7 @@ async def list_transforms(db: Session = Depends(get_db)):
                 "updated_at": r.updated_at.isoformat() if r.updated_at else None,
                 "last_run_state": (runs.get(r.dag_id) or {}).get("state"),
                 "last_run_at": (runs.get(r.dag_id) or {}).get("at"),
+                "owner_id": str(r.owner_id) if r.owner_id else None,
             }
             for r in rows
         ],
@@ -430,7 +454,9 @@ async def list_transforms(db: Session = Depends(get_db)):
 
 
 @router.get("/transforms/{transform_id}")
-async def get_transform(transform_id: str, db: Session = Depends(get_db)):
+async def get_transform(transform_id: str, db: Session = Depends(get_db),
+                        user: dict = Depends(require_user)):
+    await require_access(TRANSFORM_KIND, transform_id, user)
     row = db.query(SavedTransform).filter(SavedTransform.id == uuid.UUID(transform_id)).first()
     if not row:
         raise HTTPException(404, "Transform not found")
@@ -447,6 +473,7 @@ async def get_transform(transform_id: str, db: Session = Depends(get_db)):
         "dag_id": row.dag_id,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "owner_id": str(row.owner_id) if row.owner_id else None,
     }
 
 
@@ -455,7 +482,9 @@ async def update_transform(
     transform_id: str,
     req: TransformUpdateRequest,
     db: Session = Depends(get_db),
+    user: dict = Depends(require_user),
 ):
+    await require_access(TRANSFORM_KIND, transform_id, user, write=True)
     try:
         transform_uuid = uuid.UUID(transform_id)
     except ValueError as exc:
@@ -511,7 +540,9 @@ async def update_transform(
 
 
 @router.post("/transforms/{transform_id}/trigger", dependencies=[Depends(require_permission("pipeline:write"))])
-async def trigger_transform(transform_id: str, db: Session = Depends(get_db)):
+async def trigger_transform(transform_id: str, db: Session = Depends(get_db),
+                            user: dict = Depends(require_user)):
+    await require_access(TRANSFORM_KIND, transform_id, user, write=True)
     row = db.query(SavedTransform).filter(SavedTransform.id == uuid.UUID(transform_id)).first()
     if not row or not row.dag_id:
         raise HTTPException(404, "Transform not found or not deployed")
@@ -574,7 +605,9 @@ async def _remove_remote_dag(dag_id: str) -> None:
 
 
 @router.delete("/transforms/{transform_id}", dependencies=[Depends(require_permission("pipeline:write"))])
-async def delete_transform(transform_id: str, db: Session = Depends(get_db)):
+async def delete_transform(transform_id: str, db: Session = Depends(get_db),
+                           user: dict = Depends(require_user)):
+    await require_access(TRANSFORM_KIND, transform_id, user, write=True)
     try:
         transform_uuid = uuid.UUID(transform_id)
     except ValueError as exc:

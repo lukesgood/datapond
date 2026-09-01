@@ -43,7 +43,7 @@ import {
 import { LogsViewer } from "@/components/services/logs-viewer"
 import { MetricsChart, type ServiceMetricsData } from "@/components/services/metrics-chart"
 import { PodList } from "@/components/services/pod-list"
-import { getUser } from "@/lib/auth"
+import { usePermissions } from "@/lib/permissions"
 
 // Only services that actually expose a sub-path console. Trino / MinIO UIs
 // don't support sub-path hosting and AWS-managed services have no in-cluster UI.
@@ -96,7 +96,13 @@ export default function ServiceDetailPage() {
   const params = useParams()
   const router = useRouter()
   const serviceId = params.id as string
-  const [isAdmin] = useState(() => getUser()?.role === "admin")
+  // Pod delete/restart/scale and the log-stream websocket are all admin-only on the
+  // backend (backend/app/api/services.py's require_admin dependencies, and the
+  // websocket's own `user.get("role") != "admin"` check) — a role, not a
+  // permission — so this reads the role itself, sourced from /api/me/permissions
+  // rather than the token in localStorage.
+  const { role } = usePermissions()
+  const isAdmin = role === "admin"
 
   const [service, setService] = useState<ServiceDetail | null>(null)
   const [logs, setLogs] = useState<string[]>([])

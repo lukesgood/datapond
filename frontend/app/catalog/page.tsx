@@ -4,6 +4,10 @@ import { useCallback, useEffect, useState } from "react"
 import NextLink from "next/link"
 import { CapabilityGate } from "@/lib/capabilities"
 import { getUser } from "@/lib/auth"
+import { usePermissions } from "@/lib/permissions"
+import { permissionState } from "@/lib/permission-state"
+import { PermissionUnknown } from "@/components/ui/permission-state"
+import { mayIngest } from "@/lib/knowledge-actions"
 import { ErrorBox, EmptyState } from "@/components/ui/error-box"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -69,10 +73,23 @@ function CatalogPageInner() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedNamespace, setSelectedNamespace] = useState<string>("all")
   const [sendTable, setSendTable] = useState<Table | null>(null)
-  // "Send to Knowledge" drives admin-only ingest-source/schedule endpoints — a
-  // viewer would fill in the dialog only to hit a 403. Gate the action here,
-  // mirroring how the AI Gateway hides admin-only forms from non-admins.
-  const [isAdmin] = useState(() => getUser()?.role === "admin")
+  // "Send to Knowledge" drives ingest-source/schedule — knowledge:write, not admin,
+  // since B1 moved both off require_admin so ai_engineer (which holds
+  // knowledge:write but not admin) could reach them from the Knowledge page. This
+  // used to gate on getUser()'s admin role instead, which was stale as of that
+  // move: an ai_engineer could already send a table to Knowledge from the Knowledge
+  // page's Ingest tab and get refused here for the identical action, depending only
+  // on which page they started from. mayIngest (lib/knowledge-actions.ts) is the
+  // one decision both pages now share; a brand-new collection has no owner yet, so
+  // this asks about one the viewer would own themselves — the case every
+  // knowledge:write holder can always reach via "create new" in the dialog below.
+  // ingest-source also requires ai:generate (it embeds the table's rows); mayIngest
+  // carries that, so this stays one shared decision rather than two drifting ones.
+  const viewer = getUser()
+  const { role, permissions, loaded: permsLoaded, error: permsError, refetch: refetchPerms } = usePermissions()
+  const canSendToKnowledge = !!viewer &&
+    mayIngest({ owner_id: viewer.id }, { id: viewer.id, role, permissions })
+  const sendToKnowledgeAccess = permissionState({ loaded: permsLoaded, error: permsError, allowed: canSendToKnowledge })
 
   const fetchData = useCallback(async () => {
     try {
@@ -223,10 +240,15 @@ function CatalogPageInner() {
         <p className="text-muted-foreground">
           Browse and explore tables registered in the catalog
         </p>
-        {!isAdmin && (
+        {sendToKnowledgeAccess === "denied" && (
           <p className="mt-1 text-xs text-muted-foreground">
-            Sending a table to Knowledge (RAG) requires an administrator — ask an administrator to enable it.
+            Sending a table to Knowledge (RAG) needs the knowledge:write and ai:generate permissions — ask an administrator for access.
           </p>
+        )}
+        {sendToKnowledgeAccess === "unknown" && (
+          <div className="mt-1">
+            <PermissionUnknown onRetry={refetchPerms} />
+          </div>
         )}
       </div>
 
@@ -387,7 +409,7 @@ function CatalogPageInner() {
                 catalogType={table.catalog_type}
                 tableType={table.table_type}
                 lastUpdated={table.last_updated}
-                onSendToKnowledge={isAdmin ? () => setSendTable(table) : undefined}
+                onSendToKnowledge={sendToKnowledgeAccess === "allowed" ? () => setSendTable(table) : undefined}
               />
             ))}
           </div>

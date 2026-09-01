@@ -141,7 +141,7 @@ def test_every_revision_has_the_sql_it_executes():
 
     versions = Path(__file__).resolve().parents[1] / "migrations/versions"
     for py in versions.glob("*.py"):
-        if "op.execute" in py.read_text() or "exec_driver_sql" in py.read_text():
+        if "op.execute" in py.read_text() or "run_sql_file" in py.read_text():
             assert py.with_suffix(".sql").exists(), f"{py.name} has no .sql beside it"
 
 
@@ -303,3 +303,103 @@ def test_the_job_opens_its_pool_through_the_waiting_helper():
     body = inspect.getsource(migrations.main)
     assert "open_pool" in body
     assert "await get_db_pool()" not in body
+
+
+# ── the chain itself ────────────────────────────────────────────────────────
+
+def _revision_chain() -> dict:
+    """{revision: down_revision} for every migration in the versions directory."""
+    import re as _re
+    from pathlib import Path
+
+    versions = Path(__file__).resolve().parents[1] / "migrations/versions"
+    chain = {}
+    for py in versions.glob("*.py"):
+        body = py.read_text()
+        rev = _re.search(r'revision:\s*str\s*=\s*"([^"]+)"', body)
+        down = _re.search(r'down_revision.*=\s*"([^"]+)"', body)
+        if rev:
+            chain[rev.group(1)] = down.group(1) if down else None
+    return chain
+
+
+def test_there_is_exactly_one_head_and_one_root():
+    """Two heads is a branched history: `alembic upgrade head` fails outright, and
+    the release fails with it. Two roots means a migration chains from nothing and is
+    never reached. Neither is visible by reading one file, which is why this reads all
+    of them — and it belongs here rather than in whichever migration happened to be
+    the tip when it was written."""
+    chain = _revision_chain()
+    assert chain, "no migrations found"
+    heads = set(chain) - {down for down in chain.values() if down}
+    roots = [rev for rev, down in chain.items() if down is None]
+    assert len(heads) == 1, f"expected one head, found {sorted(heads)}"
+    assert len(roots) == 1, f"expected one root, found {sorted(roots)}"
+
+
+def test_every_predecessor_exists_and_the_chain_terminates():
+    """A down_revision naming a revision that is not there strands everything after
+    it; a cycle hangs the walk. Both are silent until a deploy."""
+    chain = _revision_chain()
+    for revision, down in chain.items():
+        assert down is None or down in chain, (
+            f"{revision} chains from '{down}', which no migration defines")
+
+    for start in chain:
+        seen, current = set(), start
+        while current is not None:
+            assert current not in seen, f"cycle in the revision chain at {current}"
+            seen.add(current)
+            current = chain[current]
+
+
+# ── what readiness says after the startup hook stamped something ────────────
+
+def test_a_stamped_database_is_only_ready_when_it_is_actually_at_head():
+    """`apply()` stamps BASELINE_REVISION — not head — whenever the tables exist and
+    Alembic has never been here. That is the right thing to record, but the startup
+    hook then reported `stamped {head}` and marked itself ready, so a pre-Alembic
+    database upgraded to a new image without the migration Job having run served
+    traffic while sitting several revisions behind: every connector route 500s on a
+    missing column, and every authorization denial fails to write its audit row.
+
+    `CORE_TABLES` cannot catch it either — it lists five tables that all predate the
+    gap. The revision is the only thing that knows.
+    """
+    from app.migrations import state_after_apply
+
+    ok, detail = state_after_apply("0001_baseline", "0007_seed_roles")
+    assert ok is False
+    assert "0001_baseline" in detail and "0007_seed_roles" in detail
+    assert "migration" in detail.lower(), "the detail has to say what to do about it"
+
+
+def test_a_database_actually_at_head_after_apply_is_ready():
+    from app.migrations import state_after_apply
+
+    ok, detail = state_after_apply("0007_seed_roles", "0007_seed_roles")
+    assert ok is True and "0007_seed_roles" in detail
+
+
+def test_a_database_with_no_revision_at_all_is_not_ready():
+    """apply() reporting nothing to stamp and no revision recorded means the state is
+    unknown, and unknown is not ready — the same fail-closed answer as behind."""
+    from app.migrations import state_after_apply
+
+    ok, _ = state_after_apply(None, "0007_seed_roles")
+    assert ok is False
+
+
+def test_only_one_replica_may_build_an_empty_database():
+    """The hook runs in every replica and Alembic does not lock, so the empty-database
+    branch — the one case where it really does issue DDL — has to be single-flight.
+    Its lock key must not collide with the other advisory locks in the process."""
+    from app import audit_retention, migrations, rag_scheduler, system_events
+
+    keys = {
+        migrations.MIGRATION_LOCK_KEY,
+        audit_retention.LOCK_KEY,
+        rag_scheduler.LOCK_KEY,
+        system_events.LOCK_KEY,
+    }
+    assert len(keys) == 4, "two advisory locks share a key — one of them never runs"

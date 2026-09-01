@@ -27,7 +27,8 @@ from typing import Dict, FrozenSet, Optional
 
 ALL_PERMISSIONS: FrozenSet[str] = frozenset({
     "catalog:read",       # browse the catalog
-    "query:run",          # execute SQL
+    "query:run",          # run a statement that only reads
+    "query:write",        # run one that changes data or schema (INSERT/DDL/…)
     "dashboard:write",    # save and delete dashboards
     "knowledge:read",     # read collections and cited answers
     "knowledge:write",    # create, ingest into, and delete collections
@@ -53,8 +54,8 @@ ROLE_PERMISSIONS: Dict[str, FrozenSet[str]] = {
 
     # Brings data in. No model spend: ingestion is not a generative workload.
     "data_engineer": frozenset(_READ_BASELINE | {
-        "query:run", "connector:read", "connector:write", "pipeline:write",
-        "workbench:read", "workbench:write",
+        "query:run", "query:write", "connector:read", "connector:write",
+        "pipeline:write", "workbench:read", "workbench:write",
     }),
 
     # The product's stated target user — AI application teams — had no role at all.
@@ -91,6 +92,29 @@ KNOWN_ROLES = tuple(ROLE_PERMISSIONS)
 # Roles that may be assigned through the API. Same set — a role nobody can be given
 # is as useless as one nothing enforces.
 ASSIGNABLE_ROLES = KNOWN_ROLES
+
+# One human-readable sentence per role, served by /api/me/permissions. This text
+# is not independent of the database: migrations/versions/0007_seed_roles.sql seeds
+# the identical sentence into roles.description, and the two are pinned equal by
+# tests/test_role_seed_migration.py::test_role_label_matches_the_seeded_description
+# — a drift between them fails that test. The wording here matches 0007's seeded
+# text verbatim (rather than the other way around) because 0007 is already applied
+# to the live database and `ON CONFLICT DO NOTHING` means editing its SQL would not
+# update already-seeded rows — a fresh install would get new prose, a live one would
+# keep the old, which is the exact drift this exists to prevent. Change the sentence
+# here only if you also change it in 0007_seed_roles.sql AND re-seed (or manually
+# update) every database that already ran it.
+ROLE_LABELS: Dict[str, str] = {
+    "admin": "Full platform access. Manages users, roles, settings, and every resource.",
+    "data_engineer": "Connects sources, runs syncs and transforms, and writes through "
+                      "the query engine.",
+    "ai_engineer": "Builds knowledge collections, ingests into them, and spends model "
+                   "tokens.",
+    "data_scientist": "Queries, notebooks, experiments, and knowledge collections.",
+    "business_analyst": "Reads with SELECT, saves dashboards, and browses notebooks.",
+    "auditor": "Read-only governance policies, audit log, and spend. Writes nothing.",
+    "viewer": "Reads the catalog, knowledge collections, and runs SELECT queries.",
+}
 
 
 def _normalize(role: Optional[str]) -> str:

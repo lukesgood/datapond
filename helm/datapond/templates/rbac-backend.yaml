@@ -60,7 +60,11 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["configmaps"]
-    resourceNames: [{{ dig "trinoAclConfigMap" "trino-access-control" (.Values.governance | default dict) | quote }}]
+    # Same expression trino-deployment.yaml creates it with, and the same one the
+    # backend is handed as TRINO_ACL_CONFIGMAP. This used to read a key under
+    # `governance:` that appears in no values file, so renaming the ConfigMap through
+    # the documented knob left this Role pinned to the default and policy writes 403'd.
+    resourceNames: [{{ .Values.trino.rls.configMapName | default "trino-access-control" | quote }}]
     verbs: ["update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

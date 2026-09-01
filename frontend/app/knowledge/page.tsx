@@ -16,6 +16,7 @@ import { Markdown } from "@/components/ui/markdown"
 import { MySpend } from "@/components/ai/my-spend"
 import { CompositionPanel } from "@/components/knowledge/composition-panel"
 import { LineagePanel } from "@/components/knowledge/lineage-panel"
+import { MembersPanel } from "@/components/knowledge/members-panel"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -23,6 +24,8 @@ import { getUser } from "@/lib/auth"
 import { useConfirm } from "@/lib/confirm"
 import { ErrorBox, EmptyState } from "@/components/ui/error-box"
 import { useCapability } from "@/lib/capabilities"
+import { usePermissions } from "@/lib/permissions"
+import { mayAskQuestions, mayIngest, mayWriteCollection } from "@/lib/knowledge-actions"
 
 interface Collection {
   name: string; embed_model: string; dim: number
@@ -65,6 +68,12 @@ export default function KnowledgePage() {
   const [egress, setEgress] = useState<string>("")
   const [err, setErr] = useState<string | null>(null)
   const me = getUser()
+  // DELETE /ai/collections/{name} resolves through the same _collection_id(destroy=True)
+  // -> may_write gate as ingest/schedule (B1) — an editor grant deletes too, same as it
+  // always implicitly did for an owner. This used to gate on getUser()'s admin role
+  // plus a hand-rolled owner comparison, sourced from the token in localStorage and
+  // missing the editor-membership case mayIngest already knows about.
+  const { role, permissions } = usePermissions()
   const confirm = useConfirm()
 
   const load = useCallback(async () => {
@@ -172,7 +181,9 @@ export default function KnowledgePage() {
                           ? <Badge variant="outline" className="text-[9px]">other</Badge>
                           : null}
                     </div>
-                    {(me?.role === "admin" || (c.owner_id !== null && me?.id === c.owner_id)) && (
+                    {/* DELETE /ai/collections/{name} is knowledge:write alone — it
+                        embeds nothing, so mayWriteCollection, not mayIngest. */}
+                    {!!me && mayWriteCollection({ owner_id: c.owner_id }, { id: me.id, role, permissions }) && (
                       <button aria-label={`Delete collection ${c.name}`} onClick={e => { e.stopPropagation(); deleteCol(c.name, load, confirm, toast) }}
                         className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
                     )}
@@ -199,7 +210,9 @@ export default function KnowledgePage() {
 
         {/* Selected collection workspace */}
         <div>
-          {sel ? <Workspace key={sel} name={sel} onChange={load} empty={(cols.find(c => c.name === sel)?.chunks ?? 0) === 0} />
+          {sel ? <Workspace key={sel} name={sel} onChange={load}
+                            empty={(cols.find(c => c.name === sel)?.chunks ?? 0) === 0}
+                            ownerId={cols.find(c => c.name === sel)?.owner_id ?? null} />
             : <Card><CardContent>
                 <EmptyState
                   icon={Sparkles}
@@ -322,7 +335,7 @@ function CreateCollection({ onCreated }: { onCreated: () => void }) {
   )
 }
 
-function Workspace({ name, onChange, empty }: { name: string; onChange: () => void; empty: boolean }) {
+function Workspace({ name, onChange, empty, ownerId }: { name: string; onChange: () => void; empty: boolean; ownerId: string | null }) {
   const ontologyOn = useCapability("ontology")
   return (
     <Card>
@@ -336,6 +349,7 @@ function Workspace({ name, onChange, empty }: { name: string; onChange: () => vo
             <TabsTrigger value="composition"><Layers className="h-3.5 w-3.5 mr-1" />Composition</TabsTrigger>
             <TabsTrigger value="ingest"><Upload className="h-3.5 w-3.5 mr-1" />Ingest</TabsTrigger>
             <TabsTrigger value="schedule"><Clock className="h-3.5 w-3.5 mr-1" />Schedule</TabsTrigger>
+            <TabsTrigger value="members"><Users className="h-3.5 w-3.5 mr-1" />Members</TabsTrigger>
             {/* Only when the deployment has the capability. Without the flag every
                 concepts call 404s, so an always-present tab would greet everyone with
                 an error for a feature they have not turned on. The Concepts toggle in
@@ -344,8 +358,9 @@ function Workspace({ name, onChange, empty }: { name: string; onChange: () => vo
             <TabsTrigger value="compare"><ArrowDownWideNarrow className="h-3.5 w-3.5 mr-1" />Compare</TabsTrigger></TabsList>
           <TabsContent value="search"><SearchPanel name={name} /></TabsContent>
           <TabsContent value="composition"><CompositionPanel name={name} onChange={onChange} /></TabsContent>
-          <TabsContent value="ingest"><IngestPanel name={name} onChange={onChange} /></TabsContent>
-          <TabsContent value="schedule"><SchedulePanel name={name} /></TabsContent>
+          <TabsContent value="ingest"><IngestPanel name={name} ownerId={ownerId} onChange={onChange} /></TabsContent>
+          <TabsContent value="schedule"><SchedulePanel name={name} ownerId={ownerId} /></TabsContent>
+          <TabsContent value="members"><MembersPanel name={name} ownerId={ownerId} /></TabsContent>
           {/* Deliberately in Knowledge rather than a page of its own: concepts change
               what Search returns, so the cause belongs next to the effect. */}
           {ontologyOn && <TabsContent value="concepts"><ConceptsPanel /></TabsContent>}
@@ -363,8 +378,18 @@ interface ScheduleState {
   last_refresh_status: string | null
 }
 
-function SchedulePanel({ name }: { name: string }) {
-  const isAdmin = getUser()?.role === "admin"
+function SchedulePanel({ name, ownerId }: { name: string; ownerId: string | null }) {
+  const viewer = getUser()
+  const { role, permissions } = usePermissions()
+  // Same gate ingest-source uses (B1: knowledge:write + _collection_id(write=True),
+  // plus ai:generate since the final-review fix) — schedule is the recurring form of
+  // the same action, and arming it commits the deployment to unattended spend.
+  const canSchedule = !!viewer && mayIngest({ owner_id: ownerId }, { id: viewer.id, role, permissions })
+  // Cancelling is DELETE .../schedule, which is knowledge:write alone. Someone who
+  // may write this collection but may not spend must still be able to turn off a
+  // schedule that is spending — gating the off switch on ai:generate would be
+  // exactly backwards.
+  const canCancelSchedule = !!viewer && mayWriteCollection({ owner_id: ownerId }, { id: viewer.id, role, permissions })
   const { toast } = useToast()
   const confirm = useConfirm()
   const [state, setState] = useState<ScheduleState | null>(null)
@@ -396,7 +421,9 @@ function SchedulePanel({ name }: { name: string }) {
   if (!state?.enabled) return (
     <div className="pt-3 text-sm text-muted-foreground">
       No recurring re-embed is scheduled for this collection.
-      {isAdmin ? " Set one up from the Ingest tab (choose a source, then “Schedule ingest”)." : " An administrator can set one up."}
+      {canSchedule
+        ? " Set one up from the Ingest tab (choose a source, then “Schedule ingest”)."
+        : " You can read this collection but not change it — its owner, an editor, or an administrator can set one up."}
     </div>
   )
   const okStatus = (state.last_refresh_status ?? "").toLowerCase().includes("ok") || (state.last_refresh_status ?? "").toLowerCase().includes("success")
@@ -414,7 +441,7 @@ function SchedulePanel({ name }: { name: string }) {
           </div>
         )}
       </div>
-      {isAdmin && (
+      {canCancelSchedule && (
         <Button variant="outline" size="sm" onClick={cancel} disabled={busy}>
           {busy ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5 mr-1.5" />}Cancel schedule</Button>
       )}
@@ -434,6 +461,11 @@ function renderCitedAnswer(text: string) {
 interface ConceptUse { name: string; pii?: boolean; added?: string[] }
 
 function SearchPanel({ name }: { name: string }) {
+  // /ai/search and /ai/rag both require ai:generate — a business_analyst holds
+  // knowledge:read (sees the collection exists) but not ai:generate, so this tab
+  // must not offer a query box whose submit would only 403.
+  const { permissions } = usePermissions()
+  const canAsk = mayAskQuestions({ permissions })
   const [q, setQ] = useState(""); const [mode, setMode] = useState<"search" | "rag">("rag")
   const [busy, setBusy] = useState(false); const [ans, setAns] = useState<string | null>(null)
   const [hits, setHits] = useState<Hit[]>([]); const [e, setE] = useState<string | null>(null)
@@ -467,6 +499,14 @@ function SearchPanel({ name }: { name: string }) {
       }
     } catch (error) { setE(error instanceof Error ? error.message : "Search failed") }
     setBusy(false)
+  }
+  if (!canAsk) {
+    return (
+      <div className="pt-3 text-sm text-muted-foreground">
+        You can see this collection but not spend a model call against it — search
+        and ask need the ai:generate permission, which your role doesn&apos;t hold.
+      </div>
+    )
   }
   return (
     <div className="space-y-3 pt-3">
@@ -585,11 +625,16 @@ function SearchPanel({ name }: { name: string }) {
   )
 }
 
-function IngestPanel({ name, onChange }: { name: string; onChange: () => void }) {
+function IngestPanel({ name, ownerId, onChange }: { name: string; ownerId: string | null; onChange: () => void }) {
   const catalogEnabled = useCapability("catalog")
-  // Source ingest + schedule are admin-only on the backend (require_admin);
-  // don't offer them to non-admins, who would only hit a 403.
-  const isAdmin = getUser()?.role === "admin"
+  const viewer = getUser()
+  const { role, permissions } = usePermissions()
+  // ingest (paste text) and ingest-source both resolve through
+  // _collection_id(write=True) (knowledge_access.may_write) and both require
+  // knowledge:write + ai:generate — same gate, whichever sub-tab is used, since
+  // B1 moved ingest-source off require_admin and the final-review fix put the
+  // spend permission on it and on schedule, where E1 had already put it on ingest.
+  const canIngest = !!viewer && mayIngest({ owner_id: ownerId }, { id: viewer.id, role, permissions })
   const { toast } = useToast()
   const [tab, setTab] = useState<"text" | "source">("text")
   const [text, setText] = useState(""); const [src, setSrc] = useState("")
@@ -618,14 +663,21 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
   // When a table is picked, lazily fetch its columns to populate the text-column select.
   useEffect(() => {
     if (sourceType !== "iceberg" || !schema || !table) return
+    // Guarded like the chunk-preset fetch above: pick a second table before the first
+    // one's columns arrive and the older response can land last, leaving the column
+    // list — and the auto-selected text_column that feeds the ingest request — naming
+    // a column the selected table does not have.
+    let cancelled = false
     const qs = new URLSearchParams({ catalog: "iceberg", schema, table })
     fetch(`/api/catalog/columns?${qs}`).then(r => r.json() as Promise<CatalogColumn[]>)
       .then((payload) => {
+        if (cancelled) return
         const columns = Array.isArray(payload) ? payload : []
         setCols(columns)
         setCol(current => columns.length > 0 && !columns.some(column => column.name === current) ? columns[0].name : current)
       })
-      .catch(() => setCols([]))
+      .catch(() => { if (!cancelled) setCols([]) })
+    return () => { cancelled = true }
   }, [schema, sourceType, table])
   const sourceBody = () => sourceType === "iceberg"
     ? { type: "iceberg", schema, table, text_column: col }
@@ -666,17 +718,24 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
     setSchedBusy(false)
   }
 
+  if (!canIngest) {
+    return (
+      <div className="pt-3 text-sm text-muted-foreground">
+        You can read this collection but not change it — its owner, an editor, or
+        an administrator can ingest into it.
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-3 pt-3">
       <div className="flex rounded-md border overflow-hidden w-fit text-xs">
         {(["text", "source"] as const).map(t => (
-          (t === "source" && !isAdmin) ? null : (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-1 ${tab === t ? "bg-primary text-primary-foreground" : "bg-background"}`}>
             {t === "text" ? "Paste text" : catalogEnabled ? "From catalog / S3" : "From S3"}</button>
-          )
         ))}
       </div>
-      {(tab === "text" || !isAdmin) ? (
+      {tab === "text" ? (
         <>
           <Input value={src} onChange={e => setSrc(e.target.value)} placeholder="source label (optional)" className="text-sm" />
           <Textarea value={text} onChange={e => setText(e.target.value)} placeholder="Paste documents to embed…" className="min-h-[160px] text-sm" />

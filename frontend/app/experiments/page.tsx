@@ -27,7 +27,7 @@ import {
   GitCompare, Trash2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { getUser } from "@/lib/auth"
+import { usePermissions } from "@/lib/permissions"
 import { useConfirm } from "@/lib/confirm"
 import { bestMetricValue, metricLowerIsBetter } from "@/components/experiments/compare-runs"
 
@@ -596,10 +596,15 @@ function ExperimentsPageInner() {
   // Dialog
   const [createExpOpen, setCreateExpOpen] = useState(false)
 
-  // Admin-gated actions
+  // Admin-gated actions. DELETE /mlflow/experiments/{id} is `require_admin` on the
+  // backend (backend/app/api/mlflow_integration.py) — a role, not a permission — so
+  // this reads the role itself, sourced from /api/me/permissions rather than the
+  // token in localStorage. Fails closed on an unresolved fetch the same way it
+  // always did: `role` stays "viewer" until /api/me/permissions answers.
   const { toast } = useToast()
   const confirm = useConfirm()
-  const isAdmin = getUser()?.role === "admin"
+  const { role } = usePermissions()
+  const isAdmin = role === "admin"
 
   // ── Loaders ────────────────────────────────────────────────────────────────
 

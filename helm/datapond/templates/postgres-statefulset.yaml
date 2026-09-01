@@ -54,6 +54,24 @@ spec:
     spec:
       containers:
       - name: postgres
+        # pgvector/pgvector is a drop-in postgres image: docker-entrypoint.sh runs as
+        # root and steps down the same way valkey's does — `find ... chown postgres`
+        # (docker_create_db_directories(), only when `id -u` = 0) needs CHOWN, and
+        # `exec gosu postgres ...` (the actual privilege drop; gosu calls
+        # setresgid/setgroups/setresuid directly) needs SETUID and SETGID. Both run
+        # on every container start, not just first init.
+        #
+        # The entrypoint also does `chmod 00700 "$PGDATA" || :` and
+        # `chmod 03775 /var/run/postgresql || :` — both suffixed `|| :`, so a chmod
+        # failing for lack of FOWNER is swallowed, not fatal. A `chmod 700` on a
+        # custom WAL dir has no `|| :`, but nothing in this chart sets
+        # POSTGRES_INITDB_WALDIR, so that path never runs here. FOWNER/DAC_OVERRIDE
+        # are left out on that basis, not because they were tested and found
+        # unnecessary — if that assumption changes (a WAL dir override, an image
+        # bump that reorders the entrypoint), treat a CrashLoop here as a signal to
+        # revisit this list, the same way valkey's SETUID/SETGID/CHOWN were each
+        # found one CrashLoop at a time.
+        {{- include "datapond.containerSecurity" (dict "enabled" (.Values.podSecurity).enabled "keep" (list "SETUID" "SETGID" "CHOWN")) | nindent 8 }}
         image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
         ports:
         - containerPort: {{ .Values.postgres.service.port }}

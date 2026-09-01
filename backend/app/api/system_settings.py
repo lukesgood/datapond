@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
-from app.api.auth import require_admin
+from app.api.auth import require_admin, require_permission
 from app.api.connectors import get_db_pool
 from app.connectors.vault import CredentialVault
 
@@ -78,7 +78,11 @@ async def get_system_settings():
     return {"settings": result}
 
 
-@router.patch("/settings/system", dependencies=[Depends(require_admin)])
+# settings:write rather than require_admin: this is one of the two permissions
+# app/service_accounts.py withholds from every API key, and asking for it by name is
+# what makes that withholding take effect here. Only the admin role holds it, so for a
+# person nothing changes.
+@router.patch("/settings/system", dependencies=[Depends(require_permission("settings:write"))])
 async def update_system_settings(body: SettingsPatch):
     """Save settings and apply to runtime env vars immediately."""
     pool = await get_db_pool()

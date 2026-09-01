@@ -45,6 +45,20 @@ class _Store(InvocationStore):
         self.rows[invocation_id].update(fields)
         return self.rows[invocation_id]
 
+    async def claim_for_approval(self, invocation_id, approved_by):
+        """The in-memory twin of the Postgres conditional UPDATE.
+
+        There is no await between the read and the write here, which is exactly why
+        the concurrency test below drives the store's own method rather than trying
+        to interleave two approve() calls: what has to be atomic is this claim, and a
+        fake that "wins" twice would prove nothing about the real one.
+        """
+        row = self.rows.get(invocation_id)
+        if not row or row.get("status") != "proposed":
+            return None
+        row.update(status="approved", approved_by=approved_by)
+        return row
+
     async def record_audit(self, event, user_id, user_email, details):
         self.audit.append({"event": event, "user_id": user_id,
                            "user_email": user_email, "details": details})
@@ -188,6 +202,35 @@ def test_an_invocation_cannot_be_approved_twice():
         _run(approve(inv["id"], user=ADMIN, store=store,
                      executor=lambda p, u: runs.append(1) or {}))
     assert len(runs) == 1
+
+
+def test_only_one_of_two_simultaneous_approvals_executes():
+    """A double-click, or a client retry, sends approve() twice. Both calls read
+    status="proposed" before either writes, so a check-then-act approval runs the
+    query — or saves the dashboard — twice, and the message "a request can only be
+    approved once" describes an invariant nothing enforces.
+
+    Both halves are pinned: the store's claim admits exactly one winner, and approve()
+    goes through that claim rather than an unconditional update. Without the second
+    assertion a correct store would still be bypassed by a gate that ignores it.
+    """
+    import inspect
+
+    from app.chat import gate as gate_module
+
+    store = _Store()
+    inv = _run(propose("query.run", {"sql": "SELECT 1"}, user=ADMIN, page="/query",
+                       store=store, previewer=lambda p, u: {}))
+
+    winners = [_run(store.claim_for_approval(inv["id"], ADMIN["id"])) for _ in range(2)]
+    assert [w is not None for w in winners] == [True, False], (
+        "two approvals both claimed the same invocation")
+
+    source = inspect.getsource(gate_module.approve)
+    assert "claim_for_approval" in source, (
+        "approve() still writes status='approved' unconditionally — a correct store "
+        "cannot save it")
+    assert 'status="approved"' not in source
 
 
 def test_an_unknown_invocation_is_refused():

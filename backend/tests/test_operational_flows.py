@@ -481,10 +481,31 @@ def test_system_info_initial_failure_is_503_but_cached_fallback_remains():
 
 
 def test_service_viewer_ui_hides_admin_mutations_and_streaming():
+    """A viewer sees no pod deletion, no restart, and no log streaming.
+
+    The first assertion used to pin the exact line
+    `const [isAdmin] = useState(() => getUser()?.role === "admin")`. Task C1 of the
+    persona-usability plan replaced that line: the console now reads what the caller
+    may do from `GET /api/me/permissions` (`usePermissions()`), not from the role
+    baked into the JWT in localStorage, because that token cannot express a service
+    account key's narrowed scopes and is a value the browser owns. So the pin is
+    updated to the gate that is actually there, rather than deleted — this test's
+    subject is the *property* (a viewer is not shown these controls), and the four
+    assertions below only mean something if `isAdmin` is still derived from
+    something trustworthy.
+
+    Which source that is remains pinned here, but the general rule — no page under
+    `app/` may branch on `getUser().role` at all — is owned by
+    `frontend/lib/permission-source.test.ts`, which walks the whole directory rather
+    than naming one file.
+    """
     page = (ROOT / "frontend/app/services/[id]/page.tsx").read_text()
     viewer = (ROOT / "frontend/components/services/logs-viewer.tsx").read_text()
 
-    assert 'const [isAdmin] = useState(() => getUser()?.role === "admin")' in page
+    assert 'from "@/lib/permissions"' in page
+    assert "const { role } = usePermissions()" in page
+    assert 'const isAdmin = role === "admin"' in page
+    assert "getUser()?.role" not in page
     assert "{isAdmin && !isManaged && (" in page
     assert "onDeletePod={isAdmin ? handleDeletePod : undefined}" in page
     assert "canStream={isAdmin}" in page

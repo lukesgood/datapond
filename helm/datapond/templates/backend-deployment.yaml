@@ -57,7 +57,14 @@ spec:
           value: "{{ .Values.externalDatabase.sslmode | default "require" }}"
         {{- end }}
         - name: DATABASE_URL
-          value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)"
+          # sslmode belongs in the URL, not only in POSTGRES_SSLMODE: this URL is what
+          # psycopg2/SQLAlchemy connect with (the migration run, the schema wait, and the
+          # ORM), and none of them read that env var — only the asyncpg pool does.
+          # Without it libpq falls back to `prefer`, so those connections to an external
+          # database may go plaintext while the operator asked for TLS. Only under
+          # externalDatabase.enabled: the in-cluster branch defines no POSTGRES_SSLMODE,
+          # and an unresolved $(…) would land in the connection string verbatim.
+          value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB){{ if .Values.externalDatabase.enabled }}?sslmode=$(POSTGRES_SSLMODE){{ end }}"
         resources:
           requests: {cpu: 25m, memory: 96Mi}
           limits: {memory: 256Mi}
@@ -125,7 +132,14 @@ spec:
           value: "{{ .Values.externalDatabase.sslmode | default "require" }}"
         {{- end }}
         - name: DATABASE_URL
-          value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)"
+          # sslmode belongs in the URL, not only in POSTGRES_SSLMODE: this URL is what
+          # psycopg2/SQLAlchemy connect with (the migration run, the schema wait, and the
+          # ORM), and none of them read that env var — only the asyncpg pool does.
+          # Without it libpq falls back to `prefer`, so those connections to an external
+          # database may go plaintext while the operator asked for TLS. Only under
+          # externalDatabase.enabled: the in-cluster branch defines no POSTGRES_SSLMODE,
+          # and an unresolved $(…) would land in the connection string verbatim.
+          value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB){{ if .Values.externalDatabase.enabled }}?sslmode=$(POSTGRES_SSLMODE){{ end }}"
         - name: REDIS_URL
           value: "redis://redis:6379"
         - name: S3_ENDPOINT
@@ -182,6 +196,20 @@ spec:
         # Connector → RAG sink: re-embed fresh collections when their source table syncs
         - name: RAG_SINK_ENABLED
           value: {{ dig "sinkEnabled" true (.Values.backend.ragScheduler | default dict) | quote }}
+        # Which ConfigMap RLS Layer 2 writes Trino's access-control rules into.
+        # governance.py defaults to `trino-access-control`; unset, a renamed ConfigMap
+        # is never written and the rename silently does nothing. Same expression the
+        # chart creates it with and the Role permits writing.
+        - name: TRINO_ACL_CONFIGMAP
+          value: {{ .Values.trino.rls.configMapName | default "trino-access-control" | quote }}
+        # Audit table retention (security_audit_log / auth_audit_log — B4). `dig` for
+        # the bool-false case, same reasoning as SYSTEM_EVENTS_ENABLED above.
+        - name: AUDIT_RETENTION_ENABLED
+          value: {{ dig "enabled" true (.Values.backend.audit | default dict) | quote }}
+        - name: AUDIT_RETENTION_TICK_SECONDS
+          value: {{ dig "tickSeconds" 3600 (.Values.backend.audit | default dict) | quote }}
+        - name: AUDIT_RETENTION_DAYS
+          value: {{ dig "retentionDays" 365 (.Values.backend.audit | default dict) | quote }}
         # AWS-native observability: emit ops + cost metrics to CloudWatch (namespace DataPond).
         # Default off — needs cloudwatch:PutMetricData on the node/IRSA role.
         - name: CLOUDWATCH_METRICS_ENABLED
