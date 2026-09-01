@@ -44,6 +44,7 @@ import {
   Redo2,
   LayoutTemplate,
   Save,
+  AlertTriangle,
 } from "lucide-react"
 import { PIPELINE_TEMPLATES, PipelineTemplate } from "@/components/pipelines/pipeline-templates"
 
@@ -2083,12 +2084,39 @@ export default function NewPipelinePage() {
               )}
             </div>
           )}
-          {validateResult?.success && (
+          {/* The validator reads the pipeline source, it does not run it — so it
+              reports what it could not use (an unrecognised decorator, a name it
+              would have had to execute the file to learn). Dropping those notes
+              would let a builder look validated while part of it was ignored. */}
+          {validateResult?.success && (validateResult.warnings?.length ? (
+            <div className="relative group">
+              <div className="flex items-center gap-1.5 text-xs text-amber-600 cursor-pointer">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <span>
+                  Validated · {validateResult.warnings.length}{" "}
+                  {validateResult.warnings.length === 1 ? "note" : "notes"}
+                </span>
+              </div>
+              <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block w-80 p-3 bg-background border rounded-lg shadow-lg">
+                <p className="text-[10px] font-bold text-amber-600 mb-1.5">
+                  Validation notes ({validateResult.warnings.length})
+                </p>
+                <ul className="space-y-1">
+                  {validateResult.warnings.map((w, i) => (
+                    <li key={i} className="text-[11px] text-amber-700/90 flex items-start gap-1">
+                      <span className="shrink-0 mt-0.5">•</span>
+                      <span>{w}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ) : (
             <div className="flex items-center gap-1.5 text-xs text-emerald-600">
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
               <span>Validated</span>
             </div>
-          )}
+          ))}
           {/* Live readiness pill — proactively answers "why can't I deploy?" */}
           {liveIssues.length === 0 ? (
             <div

@@ -229,11 +229,11 @@ def live_table(
             '''
     """
     def decorator(func: Callable) -> Callable:
-        # Extract SQL from function if it returns a string
+        # The transform's SQL is read out of the function body later, by the
+        # compiler. This used to call inspect.getsource() and throw the result away,
+        # which made registering a table depend on the .py file being on disk for no
+        # benefit — the reader in ast_reader.py has the source already.
         transform_sql = None
-        if inspect.getsource(func):
-            # Function body will be parsed later by compiler
-            pass
 
         table_def = TableDefinition(
             name=name,
