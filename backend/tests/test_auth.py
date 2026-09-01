@@ -491,6 +491,53 @@ def test_update_user_builds_allowed_fields_and_syncs_role(monkeypatch):
     assert result == {"message": "User updated"}
 
 
+def test_update_user_accepts_every_assignable_role_and_syncs_user_roles(monkeypatch):
+    """The console offering only admin/viewer was a UI limitation, not an API one:
+    PATCH /auth/users/{id} already accepts all seven roles in ASSIGNABLE_ROLES and
+    already syncs user_roles — this test pins that so the settings-page rewrite
+    (frontend/lib/user-roles.ts, app/settings/page.tsx) can rely on it rather than
+    the route needing to change too. 0007_seed_roles.sql seeds `roles` with exactly
+    these names, so the INSERT ... SELECT ... FROM roles WHERE name = $2 this issues
+    finds a row for every one of them instead of silently binding nobody."""
+    from app.permissions import ASSIGNABLE_ROLES
+
+    for role in ASSIGNABLE_ROLES:
+        conn = _FakeConn()
+        _patch_pool(monkeypatch, conn)
+
+        result = _run(auth.update_user(
+            OTHER_USER_ID, {"role": role}, {"id": USER_ID, "role": "admin"},
+        ))
+
+        assert result == {"message": "User updated"}
+        update_query, update_args, _ = conn.execute_calls[0]
+        assert "role = $1" in update_query
+        assert update_args[0] == role
+        assert "DELETE FROM user_roles" in conn.execute_calls[1][0]
+        insert_query, insert_args, _ = conn.execute_calls[2]
+        assert "INSERT INTO user_roles" in insert_query
+        assert "SELECT $1, id FROM roles WHERE name = $2" in insert_query
+        assert insert_args[1] == role
+
+
+def test_update_user_refuses_a_role_outside_assignable_roles(monkeypatch):
+    from app.permissions import ASSIGNABLE_ROLES
+
+    outside_role = "superuser"
+    assert outside_role not in ASSIGNABLE_ROLES
+
+    conn = _FakeConn()
+    _patch_pool(monkeypatch, conn)
+
+    with pytest.raises(HTTPException) as exc:
+        _run(auth.update_user(
+            OTHER_USER_ID, {"role": outside_role}, {"id": USER_ID, "role": "admin"},
+        ))
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Nothing to update"
+    assert conn.execute_calls == []
+
+
 def test_update_user_rejects_empty_or_invalid_fields(monkeypatch):
     _patch_pool(monkeypatch, _FakeConn())
 
