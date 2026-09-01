@@ -357,6 +357,55 @@ async def require_admin(user: dict = Depends(require_user)) -> dict:
     return user
 
 
+async def _enforce_permission(permission: str, user: dict, request) -> dict:
+    """Decide `permission` for an already-identified `user`, audit the decision, and
+    either return the user or raise 403.
+
+    This is the whole body both `require_permission` and
+    `require_permission_or_internal` run once they have a caller. It lives here, once,
+    because the two guards were a verbatim fork of each other: the granted/allowed
+    resolution, the route/method/address extraction, the denial record, the refusal
+    sentence and the privileged-allow record were all duplicated, and a change to the
+    audit contract or the wording could be made in one and missed in the other with
+    nothing to catch it. The only thing the two guards may legitimately differ on is
+    *who* the caller is — which is why that, and only that, is left to them.
+
+    A service-account key carries its own effective set (its role narrowed by the
+    key's scopes). When present it is authoritative — including when it is empty, or a
+    key scoped down to nothing would silently regain its role.
+
+    Every denial is written to `security_audit_log` (app/security_audit.py) before the
+    403 is raised, and there is no argument here — or on `record()` itself — a caller
+    can use to suppress that. Allows are written too, but only for write-shaped
+    permissions; see app/security_audit.py's docstring for why. The refusal names the
+    permission, so a user can tell an administrator what to grant instead of guessing.
+    """
+    from app.permissions import has_permission
+    import app.security_audit as security_audit
+
+    granted = user.get("permissions")
+    allowed = (permission in granted) if granted is not None \
+        else has_permission(user.get("role"), permission)
+    route = getattr(getattr(request, "url", None), "path", "") or ""
+    method = getattr(request, "method", "") or ""
+    addr = client_address(request)
+    if not allowed:
+        reason = (f"'{permission}' permission required — your role "
+                  f"({user.get('role') or 'viewer'}) does not have it.")
+        await security_audit.record(
+            actor=user, permission=permission, route=route, method=method,
+            outcome="denied", reason=reason, client_address=addr,
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
+    if security_audit.is_privileged(permission):
+        await security_audit.record(
+            actor=user, permission=permission, route=route, method=method,
+            outcome="allowed", reason="privileged permission granted",
+            client_address=addr,
+        )
+    return user
+
+
 def require_permission(permission: str):
     """FastAPI dependency factory: require `permission` for the calling user's role.
 
@@ -369,40 +418,13 @@ def require_permission(permission: str):
     The refusal names the permission, so a user can tell an administrator what to
     grant instead of guessing.
 
-    Every denial is written to `security_audit_log` (app/security_audit.py) before
-    the 403 is raised, and there is no argument here — or on `record()` itself — a
-    caller can use to suppress that. Allows are written too, but only for
-    write-shaped permissions; see app/security_audit.py's docstring for why.
+    The decision itself, and the audit records around it, are `_enforce_permission`
+    above — shared verbatim with `require_permission_or_internal`, which differs only
+    in how it identifies the caller.
     """
-    from app.permissions import has_permission
-    import app.security_audit as security_audit
-
     async def _guard(request: Request = None,
                       user: dict = Depends(require_user)) -> dict:
-        # A service-account key carries its own effective set (role narrowed by the
-        # key's scopes). When present it is authoritative — including when it is
-        # empty, or a key scoped down to nothing would silently regain its role.
-        granted = user.get("permissions")
-        allowed = (permission in granted) if granted is not None \
-            else has_permission(user.get("role"), permission)
-        route = getattr(getattr(request, "url", None), "path", "") or ""
-        method = getattr(request, "method", "") or ""
-        addr = client_address(request)
-        if not allowed:
-            reason = (f"'{permission}' permission required — your role "
-                      f"({user.get('role') or 'viewer'}) does not have it.")
-            await security_audit.record(
-                actor=user, permission=permission, route=route, method=method,
-                outcome="denied", reason=reason, client_address=addr,
-            )
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
-        if security_audit.is_privileged(permission):
-            await security_audit.record(
-                actor=user, permission=permission, route=route, method=method,
-                outcome="allowed", reason="privileged permission granted",
-                client_address=addr,
-            )
-        return user
+        return await _enforce_permission(permission, user, request)
 
     # Declares what this guard enforces, so the route inventory can verify coverage
     # from the application's own dependency graph rather than from a hand-kept list.
@@ -431,13 +453,11 @@ def require_permission_or_internal(permission: str):
     the same shape `require_user_or_internal` uses — and checks
     `is_internal_automation_request` first. `_INTERNAL_AUTOMATION_ROUTES` still
     bounds which routes a key can reach; this only changes who else may pass once
-    the request isn't using the key. Everything after that first check is the
-    identical body `require_permission` runs: the same `security_audit` denial and
-    privileged-allow writes, on the same authenticated user.
+    the request isn't using the key. Everything after that first check is
+    literally the body `require_permission` runs — `_enforce_permission` above — on
+    the same authenticated user: the same decision, the same `security_audit` denial
+    and privileged-allow writes, the same refusal sentence.
     """
-    from app.permissions import has_permission
-    import app.security_audit as security_audit
-
     async def _guard(
         request: Request,
         credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
@@ -445,27 +465,7 @@ def require_permission_or_internal(permission: str):
         if is_internal_automation_request(request):
             return {"id": None, "username": "system", "role": "admin", "internal": True}
         user = await require_user(request, credentials)
-        granted = user.get("permissions")
-        allowed = (permission in granted) if granted is not None \
-            else has_permission(user.get("role"), permission)
-        route = getattr(getattr(request, "url", None), "path", "") or ""
-        method = getattr(request, "method", "") or ""
-        addr = client_address(request)
-        if not allowed:
-            reason = (f"'{permission}' permission required — your role "
-                      f"({user.get('role') or 'viewer'}) does not have it.")
-            await security_audit.record(
-                actor=user, permission=permission, route=route, method=method,
-                outcome="denied", reason=reason, client_address=addr,
-            )
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
-        if security_audit.is_privileged(permission):
-            await security_audit.record(
-                actor=user, permission=permission, route=route, method=method,
-                outcome="allowed", reason="privileged permission granted",
-                client_address=addr,
-            )
-        return user
+        return await _enforce_permission(permission, user, request)
 
     _guard.__datapond_authorization__ = permission
     return _guard
