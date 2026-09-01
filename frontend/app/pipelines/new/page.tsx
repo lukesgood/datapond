@@ -47,6 +47,7 @@ import {
   AlertTriangle,
 } from "lucide-react"
 import { PIPELINE_TEMPLATES, PipelineTemplate } from "@/components/pipelines/pipeline-templates"
+import { pipelineValidationNotice } from "@/lib/pipeline-validation-notes"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1836,6 +1837,17 @@ export default function NewPipelinePage() {
   // Live readiness — surface blocking issues reactively so the user knows *why* a deploy
   // would fail without having to click Validate/Deploy first (honest, proactive feedback).
   const liveIssues = useMemo(() => validatePipeline(), [validatePipeline])
+  // What a successful validation should say. The API reads the pipeline source rather
+  // than running it, so it reports what it could not use in `warnings`; the rule for
+  // turning those into a label and a list lives in lib/pipeline-validation-notes.ts,
+  // with its own tests, because "the count on the pill is the count in the list" is a
+  // claim worth asserting somewhere other than by eye.
+  const validationNotice = useMemo(
+    () => (validateResult?.success
+      ? pipelineValidationNotice(validateResult.warnings)
+      : null),
+    [validateResult],
+  )
   const liveErrorNodeIds = useMemo(() => {
     const ids = new Set<string>()
     const dataNodes = nodes.filter(n => n.type !== "layerHeader")
@@ -2084,28 +2096,21 @@ export default function NewPipelinePage() {
               )}
             </div>
           )}
-          {/* The validator reads the pipeline source, it does not run it — so it
-              reports what it could not use (an unrecognised decorator, a name it
-              would have had to execute the file to learn). Dropping those notes
-              would let a builder look validated while part of it was ignored. */}
-          {validateResult?.success && (validateResult.warnings?.length ? (
+          {validationNotice && (validationNotice.hasNotes ? (
             <div className="relative group">
               <div className="flex items-center gap-1.5 text-xs text-amber-600 cursor-pointer">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                <span>
-                  Validated · {validateResult.warnings.length}{" "}
-                  {validateResult.warnings.length === 1 ? "note" : "notes"}
-                </span>
+                <span>{validationNotice.label}</span>
               </div>
               <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block w-80 p-3 bg-background border rounded-lg shadow-lg">
                 <p className="text-[10px] font-bold text-amber-600 mb-1.5">
-                  Validation notes ({validateResult.warnings.length})
+                  {validationNotice.heading}
                 </p>
                 <ul className="space-y-1">
-                  {validateResult.warnings.map((w, i) => (
+                  {validationNotice.notes.map((note, i) => (
                     <li key={i} className="text-[11px] text-amber-700/90 flex items-start gap-1">
                       <span className="shrink-0 mt-0.5">•</span>
-                      <span>{w}</span>
+                      <span>{note}</span>
                     </li>
                   ))}
                 </ul>
@@ -2114,7 +2119,7 @@ export default function NewPipelinePage() {
           ) : (
             <div className="flex items-center gap-1.5 text-xs text-emerald-600">
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-              <span>Validated</span>
+              <span>{validationNotice.label}</span>
             </div>
           ))}
           {/* Live readiness pill — proactively answers "why can't I deploy?" */}
