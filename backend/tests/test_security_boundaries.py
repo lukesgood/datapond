@@ -202,18 +202,34 @@ def test_reading_ai_cost_requires_spend_read():
 
 
 def test_knowledge_write_routes_have_intended_dependencies():
-    assert auth.require_admin_or_internal in _route_dependencies(
+    # ingest-source: knowledge:write (not admin) via require_permission_or_internal,
+    # so an ai_engineer reaches it — and the guard's own internal-automation branch
+    # (checked before it ever resolves a user) keeps the freshness scheduler's
+    # X-Internal-Key callback working. Identified by __datapond_authorization__
+    # rather than function identity: the factory returns a fresh closure per call.
+    ingest_source_deps = _route_dependencies(
         ai_vectors.router, "/ai/collections/{name}/ingest-source", "POST"
     )
-    # /schedule is NOT in the internal-automation allowlist, so it uses plain
-    # require_admin (not require_admin_or_internal, whose internal branch would be
-    # unreachable here).
-    assert auth.require_admin in _route_dependencies(
+    assert {getattr(d, "__datapond_authorization__", None) for d in ingest_source_deps} \
+        == {"knowledge:write"}
+    assert all(d.__qualname__.startswith("require_permission_or_internal")
+               for d in ingest_source_deps)
+
+    # /schedule is NOT in the internal-automation allowlist (only ingest-source and
+    # connector sync are), so it uses plain require_permission + require_user, not
+    # require_permission_or_internal, whose internal branch would be unreachable
+    # here.
+    schedule_deps = _route_dependencies(
         ai_vectors.router, "/ai/collections/{name}/schedule", "POST"
     )
-    assert auth.require_admin_or_internal not in _route_dependencies(
-        ai_vectors.router, "/ai/collections/{name}/schedule", "POST"
-    )
+    assert auth.require_user in schedule_deps
+    assert {getattr(d, "__datapond_authorization__", None) for d in schedule_deps} \
+        == {"knowledge:write", None}
+    assert all(d.__qualname__.startswith("require_permission.")
+               for d in schedule_deps if getattr(d, "__datapond_authorization__", None))
+    assert auth.require_admin not in schedule_deps
+    assert auth.require_admin_or_internal not in schedule_deps
+
     assert auth.require_user in _route_dependencies(
         ai_vectors.router, "/ai/collections/{name}/ingest", "POST"
     )

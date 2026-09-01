@@ -22,6 +22,7 @@ customer and being discovered the same way this one was: live, with DDL.
 import asyncio
 import re
 import uuid
+from types import SimpleNamespace
 
 import main
 from app.api import auth as auth_module
@@ -153,11 +154,28 @@ def _inspect(dependant):
             markers.add(marker)
         if d.call is require_user:
             has_require_user = True
+        qualname = getattr(d.call, "__qualname__", "")
+        if qualname.startswith(_REQUIRE_PERMISSION_OR_INTERNAL_GUARD_PREFIX):
+            has_require_user = True
         for sub in d.dependencies:
             walk(sub)
 
     walk(dependant)
     return markers, has_require_user
+
+
+# `require_permission_or_internal`'s guard is the one deliberate exception to "the
+# marker means Depends(require_user) is in the tree": it must admit the scoped
+# internal-automation principal *before* require_user ever runs — a
+# Depends(require_user) node would resolve (and reject) an internal-key request
+# before the guard's own internal check got a chance to run at all, taking a
+# route like ingest-source's allowlisted internal-automation callback down. So it
+# calls
+# `require_user` as a plain function once it has decided the request isn't
+# internal (see its docstring in app/api/auth.py), which this walk cannot see —
+# only `test_require_permission_or_internal_reaches_require_user_when_not_internal`
+# below proves that call actually happens, dynamically.
+_REQUIRE_PERMISSION_OR_INTERNAL_GUARD_PREFIX = "require_permission_or_internal."
 
 
 def _all_routes():
@@ -242,3 +260,71 @@ def test_named_write_shaped_routes_without_a_permission_marker_still_require_use
     for (method, path), why in _NAMED_WRITE_SHAPED_ROUTES.items():
         _, has_require_user = _inspect(live[(method, path)].dependant)
         assert has_require_user, f"{method} {path} does not depend on require_user ({why})"
+
+
+# ── 6. require_permission_or_internal's manual call really reaches require_user ──
+
+def test_require_permission_or_internal_reaches_require_user_when_not_internal():
+    """The static walk above trusts `require_permission_or_internal`'s guard to
+    reach `require_user` without seeing a `Depends(require_user)` node for it (see
+    the comment beside `_REQUIRE_PERMISSION_OR_INTERNAL_GUARD_PREFIX`). This is
+    the dynamic half of that proof: for a request that is not using the internal
+    key, the guard must call the module's actual `require_user` — the same one
+    tests 1-3 pin the recheck behaviour of — not a shortcut that reads a role off
+    an unchecked claims dict.
+    """
+    calls = []
+
+    async def _spy(request, credentials=None):
+        calls.append((request, credentials))
+        return {"id": VALID_UID, "role": "admin"}
+
+    original = auth_module.require_user
+    auth_module.require_user = _spy
+    try:
+        request = SimpleNamespace(
+            method="POST",
+            url=SimpleNamespace(path="/api/ai/collections/x/ingest-source"),
+            headers={},
+            state=SimpleNamespace(),
+        )
+        guard = auth_module.require_permission_or_internal("knowledge:write")
+        out = _run(guard(request, None))
+    finally:
+        auth_module.require_user = original
+
+    assert calls, (
+        "require_permission_or_internal did not call require_user for a "
+        "non-internal request — the permission would be checked against a role "
+        "that was never rechecked against the database."
+    )
+    assert out["role"] == "admin"
+
+
+def test_require_permission_or_internal_skips_require_user_for_the_internal_principal(monkeypatch):
+    """The other half: a genuine internal-automation request must NOT go through
+    require_user at all — there is no user to recheck, and require_user would
+    401 it (see the defect this whole guard exists to avoid, in its docstring)."""
+    monkeypatch.setenv("INTERNAL_API_KEY", "scheduler-secret")
+    calls = []
+
+    async def _spy(request, credentials=None):
+        calls.append((request, credentials))
+        raise AssertionError("require_user must not be called for an internal request")
+
+    original = auth_module.require_user
+    auth_module.require_user = _spy
+    try:
+        request = SimpleNamespace(
+            method="POST",
+            url=SimpleNamespace(path="/api/ai/collections/x/ingest-source"),
+            headers={"X-Internal-Key": "scheduler-secret"},
+            state=SimpleNamespace(),
+        )
+        guard = auth_module.require_permission_or_internal("knowledge:write")
+        out = _run(guard(request, None))
+    finally:
+        auth_module.require_user = original
+
+    assert not calls
+    assert out == {"id": None, "username": "system", "role": "admin", "internal": True}

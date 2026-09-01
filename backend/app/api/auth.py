@@ -410,6 +410,67 @@ def require_permission(permission: str):
     return _guard
 
 
+def require_permission_or_internal(permission: str):
+    """FastAPI dependency factory: `require_permission`, but also admits the scoped
+    internal automation principal — for a route a trusted in-cluster (or otherwise
+    allowlisted) caller reaches through `X-Internal-Key` instead of a user session.
+
+    `ingest-source` used to be `require_admin_or_internal`: any admin, or the
+    internal key. Moving it to a permission check so `ai_engineer` — the product's
+    own stated target user, which holds `knowledge:write` but not `admin` — can
+    reach it too is not a plain swap to `require_permission("knowledge:write")`,
+    because that guard's own resolution is `Depends(require_user)`: FastAPI
+    resolves that *before* the guard body runs, so an internal-key request (which
+    never has `request.state.user` set — see `AuthMiddleware` in `main.py`) would
+    be rejected with 401 before it ever got a chance to identify itself as
+    internal. Silently breaking that allowlisted callback — whatever process is
+    behind the key today — for the sake of a role check is the exact regression
+    this guard exists to avoid.
+
+    So this guard takes the raw `request`/`credentials` FastAPI always injects —
+    the same shape `require_user_or_internal` uses — and checks
+    `is_internal_automation_request` first. `_INTERNAL_AUTOMATION_ROUTES` still
+    bounds which routes a key can reach; this only changes who else may pass once
+    the request isn't using the key. Everything after that first check is the
+    identical body `require_permission` runs: the same `security_audit` denial and
+    privileged-allow writes, on the same authenticated user.
+    """
+    from app.permissions import has_permission
+    import app.security_audit as security_audit
+
+    async def _guard(
+        request: Request,
+        credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    ) -> dict:
+        if is_internal_automation_request(request):
+            return {"id": None, "username": "system", "role": "admin", "internal": True}
+        user = await require_user(request, credentials)
+        granted = user.get("permissions")
+        allowed = (permission in granted) if granted is not None \
+            else has_permission(user.get("role"), permission)
+        route = getattr(getattr(request, "url", None), "path", "") or ""
+        method = getattr(request, "method", "") or ""
+        addr = client_address(request)
+        if not allowed:
+            reason = (f"'{permission}' permission required — your role "
+                      f"({user.get('role') or 'viewer'}) does not have it.")
+            await security_audit.record(
+                actor=user, permission=permission, route=route, method=method,
+                outcome="denied", reason=reason, client_address=addr,
+            )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
+        if security_audit.is_privileged(permission):
+            await security_audit.record(
+                actor=user, permission=permission, route=route, method=method,
+                outcome="allowed", reason="privileged permission granted",
+                client_address=addr,
+            )
+        return user
+
+    _guard.__datapond_authorization__ = permission
+    return _guard
+
+
 async def require_human(user: dict = Depends(require_user)) -> dict:
     """Reject a service-account credential.
 

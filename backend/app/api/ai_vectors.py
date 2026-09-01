@@ -40,8 +40,8 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 
 from app.api.connectors import get_db_pool
-from app.api.auth import require_admin_or_internal, require_admin, require_user
-from app.api.auth import require_permission
+from app.api.auth import require_user
+from app.api.auth import require_permission, require_permission_or_internal
 from app.ai_context import set_actor, actor_payload
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
 from app.knowledge_access import may_read, may_write
@@ -917,13 +917,24 @@ async def _refresh_from_source(pool, coll_id, src: "SourceIngest") -> dict:
 
 
 @router.post("/ai/collections/{name}/ingest-source")
-async def ingest_source(name: str, req: SourceIngest, user: dict = Depends(require_admin_or_internal)):
+async def ingest_source(name: str, req: SourceIngest,
+                        user: dict = Depends(require_permission_or_internal("knowledge:write"))):
     """Feed the vector store from a lakehouse/object-store source — the AI data
     pipeline over DataPond's own data (Iceberg table column, or S3 text files).
 
-    Accepts either an administrator JWT or the scoped in-cluster X-Internal-Key so
-    unattended automation can re-ingest an allowlisted source callback. Re-embedding
-    replaces the source's prior chunks (no duplication)."""
+    Gated on `knowledge:write`, not `admin` — `ai_engineer`, the product's own
+    stated target user, holds `knowledge:write` and needs this route as much as
+    `ingest` (paste-text) and `create_collection`, which already use it. Also
+    accepts the scoped in-cluster X-Internal-Key: this route is on
+    `_INTERNAL_AUTOMATION_ROUTES`, the allowlist a trusted caller uses to re-ingest
+    a source without a user session (the in-process `app/rag_scheduler.py` calls
+    `_refresh_from_source` directly and never needs this HTTP path, but nothing
+    stops another allowlisted caller from using it). `require_permission_or_internal`
+    admits that principal without ever resolving it as a user.
+    `_collection_id(write=True)` below still enforces that this particular caller
+    may write *this* collection — the permission is
+    necessary, not sufficient. Re-embedding replaces the source's prior chunks (no
+    duplication)."""
     set_actor(user)
     pool = await get_db_pool()
     async with pool.acquire() as c:
@@ -958,12 +969,17 @@ class ScheduleRequest(BaseModel):
     source: SourceIngest
 
 
-@router.post("/ai/collections/{name}/schedule")
-async def schedule_ingest(name: str, body: ScheduleRequest, user: dict = Depends(require_admin)):
-    """Save a recurring re-embed schedule for this collection. Admin only — this
-    path is not in the internal-automation allowlist, so require_admin (not
-    require_admin_or_internal, whose internal branch would be unreachable here).
-    The backend in-process scheduler (rag_scheduler) runs due collections — no Airflow."""
+@router.post("/ai/collections/{name}/schedule",
+            dependencies=[Depends(require_permission("knowledge:write"))])
+async def schedule_ingest(name: str, body: ScheduleRequest, user: dict = Depends(require_user)):
+    """Save a recurring re-embed schedule for this collection. Gated on
+    `knowledge:write`, same as `ingest-source` above — an `ai_engineer` who may
+    feed a collection from a source may also schedule that feed to recur. This
+    route has no internal caller (nothing re-schedules itself), so plain
+    `require_user` + `require_permission`, not `require_permission_or_internal`,
+    whose internal branch would be unreachable here anyway: it isn't on
+    `_INTERNAL_AUTOMATION_ROUTES`. The backend in-process scheduler
+    (rag_scheduler) runs due collections — no Airflow."""
     minutes = _preset_to_minutes(body.schedule, body.interval_minutes)
     pool = await get_db_pool()
     async with pool.acquire() as c:
