@@ -24,6 +24,8 @@ import { getUser } from "@/lib/auth"
 import { useConfirm } from "@/lib/confirm"
 import { ErrorBox, EmptyState } from "@/components/ui/error-box"
 import { useCapability } from "@/lib/capabilities"
+import { usePermissions } from "@/lib/permissions"
+import { mayAskQuestions, mayIngest } from "@/lib/knowledge-actions"
 
 interface Collection {
   name: string; embed_model: string; dim: number
@@ -348,8 +350,8 @@ function Workspace({ name, onChange, empty, ownerId }: { name: string; onChange:
             <TabsTrigger value="compare"><ArrowDownWideNarrow className="h-3.5 w-3.5 mr-1" />Compare</TabsTrigger></TabsList>
           <TabsContent value="search"><SearchPanel name={name} /></TabsContent>
           <TabsContent value="composition"><CompositionPanel name={name} onChange={onChange} /></TabsContent>
-          <TabsContent value="ingest"><IngestPanel name={name} onChange={onChange} /></TabsContent>
-          <TabsContent value="schedule"><SchedulePanel name={name} /></TabsContent>
+          <TabsContent value="ingest"><IngestPanel name={name} ownerId={ownerId} onChange={onChange} /></TabsContent>
+          <TabsContent value="schedule"><SchedulePanel name={name} ownerId={ownerId} /></TabsContent>
           <TabsContent value="members"><MembersPanel name={name} ownerId={ownerId} /></TabsContent>
           {/* Deliberately in Knowledge rather than a page of its own: concepts change
               what Search returns, so the cause belongs next to the effect. */}
@@ -368,8 +370,12 @@ interface ScheduleState {
   last_refresh_status: string | null
 }
 
-function SchedulePanel({ name }: { name: string }) {
-  const isAdmin = getUser()?.role === "admin"
+function SchedulePanel({ name, ownerId }: { name: string; ownerId: string | null }) {
+  const viewer = getUser()
+  const { role, permissions } = usePermissions()
+  // Same gate ingest-source uses (B1: knowledge:write + _collection_id(write=True))
+  // — schedule is the recurring form of the same action.
+  const canSchedule = !!viewer && mayIngest({ owner_id: ownerId }, { id: viewer.id, role, permissions })
   const { toast } = useToast()
   const confirm = useConfirm()
   const [state, setState] = useState<ScheduleState | null>(null)
@@ -401,7 +407,9 @@ function SchedulePanel({ name }: { name: string }) {
   if (!state?.enabled) return (
     <div className="pt-3 text-sm text-muted-foreground">
       No recurring re-embed is scheduled for this collection.
-      {isAdmin ? " Set one up from the Ingest tab (choose a source, then “Schedule ingest”)." : " An administrator can set one up."}
+      {canSchedule
+        ? " Set one up from the Ingest tab (choose a source, then “Schedule ingest”)."
+        : " You can read this collection but not change it — its owner, an editor, or an administrator can set one up."}
     </div>
   )
   const okStatus = (state.last_refresh_status ?? "").toLowerCase().includes("ok") || (state.last_refresh_status ?? "").toLowerCase().includes("success")
@@ -419,7 +427,7 @@ function SchedulePanel({ name }: { name: string }) {
           </div>
         )}
       </div>
-      {isAdmin && (
+      {canSchedule && (
         <Button variant="outline" size="sm" onClick={cancel} disabled={busy}>
           {busy ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5 mr-1.5" />}Cancel schedule</Button>
       )}
@@ -439,6 +447,11 @@ function renderCitedAnswer(text: string) {
 interface ConceptUse { name: string; pii?: boolean; added?: string[] }
 
 function SearchPanel({ name }: { name: string }) {
+  // /ai/search and /ai/rag both require ai:generate — a business_analyst holds
+  // knowledge:read (sees the collection exists) but not ai:generate, so this tab
+  // must not offer a query box whose submit would only 403.
+  const { permissions } = usePermissions()
+  const canAsk = mayAskQuestions({ permissions })
   const [q, setQ] = useState(""); const [mode, setMode] = useState<"search" | "rag">("rag")
   const [busy, setBusy] = useState(false); const [ans, setAns] = useState<string | null>(null)
   const [hits, setHits] = useState<Hit[]>([]); const [e, setE] = useState<string | null>(null)
@@ -472,6 +485,14 @@ function SearchPanel({ name }: { name: string }) {
       }
     } catch (error) { setE(error instanceof Error ? error.message : "Search failed") }
     setBusy(false)
+  }
+  if (!canAsk) {
+    return (
+      <div className="pt-3 text-sm text-muted-foreground">
+        You can see this collection but not spend a model call against it — search
+        and ask need the ai:generate permission, which your role doesn&apos;t hold.
+      </div>
+    )
   }
   return (
     <div className="space-y-3 pt-3">
@@ -590,11 +611,14 @@ function SearchPanel({ name }: { name: string }) {
   )
 }
 
-function IngestPanel({ name, onChange }: { name: string; onChange: () => void }) {
+function IngestPanel({ name, ownerId, onChange }: { name: string; ownerId: string | null; onChange: () => void }) {
   const catalogEnabled = useCapability("catalog")
-  // Source ingest + schedule are admin-only on the backend (require_admin);
-  // don't offer them to non-admins, who would only hit a 403.
-  const isAdmin = getUser()?.role === "admin"
+  const viewer = getUser()
+  const { role, permissions } = usePermissions()
+  // ingest (paste text) and ingest-source both resolve through
+  // _collection_id(write=True) (knowledge_access.may_write) — same gate,
+  // whichever sub-tab is used, since B1 moved ingest-source off require_admin.
+  const canIngest = !!viewer && mayIngest({ owner_id: ownerId }, { id: viewer.id, role, permissions })
   const { toast } = useToast()
   const [tab, setTab] = useState<"text" | "source">("text")
   const [text, setText] = useState(""); const [src, setSrc] = useState("")
@@ -678,17 +702,24 @@ function IngestPanel({ name, onChange }: { name: string; onChange: () => void })
     setSchedBusy(false)
   }
 
+  if (!canIngest) {
+    return (
+      <div className="pt-3 text-sm text-muted-foreground">
+        You can read this collection but not change it — its owner, an editor, or
+        an administrator can ingest into it.
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-3 pt-3">
       <div className="flex rounded-md border overflow-hidden w-fit text-xs">
         {(["text", "source"] as const).map(t => (
-          (t === "source" && !isAdmin) ? null : (
           <button key={t} onClick={() => setTab(t)} className={`px-3 py-1 ${tab === t ? "bg-primary text-primary-foreground" : "bg-background"}`}>
             {t === "text" ? "Paste text" : catalogEnabled ? "From catalog / S3" : "From S3"}</button>
-          )
         ))}
       </div>
-      {(tab === "text" || !isAdmin) ? (
+      {tab === "text" ? (
         <>
           <Input value={src} onChange={e => setSrc(e.target.value)} placeholder="source label (optional)" className="text-sm" />
           <Textarea value={text} onChange={e => setText(e.target.value)} placeholder="Paste documents to embed…" className="min-h-[160px] text-sm" />
