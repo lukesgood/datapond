@@ -93,22 +93,27 @@ KNOWN_ROLES = tuple(ROLE_PERMISSIONS)
 # is as useless as one nothing enforces.
 ASSIGNABLE_ROLES = KNOWN_ROLES
 
-# One human-readable sentence per role, paraphrasing the comment above its entry in
-# ROLE_PERMISSIONS above. This is the only place that sentence is written down — the
-# API serves it from here and the console has no second copy to drift out of sync.
+# One human-readable sentence per role, served by /api/me/permissions. This text
+# is not independent of the database: migrations/versions/0007_seed_roles.sql seeds
+# the identical sentence into roles.description, and the two are pinned equal by
+# tests/test_role_seed_migration.py::test_role_label_matches_the_seeded_description
+# — a drift between them fails that test. The wording here matches 0007's seeded
+# text verbatim (rather than the other way around) because 0007 is already applied
+# to the live database and `ON CONFLICT DO NOTHING` means editing its SQL would not
+# update already-seeded rows — a fresh install would get new prose, a live one would
+# keep the old, which is the exact drift this exists to prevent. Change the sentence
+# here only if you also change it in 0007_seed_roles.sql AND re-seed (or manually
+# update) every database that already ran it.
 ROLE_LABELS: Dict[str, str] = {
-    "admin": "Full access to every module, every collection, and account management.",
-    "data_engineer": "Brings data in: connectors, pipelines, and queries. No model spend "
-                      "— ingestion is not a generative workload.",
-    "ai_engineer": "Builds knowledge collections, spends on models, and can see what "
-                   "that spend cost.",
-    "data_scientist": "Queries, builds collections, spends on models, and can check "
-                       "when a source last synced.",
-    "business_analyst": "Runs read-only queries and dashboards. No model spend.",
-    "auditor": "Reviews governance policies and the audit log, and can verify a policy "
-               "with a read-only query. Writes nothing.",
-    "viewer": "Read-only access: browse the catalog and knowledge, and run read-only "
-              "queries.",
+    "admin": "Full platform access. Manages users, roles, settings, and every resource.",
+    "data_engineer": "Connects sources, runs syncs and transforms, and writes through "
+                      "the query engine.",
+    "ai_engineer": "Builds knowledge collections, ingests into them, and spends model "
+                   "tokens.",
+    "data_scientist": "Queries, notebooks, experiments, and knowledge collections.",
+    "business_analyst": "Reads with SELECT, saves dashboards, and browses notebooks.",
+    "auditor": "Read-only governance policies, audit log, and spend. Writes nothing.",
+    "viewer": "Reads the catalog, knowledge collections, and runs SELECT queries.",
 }
 
 

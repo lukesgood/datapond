@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from app.permissions import KNOWN_ROLES
+from app.permissions import KNOWN_ROLES, ROLE_LABELS
 
 VERSIONS = Path(__file__).resolve().parents[1] / "migrations/versions"
 
@@ -39,6 +39,21 @@ def _seeded_roles() -> set:
                             re.I | re.S):
         seeded |= set(re.findall(r"\(\s*'([a-z_]+)'", block))
     return seeded
+
+
+def _seeded_role_rows() -> dict:
+    """name -> (display_name, description) for every seeded role, parsed from the
+    same VALUES rows _seeded_roles() only pulls the name out of."""
+    sql = _seed_sql()
+    rows = {}
+    for block in re.findall(r"INSERT\s+INTO\s+(?:public\.)?roles\b(.*?);", sql,
+                            re.I | re.S):
+        for m in re.finditer(
+            r"\(\s*'([a-z_]+)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*(?:true|false)\s*\)",
+            block,
+        ):
+            rows[m.group(1)] = (m.group(2), m.group(3))
+    return rows
 
 
 @pytest.mark.parametrize("role", KNOWN_ROLES)
@@ -59,6 +74,22 @@ def test_the_seed_can_run_twice():
         assert re.search(r"ON\s+CONFLICT", statement, re.I), (
             "a role seed without ON CONFLICT fails the whole migration on any "
             "database that already has these rows")
+
+
+def test_role_label_matches_the_seeded_description():
+    """ROLE_LABELS in app/permissions.py is the one sentence /api/me/permissions
+    serves for each role, and 0007_seed_roles.sql seeds the identical sentence into
+    roles.description. Nothing but this test ties the two together: the only
+    current DB reader (governance.py's list_roles) selects display_name, not
+    description, so a drift here is dormant, not a live bug — it becomes one the
+    day something reads roles.description, and this is what catches it first."""
+    seeded = _seeded_role_rows()
+    for role in KNOWN_ROLES:
+        assert role in seeded, f"'{role}' has no seeded row to compare ROLE_LABELS against"
+        _, description = seeded[role]
+        assert ROLE_LABELS[role] == description, (
+            f"ROLE_LABELS['{role}'] has drifted from the description "
+            "0007_seed_roles.sql seeds for the same role")
 
 
 def test_the_seed_marks_them_as_system_roles():
