@@ -271,3 +271,64 @@ def test_embed_egress_noop_when_cloud_allowed(monkeypatch):
     # _gateway / httpx must not even be consulted under cloud-allowed
     monkeypatch.setattr(v, "_gateway", lambda: (_ for _ in ()).throw(AssertionError("gateway consulted")))
     asyncio.run(v._assert_embed_egress_ok())   # must not raise
+
+
+# ── E1: inline ingest spends model tokens — knowledge:write alone must not reach it ──
+#
+# knowledge:write lets a caller create/own/delete a collection; ai:generate is the
+# separate permission that gates spending model tokens (Ask AI, RAG, embed — see
+# app/permissions.py). /ai/collections/{name}/ingest chunks, PII-masks, then calls
+# _embed — which spends — but until this fix its route only required knowledge:write.
+#
+# As of the current app/permissions.py, no built-in *role* actually holds
+# knowledge:write without also holding ai:generate (ai_engineer and data_scientist
+# are the only roles with knowledge:write, and both carry ai:generate too) — so
+# data_engineer, named in this task's brief, does not itself reach this route today.
+# The real, currently-exploitable path is a service-account API key: `require_permission`
+# treats `user["permissions"]` as authoritative when present (app/api/auth.py's
+# `_guard`), and service_account_routes.py lets a key be issued with `scopes` that
+# narrow its role's permission set arbitrarily — so an ai_engineer-role account can
+# mint a key scoped to knowledge:write alone. That is the caller this test models:
+# a user carrying an explicit `permissions` set with knowledge:write and no
+# ai:generate, exactly what `_guard` reads for a scoped key. This is a route-level
+# (HTTP, via TestClient) test of the dependency gate, the same shape
+# tests/test_knowledge_lifecycle_roles.py uses: the fake _embed raises AssertionError
+# if it is ever invoked, so the test only passes if the 403 happens strictly before
+# any embedding call is attempted.
+
+def test_ingest_refuses_knowledge_write_without_ai_generate_before_any_embed_call(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.api import ai_vectors, auth
+
+    async def _boom_embed(texts):
+        raise AssertionError("_embed must not be called when ai:generate is missing")
+
+    monkeypatch.setattr(ai_vectors, "_embed", _boom_embed)
+
+    # A service-account key scoped down to knowledge:write only — role ai_engineer
+    # would otherwise also hold ai:generate, but the key's own `permissions` set
+    # (mirroring api_keys.scopes narrowing) is what `require_permission` actually
+    # checks, per app/api/auth.py's `_guard`.
+    user = {"id": "00000000-0000-0000-0000-0000000000e1",
+            "username": "svc-ingest-only", "role": "ai_engineer",
+            "permissions": frozenset({"knowledge:write"})}
+
+    async def _fake_require_user(request=None, credentials=None):
+        return user
+    monkeypatch.setattr(auth, "require_user", _fake_require_user)
+
+    app = FastAPI()
+    app.include_router(ai_vectors.router, prefix="/api")
+
+    async def _override():
+        return user
+    app.dependency_overrides[ai_vectors.require_user] = _override
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/ai/collections/mine/ingest",
+        json={"documents": [{"source": "inline", "text": "hello world"}]},
+    )
+    assert resp.status_code == 403, resp.text
+    assert "ai:generate" in resp.json()["detail"]

@@ -777,7 +777,9 @@ async def _ingest_documents(coll_id, docs: List[tuple], chunk_size: int, overlap
     return {"chunks": len(items), "pii_masked": pii_masked}
 
 
-@router.post("/ai/collections/{name}/ingest", dependencies=[Depends(require_permission("knowledge:write"))])
+@router.post("/ai/collections/{name}/ingest",
+             dependencies=[Depends(require_permission("knowledge:write")),
+                           Depends(require_permission("ai:generate"))])
 async def ingest(name: str, req: IngestRequest, user: dict = Depends(require_user)):
     """Ingest inline documents. Chunk → PII-mask → embed → upsert."""
     set_actor(user)
