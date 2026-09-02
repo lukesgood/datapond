@@ -38,6 +38,27 @@ CAPABILITY_BACKENDS = {
     "lineage":     ("OPENMETADATA",),
 }
 
+# A capability whose own headline feature cannot complete in this release. Stronger
+# than `experimental`, and tied to the code that makes it true:
+# tests/test_capability_support_tiers.py fails when the deploy stops being refused.
+PREVIEW_CAPABILITIES = ("pipelines",)
+
+
+def support_tiers() -> dict:
+    """{capability: tier} for everything this release does not fully support.
+
+    Absent means supported, so a capability added later cannot inherit a tier by
+    accident. Derived, never hand-written: experimental is "every backend that can
+    enable this is one SUPPORT.md disclaims".
+    """
+    tiers = {
+        capability: "experimental"
+        for capability, backends in CAPABILITY_BACKENDS.items()
+        if all(backend in UNSUPPORTED_BACKENDS for backend in backends)
+    }
+    tiers.update({capability: "preview" for capability in PREVIEW_CAPABILITIES})
+    return tiers
+
 
 def compute_capabilities(env: Mapping) -> dict:
     """Feature→enabled map from FEATURE_<COMPONENT> env (fail-closed by default).
@@ -71,6 +92,10 @@ def compute_capabilities(env: Mapping) -> dict:
         "dashboard": True,
         "docs": True,
         "help": True,
+        # Which non-supported capabilities carry a tier, and which one. Absent means
+        # supported. Derived from CAPABILITY_BACKENDS/UNSUPPORTED_BACKENDS/
+        # PREVIEW_CAPABILITIES above, not decided here.
+        "support": support_tiers(),
         # Component-gated
         "connectors": _gated("connectors"),  # Ingestion → Iceberg via Trino/Polaris or Glue
         "catalog": _gated("catalog"),
