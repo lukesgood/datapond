@@ -243,6 +243,88 @@ jobs:
           cd backend && DATAPOND_BASE_URL=http://localhost:8000 DATAPOND_TOKEN="$TOKEN" \
             pytest tests/acceptance -v
 
+      - name: Turn an add-on on, without scheduling a pod for it
+        # helm template never executes `lookup` (no cluster offline), so the branch
+        # that preserves an add-on across an upgrade -- and the branch that removes
+        # one on request -- have never run before this job. mlflow is the cheapest
+        # add-on to stand up: templates/mlflow-deployment.yaml renders exactly one
+        # Deployment and one Service, no PVC, no ConfigMap, no initContainer. Its
+        # replica count is a plain value (`.Values.mlflow.replicas`), so it can be
+        # set to 0 straight from the command line -- the object exists for `lookup`
+        # to find, and nothing is scheduled on a runner that is already tight on
+        # pod capacity (see values-ephemeral.yaml's replica-count comment).
+        run: |
+          helm upgrade datapond helm/datapond \
+            --namespace datapond \
+            -f helm/datapond/values-ephemeral.yaml \
+            --set-string backend.image.repository=datapond-backend \
+            --set-string backend.image.tag=ci \
+            --set backend.image.pullPolicy=Never \
+            --set-string frontend.image.repository=datapond-frontend \
+            --set-string frontend.image.tag=ci \
+            --set frontend.image.pullPolicy=Never \
+            --set mlflow.enabled=true \
+            --set mlflow.replicas=0 \
+            --wait --timeout 5m
+          echo "== mlflow Deployment must exist now, with replicas=0 =="
+          REPLICAS=$(kubectl -n datapond get deployment mlflow -o jsonpath='{.spec.replicas}' 2>&1) \
+            || { echo "FAIL: mlflow Deployment was not created by --set mlflow.enabled=true"; exit 1; }
+          echo "found mlflow Deployment, spec.replicas=$REPLICAS"
+          [ "$REPLICAS" = "0" ] || { echo "FAIL: expected replicas=0, got $REPLICAS"; exit 1; }
+
+      - name: Preserve it across an upgrade that does not mention it
+        # values-ephemeral.yaml states mlflow.enabled: false explicitly (every
+        # add-on stays off in this profile), so a plain re-apply of that file would
+        # turn mlflow off deliberately -- not the case this job needs to cover.
+        # `--set mlflow.enabled=null` is applied after -f in Helm's merge order, so
+        # it overrides that explicit false back to unset -- the same "nobody chose"
+        # state a real operator's upgrade would be in if they never touched mlflow.
+        # Confirmed locally that this override lands as YAML null, not the string
+        # "null": `helm template ... --set mlflow.enabled=null` renders
+        # `.Values.mlflow.enabled` as `null`, same as never setting it at all.
+        run: |
+          helm upgrade datapond helm/datapond \
+            --namespace datapond \
+            -f helm/datapond/values-ephemeral.yaml \
+            --set-string backend.image.repository=datapond-backend \
+            --set-string backend.image.tag=ci \
+            --set backend.image.pullPolicy=Never \
+            --set-string frontend.image.repository=datapond-frontend \
+            --set-string frontend.image.tag=ci \
+            --set frontend.image.pullPolicy=Never \
+            --set mlflow.enabled=null \
+            --wait --timeout 5m
+          echo "== mlflow Deployment must still exist -- the upgrade never said true or false =="
+          if kubectl -n datapond get deployment mlflow >/dev/null 2>&1; then
+            echo "PASS: mlflow Deployment survived an upgrade that left the flag unset"
+          else
+            echo "FAIL: mlflow Deployment was removed by an upgrade that only omitted the flag -- the preserve branch (lookup finds the running Deployment) is broken"
+            exit 1
+          fi
+
+      - name: Turning it off explicitly must still remove it
+        # Preservation that cannot be switched off is a leak, not a courtesy: this
+        # is the direction that matters more than the one above.
+        run: |
+          helm upgrade datapond helm/datapond \
+            --namespace datapond \
+            -f helm/datapond/values-ephemeral.yaml \
+            --set-string backend.image.repository=datapond-backend \
+            --set-string backend.image.tag=ci \
+            --set backend.image.pullPolicy=Never \
+            --set-string frontend.image.repository=datapond-frontend \
+            --set-string frontend.image.tag=ci \
+            --set frontend.image.pullPolicy=Never \
+            --set mlflow.enabled=false \
+            --wait --timeout 5m
+          echo "== mlflow Deployment must be gone -- enabled=false was explicit this time =="
+          if kubectl -n datapond get deployment mlflow >/dev/null 2>&1; then
+            echo "FAIL: mlflow Deployment still exists after --set mlflow.enabled=false -- preservation cannot be turned off"
+            exit 1
+          else
+            echo "PASS: mlflow Deployment removed by an explicit --set mlflow.enabled=false"
+          fi
+
       - name: Upgrade, then roll back
         run: |
           # A second release with a visible difference, so the rollback has something
@@ -277,6 +359,7 @@ jobs:
       - name: What went wrong
         if: failure()
         run: |
+          kubectl -n datapond get deployments,statefulsets -o wide || true
           kubectl -n datapond get pods -o wide || true
           kubectl -n datapond describe pods || true
           kubectl -n datapond logs -l app=backend --tail=100 || true
