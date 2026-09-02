@@ -3,7 +3,13 @@ import { createContext, useContext, useEffect, useState } from "react"
 import Link from "next/link"
 import { getProductProfile } from "@/lib/product-profile"
 
-export type Capabilities = Record<string, boolean | string>
+export type Capabilities = Record<string, boolean | string> & {
+  // Which capabilities this release does not fully support, and which tier — from
+  // backend/app/capabilities.py's support_tiers(), rendered by lib/capability-support.ts.
+  // Defaults to {}: a backend that predates this field renders as "everything
+  // supported" rather than crashing on a missing key.
+  support?: Record<string, string>
+}
 
 const CapsContext = createContext<Capabilities>({})
 
