@@ -508,12 +508,12 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 10
           failureThreshold: 4
-        {{- if (dig "enabled" true .Values.airflow) }}
+        {{- if include "datapond.addonOn" (dict "root" $ "component" "airflow") }}
         volumeMounts:
         - name: airflow-dags
           mountPath: /opt/airflow/dags
         {{- end }}
-      {{- if (dig "enabled" true .Values.airflow) }}
+      {{- if include "datapond.addonOn" (dict "root" $ "component" "airflow") }}
       volumes:
       - name: airflow-dags
         persistentVolumeClaim:
