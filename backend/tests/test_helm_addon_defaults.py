@@ -189,3 +189,44 @@ def test_the_kind_and_name_passed_to_the_helper_match_a_rendered_object(componen
         + (f"-{expected_suffix}" if expected_suffix else "")
         + " actually appears in this template -- the guard's (kind, name) does not "
           "match anything the template renders")
+
+
+# ---------------------------------------------------------------------------
+# C2 — NOTES.txt reports what the three-state resolution resolved to.
+#
+# `helm template` does not render NOTES.txt (only `helm install`/`upgrade` do), so this
+# asserts on the file's own content: it must name every one of the eight add-ons, the
+# one-line `--set <component>.enabled=false` that turns each off, and the word
+# "preserved" -- an operator reading the install output needs to see all eight, not a
+# subset. A NOTES.txt that lists only some add-ons is worse than none: the operator
+# would conclude the rest are off when an unset one may in fact have been preserved.
+# ---------------------------------------------------------------------------
+
+NOTES = CHART / "templates" / "NOTES.txt"
+
+
+def test_notes_file_exists():
+    assert NOTES.exists(), "helm/datapond/templates/NOTES.txt must exist"
+
+
+@pytest.mark.parametrize("component", sorted(ADDONS))
+def test_notes_names_every_addon(component):
+    text = NOTES.read_text()
+    assert component in text, (
+        f"NOTES.txt does not mention {component!r} -- a NOTES.txt that lists only "
+        f"some add-ons is worse than none, since the operator concludes the rest "
+        f"are off")
+
+
+@pytest.mark.parametrize("component", sorted(ADDONS))
+def test_notes_gives_the_off_switch_for_every_addon(component):
+    text = NOTES.read_text()
+    assert f"--set {component}.enabled=false" in text, (
+        f"NOTES.txt does not give the one-line --set to turn {component!r} off")
+
+
+def test_notes_explains_preservation():
+    text = NOTES.read_text()
+    assert "preserved" in text, (
+        "NOTES.txt must say which add-ons were kept because they were already "
+        "running -- that is the whole point of the three-state default")
