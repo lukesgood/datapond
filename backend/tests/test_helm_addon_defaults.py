@@ -230,3 +230,60 @@ def test_notes_explains_preservation():
     assert "preserved" in text, (
         "NOTES.txt must say which add-ons were kept because they were already "
         "running -- that is the whole point of the three-state default")
+
+
+# ---------------------------------------------------------------------------
+# C3 — which add-ons a profile renders, as an assertion.
+#
+# No test asserted this before this file: the helm-lint CI job renders these profiles
+# and checks only that each renders without error, and the other test_helm_*.py files
+# pin security contexts, storage classes, duplicate keys and ordering -- never a
+# workload list. So a change to the base defaults (the previous commit) had nothing to
+# update and nothing that would have caught it going wrong. This is that check.
+#
+# Expected sets verified directly against `helm template` output for each profile
+# before being written here (not assumed from the profile files' prose):
+#   - base values.yaml, values-foundation.yaml, values-prod-single.yaml and
+#     values-aws.yaml all render none of the eight -- base and values-aws.yaml are the
+#     two that move relative to before the previous commit (base used to enable all
+#     eight; values-aws.yaml states none of the eight itself and inherited base's all-
+#     true default). That movement is the measurement of what the defaults change did,
+#     not a defect to fix here.
+#   - values-onprem.yaml renders all eight (explicit true throughout, per
+#     values-onprem.yaml's own full-OSS-stack intent).
+#   - values-quicktest.yaml renders seven of eight -- every add-on except spark, which
+#     it explicitly sets to false.
+#   - values-dev.yaml renders exactly what it states: airflow, spark, jupyter, mlflow,
+#     openmetadata and risingwave true; polaris and trino left unset (so, with no
+#     cluster, off).
+# ---------------------------------------------------------------------------
+
+ALL_ADDONS = frozenset(ADDONS)
+
+PROFILE_EXPECTATIONS = {
+    None: frozenset(),  # base values.yaml, no --values override
+    "values-foundation.yaml": frozenset(),
+    "values-prod-single.yaml": frozenset(),
+    "values-aws.yaml": frozenset(),
+    "values-onprem.yaml": ALL_ADDONS,
+    "values-quicktest.yaml": ALL_ADDONS - {"spark"},
+    "values-dev.yaml": frozenset(
+        {"airflow", "spark", "jupyter", "mlflow", "openmetadata", "risingwave"}),
+}
+
+
+@pytest.mark.parametrize("profile", sorted(PROFILE_EXPECTATIONS, key=lambda p: p or ""))
+def test_profile_renders_exactly_its_expected_addons(profile):
+    expected = PROFILE_EXPECTATIONS[profile]
+    args = [f"--values={CHART / profile}"] if profile else []
+    rendered = helm_template(args)
+
+    present = set()
+    for component in ALL_ADDONS:
+        _, kind, _ = ADDONS[component]
+        if expected_name(component) in rendered_names(rendered, kind):
+            present.add(component)
+
+    label = profile or "values.yaml (base)"
+    assert present == expected, (
+        f"{label}: rendered add-ons {sorted(present)} != expected {sorted(expected)}")
