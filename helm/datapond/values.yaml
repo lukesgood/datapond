@@ -303,6 +303,8 @@ valkey:
 
 # JupyterLab
 jupyter:
+  # unset: keep it if this namespace already runs it, otherwise off. See
+  # "Optional OSS add-ons" near the top of this file for what each state means.
   enabled: null
   name: jupyterlab
   replicas: 1
@@ -352,6 +354,8 @@ jupyter:
 
 # MLflow
 mlflow:
+  # unset: keep it if this namespace already runs it, otherwise off. See
+  # "Optional OSS add-ons" near the top of this file for what each state means.
   enabled: null
   name: mlflow
   replicas: 1
@@ -384,6 +388,8 @@ mlflow:
 
 # Airflow
 airflow:
+  # unset: keep it if this namespace already runs it, otherwise off. See
+  # "Optional OSS add-ons" near the top of this file for what each state means.
   enabled: null
   name: airflow
   image:
@@ -454,6 +460,8 @@ airflow:
 
 # Spark
 spark:
+  # unset: keep it if this namespace already runs it, otherwise off. See
+  # "Optional OSS add-ons" near the top of this file for what each state means.
   enabled: null
   name: spark
   image:
@@ -523,6 +531,8 @@ externalDatabase:
 
 # Trino (SQL Analytics with Iceberg)
 trino:
+  # unset: keep it if this namespace already runs it, otherwise off. See
+  # "Optional OSS add-ons" near the top of this file for what each state means.
   enabled: null
   name: trino
   replicas: 1
@@ -585,6 +595,8 @@ podSecurityPolicy:
 
 # Apache Polaris (Iceberg REST Catalog)
 polaris:
+  # unset: keep it if this namespace already runs it, otherwise off. See
+  # "Optional OSS add-ons" near the top of this file for what each state means.
   enabled: null
   name: polaris
   replicas: 2
@@ -631,6 +643,8 @@ polaris:
 
 # RisingWave (Real-time Streaming SQL)
 risingwave:
+  # unset: keep it if this namespace already runs it, otherwise off. See
+  # "Optional OSS add-ons" near the top of this file for what each state means.
   enabled: null
   name: risingwave
   image:
@@ -697,6 +711,8 @@ risingwave:
 
 # OpenMetadata (Data Catalog & Lineage)
 openmetadata:
+  # unset: keep it if this namespace already runs it, otherwise off. See
+  # "Optional OSS add-ons" near the top of this file for what each state means.
   enabled: null
   name: openmetadata
   # ingestion-bot JWT for backend service auth (lineage/quality). Empty = backend
