@@ -445,15 +445,35 @@ jobs:
           done
       - name: FEATURE flags reflect component toggles
         run: |
-          echo "== values-foundation (trino disabled) must render FEATURE_TRINO false =="
-          helm template datapond helm/datapond --values helm/datapond/values-foundation.yaml \
-            | grep -A1 'name: FEATURE_TRINO' | grep -q 'value: "false"' \
-            || { echo "FAIL: FEATURE_TRINO should be false in values-foundation"; exit 1; }
-          echo "== base values (trino enabled) must render FEATURE_TRINO true =="
-          helm template datapond helm/datapond \
-            | grep -A1 'name: FEATURE_TRINO' | grep -q 'value: "true"' \
-            || { echo "FAIL: FEATURE_TRINO should be true in base values"; exit 1; }
-          echo "OK: FEATURE flag gating verified"
+          # The flag a profile emits must match whether that profile renders the
+          # workload. Pinning the flag alone is how this check passed while the chart
+          # told the backend an add-on was on and rendered nothing — the console then
+          # advertises a surface over a service that does not exist.
+          #
+          # Base changed meaning: the eight add-ons default to unset, which renders
+          # nothing on a fresh install and preserves whatever an existing namespace is
+          # already running. The old assertion here read "base must say true" and was
+          # correct until that default flipped.
+          check() {           # profile-file (empty for base), component, FEATURE name
+            local f="$1" c="$2" flag="$3" args="" label="base"
+            [ -n "$f" ] && { args="--values helm/datapond/$f"; label="$f"; }
+            local out; out=$(helm template datapond helm/datapond $args)
+            local emitted; emitted=$(echo "$out" | grep -A1 "name: $flag" | grep -oE 'value: "(true|false)"' | grep -oE 'true|false' | head -1)
+            local rendered=false
+            echo "$out" | grep -qE "^  name: $c$|^  name: $c-" && rendered=true
+            echo "  $label: $flag=$emitted, workload rendered=$rendered"
+            [ "$emitted" = "$rendered" ] \
+              || { echo "FAIL: $label says $flag=$emitted but renders workload=$rendered"; exit 1; }
+          }
+          echo "== a profile that disables trino says so, and renders none =="
+          check values-foundation.yaml trino FEATURE_TRINO
+          echo "== base leaves the add-ons unset: no workload, and the flag agrees =="
+          check "" trino FEATURE_TRINO
+          check "" airflow FEATURE_AIRFLOW
+          echo "== a profile that enables them says so, and renders them =="
+          check values-onprem.yaml trino FEATURE_TRINO
+          check values-onprem.yaml airflow FEATURE_AIRFLOW
+          echo "OK: FEATURE flag gating verified against what actually renders"
       - name: Critical secrets generated + injected
         run: |
           echo "== critical secrets generated + injected =="
