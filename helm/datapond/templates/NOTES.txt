@@ -1,4 +1,4 @@
-DataPond release "{{ .Release.Name }}" installed/upgraded in namespace {{ .Values.namespace | default .Release.Namespace }}.
+DataPond release "{{ .Release.Name }}" installed/upgraded in namespace {{ include "datapond.namespace" . }}.
 
 Optional OSS add-ons
 ---------------------
@@ -12,40 +12,26 @@ helm/datapond/templates/_addons.tpl for the rule):
 
 This is what lets a fresh install stay lean while an existing deployment that never
 chose an explicit value keeps exactly what it is running, unaffected by an upgrade.
+An add-on that is on -- explicitly or preserved -- keeps everything it depends on:
+its ingress path, its ServiceAccount, its secret keys, its database and its PVC.
 
 Resolved for this release:
-{{- $ns := .Values.namespace | default .Release.Namespace }}
-{{- $addons := list
-  (dict "component" "airflow" "kind" "Deployment" "name" (printf "%s-webserver" .Values.airflow.name))
-  (dict "component" "spark" "kind" "StatefulSet" "name" (printf "%s-master" .Values.spark.name))
-  (dict "component" "polaris" "kind" "Deployment" "name" .Values.polaris.name)
-  (dict "component" "risingwave" "kind" "Deployment" "name" (printf "%s-frontend" .Values.risingwave.name))
-  (dict "component" "openmetadata" "kind" "Deployment" "name" (printf "%s-server" .Values.openmetadata.name))
-  (dict "component" "jupyter" "kind" "Deployment" "name" .Values.jupyter.name)
-  (dict "component" "mlflow" "kind" "Deployment" "name" .Values.mlflow.name)
-  (dict "component" "trino" "kind" "Deployment" "name" .Values.trino.name)
--}}
-{{- range $addons }}
-{{- $explicit := index (index $.Values .component) "enabled" }}
+{{- $addons := fromJson (include "datapond.addonTargets" $) }}
+{{- range $component, $target := $addons }}
+{{- $explicit := index ((index $.Values $component) | default dict) "enabled" }}
 {{- if kindIs "bool" $explicit }}
-  - {{ .component }}: {{ if $explicit }}ON{{ else }}OFF{{ end }} (explicit in your values)
-{{- else if lookup "apps/v1" .kind $ns .name }}
-  - {{ .component }}: ON, preserved (already running in this namespace; not set explicitly in your values)
+  - {{ $component }}: {{ if $explicit }}ON{{ else }}OFF{{ end }} (explicit in your values)
+{{- else if eq (include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" $component)) "true" }}
+  - {{ $component }}: ON, preserved (already running in this namespace; not set explicitly in your values)
 {{- else }}
-  - {{ .component }}: OFF (unset, and not previously running in this namespace)
+  - {{ $component }}: OFF (unset, and not previously running in this namespace)
 {{- end }}
 {{- end }}
 
 To turn any one of them off explicitly -- including one this release reports as
 "preserved" above -- add the matching flag and upgrade:
-
-  --set airflow.enabled=false
-  --set spark.enabled=false
-  --set polaris.enabled=false
-  --set risingwave.enabled=false
-  --set openmetadata.enabled=false
-  --set jupyter.enabled=false
-  --set mlflow.enabled=false
-  --set trino.enabled=false
+{{ range $component, $target := $addons }}
+  --set {{ $component }}.enabled=false
+{{- end }}
 
 To turn one on explicitly, use the same flag with `=true` instead.

@@ -1,4 +1,4 @@
-{{- if eq "true" (include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "airflow" "kind" "Deployment" "name" (printf "%s-webserver" $.Values.airflow.name))) }}
+{{- if include "datapond.addonOn" (dict "root" $ "component" "airflow") }}
 ---
 # Airflow Webserver
 apiVersion: apps/v1

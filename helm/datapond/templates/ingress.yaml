@@ -42,7 +42,7 @@ spec:
             port:
               number: {{ .Values.backend.service.port }}
 
-      {{- if .Values.jupyter.enabled }}
+      {{- if (include "datapond.addonOn" (dict "root" $ "component" "jupyter")) }}
       # JupyterLab
       - path: /jupyter
         pathType: Prefix
@@ -53,7 +53,7 @@ spec:
               number: {{ .Values.jupyter.service.port }}
       {{- end }}
 
-      {{- if .Values.mlflow.enabled }}
+      {{- if (include "datapond.addonOn" (dict "root" $ "component" "mlflow")) }}
       # MLflow
       - path: /mlflow
         pathType: Prefix
@@ -64,7 +64,7 @@ spec:
               number: {{ .Values.mlflow.service.port }}
       {{- end }}
 
-      {{- if .Values.airflow.enabled }}
+      {{- if (include "datapond.addonOn" (dict "root" $ "component" "airflow")) }}
       # Airflow
       - path: /airflow
         pathType: Prefix
@@ -75,7 +75,7 @@ spec:
               number: {{ .Values.airflow.webserver.service.port }}
       {{- end }}
 
-      {{- if .Values.spark.enabled }}
+      {{- if (include "datapond.addonOn" (dict "root" $ "component" "spark")) }}
       # Spark UI
       - path: /spark
         pathType: Prefix
@@ -97,7 +97,7 @@ spec:
               number: 9001
       {{- end }}
 
-      {{- if .Values.trino.enabled }}
+      {{- if (include "datapond.addonOn" (dict "root" $ "component" "trino")) }}
       # Trino (SQL Analytics)
       - path: /trino
         pathType: Prefix
@@ -108,7 +108,7 @@ spec:
               number: {{ .Values.trino.service.port }}
       {{- end }}
 
-      {{- if .Values.risingwave.enabled }}
+      {{- if (include "datapond.addonOn" (dict "root" $ "component" "risingwave")) }}
       # RisingWave Dashboard
       - path: /risingwave
         pathType: Prefix
@@ -119,7 +119,7 @@ spec:
               number: {{ .Values.risingwave.meta.service.dashboardPort }}
       {{- end }}
 
-      {{- if .Values.openmetadata.enabled }}
+      {{- if (include "datapond.addonOn" (dict "root" $ "component" "openmetadata")) }}
       # OpenMetadata
       - path: /openmetadata
         pathType: Prefix

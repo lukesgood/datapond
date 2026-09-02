@@ -1,4 +1,4 @@
-{{- if .Values.polaris.enabled }}
+{{- if (include "datapond.addonOn" (dict "root" $ "component" "polaris")) }}
 ---
 # Polaris 1.4.0 requires an out-of-band bootstrap step to:
 #   1. Create the relational-jdbc schema (postgres/schema-v4.sql) in polaris_catalog DB

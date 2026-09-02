@@ -1,4 +1,4 @@
-{{- if and .Values.polaris.enabled .Values.minio.enabled }}
+{{- if and (include "datapond.addonOn" (dict "root" $ "component" "polaris")) .Values.minio.enabled }}
 ---
 # Polaris catalog initialization (post-bootstrap). Gated on minio.enabled too:
 # the storage config below (MinIO base-location + placeholder roleArn) only makes

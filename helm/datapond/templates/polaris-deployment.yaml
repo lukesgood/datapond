@@ -1,4 +1,4 @@
-{{- if eq "true" (include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "polaris" "kind" "Deployment" "name" $.Values.polaris.name)) }}
+{{- if include "datapond.addonOn" (dict "root" $ "component" "polaris") }}
 ---
 apiVersion: apps/v1
 kind: Deployment

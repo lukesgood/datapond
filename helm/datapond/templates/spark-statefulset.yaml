@@ -1,4 +1,4 @@
-{{- if eq "true" (include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "spark" "kind" "StatefulSet" "name" (printf "%s-master" $.Values.spark.name))) }}
+{{- if include "datapond.addonOn" (dict "root" $ "component" "spark") }}
 ---
 # Spark Master.
 # The apache/spark image does NOT honor bitnami-style SPARK_MODE env — it has no

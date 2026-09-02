@@ -1,4 +1,4 @@
-{{- if eq "true" (include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "risingwave" "kind" "Deployment" "name" (printf "%s-frontend" $.Values.risingwave.name))) }}
+{{- if include "datapond.addonOn" (dict "root" $ "component" "risingwave") }}
 ---
 # RisingWave Meta Node StatefulSet
 apiVersion: apps/v1
