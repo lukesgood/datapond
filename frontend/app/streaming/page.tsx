@@ -1,5 +1,6 @@
 "use client"
-import { CapabilityGate } from "@/lib/capabilities"
+import { supportBadge, supportTier } from "@/lib/capability-support"
+import { CapabilityGate, useCapabilities } from "@/lib/capabilities"
 
 import { useCallback, useEffect, useState, useRef } from "react"
 import { useToast } from "@/lib/toast"
@@ -320,6 +321,9 @@ function groupPipelines(sources: Source[], views: MV[], sinks: Sink[]): Pipeline
 
 function StreamingPageInner() {
   const router = useRouter()
+  const caps = useCapabilities()
+  const streamingTier = supportTier("streaming", caps.support ?? {})
+  const streamingBadge = streamingTier ? supportBadge(streamingTier) : null
   const [cluster, setCluster] = useState<ClusterInfo | null>(null)
   const [sources, setSources] = useState<Source[]>([])
   const [sinks, setSinks] = useState<Sink[]>([])
@@ -511,6 +515,11 @@ function StreamingPageInner() {
           <p className="text-sm text-muted-foreground mt-0.5">
             Real-time CDC pipelines via RisingWave — captures every change with sub-second latency
           </p>
+          {streamingBadge && (
+            <p className="text-xs text-muted-foreground mt-1" title={streamingBadge.title}>
+              {streamingBadge.label} — {streamingBadge.title}
+            </p>
+          )}
         </div>
         <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5"
           onClick={fetchAll} disabled={loading}>

@@ -1,5 +1,6 @@
 "use client"
-import { CapabilityGate } from "@/lib/capabilities"
+import { supportBadge, supportTier } from "@/lib/capability-support"
+import { CapabilityGate, useCapabilities } from "@/lib/capabilities"
 
 import { useState, useEffect, useCallback } from "react"
 import { useToast } from "@/lib/toast"
@@ -575,6 +576,9 @@ function NewExperimentDialog({
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 function ExperimentsPageInner() {
+  const caps = useCapabilities()
+  const experimentsTier = supportTier("experiments", caps.support ?? {})
+  const experimentsBadge = experimentsTier ? supportBadge(experimentsTier) : null
   const [experiments, setExperiments] = useState<Experiment[]>([])
   const [runCounts, setRunCounts] = useState<Record<string, number>>({})
   const [selectedExp, setSelectedExp] = useState<Experiment | null>(null)
@@ -754,6 +758,11 @@ function ExperimentsPageInner() {
           <p className="text-sm text-muted-foreground mt-0.5">
             Experiment tracking, metrics, and model runs
           </p>
+          {experimentsBadge && (
+            <p className="text-xs text-muted-foreground mt-1" title={experimentsBadge.title}>
+              {experimentsBadge.label} — {experimentsBadge.title}
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
           <Button

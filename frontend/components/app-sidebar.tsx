@@ -10,6 +10,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { getUser, logout, type AuthUser } from "@/lib/auth"
+import { supportBadge, supportTier } from "@/lib/capability-support"
 import { useCapabilities } from "@/lib/capabilities"
 import { usePermissions } from "@/lib/permissions"
 import { getProductProfile } from "@/lib/product-profile"
@@ -189,13 +190,25 @@ export function AppSidebar() {
                 <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
                 <SidebarGroupContent>
                   <SidebarMenu>
-                    {visibleItems.map((item) => (
+                    {visibleItems.map((item) => {
+                      // A nav entry whose capability carries a support tier gets a
+                      // small tag beside its title — the same fact /api/capabilities
+                      // already reports, not a second opinion about it.
+                      const tier = item.capability ? supportTier(item.capability, caps.support ?? {}) : null
+                      const badge = tier ? supportBadge(tier) : null
+                      return (
                       <SidebarMenuItem key={item.title}>
                         {item.external ? (
                           <a href={item.url} target="_blank" rel="noopener noreferrer">
                             <SidebarMenuButton>
                               <item.icon />
                               <span>{item.title}</span>
+                              {badge && (
+                                <span title={badge.title}
+                                      className="ml-auto rounded-full border px-1.5 py-0 text-[9.5px] font-medium text-muted-foreground">
+                                  {badge.label}
+                                </span>
+                              )}
                             </SidebarMenuButton>
                           </a>
                         ) : (
@@ -203,11 +216,18 @@ export function AppSidebar() {
                             <SidebarMenuButton isActive={isActive(item.url)}>
                               <item.icon />
                               <span>{item.title}</span>
+                              {badge && (
+                                <span title={badge.title}
+                                      className="ml-auto rounded-full border px-1.5 py-0 text-[9.5px] font-medium text-muted-foreground">
+                                  {badge.label}
+                                </span>
+                              )}
                             </SidebarMenuButton>
                           </Link>
                         )}
                       </SidebarMenuItem>
-                    ))}
+                      )
+                    })}
                   </SidebarMenu>
                 </SidebarGroupContent>
               </SidebarGroup>

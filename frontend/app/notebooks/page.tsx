@@ -1,5 +1,6 @@
 "use client"
-import { CapabilityGate } from "@/lib/capabilities"
+import { supportBadge, supportTier } from "@/lib/capability-support"
+import { CapabilityGate, useCapabilities } from "@/lib/capabilities"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useToast } from "@/lib/toast"
@@ -87,6 +88,9 @@ const RECENT_LIMIT = 10
 function NotebooksPageInner() {
   const { toast } = useToast()
   const confirm = useConfirm()
+  const caps = useCapabilities()
+  const notebooksTier = supportTier("notebooks", caps.support ?? {})
+  const notebooksBadge = notebooksTier ? supportBadge(notebooksTier) : null
   const [notebooks, setNotebooks] = useState<NotebookItem[]>([])
   const [loading, setLoading] = useState(true)
   const [jupyterStatus, setJupyterStatus] = useState<"healthy" | "unhealthy" | "unknown" | "managed">("unknown")
@@ -347,6 +351,11 @@ function NotebooksPageInner() {
           <p className="text-muted-foreground">
             Interactive data science environment with JupyterLab
           </p>
+          {notebooksBadge && (
+            <p className="text-xs text-muted-foreground mt-1" title={notebooksBadge.title}>
+              {notebooksBadge.label} — {notebooksBadge.title}
+            </p>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
