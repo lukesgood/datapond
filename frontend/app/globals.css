@@ -85,11 +85,13 @@
   --sidebar-accent-foreground: #0e1c22;
   --sidebar-border: #d7e3e6;
   --sidebar-ring: #0894ac;
-  /* signature current + semantic + elevation (DataPond extras) */
+  /* signature current + semantic status + elevation (DataPond extras).
+     --dp-good/warn/bad is the status triad; --dp-managed marks provider-managed. */
   --dp-gradient: linear-gradient(120deg, #06b6d4 0%, #3b82f6 55%, #4f46e5 100%);
   --dp-aqua: #0894ac;
   --dp-good: #0f9d6c;
   --dp-warn: #e08a00;
+  --dp-bad: #e11d48;
   --dp-managed: #0e7490;
   --dp-shadow: 0 1px 2px rgb(14 28 34 / 0.04), 0 10px 26px -14px rgb(14 28 34 / 0.16);
   --dp-shadow-lg: 0 2px 4px rgb(14 28 34 / 0.05), 0 26px 50px -22px rgb(14 28 34 / 0.28);
@@ -132,6 +134,7 @@
   --dp-aqua: #22c3d6;
   --dp-good: #2dd4a7;
   --dp-warn: #fbbf24;
+  --dp-bad: #fb7185;
   --dp-managed: #22d3ee;
   --dp-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 14px 30px -16px rgb(0 0 0 / 0.7);
   --dp-shadow-lg: 0 2px 6px rgb(0 0 0 / 0.5), 0 30px 56px -24px rgb(0 0 0 / 0.8);
