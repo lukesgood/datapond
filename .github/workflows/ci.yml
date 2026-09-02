@@ -282,6 +282,14 @@ jobs:
         # Confirmed locally that this override lands as YAML null, not the string
         # "null": `helm template ... --set mlflow.enabled=null` renders
         # `.Values.mlflow.enabled` as `null`, same as never setting it at all.
+        #
+        # `helm upgrade` without `--reuse-values` recomputes every value from this
+        # invocation's own `-f`/`--set` plus chart defaults -- it does NOT carry
+        # forward `--set mlflow.replicas=0` from the previous step. Chart default is
+        # `replicas: 1` (values.yaml) and values-ephemeral.yaml never overrides it,
+        # so omitting `--set mlflow.replicas=0` here would schedule a real mlflow
+        # pod (500m CPU / 1Gi, image not preloaded via `kind load`) on exactly the
+        # step whose point is that nothing gets scheduled. Repeating it explicitly.
         run: |
           helm upgrade datapond helm/datapond \
             --namespace datapond \
@@ -293,7 +301,8 @@ jobs:
             --set-string frontend.image.tag=ci \
             --set frontend.image.pullPolicy=Never \
             --set mlflow.enabled=null \
-            --wait --timeout 5m
+            --set mlflow.replicas=0 \
+            --wait --timeout 5m | tee /tmp/mlflow-preserve-upgrade.notes
           echo "== mlflow Deployment must still exist -- the upgrade never said true or false =="
           if kubectl -n datapond get deployment mlflow >/dev/null 2>&1; then
             echo "PASS: mlflow Deployment survived an upgrade that left the flag unset"
@@ -301,10 +310,22 @@ jobs:
             echo "FAIL: mlflow Deployment was removed by an upgrade that only omitted the flag -- the preserve branch (lookup finds the running Deployment) is broken"
             exit 1
           fi
+          echo "== NOTES.txt from that upgrade must tell the operator mlflow was preserved =="
+          if grep -q -- "- mlflow: ON, preserved" /tmp/mlflow-preserve-upgrade.notes; then
+            echo "PASS: NOTES.txt reported mlflow as preserved"
+          else
+            echo "FAIL: NOTES.txt did not report mlflow as preserved -- printed output was:"
+            cat /tmp/mlflow-preserve-upgrade.notes
+            exit 1
+          fi
 
       - name: Turning it off explicitly must still remove it
         # Preservation that cannot be switched off is a leak, not a courtesy: this
-        # is the direction that matters more than the one above.
+        # is the direction that matters more than the one above. `--set
+        # mlflow.replicas=0` is not load-bearing here (enabled=false stops the
+        # template from rendering the Deployment at all, so no replica count
+        # applies), but it is kept for the same reason the previous step needs it:
+        # never rely on a `--set` from a prior `helm upgrade` surviving into this one.
         run: |
           helm upgrade datapond helm/datapond \
             --namespace datapond \
@@ -316,6 +337,7 @@ jobs:
             --set-string frontend.image.tag=ci \
             --set frontend.image.pullPolicy=Never \
             --set mlflow.enabled=false \
+            --set mlflow.replicas=0 \
             --wait --timeout 5m
           echo "== mlflow Deployment must be gone -- enabled=false was explicit this time =="
           if kubectl -n datapond get deployment mlflow >/dev/null 2>&1; then
