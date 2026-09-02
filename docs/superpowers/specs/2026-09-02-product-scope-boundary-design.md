@@ -245,27 +245,99 @@ Only statements that become false, or were already false:
 | Every add-on template asks the helper rather than reading `.enabled` directly | the same file, a scan over the eight templates |
 | Nothing else changed about who may reach these routes | the existing permission and route-inventory suites, unchanged and still green |
 
-## What remains, after both risks were designed out
+## The four residuals, and what each becomes
 
-The two risks this design started with are gone as risks: an existing deployment loses
-nothing on upgrade (§4), and neither tier is a standing opinion (§2). What is left is
-smaller and stated so it is not discovered later.
+Naming a residual is not resolving it. Each of the four the first pass listed is either
+closed here or explicitly traded, with the alternative that was rejected and why.
 
-- **The preserve branch cannot be tested without a cluster.** `helm template` never
-  exercises `lookup`; the tests cover explicit-true, explicit-false and unset-without-a
-  -cluster, and assert every add-on template routes through the helper. The branch that
-  reads a live cluster is exercised by the ephemeral-install CI job and by the next real
-  upgrade, and it fails safe: a lookup that returns nothing renders the lean shape, which
-  is the same answer a fresh install gets.
-- **`enabled: null` is a third state, and readers of a values file expect two.** The
-  comment in `values.yaml` has to earn that, and the helper's name has to say it. A
-  reviewer who reads `enabled: null` as "off" is not wrong about a fresh install — only
-  about an upgrade.
-- **A tier expires by test, not by ceremony.** When the declarative pipeline runtime
-  lands, `refuse_placeholder_deploy` stops refusing and the bidirectional test fails
-  until the tier is removed. That is the intended way to find out; it is also the only
-  way — nothing else notices.
-- **`SUPPORT.md` becomes load-bearing.** It is prose today and a parsed contract after
-  this change. The parse is one sentence's list of names; a rewrite of that paragraph
-  that keeps the names is fine, and one that drops a name fails the test rather than
-  quietly widening what the product claims to support.
+### 1. The `lookup` branch is exercised in CI, on a real cluster
+
+The claim that it "cannot be tested without a cluster" was true only of the offline
+tests. CI already has a cluster: the job *Fresh install, upgrade and rollback (ephemeral
+cluster)* (`.github/workflows/ci.yml`) stands up kind, runs `helm install`, then
+`helm upgrade`. That is precisely the sequence the preserve rule exists for.
+
+The job gains one case, between its install and its upgrade:
+
+1. install with one add-on explicitly on and **`replicas: 0`** — the rule looks for the
+   Deployment object, not a running pod, so nothing is scheduled and the runner's
+   capacity is untouched (that capacity is already tight: two earlier CI fixes were
+   about pod counts on this runner);
+2. `helm upgrade` **without** that flag, exactly as an operator who never chose would;
+3. assert the Deployment is still there, and that `NOTES.txt` named it as preserved.
+
+A fourth step asserts the other direction, which matters more: upgrade again with
+`--set <component>.enabled=false` and assert the Deployment is gone. Preservation that
+cannot be switched off is a leak, not a courtesy.
+
+If a template hard-codes its replica count, the step scales the Deployment to zero after
+install instead; the assertion is unchanged.
+
+### 2. The third state is kept, and the two-valued alternative is rejected on the record
+
+`enabled: null` is genuinely a state a reader does not expect, and the obvious
+alternative was considered: keep `enabled` two-valued and add a separate
+`addons.preserveRunning: true`. It was rejected because it produces a value that lies.
+Helm cannot distinguish an explicit `false` from a defaulted `false`, so under that
+scheme `--set airflow.enabled=false` on an existing install would remove nothing, and
+the only way to turn a component off would be a second, differently-named switch. A
+documented third state is a smaller cost than a flag that silently does not work.
+
+Three things carry the cost:
+
+- `values.yaml` states the three states where the eight flags live — `true` on, `false`
+  off, unset "keep what is running, otherwise off" — rather than leaving a reader to
+  infer them from a `null`;
+- the helper is named for what it answers, `datapond.addonEnabledOrPreserved`, so a
+  template's call site reads as the question it is asking;
+- `NOTES.txt` reports the resolution for the install in front of the operator: which
+  components are on, which were preserved, and the `--set` that turns each off.
+
+### 3. The expiring tier's test is the ceremony, and says so
+
+`pipelines` is `preview` only while `refuse_placeholder_deploy` refuses a placeholder
+DAG. When the runtime lands, that assertion fails — and its message is the instruction
+rather than a puzzle:
+
+> `refuse_placeholder_deploy` no longer refuses a placeholder DAG, so the declarative
+> pipeline runtime has landed. Remove `"pipelines": "preview"` from the support tiers —
+> the console is still telling people it cannot deploy.
+
+There is no second mechanism to add. A failing test on the commit that lands the runtime
+*is* the notice; what was missing was that the notice be legible, which is a sentence.
+
+### 4. `SUPPORT.md` gets an anchor, so prose stays prose
+
+Parsing a sentence for eight product names makes every future edit to that paragraph a
+potential test failure for reasons unrelated to what it says. So the test does not parse
+the sentence. `SUPPORT.md` gains a short machine-readable list beside it, under its own
+heading, and the paragraph goes on being written for people:
+
+```markdown
+### Add-ons this release does not support
+
+<!-- unsupported-addons -->
+- Trino
+- Airflow
+- Spark
+- Polaris
+- RisingWave
+- OpenMetadata
+- Jupyter
+- MLflow
+<!-- /unsupported-addons -->
+```
+
+The test reads between the markers. Rewriting the surrounding prose is free; adding or
+dropping a name is a deliberate edit to a list, and the support tiers move with it or the
+test fails. This is the same shape as the fence the repo already relies on elsewhere: a
+human-readable artifact with one anchored region a test can hold onto.
+
+### What is genuinely left
+
+One thing, and it is a property of the domain rather than of this design: **a support
+tier is a promise, and no test can check a promise against the world.** The derivation
+proves the tier matches what the repository says and does — `SUPPORT.md`'s list and the
+refusal code. If the repository is wrong about what the product supports, the tiers are
+wrong with it, consistently. That is the correct failure mode: one place to fix, and
+everything downstream follows.
