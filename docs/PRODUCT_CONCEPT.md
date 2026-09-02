@@ -134,7 +134,7 @@ flowchart TB
 
 - **Portable Core · AWS starter:** 가장 작은 RAG core. S3/Bedrock + in-cluster pgvector.
 - **AWS Single-Node Reference:** 현재 실제 AWS managed-adapter 레퍼런스. EC2/K3s이며 EKS가 아니다.
-- **AWS Hybrid Extended:** 기존 Kubernetes에 heavy OSS stack과 AWS endpoint를 혼합하는 compatibility profile.
+- **AWS Hybrid Extended:** 기존 Kubernetes에 AWS endpoint를 얹는 compatibility profile. add-on 플래그를 지정하지 않으므로 신규 설치는 Portable Core만 렌더링하고, 기존 클러스터가 이미 운영 중인 add-on은 그대로 유지한다.
 - **Sovereign OSS Extended:** local control을 위한 self-hosted profile. 최소 footprint가 아니라 선택권이 목적이다.
 
 상세는 [DEPLOYMENT_PROFILES.md](DEPLOYMENT_PROFILES.md)를 따른다.

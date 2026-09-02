@@ -8,7 +8,7 @@ Helm profile names are retained for compatibility. Product role, actual topology
 |---|---|---|
 | Portable Core · AWS | You need the smallest S3/Bedrock governed RAG starter | You need Catalog/SQL workflows out of the box |
 | AWS Single-Node Reference | You want the current end-to-end AWS Terraform + Helm reference | You require application-node HA or EKS |
-| AWS Hybrid Extended | You already operate Kubernetes and intentionally want AWS endpoints plus OSS engines | You expect a lean or automatically provisioned EKS stack |
+| AWS Hybrid Extended | You already operate Kubernetes and want AWS endpoints on it, without the chart changing what add-ons that cluster already runs | You expect a lean or automatically provisioned EKS stack |
 | Sovereign OSS Extended | You need local control and are prepared to operate the add-ons | You want the lowest operational burden |
 | Development/Quick Test | Local and integration validation | Production |
 | Self-Hosted Extended compatibility | You maintain the legacy full stack | New AWS deployments |
@@ -19,7 +19,7 @@ Helm profile names are retained for compatibility. Product role, actual topology
 |---|---|---|---|---|---|---|
 | `values-foundation.yaml` | Portable Core · AWS | in-cluster PostgreSQL/pgvector | S3 + Bedrock | none | disabled | supported starter |
 | `values-prod-single.yaml` | AWS Single-Node Reference | Aurora PostgreSQL/pgvector | S3 + Bedrock | Glue + Athena | heavy add-ons disabled | reference |
-| `values-aws.yaml` | AWS Hybrid Extended | external PostgreSQL | S3 + Bedrock | inherited Polaris/Trino unless overridden | inherited base defaults | compatibility |
+| `values-aws.yaml` | AWS Hybrid Extended | external PostgreSQL | S3 + Bedrock | none set — preserved if already running, otherwise off | none set — preserved if already running, otherwise off | compatibility |
 | `values-onprem.yaml` | Sovereign OSS Extended | in-cluster PostgreSQL/pgvector | S3-compatible + local model path | Polaris + Trino | selected full OSS | community |
 | `values-dev.yaml` | Development | in-cluster | self-hosted | base/overrides | enabled for development | development |
 | `values-quicktest.yaml` | Quick Test | in-cluster | self-hosted | base/overrides | reduced resources | development |
@@ -71,9 +71,9 @@ This overlay:
 - configures Bedrock model mappings;
 - disables in-cluster PostgreSQL and expects an external database;
 - disables Ollama/vLLM;
-- otherwise inherits the base chart's heavy OSS defaults.
+- states none of the eight optional OSS add-on flags, so it renders the Portable Core on a fresh install and preserves whichever add-ons an existing cluster is already running.
 
-It does not create EKS, Aurora, S3, or other AWS resources. An operator must bring infrastructure and explicitly review every inherited component. Do not use it as shorthand for “AWS managed profile.”
+It does not create EKS, Aurora, S3, or other AWS resources. An operator must bring infrastructure and explicitly review whatever the target cluster is already running. Do not use it as shorthand for “AWS managed profile.”
 
 ## Sovereign OSS Extended
 

@@ -134,9 +134,9 @@ Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider r
 
 - Glue/Athena data plane in the AWS single-node reference
 - Polaris/Trino catalog and query
-- RisingWave streaming, Airflow/Spark transforms
+- RisingWave streaming (Experimental), Airflow/Spark transforms (Preview)
 - OpenMetadata external lineage
-- Jupyter/DuckDB exploration and MLflow experiments
+- Jupyter/DuckDB exploration and MLflow experiments (Experimental)
 
 ### Roadmap or hardening
 
