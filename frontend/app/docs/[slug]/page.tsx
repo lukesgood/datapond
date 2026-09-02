@@ -85,7 +85,7 @@ const ARTICLES: Record<string, Doc> = {
     summary: "`values-foundation.yaml` is the smallest maintained product profile. Its historical filename remains for compatibility, while its product role is Portable Core on AWS.",
     points: [
       "Runs backend, frontend, PostgreSQL + pgvector, LiteLLM, and Valkey; uses external native S3 and Bedrock.",
-      "Catalog, SQL, transforms, streaming, notebooks, experiments, and external lineage are disabled and hidden.",
+      "Catalog, SQL, transforms, streaming, notebooks, and experiments are disabled and hidden.",
       "Athena, Glue, EMR, MWAA, DataZone, and SageMaker are not automatically created as replacements.",
     ],
     related: [{ label: "Knowledge", href: "/knowledge" }, { label: "Profile matrix", href: "/docs/profiles" }],
@@ -204,11 +204,11 @@ const ARTICLES: Record<string, Doc> = {
   governance: {
     title: "Governance",
     status: "Shipped",
-    summary: "Core governance covers collection ownership/sharing, PII controls, audit events, and AI spend. Table RLS and external lineage are profile-dependent extensions.",
+    summary: "Core governance covers collection ownership/sharing, PII controls, audit events, and AI spend. Table RLS is a profile-dependent extension.",
     points: [
       "Knowledge collections use owner, administrator, and explicit sharing checks at the application layer.",
       "PII masking protects ingestion and retrieval; policy-backed table filtering is available when the RLS engine is configured.",
-      "OpenMetadata lineage is optional and best-effort; it is not silently replaced by DataZone when disabled.",
+      "OpenMetadata lineage is optional and best-effort, and is read in OpenMetadata's own UI — this console has no lineage module. It is not silently replaced by DataZone when disabled.",
     ],
     related: [{ label: "Governance", href: "/governance" }, { label: "AI Gateway", href: "/ai" }],
   },

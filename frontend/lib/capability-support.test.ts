@@ -42,11 +42,11 @@ test("supportBadge('experimental') says the wiring is supported and the upstream
 // Same shape as lib/permission-source.test.ts's own repo-wide rule: name the exact
 // files a plan requires, then read them back rather than trusting that an edit
 // landed. Governance's Lineage tab is deliberately NOT in this list — it does not
-// exist. The only "Lineage" UI in the app is a card on app/knowledge/page.tsx over
-// a different, ungated endpoint (/api/ai/lineage, connector→table→collection
-// lineage), unrelated to the OpenMetadata-gated `lineage` capability this feature
-// is about. See task-B-report.md's "The `lineage` capability renders nowhere"
-// section for how that was confirmed.
+// exist, and neither does the capability any more: `lineage` was retired from
+// /api/capabilities once it turned out to gate nothing a person could open. The only
+// "Lineage" UI in the app is a card on app/knowledge/page.tsx over a different,
+// ungated endpoint (/api/ai/lineage, connector→table→collection lineage) that works
+// on the Portable Core, with or without OpenMetadata.
 {
   const FRONTEND_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..")
 
@@ -80,7 +80,6 @@ test("a capability with no tier renders nothing — the eleven untouched capabil
     streaming: "experimental",
     notebooks: "experimental",
     experiments: "experimental",
-    lineage: "experimental",
   }
   const untouched = [
     "knowledge", "ai", "settings", "governance", "storage", "services", "system",

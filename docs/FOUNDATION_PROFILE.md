@@ -37,7 +37,9 @@ The absence of these services does not provision Athena, Glue, EMR, MWAA, SageMa
 Consequences:
 
 - Knowledge, AI Gateway, Governance, Storage, Services, System, and Settings remain available.
-- Sources, Catalog, SQL Lab, Dashboards, Transforms, Streaming, Notebooks, Experiments, and external lineage are hidden.
+- Sources, Catalog, SQL Lab, Dashboards, Transforms, Streaming, Notebooks, and Experiments are hidden.
+- OpenMetadata is not deployed. It has no module in this console either way — when a
+  profile does run it, its catalog and lineage are read in OpenMetadata's own UI.
 - Direct navigation to an optional module returns a profile-aware disabled state.
 
 ## Core workflow
