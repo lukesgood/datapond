@@ -16,6 +16,15 @@ def _feat(env: Mapping, name: str, default: bool = False) -> bool:
     return str(v).strip().lower() in ("1", "true", "yes", "on")
 
 
+# The add-ons SUPPORT.md disclaims, as FEATURE_* names. Tied to that document by
+# tests/test_capability_support_tiers.py — the list lives there for people, here for
+# the derivation, and neither may drift.
+UNSUPPORTED_BACKENDS = (
+    "TRINO", "AIRFLOW", "SPARK", "POLARIS", "RISINGWAVE", "OPENMETADATA",
+    "JUPYTER", "MLFLOW",
+)
+
+
 def compute_capabilities(env: Mapping) -> dict:
     """Feature→enabled map from FEATURE_<COMPONENT> env (fail-closed by default).
 

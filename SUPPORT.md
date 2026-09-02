@@ -42,6 +42,19 @@ The optional OSS add-ons (Trino, Airflow, Spark, Polaris, RisingWave, OpenMetada
 Jupyter, MLflow) are configuration around upstream projects. We will help with how the
 chart wires them; we are not in a position to support those projects themselves.
 
+### Add-ons this release does not support
+
+<!-- unsupported-addons -->
+- Trino
+- Airflow
+- Spark
+- Polaris
+- RisingWave
+- OpenMetadata
+- Jupyter
+- MLflow
+<!-- /unsupported-addons -->
+
 Declarative pipelines compile to placeholder tasks and refuse to deploy for that
 reason. They are not a supported feature — see `docs/PRODUCTIZATION_READINESS_ASSESSMENT.md`
 P0-1.
