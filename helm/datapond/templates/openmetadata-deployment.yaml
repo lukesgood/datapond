@@ -1,4 +1,4 @@
-{{- if .Values.openmetadata.enabled }}
+{{- if eq "true" (include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "openmetadata" "kind" "Deployment" "name" (printf "%s-server" $.Values.openmetadata.name))) }}
 ---
 # Elasticsearch for OpenMetadata Search
 apiVersion: apps/v1

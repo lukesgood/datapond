@@ -1,4 +1,4 @@
-{{- if .Values.jupyter.enabled }}
+{{- if eq "true" (include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "jupyter" "kind" "Deployment" "name" $.Values.jupyter.name)) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

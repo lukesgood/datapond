@@ -1,4 +1,4 @@
-{{- if .Values.trino.enabled }}
+{{- if eq "true" (include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "trino" "kind" "Deployment" "name" $.Values.trino.name)) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
