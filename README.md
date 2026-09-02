@@ -74,7 +74,7 @@ The product domain does not require every component in the diagram. Runtime capa
 |---|---|---|
 | `values-foundation.yaml` | **Portable Core · AWS starter** | About five workloads: backend, frontend, PostgreSQL/pgvector, LiteLLM, Valkey; external native S3 + Bedrock; no catalog/query service |
 | `values-prod-single.yaml` | **AWS Single-Node Reference** | EC2/K3s application node with external Aurora, S3, Glue/Athena, Bedrock, ECR, TLS, and CloudWatch metrics; not application-node HA |
-| `values-aws.yaml` | **AWS Hybrid Extended compatibility** | Connects an existing Kubernetes cluster to S3, Bedrock, and external PostgreSQL while inheriting optional OSS defaults; does not provision EKS |
+| `values-aws.yaml` | **AWS Hybrid Extended compatibility** | Connects an existing Kubernetes cluster to S3, Bedrock, and external PostgreSQL; states none of the OSS add-on flags, so a fresh install renders none and an existing cluster keeps whatever it is already running; does not provision EKS |
 | `values-onprem.yaml` | **Sovereign OSS Extended** | Self-hosted core plus selected local/OSS services; higher operational footprint |
 | `values-dev.yaml`, `values-quicktest.yaml` | Development/test | Reduced-resource integration environments |
 | `values-prod.yaml` | Self-hosted extended compatibility | Large full-stack profile; not the recommended AWS reference |

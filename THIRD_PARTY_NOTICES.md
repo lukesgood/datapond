@@ -16,13 +16,18 @@ not derivation). Their licenses govern those components, not DataPond's code.
 | Component | License | Where it applies |
 |---|---|---|
 | MinIO (`minio/minio`, `minio/mc`) | **AGPL-3.0** | Any profile with `minio.enabled`; Portable Core AWS, AWS single-node, and AWS hybrid profiles use native Amazon S3 and pull no MinIO image |
-| Elasticsearch 8.x (via OpenMetadata) | **Elastic License 2.0 / SSPL** (source-available, not OSI open source) | Profiles with OpenMetadata enabled — the base chart default is ENABLED, and `values-aws.yaml` inherits it; disabled in Portable Core and AWS single-node profiles. Set `openmetadata.enabled: false` if ELv2 is a procurement blocker |
+| Elasticsearch 8.x (via OpenMetadata) | **Elastic License 2.0 / SSPL** (source-available, not OSI open source) | Deployed only where `openmetadata.enabled` resolves to `true` — the base chart default is unset (off on a fresh install, preserved only if this namespace already runs it); `values-aws.yaml` sets no OpenMetadata flag either, so the same unset rule applies to it; disabled in Portable Core and AWS single-node profiles. Set `openmetadata.enabled: false` to remove it explicitly, including on a namespace that already runs it |
 | BusyBox (init containers) | GPL-2.0 | Unmodified standalone utility image (mere aggregation) |
 
 **Procurement note for regulated environments:** Portable Core · AWS
 (`values-foundation.yaml`) and the AWS Single-Node Reference (`values-prod-single.yaml`)
-deploy neither MinIO nor Elasticsearch. `values-aws.yaml` deploys no MinIO but inherits
-OpenMetadata (and Elasticsearch) from base defaults unless explicitly disabled.
+deploy neither MinIO nor Elasticsearch. `values-aws.yaml` deploys no MinIO. For
+OpenMetadata (and the Elasticsearch it brings in) it sets no flag at all: a fresh
+`values-aws.yaml` install therefore deploys neither, and an upgrade of an existing
+`values-aws.yaml` release leaves OpenMetadata/Elasticsearch exactly as that namespace
+already had them — running if it was already running, off if it was not. Set
+`openmetadata.enabled: false` to remove it explicitly on any namespace, including one
+that already runs it.
 
 ## 1. Deployed container images
 

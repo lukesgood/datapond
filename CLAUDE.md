@@ -100,7 +100,7 @@ helm upgrade --install datapond helm/datapond -n datapond \
 |---|---|---|
 | Portable Core · AWS | `values-foundation.yaml` | Lean S3/Bedrock RAG starter with in-cluster pgvector |
 | AWS Single-Node Reference | `values-prod-single.yaml` | Terraform-backed EC2/K3s + managed AWS adapters |
-| AWS Hybrid Extended | `values-aws.yaml` | Existing Kubernetes + AWS endpoints + inherited OSS defaults |
+| AWS Hybrid Extended | `values-aws.yaml` | Existing Kubernetes + AWS endpoints; add-ons preserved if already running, otherwise off |
 | Sovereign OSS Extended | `values-onprem.yaml` | Self-hosted optional OSS stack, 32 GB+ for full selection |
 | Development/Quick Test | `values-dev.yaml` / `values-quicktest.yaml` | Local and integration validation |
 
