@@ -24,6 +24,20 @@ UNSUPPORTED_BACKENDS = (
     "JUPYTER", "MLFLOW",
 )
 
+# Which FEATURE_* flags can turn each component-gated capability on. One source for the
+# runtime answer and for the support tier a capability carries.
+CAPABILITY_BACKENDS = {
+    "connectors":  ("TRINO", "POLARIS", "GLUE"),
+    "catalog":     ("TRINO", "POLARIS", "GLUE"),
+    "query":       ("TRINO", "ATHENA"),
+    "dashboards":  ("TRINO", "ATHENA"),
+    "pipelines":   ("AIRFLOW",),
+    "streaming":   ("RISINGWAVE",),
+    "experiments": ("MLFLOW",),
+    "notebooks":   ("JUPYTER",),
+    "lineage":     ("OPENMETADATA",),
+}
+
 
 def compute_capabilities(env: Mapping) -> dict:
     """Feature→enabled map from FEATURE_<COMPONENT> env (fail-closed by default).
@@ -35,7 +49,10 @@ def compute_capabilities(env: Mapping) -> dict:
     polaris = _feat(env, "POLARIS")
     glue = _feat(env, "GLUE", default=False)  # new opt-in AWS backend — off unless set
     athena = _feat(env, "ATHENA", default=False)  # AWS-native query engine (slice 2)
-    lake = trino or polaris or glue
+
+    def _gated(name: str) -> bool:
+        return any(_feat(env, flag) for flag in CAPABILITY_BACKENDS[name])
+
     # Report only active adapters. Helm may retain a backend default while its
     # component flag is disabled; exposing that default would mislabel the profile.
     configured_query_engine = str(env.get("QUERY_ENGINE", "trino")).strip().lower()
@@ -55,15 +72,15 @@ def compute_capabilities(env: Mapping) -> dict:
         "docs": True,
         "help": True,
         # Component-gated
-        "connectors": lake,  # Ingestion → Iceberg via Trino/Polaris or Glue
-        "catalog": lake,
-        "query": trino or athena,
-        "dashboards": trino or athena,  # BI mini-charts run through /queries/execute
-        "pipelines": _feat(env, "AIRFLOW"),  # Transforms
-        "streaming": _feat(env, "RISINGWAVE"),
-        "experiments": _feat(env, "MLFLOW"),
-        "notebooks": _feat(env, "JUPYTER"),
-        "lineage": _feat(env, "OPENMETADATA"),  # governance sub-tab (nav stays core)
+        "connectors": _gated("connectors"),  # Ingestion → Iceberg via Trino/Polaris or Glue
+        "catalog": _gated("catalog"),
+        "query": _gated("query"),
+        "dashboards": _gated("dashboards"),  # BI mini-charts run through /queries/execute
+        "pipelines": _gated("pipelines"),  # Transforms
+        "streaming": _gated("streaming"),
+        "experiments": _gated("experiments"),
+        "notebooks": _gated("notebooks"),
+        "lineage": _gated("lineage"),  # governance sub-tab (nav stays core)
         "rls": _feat(env, "RLS", default=False),
         # Phase 0 ontology slice: concept store + opt-in query expansion. Fail-closed.
         "ontology": _feat(env, "ONTOLOGY", default=False),
