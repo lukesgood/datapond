@@ -21,9 +21,9 @@ Helm profile names are retained for compatibility. Product role, actual topology
 | `values-prod-single.yaml` | AWS Single-Node Reference | Aurora PostgreSQL/pgvector | S3 + Bedrock | Glue + Athena | heavy add-ons disabled | reference |
 | `values-aws.yaml` | AWS Hybrid Extended | external PostgreSQL | S3 + Bedrock | none set — preserved if already running, otherwise off | none set — preserved if already running, otherwise off | compatibility |
 | `values-onprem.yaml` | Sovereign OSS Extended | in-cluster PostgreSQL/pgvector | S3-compatible + local model path | Polaris + Trino | selected full OSS | community |
-| `values-dev.yaml` | Development | in-cluster | self-hosted | base/overrides | enabled for development | development |
-| `values-quicktest.yaml` | Quick Test | in-cluster | self-hosted | base/overrides | reduced resources | development |
-| `values-prod.yaml` | Self-Hosted Extended | in-cluster replicated config | self-hosted | base full stack | high resource | compatibility |
+| `values-dev.yaml` | Development | in-cluster | self-hosted | Polaris + Trino | all eight stated `true` | development |
+| `values-quicktest.yaml` | Quick Test | in-cluster | self-hosted | Polaris + Trino | seven of eight stated `true`, spark `false`; reduced resources | development |
+| `values-prod.yaml` | Self-Hosted Extended | in-cluster replicated config | self-hosted | Polaris + Trino | all eight stated `true`; high resource | compatibility |
 
 ## Portable Core · AWS starter
 
