@@ -242,18 +242,32 @@ def test_the_vocabulary_is_two_words():
     assert set(compute_capabilities({})["support"].values()) <= {"experimental", "preview"}
 
 
-def test_preview_expires_when_the_deploy_stops_being_refused():
-    """The tie that makes 'preview' a fact rather than an opinion. When the declarative
-    pipeline runtime lands, this fails — and its message says what to do."""
-    from app.pipelines.dag_generator import refuse_placeholder_deploy
+def test_preview_expires_when_pipelines_stop_compiling_to_placeholders(tmp_path):
+    """The tie that makes 'preview' a fact rather than an opinion.
 
-    placeholder_dag = 'PythonOperator(task_id="x", python_callable=_not_implemented)'
-    still_refused = refuse_placeholder_deploy(placeholder_dag, allow=False)
-    assert ("pipelines" in PREVIEW_CAPABILITIES) == bool(still_refused), (
-        "refuse_placeholder_deploy no longer refuses a placeholder DAG, so the "
-        "declarative pipeline runtime has landed. Remove 'pipelines' from "
-        "PREVIEW_CAPABILITIES — the console is still telling people it cannot deploy."
+    CORRECTED 2026-09-02, after the implementer found the first version inert: this
+    test's earlier form built a string containing `PythonOperator(...)` and asserted
+    `refuse_placeholder_deploy` refused it. It does not — the refusal reads the
+    `DATAPOND_UNIMPLEMENTED_TASKS` marker the generator writes, not the task text. And
+    hand-writing that marker would be worse: such a test passes forever, including
+    after the runtime lands, which is the one moment it exists to catch.
+
+    So pin the fact that actually changes — the generator stops emitting placeholder
+    tasks. Compile a real pipeline (see tests/test_pipeline_quality_checks.py for the
+    fixture shape) and read its DAG.
+    """
+    from app.pipelines.dag_generator import refuse_placeholder_deploy, unimplemented_tasks
+
+    dag = <the DAG artifact of a minimal compiled pipeline>
+    placeholders = unimplemented_tasks(dag)
+    assert ("pipelines" in PREVIEW_CAPABILITIES) == bool(placeholders), (
+        "the generator no longer emits placeholder tasks, so the declarative pipeline "
+        "runtime has landed. Remove 'pipelines' from PREVIEW_CAPABILITIES — the console "
+        "is still telling people it cannot deploy."
     )
+    if placeholders:
+        assert refuse_placeholder_deploy(dag, allow=False), (
+            "the generator emits placeholders but the deploy no longer refuses them")
 ```
 
 - [ ] Run them — fail: no `support` key, no `PREVIEW_CAPABILITIES`.
