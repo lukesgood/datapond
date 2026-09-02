@@ -22,7 +22,6 @@ const CAPABILITY_LABELS: Record<string, string> = {
   streaming: "Streaming",
   experiments: "Experiments",
   notebooks: "Notebooks",
-  lineage: "Lineage",
 }
 
 export function CapabilitiesProvider({ children }: { children: React.ReactNode }) {

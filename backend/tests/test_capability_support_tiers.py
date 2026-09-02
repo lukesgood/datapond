@@ -29,7 +29,7 @@ def test_every_component_gated_capability_declares_its_backends():
     """A capability with no entry can never earn a tier, and would be silently
     supported forever."""
     gated = {"connectors", "catalog", "query", "dashboards", "pipelines",
-             "streaming", "experiments", "notebooks", "lineage"}
+             "streaming", "experiments", "notebooks"}
     assert set(CAPABILITY_BACKENDS) == gated
 
 
@@ -54,9 +54,25 @@ def test_the_support_map_is_the_derivation_not_a_hand_written_list():
         expected[capability] = "preview"
 
     assert compute_capabilities({})["support"] == expected
-    assert set(expected) == {"pipelines", "streaming", "experiments", "notebooks",
-                             "lineage"}
+    assert set(expected) == {"pipelines", "streaming", "experiments", "notebooks"}
     assert "query" not in expected and "catalog" not in expected
+
+
+def test_openmetadata_is_a_service_not_a_capability():
+    """The add-on the console has no page for.
+
+    OpenMetadata is disclaimed in SUPPORT.md like the other seven, but unlike them it
+    backs no capability: it ships its own UI, and connector sync writes lineage edges
+    there rather than into a DataPond screen. `lineage` used to appear in the payload
+    anyway, gating nothing a person could open and carrying a support tier nothing
+    rendered. Re-adding it means adding the screen too — not the key on its own."""
+    assert "OPENMETADATA" in UNSUPPORTED_BACKENDS, "still an add-on we do not support"
+    backing = {b for backends in CAPABILITY_BACKENDS.values() for b in backends}
+    assert "OPENMETADATA" not in backing
+
+    caps = compute_capabilities({"FEATURE_OPENMETADATA": "true"})
+    assert "lineage" not in caps, "a capability no screen consumes is back in the payload"
+    assert "lineage" not in caps["support"]
 
 
 def test_no_core_capability_can_be_marked():

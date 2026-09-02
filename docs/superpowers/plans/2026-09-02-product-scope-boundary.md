@@ -536,7 +536,7 @@ Commit: `docs: the profile that inherited heavy defaults no longer does`
 
 ## Follow-ups filed by this run
 
-### [ ] F1 — the `lineage` capability gates nothing a person can see
+### [x] F1 — the `lineage` capability gates nothing a person can see
 
 Found while implementing B2, which had been told to label "the Governance → Lineage
 tab". There is no such tab. `frontend/app/governance/page.tsx` has audit, activity,
@@ -557,6 +557,23 @@ engineering one: give OpenMetadata lineage a surface and gate it on the capabili
 retire the capability and stop implying the deployment has something it does not. What
 must not happen is the third option B2 was offered and refused: badging the Knowledge
 card, which works regardless, as experimental.
+
+**Resolved 2026-09-03 — retired.** Building the surface would have meant new console UI
+for an add-on `SUPPORT.md` disclaims, days after this plan narrowed the product to the
+Portable Core; and OpenMetadata already has the honest place to show lineage — its own
+UI, which is where connector sync writes the edges. So `lineage` is gone from
+`CAPABILITY_BACKENDS` and from `/api/capabilities`, with `test_openmetadata_is_a_service
+_not_a_capability` holding the line: the key comes back only together with a screen.
+Whether OpenMetadata runs stays visible through Services, which reads
+`FEATURE_OPENMETADATA` directly. The Knowledge card was left exactly as it was — ungated
+and unbadged — because it needs no add-on to work.
+
+Two consequences worth naming. `product-profile.ts` no longer counts OpenMetadata when
+it picks a fallback label, so a deployment running it and nothing else now reads as
+Portable Core rather than OSS Extended — which is what the console actually shows, since
+that deployment gets no extra page. And `/api/pipelines/{name}/lineage` remains, an
+OpenMetadata-backed endpoint no frontend calls; it belongs to Transforms, which this
+release already refuses to deploy, so it was left for whoever settles that feature.
 
 ## Finish
 

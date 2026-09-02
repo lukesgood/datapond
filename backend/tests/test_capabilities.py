@@ -20,7 +20,6 @@ def test_fail_closed_by_default():
         "streaming",
         "experiments",
         "notebooks",
-        "lineage",
     ):
         assert caps[k] is False, f"{k} should default False (fail-closed)"
     for k in ("knowledge", "ai", "settings", "governance", "storage", "services", "system", "dashboard"):
@@ -66,7 +65,6 @@ def test_lean_profile_hides_lakehouse():
         "streaming",
         "experiments",
         "notebooks",
-        "lineage",
     ):
         assert caps[k] is False, f"{k} should be False"
     # Core always on

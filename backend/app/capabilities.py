@@ -26,6 +26,13 @@ UNSUPPORTED_BACKENDS = (
 
 # Which FEATURE_* flags can turn each component-gated capability on. One source for the
 # runtime answer and for the support tier a capability carries.
+#
+# OpenMetadata is deliberately absent. It is a service, not a console module: it ships
+# its own UI, connector sync registers lineage edges into that UI best-effort, and this
+# console has never had a page to gate. A `lineage` capability here announced a module
+# nobody could open — the shape app/permissions.py refuses one level up, where a
+# permission nothing enforces is a lie. Whether OpenMetadata is running stays visible
+# through Services, which reads FEATURE_OPENMETADATA from app/service_registry.py.
 CAPABILITY_BACKENDS = {
     "connectors":  ("TRINO", "POLARIS", "GLUE"),
     "catalog":     ("TRINO", "POLARIS", "GLUE"),
@@ -35,7 +42,6 @@ CAPABILITY_BACKENDS = {
     "streaming":   ("RISINGWAVE",),
     "experiments": ("MLFLOW",),
     "notebooks":   ("JUPYTER",),
-    "lineage":     ("OPENMETADATA",),
 }
 
 # A capability whose own headline feature cannot complete in this release. Stronger
@@ -105,7 +111,6 @@ def compute_capabilities(env: Mapping) -> dict:
         "streaming": _gated("streaming"),
         "experiments": _gated("experiments"),
         "notebooks": _gated("notebooks"),
-        "lineage": _gated("lineage"),  # governance sub-tab (nav stays core)
         "rls": _feat(env, "RLS", default=False),
         # Phase 0 ontology slice: concept store + opt-in query expansion. Fail-closed.
         "ontology": _feat(env, "ONTOLOGY", default=False),
