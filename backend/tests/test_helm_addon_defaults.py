@@ -138,14 +138,77 @@ SCAN_EXEMPT = {"_addons.tpl"}
 # resolution point in _addons.tpl.
 HELPERS = ('include "datapond.addonOn"', 'include "datapond.addonEnabledOrPreserved"')
 
-# A direct read of one of the eight flags, in any of the shapes that used to exist:
-#   {{- if .Values.trino.enabled }}
-#   (dict "enabled" .Values.spark.enabled)
-#   {{ dig "enabled" true .Values.trino }}
-DIRECT_READ_RE = re.compile(
-    r"\.Values\.(?P<component>%s)\.enabled\b" % "|".join(sorted(ADDONS)))
-DIG_READ_RE = re.compile(
-    r'dig "enabled" (?:true|false) \.Values\.(?P<component>%s)\b' % "|".join(sorted(ADDONS)))
+# The scan used to name two spellings: `.Values.trino.enabled` and the exact string
+# `dig "enabled" true .Values.trino`. Both were the shapes that had already gone wrong,
+# and a scan that only knows the shapes it has already seen catches the bug it was
+# written for and nothing else. `dig "enabled" true (.Values.trino | default dict)` is
+# the same defaulting read with parentheses around the dict, backend-deployment.yaml
+# uses that exact form six times for other components, and it was invisible to both
+# patterns — so the next add-on env var, copied from the six neighbours, would have
+# reintroduced the bug the scan exists to stop.
+#
+# So the scan asks the question structurally instead: inside one template action, does
+# this template both name one of the eight in a Values path and read an `enabled` key?
+# The shape between them — dig, index, pluck, get, a dict literal, a bare attribute —
+# does not matter, which is the point. Two things follow: what counts as "names a
+# component" and "reads enabled" is written once, and the corpus in
+# test_the_scan_sees_every_shape_this_class_has_taken pins what the detector actually
+# catches, so a narrowing is a failing test rather than a silence.
+
+# One template action. Comment actions are dropped first: they do not render, so prose
+# quoting a forbidden shape is documentation, not a second implementation.
+ACTION_RE = re.compile(r"\{\{(?!/\*).*?\}\}", re.S)
+COMMENT_ACTION_RE = re.compile(r"\{\{/\*.*?\*/\}\}", re.S)
+
+_COMPONENTS = "|".join(sorted(ADDONS))
+
+# The component's OWN flag, as an attribute path. The path has to end at `enabled` with
+# nothing in between: `.Values.airflow.persistence.enabled` and `.Values.trino.rls.enabled`
+# are two-state sub-options of a component, not the three-state flag, and they stay legal.
+OWN_ATTRIBUTE_RE = re.compile(
+    r"(?:Values|\$v)\.(?P<component>%s)\.enabled\b" % _COMPONENTS)
+
+# The same flag read as a quoted key -- dig, index, pluck, get -- in any arrangement.
+# Two halves: the key appears as a string somewhere in the action, and the component
+# sits at the END of a Values path (`.Values.trino`, `($.Values.trino | default dict)`,
+# `index .Values "trino"`). Ending there is again what separates the component's own
+# flag from a sub-option; a path that continues is reading something else.
+#
+# The cost of not parsing: an action that reads some *other* key by string out of a
+# component's own dict trips this too. Nothing in the chart does that today, and the fix
+# if something ever needs to is to spell that read as an attribute path.
+QUOTED_KEY_RE = re.compile(r'"enabled"')
+COMPONENT_PATH_END_RE = re.compile(
+    r'(?:Values|\$v)\s*(?:\.(?P<attr>%s)|\[?\s*"(?P<key>%s)")(?![\w."])'
+    % (_COMPONENTS, _COMPONENTS))
+
+# A Values subtree chosen by a variable, so the read names no component at all. The only
+# reason to reach into Values dynamically in this chart is to walk the eight, which is
+# `_addons.tpl`'s job -- NOTES.txt did exactly this and held a second copy of the rule
+# that no name-based scan could ever see.
+DYNAMIC_VALUES_RE = re.compile(r"Values\s*\[?\s*\$\w+")
+
+
+def actions(text: str):
+    return ACTION_RE.findall(COMMENT_ACTION_RE.sub("", text))
+
+
+def addon_flag_reads(text: str):
+    """Every place `text` resolves one of the eight `enabled` flags itself.
+
+    Returns (component, action) pairs, `component` being None for a read that selects
+    its component through a variable and so names none."""
+    found = []
+    for action in actions(text):
+        quoted = QUOTED_KEY_RE.search(action)
+        named = {m.group("component") for m in OWN_ATTRIBUTE_RE.finditer(action)}
+        if quoted:
+            named |= {m.group("attr") or m.group("key")
+                      for m in COMPONENT_PATH_END_RE.finditer(action)}
+        found.extend((component, action) for component in sorted(named))
+        if not named and quoted and DYNAMIC_VALUES_RE.search(action):
+            found.append((None, action))
+    return found
 
 
 def scanned_templates():
@@ -154,35 +217,92 @@ def scanned_templates():
 
 
 @pytest.mark.parametrize("template", scanned_templates(), ids=lambda p: p.name)
-def test_no_template_reads_an_addon_flag_directly(template):
+def test_no_template_resolves_an_addon_flag_itself(template):
     """The check whose absence is why two blockers reached final review. `enabled` is
-    three-state; a bare `.Values.<component>.enabled` read is two-state and sees an
-    unset flag as off, so it deletes the ingress path, ServiceAccount, secret key,
-    database or PVC out from under a workload the guard preserved."""
-    text = template.read_text()
-    direct = sorted({m.group("component") for m in DIRECT_READ_RE.finditer(text)})
-    assert not direct, (
-        f"{template.name} reads {', '.join('.Values.%s.enabled' % c for c in direct)} "
-        f"directly. That bypasses the three-state resolution: an unset flag is null, "
-        f"which is falsy, so this renders as OFF for an add-on the workload guard "
-        f"preserved as ON. Ask "
-        f"`include \"datapond.addonOn\" (dict \"root\" $ \"component\" \"{direct[0]}\")` "
-        f"instead.")
+    three-state; every two-state read sees an unset flag as off, so it deletes the
+    ingress path, ServiceAccount, secret key, database or PVC out from under a workload
+    the guard preserved. A `dig` default is the subtler half — Helm drops a null-valued
+    key while coalescing, so `dig` never finds `enabled` and hands back its own default,
+    which is how the backend came to be told all eight add-ons were on while the chart
+    rendered none of them."""
+    named = sorted({c for c, _ in addon_flag_reads(template.read_text()) if c})
+    assert not named, (
+        f"{template.name} resolves the enabled flag of {', '.join(named)} itself. "
+        f"Whatever the shape -- attribute, dig with a default, index, pluck -- an unset "
+        f"flag reads as off (or as the default), not as the three-state answer, so this "
+        f"renders OFF for an add-on the workload guard preserved as ON. Ask "
+        f"`include \"datapond.addonOn\" (dict \"root\" $ \"component\" \"{named[0]}\")` "
+        f"instead, or `datapond.addonEnabledOrPreserved` for a value.")
 
 
 @pytest.mark.parametrize("template", scanned_templates(), ids=lambda p: p.name)
-def test_no_template_digs_an_addon_flag_with_a_default(template):
-    """`dig "enabled" true .Values.trino` is the subtler half of the same bug: Helm
-    drops a null-valued key while coalescing, so `dig` never finds `enabled` and hands
-    back its own default. That is how the backend came to be told all eight add-ons
-    were on while the chart rendered none of them."""
-    text = template.read_text()
-    dug = sorted({m.group("component") for m in DIG_READ_RE.finditer(text)})
-    assert not dug, (
-        f"{template.name} resolves {', '.join(dug)} with `dig \"enabled\" <default>`. "
-        f"Helm drops the null-valued key during coalescing, so dig returns its default "
-        f"and an unset add-on reads as that default -- not as the three-state answer. "
-        f"Use `include \"datapond.addonEnabledOrPreserved\"`.")
+def test_no_template_reads_the_enabled_key_dynamically(template):
+    """The shape a name-based scan cannot see: reaching into `.Values` by variable and
+    pulling `"enabled"` out of whatever comes back. It names no component, so it walks
+    all eight at once -- a second implementation of the rule, in a file that is not
+    `_addons.tpl`. NOTES.txt held exactly this."""
+    dynamic = [a for c, a in addon_flag_reads(template.read_text()) if c is None]
+    assert not dynamic, (
+        f"{template.name} reads the enabled key out of a Values subtree chosen by a "
+        f"variable:\n  {dynamic[0].strip()}\n"
+        f"That is a second copy of the three-state rule. Ask `datapond.addonState` for "
+        f"the reason and `datapond.addonEnabledOrPreserved` for the answer.")
+
+
+# Positives are the shapes this bug has actually taken, plus the ones a person would
+# write next; negatives are the reads in this chart today that must stay legal. The two
+# lists are the scan's coverage, stated where it can fail rather than assumed.
+SHAPES_THAT_MUST_BE_CAUGHT = [
+    ("bare attribute", "{{- if .Values.trino.enabled }}"),
+    ("attribute in a dict literal", '{{- $x := (dict "enabled" .Values.spark.enabled) }}'),
+    ("dig with a default", '{{ dig "enabled" true .Values.trino }}'),
+    ("dig, parenthesised dict", '{{ dig "enabled" true (.Values.trino | default dict) }}'),
+    ("dig, root-scoped", '{{ dig "enabled" false ($.Values.spark | default dict) }}'),
+    ("index with literal keys", '{{- $x := index .Values "airflow" "enabled" }}'),
+    ("index, nested and defaulted",
+     '{{- $x := index ((index $.Values "mlflow") | default dict) "enabled" }}'),
+    ("pluck", '{{ pluck "enabled" .Values.jupyter | first }}'),
+    ("get", '{{ get (.Values.polaris | default dict) "enabled" }}'),
+    ("through a $v := .Values alias", "{{- $x := $v.openmetadata.enabled }}"),
+    ("dynamic, naming no component",
+     '{{- $e := index ((index $.Values $component) | default dict) "enabled" }}'),
+]
+
+SHAPES_THAT_MUST_STAY_LEGAL = [
+    ("a non-add-on component, the form used six times in backend-deployment.yaml",
+     '{{ dig "enabled" true (.Values.backend.ragScheduler | default dict) }}'),
+    ("a non-add-on component, doubly defaulted",
+     '{{ dig "enabled" false ((.Values.governance | default dict).rls | default dict) }}'),
+    ("a plain two-state flag", "{{- if .Values.ingress.enabled }}"),
+    ("the guard helper", '{{- if include "datapond.addonOn" (dict "root" $ "component" "trino") }}'),
+    ("the value helper",
+     '{{ include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "spark") }}'),
+    ("a component named as a string beside an unrelated enabled key",
+     '{{- include "datapond.serviceAccounts" (list (dict "name" "datapond-trino" "enabled" '
+     '(include "datapond.addonOn" (dict "root" $ "component" "trino")))) }}'),
+    ("prose in a template comment", '{{/* never write `dig "enabled" true .Values.trino` */}}'),
+    # The distinction the first widening got wrong: these are two-state sub-options of
+    # an add-on, not the add-on's own three-state flag, and all three are in the chart.
+    ("a sub-option of an add-on", "{{- if .Values.trino.rls.enabled }}"),
+    ("a second sub-option", "{{- if .Values.airflow.persistence.enabled }}"),
+    ("a nested sub-option", "{{ .Values.openmetadata.pipelineServiceClient.enabled }}"),
+]
+
+
+@pytest.mark.parametrize("label,shape", SHAPES_THAT_MUST_BE_CAUGHT, ids=lambda v: v if isinstance(v, str) else "")
+def test_the_scan_sees_every_shape_this_class_has_taken(label, shape):
+    """A scan is only as good as the shapes it recognises, and the previous one
+    recognised two. Each of these is a real way to resolve the flag outside
+    `_addons.tpl`; a change that stops catching one narrows the scan back toward the
+    blind spot that let the blockers through."""
+    assert addon_flag_reads(shape), f"the scan no longer catches {label}: {shape}"
+
+
+@pytest.mark.parametrize("label,shape", SHAPES_THAT_MUST_STAY_LEGAL, ids=lambda v: v if isinstance(v, str) else "")
+def test_the_scan_leaves_the_legitimate_reads_alone(label, shape):
+    """The other half of a widened scan: it must not start failing the chart's ordinary
+    two-state flags. Every one of these is in the chart today."""
+    assert not addon_flag_reads(shape), f"the scan wrongly flags {label}: {shape}"
 
 
 def test_the_scan_covers_more_than_the_eight_workload_templates():
@@ -326,6 +446,11 @@ def test_notes_derives_its_list_from_the_one_table():
     assert "preserved" in text, (
         "NOTES.txt must say which add-ons were kept because they were already "
         "running -- that is the whole point of the three-state default")
+    assert 'include "datapond.addonState"' in text, (
+        "NOTES.txt must ask _addons.tpl why each add-on resolved as it did rather than "
+        "re-deriving explicitness with its own read of the flag -- that second copy is "
+        "the one shape the name-based scan cannot see, because it walks the eight by "
+        "variable and names none of them")
 
 
 # ---------------------------------------------------------------------------

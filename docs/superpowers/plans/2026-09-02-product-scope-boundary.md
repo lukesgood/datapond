@@ -575,6 +575,40 @@ that deployment gets no extra page. And `/api/pipelines/{name}/lineage` remains,
 OpenMetadata-backed endpoint no frontend calls; it belongs to Transforms, which this
 release already refuses to deploy, so it was left for whoever settles that feature.
 
+### [x] F2 — the scan knew two spellings, and NOTES.txt used a third
+
+Parked at the end of the C-task fix wave, as two findings that were not live defects:
+the scan's patterns were narrower than the shapes that occur, and `NOTES.txt:21` held a
+second copy of the explicit-vs-preserved rule. They are one problem. The scan matched
+the literal `dig "enabled" true .Values.trino`, so `dig "enabled" true (.Values.trino |
+default dict)` — the same defaulting read with parentheses, and the exact form
+`backend-deployment.yaml` uses six times for other components — was invisible to it. And
+NOTES.txt re-derived explicitness with `index ((index $.Values $component) | default
+dict) "enabled"`, which names no component at all and so could never be caught by a scan
+built from component names.
+
+**Resolved 2026-09-03.** The scan now asks structurally rather than by spelling: inside
+one template action, does this template read an `enabled` key that belongs to one of the
+eight? Shape — attribute, dig, index, pluck, get, dict literal — no longer matters. A
+second rule covers the nameless case: a read of `"enabled"` out of a Values subtree
+chosen by a variable. What the detector actually catches is now itself a test, a corpus
+of eleven shapes that must be caught and ten reads in the chart today that must stay
+legal — including `.Values.trino.rls.enabled` and `.Values.airflow.persistence.enabled`,
+two-state sub-options of an add-on that the first, too-broad widening wrongly flagged.
+
+The duplicate copy went by giving `_addons.tpl` the question NOTES.txt was answering
+alone: `datapond.addonState` returns *why* — `explicit-on`, `explicit-off`, `preserved`,
+`off` — and `addonEnabledOrPreserved` is now a wrapper over it. One `index ... "enabled"`
+and one `lookup` remain in the chart. NOTES.txt switches on the string.
+
+Order matters here: the widened scan was written first and failed on NOTES.txt, so the
+duplicate was removed under a test that now keeps it gone rather than by inspection.
+Verified render-preserving on all nine profiles — object counts equal, and the only
+differing lines are the secrets Helm regenerates every render, which a control render of
+the same tree twice reproduces exactly. `helm lint` clean on nine profiles; the three
+reachable NOTES branches were rendered and read. `preserved` still needs a cluster,
+which is CI's ephemeral-cluster job.
+
 ## Finish
 
 `/code-review high` over the branch, then a fix pass. Then update

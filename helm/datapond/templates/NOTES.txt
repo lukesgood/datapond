@@ -18,10 +18,12 @@ its ingress path, its ServiceAccount, its secret keys, its database and its PVC.
 Resolved for this release:
 {{- $addons := fromJson (include "datapond.addonTargets" $) }}
 {{- range $component, $target := $addons }}
-{{- $explicit := index ((index $.Values $component) | default dict) "enabled" }}
-{{- if kindIs "bool" $explicit }}
-  - {{ $component }}: {{ if $explicit }}ON{{ else }}OFF{{ end }} (explicit in your values)
-{{- else if eq (include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" $component)) "true" }}
+{{- $state := include "datapond.addonState" (dict "root" $ "component" $component) }}
+{{- if eq $state "explicit-on" }}
+  - {{ $component }}: ON (explicit in your values)
+{{- else if eq $state "explicit-off" }}
+  - {{ $component }}: OFF (explicit in your values)
+{{- else if eq $state "preserved" }}
   - {{ $component }}: ON, preserved (already running in this namespace; not set explicitly in your values)
 {{- else }}
   - {{ $component }}: OFF (unset, and not previously running in this namespace)

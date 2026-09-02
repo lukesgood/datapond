@@ -23,7 +23,13 @@ call site, because those live in `datapond.addonTargets` below — one row per a
 checked against the template that renders it by
 backend/tests/test_helm_addon_defaults.py.
 
-Two entry points:
+Three entry points, one derivation:
+
+  datapond.addonState              -> why, not just whether: "explicit-on",
+      "explicit-off", "preserved" or "off". NOTES.txt needs the reason to report it, and
+      asking for it is what stops NOTES.txt from re-deriving explicitness with its own
+      `index ... "enabled"` — a second copy of this rule, in the one shape a name-based
+      scan cannot see (it walks the eight by variable and names none of them).
 
   datapond.addonEnabledOrPreserved -> the literal string "true" or "false".
       For a value: `value: "{{ include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "trino") }}"`
@@ -79,24 +85,36 @@ renamed component moves the lookup with it.
 {{- end -}}
 
 {{/*
-Resolve one add-on. Returns the string "true" or "false".
+Resolve one add-on, and say why: "explicit-on", "explicit-off", "preserved" or "off".
+
+This is the only place the flag itself is read. Everything else -- the two entry points
+below, and NOTES.txt's report -- switches on the string this returns, so there is one
+`index ... "enabled"` in the chart and one `lookup`.
 */}}
-{{- define "datapond.addonEnabledOrPreserved" -}}
-{{- $root := required "datapond.addonEnabledOrPreserved: \"root\" is required -- pass (dict \"root\" $ \"component\" \"<name>\")" .root -}}
-{{- $component := required "datapond.addonEnabledOrPreserved: \"component\" is required" .component -}}
+{{- define "datapond.addonState" -}}
+{{- $root := required "datapond.addonState: \"root\" is required -- pass (dict \"root\" $ \"component\" \"<name>\")" .root -}}
+{{- $component := required "datapond.addonState: \"component\" is required" .component -}}
 {{- $targets := fromJson (include "datapond.addonTargets" $root) -}}
 {{- if not (hasKey $targets $component) -}}
-{{- fail (printf "datapond.addonEnabledOrPreserved: %q is not one of the optional add-ons (%s). Only these eight carry the three-state enabled flag; everything else is a plain boolean read directly." $component (keys $targets | sortAlpha | join ", ")) -}}
+{{- fail (printf "datapond.addonState: %q is not one of the optional add-ons (%s). Only these eight carry the three-state enabled flag; everything else is a plain boolean read directly." $component (keys $targets | sortAlpha | join ", ")) -}}
 {{- end -}}
 {{- $target := index $targets $component -}}
 {{- $explicit := index ((index $root.Values $component) | default dict) "enabled" -}}
 {{- if kindIs "bool" $explicit -}}
-{{- $explicit -}}
+{{- if $explicit -}}explicit-on{{- else -}}explicit-off{{- end -}}
 {{- else if lookup "apps/v1" $target.kind (include "datapond.namespace" $root) $target.name -}}
-true
+preserved
 {{- else -}}
-false
+off
 {{- end -}}
+{{- end -}}
+
+{{/*
+Resolve one add-on. Returns the string "true" or "false".
+*/}}
+{{- define "datapond.addonEnabledOrPreserved" -}}
+{{- $state := include "datapond.addonState" . -}}
+{{- if or (eq $state "explicit-on") (eq $state "preserved") -}}true{{- else -}}false{{- end -}}
 {{- end -}}
 
 {{/*
