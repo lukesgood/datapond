@@ -5,8 +5,11 @@ import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useHasPermission } from "@/lib/permissions"
+import {
+  readPanelOpen, serverPanelOpen, subscribeToPanelState, togglePanel,
+} from "@/lib/assistant-panel-state"
 import { Markdown } from "@/components/ui/markdown"
-import { Bot, Loader2, PanelRightClose, PanelRightOpen, Check, X, Play } from "lucide-react"
+import { Bot, Loader2, PanelRightClose, Check, X, Play } from "lucide-react"
 
 type Turn = {
   role: "user" | "assistant"
@@ -27,19 +30,6 @@ type ActionCard = {
   needs_approval: boolean
 }
 
-const STORAGE_KEY = "datapond_assistant_open"
-
-const panelListeners = new Set<() => void>()
-
-function subscribeToPanelState(onChange: () => void) {
-  panelListeners.add(onChange)
-  return () => { panelListeners.delete(onChange) }
-}
-
-function readPanelOpen() {
-  return localStorage.getItem(STORAGE_KEY) === "1"
-}
-
 /** The assistant panel.
  *
  *  Turns live in this component and nowhere else — the transcript is not persisted
@@ -53,7 +43,7 @@ export function AssistantPanel() {
   // state is read. Setting it from an effect meant a synchronous setState on every
   // mount, and a lazy useState initialiser cannot be used either: the server has no
   // localStorage, so it would render a different value than it hydrates to.
-  const open = useSyncExternalStore(subscribeToPanelState, readPanelOpen, () => false)
+  const open = useSyncExternalStore(subscribeToPanelState, readPanelOpen, serverPanelOpen)
   const [turns, setTurns] = useState<Turn[]>([])
   const [pending, setPending] = useState<ActionCard | null>(null)
   const [input, setInput] = useState("")
@@ -69,10 +59,7 @@ export function AssistantPanel() {
     if (el) el.scrollTop = el.scrollHeight
   }, [turns, pending, busy])
 
-  const toggle = useCallback(() => {
-    localStorage.setItem(STORAGE_KEY, readPanelOpen() ? "0" : "1")
-    panelListeners.forEach(fn => fn())
-  }, [])
+  const toggle = useCallback(() => { togglePanel() }, [])
 
   const send = async () => {
     const message = input.trim()
@@ -168,19 +155,11 @@ export function AssistantPanel() {
 
   if (!canUse) return null
 
-  if (!open) {
-    return (
-      <button
-        onClick={toggle}
-        aria-label="Open assistant"
-        className="fixed right-3 top-1/2 z-40 flex h-10 w-10 -translate-y-1/2 items-center
-                   justify-center rounded-full border bg-background shadow-sm
-                   hover:bg-muted"
-      >
-        <PanelRightOpen className="h-4 w-4 text-muted-foreground" />
-      </button>
-    )
-  }
+  // Closed, this component renders nothing: the control that opens it is
+  // <AssistantTrigger /> in the top bar, beside the sidebar's own trigger. It used to
+  // be a floating button pinned to the middle of the right edge, which meant you
+  // clicked at mid-height to open and had to travel to the panel header to close.
+  if (!open) return null
 
   return (
     /* `h-full` resolved against a parent free to grow (body is min-h-full), so a long

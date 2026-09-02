@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation"
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { AssistantPanel } from "@/components/chat/assistant-panel"
+import { AssistantTrigger } from "@/components/chat/assistant-trigger"
 import { AppSidebar } from "@/components/app-sidebar"
 import { CapabilitiesProvider, CapabilityGate } from "@/lib/capabilities"
 
@@ -54,8 +55,15 @@ export function ConditionalLayout({ children }: { children: React.ReactNode }) {
         <AppSidebar />
         <main className="flex-1 overflow-y-auto bg-muted/40">
           <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+            {/* One bar, both triggers, each at its own end — the sidebar's on the left
+                and the assistant's on the right. The assistant's used to float at the
+                middle of the right edge when closed and sit in the panel header when
+                open, so the control moved half a viewport between states. */}
             <div className="flex h-14 items-center px-4">
               <SidebarTrigger />
+              <div className="ml-auto">
+                <AssistantTrigger />
+              </div>
             </div>
           </div>
           <OptionalRouteGate pathname={pathname}>{children}</OptionalRouteGate>
