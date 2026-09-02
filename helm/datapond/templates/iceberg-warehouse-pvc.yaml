@@ -1,4 +1,4 @@
-{{- if or .Values.trino.enabled .Values.polaris.enabled }}
+{{- if or (include "datapond.addonOn" (dict "root" $ "component" "trino")) (include "datapond.addonOn" (dict "root" $ "component" "polaris")) }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

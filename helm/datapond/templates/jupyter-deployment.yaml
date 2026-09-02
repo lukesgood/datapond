@@ -1,4 +1,4 @@
-{{- if .Values.jupyter.enabled }}
+{{- if include "datapond.addonOn" (dict "root" $ "component" "jupyter") }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -118,7 +118,7 @@ spec:
         volumeMounts:
         - name: jupyter-data
           mountPath: /home/jovyan/work
-        {{- if or .Values.polaris.enabled .Values.trino.enabled }}
+        {{- if or (include "datapond.addonOn" (dict "root" $ "component" "polaris")) (include "datapond.addonOn" (dict "root" $ "component" "trino")) }}
         - name: iceberg-warehouse
           mountPath: /opt/iceberg/warehouse
         {{- end }}
@@ -133,7 +133,7 @@ spec:
       - name: jupyter-data
         persistentVolumeClaim:
           claimName: jupyter-pvc
-      {{- if or .Values.polaris.enabled .Values.trino.enabled }}
+      {{- if or (include "datapond.addonOn" (dict "root" $ "component" "polaris")) (include "datapond.addonOn" (dict "root" $ "component" "trino")) }}
       - name: iceberg-warehouse
         persistentVolumeClaim:
           claimName: iceberg-warehouse-pvc

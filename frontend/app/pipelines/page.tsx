@@ -1,5 +1,6 @@
 "use client"
-import { CapabilityGate } from "@/lib/capabilities"
+import { supportBadge, supportTier } from "@/lib/capability-support"
+import { CapabilityGate, useCapabilities } from "@/lib/capabilities"
 
 import { Suspense, useCallback, useEffect, useState } from "react"
 import { useToast } from "@/lib/toast"
@@ -74,6 +75,9 @@ interface Transform {
 
 function PipelinesPageInner() {
   const { toast } = useToast()
+  const caps = useCapabilities()
+  const pipelinesTier = supportTier("pipelines", caps.support ?? {})
+  const pipelinesBadge = pipelinesTier ? supportBadge(pipelinesTier) : null
   const [dags, setDags] = useState<DAG[]>([])
   const [dagStats, setDagStats] = useState<Map<string, DagStats>>(new Map())
   const [recentRuns, setRecentRuns] = useState<DagRun[]>([])
@@ -356,6 +360,20 @@ function PipelinesPageInner() {
           <h2 className="text-2xl font-bold tracking-tight">Transforms</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
             ELT transformations — raw → refined → serving via Airflow
+          </p>
+          {pipelinesBadge && (
+            <p className="text-xs text-muted-foreground mt-1" title={pipelinesBadge.title}>
+              {pipelinesBadge.label} — {pipelinesBadge.title}
+            </p>
+          )}
+          {/* This page hosts two different things under one capability: SQL
+              Transforms actually deploy and run, declarative pipelines do not. The
+              capability payload carries one tier for "pipelines" — see
+              docs/superpowers/specs/2026-09-02-product-scope-boundary-design.md §1
+              for why — so the finer distinction only exists here, in prose. */}
+          <p className="text-xs text-muted-foreground mt-1">
+            SQL Transforms below deploy to Airflow and run. Saved declarative pipelines
+            are preview: they compile to placeholder tasks and their deploy is refused.
           </p>
         </div>
         <div className="flex gap-2">

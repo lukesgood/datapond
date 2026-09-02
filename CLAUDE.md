@@ -48,7 +48,7 @@ Core navigation: Dashboard; Knowledge; AI Gateway; Governance; Storage; Services
 - Workloads: RisingWave, Airflow/Spark, OpenMetadata, Jupyter/DuckDB, and MLflow are capability-gated optional add-ons.
 - `values-foundation.yaml` is the lean Portable Core AWS starter: in-cluster PostgreSQL/pgvector + external S3/Bedrock and no catalog/query service.
 - `values-prod-single.yaml` is the current Terraform-backed AWS reference: EC2/K3s + Aurora/S3/Glue/Athena/Bedrock. It is not EKS or application-node HA.
-- `values-aws.yaml` is a compatibility overlay for an existing cluster and inherits heavy OSS defaults.
+- `values-aws.yaml` is a compatibility overlay for an existing cluster. It states none of the add-on flags, so it renders the Portable Core on a fresh install and preserves whatever an existing cluster is already running.
 
 ### Critical design rules
 
@@ -100,7 +100,7 @@ helm upgrade --install datapond helm/datapond -n datapond \
 |---|---|---|
 | Portable Core · AWS | `values-foundation.yaml` | Lean S3/Bedrock RAG starter with in-cluster pgvector |
 | AWS Single-Node Reference | `values-prod-single.yaml` | Terraform-backed EC2/K3s + managed AWS adapters |
-| AWS Hybrid Extended | `values-aws.yaml` | Existing Kubernetes + AWS endpoints + inherited OSS defaults |
+| AWS Hybrid Extended | `values-aws.yaml` | Existing Kubernetes + AWS endpoints; add-ons preserved if already running, otherwise off |
 | Sovereign OSS Extended | `values-onprem.yaml` | Self-hosted optional OSS stack, 32 GB+ for full selection |
 | Development/Quick Test | `values-dev.yaml` / `values-quicktest.yaml` | Local and integration validation |
 

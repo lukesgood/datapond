@@ -1,4 +1,4 @@
-{{- if .Values.airflow.enabled }}
+{{- if include "datapond.addonOn" (dict "root" $ "component" "airflow") }}
 ---
 # Airflow Webserver
 apiVersion: apps/v1

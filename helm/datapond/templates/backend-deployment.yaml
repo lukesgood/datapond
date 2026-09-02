@@ -235,8 +235,8 @@ spec:
         # Core has neither Polaris nor Glue, so this stays empty instead of inventing
         # an `iceberg` bucket and reporting IAM failures as storage data.
         - name: ICEBERG_WAREHOUSE
-          value: "{{ if .Values.polaris.enabled }}s3a://{{ .Values.polaris.warehouseBucket | default "iceberg" }}/warehouse{{ else }}{{ (.Values.catalog | default dict).glueWarehouse | default "" }}{{ end }}"
-        {{- if .Values.polaris.enabled }}
+          value: "{{ if (include "datapond.addonOn" (dict "root" $ "component" "polaris")) }}s3a://{{ .Values.polaris.warehouseBucket | default "iceberg" }}/warehouse{{ else }}{{ (.Values.catalog | default dict).glueWarehouse | default "" }}{{ end }}"
+        {{- if (include "datapond.addonOn" (dict "root" $ "component" "polaris")) }}
         # Polaris REST catalog — PyIceberg 직접 쓰기용 (Trino iceberg.properties와 동일 자격)
         - name: POLARIS_URI
           value: "http://{{ .Values.polaris.name }}.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.polaris.service.port }}/api/catalog"
@@ -314,23 +314,29 @@ spec:
           value: {{ dig "enabled" false .Values.minio | quote }}
         - name: MODEL_PROVIDER
           value: {{ (.Values.ai.provider | default "configurable") | quote }}
-        # Optional pages appear only when their backend component is enabled.
+        # Optional pages appear only when their backend component is enabled. These
+        # eight resolve through datapond.addonEnabledOrPreserved, the one place that
+        # understands the three-state flag: a `dig "enabled" true` default reads an
+        # unset add-on as ON, because Helm drops a null-valued key while coalescing so
+        # `dig` never sees the key and falls back to its default. That told the backend
+        # all eight were on while the chart rendered none of them, and /api/capabilities
+        # advertised seven surfaces over services that did not exist.
         - name: FEATURE_TRINO
-          value: "{{ dig "enabled" true .Values.trino }}"
+          value: "{{ include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "trino") }}"
         - name: FEATURE_POLARIS
-          value: "{{ dig "enabled" true .Values.polaris }}"
+          value: "{{ include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "polaris") }}"
         - name: FEATURE_AIRFLOW
-          value: "{{ dig "enabled" true .Values.airflow }}"
+          value: "{{ include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "airflow") }}"
         - name: FEATURE_MLFLOW
-          value: "{{ dig "enabled" true .Values.mlflow }}"
+          value: "{{ include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "mlflow") }}"
         - name: FEATURE_RISINGWAVE
-          value: "{{ dig "enabled" true .Values.risingwave }}"
+          value: "{{ include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "risingwave") }}"
         - name: FEATURE_OPENMETADATA
-          value: "{{ dig "enabled" true .Values.openmetadata }}"
+          value: "{{ include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "openmetadata") }}"
         - name: FEATURE_JUPYTER
-          value: "{{ dig "enabled" true .Values.jupyter }}"
+          value: "{{ include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "jupyter") }}"
         - name: FEATURE_SPARK
-          value: "{{ dig "enabled" true .Values.spark }}"
+          value: "{{ include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "spark") }}"
         - name: FEATURE_OLLAMA
           value: "{{ dig "enabled" false .Values.ollama }}"
         # Glue is the AWS-native catalog backend — capability derives from catalog.backend
@@ -502,12 +508,12 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 10
           failureThreshold: 4
-        {{- if (dig "enabled" true .Values.airflow) }}
+        {{- if include "datapond.addonOn" (dict "root" $ "component" "airflow") }}
         volumeMounts:
         - name: airflow-dags
           mountPath: /opt/airflow/dags
         {{- end }}
-      {{- if (dig "enabled" true .Values.airflow) }}
+      {{- if include "datapond.addonOn" (dict "root" $ "component" "airflow") }}
       volumes:
       - name: airflow-dags
         persistentVolumeClaim:

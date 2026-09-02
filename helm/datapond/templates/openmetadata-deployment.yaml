@@ -1,4 +1,4 @@
-{{- if .Values.openmetadata.enabled }}
+{{- if include "datapond.addonOn" (dict "root" $ "component" "openmetadata") }}
 ---
 # Elasticsearch for OpenMetadata Search
 apiVersion: apps/v1
@@ -202,7 +202,7 @@ spec:
         - name: ELASTICSEARCH_PASSWORD
           value: ""
         # Airflow configuration (for metadata ingestion)
-        {{- if .Values.airflow.enabled }}
+        {{- if (include "datapond.addonOn" (dict "root" $ "component" "airflow")) }}
         - name: AIRFLOW_HOST
           value: "http://{{ .Values.airflow.name }}:{{ .Values.airflow.webserver.service.port }}"
         - name: AIRFLOW_USERNAME
@@ -242,7 +242,7 @@ spec:
           value: "{{ .Values.openmetadata.pipelineServiceClient.enabled }}"
         - name: PIPELINE_SERVICE_CLIENT_CLASS_NAME
           value: "org.openmetadata.service.clients.pipeline.airflow.AirflowRESTClient"
-        {{- if .Values.airflow.enabled }}
+        {{- if (include "datapond.addonOn" (dict "root" $ "component" "airflow")) }}
         - name: PIPELINE_SERVICE_CLIENT_HOST_IP
           value: "http://{{ .Values.airflow.name }}"
         {{- end }}

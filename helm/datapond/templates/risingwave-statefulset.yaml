@@ -1,4 +1,4 @@
-{{- if .Values.risingwave.enabled }}
+{{- if include "datapond.addonOn" (dict "root" $ "component" "risingwave") }}
 ---
 # RisingWave Meta Node StatefulSet
 apiVersion: apps/v1

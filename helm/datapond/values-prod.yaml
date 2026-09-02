@@ -227,6 +227,18 @@ storage:
   endpoint: "minio:9000"
   region: us-east-1
 
+# The full OSS stack, stated rather than inherited. `enabled` is three-state in this
+# chart (see templates/_addons.tpl): unset means "keep whatever this namespace is
+# already running, otherwise off". A profile that means to carry the whole stack has
+# to say so for all eight add-ons -- leaving trino and polaris unset silently narrowed
+# this profile when the base defaults moved to unset, dropping the catalog and query
+# engines it had always rendered.
+trino:
+  enabled: true
+
+polaris:
+  enabled: true
+
 minio:
   enabled: true
   clusterIP: 10.43.107.150  # CHANGE THIS!

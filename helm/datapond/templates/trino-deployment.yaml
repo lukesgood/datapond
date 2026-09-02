@@ -1,4 +1,4 @@
-{{- if .Values.trino.enabled }}
+{{- if include "datapond.addonOn" (dict "root" $ "component" "trino") }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -53,7 +53,7 @@ spec:
               name: datapond-secrets
               key: POSTGRES_PASSWORD
         {{- end }}
-        {{- if .Values.polaris.enabled }}
+        {{- if (include "datapond.addonOn" (dict "root" $ "component" "polaris")) }}
         - name: POLARIS_CLIENT_SECRET
           valueFrom:
             secretKeyRef:
@@ -174,7 +174,7 @@ metadata:
 data:
   iceberg.properties: |
     connector.name=iceberg
-    {{- if .Values.polaris.enabled }}
+    {{- if (include "datapond.addonOn" (dict "root" $ "component" "polaris")) }}
     # Polaris REST Catalog (Unity Catalog alternative)
     iceberg.catalog.type=rest
     iceberg.rest-catalog.uri=http://{{ .Values.polaris.name }}:{{ .Values.polaris.service.port }}/api/catalog

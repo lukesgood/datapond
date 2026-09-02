@@ -1,4 +1,4 @@
-{{- if .Values.polaris.enabled }}
+{{- if include "datapond.addonOn" (dict "root" $ "component" "polaris") }}
 ---
 apiVersion: apps/v1
 kind: Deployment

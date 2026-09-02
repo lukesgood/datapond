@@ -1,4 +1,4 @@
-{{- if .Values.mlflow.enabled }}
+{{- if include "datapond.addonOn" (dict "root" $ "component" "mlflow") }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

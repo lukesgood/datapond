@@ -296,9 +296,16 @@ valkey:
     enabled: false
     replicas: 3
 
+# Optional OSS add-ons. Three states, deliberately: `true` runs it, `false` removes it,
+# and *unset* (null) means "keep it if this namespace is already running it, otherwise
+# off". Unset is what makes a fresh install lean without deleting add-ons from an
+# existing deployment on upgrade -- see templates/_addons.tpl.
+
 # JupyterLab
 jupyter:
-  enabled: true
+  # unset: keep it if this namespace already runs it, otherwise off. See
+  # "Optional OSS add-ons" near the top of this file for what each state means.
+  enabled: null
   name: jupyterlab
   replicas: 1
   image:
@@ -347,7 +354,9 @@ jupyter:
 
 # MLflow
 mlflow:
-  enabled: true
+  # unset: keep it if this namespace already runs it, otherwise off. See
+  # "Optional OSS add-ons" near the top of this file for what each state means.
+  enabled: null
   name: mlflow
   replicas: 1
   image:
@@ -379,7 +388,9 @@ mlflow:
 
 # Airflow
 airflow:
-  enabled: true
+  # unset: keep it if this namespace already runs it, otherwise off. See
+  # "Optional OSS add-ons" near the top of this file for what each state means.
+  enabled: null
   name: airflow
   image:
     repository: apache/airflow
@@ -449,7 +460,9 @@ airflow:
 
 # Spark
 spark:
-  enabled: true
+  # unset: keep it if this namespace already runs it, otherwise off. See
+  # "Optional OSS add-ons" near the top of this file for what each state means.
+  enabled: null
   name: spark
   image:
     repository: apache/spark
@@ -518,7 +531,9 @@ externalDatabase:
 
 # Trino (SQL Analytics with Iceberg)
 trino:
-  enabled: true
+  # unset: keep it if this namespace already runs it, otherwise off. See
+  # "Optional OSS add-ons" near the top of this file for what each state means.
+  enabled: null
   name: trino
   replicas: 1
   image:
@@ -580,7 +595,9 @@ podSecurityPolicy:
 
 # Apache Polaris (Iceberg REST Catalog)
 polaris:
-  enabled: true
+  # unset: keep it if this namespace already runs it, otherwise off. See
+  # "Optional OSS add-ons" near the top of this file for what each state means.
+  enabled: null
   name: polaris
   replicas: 2
 
@@ -626,7 +643,9 @@ polaris:
 
 # RisingWave (Real-time Streaming SQL)
 risingwave:
-  enabled: true
+  # unset: keep it if this namespace already runs it, otherwise off. See
+  # "Optional OSS add-ons" near the top of this file for what each state means.
+  enabled: null
   name: risingwave
   image:
     repository: risingwavelabs/risingwave
@@ -692,7 +711,9 @@ risingwave:
 
 # OpenMetadata (Data Catalog & Lineage)
 openmetadata:
-  enabled: true
+  # unset: keep it if this namespace already runs it, otherwise off. See
+  # "Optional OSS add-ons" near the top of this file for what each state means.
+  enabled: null
   name: openmetadata
   # ingestion-bot JWT for backend service auth (lineage/quality). Empty = backend
   # falls back to basic-auth login. Get from OM DB: user_entity(name='ingestion-bot')
