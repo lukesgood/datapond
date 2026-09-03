@@ -258,8 +258,10 @@ No model in the loop. The gate is the part that must be right, and it is testabl
    anywhere in the returned structure.
 5. **Diagnostics.** With a dependency unavailable, `not_checked` names it; the summary
    does not claim health it did not verify.
-6. **Registry-wide invariants.** Every params model forbids extra fields; every id is
-   `domain.verb`; every action is `READ`.
+6. **Registry-wide invariants.** Every params model forbids extra fields, and every id
+   is `domain.verb`. Every action *this design adds* is `READ`; the registry as a whole
+   is not, because `query.run`, `dashboard.save` and `knowledge.create_collection`
+   already exist as `CREATE`.
 
 ## 10. Phases
 
