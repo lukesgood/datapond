@@ -32,6 +32,7 @@ def _params_for(action_id: str) -> dict:
         "knowledge.create_collection": {"name": "c", "description": None},
         "knowledge.list_collections": {"q": None, "limit": 25},
         "knowledge.collection_composition": {"collection": "c"},
+        "knowledge.diagnose_collection": {"collection": "c"},
         "governance.explain_policy": {"table": None},
         "governance.policy_coverage": {},
         "governance.summary_stats": {},
