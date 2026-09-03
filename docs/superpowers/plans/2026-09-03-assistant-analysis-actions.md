@@ -2107,11 +2107,17 @@ _MATERIAL_USD = 1.0
 _MATERIAL_FRACTION = 0.15
 
 
+# `spend_report` returns {"start_date", "end_date", "report": [...]}, and the list under
+# "report" is LiteLLM's own payload passed through untouched — its item shape is not
+# defined anywhere in this repo and cannot be verified from it. So read it defensively
+# and say so when the fields are not there: a total computed from rows whose spend field
+# was named something else is zero, and zero reported as fact is worse than "not checked".
 def _totals(report: dict) -> tuple:
-    rows = (report or {}).get("rows") or []
-    spend = sum(float(r.get("spend") or 0) for r in rows)
-    requests = sum(int(r.get("requests") or 0) for r in rows)
-    return spend, requests, rows
+    rows = (report or {}).get("report") or []
+    spend = sum(float(r.get("spend") or 0) for r in rows if isinstance(r, dict))
+    requests = sum(int(r.get("requests") or 0) for r in rows if isinstance(r, dict))
+    recognised = any(isinstance(r, dict) and "spend" in r for r in rows)
+    return spend, requests, rows, recognised
 
 
 async def diagnose_change(params: dict, user: dict) -> dict:
@@ -2131,8 +2137,14 @@ async def diagnose_change(params: dict, user: dict) -> dict:
     previous = await spend_report(start_date=prev_start.isoformat(),
                                   end_date=prev_end.isoformat())
 
-    cur_spend, cur_calls, cur_rows = _totals(current)
-    prev_spend, prev_calls, _ = _totals(previous)
+    cur_spend, cur_calls, cur_rows, cur_ok = _totals(current)
+    prev_spend, prev_calls, _, prev_ok = _totals(previous)
+
+    if cur_rows and not cur_ok:
+        d = Diagnosis(f"model spend over the last {days} days against the {days} before")
+        d.skipped("Spend not checked: the gateway returned rows this build does not "
+                  "recognise — no field named 'spend' on any of them.")
+        return d.done()
 
     d = Diagnosis(f"model spend over the last {days} days against the {days} before")
     d.fact("current_total", round(cur_spend, 4))
