@@ -88,6 +88,13 @@
   /* signature current + semantic status + elevation (DataPond extras).
      --dp-good/warn/bad is the status triad; --dp-managed marks provider-managed. */
   --dp-gradient: linear-gradient(120deg, #06b6d4 0%, #3b82f6 55%, #4f46e5 100%);
+  /* The same cyan-blue-indigo signature, deep enough to carry white words on it.
+     --dp-gradient's stops are bright by design — they are worn by the logo mark and
+     by glows, which hold no text. White on its lightest stop is 2.4:1 in light and
+     1.8:1 in dark, so a surface that is both the mark and a label needs this one:
+     5.4:1 at the cyan end, 8.7:1 at the blue. Same value in both themes — it is
+     darker than the light page and more saturated than the dark one. */
+  --dp-gradient-deep: linear-gradient(160deg, #0e7490 0%, #1e40af 55%, #4338ca 100%);
   --dp-aqua: #0894ac;
   --dp-good: #0f9d6c;
   --dp-warn: #e08a00;
@@ -131,6 +138,13 @@
   --sidebar-border: rgb(255 255 255 / 0.08);
   --sidebar-ring: #22c3d6;
   --dp-gradient: linear-gradient(120deg, #22d3ee 0%, #60a5fa 55%, #818cf8 100%);
+  /* The same cyan-blue-indigo signature, deep enough to carry white words on it.
+     --dp-gradient's stops are bright by design — they are worn by the logo mark and
+     by glows, which hold no text. White on its lightest stop is 2.4:1 in light and
+     1.8:1 in dark, so a surface that is both the mark and a label needs this one:
+     5.4:1 at the cyan end, 8.7:1 at the blue. Same value in both themes — it is
+     darker than the light page and more saturated than the dark one. */
+  --dp-gradient-deep: linear-gradient(160deg, #0e7490 0%, #1e40af 55%, #4338ca 100%);
   --dp-aqua: #22c3d6;
   --dp-good: #2dd4a7;
   --dp-warn: #fbbf24;
@@ -158,6 +172,7 @@
 /* ── DataPond utilities ────────────────────────────────────────────────────── */
 /* the one aqua current — logo, active rails, key emphasis */
 .dp-gradient { background-image: var(--dp-gradient); }
+.dp-gradient-deep { background-image: var(--dp-gradient-deep); }
 .dp-gradient-text {
   background-image: var(--dp-gradient);
   -webkit-background-clip: text; background-clip: text; color: transparent;
