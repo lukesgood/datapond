@@ -32,6 +32,9 @@ def _params_for(action_id: str) -> dict:
         "knowledge.create_collection": {"name": "c", "description": None},
         "governance.explain_policy": {"table": None},
         "spend.summarize": {"days": 30},
+        "connectors.list_sources": {},
+        "connectors.sync_history": {"connection_id": "c1", "limit": 5},
+        "connectors.quality_checks": {"connection_id": "c1", "limit": 5},
     }[action_id]
 
 
