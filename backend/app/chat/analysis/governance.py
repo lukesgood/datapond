@@ -36,13 +36,52 @@ async def policy_coverage(params: dict, user: dict) -> dict:
 
 
 async def summary_stats(params: dict, user: dict) -> dict:
-    """`get_governance_stats` is synchronous and takes a Session. get_db_context is the
-    context manager that exists for callers outside a request; without it the Depends
-    default arrives as `db` and fails inside SQLAlchemy."""
-    from app.api.governance import get_governance_stats
+    """Same counts as `GET /governance/stats`, minus its zero-that-isn't-zero bug: that
+    route computes `pii_detections = ... if pii_tables else 0`, so "no scan could run"
+    and "scanned, found nothing" both report as 0. This executor calls the same pieces
+    `get_governance_stats` does directly (rather than going through that route
+    function) so it can tell the two apart: when `_scan_pii_tables()` returns None,
+    `pii_detections` is left out of the stats entirely and a `not_checked` note is
+    added instead — the same shape `pii_summary` uses. The route itself is unchanged
+    and out of scope; the Governance page still reads it as before.
+
+    `get_db_context` is the context manager that exists for callers outside a request;
+    without it the Depends default arrives as `db` and fails inside SQLAlchemy. Both
+    the DB query and `_scan_pii_tables()` are synchronous — a ~10s Trino connect, or a
+    sequential walk of up to 200 Glue tables with a per-table S3 GET — so the whole
+    load runs via `asyncio.to_thread`, same as the real (`def`, threadpool-bound)
+    route, rather than blocking this `async def` executor's event loop.
+    """
+    import asyncio
+    from datetime import date
+
+    from sqlalchemy import func
+
+    from app.api.governance import _scan_pii_tables
     from app.database.connection import get_db_context
-    with get_db_context() as db:
-        return {"stats": get_governance_stats(db=db)}
+    from app.models.query import QueryHistory
+
+    def _load() -> dict:
+        with get_db_context() as db:
+            today = date.today()
+            queries_today = (
+                db.query(func.count(QueryHistory.id))
+                .filter(func.date(QueryHistory.created_at) == today)
+                .scalar()
+                or 0
+            )
+        stats: dict = {"queries_today": queries_today}
+        pii_tables = _scan_pii_tables()  # None if no scan ran
+        if pii_tables is None:
+            stats["not_checked"] = [
+                "No PII scan could run on this deployment — the scan needs the "
+                "Trino query engine or Glue catalog access. This is not a clean "
+                "result."]
+        else:
+            stats["pii_detections"] = sum(len(t.pii_columns) for t in pii_tables)
+        return stats
+
+    return {"stats": await asyncio.to_thread(_load)}
 
 
 async def pii_summary(params: dict, user: dict) -> dict:
@@ -57,9 +96,16 @@ async def pii_summary(params: dict, user: dict) -> dict:
     a value. This drops the column names too, which are not needed to answer "where is
     our exposure" at the level a summary answers it.
     """
+    import asyncio
+
     from app.api.governance import _scan_pii_tables
 
-    scanned = _scan_pii_tables()
+    # `_scan_pii_tables()` is synchronous and can be a ~10s Trino connect or a
+    # sequential walk of up to 200 Glue tables with a per-table S3 GET (see the
+    # comment near governance.py:355). This executor is `async def`, so without
+    # `to_thread` that work runs on the event loop instead of a threadpool, unlike
+    # the real (`def`) route.
+    scanned = await asyncio.to_thread(_scan_pii_tables)
     if scanned is None:
         # No count keys here at all — not zero, not null. A model summarising this
         # sees whichever fields exist; "tables_with_pii": 0 reads exactly like a
@@ -119,7 +165,10 @@ EXECUTORS: Dict[str, Callable] = {
 RESOLVERS: Dict[str, Callable] = {
     "governance.explain_policy": _r("app.rls.loader", "load_policies"),
     "governance.policy_coverage": _r("app.api.governance", "rls_coverage"),
-    "governance.summary_stats": _r("app.api.governance", "get_governance_stats"),
+    # Not get_governance_stats: the executor above no longer calls that route
+    # function (it needed to tell None from [] where that route can't), so this
+    # points at the synchronous work it actually reaches for instead.
+    "governance.summary_stats": _r("app.api.governance", "_scan_pii_tables"),
     "governance.pii_summary": _r("app.api.governance", "_scan_pii_tables"),
 }
 
