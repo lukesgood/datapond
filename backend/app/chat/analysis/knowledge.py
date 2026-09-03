@@ -126,7 +126,7 @@ async def diagnose_collection(params: dict, user: dict) -> dict:
         if row is None:
             raise ValueError(f"No collection named {name!r}.")
         chunks = await conn.fetchval(
-            "SELECT count(*) FROM ai_chunks WHERE collection_id = $1", row.get("id"))
+            "SELECT count(*) FROM ai_chunks WHERE collection_id = $1", row["id"])
 
     d = Diagnosis(f"collection {name!r}")
     d.fact("chunks", chunks)

@@ -54,7 +54,7 @@ def _install(monkeypatch, row, chunks=100, model="embed"):
 
 
 def test_a_model_mismatch_is_a_bad_signal(monkeypatch):
-    _install(monkeypatch, {"embed_model": "titan-v1", "refresh_enabled": True,
+    _install(monkeypatch, {"id": "c1", "embed_model": "titan-v1", "refresh_enabled": True,
                            "refresh_interval_minutes": 60, "last_refreshed_at": None,
                            "last_refresh_status": "ok", "owner_id": "u1"},
              model="titan-v2")
@@ -65,7 +65,7 @@ def test_a_model_mismatch_is_a_bad_signal(monkeypatch):
 
 
 def test_an_empty_collection_is_flagged(monkeypatch):
-    _install(monkeypatch, {"embed_model": "embed", "refresh_enabled": False,
+    _install(monkeypatch, {"id": "c1", "embed_model": "embed", "refresh_enabled": False,
                            "refresh_interval_minutes": None, "last_refreshed_at": None,
                            "last_refresh_status": None, "owner_id": "u1"}, chunks=0)
     out = _run(mod.diagnose_collection({"collection": "handbook"}, {"id": "u1"}))
@@ -76,7 +76,7 @@ def test_an_empty_collection_is_flagged(monkeypatch):
 def test_a_collection_with_no_schedule_says_so_rather_than_calling_it_stale(monkeypatch):
     """Not scheduled is a choice, not a fault. Reporting it as staleness would train
     people to ignore the staleness signal."""
-    _install(monkeypatch, {"embed_model": "embed", "refresh_enabled": False,
+    _install(monkeypatch, {"id": "c1", "embed_model": "embed", "refresh_enabled": False,
                            "refresh_interval_minutes": None, "last_refreshed_at": None,
                            "last_refresh_status": None, "owner_id": "u1"})
     out = _run(mod.diagnose_collection({"collection": "handbook"}, {"id": "u1"}))
