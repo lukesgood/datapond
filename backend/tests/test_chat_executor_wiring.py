@@ -37,6 +37,7 @@ def _params_for(action_id: str) -> dict:
         "governance.policy_coverage": {},
         "governance.summary_stats": {},
         "spend.summarize": {"days": 30},
+        "spend.diagnose_change": {"days": 7},
         "connectors.list_sources": {},
         "connectors.sync_history": {"connection_id": "c1", "limit": 5},
         "connectors.quality_checks": {"connection_id": "c1", "limit": 5},
