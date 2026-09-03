@@ -30,6 +30,8 @@ def _params_for(action_id: str) -> dict:
         "knowledge.search": {"query": "q", "collection": "c"},
         "knowledge.answer_with_citations": {"query": "q", "collection": "c"},
         "knowledge.create_collection": {"name": "c", "description": None},
+        "knowledge.list_collections": {"q": None, "limit": 25},
+        "knowledge.collection_composition": {"collection": "c"},
         "governance.explain_policy": {"table": None},
         "spend.summarize": {"days": 30},
         "connectors.list_sources": {},
