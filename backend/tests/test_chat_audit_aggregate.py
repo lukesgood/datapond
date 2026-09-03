@@ -90,12 +90,16 @@ def test_no_forbidden_string_survives_into_the_result(monkeypatch):
 
 def test_pii_summary_reports_not_scanned_rather_than_clean(monkeypatch):
     """None from the scanner means the scan could not run. Reporting that as zero
-    findings is the one answer that would be actively misleading."""
+    findings is the one answer that would be actively misleading — and a count field
+    set to 0 reads exactly like a clean scan to anything that drops the prose, which
+    is what a summary does. So the not-scanned response must not carry the count
+    keys at all, not even as 0 or null."""
     monkeypatch.setattr("app.api.governance._scan_pii_tables", lambda: None)
     out = _run(gov_mod.pii_summary({}, {"id": "u1"}))
     assert out["scanned"] is False
     assert out["not_checked"]
-    assert out["tables_with_pii"] == 0
+    for absent in ("tables_with_pii", "columns_with_pii", "by_type", "by_table"):
+        assert absent not in out, f"{absent} must not appear when no scan ran"
 
 
 def test_pii_summary_counts_tables_and_columns_without_naming_columns(monkeypatch):
@@ -109,3 +113,22 @@ def test_pii_summary_counts_tables_and_columns_without_naming_columns(monkeypatc
     assert out["tables_with_pii"] == 1
     assert out["by_type"] == {"national_id": 1}
     assert "ssn" not in repr(out)
+
+
+def test_scanned_and_not_scanned_are_distinguishable_by_shape_alone(monkeypatch):
+    """A reader who never inspects a value — only the key set — must still be able to
+    tell the two branches apart. If the shapes ever converged, "not scanned" would be
+    one dropped word away from reading as "clean"."""
+    monkeypatch.setattr("app.api.governance._scan_pii_tables", lambda: None)
+    not_scanned = _run(gov_mod.pii_summary({}, {"id": "u1"}))
+
+    monkeypatch.setattr(
+        "app.api.governance._scan_pii_tables",
+        lambda: [type("E", (), {"table": "crm.customers",
+                                "pii_columns": [type("C", (), {"column": "ssn",
+                                                               "type": "national_id"})()]})()])
+    scanned = _run(gov_mod.pii_summary({}, {"id": "u1"}))
+
+    assert set(not_scanned.keys()) != set(scanned.keys())
+    for count_key in ("tables_with_pii", "columns_with_pii", "by_type", "by_table"):
+        assert count_key in scanned and count_key not in not_scanned

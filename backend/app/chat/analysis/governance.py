@@ -61,12 +61,13 @@ async def pii_summary(params: dict, user: dict) -> dict:
 
     scanned = _scan_pii_tables()
     if scanned is None:
+        # No count keys here at all — not zero, not null. A model summarising this
+        # sees whichever fields exist; "tables_with_pii": 0 reads exactly like a
+        # clean scan once the prose is dropped, which is the one misreading this
+        # action exists to prevent. Only "scanned": False and the shape itself (no
+        # by_table, no by_type, no counts) can carry that distinction.
         return {
             "scanned": False,
-            "tables_with_pii": 0,
-            "columns_with_pii": 0,
-            "by_type": {},
-            "by_table": [],
             "not_checked": ["No PII scan could run on this deployment — the scan needs "
                             "the Trino query engine. This is not a clean result."],
         }
