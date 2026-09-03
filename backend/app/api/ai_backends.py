@@ -655,8 +655,14 @@ async def spend_report(start_date: Optional[str] = None, end_date: Optional[str]
             r = await c.get(f"{url}/global/spend/report", headers=_headers(key),
                             params={"start_date": start_date, "end_date": end_date})
         if r.status_code >= 400:
+            # `status_code` alongside `detail`: additive, existing consumers of
+            # `detail` (the Settings → AI page) are unaffected. It lets a caller
+            # that must not repeat the raw upstream body — the chat assistant's
+            # spend.diagnose_change, gated well below admin — report the failure
+            # without the body, which on an auth failure can echo part of an API
+            # key (see app/chat/analysis/spend.py:_gateway_error).
             return {"start_date": start_date, "end_date": end_date, "report": [],
-                    "detail": _short(r.text, 200)}
+                    "detail": _short(r.text, 200), "status_code": r.status_code}
         return {"start_date": start_date, "end_date": end_date, "report": r.json()}
     except Exception as e:
         raise HTTPException(502, f"Cannot reach LiteLLM gateway: {_short(str(e), 200)}")

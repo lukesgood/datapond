@@ -31,6 +31,7 @@ from app.chat.actions import (
     resolve,
     validate_params,
 )
+from app.component_guard import capability_on
 from app.permissions import permissions_for
 
 logger = logging.getLogger(__name__)
@@ -98,6 +99,15 @@ async def _authorize(action: Action, user: dict, page: str, store: InvocationSto
                      required=action.permission)
         raise ActionRefused(
             f"'{action.permission}' permission required to {action.label.lower()}.")
+
+    # The map a client sent is never the one that decides. Recomputed here from the
+    # server's own environment, by the same predicate the route guards use.
+    if action.capability and not capability_on(action.capability):
+        await _audit(store, "chat_action_refused", user,
+                     action=action.id, stage=stage, reason="capability",
+                     required=action.capability)
+        raise ActionRefused(
+            f"{action.label} needs a component this deployment does not run.")
 
 
 async def propose(

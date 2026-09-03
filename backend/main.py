@@ -3,7 +3,7 @@ DataPond Backend API
 FastAPI backend for DataPond unified management interface
 """
 from fastapi import FastAPI, HTTPException, Depends, Response
-from app.component_guard import require_component
+from app.component_guard import require_component, require_capability
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -350,23 +350,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-def require_capability(cap_key: str, label: str):
-    """FastAPI dependency: 503 unless compute_capabilities marks ``cap_key`` true.
-
-    Unlike require_component (a single FEATURE_* flag), catalog / query / connectors
-    are OR-composed capabilities (e.g. ``trino or polaris or glue``). Gating on the
-    computed boolean keeps this server-side guard in exact agreement with the
-    /api/capabilities the UI gates on. Fails closed by design (rule 3).
-    """
-    def _guard() -> None:
-        if not compute_capabilities(os.environ).get(cap_key):
-            raise HTTPException(
-                status_code=503,
-                detail=f"{label} is not enabled on this deployment profile.",
-            )
-    return _guard
-
 
 # Include API routers
 app.include_router(queries_router, prefix="/api",

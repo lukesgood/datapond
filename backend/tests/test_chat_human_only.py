@@ -19,6 +19,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.auth import require_human
+from app.chat import gate
 
 SERVICE = {"id": "svc-1", "username": "svc-bot", "role": "ai_engineer",
            "auth_method": "service", "api_key_id": "k1",
@@ -28,6 +29,14 @@ PERSON = {"id": "u-1", "username": "ada", "role": "ai_engineer"}
 
 def _run(c):
     return asyncio.run(c)
+
+
+@pytest.fixture(autouse=True)
+def _capabilities_on(monkeypatch):
+    """This file is about the human-only approval guarantee, not capability gating —
+    which has its own tests. query.run carries a capability now; hold it open so this
+    environment's actual FEATURE_* flags can't fail a test about something else."""
+    monkeypatch.setattr(gate, "capability_on", lambda key: True)
 
 
 # ── the route gate ────────────────────────────────────────────────────────────

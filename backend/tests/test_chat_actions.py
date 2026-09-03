@@ -90,8 +90,11 @@ def test_non_object_parameters_are_refused():
 
 # ── the first gate: a model never learns about actions the caller cannot use ──
 
+CAPS = {"catalog": True, "query": True, "dashboards": True}
+
+
 def test_actions_are_filtered_by_permission():
-    ids = {a.id for a in actions_for({"catalog:read"}, page="*")}
+    ids = {a.id for a in actions_for({"catalog:read"}, page="*", capabilities=CAPS)}
     assert "catalog.describe_table" in ids
     assert "knowledge.create_collection" not in ids
     assert "dashboard.save" not in ids
@@ -103,7 +106,7 @@ def test_a_permissionless_caller_gets_nothing():
 
 def test_actions_are_filtered_by_page():
     from app.permissions import ALL_PERMISSIONS
-    on_query = {a.id for a in actions_for(ALL_PERMISSIONS, page="/query")}
+    on_query = {a.id for a in actions_for(ALL_PERMISSIONS, page="/query", capabilities=CAPS)}
     assert "query.run" in on_query
     assert "governance.explain_policy" not in on_query
 
@@ -111,26 +114,26 @@ def test_actions_are_filtered_by_page():
 def test_global_actions_appear_on_every_page():
     from app.permissions import ALL_PERMISSIONS
     for page in ("/query", "/knowledge", "/governance"):
-        assert "catalog.find_tables" in {a.id for a in actions_for(ALL_PERMISSIONS, page)}
+        assert "catalog.find_tables" in {a.id for a in actions_for(ALL_PERMISSIONS, page, CAPS)}
 
 
 def test_the_wildcard_page_lists_everything_permitted():
     from app.permissions import ALL_PERMISSIONS
-    everything = {a.id for a in actions_for(ALL_PERMISSIONS, page="*")}
+    everything = {a.id for a in actions_for(ALL_PERMISSIONS, page="*", capabilities=CAPS)}
     assert {"query.run", "governance.explain_policy", "knowledge.search"} <= everything
 
 
 # ── what the model is handed ──────────────────────────────────────────────────
 
 def test_tool_definitions_describe_only_permitted_actions():
-    tools = tool_definitions({"catalog:read"}, page="*")
+    tools = tool_definitions({"catalog:read"}, page="*", capabilities=CAPS)
     names = {t["name"] for t in tools}
     assert names and names <= {"catalog.describe_table", "catalog.find_tables",
                                "catalog.explain_relationships"}
 
 
 def test_a_tool_definition_carries_a_usable_schema():
-    tool = next(t for t in tool_definitions({"catalog:read"}, page="*")
+    tool = next(t for t in tool_definitions({"catalog:read"}, page="*", capabilities=CAPS)
                 if t["name"] == "catalog.describe_table")
     schema = tool["input_schema"]
     assert schema["type"] == "object"

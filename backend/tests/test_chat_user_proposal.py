@@ -15,8 +15,18 @@ import asyncio
 
 import pytest
 
+from app.chat import gate
 from app.chat.actions import ActionKind, resolve
 from app.chat.gate import ActionRefused, propose
+
+
+@pytest.fixture(autouse=True)
+def _capabilities_on(monkeypatch):
+    """This file is about a person choosing an action, not capability gating — which
+    has its own tests in test_chat_capability_gate.py. query.generate_sql and
+    query.run now carry a capability; hold it open so this environment's actual
+    FEATURE_* flags can't fail a test about something else."""
+    monkeypatch.setattr(gate, "capability_on", lambda key: True)
 
 
 class Store:
@@ -100,6 +110,6 @@ def test_asking_about_data_works_from_any_page():
     from app.chat.actions import actions_for
 
     perms = {"ai:generate", "query:run"}
-    on_knowledge = {a.id for a in actions_for(perms, "/knowledge")}
+    on_knowledge = {a.id for a in actions_for(perms, "/knowledge", {"query": True})}
     assert "query.generate_sql" in on_knowledge
     assert "query.run" in on_knowledge

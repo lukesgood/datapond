@@ -179,9 +179,10 @@ export function AssistantPanel() {
       <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 text-sm">
         {turns.length === 0 && !pending && (
           <p className="text-xs text-muted-foreground">
-            Ask about the data here. I can look things up and, with your approval, run a
-            query, save a dashboard, or create a collection. I cannot delete anything or
-            change settings.
+            Ask about this deployment — the data, your sources and syncs, collections,
+            services, storage, policies and spend. With your approval I can run a query,
+            save a dashboard, or create a collection. I cannot delete anything, run a
+            sync, or change settings.
           </p>
         )}
         {turns.map((turn, i) => turn.action ? (
