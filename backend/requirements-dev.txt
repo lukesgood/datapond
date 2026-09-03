@@ -2,4 +2,3 @@
 # Dockerfile installs requirements.txt only). CI installs this on top of
 # requirements.txt to run `pytest tests`.
 pytest==8.3.4
-pytest-asyncio==1.2.0

@@ -6,6 +6,8 @@ no query engine still offered the model catalog.describe_table — which it prop
 and which then failed at the route. The model cannot explain that, and the user reads
 it as the assistant being broken.
 """
+import asyncio
+
 import pytest
 
 from app.chat.actions import (REGISTRY, Action, ActionKind, actions_for,
@@ -15,6 +17,10 @@ from app.chat.gate import ActionRefused
 
 
 ALL = {a.permission for a in REGISTRY.values()}
+
+
+def _run(c):
+    return asyncio.run(c)
 
 
 def test_an_action_whose_capability_is_off_is_not_offered():
@@ -51,8 +57,7 @@ def test_tool_definitions_hides_them_from_the_model():
     assert "catalog.describe_table" not in names
 
 
-@pytest.mark.asyncio
-async def test_execution_refuses_a_forged_id_for_a_disabled_capability(monkeypatch):
+def test_execution_refuses_a_forged_id_for_a_disabled_capability(monkeypatch):
     """The second gate. Not seeing an action is UX; being refused is the control."""
     monkeypatch.setattr(gate, "capability_on", lambda key: False)
 
@@ -62,8 +67,8 @@ async def test_execution_refuses_a_forged_id_for_a_disabled_capability(monkeypat
 
     user = {"id": "u1", "permissions": sorted(ALL)}
     with pytest.raises(ActionRefused):
-        await gate._authorize(REGISTRY["catalog.describe_table"], user, "*",
-                              _Store(), stage="propose")
+        _run(gate._authorize(REGISTRY["catalog.describe_table"], user, "*",
+                             _Store(), stage="propose"))
 
 
 def test_every_capability_named_in_the_registry_exists():
