@@ -16,7 +16,8 @@ lives with the action's own module; this is the vocabulary and the gate.
 """
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Type
+from typing import (Any, Callable, Dict, Iterable, List, Mapping, Optional,
+                    Sequence, Tuple, Type)
 
 from pydantic import BaseModel, ValidationError
 
@@ -45,6 +46,10 @@ class Action:
     permission: str
     kind: ActionKind
     params: Type[BaseModel]
+    # The /api/capabilities key this action needs, or None for the Portable Core.
+    # Enforced twice, like `permission`: filtered out of the model's tool list here,
+    # rechecked server-side in gate._authorize. Fail-closed — see capability_on.
+    capability: Optional[str] = None
     preview: Optional[Callable] = None   # (params, user) -> dict, server-side
     execute: Optional[Callable] = None   # (params, user) -> dict
 
@@ -117,13 +122,16 @@ class SpendQuery(_Strict):
 _ACTIONS: Sequence[Action] = (
     Action("catalog.describe_table", "Describe table",
            "Columns, types, and relationships for one table.",
-           ("/catalog", "/query"), "catalog:read", ActionKind.READ, TableRef),
+           ("/catalog", "/query"), "catalog:read", ActionKind.READ, TableRef,
+           capability="catalog"),
     Action("catalog.find_tables", "Find tables",
            "Find tables by name or namespace. Pass plain words only — there is no query syntax, no operators, no field: prefixes.",
-           ("*",), "catalog:read", ActionKind.READ, TableSearch),
+           ("*",), "catalog:read", ActionKind.READ, TableSearch,
+           capability="catalog"),
     Action("catalog.explain_relationships", "Explain relationships",
            "How tables are joined, from observed query history and column naming.",
-           ("/catalog",), "catalog:read", ActionKind.READ, RelationshipQuery),
+           ("/catalog",), "catalog:read", ActionKind.READ, RelationshipQuery,
+           capability="catalog"),
 
     # Offered everywhere, like catalog.find_tables. These were scoped to /query, so
     # the assistant had no SQL tool on any other page — and the panel is on every
@@ -131,19 +139,23 @@ _ACTIONS: Sequence[Action] = (
     # at, and the permission gate is what decides who may ask.
     Action("query.generate_sql", "Generate SQL",
            "Turn a question into SQL, checked against the catalog. Does not run it.",
-           ("*",), "ai:generate", ActionKind.READ, NaturalQuestion),
+           ("*",), "ai:generate", ActionKind.READ, NaturalQuestion,
+           capability="query"),
     Action("query.explain_plan", "Explain the plan",
            "What a statement will read, and anything worth knowing before running it.",
-           ("*",), "query:run", ActionKind.READ, SqlText),
+           ("*",), "query:run", ActionKind.READ, SqlText,
+           capability="query"),
     # Classed CREATE, not READ: Athena bills by bytes scanned, and a query the user
     # did not write can read the wrong table. It gets an approval step.
     Action("query.run", "Run query",
            "Execute a statement and return rows.",
-           ("*",), "query:run", ActionKind.CREATE, SqlText),
+           ("*",), "query:run", ActionKind.CREATE, SqlText,
+           capability="query"),
 
     Action("dashboard.save", "Save dashboard",
            "Save a statement and its chart as a dashboard.",
-           ("/query",), "dashboard:write", ActionKind.CREATE, DashboardSave),
+           ("/query",), "dashboard:write", ActionKind.CREATE, DashboardSave,
+           capability="dashboards"),
 
     Action("knowledge.search", "Search knowledge",
            "Retrieve passages from a knowledge collection.",
@@ -192,29 +204,41 @@ def validate_params(action: Action, params: Any) -> dict:
         raise InvalidParams(f"{action.id}: {problems}") from e
 
 
-def actions_for(permissions: Iterable[str], page: str = "*") -> List[Action]:
-    """Actions this caller may use on this page.
+def _capability_on(capabilities: Optional[Mapping[str, Any]], key: Optional[str]) -> bool:
+    """Fail-closed: no key required is always on; otherwise the map must say exactly
+    True. An absent map means this caller could not determine capabilities, which is a
+    reason to offer less, never more."""
+    if key is None:
+        return True
+    if not capabilities:
+        return False
+    return capabilities.get(key) is True
 
-    The first of the two permission gates. An action the caller cannot use is not
-    filtered out of a list they were shown — they never learn it exists, so the model
-    cannot propose it and cannot explain what they are missing.
 
-    `page="*"` lists everything permitted, for callers that are not page-bound.
+def actions_for(permissions: Iterable[str], page: str = "*",
+                capabilities: Optional[Mapping[str, Any]] = None) -> List[Action]:
+    """Actions this caller may use, on this page, on this deployment.
+
+    Three filters, one purpose: an action a caller cannot use is not filtered out of a
+    list they were shown — they never learn it exists, so the model cannot propose it
+    and cannot explain what they are missing.
     """
     held = set(permissions or ())
     return [a for a in _ACTIONS
             if a.permission in held
-            and (page == "*" or "*" in a.pages or page in a.pages)]
+            and (page == "*" or "*" in a.pages or page in a.pages)
+            and _capability_on(capabilities, a.capability)]
 
 
-def tool_definitions(permissions: Iterable[str], page: str = "*") -> List[dict]:
+def tool_definitions(permissions: Iterable[str], page: str = "*",
+                     capabilities: Optional[Mapping[str, Any]] = None) -> List[dict]:
     """The action list as the model sees it: a name, a description, a schema.
 
-    Nothing else crosses — no routes, no callables, no permission names. What the
-    model cannot see, it cannot be talked into using.
+    Nothing else crosses — no routes, no callables, no permission or capability names.
+    What the model cannot see, it cannot be talked into using.
     """
     out = []
-    for action in actions_for(permissions, page):
+    for action in actions_for(permissions, page, capabilities):
         schema = action.params.model_json_schema()
         schema.setdefault("type", "object")
         schema.setdefault("required", [])

@@ -11,6 +11,7 @@ import asyncio
 
 import pytest
 
+from app.chat import gate
 from app.chat.actions import ActionKind
 from app.chat.gate import (
     ActionRefused,
@@ -22,6 +23,15 @@ from app.chat.gate import (
 
 ADMIN = {"id": "11111111-1111-1111-1111-111111111111", "username": "ada", "role": "admin"}
 READER = {"id": "22222222-2222-2222-2222-222222222222", "username": "bo", "role": "viewer"}
+
+
+@pytest.fixture(autouse=True)
+def _capabilities_on(monkeypatch):
+    """This file exercises permission and approval mechanics, not capability gating —
+    that has its own tests in test_chat_capability_gate.py. Hold every capability open
+    here so this environment's actual FEATURE_* flags (usually all off) cannot fail a
+    test about something else."""
+    monkeypatch.setattr(gate, "capability_on", lambda key: True)
 
 
 class _Store(InvocationStore):
