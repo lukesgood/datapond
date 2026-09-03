@@ -14,6 +14,7 @@ import pytest
 
 from app.chat import executors
 from app.chat.actions import REGISTRY, ActionKind
+from app.chat.analysis import dashboards, knowledge
 
 
 def _params_for(action_id: str) -> dict:
@@ -46,7 +47,7 @@ def test_the_sample_parameters_cover_every_action():
 def test_dashboard_save_builds_the_real_request_model():
     from app.schemas.dashboard import ChartConfig, DashboardCreate
     params = _params_for("dashboard.save")
-    body = executors.build_dashboard_create(params)
+    body = dashboards.build_dashboard_create(params)
     assert isinstance(body, DashboardCreate)
     assert body.query_text == params["sql"], "the field is query_text, not query"
     assert isinstance(body.chart_config, ChartConfig)
@@ -55,14 +56,14 @@ def test_dashboard_save_builds_the_real_request_model():
 
 def test_knowledge_search_builds_the_real_request_model():
     from app.api.ai_vectors import SearchRequest
-    body = executors.build_search_request(_params_for("knowledge.search"))
+    body = knowledge.build_search_request(_params_for("knowledge.search"))
     assert isinstance(body, SearchRequest)
     assert body.collection == "c" and body.query == "q"
 
 
 def test_rag_builds_the_real_request_model():
     from app.api.ai_vectors import RagRequest
-    body = executors.build_rag_request(_params_for("knowledge.answer_with_citations"))
+    body = knowledge.build_rag_request(_params_for("knowledge.answer_with_citations"))
     assert isinstance(body, RagRequest)
     assert body.question == "q", "the field is question, not query"
     assert body.collection == "c"
@@ -70,7 +71,7 @@ def test_rag_builds_the_real_request_model():
 
 def test_collection_create_builds_the_real_request_model():
     from app.api.ai_vectors import CollectionCreate
-    body = executors.build_collection_create(_params_for("knowledge.create_collection"))
+    body = knowledge.build_collection_create(_params_for("knowledge.create_collection"))
     assert isinstance(body, CollectionCreate)
     assert body.name == "c"
 

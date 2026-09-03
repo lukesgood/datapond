@@ -62,120 +62,22 @@ class _Strict(BaseModel):
     model_config = {"extra": "forbid"}
 
 
-class TableRef(_Strict):
-    # `namespace`, not `schema`: the latter shadows a BaseModel attribute, which
-    # quietly drops it from the generated JSON Schema's `required` list — and the
-    # product's own API already calls these namespaces.
-    namespace: str
-    table: str
-
-
-class TableSearch(_Strict):
-    query: str
-
-
-class RelationshipQuery(_Strict):
-    table: Optional[str] = None
-    days: int = 30
-
-
-class SqlText(_Strict):
-    sql: str
-
-
-class NaturalQuestion(_Strict):
-    question: str
-
-
-class DashboardSave(_Strict):
-    name: str
-    sql: str
-    chart_type: str = "table"
-
-
-class CollectionCreate(_Strict):
-    name: str
-    description: Optional[str] = None
-
-
-class KnowledgeQuery(_Strict):
-    # Required, because SearchRequest.collection and RagRequest.collection are. An
-    # optional field here would let the model omit what the API demands, and the call
-    # would fail after the user had already been told it was happening.
-    collection: str
-    query: str
-
-
-class PolicyQuery(_Strict):
-    table: Optional[str] = None
-
-
-class SpendQuery(_Strict):
-    days: int = 30
-
-
 # ── The v1 catalogue ──────────────────────────────────────────────────────────
 # Deliberately absent: anything that deletes, connector sync, settings and governance
 # writes. Those need the destructive gate the design specifies and v1 does not build;
 # shipping the actions against the weaker gate is the pairing to avoid.
+#
+# Registration of what each action *does* lives with the action's own module, under
+# app/chat/analysis/ — one module per domain. This module owns the vocabulary only.
 
-_ACTIONS: Sequence[Action] = (
-    Action("catalog.describe_table", "Describe table",
-           "Columns, types, and relationships for one table.",
-           ("/catalog", "/query"), "catalog:read", ActionKind.READ, TableRef,
-           capability="catalog"),
-    Action("catalog.find_tables", "Find tables",
-           "Find tables by name or namespace. Pass plain words only — there is no query syntax, no operators, no field: prefixes.",
-           ("*",), "catalog:read", ActionKind.READ, TableSearch,
-           capability="catalog"),
-    Action("catalog.explain_relationships", "Explain relationships",
-           "How tables are joined, from observed query history and column naming.",
-           ("/catalog",), "catalog:read", ActionKind.READ, RelationshipQuery,
-           capability="catalog"),
+def _load_actions():
+    """Imported lazily: analysis modules import Action from this module, so a
+    top-level import here would be circular."""
+    from app.chat.analysis import ACTIONS
+    return ACTIONS
 
-    # Offered everywhere, like catalog.find_tables. These were scoped to /query, so
-    # the assistant had no SQL tool on any other page — and the panel is on every
-    # page. "What does the data say" does not depend on which screen you are looking
-    # at, and the permission gate is what decides who may ask.
-    Action("query.generate_sql", "Generate SQL",
-           "Turn a question into SQL, checked against the catalog. Does not run it.",
-           ("*",), "ai:generate", ActionKind.READ, NaturalQuestion,
-           capability="query"),
-    Action("query.explain_plan", "Explain the plan",
-           "What a statement will read, and anything worth knowing before running it.",
-           ("*",), "query:run", ActionKind.READ, SqlText,
-           capability="query"),
-    # Classed CREATE, not READ: Athena bills by bytes scanned, and a query the user
-    # did not write can read the wrong table. It gets an approval step.
-    Action("query.run", "Run query",
-           "Execute a statement and return rows.",
-           ("*",), "query:run", ActionKind.CREATE, SqlText,
-           capability="query"),
 
-    Action("dashboard.save", "Save dashboard",
-           "Save a statement and its chart as a dashboard.",
-           ("/query",), "dashboard:write", ActionKind.CREATE, DashboardSave,
-           capability="dashboards"),
-
-    Action("knowledge.search", "Search knowledge",
-           "Retrieve passages from a knowledge collection.",
-           ("/knowledge",), "knowledge:read", ActionKind.READ, KnowledgeQuery),
-    Action("knowledge.answer_with_citations", "Answer with citations",
-           "Answer a question from a collection, with sources.",
-           ("/knowledge",), "ai:generate", ActionKind.READ, KnowledgeQuery),
-    Action("knowledge.create_collection", "Create collection",
-           "Create an empty knowledge collection.",
-           ("/knowledge",), "knowledge:write", ActionKind.CREATE, CollectionCreate),
-
-    Action("governance.explain_policy", "Explain policy",
-           "Which row filters and column masks apply, and to whom.",
-           ("/governance",), "governance:read", ActionKind.READ, PolicyQuery),
-
-    Action("spend.summarize", "Summarise spend",
-           "Model usage and cost over a period.",
-           ("/ai", "/settings"), "spend:read", ActionKind.READ, SpendQuery),
-)
-
+_ACTIONS: Sequence[Action] = _load_actions()
 REGISTRY: Dict[str, Action] = {a.id: a for a in _ACTIONS}
 
 

@@ -9,6 +9,7 @@ import asyncio
 import pytest
 
 from app.chat import executors
+from app.chat.analysis import catalog, knowledge, query
 
 
 def _run(c):
@@ -37,7 +38,7 @@ def test_describe_table_reads_through_the_catalog_reader(monkeypatch):
         def get_columns(self, ns, table):
             return [{"name": "id", "type": "int"}, {"name": "amt", "type": "double"}]
 
-    monkeypatch.setattr(executors, "get_catalog_reader", lambda: _Reader())
+    monkeypatch.setattr(catalog, "get_catalog_reader", lambda: _Reader())
     out = _run(executors.EXECUTORS["catalog.describe_table"](
         {"namespace": "sales", "table": "orders"}, USER))
     assert out["table"] == "sales.orders"
@@ -49,7 +50,7 @@ def test_describe_table_reports_a_missing_table_as_a_result_not_a_crash(monkeypa
         def get_columns(self, ns, table):
             raise RuntimeError("NoSuchTable")
 
-    monkeypatch.setattr(executors, "get_catalog_reader", lambda: _Reader())
+    monkeypatch.setattr(catalog, "get_catalog_reader", lambda: _Reader())
     with pytest.raises(Exception):
         _run(executors.EXECUTORS["catalog.describe_table"](
             {"namespace": "sales", "table": "nope"}, USER))
@@ -62,7 +63,7 @@ def test_find_tables_matches_on_name_and_namespace(monkeypatch):
         def list_tables(self, ns):
             return {"sales": ["orders", "customers"], "ops": ["orders_archive"]}[ns]
 
-    monkeypatch.setattr(executors, "get_catalog_reader", lambda: _Reader())
+    monkeypatch.setattr(catalog, "get_catalog_reader", lambda: _Reader())
     out = _run(executors.EXECUTORS["catalog.find_tables"]({"query": "order"}, USER))
     assert set(out["tables"]) == {"sales.orders", "ops.orders_archive"}
 
@@ -74,7 +75,7 @@ def test_find_tables_returns_nothing_rather_than_everything_for_no_match(monkeyp
         def list_tables(self, ns):
             return ["orders"]
 
-    monkeypatch.setattr(executors, "get_catalog_reader", lambda: _Reader())
+    monkeypatch.setattr(catalog, "get_catalog_reader", lambda: _Reader())
     assert _run(executors.EXECUTORS["catalog.find_tables"](
         {"query": "zzzz"}, USER))["tables"] == []
 
@@ -82,7 +83,7 @@ def test_find_tables_returns_nothing_rather_than_everything_for_no_match(monkeyp
 # ── the preview is what the user approves ─────────────────────────────────────
 
 def test_running_a_query_previews_what_it_will_read(monkeypatch):
-    monkeypatch.setattr(executors, "explain_statement",
+    monkeypatch.setattr(query, "explain_statement",
                         lambda sql, kind="TYPE IO, FORMAT JSON": (
                             True, None,
                             '{"inputTableColumnInfos":[{"table":{"schemaTable":'
@@ -95,7 +96,7 @@ def test_running_a_query_previews_what_it_will_read(monkeypatch):
 
 def test_an_invalid_query_previews_as_invalid_rather_than_raising(monkeypatch):
     """The card should say the statement will not run, not blow up before showing."""
-    monkeypatch.setattr(executors, "explain_statement",
+    monkeypatch.setattr(query, "explain_statement",
                         lambda sql, kind="TYPE IO, FORMAT JSON": (
                             False, "COLUMN_NOT_FOUND: nope", ""))
     preview = _run(executors.PREVIEWERS["query.run"]({"sql": "SELECT nope"}, USER))
@@ -106,7 +107,7 @@ def test_an_invalid_query_previews_as_invalid_rather_than_raising(monkeypatch):
 def test_creating_a_collection_previews_the_name_and_whether_it_exists(monkeypatch):
     async def _existing(user):
         return ["support"]
-    monkeypatch.setattr(executors, "_existing_collections", _existing)
+    monkeypatch.setattr(knowledge, "_existing_collections", _existing)
     preview = _run(executors.PREVIEWERS["knowledge.create_collection"](
         {"name": "support"}, USER))
     assert preview["name"] == "support"
@@ -129,7 +130,7 @@ CATALOG = {"planlab": ["customers", "orders", "shipments"],
 
 
 def _find(monkeypatch, query):
-    monkeypatch.setattr(executors, "get_catalog_reader", lambda: _Catalog(CATALOG))
+    monkeypatch.setattr(catalog, "get_catalog_reader", lambda: _Catalog(CATALOG))
     return _run(executors.EXECUTORS["catalog.find_tables"]({"query": query}, USER))["tables"]
 
 
@@ -181,17 +182,17 @@ def test_the_preview_explains_the_same_sql_the_execution_will_run(monkeypatch):
     """
     seen = []
 
-    monkeypatch.setattr(executors, "qualify_for_preview",
+    monkeypatch.setattr(query, "qualify_for_preview",
                         lambda sql: (True, "sales.orders_qualified", None))
 
     def fake_explain(sql, mode):
         seen.append(sql)
         return False, "engine unavailable", ""
 
-    monkeypatch.setattr(executors, "explain_statement", fake_explain)
+    monkeypatch.setattr(query, "explain_statement", fake_explain)
 
-    _run(executors.preview_query_run({"sql": "SELECT * FROM orders"}, USER))
-    _run(executors.explain_plan({"sql": "SELECT * FROM orders"}, USER))
+    _run(query.preview_query_run({"sql": "SELECT * FROM orders"}, USER))
+    _run(query.explain_plan({"sql": "SELECT * FROM orders"}, USER))
 
     assert seen == ["sales.orders_qualified", "sales.orders_qualified"], (
         "the preview explained the unqualified SQL")
@@ -202,15 +203,15 @@ def test_a_preview_that_cannot_resolve_the_tables_says_so_rather_than_guessing(m
     preview cannot raise — it is what the approval card renders — so it reports
     validated: false with the reason instead of quietly explaining SQL that will be
     rewritten into something else."""
-    monkeypatch.setattr(executors, "qualify_for_preview",
+    monkeypatch.setattr(query, "qualify_for_preview",
                         lambda sql: (False, sql, "no table named 'orders'"))
 
     def must_not_explain(sql, mode):
         raise AssertionError("explained SQL that could not be resolved")
 
-    monkeypatch.setattr(executors, "explain_statement", must_not_explain)
+    monkeypatch.setattr(query, "explain_statement", must_not_explain)
 
-    out = _run(executors.preview_query_run({"sql": "SELECT * FROM orders"}, USER))
+    out = _run(query.preview_query_run({"sql": "SELECT * FROM orders"}, USER))
     assert out["validated"] is False
     assert "orders" in out["error"]
     assert out["reads"] == []
