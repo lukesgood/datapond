@@ -35,6 +35,10 @@ def _params_for(action_id: str) -> dict:
         "connectors.list_sources": {},
         "connectors.sync_history": {"connection_id": "c1", "limit": 5},
         "connectors.quality_checks": {"connection_id": "c1", "limit": 5},
+        "platform.service_health": {"service": "backend"},
+        "platform.service_metrics": {"service": "backend"},
+        "platform.recent_events": {"hours": 24, "limit": 50, "severity": None},
+        "storage.overview": {},
     }[action_id]
 
 
