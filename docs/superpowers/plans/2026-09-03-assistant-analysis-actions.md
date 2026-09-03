@@ -4,7 +4,7 @@
 
 **Goal:** Give the assistant read and analysis reach across the product's features, behind a capability gate that stops it offering actions for components a deployment does not run.
 
-**Architecture:** `Action` gains a `capability` field enforced twice — filtered out of the model's tool list at proposal time, rechecked server-side at execution — using one shared predicate that the existing route guards also call. The action catalogue moves from two flat files into one module per domain, each exporting its own actions, executors and resolvers, and ten new read actions plus three composite diagnostics are added as new modules.
+**Architecture:** `Action` gains a `capability` field enforced twice — filtered out of the model's tool list at proposal time, rechecked server-side at execution — using one shared predicate that the existing route guards also call. The action catalogue moves from two flat files into one module per domain, each exporting its own actions, executors and resolvers, and seventeen new actions are added: twelve thin reads across sources, platform, knowledge, governance and pipelines, three composite diagnostics, and two aggregates over audit and PII. The registry goes from twelve actions to twenty-nine.
 
 **Tech Stack:** Python 3.11, FastAPI, pydantic v2, asyncpg, pytest. Frontend: Next.js/React (one copy change only).
 
