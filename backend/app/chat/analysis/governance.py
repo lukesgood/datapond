@@ -45,6 +45,53 @@ async def summary_stats(params: dict, user: dict) -> dict:
         return {"stats": get_governance_stats(db=db)}
 
 
+async def pii_summary(params: dict, user: dict) -> dict:
+    """PII findings as counts by table and by category.
+
+    `_scan_pii_tables()` returns None when no scan could run — no Trino, which is the
+    Portable Core default — and None is not an empty result. Reporting "no PII found"
+    for a scan that never happened is the one answer here that would be actively
+    misleading, so it is reported as not scanned.
+
+    The scan is schema-level: an entry carries a column name and a detected type, never
+    a value. This drops the column names too, which are not needed to answer "where is
+    our exposure" at the level a summary answers it.
+    """
+    from app.api.governance import _scan_pii_tables
+
+    scanned = _scan_pii_tables()
+    if scanned is None:
+        return {
+            "scanned": False,
+            "tables_with_pii": 0,
+            "columns_with_pii": 0,
+            "by_type": {},
+            "by_table": [],
+            "not_checked": ["No PII scan could run on this deployment — the scan needs "
+                            "the Trino query engine. This is not a clean result."],
+        }
+
+    by_type: dict = {}
+    by_table = []
+    columns = 0
+    for entry in scanned:
+        cols = list(getattr(entry, "pii_columns", []) or [])
+        columns += len(cols)
+        by_table.append({"table": getattr(entry, "table", ""), "columns": len(cols)})
+        for col in cols:
+            kind = str(getattr(col, "type", "") or "unknown")
+            by_type[kind] = by_type.get(kind, 0) + 1
+
+    return {
+        "scanned": True,
+        "tables_with_pii": len(by_table),
+        "columns_with_pii": columns,
+        "by_type": by_type,
+        "by_table": sorted(by_table, key=lambda r: r["columns"], reverse=True),
+        "not_checked": [],
+    }
+
+
 ACTIONS = (
     Action("governance.explain_policy", "Explain policy",
            "Which row filters and column masks apply, and to whom.",
@@ -55,18 +102,24 @@ ACTIONS = (
     Action("governance.summary_stats", "Governance summary",
            "Counts of policies, masked columns and covered tables.",
            ("*",), "governance:read", ActionKind.READ, _Strict),
+    Action("governance.pii_summary", "PII summary",
+           "Where PII was detected, as counts by table and category. Reports "
+           "'not scanned' rather than 'clean' when no scan could run.",
+           ("*",), "governance:read", ActionKind.READ, _Strict),
 )
 
 EXECUTORS: Dict[str, Callable] = {
     "governance.explain_policy": explain_policy,
     "governance.policy_coverage": policy_coverage,
     "governance.summary_stats": summary_stats,
+    "governance.pii_summary": pii_summary,
 }
 
 RESOLVERS: Dict[str, Callable] = {
     "governance.explain_policy": _r("app.rls.loader", "load_policies"),
     "governance.policy_coverage": _r("app.api.governance", "rls_coverage"),
     "governance.summary_stats": _r("app.api.governance", "get_governance_stats"),
+    "governance.pii_summary": _r("app.api.governance", "_scan_pii_tables"),
 }
 
 PREVIEWERS: Dict[str, Callable] = {}

@@ -36,6 +36,8 @@ def _params_for(action_id: str) -> dict:
         "governance.explain_policy": {"table": None},
         "governance.policy_coverage": {},
         "governance.summary_stats": {},
+        "governance.pii_summary": {},
+        "audit.activity_summary": {"days": 7},
         "spend.summarize": {"days": 30},
         "spend.diagnose_change": {"days": 7},
         "connectors.list_sources": {},

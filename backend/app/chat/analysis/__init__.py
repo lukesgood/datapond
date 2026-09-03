@@ -7,11 +7,11 @@ quietly win — tests/test_chat_analysis_assembly.py pins that.
 from typing import Callable, Dict, Tuple
 
 from app.chat.actions import Action
-from app.chat.analysis import (catalog, connectors, dashboards, governance, knowledge,
-                               pipelines, platform, query, spend)
+from app.chat.analysis import (audit, catalog, connectors, dashboards, governance,
+                               knowledge, pipelines, platform, query, spend)
 
 _MODULES = (catalog, query, dashboards, knowledge, governance, spend, connectors,
-            platform, pipelines)
+            platform, pipelines, audit)
 
 ACTIONS: Tuple[Action, ...] = tuple(a for m in _MODULES for a in m.ACTIONS)
 
