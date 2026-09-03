@@ -34,8 +34,12 @@ async def service_metrics(params: dict, user: dict) -> dict:
 
 async def recent_events(params: dict, user: dict) -> dict:
     from app.api.system_events_routes import list_system_events
+    # `kind` and `source` default to `Query(None)` on the real handler, not `None` —
+    # leaving them unbound would pass a truthy fastapi.params.Query sentinel into
+    # build_filters (which tests `if value:`) and bind it as a query argument.
     return {"events": await list_system_events(
-        severity=params.get("severity"), hours=params["hours"], limit=params["limit"])}
+        severity=params.get("severity"), kind=None, source=None,
+        hours=params["hours"], limit=params["limit"])}
 
 
 async def storage_overview(params: dict, user: dict) -> dict:

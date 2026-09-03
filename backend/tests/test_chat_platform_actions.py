@@ -2,6 +2,7 @@
 import asyncio
 
 import pytest
+from fastapi import Query
 
 from app.chat.analysis import platform as mod
 
@@ -24,15 +25,32 @@ def test_service_health_passes_the_service_name(monkeypatch):
 
 
 def test_recent_events_bounds_the_window_and_the_page(monkeypatch):
+    """The mock's signature is the real handler's, not a convenient stand-in: the
+    real `list_system_events` defaults `kind`/`source` to `Query(None)` objects, not
+    plain `None`. A mock declaring plain `None` defaults (as this one used to) would
+    pass even if the executor left `kind`/`source` unbound — the bug this pins
+    (platform.recent_events failing on every call, Critical 2) would have sailed
+    through it. With the real `Query(...)` sentinels as defaults here, an executor
+    that omits `kind`/`source` leaves `seen["kind"]`/`seen["source"]` as that
+    sentinel object, and the `is None` assertions below catch it.
+    """
     seen = {}
 
-    async def _fake(severity=None, kind=None, source=None, hours=168, limit=200):
-        seen.update(hours=hours, limit=limit, severity=severity)
+    async def _fake(severity: str = Query(None, description="info | warning | critical"),
+                    kind: str = Query(None),
+                    source: str = Query(None),
+                    hours: int = Query(168, ge=1, le=24 * 90),
+                    limit: int = Query(200, ge=1, le=1000)):
+        seen.update(hours=hours, limit=limit, severity=severity, kind=kind, source=source)
         return {"events": []}
 
     monkeypatch.setattr("app.api.system_events_routes.list_system_events", _fake)
     _run(mod.recent_events({"hours": 24, "limit": 50, "severity": None}, {"id": "u1"}))
-    assert seen == {"hours": 24, "limit": 50, "severity": None}
+    assert seen["hours"] == 24
+    assert seen["limit"] == 50
+    assert seen["severity"] is None
+    assert seen["kind"] is None
+    assert seen["source"] is None
 
 
 def test_storage_overview_takes_no_parameters(monkeypatch):

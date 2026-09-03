@@ -119,3 +119,97 @@ def test_every_non_read_action_still_has_a_previewer():
     missing = [a for a, action in REGISTRY.items()
                if action.kind is not ActionKind.READ and a not in executors.PREVIEWERS]
     assert not missing, missing
+
+
+# ── every parameter an executor leaves unbound must have a plain default ──────
+#
+# `platform.recent_events` called `list_system_events(severity=..., hours=...,
+# limit=...)` and left `kind`/`source` unbound. Their real defaults are
+# `Query(None)` objects, not `None` — a fastapi.params.Query instance is truthy, so
+# both got bound as query arguments and the call failed on every real invocation.
+# `test_every_executor_resolves_its_target_function` above only proves the resolved
+# target is *callable*; it never inspects what the target's own parameters default
+# to, so it could not have caught this.
+#
+# This does not statically read what each executor's call site actually passes —
+# that would need parsing the executor's source. Instead it is a fixture, hand-built
+# by reading every executor in app/chat/analysis/*.py: for each action with a
+# resolver, the set of parameter names that executor's call binds explicitly (by
+# keyword, or positionally — a positional argument's name still comes from
+# `inspect.signature`). Anything on the resolved target NOT in this set is a
+# parameter the executor is relying on the function's own default for, and that
+# default must not be a `fastapi.params.Depends` or `fastapi.params.Query`
+# sentinel — those are only meaningful when FastAPI itself resolves them from a
+# request, and calling the function directly (as every executor does, per the
+# global "executors call service functions directly" rule) leaves them as the raw
+# sentinel object instead.
+#
+# What this catches: exactly the Critical-2 shape — an executor omitting a
+# parameter whose real default is a Depends/Query sentinel, for every action listed
+# below. What it does NOT catch: a fixture entry that is wrong (this test is only
+# as honest as the hand-maintained set below — a stale entry after a genuine
+# executor-side change fails silently), a resolver that does not point at the
+# function the executor actually calls (RESOLVERS carries one function per action;
+# some executors call more than one), or any hazard in a parameter the executor
+# *does* pass, or in a value the executor passes to a bound parameter (e.g. passing
+# a Depends object through by accident). Nor does it catch a default that is some
+# other kind of unsafe sentinel outside these two FastAPI classes.
+_EXPLICITLY_BOUND_PARAMS = {
+    "catalog.describe_table": set(),          # get_catalog_reader() — no params
+    "catalog.find_tables": set(),              # get_catalog_reader() — no params
+    "catalog.explain_relationships": {"statements", "schema"},   # dialect omitted, plain default
+    "query.generate_sql": {"req", "user"},
+    "query.explain_plan": {"io_text", "dist_text"},
+    "query.run": {"request", "db", "user"},
+    "dashboard.save": {"dashboard", "db", "user"},
+    "knowledge.search": {"req", "user"},
+    "knowledge.answer_with_citations": {"req", "user"},
+    "knowledge.create_collection": {"body", "user"},
+    "knowledge.list_collections": {"user", "q", "limit"},        # offset omitted, plain default
+    "knowledge.collection_composition": {"name", "user"},
+    "knowledge.diagnose_collection": {"c", "name", "user"},      # write/destroy omitted, plain default
+    "governance.explain_policy": set(),        # load_policies() — no params
+    "governance.policy_coverage": {"user"},
+    "governance.summary_stats": set(),         # _scan_pii_tables() — no params
+    "governance.pii_summary": set(),           # _scan_pii_tables() — no params
+    "audit.activity_summary": set(),           # _get_pool() — no params
+    "spend.summarize": set(),                  # spend_summary() — no params
+    "spend.diagnose_change": {"start_date", "end_date"},
+    "connectors.list_sources": {"user"},
+    "connectors.sync_history": {"connection_id", "limit", "user"},
+    "connectors.quality_checks": {"connection_id", "limit", "user"},
+    "connectors.diagnose_sync": {"connection_id", "limit", "user"},
+    "platform.service_health": {"service"},
+    "platform.service_metrics": {"service"},
+    "platform.recent_events": {"severity", "kind", "source", "hours", "limit"},
+    "storage.overview": set(),                 # get_storage_overview() — no params
+    "pipelines.recent_runs": {"pipeline_name", "limit"},
+}
+
+
+def test_the_bound_params_fixture_covers_every_resolvable_action():
+    """If an action gains a resolver, this file's fixture must be updated too — that
+    is the point, same as test_the_sample_parameters_cover_every_action above."""
+    resolvable = {a for a in REGISTRY if executors.RESOLVERS.get(a) is not None}
+    assert resolvable == set(_EXPLICITLY_BOUND_PARAMS), (
+        resolvable.symmetric_difference(_EXPLICITLY_BOUND_PARAMS))
+
+
+@pytest.mark.parametrize("action_id", sorted(_EXPLICITLY_BOUND_PARAMS))
+def test_unbound_params_have_plain_defaults_not_fastapi_sentinels(action_id):
+    """Every parameter the executor does NOT bind must default to something other
+    than a `Depends(...)`/`Query(...)` sentinel — see the module comment above."""
+    import fastapi.params
+
+    resolver = executors.RESOLVERS[action_id]
+    target = resolver()
+    bound = _EXPLICITLY_BOUND_PARAMS[action_id]
+    sig = inspect.signature(target)
+    for name, param in sig.parameters.items():
+        if name in bound or param.default is inspect.Parameter.empty:
+            continue
+        assert not isinstance(param.default, (fastapi.params.Depends, fastapi.params.Query)), (
+            f"{action_id}: {target.__module__}.{target.__qualname__}'s {name!r} "
+            f"defaults to {param.default!r}, which the executor leaves unbound — "
+            f"calling it directly (not through FastAPI) will pass that sentinel "
+            f"through as the argument value.")
