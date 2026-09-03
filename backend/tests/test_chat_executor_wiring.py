@@ -39,6 +39,7 @@ def _params_for(action_id: str) -> dict:
         "platform.service_metrics": {"service": "backend"},
         "platform.recent_events": {"hours": 24, "limit": 50, "severity": None},
         "storage.overview": {},
+        "pipelines.recent_runs": {"pipeline": "daily_rollup", "limit": 5},
     }[action_id]
 
 
