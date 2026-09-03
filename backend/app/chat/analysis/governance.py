@@ -30,18 +30,43 @@ async def explain_policy(params: dict, user: dict) -> dict:
     }
 
 
+async def policy_coverage(params: dict, user: dict) -> dict:
+    from app.api.governance import rls_coverage
+    return {"coverage": await rls_coverage(user=user)}
+
+
+async def summary_stats(params: dict, user: dict) -> dict:
+    """`get_governance_stats` is synchronous and takes a Session. get_db_context is the
+    context manager that exists for callers outside a request; without it the Depends
+    default arrives as `db` and fails inside SQLAlchemy."""
+    from app.api.governance import get_governance_stats
+    from app.database.connection import get_db_context
+    with get_db_context() as db:
+        return {"stats": get_governance_stats(db=db)}
+
+
 ACTIONS = (
     Action("governance.explain_policy", "Explain policy",
            "Which row filters and column masks apply, and to whom.",
            ("/governance",), "governance:read", ActionKind.READ, PolicyQuery),
+    Action("governance.policy_coverage", "Policy coverage",
+           "Which tables have a row-level policy and which have none.",
+           ("*",), "governance:read", ActionKind.READ, _Strict),
+    Action("governance.summary_stats", "Governance summary",
+           "Counts of policies, masked columns and covered tables.",
+           ("*",), "governance:read", ActionKind.READ, _Strict),
 )
 
 EXECUTORS: Dict[str, Callable] = {
     "governance.explain_policy": explain_policy,
+    "governance.policy_coverage": policy_coverage,
+    "governance.summary_stats": summary_stats,
 }
 
 RESOLVERS: Dict[str, Callable] = {
     "governance.explain_policy": _r("app.rls.loader", "load_policies"),
+    "governance.policy_coverage": _r("app.api.governance", "rls_coverage"),
+    "governance.summary_stats": _r("app.api.governance", "get_governance_stats"),
 }
 
 PREVIEWERS: Dict[str, Callable] = {}

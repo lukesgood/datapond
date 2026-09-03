@@ -33,6 +33,8 @@ def _params_for(action_id: str) -> dict:
         "knowledge.list_collections": {"q": None, "limit": 25},
         "knowledge.collection_composition": {"collection": "c"},
         "governance.explain_policy": {"table": None},
+        "governance.policy_coverage": {},
+        "governance.summary_stats": {},
         "spend.summarize": {"days": 30},
         "connectors.list_sources": {},
         "connectors.sync_history": {"connection_id": "c1", "limit": 5},
