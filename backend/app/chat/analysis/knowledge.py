@@ -106,23 +106,26 @@ _STALE_INTERVALS = 2
 async def diagnose_collection(params: dict, user: dict) -> dict:
     """Is this collection still worth querying?
 
-    Access is the caller's own: the row is read through the same pool the rest of the
-    app uses, and a caller who cannot see the collection gets nothing back from
-    list_collections either. The diagnosis adds no reach.
+    Access is gated through `_collection_id`, the same read-access check every route
+    in app/api/ai_vectors.py runs before it touches an existing collection by name. A
+    caller who may not read the collection gets that function's 404/403 propagated —
+    diagnosis never runs for a collection this caller can't see, and never confirms a
+    name exists to a caller who can't.
     """
     from datetime import datetime, timezone
 
-    from app.api.ai_vectors import _embed_model
+    from app.api.ai_vectors import _collection_id, _embed_model
     from app.api.auth import _get_pool
     from app.chat.diagnosis import Diagnosis
 
     name = params["collection"]
     pool = await _get_pool()
     async with pool.acquire() as conn:
+        coll_id = await _collection_id(conn, name, user)
         row = await conn.fetchrow(
             """SELECT id, embed_model, refresh_enabled, refresh_interval_minutes,
                       last_refreshed_at, last_refresh_status, owner_id
-               FROM ai_collections WHERE name = $1""", name)
+               FROM ai_collections WHERE id = $1""", coll_id)
         if row is None:
             raise ValueError(f"No collection named {name!r}.")
         chunks = await conn.fetchval(
@@ -207,7 +210,10 @@ RESOLVERS: Dict[str, Callable] = {
     "knowledge.create_collection": _r("app.api.ai_vectors", "create_collection"),
     "knowledge.list_collections": _r("app.api.ai_vectors", "list_collections"),
     "knowledge.collection_composition": _r("app.api.ai_vectors", "collection_composition"),
-    "knowledge.diagnose_collection": _r("app.api.ai_vectors", "_embed_model"),
+    # The access gate the fix for Critical 1 routes through, not _embed_model: this
+    # is the call whose signature matters if diagnose_collection's access check is
+    # ever weakened by a refactor elsewhere in ai_vectors.py.
+    "knowledge.diagnose_collection": _r("app.api.ai_vectors", "_collection_id"),
 }
 
 PREVIEWERS: Dict[str, Callable] = {

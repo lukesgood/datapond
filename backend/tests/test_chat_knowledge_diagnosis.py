@@ -7,6 +7,7 @@ is logged, and the only symptom is worse answers.
 import asyncio
 
 import pytest
+from fastapi import HTTPException
 
 from app.chat.analysis import knowledge as mod
 
@@ -85,6 +86,32 @@ def test_a_collection_with_no_schedule_says_so_rather_than_calling_it_stale(monk
 
 
 def test_an_unknown_collection_is_refused_not_diagnosed(monkeypatch):
+    """No row at all: `_collection_id` (the same gate every route in
+    app/api/ai_vectors.py runs before touching an existing collection) raises 404
+    before diagnosis ever runs."""
     _install(monkeypatch, None)
-    with pytest.raises(ValueError):
+    with pytest.raises(HTTPException) as exc:
         _run(mod.diagnose_collection({"collection": "nope"}, {"id": "u1"}))
+    assert exc.value.status_code == 404
+
+
+# ── Critical 1: diagnose_collection must not bypass the collection access gate ──
+# Before the fix this executor read `ai_collections` straight off the pool, by name,
+# with no ownership/membership predicate — and `knowledge:read` is in `_READ_BASELINE`
+# in app/permissions.py, so every role (including `viewer`) could name any collection
+# at all and learn whether it exists, its embedding model, chunk count, refresh
+# schedule and last refresh status. It must now go through the same `_collection_id`
+# gate every other route in app/api/ai_vectors.py calls, and a caller who may not read
+# the collection must get that gate's access failure, never a diagnosis.
+
+def test_a_caller_who_may_not_read_the_collection_gets_the_access_failure(monkeypatch):
+    """Owned by someone else, no membership grant, no admin role: `may_read` says no,
+    and the caller must see that refusal — not a diagnosis built from a row they were
+    never allowed to see."""
+    _install(monkeypatch, {"id": "c1", "embed_model": "embed", "refresh_enabled": True,
+                           "refresh_interval_minutes": 60, "last_refreshed_at": None,
+                           "last_refresh_status": "ok", "owner_id": "someone-else"})
+    with pytest.raises(HTTPException) as exc:
+        _run(mod.diagnose_collection({"collection": "handbook"},
+                                     {"id": "u1", "role": "viewer"}))
+    assert exc.value.status_code == 403
