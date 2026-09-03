@@ -52,7 +52,8 @@ async def diagnose_sync(params: dict, user: dict) -> dict:
     history = await get_sync_history(connection_id=cid, limit=_RECENT_RUNS, user=user)
     quality = await get_quality_checks(connection_id=cid, limit=_RECENT_RUNS, user=user)
 
-    sessions = (history or {}).get("sessions") or []
+    # get_sync_history returns a plain list of sessions — no wrapper object.
+    sessions = list(history or [])
     checks = (quality or {}).get("checks") or []
 
     d = Diagnosis(f"source {cid!r}")
@@ -67,32 +68,49 @@ async def diagnose_sync(params: dict, user: dict) -> dict:
         d.fact("last_started_at", str(last.get("started_at", "")))
         if str(last.get("status", "")).lower() not in ("success", "ok", "completed"):
             d.signal("bad", "The most recent sync did not succeed.",
-                     status=last.get("status"), error=last.get("error"))
+                     status=last.get("status"), error=last.get("error_message"))
         else:
             d.signal("ok", "The most recent sync succeeded.",
                      status=last.get("status"))
 
-        durations = [s.get("duration_seconds") for s in sessions
-                     if isinstance(s.get("duration_seconds"), (int, float))]
+        # duration_ms is milliseconds on the wire; convert once here so every
+        # downstream comparison — and every evidence key — is genuinely in seconds.
+        durations = [s.get("duration_ms") / 1000.0 for s in sessions
+                     if isinstance(s.get("duration_ms"), (int, float))]
         if len(durations) >= 3:
             recent, earlier = durations[0], sum(durations[1:]) / len(durations[1:])
             # Twice the recent average, and not a rounding artefact on a fast sync.
             if earlier > 0 and recent > earlier * 2 and recent > 30:
                 d.signal("warn", "The last run took markedly longer than the ones "
                                  "before it.",
-                         last_seconds=recent, previous_average_seconds=round(earlier, 1))
+                         last_seconds=round(recent, 1),
+                         previous_average_seconds=round(earlier, 1))
         else:
             d.skipped("Duration trend not checked: fewer than three timed runs on "
                       "record.")
 
-    tripped = [c for c in checks
-               if str(c.get("severity", "")).lower() in ("alert", "warn", "warning")]
+    def _status_word(c: dict) -> str:
+        # overall_status is the primary field; row_change_status is the fallback
+        # when a check row predates or omits it.
+        return str(c.get("overall_status") or c.get("row_change_status") or "").strip().lower()
+
+    tripped = []
+    any_alert = False
+    for c in checks:
+        word = _status_word(c)
+        if word == "ok":
+            continue
+        if word == "alert":
+            any_alert = True
+        # "warning", and any unrecognised or missing status word, is treated as a
+        # check that tripped — never silently read as healthy.
+        tripped.append(c)
+
     if not checks:
         d.skipped("Data quality not checked: no check results recorded for this "
                   "source.")
     elif tripped:
-        worst = "bad" if any(str(c.get("severity", "")).lower() == "alert"
-                             for c in tripped) else "warn"
+        worst = "bad" if any_alert else "warn"
         d.signal(worst, "Data quality checks flagged this source's recent loads.",
                  findings=tripped[:5])
     else:
