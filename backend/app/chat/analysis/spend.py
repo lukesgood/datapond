@@ -52,14 +52,21 @@ def _totals(report: dict) -> tuple:
 
 
 # `spend_report` does not raise on a gateway error — on a non-2xx response it returns
-# {"report": [], "detail": "..."} rather than the exception path. That makes an empty
-# report ambiguous: "nothing was spent" and "the gateway could not be asked" both look
-# like an empty list, and they call for different answers — one is a fact, the other is
-# a reason we don't have one. A "detail" key alongside an empty report is treated as the
-# fetch having failed, never as zero spend.
+# {"report": [], "detail": "...", "status_code": ...} rather than the exception path.
+# That makes an empty report ambiguous: "nothing was spent" and "the gateway could not
+# be asked" both look like an empty list, and they call for different answers — one is
+# a fact, the other is a reason we don't have one. A "detail" key alongside an empty
+# report is treated as the fetch having failed, never as zero spend.
+#
+# "detail" itself is `_short(r.text, 200)` — the raw LiteLLM response body — and is
+# never surfaced here. On an auth failure that body can echo part of an API key, and
+# this action is reachable by anyone with `spend:read`, not just an admin (the
+# Settings → AI page that does show `detail` is admin-only). Report the failure and
+# its HTTP status instead.
 def _gateway_error(report: dict) -> Optional[str]:
     if isinstance(report, dict) and not report.get("report") and "detail" in report:
-        return report.get("detail")
+        status = report.get("status_code")
+        return f"gateway returned HTTP {status}" if status else "gateway returned an error"
     return None
 
 

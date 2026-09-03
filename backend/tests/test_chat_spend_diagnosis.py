@@ -8,13 +8,16 @@ def _run(c):
     return asyncio.run(c)
 
 
-def _report(rows, detail=None):
+def _report(rows, detail=None, status_code=None):
     """`spend_report` returns {"start_date", "end_date", "report": [...]} — the list
     lives under "report", not "rows". On a gateway error it returns an empty "report"
-    with a "detail" key instead of raising."""
+    with a "detail" key (the raw upstream body, truncated) and a "status_code" key
+    instead of raising."""
     out = {"report": rows}
     if detail is not None:
         out["detail"] = detail
+    if status_code is not None:
+        out["status_code"] = status_code
     return out
 
 
@@ -106,6 +109,38 @@ def test_a_gateway_error_on_the_previous_window_is_distinguished_from_real_empti
     assert any("error" in r.lower() or "gateway" in r.lower()
                for r in out["not_checked"])
     assert not any("no spend" in r.lower() for r in out["not_checked"])
+
+
+# ── Minor 6: the raw upstream body never reaches the model ─────────────────────
+# `spend_report`'s "detail" is `_short(r.text, 200)` — the raw LiteLLM response body.
+# On an auth failure that body can echo part of an API key, and this action is
+# reachable by anyone with `spend:read`. Report the failure and its HTTP status, not
+# the body.
+
+def test_the_raw_gateway_body_is_not_echoed_to_the_model(monkeypatch):
+    secret_body = "Unauthorized: invalid key sk-litellm-abc123secretvalue"
+    _install(monkeypatch,
+             current=_report([], detail=secret_body, status_code=401),
+             previous=_report([{"model": "claude", "spend": 5.0, "requests": 10}]))
+    out = _run(mod.diagnose_change({"days": 7}, {"id": "u1"}))
+    joined = " ".join(out["not_checked"])
+    assert secret_body not in joined
+    assert "sk-litellm" not in joined
+    assert "401" in joined
+
+
+def test_a_gateway_error_with_no_status_code_still_reports_generically(monkeypatch):
+    """`spend_report`'s error shape predates `status_code`; a report missing it must
+    still be treated as a failure, not silently pass the raw detail through."""
+    secret_body = "Forbidden: rotate key sk-litellm-shouldnotleak"
+    _install(monkeypatch,
+             current=_report([], detail=secret_body),
+             previous=_report([{"model": "claude", "spend": 5.0, "requests": 10}]))
+    out = _run(mod.diagnose_change({"days": 7}, {"id": "u1"}))
+    joined = " ".join(out["not_checked"])
+    assert secret_body not in joined
+    assert "sk-litellm" not in joined
+    assert any("error" in r.lower() or "gateway" in r.lower() for r in out["not_checked"])
 
 
 # ── threshold pins ───────────────────────────────────────────────────────────────
