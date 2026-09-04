@@ -23,3 +23,8 @@ if _dupes:
 EXECUTORS: Dict[str, Callable] = {k: v for m in _MODULES for k, v in m.EXECUTORS.items()}
 RESOLVERS: Dict[str, Callable] = {k: v for m in _MODULES for k, v in m.RESOLVERS.items()}
 PREVIEWERS: Dict[str, Callable] = {k: v for m in _MODULES for k, v in m.PREVIEWERS.items()}
+# Not every module declares a destructive action, so not every module declares
+# DEPENDENTS — getattr with {} default rather than requiring an empty dict boilerplate
+# in each domain module that has nothing destructive yet.
+DEPENDENTS: Dict[str, Callable] = {
+    k: v for m in _MODULES for k, v in getattr(m, "DEPENDENTS", {}).items()}

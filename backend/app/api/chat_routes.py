@@ -72,8 +72,11 @@ def _system_prompt(page: str, context: dict) -> str:
         "You can read and analyse this deployment — the catalog, queries, knowledge "
         "collections, sources and their syncs, services, storage, governance policies, "
         "audit activity and model spend — using only the tools you were given.\n"
-        "You cannot delete anything, run a sync, or change settings. If asked, say so "
-        "plainly and suggest where in the UI to do it."
+        "You can propose deleting a row-filter or column-masking policy, but only one "
+        "the person has already named themselves — every deletion needs their typed "
+        "confirmation before anything runs, never your inference of what they meant. "
+        "You cannot run a sync or change settings. If asked, say so plainly and "
+        "suggest where in the UI to do it."
     )
 
 
@@ -148,11 +151,19 @@ async def chat(request: ChatRequest,
                 user=user, page=request.page, store=store,
                 executor=executors.EXECUTORS.get(call["name"]),
                 previewer=executors.PREVIEWERS.get(call["name"]),
+                dependents=executors.DEPENDENTS.get(call["name"]),
                 conversation_id=conversation_id,
                 request_text=text,
                 # The PII-masked message, not request.message: it is what the rest of
                 # this turn already works from, and masking does not remove
                 # identifiers of the kind a target name uses.
+                #
+                # The FULL history here, not request.history[-_MAX_TURNS:] like the
+                # model's own context above — deliberately asymmetric. A longer
+                # search window for "did the user actually name this" can only turn
+                # up more genuine evidence, never less, so trimming it to match the
+                # model's window would only ever narrow what counts as named, for no
+                # safety benefit.
                 turns=[{"role": t.role, "content": t.content} for t in request.history]
                       + [{"role": "user", "content": text}],
             )
@@ -233,8 +244,16 @@ async def propose_action(request: ProposeRequest,
             user=user, page=request.page, store=store,
             executor=executors.EXECUTORS.get(request.action_id),
             previewer=executors.PREVIEWERS.get(request.action_id),
+            dependents=executors.DEPENDENTS.get(request.action_id),
             conversation_id=conversation_id,
             request_text=f"(chosen from the panel) {request.action_id}",
+            # No `turns`: this endpoint exists for parameters the MODEL produced and
+            # a person merely chose to run (see the docstring above), so the params
+            # are model-authored, not something the person is known to have named
+            # themselves. Passing history here would let a destructive proposal
+            # through on evidence the person never actually gave — `named_by_user`
+            # would find none and gate.propose refuses every destructive action
+            # reached through this route, always. See test_chat_routes_propose.py.
         )
     except ActionRefused as e:
         raise HTTPException(status_code=403, detail=str(e))

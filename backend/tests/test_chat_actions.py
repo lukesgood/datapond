@@ -43,11 +43,17 @@ def test_every_registered_action_declares_a_real_permission():
         assert action.permission in ALL_PERMISSIONS, action.id
 
 
-def test_no_registered_action_is_destructive_in_v1():
-    """Deletion and settings writes are excluded together with the gate they need."""
+def test_every_destructive_action_declares_the_target_field_the_gate_needs():
+    """v1 excluded deletion because the destructive gate did not exist yet — it does
+    now (app/chat/gate.py), and app/chat/analysis/governance.py registers the first
+    two destructive actions. The gate reads `target_field` off the Action to find
+    what the user must have named and must type back to confirm; a destructive
+    action with none would silently skip that check rather than fail loudly, so this
+    is the one property that must hold for every one of them, present and future."""
     from app.permissions import ALL_PERMISSIONS
     for action in actions_for(ALL_PERMISSIONS, page="*"):
-        assert action.kind is not ActionKind.DESTRUCTIVE, action.id
+        if action.kind is ActionKind.DESTRUCTIVE:
+            assert action.target_field, action.id
 
 
 # ── parameter validation ──────────────────────────────────────────────────────
