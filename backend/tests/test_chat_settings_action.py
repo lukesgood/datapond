@@ -105,6 +105,49 @@ def test_provider_and_url_are_never_reported_as_nothing_depending(key, env_name,
     assert "old-value" in text and "new-value" in text
 
 
+def test_provider_card_does_not_claim_traffic_moves(monkeypatch):
+    """AI_PROVIDER is read by nothing in this codebase — the only two hits repo-wide
+    are its own entry in AI_ENV_MAP (app/api/system_settings.py) and this test.
+    `_gateway()` (app/api/ai_vectors.py) decides routing from LITELLM_URL alone. The
+    card for `ai.provider` must say that plainly and must never use language that
+    would let a reader believe changing it repoints, moves, or affects any call —
+    that was the false claim this action shared with `ai.litellm_url` before the fix
+    (see the module docstring)."""
+    monkeypatch.setenv("AI_PROVIDER", "litellm")
+    out = _run(mod.dependents_set_model_config(
+        {"key": "ai.provider", "value": "none"}, {"id": "u1"}))
+    assert out["items"], "a truthful consequence must still be reported"
+    text = " ".join(item["effect"] for item in out["items"])
+    assert "AI_PROVIDER is not read anywhere" in text
+    assert "no traffic moves and no call is repointed" in text
+    for forbidden in ("repoints", "repointing", "moves traffic", "changes where"):
+        assert forbidden not in text, f"the card must not claim {forbidden!r}"
+
+
+def test_litellm_url_card_still_claims_the_real_routing_consequence(monkeypatch):
+    """The opposite pin: ai.litellm_url really does repoint the shared gateway path,
+    and splitting it from ai.provider must not accidentally weaken that true claim
+    too."""
+    monkeypatch.setenv("LITELLM_URL", "https://old-gateway")
+    out = _run(mod.dependents_set_model_config(
+        {"key": "ai.litellm_url", "value": "https://new-gateway"}, {"id": "u1"}))
+    text = " ".join(item["effect"] for item in out["items"])
+    assert "repoints every one of them" in text
+    assert "https://old-gateway" in text and "https://new-gateway" in text
+
+
+def test_current_value_display_for_an_unset_variable(monkeypatch):
+    """settings.py:110 minor fix: os.getenv(..., "") used to render as the current
+    value being the empty string, so the card read 'changing it from '' to ...' for
+    a variable that was never set. It must say plainly that nothing is set."""
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    out = _run(mod.dependents_set_model_config(
+        {"key": "ai.provider", "value": "litellm"}, {"id": "u1"}))
+    text = " ".join(item["effect"] for item in out["items"])
+    assert "not currently set" in text
+    assert "''" not in text and "from '' " not in text
+
+
 def test_an_unrecognised_key_is_reported_not_checked(monkeypatch):
     out = _run(mod.dependents_set_model_config(
         {"key": "ai.nonsense", "value": "x"}, {"id": "u1"}))

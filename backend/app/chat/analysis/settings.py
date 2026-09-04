@@ -21,12 +21,18 @@ env var, not in `AI_ENV_MAP`, and so not reachable through this action at all. A
 collection-stranding check against `ai.litellm_model` would therefore describe a
 change this action cannot make; `dependents_set_model_config` does not attempt one.
 
-What every one of the three keys *does* do is change how or with which model every
-later call is served — `ai.litellm_model` for generation calls, `ai.provider` and
-`ai.litellm_url` for the shared gateway path that both generation and embedding calls
-go through (`_gateway()` in app/api/ai_vectors.py reads `LITELLM_URL` once for both).
-`dependents_set_model_config` says that plainly for whichever key is being changed,
-rather than computing a list it cannot support.
+The three keys do not share one consequence, and this module must not say they do
+(that conflation is exactly what put a false claim on the `ai.provider` card in the
+first place — see the fix history). `ai.litellm_model` changes the model used for
+generation calls. `ai.litellm_url` changes `LITELLM_URL`, which `_gateway()` in
+app/api/ai_vectors.py reads once for *both* generation and embedding calls — so
+repointing it repoints every one of them, immediately. `ai.provider` maps to
+`AI_PROVIDER`, and nothing in this codebase reads that variable: grep the repo and
+the only two hits are its own entry in `AI_ENV_MAP` (app/api/system_settings.py) and
+the test that pins this. `_gateway()` decides routing from `LITELLM_URL` alone.
+Setting `ai.provider` stores a value and changes what Settings displays; it does not
+move any traffic. `dependents_set_model_config` says the true thing for whichever
+key is being changed, rather than merging them into one shared sentence.
 """
 from typing import Any, Callable, Dict
 
@@ -106,20 +112,29 @@ async def dependents_set_model_config(params: dict, user: dict) -> dict:
                   f"depends on it could not be determined.")
         return d.done()
 
-    current = os.getenv(AI_ENV_MAP[key], "")
+    raw_current = os.getenv(AI_ENV_MAP[key], "")
+    current = repr(raw_current) if raw_current else "not currently set"
 
     if key == "ai.litellm_model":
         d.item("generation", "every chat reply and cited answer",
-               f"Asks the gateway to run {value!r} instead of {current!r}, "
+               f"Asks the gateway to run {value!r} instead of {current}, "
                f"immediately, for every generation call after this change. "
                f"Collections and their embeddings are unaffected — retrieval is "
                f"keyed on AI_EMBED_MODEL, a separate setting this action cannot "
                f"change.")
-    else:
+    elif key == "ai.litellm_url":
         d.item("routing", "every chat, cited answer, and document/query embedding",
-               f"{key} feeds the one gateway path all of them share — changing it "
-               f"from {current!r} to {value!r} repoints every one of them "
-               f"immediately, not just new conversations.")
+               f"LITELLM_URL feeds the one gateway path all of them share — "
+               f"changing it from {current} to {value!r} repoints every one of "
+               f"them immediately, not just new conversations.")
+    else:  # ai.provider
+        d.item("configuration", "the stored ai.provider value, nothing else",
+               f"AI_PROVIDER is not read anywhere in this application — the "
+               f"gateway used for every chat, cited answer, and embedding call "
+               f"is decided by LITELLM_URL alone. Changing ai.provider from "
+               f"{current} to {value!r} updates the stored value shown in "
+               f"Settings and nothing else: no traffic moves and no call is "
+               f"repointed.")
     return d.done()
 
 
@@ -128,10 +143,12 @@ ACTIONS = (
            f"Change one non-credential AI setting: {_KEY_LIST}. The person must "
            "name which setting themselves — if they haven't, ask (e.g. 'which "
            "setting: provider, litellm_url, or litellm_model?') rather than "
-           "proposing against 'the model' or 'the settings' generically. Every "
-           "one of the three changes how or with what model later calls are "
-           "served, immediately — provider and litellm_url repoint the shared "
-           "gateway path chat, cited answers, and embeddings all use.",
+           "proposing against 'the model' or 'the settings' generically. The "
+           "three do not share one consequence: litellm_url repoints the shared "
+           "gateway path chat, cited answers, and embeddings all use, "
+           "immediately; litellm_model changes only the generation model; "
+           "provider is stored and displayed in Settings but read by nothing, "
+           "so changing it moves no traffic.",
            ("*",), "settings:write", ActionKind.DESTRUCTIVE, SetModelConfigParams,
            target_field="key"),
 )
