@@ -188,13 +188,17 @@ class RefreshScheduleParams(_Strict):
 
 class MemberGrantParams(_Strict):
     collection: str
-    email: str
+    username: str = Field(
+        description="The person's login username, not their email address — "
+                    "collection membership resolves strictly on username.")
     role: Literal["reader", "editor"]
 
 
 class MemberRemoveParams(_Strict):
     collection: str
-    email: str
+    username: str = Field(
+        description="The person's login username, not their email address — "
+                    "collection membership resolves strictly on username.")
 
 
 def build_schedule_request(params: dict, source):
@@ -245,17 +249,17 @@ async def preview_add_member(params: dict, user: dict) -> dict:
     """Who is being given what, on which collection — and, if they are already a
     member, what role they are being moved from."""
     from app.api.ai_vectors import list_members
-    name, email = params["collection"], params["email"]
+    name, username = params["collection"], params["username"]
     existing = None
     try:
         current = await list_members(name, user=user)
         existing = next((m for m in (current.get("members") or [])
-                          if m.get("username") == email), None)
+                          if m.get("username") == username), None)
     except Exception as e:
         logger.warning(f"[chat] could not list members for preview: {e}")
     return {
         "collection": name,
-        "email": email,
+        "username": username,
         "new_role": params["role"],
         "current_role": existing.get("role") if existing else None,
     }
@@ -263,9 +267,7 @@ async def preview_add_member(params: dict, user: dict) -> dict:
 
 def build_member_grant(params: dict):
     from app.api.ai_vectors import MemberGrant
-    # `username`, not `email` — MemberGrant has no email field. The account
-    # identifier this deployment's users log in with is what add_member expects.
-    return MemberGrant(username=params["email"], role=params["role"])
+    return MemberGrant(username=params["username"], role=params["role"])
 
 
 async def add_member_action(params: dict, user: dict) -> dict:
@@ -275,17 +277,17 @@ async def add_member_action(params: dict, user: dict) -> dict:
 
 async def preview_remove_member(params: dict, user: dict) -> dict:
     from app.api.ai_vectors import list_members
-    name, email = params["collection"], params["email"]
+    name, username = params["collection"], params["username"]
     existing = None
     try:
         current = await list_members(name, user=user)
         existing = next((m for m in (current.get("members") or [])
-                          if m.get("username") == email), None)
+                          if m.get("username") == username), None)
     except Exception as e:
         logger.warning(f"[chat] could not list members for preview: {e}")
     return {
         "collection": name,
-        "email": email,
+        "username": username,
         "current_role": existing.get("role") if existing else None,
         "is_member": existing is not None,
     }
@@ -293,7 +295,7 @@ async def preview_remove_member(params: dict, user: dict) -> dict:
 
 async def remove_member_action(params: dict, user: dict) -> dict:
     from app.api.ai_vectors import remove_member
-    return await remove_member(params["collection"], params["email"], user=user)
+    return await remove_member(params["collection"], params["username"], user=user)
 
 
 ACTIONS = (

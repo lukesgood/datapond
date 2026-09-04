@@ -42,14 +42,14 @@ def test_the_knowledge_actions_pass_the_caller_through(monkeypatch):
     seen = {}
 
     async def _fake(name, body, user=None):
-        seen.update(name=name, user=user)
+        seen.update(name=name, username=body.username, user=user)
         return {"ok": True}
 
     monkeypatch.setattr("app.api.ai_vectors.add_member", _fake)
     user = {"id": "u1"}
-    _run(mod.add_member_action({"collection": "handbook", "email": "a@b.c",
+    _run(mod.add_member_action({"collection": "handbook", "username": "ada",
                                 "role": "viewer"}, user))
-    assert seen == {"name": "handbook", "user": user}
+    assert seen == {"name": "handbook", "username": "ada", "user": user}
 
 
 def test_the_connector_actions_pass_the_caller_through(monkeypatch):
