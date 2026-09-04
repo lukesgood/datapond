@@ -17,6 +17,13 @@ class PolicyQuery(_Strict):
 
 
 async def explain_policy(params: dict, user: dict) -> dict:
+    """Important 6: `id` is included so a person can name a policy to delete without
+    ever leaving the panel. `governance.delete_rls_policy` / `delete_masking_policy`
+    target a UUID (`target_field="policy_id"`), and before this no read action ever
+    showed one — the person could not have named an id `named_by_user` would accept
+    without going somewhere else first (the Governance page's own UI) to find it.
+    Reading a policy here and then asking to delete "policy <id>" now works from
+    inside the conversation."""
     from app.rls import loader as rls_loader
     policies = await rls_loader.load_policies()
     masks = await rls_loader.load_masks()
@@ -25,9 +32,10 @@ async def explain_policy(params: dict, user: dict) -> dict:
         policies = [p for p in policies if wanted in f"{p.schema}.{p.table}".lower()]
         masks = [m for m in masks if wanted in f"{m.schema}.{m.table}".lower()]
     return {
-        "row_filters": [{"table": f"{p.schema}.{p.table}", "filter": p.filter_expression,
-                         "roles": sorted(p.role_map)} for p in policies[:25]],
-        "column_masks": [{"table": f"{m.schema}.{m.table}", "column": m.column,
+        "row_filters": [{"id": p.id, "table": f"{p.schema}.{p.table}",
+                         "filter": p.filter_expression, "roles": sorted(p.role_map)}
+                        for p in policies[:25]],
+        "column_masks": [{"id": m.id, "table": f"{m.schema}.{m.table}", "column": m.column,
                           "type": m.masking_type} for m in masks[:25]],
     }
 
@@ -312,11 +320,19 @@ async def create_masking_policy_action(params: dict, user: dict) -> dict:
 # which is the one claim this feature must never make about a store it could not
 # read.
 #
-# `_policy_by_id` / `_policies_for_table` / `_mask_policy_by_id` are thin readers
-# over the exact source `/governance/rls/coverage` already reads —
-# `app.rls.loader.load_policies()` / `load_masks()` — not a second lookup invented
-# for this task. That loader only returns *enabled* policies (see its docstring),
-# same set the coverage endpoint and `explain_policy` above already work from.
+# `_policies_for_table` / `_masks_for_column` read `load_policies()` / `load_masks()`
+# — the *enabled* set, same as `/governance/rls/coverage` and `explain_policy` above
+# — because what they answer is "what enforcement remains on this table", and a
+# disabled policy enforces nothing.
+#
+# `_policy_by_id` / `_mask_policy_by_id` are different on purpose: they identify the
+# one row `governance.delete_rls_policy` / `delete_mask_policy`
+# (app/api/governance.py) is about to act on, and that delete has no `enabled`
+# condition — `DELETE FROM rls_policies WHERE id = $1`. A lookup through
+# `load_policies()` would miss a disabled policy and let the card say "no such
+# policy" for one about to be destroyed (Critical 4). They go through
+# `app.rls.loader.load_policy_by_id` / `load_mask_by_id` instead, which read the
+# same table the delete acts on, by id, with no `enabled` filter.
 
 
 class PolicyDeleteParams(_Strict):
@@ -343,13 +359,16 @@ def _key(catalog: str, schema: str, table: str) -> str:
 
 
 async def _policy_by_id(policy_id: str) -> Optional[dict]:
+    """Sees a disabled policy, unlike `load_policies()` — see the block comment
+    above. `enabled` is carried into the dict so the preview/dependents card can say
+    a disabled policy is currently inactive, not just name it."""
     from app.rls import loader as rls_loader
-    for p in await rls_loader.load_policies():
-        if str(p.id) == str(policy_id):
-            return {"id": p.id, "table": f"{p.catalog}.{p.schema}.{p.table}",
-                    "table_key": _key(p.catalog, p.schema, p.table),
-                    "roles": [r for r, exempt in p.role_map.items() if not exempt]}
-    return None
+    p = await rls_loader.load_policy_by_id(policy_id)
+    if p is None:
+        return None
+    return {"id": p.id, "table": f"{p.catalog}.{p.schema}.{p.table}",
+            "table_key": _key(p.catalog, p.schema, p.table), "enabled": p.enabled,
+            "roles": [r for r, exempt in p.role_map.items() if not exempt]}
 
 
 async def _policies_for_table(table_key: str) -> List[dict]:
@@ -363,19 +382,21 @@ async def _policies_for_table(table_key: str) -> List[dict]:
 
 
 async def _mask_policy_by_id(policy_id: str) -> Optional[dict]:
+    """Sees a disabled masking policy, unlike `load_masks()` — see the block comment
+    above."""
     from app.rls import loader as rls_loader
-    for m in await rls_loader.load_masks():
-        if str(m.id) == str(policy_id):
-            return {"id": m.id, "table": f"{m.catalog}.{m.schema}.{m.table}",
-                    "table_key": _key(m.catalog, m.schema, m.table),
-                    # The PII scan (app.api.governance._scan_pii_tables) keys its
-                    # results as "schema.table" with no catalog — kept alongside the
-                    # qualified key above so the PII lookup below can match it
-                    # without conflating this reader's own catalog-qualified key.
-                    "schema_table": f"{m.schema}.{m.table}",
-                    "column": m.column, "rule": m.masking_type,
-                    "roles": [r for r, exempt in m.role_map.items() if not exempt]}
-    return None
+    m = await rls_loader.load_mask_by_id(policy_id)
+    if m is None:
+        return None
+    return {"id": m.id, "table": f"{m.catalog}.{m.schema}.{m.table}",
+            "table_key": _key(m.catalog, m.schema, m.table), "enabled": m.enabled,
+            # The PII scan (app.api.governance._scan_pii_tables) keys its
+            # results as "schema.table" with no catalog — kept alongside the
+            # qualified key above so the PII lookup below can match it
+            # without conflating this reader's own catalog-qualified key.
+            "schema_table": f"{m.schema}.{m.table}",
+            "column": m.column, "rule": m.masking_type,
+            "roles": [r for r, exempt in m.role_map.items() if not exempt]}
 
 
 async def _masks_for_column(table_key: str, column: str) -> List[dict]:
@@ -407,11 +428,19 @@ async def dependents_delete_rls_policy(params: dict, user: dict) -> dict:
     table_key = policy.get("table_key") or table.lower()
     roles = [r for r in (policy.get("roles") or []) if r]
     who = ", ".join(roles) if roles else "no roles were assigned to this policy"
+    # `_policy_by_id` now sees disabled policies too (Critical 4) — a disabled one
+    # enforces nothing today, so "currently covers" would be a new false claim for
+    # exactly the row this fix was meant to stop misdescribing.
+    disabled_note = ("" if policy.get("enabled", True) else
+                      " This policy is currently disabled, so it is not enforcing "
+                      "that filter right now — deleting it removes the record, not "
+                      "an active protection.")
 
     # Known from the first read alone, emitted before the second read is even
     # attempted — a failure below (the coverage check) must not discard the
     # identity of the policy actually being deleted.
-    d.item("rls_policy", table, f"This row filter on {table} currently covers {who}.")
+    d.item("rls_policy", table,
+           f"This row filter on {table} covers {who} when enabled.{disabled_note}")
 
     try:
         others = [p for p in (await _maybe_await(_policies_for_table(table_key)) or [])
@@ -460,12 +489,17 @@ async def dependents_delete_masking_policy(params: dict, user: dict) -> dict:
     rule = policy.get("rule") or "masking"
     roles = [r for r in (policy.get("roles") or []) if r]
     who = ", ".join(roles) if roles else "no roles were assigned to this policy"
+    disabled_note = ("" if policy.get("enabled", True) else
+                      " This policy is currently disabled, so it is not masking "
+                      "that column right now — deleting it removes the record, "
+                      "not an active protection.")
 
     # Known from the first read alone, emitted before the second read is even
     # attempted — a failure below (the coverage check) must not discard the
     # identity of the policy actually being deleted.
     d.item("mask_policy", f"{table}.{column}",
-           f"This mask on {table}.{column} ({rule}) currently applies to {who}.")
+           f"This mask on {table}.{column} ({rule}) applies to {who} when "
+           f"enabled.{disabled_note}")
 
     try:
         others = [m for m in (await _maybe_await(_masks_for_column(table_key, column)) or [])
@@ -551,9 +585,11 @@ async def preview_delete_rls_policy(params: dict, user: dict) -> dict:
                           f"found in the policy store."}
     table = policy.get("table") or "(unknown table)"
     roles = policy.get("roles") or []
-    return {"policy_id": policy_id, "table": table, "roles": roles,
+    enabled = policy.get("enabled", True)
+    return {"policy_id": policy_id, "table": table, "roles": roles, "enabled": enabled,
             "summary": f"Delete the row filter on {table} covering "
-                      f"{', '.join(roles) if roles else 'no roles'}."}
+                      f"{', '.join(roles) if roles else 'no roles'}"
+                      + ("." if enabled else " (currently disabled).")}
 
 
 async def preview_delete_masking_policy(params: dict, user: dict) -> dict:
@@ -571,8 +607,10 @@ async def preview_delete_masking_policy(params: dict, user: dict) -> dict:
                           f"was found in the policy store."}
     table = policy.get("table") or "(unknown table)"
     column = policy.get("column") or "(unknown column)"
-    return {"policy_id": policy_id, "table": table, "column": column,
-            "summary": f"Delete the column mask on {table}.{column}."}
+    enabled = policy.get("enabled", True)
+    return {"policy_id": policy_id, "table": table, "column": column, "enabled": enabled,
+            "summary": f"Delete the column mask on {table}.{column}"
+                      + ("." if enabled else " (currently disabled).")}
 
 
 async def delete_rls_policy_action(params: dict, user: dict) -> dict:
@@ -587,7 +625,10 @@ async def delete_masking_policy_action(params: dict, user: dict) -> dict:
 
 ACTIONS = (
     Action("governance.explain_policy", "Explain policy",
-           "Which row filters and column masks apply, and to whom.",
+           "Which row filters and column masks apply, and to whom. Each result "
+           "includes the policy's id — the only way to identify a specific policy "
+           "to delete_rls_policy / delete_masking_policy, which target an id, not "
+           "a table name.",
            ("/governance",), "governance:read", ActionKind.READ, PolicyQuery),
     Action("governance.policy_coverage", "Policy coverage",
            "Which tables have a row-level policy and which have none.",

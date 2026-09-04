@@ -90,15 +90,19 @@ def test_a_same_named_table_in_another_catalog_is_not_counted_as_coverage(monkey
     from app.rls.engine import RlsPolicy
     import app.rls.loader as rls_loader_mod
 
+    aws = RlsPolicy(id="rls-aws", catalog="aws", schema="crm", table="customers",
+                    filter_expression="region = 'x'", role_map={"analyst": False})
+    gcp = RlsPolicy(id="rls-gcp", catalog="gcp", schema="crm", table="customers",
+                    filter_expression="region = 'y'", role_map={"viewer": False})
+
     async def _fake_load_policies():
-        return [
-            RlsPolicy(id="rls-aws", catalog="aws", schema="crm", table="customers",
-                      filter_expression="region = 'x'", role_map={"analyst": False}),
-            RlsPolicy(id="rls-gcp", catalog="gcp", schema="crm", table="customers",
-                      filter_expression="region = 'y'", role_map={"viewer": False}),
-        ]
+        return [aws, gcp]
+
+    async def _fake_load_policy_by_id(policy_id):
+        return {"rls-aws": aws, "rls-gcp": gcp}.get(policy_id)
 
     monkeypatch.setattr(rls_loader_mod, "load_policies", _fake_load_policies)
+    monkeypatch.setattr(rls_loader_mod, "load_policy_by_id", _fake_load_policy_by_id)
     out = _run(mod.dependents_delete_rls_policy({"policy_id": "rls-aws"}, {"id": "u1"}))
     effects = " ".join(i["effect"] for i in out["items"])
     assert "rls-gcp" not in effects, "a different catalog's policy is not coverage"
@@ -114,15 +118,19 @@ def test_a_policy_differing_only_in_case_is_still_treated_as_coverage(monkeypatc
     from app.rls.engine import RlsPolicy
     import app.rls.loader as rls_loader_mod
 
+    p1 = RlsPolicy(id="rls-1", catalog="iceberg", schema="Crm", table="Customers",
+                   filter_expression="region = 'x'", role_map={"analyst": False})
+    p2 = RlsPolicy(id="rls-2", catalog="ICEBERG", schema="crm", table="customers",
+                   filter_expression="region = 'y'", role_map={"viewer": False})
+
     async def _fake_load_policies():
-        return [
-            RlsPolicy(id="rls-1", catalog="iceberg", schema="Crm", table="Customers",
-                      filter_expression="region = 'x'", role_map={"analyst": False}),
-            RlsPolicy(id="rls-2", catalog="ICEBERG", schema="crm", table="customers",
-                      filter_expression="region = 'y'", role_map={"viewer": False}),
-        ]
+        return [p1, p2]
+
+    async def _fake_load_policy_by_id(policy_id):
+        return {"rls-1": p1, "rls-2": p2}.get(policy_id)
 
     monkeypatch.setattr(rls_loader_mod, "load_policies", _fake_load_policies)
+    monkeypatch.setattr(rls_loader_mod, "load_policy_by_id", _fake_load_policy_by_id)
     out = _run(mod.dependents_delete_rls_policy({"policy_id": "rls-1"}, {"id": "u1"}))
     effects = " ".join(i["effect"] for i in out["items"])
     assert "rls-2" in effects, "a case-only difference is the same table"
@@ -218,3 +226,100 @@ def test_a_failing_mask_coverage_check_still_shows_the_first_reads_facts(monkeyp
     assert out["items"], "the successful first read must still be shown"
     assert "email" in repr(out) and "analyst" in repr(out)
     assert out["not_checked"], "the coverage check that failed must still be flagged"
+
+
+# ── Critical 4 — a disabled policy must still be found, not read as absent ──────
+
+def test_policy_lookup_uses_the_by_id_loader_not_the_enabled_only_one(monkeypatch):
+    """`load_policies()` filters to `enabled = true` (its own docstring). The delete
+    route (`DELETE /governance/rls/policies/{id}`) has no such filter — it deletes a
+    disabled policy exactly as readily as an enabled one. `_policy_by_id` must read
+    through `load_policy_by_id`, the loader that has no enabled condition either, or
+    a disabled policy about to be destroyed is misreported as not existing."""
+    from app.chat.analysis import governance as mod
+    from app.rls.engine import RlsPolicy
+    import app.rls.loader as rls_loader_mod
+
+    disabled = RlsPolicy(id="rls-9", catalog="iceberg", schema="crm", table="customers",
+                         filter_expression="region = 'x'", enabled=False,
+                         role_map={"analyst": False})
+
+    async def _load_policies_enabled_only():
+        return []  # what the real loader would return: disabled rows excluded
+
+    async def _load_policy_by_id(policy_id):
+        return disabled if policy_id == "rls-9" else None
+
+    monkeypatch.setattr(rls_loader_mod, "load_policies", _load_policies_enabled_only)
+    monkeypatch.setattr(rls_loader_mod, "load_policy_by_id", _load_policy_by_id)
+
+    policy = _run(mod._policy_by_id("rls-9"))
+    assert policy is not None, (
+        "a disabled policy must still be found — the loader that only returns "
+        "enabled rows must not be the one this lookup goes through")
+    assert policy["enabled"] is False
+
+    preview = _run(mod.preview_delete_rls_policy({"policy_id": "rls-9"}, {"id": "u1"}))
+    assert "no such policy" not in preview["summary"]
+    assert "disabled" in preview["summary"]
+
+    out = _run(mod.dependents_delete_rls_policy({"policy_id": "rls-9"}, {"id": "u1"}))
+    assert out["items"], "a disabled policy is still a real dependents computation"
+    assert not any("no such" in (nc or "").lower() for nc in out["not_checked"])
+
+
+def test_mask_lookup_uses_the_by_id_loader_not_the_enabled_only_one(monkeypatch):
+    """The masking twin of the RLS test above."""
+    from app.chat.analysis import governance as mod
+    from app.rls.engine import MaskPolicy
+    import app.rls.loader as rls_loader_mod
+
+    disabled = MaskPolicy(id="m-9", catalog="iceberg", schema="crm", table="customers",
+                          column="email", masking_type="full", enabled=False,
+                          role_map={"analyst": False})
+
+    async def _load_masks_enabled_only():
+        return []
+
+    async def _load_mask_by_id(policy_id):
+        return disabled if policy_id == "m-9" else None
+
+    monkeypatch.setattr(rls_loader_mod, "load_masks", _load_masks_enabled_only)
+    monkeypatch.setattr(rls_loader_mod, "load_mask_by_id", _load_mask_by_id)
+
+    policy = _run(mod._mask_policy_by_id("m-9"))
+    assert policy is not None
+    assert policy["enabled"] is False
+
+    preview = _run(mod.preview_delete_masking_policy({"policy_id": "m-9"}, {"id": "u1"}))
+    assert "no such policy" not in preview["summary"]
+    assert "disabled" in preview["summary"]
+
+
+# ── Important 6 — a policy id has to be reachable from inside the panel ─────────
+
+def test_explain_policy_includes_the_id_a_delete_would_target(monkeypatch):
+    """`delete_rls_policy` / `delete_masking_policy` target_field="policy_id", a
+    UUID — and before this fix no read action ever showed one, so `named_by_user`
+    could never have evidence for a policy id: the person would have had to leave
+    the panel (the Governance page's own UI) to find it first. Once
+    `explain_policy` includes `id`, reading a policy and then asking to delete it by
+    that id works without leaving the conversation."""
+    from app.chat.analysis import governance as mod
+    from app.rls.engine import RlsPolicy, MaskPolicy
+    import app.rls.loader as rls_loader_mod
+
+    async def _fake_load_policies():
+        return [RlsPolicy(id="rls-42", catalog="iceberg", schema="crm", table="customers",
+                          filter_expression="region = 'EU'", role_map={"analyst": False})]
+
+    async def _fake_load_masks():
+        return [MaskPolicy(id="m-42", catalog="iceberg", schema="crm", table="customers",
+                           column="email", masking_type="full", role_map={"analyst": False})]
+
+    monkeypatch.setattr(rls_loader_mod, "load_policies", _fake_load_policies)
+    monkeypatch.setattr(rls_loader_mod, "load_masks", _fake_load_masks)
+
+    out = _run(mod.explain_policy({"table": None}, {"id": "u1"}))
+    assert out["row_filters"][0]["id"] == "rls-42"
+    assert out["column_masks"][0]["id"] == "m-42"
