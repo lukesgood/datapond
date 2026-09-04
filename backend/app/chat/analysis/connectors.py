@@ -1,15 +1,12 @@
 """Reads over sources: what is connected, what ran, and what the checks found — plus
 the two settings on a source that are undoable from what is on screen: its sync
 schedule, and its sync mode."""
-import logging
 from typing import Callable, Dict, Literal, Optional
 
 from pydantic import Field
 
 from app.chat.actions import Action, ActionKind, _Strict
 from app.chat.analysis._resolve import _r
-
-logger = logging.getLogger(__name__)
 
 
 class ConnectionRef(_Strict):
