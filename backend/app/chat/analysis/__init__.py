@@ -8,10 +8,10 @@ from typing import Callable, Dict, Tuple
 
 from app.chat.actions import Action
 from app.chat.analysis import (audit, catalog, connectors, dashboards, governance,
-                               knowledge, pipelines, platform, query, spend)
+                               knowledge, pipelines, platform, query, settings, spend)
 
 _MODULES = (catalog, query, dashboards, knowledge, governance, spend, connectors,
-            platform, pipelines, audit)
+            platform, pipelines, audit, settings)
 
 ACTIONS: Tuple[Action, ...] = tuple(a for m in _MODULES for a in m.ACTIONS)
 

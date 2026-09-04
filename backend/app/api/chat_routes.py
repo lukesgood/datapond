@@ -72,11 +72,13 @@ def _system_prompt(page: str, context: dict) -> str:
         "You can read and analyse this deployment — the catalog, queries, knowledge "
         "collections, sources and their syncs, services, storage, governance policies, "
         "audit activity and model spend — using only the tools you were given.\n"
-        "You can propose deleting a row-filter or column-masking policy, but only one "
-        "the person has already named themselves — every deletion needs their typed "
-        "confirmation before anything runs, never your inference of what they meant. "
-        "You cannot run a sync or change settings. If asked, say so plainly and "
-        "suggest where in the UI to do it."
+        "You can propose deleting a row-filter or column-masking policy, or changing "
+        "a non-credential model setting (provider, gateway URL, model name), but "
+        "only when the person has already named that target themselves — every "
+        "such change needs their typed confirmation before anything runs, never "
+        "your inference of what they meant. You can never read or write a "
+        "credential. You cannot run a sync. If asked, say so plainly and suggest "
+        "where in the UI to do it."
     )
 
 
