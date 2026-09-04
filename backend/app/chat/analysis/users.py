@@ -39,9 +39,13 @@ from app.chat.analysis._resolve import _r
 from app.chat.dependents import Dependents
 from app.permissions import ASSIGNABLE_ROLES, ROLE_PERMISSIONS, permissions_for
 
-# `admin` carries `user:manage` and is excluded even though it is otherwise an
-# assignable role — see constraint 2 in the module docstring.
-GRANTABLE = frozenset(ASSIGNABLE_ROLES) - {"admin"}
+# Excludes every role that carries user:manage, not just the name "admin" — a role
+# added later that also carries user:manage must be excluded too, and constraint 1
+# would not catch it (an admin caller holds user:manage, so granted - held is empty
+# for such a role). Expressing the property, not a proxy for it, is what keeps this
+# holding if that ever happens — see constraint 2 in the module docstring.
+GRANTABLE = frozenset(
+    r for r in ASSIGNABLE_ROLES if "user:manage" not in ROLE_PERMISSIONS.get(r, ()))
 
 # Every role, admin included, is offered in the schema — the schema only shapes what
 # the model may propose; `grant_role` below is what a forged proposal actually meets.
@@ -75,6 +79,10 @@ async def grant_role(params: dict, user: dict) -> dict:
     what the model may propose; this is what a forged proposal meets.
     """
     from app.api.auth import update_user
+    # Lazy import: app.chat.gate imports names from app.chat.actions that do not
+    # exist yet while actions.py is still assembling ACTIONS out of this package —
+    # a top-level import here would be circular.
+    from app.chat.gate import _held_permissions
 
     role = params["role"]
     if role not in GRANTABLE:
@@ -92,7 +100,12 @@ async def grant_role(params: dict, user: dict) -> dict:
         raise PermissionError("You cannot change your own role through the assistant.")
 
     granted = set(ROLE_PERMISSIONS.get(role, ()))
-    held = set(user.get("permissions") or permissions_for(user.get("role")))
+    # Same rule the rest of the codebase states three times (app/api/auth.py:385-387,
+    # auth.py:1043, gate.py:62): an explicit `permissions` set is authoritative,
+    # including when it is empty — a service key scoped down to nothing must not
+    # silently regain its role's full permission set here. `_held_permissions` is
+    # the one answer to this question; this module does not write a second one.
+    held = _held_permissions(user)
     beyond = sorted(granted - held)
     if beyond:
         raise PermissionError(
@@ -140,11 +153,22 @@ async def dependents_grant_role(params: dict, user: dict) -> dict:
 
     current_role = target.get("role") or "viewer"
     held = permissions_for(current_role)
-    gained = sorted(set(ROLE_PERMISSIONS.get(role, ())) - held)
+    new_perms = set(ROLE_PERMISSIONS.get(role, ()))
+    gained = sorted(new_perms - held)
+    lost = sorted(held - new_perms)
     for perm in gained:
         d.item("permission", perm,
                f"{username} moves from {current_role!r} to {role!r} and gains "
                f"{perm}, which they do not hold today.")
+    for perm in lost:
+        # A downgrade with no gained items and no not_checked entries would, per
+        # Dependents' own docstring, be the affirmative claim that nothing depends
+        # on this change — false for a role that loses permissions. Named as a loss,
+        # not folded into "gains", so an approver can tell a grant from a revocation
+        # at a glance.
+        d.item("permission", perm,
+               f"{username} moves from {current_role!r} to {role!r} and loses "
+               f"{perm}, which they hold today.")
     return d.done()
 
 

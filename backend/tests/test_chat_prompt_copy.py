@@ -38,6 +38,11 @@ def test_the_registry_agrees_with_that_claim():
             # target and a typed confirmation — never as an ordinary write. See the
             # prompt copy above, which is what promises this to the model.
             assert action.kind is ActionKind.DESTRUCTIVE, action.id
+    # Fix round 1, finding 5: the two assertions on user:manage above are inside an
+    # `if` guarded on an action that carries "user:manage" existing at all — remove
+    # that action and both go vacuous. This keeps the invariant from silently
+    # stopping meaning anything if users.grant_role is ever removed.
+    assert any(a.permission == "user:manage" for a in REGISTRY.values())
 
 
 def test_the_prompt_mentions_the_reach_it_now_has():

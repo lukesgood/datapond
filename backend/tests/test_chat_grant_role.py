@@ -117,3 +117,49 @@ def test_a_user_that_cannot_be_looked_up_is_not_checked(monkeypatch):
     out = _run(mod.dependents_grant_role(
         {"username": "someone", "role": "viewer"}, ADMIN))
     assert out["items"] == [] and out["not_checked"]
+
+
+def test_a_grant_within_the_grantable_set_still_hits_the_permission_ceiling(monkeypatch):
+    """Fix round 1, finding 3: the two existing 'beyond' tests both granted 'admin',
+    which trips the GRANTABLE check first — the ceiling check itself was never
+    exercised. LIMITED holds user:manage but not connector:write/pipeline:write/etc,
+    and data_engineer is a perfectly grantable role (not admin) that needs them."""
+    monkeypatch.setattr(mod, "_user_by_username",
+                        lambda u: _coro({"id": "u-2", "username": u, "role": "viewer"}))
+    called = []
+    monkeypatch.setattr("app.api.auth.update_user", lambda *a, **k: called.append(a))
+    with pytest.raises(PermissionError):
+        _run(mod.grant_role({"username": "someone", "role": "data_engineer"}, LIMITED))
+    assert called == []
+
+
+def test_an_empty_permissions_set_is_authoritative_not_a_fallback_to_role(monkeypatch):
+    """Fix round 1, finding 1: `permissions: []` must mean "holds nothing", the same
+    rule app/api/auth.py and gate.py state for a service key scoped down to nothing —
+    not silently fall back to permissions_for(role) and regain everything role='admin'
+    would imply."""
+    scoped_to_nothing = {"id": "u-scoped", "username": "scoped", "role": "admin",
+                         "permissions": []}
+    monkeypatch.setattr(mod, "_user_by_username",
+                        lambda u: _coro({"id": "u-2", "username": u, "role": "viewer"}))
+    called = []
+    monkeypatch.setattr("app.api.auth.update_user", lambda *a, **k: called.append(a))
+    with pytest.raises(PermissionError):
+        _run(mod.grant_role({"username": "someone", "role": "viewer"}, scoped_to_nothing))
+    assert called == []
+
+
+def test_a_downgrade_names_the_permissions_lost_not_just_the_ones_gained(monkeypatch):
+    """Fix round 1, finding 4: granting a role with fewer permissions than the
+    person's current one must not render as an empty card — that would be the
+    affirmative claim (per Dependents' own docstring) that nothing depends on this,
+    while permissions are being revoked."""
+    monkeypatch.setattr(mod, "_user_by_username",
+                        lambda u: _coro({"id": "u-2", "username": u,
+                                         "role": "data_engineer"}))
+    out = _run(mod.dependents_grant_role(
+        {"username": "someone", "role": "viewer"}, ADMIN))
+    assert out["items"], "a downgrade must not render as an empty dependents list"
+    rendered = repr(out)
+    assert "loses" in rendered
+    assert "connector:write" in rendered
