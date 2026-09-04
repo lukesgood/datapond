@@ -37,3 +37,19 @@ test("an absent target never confirms, whatever is typed", () => {
   // look pressable.
   assert.equal(canConfirm("anything", ""), false)
 })
+
+test("a single layer of surrounding quotes and spaces confirms, not just bare quotes", () => {
+  assert.equal(canConfirm(" 'crm.customers' ", "crm.customers"), true)
+})
+
+test("nested quotes of different kinds, with spaces outside them, confirm", () => {
+  assert.equal(canConfirm('  "`crm.customers`"  ', "crm.customers"), true)
+})
+
+test("a partial name still does not confirm", () => {
+  assert.equal(canConfirm("customers", "crm.customers"), false)
+})
+
+test("an empty target still does not confirm whatever is typed", () => {
+  assert.equal(canConfirm("crm.customers", ""), false)
+})
