@@ -296,6 +296,44 @@ def test_mask_lookup_uses_the_by_id_loader_not_the_enabled_only_one(monkeypatch)
     assert "disabled" in preview["summary"]
 
 
+# ── Important — a disabled policy's card must not claim protection is lost ──────
+# A disabled policy is not filtering (or masking) anything before the delete either
+# — the table/column is already unprotected by it. These pin the sentence itself,
+# not just that some branch ran, so the next wrong wording would fail them too.
+
+def test_a_disabled_rls_policys_card_does_not_claim_protection_is_lost(monkeypatch):
+    from app.chat.analysis import governance as mod
+    monkeypatch.setattr(mod, "_policies_for_table", lambda table: [])
+    monkeypatch.setattr(mod, "_policy_by_id",
+                        lambda pid: {"id": "rls-9", "table": "crm.customers",
+                                     "table_key": "iceberg.crm.customers",
+                                     "roles": ["analyst"], "enabled": False})
+    out = _run(mod.dependents_delete_rls_policy({"policy_id": "rls-9"}, {"id": "u1"}))
+    effects = " ".join(i["effect"] for i in out["items"])
+    assert "already unfiltered" in effects
+    assert "cannot be re-enabled or restored" in effects
+    for forbidden in ("loses its only row filter", "will see every row",
+                       "becomes unfiltered"):
+        assert forbidden not in effects, f"a disabled policy's card must not say {forbidden!r}"
+
+
+def test_a_disabled_masking_policys_card_does_not_claim_protection_is_lost(monkeypatch):
+    from app.chat.analysis import governance as mod
+    monkeypatch.setattr(mod, "_masks_for_column", lambda table_key, column: [])
+    monkeypatch.setattr(mod, "_mask_policy_by_id",
+                        lambda pid: {"id": "m-9", "table": "crm.customers",
+                                     "table_key": "iceberg.crm.customers",
+                                     "schema_table": "crm.customers", "column": "email",
+                                     "rule": "full", "roles": ["analyst"],
+                                     "enabled": False})
+    out = _run(mod.dependents_delete_masking_policy({"policy_id": "m-9"}, {"id": "u1"}))
+    effects = " ".join(i["effect"] for i in out["items"])
+    assert "already unmasked" in effects
+    assert "cannot be re-enabled or restored" in effects
+    for forbidden in ("stops being masked", "will see the real values"):
+        assert forbidden not in effects, f"a disabled policy's card must not say {forbidden!r}"
+
+
 # ── Important 6 — a policy id has to be reachable from inside the panel ─────────
 
 def test_explain_policy_includes_the_id_a_delete_would_target(monkeypatch):

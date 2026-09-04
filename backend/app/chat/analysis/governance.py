@@ -23,7 +23,15 @@ async def explain_policy(params: dict, user: dict) -> dict:
     showed one — the person could not have named an id `named_by_user` would accept
     without going somewhere else first (the Governance page's own UI) to find it.
     Reading a policy here and then asking to delete "policy <id>" now works from
-    inside the conversation."""
+    inside the conversation.
+
+    Minor fix: adding `id` to up to 25+25 entries pushed this result's JSON size
+    against the 2000-character truncation `chat_routes.py` applies before feeding a
+    read result back to the model (`json.dumps(...)[:2000]`) — a mid-list cut is
+    exactly what would drop the ids this field exists to deliver, for entries later
+    in the list. The list cap is cut to 10+10 so the full result — ids included —
+    fits well inside that budget for the common case; a `table` filter narrows it
+    further when there are more than that."""
     from app.rls import loader as rls_loader
     policies = await rls_loader.load_policies()
     masks = await rls_loader.load_masks()
@@ -34,9 +42,9 @@ async def explain_policy(params: dict, user: dict) -> dict:
     return {
         "row_filters": [{"id": p.id, "table": f"{p.schema}.{p.table}",
                          "filter": p.filter_expression, "roles": sorted(p.role_map)}
-                        for p in policies[:25]],
+                        for p in policies[:10]],
         "column_masks": [{"id": m.id, "table": f"{m.schema}.{m.table}", "column": m.column,
-                          "type": m.masking_type} for m in masks[:25]],
+                          "type": m.masking_type} for m in masks[:10]],
     }
 
 
@@ -461,10 +469,19 @@ async def dependents_delete_rls_policy(params: dict, user: dict) -> dict:
             d.item("role", role,
                    f"{role} will see rows in {table} that are filtered out today — "
                    f"no remaining policy on this table covers that role.")
-    else:
+    elif policy.get("enabled", True):
         d.item("table", table,
                f"{table} loses its only row filter — {who} will see every row in "
                f"{table}; the table becomes unfiltered, with no row filtering left.")
+    else:
+        # Disabled — this policy was not filtering anything before the delete either,
+        # so the table is already unfiltered and deleting it changes nothing about
+        # who sees which rows. What is real: the record is gone for good.
+        d.item("table", table,
+               f"This policy was disabled, so {table} is already unfiltered by it — "
+               f"deleting it does not change who sees which rows. It does remove "
+               f"the record permanently: this policy cannot be re-enabled or "
+               f"restored afterward.")
     return d.done()
 
 
@@ -526,8 +543,20 @@ async def dependents_delete_masking_policy(params: dict, user: dict) -> dict:
                    f"remaining masking policy on this column covers that role.")
         return d.done()
 
-    # This was the only masking policy on this column — it really does stop being
-    # masked, so it is worth saying whether PII was ever found there.
+    if not policy.get("enabled", True):
+        # Disabled — this mask was not masking anything before the delete either, so
+        # the column is already showing real values and deleting the record changes
+        # nothing about who sees them. What is real: the record is gone for good.
+        d.item("column", f"{table}.{column}",
+               f"This mask was disabled, so {table}.{column} is already unmasked by "
+               f"it — deleting it does not change who sees the real values. It does "
+               f"remove the record permanently: this policy cannot be re-enabled or "
+               f"restored afterward.")
+        return d.done()
+
+    # This was the only masking policy on this column, and it is enabled — it
+    # really does stop being masked, so it is worth saying whether PII was ever
+    # found there.
     pii_note = ""
     try:
         import asyncio
