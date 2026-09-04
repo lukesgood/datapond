@@ -5,7 +5,7 @@ Action type, resolution, validation, the gate — and assembles what these modul
 declare.
 """
 import logging
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Literal, Optional
 
 from pydantic import Field
 
@@ -172,6 +172,130 @@ async def diagnose_collection(params: dict, user: dict) -> dict:
     return d.done()
 
 
+# ── The three reversible changes ──────────────────────────────────────────────
+# Undoable from what is on screen — set the number back, flip the switch back,
+# re-add the member — so they use the ordinary preview → approve card (MUTATE),
+# not the destructive gate. See docs/superpowers/plans/... for the grading rule.
+
+class RefreshScheduleParams(_Strict):
+    collection: str
+    # Neither given means "leave the interval as it is" only in the sense that
+    # schedule_ingest's own default (daily) applies — see the previewer, which
+    # reports the collection's *current* interval alongside these.
+    interval_minutes: Optional[int] = None
+    schedule: Optional[str] = None   # legacy Airflow preset (@hourly/@daily/@weekly)
+
+
+class MemberGrantParams(_Strict):
+    collection: str
+    email: str
+    role: Literal["reader", "editor"]
+
+
+class MemberRemoveParams(_Strict):
+    collection: str
+    email: str
+
+
+def build_schedule_request(params: dict, source):
+    from app.api.ai_vectors import ScheduleRequest
+    return ScheduleRequest(interval_minutes=params.get("interval_minutes"),
+                            schedule=params.get("schedule"), source=source)
+
+
+async def preview_set_refresh_schedule(params: dict, user: dict) -> dict:
+    """The interval, and that this always turns refresh on — schedule_ingest has no
+    "leave it off" mode; that is delete_schedule, a different route this action does
+    not call."""
+    from app.api.ai_vectors import get_schedule
+    name = params["collection"]
+    try:
+        current = await get_schedule(name, user=user)
+    except Exception as e:
+        logger.warning(f"[chat] could not read current schedule for preview: {e}")
+        current = {}
+    return {
+        "collection": name,
+        "currently_enabled": bool(current.get("enabled")),
+        "current_interval_minutes": current.get("interval_minutes"),
+        "new_interval_minutes": params.get("interval_minutes"),
+        "schedule_preset": params.get("schedule"),
+        "will_be_enabled": True,
+    }
+
+
+async def set_refresh_schedule_action(params: dict, user: dict) -> dict:
+    """Reschedules the source already configured for this collection — it does not
+    let the model invent a new one. `schedule_ingest` requires a `source`
+    (`ScheduleRequest.source` is not optional), so the one already on file, from
+    `get_schedule`, is what gets resubmitted with the new interval."""
+    from app.api.ai_vectors import SourceIngest, get_schedule, schedule_ingest
+    name = params["collection"]
+    current = await get_schedule(name, user=user)
+    source = current.get("source")
+    if not source:
+        raise ValueError(
+            f"Collection {name!r} has no source configured yet — nothing to "
+            f"reschedule. Ingest a source first.")
+    body = build_schedule_request(params, SourceIngest(**source))
+    return await schedule_ingest(name, body, user=user)
+
+
+async def preview_add_member(params: dict, user: dict) -> dict:
+    """Who is being given what, on which collection — and, if they are already a
+    member, what role they are being moved from."""
+    from app.api.ai_vectors import list_members
+    name, email = params["collection"], params["email"]
+    existing = None
+    try:
+        current = await list_members(name, user=user)
+        existing = next((m for m in (current.get("members") or [])
+                          if m.get("username") == email), None)
+    except Exception as e:
+        logger.warning(f"[chat] could not list members for preview: {e}")
+    return {
+        "collection": name,
+        "email": email,
+        "new_role": params["role"],
+        "current_role": existing.get("role") if existing else None,
+    }
+
+
+def build_member_grant(params: dict):
+    from app.api.ai_vectors import MemberGrant
+    # `username`, not `email` — MemberGrant has no email field. The account
+    # identifier this deployment's users log in with is what add_member expects.
+    return MemberGrant(username=params["email"], role=params["role"])
+
+
+async def add_member_action(params: dict, user: dict) -> dict:
+    from app.api.ai_vectors import add_member
+    return await add_member(params["collection"], build_member_grant(params), user=user)
+
+
+async def preview_remove_member(params: dict, user: dict) -> dict:
+    from app.api.ai_vectors import list_members
+    name, email = params["collection"], params["email"]
+    existing = None
+    try:
+        current = await list_members(name, user=user)
+        existing = next((m for m in (current.get("members") or [])
+                          if m.get("username") == email), None)
+    except Exception as e:
+        logger.warning(f"[chat] could not list members for preview: {e}")
+    return {
+        "collection": name,
+        "email": email,
+        "current_role": existing.get("role") if existing else None,
+        "is_member": existing is not None,
+    }
+
+
+async def remove_member_action(params: dict, user: dict) -> dict:
+    from app.api.ai_vectors import remove_member
+    return await remove_member(params["collection"], params["email"], user=user)
+
+
 ACTIONS = (
     Action("knowledge.search", "Search knowledge",
            "Retrieve passages from a knowledge collection.",
@@ -193,6 +317,16 @@ ACTIONS = (
            "its own schedule, last refresh outcome, and whether it was embedded with "
            "the model queries use now.",
            ("*",), "knowledge:read", ActionKind.READ, CollectionRef),
+    Action("knowledge.set_refresh_schedule", "Set refresh schedule",
+           "Change how often a collection re-embeds from its already-configured "
+           "source, turning automatic refresh on.",
+           ("*",), "knowledge:write", ActionKind.MUTATE, RefreshScheduleParams),
+    Action("knowledge.add_member", "Add collection member",
+           "Share a knowledge collection with one more person, as reader or editor.",
+           ("*",), "knowledge:write", ActionKind.MUTATE, MemberGrantParams),
+    Action("knowledge.remove_member", "Remove collection member",
+           "Revoke one person's access to a knowledge collection.",
+           ("*",), "knowledge:write", ActionKind.MUTATE, MemberRemoveParams),
 )
 
 EXECUTORS: Dict[str, Callable] = {
@@ -202,6 +336,9 @@ EXECUTORS: Dict[str, Callable] = {
     "knowledge.list_collections": list_collections_action,
     "knowledge.collection_composition": collection_composition_action,
     "knowledge.diagnose_collection": diagnose_collection,
+    "knowledge.set_refresh_schedule": set_refresh_schedule_action,
+    "knowledge.add_member": add_member_action,
+    "knowledge.remove_member": remove_member_action,
 }
 
 RESOLVERS: Dict[str, Callable] = {
@@ -214,8 +351,14 @@ RESOLVERS: Dict[str, Callable] = {
     # is the call whose signature matters if diagnose_collection's access check is
     # ever weakened by a refactor elsewhere in ai_vectors.py.
     "knowledge.diagnose_collection": _r("app.api.ai_vectors", "_collection_id"),
+    "knowledge.set_refresh_schedule": _r("app.api.ai_vectors", "schedule_ingest"),
+    "knowledge.add_member": _r("app.api.ai_vectors", "add_member"),
+    "knowledge.remove_member": _r("app.api.ai_vectors", "remove_member"),
 }
 
 PREVIEWERS: Dict[str, Callable] = {
     "knowledge.create_collection": preview_create_collection,
+    "knowledge.set_refresh_schedule": preview_set_refresh_schedule,
+    "knowledge.add_member": preview_add_member,
+    "knowledge.remove_member": preview_remove_member,
 }

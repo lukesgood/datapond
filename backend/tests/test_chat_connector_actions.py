@@ -52,11 +52,27 @@ def test_quality_checks_passes_id_limit_and_user(monkeypatch):
     assert seen == {"connection_id": "c1", "limit": 20, "user": user}
 
 
-def test_all_three_are_reads_gated_on_the_connectors_capability():
-    for action in mod.ACTIONS:
-        assert action.kind.value == "read"
+def test_all_reads_are_gated_on_the_connectors_capability():
+    """The read actions (list/history/quality/diagnose) — the two reversible writes,
+    set_schedule and set_sync_mode, are covered by their own tests: they share the
+    capability but not the permission or kind."""
+    from app.chat.actions import ActionKind
+    reads = [a for a in mod.ACTIONS if a.kind is ActionKind.READ]
+    assert len(reads) == 4
+    for action in reads:
         assert action.capability == "connectors"
         assert action.permission == "connector:read"
+        assert action.pages == ("*",)
+
+
+def test_the_two_writes_are_mutations_gated_on_connector_write():
+    from app.chat.actions import ActionKind
+    writes = [a for a in mod.ACTIONS if a.kind is not ActionKind.READ]
+    assert {a.id for a in writes} == {"connectors.set_schedule", "connectors.set_sync_mode"}
+    for action in writes:
+        assert action.kind is ActionKind.MUTATE
+        assert action.capability == "connectors"
+        assert action.permission == "connector:write"
         assert action.pages == ("*",)
 
 
