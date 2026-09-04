@@ -50,6 +50,10 @@ class Action:
     # Enforced twice, like `permission`: filtered out of the model's tool list here,
     # rechecked server-side in gate._authorize. Fail-closed — see capability_on.
     capability: Optional[str] = None
+    # For a destructive action, the params field holding the thing being changed.
+    # The gate reads the canonical target from here rather than from anything the
+    # model wrote in prose, and it is what the user must type back.
+    target_field: Optional[str] = None
     preview: Optional[Callable] = None   # (params, user) -> dict, server-side
     execute: Optional[Callable] = None   # (params, user) -> dict
 

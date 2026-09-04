@@ -20,7 +20,7 @@ gate is the part that must be right, and it is right or wrong independently of
 Postgres.
 """
 import logging
-from typing import Any, Awaitable, Callable, Optional, Protocol
+from typing import Any, Awaitable, Callable, Mapping, Optional, Protocol, Sequence
 
 from app.chat.actions import (
     Action,
@@ -31,6 +31,7 @@ from app.chat.actions import (
     resolve,
     validate_params,
 )
+from app.chat.naming import named_by_user
 from app.component_guard import capability_on
 from app.permissions import permissions_for
 
@@ -121,12 +122,19 @@ async def propose(
     previewer: Optional[Callable] = None,
     conversation_id: Optional[str] = None,
     request_text: Optional[str] = None,
+    turns: Optional[Sequence[Mapping]] = None,
+    dependents: Optional[Callable] = None,
 ) -> dict:
     """Validate a proposal and either run it (read) or park it for approval (write).
 
     `executor`/`previewer` are injected rather than read off the Action so this module
     stays free of every subsystem the actions touch, and so tests can exercise the gate
     without a catalog, an engine, or a model.
+
+    `turns` is the conversation so far, user turns only counted as evidence — see
+    `app.chat.naming`. `dependents` is an optional `(params, user) -> dict` callable
+    that computes what a destructive change would break; it is never read off the
+    Action, for the same reason `executor`/`previewer` are not.
     """
     try:
         action = resolve(action_id)
@@ -144,11 +152,34 @@ async def propose(
                      action=action.id, stage="propose", reason="invalid_params")
         raise ActionRefused(str(e)) from e
 
+    destructive_fields = {}
+    if action.kind is ActionKind.DESTRUCTIVE:
+        target = str(clean.get(action.target_field or "") or "")
+        evidence = named_by_user(target, turns or ())
+        if not evidence:
+            # Refused before an invocation exists: a confirmation dialog is an
+            # invitation to click, and the model must not be able to raise one for a
+            # target the person never mentioned. See design §4 and §5.
+            await _audit(store, "chat_action_refused", user,
+                         action=action.id, stage="propose", reason="target_not_named",
+                         target=target[:200])
+            raise ActionRefused(
+                f"You have not mentioned {target!r} in this conversation, so I will not "
+                f"offer to change it. Name it and ask again.")
+        destructive_fields = {
+            "target": target,
+            "named_by_user": evidence,
+            "dependents": (await _maybe_await(dependents(clean, user))
+                           if dependents is not None else None),
+        }
+
     preview = None
     if action.kind is not ActionKind.READ and previewer is not None:
         # Computed server-side by the same code path that will execute. A summary the
         # model wrote of its own intent is a second chance to be wrong the same way.
         preview = await _maybe_await(previewer(clean, user))
+    if destructive_fields:
+        preview = {**(preview or {}), **destructive_fields}
 
     invocation = await store.create(
         action_id=action.id, params=clean, preview=preview, page=page,

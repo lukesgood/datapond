@@ -150,6 +150,11 @@ async def chat(request: ChatRequest,
                 previewer=executors.PREVIEWERS.get(call["name"]),
                 conversation_id=conversation_id,
                 request_text=text,
+                # The PII-masked message, not request.message: it is what the rest of
+                # this turn already works from, and masking does not remove
+                # identifiers of the kind a target name uses.
+                turns=[{"role": t.role, "content": t.content} for t in request.history]
+                      + [{"role": "user", "content": text}],
             )
         except ActionRefused as e:
             return {"reply": str(e), "conversation_id": conversation_id,
