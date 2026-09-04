@@ -156,6 +156,79 @@ async def load_policies() -> List[RlsPolicy]:
     return list(by_id.values())
 
 
+async def load_policy_by_id(policy_id: str) -> Optional[RlsPolicy]:
+    """One RLS policy by id, enabled or not.
+
+    `load_policies()` above filters to `enabled = true` by design — every other
+    caller (the engine, `/governance/rls/coverage`, `explain_policy`) only cares
+    about policies actually in force. But `DELETE /governance/rls/policies/{id}`
+    (app/api/governance.py delete_rls_policy) deletes by id with no such filter —
+    a disabled policy is just as deletable as an enabled one. A lookup that goes
+    through `load_policies()` would report a disabled policy as not existing, and
+    the assistant's approval card would tell the person that, while the delete
+    itself would go on to destroy it. This reads the same table the delete acts on,
+    without the enabled condition, so the two agree.
+    """
+    try:
+        pid = str(policy_id)
+        pool = await _get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT p.id, p.catalog_name, p.schema_name, p.table_name,
+                          p.filter_expression, p.priority, p.enabled,
+                          r.name AS role_name, pr.is_exempt
+                   FROM rls_policies p
+                   LEFT JOIN rls_policy_roles pr ON pr.policy_id = p.id
+                   LEFT JOIN roles r ON r.id = pr.role_id
+                   WHERE p.id = $1::uuid""", pid)
+    except Exception as e:
+        logger.warning(f"[rls] policy-by-id load skipped (schema not present?): {e}")
+        return None
+    if not rows:
+        return None
+    r0 = rows[0]
+    pol = RlsPolicy(id=str(r0["id"]), catalog=r0["catalog_name"], schema=r0["schema_name"],
+                    table=r0["table_name"], filter_expression=r0["filter_expression"],
+                    priority=r0["priority"] or 0, enabled=r0["enabled"], role_map={})
+    for r in rows:
+        if r["role_name"]:
+            pol.role_map[r["role_name"]] = bool(r["is_exempt"])
+    return pol
+
+
+async def load_mask_by_id(policy_id: str) -> Optional[MaskPolicy]:
+    """One column-masking policy by id, enabled or not — the masking twin of
+    `load_policy_by_id`, for the same reason: `DELETE
+    /governance/masking/policies/{id}` (app/api/governance.py delete_mask_policy)
+    deletes by id with no `enabled` filter."""
+    try:
+        pid = str(policy_id)
+        pool = await _get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT m.id, m.catalog_name, m.schema_name, m.table_name, m.column_name,
+                          m.masking_type, m.custom_expression, m.enabled,
+                          r.name AS role_name, mr.is_exempt
+                   FROM column_masking_policies m
+                   LEFT JOIN masking_policy_roles mr ON mr.policy_id = m.id
+                   LEFT JOIN roles r ON r.id = mr.role_id
+                   WHERE m.id = $1::uuid""", pid)
+    except Exception as e:
+        logger.warning(f"[rls] mask-by-id load skipped (schema not present?): {e}")
+        return None
+    if not rows:
+        return None
+    r0 = rows[0]
+    m = MaskPolicy(id=str(r0["id"]), catalog=r0["catalog_name"], schema=r0["schema_name"],
+                   table=r0["table_name"], column=r0["column_name"],
+                   masking_type=str(r0["masking_type"]), custom_expression=r0["custom_expression"],
+                   enabled=r0["enabled"], role_map={})
+    for r in rows:
+        if r["role_name"]:
+            m.role_map[r["role_name"]] = bool(r["is_exempt"])
+    return m
+
+
 async def load_masks() -> List[MaskPolicy]:
     """Load all enabled column-masking policies with role mappings. [] if absent."""
     out: Dict[str, MaskPolicy] = {}

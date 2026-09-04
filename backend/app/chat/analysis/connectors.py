@@ -1,5 +1,7 @@
-"""Reads over sources: what is connected, what ran, and what the checks found."""
-from typing import Callable, Dict
+"""Reads over sources: what is connected, what ran, and what the checks found — plus
+the two settings on a source that are undoable from what is on screen: its sync
+schedule, and its sync mode."""
+from typing import Callable, Dict, Literal, Optional
 
 from pydantic import Field
 
@@ -119,6 +121,90 @@ async def diagnose_sync(params: dict, user: dict) -> dict:
     return d.done()
 
 
+# ── The two reversible connector changes ──────────────────────────────────────
+# Undoable from what is on screen — set the cron back, flip the mode back — so
+# these use the ordinary preview → approve card (MUTATE), not the destructive gate.
+
+class ConnectionScheduleParams(_Strict):
+    connection_id: str
+    # None disables the schedule — app.api.connectors.ScheduleRequest.schedule is
+    # "cron expression or None to disable", not the AI-vectors preset string.
+    cron: Optional[str] = None
+
+
+class ConnectionSyncModeParams(_Strict):
+    connection_id: str
+    sync_mode: Literal["full", "incremental"]
+    table_name: Optional[str] = None   # omitted: applies to the connection's default
+
+
+async def preview_set_schedule(params: dict, user: dict) -> dict:
+    """Which connection, which schedule, replacing what."""
+    from app.api.connectors import get_connection
+    cid = params["connection_id"]
+    new_cron = params.get("cron")
+    try:
+        conn = await get_connection(cid, user=user)
+        name, current = conn.get("name"), conn.get("schedule")
+    except Exception as e:
+        # Important 5: current_schedule: null must not stand in for "the read
+        # failed" — that is exactly what a connection with no schedule looks like.
+        return {"connection_id": cid, "new_schedule": new_cron,
+                "disabling": new_cron is None,
+                "summary": f"Set the sync schedule for {cid!r} — its current "
+                          f"schedule could not be read to confirm this: {e}"}
+    return {
+        "connection_id": cid,
+        "connection_name": name,
+        "current_schedule": current,
+        "new_schedule": new_cron,
+        "disabling": new_cron is None,
+    }
+
+
+def build_connector_schedule_request(params: dict):
+    from app.api.connectors import ScheduleRequest
+    return ScheduleRequest(schedule=params.get("cron"))
+
+
+async def set_schedule_action(params: dict, user: dict) -> dict:
+    from app.api.connectors import set_schedule
+    request = build_connector_schedule_request(params)
+    return await set_schedule(params["connection_id"], request, user=user)
+
+
+async def preview_set_sync_mode(params: dict, user: dict) -> dict:
+    """Which connection, which table (or every table), replacing what mode."""
+    from app.api.connectors import get_connection
+    cid = params["connection_id"]
+    table = params.get("table_name") or "all tables"
+    try:
+        conn = await get_connection(cid, user=user)
+        name = conn.get("name")
+    except Exception as e:
+        # Important 5: silently omitting connection_name here would be the read
+        # succeeding and simply finding nothing to report — say it failed instead.
+        return {"connection_id": cid, "table": table,
+                "new_sync_mode": params["sync_mode"],
+                "summary": f"Set the sync mode for {cid!r} to "
+                          f"{params['sync_mode']!r} — the connection could not be "
+                          f"read to confirm this: {e}"}
+    return {
+        "connection_id": cid,
+        "connection_name": name,
+        "table": table,
+        "new_sync_mode": params["sync_mode"],
+    }
+
+
+async def set_sync_mode_action(params: dict, user: dict) -> dict:
+    from app.api.connectors import set_connection_sync_mode
+    body = {"sync_mode": params["sync_mode"]}
+    if params.get("table_name"):
+        body["table_name"] = params["table_name"]
+    return await set_connection_sync_mode(params["connection_id"], body, user=user)
+
+
 ACTIONS = (
     Action("connectors.list_sources", "List sources",
            "Every connected source and its current sync state.",
@@ -137,6 +223,15 @@ ACTIONS = (
            "duration trend, and the quality checks recorded after each load.",
            ("*",), "connector:read", ActionKind.READ, ConnectionRef,
            capability="connectors"),
+    Action("connectors.set_schedule", "Set sync schedule",
+           "Change or clear a connected source's recurring sync schedule.",
+           ("*",), "connector:write", ActionKind.MUTATE, ConnectionScheduleParams,
+           capability="connectors"),
+    Action("connectors.set_sync_mode", "Set sync mode",
+           "Change whether a connection, or one of its tables, syncs full or "
+           "incremental.",
+           ("*",), "connector:write", ActionKind.MUTATE, ConnectionSyncModeParams,
+           capability="connectors"),
 )
 
 EXECUTORS: Dict[str, Callable] = {
@@ -144,6 +239,8 @@ EXECUTORS: Dict[str, Callable] = {
     "connectors.sync_history": sync_history,
     "connectors.quality_checks": quality_checks,
     "connectors.diagnose_sync": diagnose_sync,
+    "connectors.set_schedule": set_schedule_action,
+    "connectors.set_sync_mode": set_sync_mode_action,
 }
 
 RESOLVERS: Dict[str, Callable] = {
@@ -151,6 +248,11 @@ RESOLVERS: Dict[str, Callable] = {
     "connectors.sync_history": _r("app.api.connectors", "get_sync_history"),
     "connectors.quality_checks": _r("app.api.connectors", "get_quality_checks"),
     "connectors.diagnose_sync": _r("app.api.connectors", "get_sync_history"),
+    "connectors.set_schedule": _r("app.api.connectors", "set_schedule"),
+    "connectors.set_sync_mode": _r("app.api.connectors", "set_connection_sync_mode"),
 }
 
-PREVIEWERS: Dict[str, Callable] = {}
+PREVIEWERS: Dict[str, Callable] = {
+    "connectors.set_schedule": preview_set_schedule,
+    "connectors.set_sync_mode": preview_set_sync_mode,
+}

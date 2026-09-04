@@ -72,8 +72,20 @@ def _system_prompt(page: str, context: dict) -> str:
         "You can read and analyse this deployment — the catalog, queries, knowledge "
         "collections, sources and their syncs, services, storage, governance policies, "
         "audit activity and model spend — using only the tools you were given.\n"
-        "You cannot delete anything, run a sync, or change settings. If asked, say so "
-        "plainly and suggest where in the UI to do it."
+        "You can change things too, always with the person's approval first. You "
+        "can create a row-filter or column-masking policy, set or change how often "
+        "a knowledge collection refreshes — you can never turn its schedule off, "
+        "only set or change the interval — add or remove a collection member, and "
+        "change a connected source's sync schedule or its sync mode (full vs "
+        "incremental). You can also delete a row-filter or column-masking policy, "
+        "change a non-credential model setting (provider, gateway URL, model "
+        "name), or grant someone a role — but only when the person has already "
+        "named that target themselves, and only with their typed confirmation of "
+        "that exact name before anything runs, never your inference of what they "
+        "meant. You can never read or write a credential of any kind. You cannot "
+        "delete an account. You cannot run a sync. You cannot delete a collection "
+        "or a dashboard. If asked, say so plainly and suggest where in the UI to "
+        "do it."
     )
 
 
@@ -148,8 +160,21 @@ async def chat(request: ChatRequest,
                 user=user, page=request.page, store=store,
                 executor=executors.EXECUTORS.get(call["name"]),
                 previewer=executors.PREVIEWERS.get(call["name"]),
+                dependents=executors.DEPENDENTS.get(call["name"]),
                 conversation_id=conversation_id,
                 request_text=text,
+                # The PII-masked message, not request.message: it is what the rest of
+                # this turn already works from, and masking does not remove
+                # identifiers of the kind a target name uses.
+                #
+                # The FULL history here, not request.history[-_MAX_TURNS:] like the
+                # model's own context above — deliberately asymmetric. A longer
+                # search window for "did the user actually name this" can only turn
+                # up more genuine evidence, never less, so trimming it to match the
+                # model's window would only ever narrow what counts as named, for no
+                # safety benefit.
+                turns=[{"role": t.role, "content": t.content} for t in request.history]
+                      + [{"role": "user", "content": text}],
             )
         except ActionRefused as e:
             return {"reply": str(e), "conversation_id": conversation_id,
@@ -228,8 +253,16 @@ async def propose_action(request: ProposeRequest,
             user=user, page=request.page, store=store,
             executor=executors.EXECUTORS.get(request.action_id),
             previewer=executors.PREVIEWERS.get(request.action_id),
+            dependents=executors.DEPENDENTS.get(request.action_id),
             conversation_id=conversation_id,
             request_text=f"(chosen from the panel) {request.action_id}",
+            # No `turns`: this endpoint exists for parameters the MODEL produced and
+            # a person merely chose to run (see the docstring above), so the params
+            # are model-authored, not something the person is known to have named
+            # themselves. Passing history here would let a destructive proposal
+            # through on evidence the person never actually gave — `named_by_user`
+            # would find none and gate.propose refuses every destructive action
+            # reached through this route, always. See test_chat_routes_propose.py.
         )
     except ActionRefused as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -241,15 +274,22 @@ async def propose_action(request: ProposeRequest,
     }
 
 
+class ApproveRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    typed_target: Optional[str] = None
+
+
 @router.post("/chat/actions/{invocation_id}/approve")
-async def approve_action(invocation_id: str, user: dict = Depends(require_human)):
+async def approve_action(invocation_id: str, body: Optional[ApproveRequest] = None,
+                         user: dict = Depends(require_human)):
     """Run a proposed action. Takes an id — never parameters. See design §5.2."""
     store = await _store(user)
     try:
         invocation = await approve(
             invocation_id, user=user, store=store,
             executor=executors.EXECUTORS.get(
-                (await store.get(invocation_id) or {}).get("action_id", "")))
+                (await store.get(invocation_id) or {}).get("action_id", "")),
+            typed_target=(body.typed_target if body else None))
     except ActionRefused as e:
         raise HTTPException(status_code=403, detail=str(e))
     return {"id": invocation["id"], "status": invocation["status"],

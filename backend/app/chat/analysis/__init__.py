@@ -8,10 +8,11 @@ from typing import Callable, Dict, Tuple
 
 from app.chat.actions import Action
 from app.chat.analysis import (audit, catalog, connectors, dashboards, governance,
-                               knowledge, pipelines, platform, query, spend)
+                               knowledge, pipelines, platform, query, settings, spend,
+                               users)
 
 _MODULES = (catalog, query, dashboards, knowledge, governance, spend, connectors,
-            platform, pipelines, audit)
+            platform, pipelines, audit, settings, users)
 
 ACTIONS: Tuple[Action, ...] = tuple(a for m in _MODULES for a in m.ACTIONS)
 
@@ -23,3 +24,8 @@ if _dupes:
 EXECUTORS: Dict[str, Callable] = {k: v for m in _MODULES for k, v in m.EXECUTORS.items()}
 RESOLVERS: Dict[str, Callable] = {k: v for m in _MODULES for k, v in m.RESOLVERS.items()}
 PREVIEWERS: Dict[str, Callable] = {k: v for m in _MODULES for k, v in m.PREVIEWERS.items()}
+# Not every module declares a destructive action, so not every module declares
+# DEPENDENTS — getattr with {} default rather than requiring an empty dict boilerplate
+# in each domain module that has nothing destructive yet.
+DEPENDENTS: Dict[str, Callable] = {
+    k: v for m in _MODULES for k, v in getattr(m, "DEPENDENTS", {}).items()}

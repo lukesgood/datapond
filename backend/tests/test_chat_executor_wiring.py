@@ -33,10 +33,21 @@ def _params_for(action_id: str) -> dict:
         "knowledge.list_collections": {"q": None, "limit": 25},
         "knowledge.collection_composition": {"collection": "c"},
         "knowledge.diagnose_collection": {"collection": "c"},
+        "knowledge.set_refresh_schedule": {"collection": "c", "interval_minutes": 60,
+                                            "schedule": None},
+        "knowledge.add_member": {"collection": "c", "username": "ada", "role": "reader"},
+        "knowledge.remove_member": {"collection": "c", "username": "ada"},
         "governance.explain_policy": {"table": None},
         "governance.policy_coverage": {},
         "governance.summary_stats": {},
         "governance.pii_summary": {},
+        "governance.create_rls_policy": {"table": "crm.customers", "roles": ["analyst"],
+                                          "expression": "region = 'EU'"},
+        "governance.create_masking_policy": {"table": "crm.customers", "column": "email",
+                                              "masking_type": "partial_email",
+                                              "roles": ["analyst"]},
+        "governance.delete_rls_policy": {"policy_id": "rls-1"},
+        "governance.delete_masking_policy": {"policy_id": "m-1"},
         "audit.activity_summary": {"days": 7},
         "spend.summarize": {"days": 30},
         "spend.diagnose_change": {"days": 7},
@@ -44,11 +55,16 @@ def _params_for(action_id: str) -> dict:
         "connectors.sync_history": {"connection_id": "c1", "limit": 5},
         "connectors.quality_checks": {"connection_id": "c1", "limit": 5},
         "connectors.diagnose_sync": {"connection_id": "c1"},
+        "connectors.set_schedule": {"connection_id": "c1", "cron": "0 2 * * *"},
+        "connectors.set_sync_mode": {"connection_id": "c1", "sync_mode": "incremental",
+                                      "table_name": None},
         "platform.service_health": {"service": "backend"},
         "platform.service_metrics": {"service": "backend"},
         "platform.recent_events": {"hours": 24, "limit": 50, "severity": None},
         "storage.overview": {},
         "pipelines.recent_runs": {"pipeline": "daily_rollup", "limit": 5},
+        "settings.set_model_config": {"key": "ai.litellm_model", "value": "claude-sonnet-5"},
+        "users.grant_role": {"username": "ada", "role": "viewer"},
     }[action_id]
 
 
@@ -168,10 +184,17 @@ _EXPLICITLY_BOUND_PARAMS = {
     "knowledge.list_collections": {"user", "q", "limit"},        # offset omitted, plain default
     "knowledge.collection_composition": {"name", "user"},
     "knowledge.diagnose_collection": {"c", "name", "user"},      # write/destroy omitted, plain default
+    "knowledge.set_refresh_schedule": {"name", "body", "user"},
+    "knowledge.add_member": {"name", "body", "user"},
+    "knowledge.remove_member": {"name", "username", "user"},
     "governance.explain_policy": set(),        # load_policies() — no params
     "governance.policy_coverage": {"user"},
     "governance.summary_stats": set(),         # _scan_pii_tables() — no params
     "governance.pii_summary": set(),           # _scan_pii_tables() — no params
+    "governance.create_rls_policy": {"body", "user"},
+    "governance.create_masking_policy": {"body", "user"},
+    "governance.delete_rls_policy": {"policy_id", "user"},
+    "governance.delete_masking_policy": {"policy_id", "user"},
     "audit.activity_summary": set(),           # _get_pool() — no params
     "spend.summarize": set(),                  # spend_summary() — no params
     "spend.diagnose_change": {"start_date", "end_date"},
@@ -179,11 +202,15 @@ _EXPLICITLY_BOUND_PARAMS = {
     "connectors.sync_history": {"connection_id", "limit", "user"},
     "connectors.quality_checks": {"connection_id", "limit", "user"},
     "connectors.diagnose_sync": {"connection_id", "limit", "user"},
+    "connectors.set_schedule": {"connection_id", "request", "user"},
+    "connectors.set_sync_mode": {"connection_id", "body", "user"},
     "platform.service_health": {"service"},
     "platform.service_metrics": {"service"},
     "platform.recent_events": {"severity", "kind", "source", "hours", "limit"},
     "storage.overview": set(),                 # get_storage_overview() — no params
     "pipelines.recent_runs": {"pipeline_name", "limit"},
+    "settings.set_model_config": {"body"},
+    "users.grant_role": {"user_id", "body", "admin"},
 }
 
 

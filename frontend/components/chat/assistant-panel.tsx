@@ -9,6 +9,8 @@ import {
   readPanelOpen, serverPanelOpen, subscribeToPanelState, togglePanel,
 } from "@/lib/assistant-panel-state"
 import { Markdown } from "@/components/ui/markdown"
+import { DestructiveCard } from "@/components/chat/destructive-card"
+import { genericPreviewEntries } from "@/lib/preview-render"
 import { Bot, Loader2, PanelRightClose, Check, X, Play } from "lucide-react"
 
 type Turn = {
@@ -132,13 +134,17 @@ export function AssistantPanel() {
     }
   }
 
-  const resolveAction = async (accept: boolean) => {
+  const resolveAction = async (accept: boolean, typedTarget?: string) => {
     if (!pending || busy) return
     setBusy(true)
     try {
       const res = await fetch(
         `/api/chat/actions/${pending.id}/${accept ? "approve" : "reject"}`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(typedTarget ? { typed_target: typedTarget } : {}),
+        },
       )
       const data = await res.json().catch(() => ({}))
       setTurns(t => [...t, !res.ok
@@ -181,8 +187,12 @@ export function AssistantPanel() {
           <p className="text-xs text-muted-foreground">
             Ask about this deployment — the data, your sources and syncs, collections,
             services, storage, policies and spend. With your approval I can run a query,
-            save a dashboard, or create a collection. I cannot delete anything, run a
-            sync, or change settings.
+            save a dashboard, create a collection, create a row-filter or masking
+            policy, set a refresh or sync schedule, change a sync mode, manage
+            collection members, or — with you typing the target's name — delete a
+            row-filter or masking policy, change model configuration, or grant a role.
+            I can never write a credential, delete an account, run a sync, or delete a
+            collection or dashboard.
           </p>
         )}
         {turns.map((turn, i) => turn.action ? (
@@ -201,25 +211,27 @@ export function AssistantPanel() {
           </div>
         ))}
 
-        {pending && (
-          <div className="rounded-lg border border-primary/40 bg-primary/5 p-3">
-            <p className="text-xs font-medium">{pending.label}</p>
-            <PreviewBody preview={pending.preview} />
-            <div className="mt-2.5 flex gap-2">
-              <Button size="sm" className="h-7 gap-1.5 text-xs" disabled={busy}
-                      onClick={() => void resolveAction(true)}>
-                <Check className="h-3.5 w-3.5" /> Approve
-              </Button>
-              <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" disabled={busy}
-                      onClick={() => void resolveAction(false)}>
-                <X className="h-3.5 w-3.5" /> Dismiss
-              </Button>
-            </div>
-            <p className="mt-1.5 text-[10px] text-muted-foreground">
-              Nothing runs until you approve. This is what the server will do.
-            </p>
-          </div>
-        )}
+        {pending && (pending.preview?.target
+          ? <DestructiveCard pending={pending} busy={busy}
+                             onApprove={(typedTarget) => void resolveAction(true, typedTarget)}
+                             onDismiss={() => void resolveAction(false)} />
+          : <div className="rounded-lg border border-primary/40 bg-primary/5 p-3">
+              <p className="text-xs font-medium">{pending.label}</p>
+              <PreviewBody preview={pending.preview} />
+              <div className="mt-2.5 flex gap-2">
+                <Button size="sm" className="h-7 gap-1.5 text-xs" disabled={busy}
+                        onClick={() => void resolveAction(true)}>
+                  <Check className="h-3.5 w-3.5" /> Approve
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" disabled={busy}
+                        onClick={() => void resolveAction(false)}>
+                  <X className="h-3.5 w-3.5" /> Dismiss
+                </Button>
+              </div>
+              <p className="mt-1.5 text-[10px] text-muted-foreground">
+                Nothing runs until you approve. This is what the server will do.
+              </p>
+            </div>)}
         {busy && (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking…
@@ -252,11 +264,29 @@ export function AssistantPanel() {
   )
 }
 
+/** What the server read, and what it is about to do — rendered generically past a
+ *  handful of keys with their own established treatment.
+ *
+ *  Critical 3: this used to handle only `reads`, `validated`, `already_exists`,
+ *  `cost_estimate_available`, `name` and `sql`. None of the five reversible actions
+ *  added in this branch (refresh schedule, member add/remove, connector schedule,
+ *  sync mode) emit any of those — they emit `collection`, `current_role`,
+ *  `new_sync_mode`, `current_schedule`, and so on — so their cards rendered only the
+ *  action label above a sentence promising to show what would happen. Rather than
+ *  add each new key to this list (breaking again the next time an action is added),
+ *  everything not already special-cased here falls through to
+ *  `genericPreviewEntries`: a readable label/value list, `summary` shown as the
+ *  lead sentence when a preview provides one.
+ */
 function PreviewBody({ preview }: { preview: Record<string, unknown> | null }) {
   if (!preview) return null
   const reads = preview.reads as string[] | undefined
+  const entries = genericPreviewEntries(preview)
   return (
     <div className="mt-1.5 space-y-1 text-xs text-muted-foreground">
+      {typeof preview.summary === "string" && preview.summary && (
+        <p className="text-foreground">{preview.summary}</p>
+      )}
       {reads && reads.length > 0 && (
         <p>Reads: <span className="font-mono text-[11px]">{reads.join(", ")}</span></p>
       )}
@@ -278,6 +308,13 @@ function PreviewBody({ preview }: { preview: Record<string, unknown> | null }) {
         <pre className="overflow-x-auto rounded border bg-background p-1.5 font-mono text-[10px]">
 {String(preview.sql)}
         </pre>
+      )}
+      {entries.length > 0 && (
+        <ul className="space-y-0.5">
+          {entries.map(e => (
+            <li key={e.key}>{e.label}: <span className="font-mono text-[11px]">{e.value}</span></li>
+          ))}
+        </ul>
       )}
     </div>
   )
