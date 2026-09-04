@@ -86,3 +86,19 @@ def test_collections_that_cannot_be_listed_are_not_checked(monkeypatch):
     out = _run(mod.dependents_set_model_config(
         {"key": "ai.litellm_model", "value": "titan-v2"}, {"id": "u1"}))
     assert out["items"] == [] and out["not_checked"]
+
+
+def test_the_description_names_the_settable_keys_so_the_model_asks_first():
+    """Fix round 1: the old description said 'provider, gateway URL, or the active
+    model name' — exactly the natural phrasing that does NOT satisfy named_by_user
+    for ai.litellm_model (see the naming-question finding in task-9-report.md). The
+    model must be told, in the description it reads before proposing, which literal
+    keys exist and that the person has to name one themselves — otherwise it invites
+    the model to propose against prose the gate will refuse."""
+    action = REGISTRY["settings.set_model_config"]
+    for key in ("ai.provider", "ai.litellm_url", "ai.litellm_model"):
+        assert key in action.description
+
+    key_field_description = action.params.model_fields["key"].description or ""
+    for key in ("ai.provider", "ai.litellm_url", "ai.litellm_model"):
+        assert key in key_field_description

@@ -23,6 +23,8 @@ collections that would be stranded *before* the change is approved.
 import inspect
 from typing import Any, Callable, Dict, List, Optional
 
+from pydantic import Field
+
 from app.chat.actions import Action, ActionKind, _Strict
 from app.chat.analysis._resolve import _r
 from app.chat.dependents import Dependents
@@ -37,9 +39,23 @@ ALLOWED_KEYS = set(AI_ENV_MAP) - set(SENSITIVE_KEYS)
 # `ai.litellm_url` change how a model is reached, not which one is active.
 _MODEL_KEYS = {"ai.litellm_model"}
 
+# The keys named in both the action description and the params field description
+# below (fix round 1): `named_by_user` only accepts the person's own words, and for
+# a dotted key like "ai.litellm_model" that means either the full key or its
+# trailing segment ("litellm_model") verbatim — "change the model" does not match.
+# The model reading this schema has to be told to ask the person which of these
+# three keys they mean, rather than proposing against prose the gate will refuse.
+_KEY_LIST = "ai.provider, ai.litellm_url, ai.litellm_model"
+
 
 class SetModelConfigParams(_Strict):
-    key: str
+    key: str = Field(
+        ...,
+        description=(
+            f"The exact settings key to change, one of: {_KEY_LIST}. Only propose "
+            f"this action once the person has said which one themselves, by name — "
+            f"'the model' or 'the settings' alone does not identify one of these "
+            f"three. If they haven't said which, ask before proposing."))
     value: Any
 
 
@@ -120,9 +136,12 @@ async def dependents_set_model_config(params: dict, user: dict) -> dict:
 
 ACTIONS = (
     Action("settings.set_model_config", "Change model configuration",
-           "Change a non-credential AI setting: provider, gateway URL, or the "
-           "active model name. Changing the model can strand collections embedded "
-           "with a different one.",
+           f"Change one non-credential AI setting: {_KEY_LIST}. The person must "
+           "name which setting themselves — if they haven't, ask (e.g. 'which "
+           "setting: provider, litellm_url, or litellm_model?') rather than "
+           "proposing against 'the model' or 'the settings' generically. "
+           "Changing litellm_model can strand collections embedded with a "
+           "different model.",
            ("*",), "settings:write", ActionKind.DESTRUCTIVE, SetModelConfigParams,
            target_field="key"),
 )
