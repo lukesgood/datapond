@@ -62,17 +62,31 @@ def test_the_prompt_names_what_it_can_now_change():
 
 def test_the_approval_only_actions_the_prompt_promises_are_not_destructive():
     """The prompt says a refresh schedule, collection membership, a connector
-    schedule, and a sync mode change need only the person's approval — not a typed
-    target. Paired against the registry: each of these stays MUTATE. If one of them
-    were ever promoted to DESTRUCTIVE, the prompt would be understating what the gate
-    actually demands, which is the same drift this file exists to catch."""
+    schedule, a sync mode change, and creating a row-filter or masking policy need
+    only the person's approval — not a typed target. Paired against the registry:
+    each of these stays MUTATE. If one of them were ever promoted to DESTRUCTIVE, the
+    prompt would be understating what the gate actually demands, which is the same
+    drift this file exists to catch."""
     from app.chat.actions import REGISTRY, ActionKind
     approval_only_ids = ("knowledge.set_refresh_schedule", "knowledge.add_member",
                         "knowledge.remove_member", "connectors.set_schedule",
-                        "connectors.set_sync_mode")
+                        "connectors.set_sync_mode", "governance.create_rls_policy",
+                        "governance.create_masking_policy")
     for action_id in approval_only_ids:
         action = REGISTRY[action_id]  # KeyError, not .get() — a removed action must fail loudly
         assert action.kind is ActionKind.MUTATE, action.id
+
+
+def test_the_prompt_names_the_create_actions_too():
+    """Fix round 1, finding 1: governance.create_rls_policy and
+    governance.create_masking_policy are registered MUTATE actions, but an earlier
+    pass of this copy named the corresponding deletes and never said the assistant
+    can create a policy in the first place. A person who does not know the assistant
+    can create a policy will not ask it to — resolving the copy against only the
+    DESTRUCTIVE actions let the creates fall out of view, which is exactly the
+    failure this file exists to catch."""
+    prompt = _system_prompt("/knowledge", {}).lower()
+    assert "create a row-filter or column-masking policy" in prompt
 
 
 def test_the_typed_target_actions_the_prompt_promises_are_exactly_the_destructive_ones():
@@ -86,6 +100,49 @@ def test_the_typed_target_actions_the_prompt_promises_are_exactly_the_destructiv
         "governance.delete_rls_policy", "governance.delete_masking_policy",
         "settings.set_model_config", "users.grant_role",
     }
+
+
+def test_every_refusal_the_prompt_makes_is_guarded_unconditionally():
+    """Fix round 1, finding 2. The prompt makes four flat refusals: it never writes a
+    credential, never deletes an account, never runs a sync, never deletes a
+    collection or a dashboard.
+
+    The `"delete" in action.id` branch in test_the_registry_agrees_with_that_claim
+    only forces DESTRUCTIVE + target_field — it does not forbid the action from
+    existing. A future `users.delete_user`, correctly marked DESTRUCTIVE with a
+    target_field, would pass every assertion in this file while making the "cannot
+    delete an account" claim false, and a green suite would read as coverage it does
+    not provide. Each refusal here is guarded unconditionally instead: by an exact id
+    (sync, where the registry already has a concrete name to check), or by permission
+    shape (account/collection/dashboard deletion, where 'delete' appearing under a
+    permission that should never carry it is the thing to catch, not any one guessed
+    id), or by a set-emptiness check that holds regardless of which actions exist at
+    all (credentials)."""
+    from app.chat.actions import REGISTRY
+    from app.chat.analysis.settings import ALLOWED_KEYS
+    from app.api.system_settings import SENSITIVE_KEYS
+
+    # Credentials: true independent of the registry's contents — settings.py could
+    # gain ten new actions built on ALLOWED_KEYS and this would still hold, because
+    # it is a fact about what ALLOWED_KEYS *is*, not about which action reads it.
+    assert not (ALLOWED_KEYS & set(SENSITIVE_KEYS))
+
+    for action in REGISTRY.values():
+        # Sync: the registry already has one concrete name a sync action would use.
+        assert action.id != "connectors.sync", action.id
+        # Account deletion: user:manage is the permission that reaches accounts and
+        # roles at all; nothing under it may be delete-shaped, not just the one id
+        # this repo happens to have avoided so far.
+        if action.permission == "user:manage":
+            assert "delete" not in action.id, action.id
+        # Collection deletion: same shape, under the permission that reaches
+        # collections.
+        if action.permission == "knowledge:write":
+            assert "delete" not in action.id, action.id
+        # Dashboard deletion: same shape, under the permission that reaches
+        # dashboards.
+        if action.permission == "dashboard:write":
+            assert "delete" not in action.id, action.id
 
 
 def test_the_prompt_does_not_promise_disabling_a_refresh_schedule():
