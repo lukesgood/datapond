@@ -64,6 +64,7 @@ def _params_for(action_id: str) -> dict:
         "storage.overview": {},
         "pipelines.recent_runs": {"pipeline": "daily_rollup", "limit": 5},
         "settings.set_model_config": {"key": "ai.litellm_model", "value": "claude-sonnet-5"},
+        "users.grant_role": {"username": "ada", "role": "viewer"},
     }[action_id]
 
 
@@ -209,6 +210,7 @@ _EXPLICITLY_BOUND_PARAMS = {
     "storage.overview": set(),                 # get_storage_overview() — no params
     "pipelines.recent_runs": {"pipeline_name", "limit"},
     "settings.set_model_config": {"body"},
+    "users.grant_role": {"user_id", "body", "admin"},
 }
 
 

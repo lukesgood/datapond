@@ -20,7 +20,13 @@ def test_the_prompt_still_refuses_writes_it_cannot_do():
 def test_the_registry_agrees_with_that_claim():
     from app.chat.actions import REGISTRY, ActionKind
     for action in REGISTRY.values():
-        assert action.permission != "user:manage", action.id
+        if action.permission == "user:manage":
+            # users.grant_role exists, but only behind the destructive gate — a
+            # named target (the person, via target_field) and a typed confirmation.
+            # An action that can reshape who can do what must never reach a caller
+            # through the weaker, undo-able MUTATE gate.
+            assert action.kind is ActionKind.DESTRUCTIVE, action.id
+            assert action.target_field, action.id
         assert action.id != "connectors.sync", action.id
         if action.permission == "settings:write":
             # settings.set_model_config exists, but only behind the destructive
