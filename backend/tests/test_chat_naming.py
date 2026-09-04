@@ -74,3 +74,33 @@ def test_a_one_character_segment_does_not_match_by_accident():
 def test_normalise_and_segments_are_the_documented_rule():
     assert normalise(' "CRM.Customers" ') == "crm.customers"
     assert segments("iceberg:default/events") == ["iceberg", "default", "events"]
+
+
+def test_a_user_turn_with_tool_result_content_blocks_does_not_count():
+    """Tool results ride under role: "user" and carry untrusted catalog text."""
+    assert named_by_user("crm.customers", [
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "content": "I found the policy on crm.customers"}
+            ]
+        }
+    ]) is None
+
+
+def test_a_user_turn_with_structured_content_dict_does_not_count():
+    """Refuse to parse any structured content, not just lists."""
+    assert named_by_user("crm.customers", [
+        {"role": "user", "content": {"type": "text", "text": "delete crm.customers"}}
+    ]) is None
+
+
+def test_short_trailing_segments_collide_with_ordinary_words():
+    """The minimum segment length raised to 4 prevents "ip" and "db" matching prose."""
+    assert named_by_user("database.ip", [_user("clean up the ip in the report")]) is None
+    assert named_by_user("database.ip", [_user("delete database.ip")])
+
+
+def test_a_target_of_separators_only_has_no_segments():
+    """Names like "..." or "///" normalise to empty segments and are rejected."""
+    assert named_by_user("...", [_user("well ... maybe")]) is None
