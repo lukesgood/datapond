@@ -64,3 +64,74 @@ def test_the_connector_actions_pass_the_caller_through(monkeypatch):
     user = {"id": "u1"}
     _run(mod.set_schedule_action({"connection_id": "c1", "cron": "0 2 * * *"}, user))
     assert seen == {"connection_id": "c1", "user": user}
+
+
+# ── Important 5 — a failed preview read must say so, not look like a lookup that
+# found nothing. governance.py, users.py and settings.py already put the error in
+# `summary`; knowledge.py and connectors.py instead returned current_role: null /
+# is_member: false / current_schedule: null — indistinguishable from a genuine
+# non-member or an unscheduled connection. ─────────────────────────────────────
+
+def test_refresh_schedule_preview_reports_a_failed_read_in_summary(monkeypatch):
+    from app.chat.analysis import knowledge as mod
+
+    async def _boom(name, user=None):
+        raise RuntimeError("schedule store unavailable")
+
+    monkeypatch.setattr("app.api.ai_vectors.get_schedule", _boom)
+    out = _run(mod.preview_set_refresh_schedule(
+        {"collection": "handbook", "interval_minutes": 30}, {"id": "u1"}))
+    assert "current_schedule" not in out
+    assert "could not be read" in out.get("summary", "")
+
+
+def test_add_member_preview_reports_a_failed_read_in_summary(monkeypatch):
+    from app.chat.analysis import knowledge as mod
+
+    async def _boom(name, user=None):
+        raise RuntimeError("member store unavailable")
+
+    monkeypatch.setattr("app.api.ai_vectors.list_members", _boom)
+    out = _run(mod.preview_add_member(
+        {"collection": "handbook", "username": "ada", "role": "reader"}, {"id": "u1"}))
+    assert "current_role" not in out
+    assert "could not be read" in out.get("summary", "")
+
+
+def test_remove_member_preview_reports_a_failed_read_in_summary(monkeypatch):
+    from app.chat.analysis import knowledge as mod
+
+    async def _boom(name, user=None):
+        raise RuntimeError("member store unavailable")
+
+    monkeypatch.setattr("app.api.ai_vectors.list_members", _boom)
+    out = _run(mod.preview_remove_member(
+        {"collection": "handbook", "username": "ada"}, {"id": "u1"}))
+    assert "is_member" not in out
+    assert "could not be read" in out.get("summary", "")
+
+
+def test_connector_schedule_preview_reports_a_failed_read_in_summary(monkeypatch):
+    from app.chat.analysis import connectors as mod
+
+    async def _boom(connection_id, user=None):
+        raise RuntimeError("connector store unavailable")
+
+    monkeypatch.setattr("app.api.connectors.get_connection", _boom)
+    out = _run(mod.preview_set_schedule(
+        {"connection_id": "c1", "cron": "0 2 * * *"}, {"id": "u1"}))
+    assert "current_schedule" not in out
+    assert "could not be read" in out.get("summary", "")
+
+
+def test_connector_sync_mode_preview_reports_a_failed_read_in_summary(monkeypatch):
+    from app.chat.analysis import connectors as mod
+
+    async def _boom(connection_id, user=None):
+        raise RuntimeError("connector store unavailable")
+
+    monkeypatch.setattr("app.api.connectors.get_connection", _boom)
+    out = _run(mod.preview_set_sync_mode(
+        {"connection_id": "c1", "sync_mode": "full"}, {"id": "u1"}))
+    assert "connection_name" not in out
+    assert "could not be read" in out.get("summary", "")

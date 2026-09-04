@@ -145,13 +145,17 @@ async def preview_set_schedule(params: dict, user: dict) -> dict:
     """Which connection, which schedule, replacing what."""
     from app.api.connectors import get_connection
     cid = params["connection_id"]
-    name, current = None, None
+    new_cron = params.get("cron")
     try:
         conn = await get_connection(cid, user=user)
         name, current = conn.get("name"), conn.get("schedule")
     except Exception as e:
-        logger.warning(f"[chat] could not read connection for preview: {e}")
-    new_cron = params.get("cron")
+        # Important 5: current_schedule: null must not stand in for "the read
+        # failed" — that is exactly what a connection with no schedule looks like.
+        return {"connection_id": cid, "new_schedule": new_cron,
+                "disabling": new_cron is None,
+                "summary": f"Set the sync schedule for {cid!r} — its current "
+                          f"schedule could not be read to confirm this: {e}"}
     return {
         "connection_id": cid,
         "connection_name": name,
@@ -176,16 +180,22 @@ async def preview_set_sync_mode(params: dict, user: dict) -> dict:
     """Which connection, which table (or every table), replacing what mode."""
     from app.api.connectors import get_connection
     cid = params["connection_id"]
-    name = None
+    table = params.get("table_name") or "all tables"
     try:
         conn = await get_connection(cid, user=user)
         name = conn.get("name")
     except Exception as e:
-        logger.warning(f"[chat] could not read connection for preview: {e}")
+        # Important 5: silently omitting connection_name here would be the read
+        # succeeding and simply finding nothing to report — say it failed instead.
+        return {"connection_id": cid, "table": table,
+                "new_sync_mode": params["sync_mode"],
+                "summary": f"Set the sync mode for {cid!r} to "
+                          f"{params['sync_mode']!r} — the connection could not be "
+                          f"read to confirm this: {e}"}
     return {
         "connection_id": cid,
         "connection_name": name,
-        "table": params.get("table_name") or "all tables",
+        "table": table,
         "new_sync_mode": params["sync_mode"],
     }
 

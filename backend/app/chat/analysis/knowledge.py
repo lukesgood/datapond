@@ -216,8 +216,15 @@ async def preview_set_refresh_schedule(params: dict, user: dict) -> dict:
     try:
         current = await get_schedule(name, user=user)
     except Exception as e:
-        logger.warning(f"[chat] could not read current schedule for preview: {e}")
-        current = {}
+        # Important 5: a swallowed exception must not surface as current_schedule:
+        # null — that is indistinguishable from a successful lookup that found no
+        # schedule. The error goes in `summary`, the same shape governance.py,
+        # users.py and settings.py already use for a failed preview read.
+        return {"collection": name,
+                "new_interval_minutes": params.get("interval_minutes"),
+                "schedule_preset": params.get("schedule"),
+                "summary": f"Set the refresh schedule for {name!r} — its current "
+                          f"schedule could not be read to confirm this: {e}"}
     return {
         "collection": name,
         "currently_enabled": bool(current.get("enabled")),
@@ -250,13 +257,17 @@ async def preview_add_member(params: dict, user: dict) -> dict:
     member, what role they are being moved from."""
     from app.api.ai_vectors import list_members
     name, username = params["collection"], params["username"]
-    existing = None
     try:
         current = await list_members(name, user=user)
         existing = next((m for m in (current.get("members") or [])
                           if m.get("username") == username), None)
     except Exception as e:
-        logger.warning(f"[chat] could not list members for preview: {e}")
+        # Important 5: current_role: null must not stand in for "the lookup failed"
+        # — it is what a genuine non-member also looks like. Say the read failed.
+        return {"collection": name, "username": username, "new_role": params["role"],
+                "summary": f"Add {username!r} to {name!r} as {params['role']!r} — "
+                          f"their current membership could not be read to confirm "
+                          f"this: {e}"}
     return {
         "collection": name,
         "username": username,
@@ -278,13 +289,16 @@ async def add_member_action(params: dict, user: dict) -> dict:
 async def preview_remove_member(params: dict, user: dict) -> dict:
     from app.api.ai_vectors import list_members
     name, username = params["collection"], params["username"]
-    existing = None
     try:
         current = await list_members(name, user=user)
         existing = next((m for m in (current.get("members") or [])
                           if m.get("username") == username), None)
     except Exception as e:
-        logger.warning(f"[chat] could not list members for preview: {e}")
+        # Important 5: is_member: false must not stand in for "the lookup failed"
+        # — it is exactly what a genuine non-member also looks like.
+        return {"collection": name, "username": username,
+                "summary": f"Remove {username!r} from {name!r} — their current "
+                          f"membership could not be read to confirm this: {e}"}
     return {
         "collection": name,
         "username": username,
