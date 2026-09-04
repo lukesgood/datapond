@@ -8,7 +8,11 @@ invocation even exists.
 
 That is deliberate today and untested, so a later change that threads history
 through (to make some other feature work) could silently remove the protection.
-This pins it.
+This pins it two ways: the end-to-end refusal, and the actual call made to
+`gate.propose` — checking only the former would stay green if a future change
+added a `history` field to `ProposeRequest` and wired `turns=request.history`
+through, since nothing in this file's own request would populate it either. Capturing
+the kwargs pins the mechanism itself, not just today's incidental outcome.
 """
 import asyncio
 
@@ -18,6 +22,11 @@ from fastapi import HTTPException
 from app.api import chat_routes
 
 USER = {"id": "u1", "permissions": ["governance:write"]}
+
+# Captured before any monkeypatch touches `chat_routes.propose` — the real
+# `gate.propose`, so the wrapper below can still exercise the actual refusal logic
+# while also recording what it was called with.
+_REAL_PROPOSE = chat_routes.propose
 
 
 def _run(c):
@@ -45,6 +54,17 @@ def _no_real_infra(monkeypatch):
     monkeypatch.setattr(chat_routes, "PostgresInvocationStore",
                         lambda pool: _NoopStore())
 
+    captured.clear()
+
+    async def _capturing_propose(*args, **kwargs):
+        captured.append(kwargs)
+        return await _REAL_PROPOSE(*args, **kwargs)
+
+    monkeypatch.setattr(chat_routes, "propose", _capturing_propose)
+
+
+captured: list = []
+
 
 def test_a_destructive_action_proposed_through_the_panel_route_is_always_refused():
     request = chat_routes.ProposeRequest(
@@ -56,3 +76,12 @@ def test_a_destructive_action_proposed_through_the_panel_route_is_always_refused
 
     assert exc.value.status_code == 403
     assert "not mentioned" in exc.value.detail
+
+    # Pin the mechanism, not just the outcome: gate.propose was called with no
+    # evidence of user-named targets at all.
+    assert len(captured) == 1
+    turns = captured[0].get("turns")
+    assert not turns, (
+        "app.api.chat_routes.propose_action must never pass conversation history "
+        "into gate.propose — turns must be absent or empty, never threaded through "
+        "from a client-supplied field")

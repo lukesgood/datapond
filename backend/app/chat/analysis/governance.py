@@ -333,31 +333,60 @@ async def _maybe_await(value: Any) -> Any:
     return value
 
 
+def _key(catalog: str, schema: str, table: str) -> str:
+    """Same key `app.rls.coverage._key` / `app.rls.engine._policy_key` use — lower
+    the qualified name before comparing. Comparing raw `schema.table` (no catalog,
+    original case) conflates two different tables: a same-named table in another
+    catalog reads as still covered when it is not, and a policy differing only in
+    case reads as gone when the engine still applies it."""
+    return f"{catalog}.{schema}.{table}".lower()
+
+
 async def _policy_by_id(policy_id: str) -> Optional[dict]:
     from app.rls import loader as rls_loader
     for p in await rls_loader.load_policies():
         if str(p.id) == str(policy_id):
-            return {"id": p.id, "table": f"{p.schema}.{p.table}",
+            return {"id": p.id, "table": f"{p.catalog}.{p.schema}.{p.table}",
+                    "table_key": _key(p.catalog, p.schema, p.table),
                     "roles": [r for r, exempt in p.role_map.items() if not exempt]}
     return None
 
 
-async def _policies_for_table(table: str) -> List[dict]:
-    """Every enabled RLS policy on `table` ('schema.table'), the deleted one
-    included — callers filter it out by id."""
+async def _policies_for_table(table_key: str) -> List[dict]:
+    """Every enabled RLS policy whose qualified, lowercased key equals `table_key`
+    (from `_key`) — the deleted one included, callers filter it out by id."""
     from app.rls import loader as rls_loader
+    key = (table_key or "").lower()
     return [{"id": p.id, "roles": [r for r, exempt in p.role_map.items() if not exempt]}
             for p in await rls_loader.load_policies()
-            if f"{p.schema}.{p.table}" == table]
+            if _key(p.catalog, p.schema, p.table) == key]
 
 
 async def _mask_policy_by_id(policy_id: str) -> Optional[dict]:
     from app.rls import loader as rls_loader
     for m in await rls_loader.load_masks():
         if str(m.id) == str(policy_id):
-            return {"id": m.id, "table": f"{m.schema}.{m.table}",
-                    "column": m.column, "rule": m.masking_type}
+            return {"id": m.id, "table": f"{m.catalog}.{m.schema}.{m.table}",
+                    "table_key": _key(m.catalog, m.schema, m.table),
+                    # The PII scan (app.api.governance._scan_pii_tables) keys its
+                    # results as "schema.table" with no catalog — kept alongside the
+                    # qualified key above so the PII lookup below can match it
+                    # without conflating this reader's own catalog-qualified key.
+                    "schema_table": f"{m.schema}.{m.table}",
+                    "column": m.column, "rule": m.masking_type,
+                    "roles": [r for r, exempt in m.role_map.items() if not exempt]}
     return None
+
+
+async def _masks_for_column(table_key: str, column: str) -> List[dict]:
+    """Every enabled masking policy on this exact (table_key, column) — the deleted
+    one included, callers filter it out by id. The RLS twin of `_policies_for_table`:
+    a mask does not stop applying just because one policy naming it was deleted."""
+    from app.rls import loader as rls_loader
+    key = (table_key or "").lower()
+    return [{"id": m.id, "roles": [r for r, exempt in m.role_map.items() if not exempt]}
+            for m in await rls_loader.load_masks()
+            if _key(m.catalog, m.schema, m.table) == key and m.column == column]
 
 
 async def dependents_delete_rls_policy(params: dict, user: dict) -> dict:
@@ -375,10 +404,17 @@ async def dependents_delete_rls_policy(params: dict, user: dict) -> dict:
         return d.done()
 
     table = policy.get("table") or "(unknown table)"
+    table_key = policy.get("table_key") or table.lower()
     roles = [r for r in (policy.get("roles") or []) if r]
+    who = ", ".join(roles) if roles else "no roles were assigned to this policy"
+
+    # Known from the first read alone, emitted before the second read is even
+    # attempted — a failure below (the coverage check) must not discard the
+    # identity of the policy actually being deleted.
+    d.item("rls_policy", table, f"This row filter on {table} currently covers {who}.")
 
     try:
-        others = [p for p in (await _maybe_await(_policies_for_table(table)) or [])
+        others = [p for p in (await _maybe_await(_policies_for_table(table_key)) or [])
                   if str(p.get("id")) != policy_id]
     except Exception as e:
         d.skipped(f"Could not check whether another policy still covers {table}: {e}")
@@ -397,7 +433,6 @@ async def dependents_delete_rls_policy(params: dict, user: dict) -> dict:
                    f"{role} will see rows in {table} that are filtered out today — "
                    f"no remaining policy on this table covers that role.")
     else:
-        who = ", ".join(roles) if roles else "no roles were assigned to this policy"
         d.item("table", table,
                f"{table} loses its only row filter — {who} will see every row in "
                f"{table}; the table becomes unfiltered, with no row filtering left.")
@@ -419,9 +454,46 @@ async def dependents_delete_masking_policy(params: dict, user: dict) -> dict:
         return d.done()
 
     table = policy.get("table") or "(unknown table)"
+    table_key = policy.get("table_key") or table.lower()
+    schema_table = policy.get("schema_table") or table
     column = policy.get("column") or "(unknown column)"
     rule = policy.get("rule") or "masking"
+    roles = [r for r in (policy.get("roles") or []) if r]
+    who = ", ".join(roles) if roles else "no roles were assigned to this policy"
 
+    # Known from the first read alone, emitted before the second read is even
+    # attempted — a failure below (the coverage check) must not discard the
+    # identity of the policy actually being deleted.
+    d.item("mask_policy", f"{table}.{column}",
+           f"This mask on {table}.{column} ({rule}) currently applies to {who}.")
+
+    try:
+        others = [m for m in (await _maybe_await(_masks_for_column(table_key, column)) or [])
+                  if str(m.get("id")) != policy_id]
+    except Exception as e:
+        d.skipped(f"Could not check whether another masking policy still covers "
+                  f"{table}.{column}: {e}")
+        return d.done()
+
+    if others:
+        # Another policy still masks this exact column — deleting this one does not
+        # expose the real values, the way it would if it were the only one. Same
+        # split RLS uses above: who stays covered, who is newly exposed.
+        remaining_roles = sorted({r for m in others for r in (m.get("roles") or [])})
+        names = ", ".join(str(m.get("id")) for m in others)
+        d.item("mask_policy", f"{table}.{column}",
+               f"{table}.{column} stays masked — {names} still applies"
+               + (f" (to {', '.join(remaining_roles)})" if remaining_roles else "")
+               + ".")
+        exposed = [r for r in roles if r not in remaining_roles]
+        for role in exposed:
+            d.item("role", role,
+                   f"{role} will see the real value of {table}.{column} — no "
+                   f"remaining masking policy on this column covers that role.")
+        return d.done()
+
+    # This was the only masking policy on this column — it really does stop being
+    # masked, so it is worth saying whether PII was ever found there.
     pii_note = ""
     try:
         import asyncio
@@ -429,23 +501,36 @@ async def dependents_delete_masking_policy(params: dict, user: dict) -> dict:
         from app.api.governance import _scan_pii_tables
         scanned = await asyncio.to_thread(_scan_pii_tables)
     except Exception as e:
-        d.skipped(f"The PII scan for {table}.{column} failed to run: {e}")
-        scanned = None
+        d.skipped(f"The PII scan for {schema_table}.{column} failed to run: {e}")
     else:
         if scanned is None:
             d.skipped(f"No PII scan could run on this deployment — the scan needs "
                       f"the Trino query engine or Glue catalog access — so whether "
-                      f"{table}.{column} carries PII could not be checked.")
+                      f"{schema_table}.{column} carries PII could not be checked.")
         else:
-            entry = next((e for e in scanned if getattr(e, "table", None) == table), None)
-            pii_cols = {c.column for c in getattr(entry, "pii_columns", [])} if entry else set()
-            pii_note = (" — the last PII scan found PII in this column"
-                        if column in pii_cols else
-                        " — the last PII scan found no PII in this column")
+            # `_scan_pii_tables` only appends a table when it has at least one PII
+            # hit (app/api/governance.py:396-408) — a clean table and a table that
+            # was never looked at (truncated at PII_SCAN_MAX_TABLES, or its columns
+            # could not be read) are both simply absent from `scanned`. Absent is
+            # not evidence of clean, so it is reported as unchecked, never as "no
+            # PII here" — the same None-vs-[] distinction this module documents at
+            # `pii_summary` above.
+            entry = next((e for e in scanned
+                          if getattr(e, "table", None) == schema_table), None)
+            if entry is None:
+                d.skipped(f"{schema_table} was not recorded in the last PII scan — "
+                          f"that means either it is clean or it was never scanned, "
+                          f"and the two cannot be told apart, so whether {column} "
+                          f"carries PII is not checked.")
+            else:
+                pii_cols = {c.column for c in getattr(entry, "pii_columns", [])}
+                pii_note = (" — the last PII scan found PII in this column"
+                            if column in pii_cols else
+                            " — the last PII scan found no PII in this column")
 
     d.item("column", f"{table}.{column}",
-           f"{table}.{column} stops being masked ({rule}) — anyone who can query "
-           f"{table} will see the real values{pii_note}.")
+           f"{table}.{column} stops being masked ({rule}) — {who} (and anyone else "
+           f"who can query {table}) will see the real values{pii_note}.")
     return d.done()
 
 
