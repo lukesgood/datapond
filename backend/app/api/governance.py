@@ -122,7 +122,9 @@ class AuditStreamResponse(BaseModel):
 
 class GovernanceStats(BaseModel):
     queries_today: int
-    pii_detections: int
+    # None means the PII scan could not run — no query engine to scan with, which is
+    # the Portable Core default. Zero would be a claim we did not measure.
+    pii_detections: Optional[int] = None
 
 
 class PiiColumn(BaseModel):
@@ -337,7 +339,8 @@ def get_governance_stats(db: Session = Depends(get_db)):
         )
 
         pii_tables = _scan_pii_tables()  # None if no scan ran
-        pii_detections = sum(len(t.pii_columns) for t in pii_tables) if pii_tables else 0
+        pii_detections = (None if pii_tables is None
+                          else sum(len(t.pii_columns) for t in pii_tables))
 
         return GovernanceStats(
             queries_today=queries_today,

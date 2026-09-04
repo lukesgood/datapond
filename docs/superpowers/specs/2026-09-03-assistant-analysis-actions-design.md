@@ -277,13 +277,21 @@ bug fix, the second makes every later phase a small diff.
 
 ## 11. What comes after
 
-**The five loose routes.** `/services/{s}/health`, `/services/{s}/metrics`,
+**The loose routes — decided 2026-09-04: leave them.** `/services/{s}/health`, `/services/{s}/metrics`,
 `/storage/overview`, `/connectors/{id}/history` and `/connectors/{id}/quality`, plus
 `/pipelines/{n}/runs`, require only a signed-in user, while the permission vocabulary has
 names for exactly what they expose. Whether to tighten them is a product decision —
 Storage and Services are core navigation, so tightening removes screens from roles that
 have them — and it is unrelated to the assistant except that building this made the gap
-visible. §4.1 records how this design works around it in the meantime.
+visible.
+
+The decision is to leave them open and keep the assistant stricter. Storage and Services
+are core navigation, so tightening removes screens from `viewer` and `business_analyst`,
+and what those endpoints expose is operational state — sync timings, pod health, bucket
+sizes — not customer data. The wide door is the one that mattered, and it is already
+shut: every action over these endpoints is gated on the permission that names the domain,
+so the assistant cannot be used to read around the gap. §4.1 records the asymmetry that
+follows, and it stands rather than being temporary.
 
 **The configuration half.** It needs the destructive gate of
 §5.3 in the earlier spec — typing the target's name, showing dependent objects, refusing

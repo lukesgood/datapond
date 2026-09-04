@@ -144,7 +144,9 @@ export const dashboardApi = {
 // enforcement counter exists yet).
 export interface GovernanceStats {
   queries_today: number
-  pii_detections: number
+  // null when the PII scan could not run — this profile has no query engine to
+  // scan with. Zero would claim a measurement nobody took.
+  pii_detections: number | null
 }
 
 // Matches backend AuditLogItem (backend/app/api/governance.py) — derived from

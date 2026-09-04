@@ -450,10 +450,18 @@ async def delete_key(token: str):
 
 @router.get("/settings/ai/spend", dependencies=[Depends(require_permission("spend:read"))])
 async def spend_summary():
-    """Aggregate spend across all virtual keys (USD)."""
+    """Aggregate spend across all virtual keys (USD).
+
+    Carries `unavailable` when the gateway could not be read. Without it the failure
+    path and a genuinely idle month were the same answer — `total_spend: 0.0` — and
+    the assistant, which is this function's only caller, would report "you spent
+    nothing" for "I could not ask". Same shape as spend_report's `detail`, which has
+    always distinguished the two next door.
+    """
     url, key = _gateway()
     total = 0.0
     n = 0
+    unavailable = None
     try:
         async with httpx.AsyncClient(timeout=10) as c:
             r = await c.get(f"{url}/key/list", headers=_headers(key),
@@ -464,8 +472,15 @@ async def spend_summary():
                 for k in raw:
                     if isinstance(k, dict) and k.get("spend"):
                         total += float(k["spend"]); n += 1
+            else:
+                # The status, not the body: a 401 body from the gateway echoes part of
+                # the key it rejected.
+                unavailable = f"gateway returned HTTP {r.status_code}"
     except Exception as e:
         logger.warning(f"[ai_backends] spend summary failed: {e}")
+        unavailable = "gateway could not be reached"
+    if unavailable:
+        return {"unavailable": unavailable}
     return {"total_spend": round(total, 4), "keys_with_spend": n}
 
 

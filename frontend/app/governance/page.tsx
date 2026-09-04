@@ -83,7 +83,14 @@ function StatCard({ label, value, icon, colorClass, bgClass, loading }: StatCard
             {loading ? (
               <Skeleton className="h-8 w-16 mt-1" />
             ) : (
-              <p className={`text-3xl font-bold mt-1 ${colorClass}`}>{value ?? 0}</p>
+              /* An em dash, not 0, when the number is absent. `?? 0` made three
+                 different situations look identical: measured zero, a stats fetch
+                 that failed, and a PII scan that could not run because this profile
+                 has no query engine. Only the first of those is zero. */
+              <p className={`text-3xl font-bold mt-1 ${value == null ? "text-muted-foreground" : colorClass}`}
+                 title={value == null ? "Not measured" : undefined}>
+                {value ?? "\u2014"}
+              </p>
             )}
           </div>
           <div className={`p-3 rounded-xl ${bgClass}`}>
