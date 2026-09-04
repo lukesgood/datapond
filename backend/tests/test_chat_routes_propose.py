@@ -66,7 +66,18 @@ def _no_real_infra(monkeypatch):
 captured: list = []
 
 
-def test_a_destructive_action_proposed_through_the_panel_route_is_always_refused():
+def test_propose_action_passes_no_naming_evidence_so_destructive_actions_stay_refused():
+    """This route exists for parameters the MODEL produced and a person merely
+    chose to run — a click here is not proof the person named the target in their
+    own words, so `propose_action` must never pass `turns` into `gate.propose` at
+    all. Checking that the call carries no `turns` kwarg is the assertion that
+    actually pins this: `assert not turns` would still pass if a future change
+    added a `history` field to `ProposeRequest` and wired `turns=request.history`
+    through, because this test's own request sets no history either and an empty
+    list is just as falsy as an absent key — the exact loophole this test exists to
+    close. Asserting the key itself is absent fails the moment that wiring exists,
+    regardless of what any particular request happens to carry.
+    """
     request = chat_routes.ProposeRequest(
         action_id="governance.delete_rls_policy",
         params={"policy_id": "rls-1"}, page="*")
@@ -77,11 +88,8 @@ def test_a_destructive_action_proposed_through_the_panel_route_is_always_refused
     assert exc.value.status_code == 403
     assert "not mentioned" in exc.value.detail
 
-    # Pin the mechanism, not just the outcome: gate.propose was called with no
-    # evidence of user-named targets at all.
     assert len(captured) == 1
-    turns = captured[0].get("turns")
-    assert not turns, (
-        "app.api.chat_routes.propose_action must never pass conversation history "
-        "into gate.propose — turns must be absent or empty, never threaded through "
-        "from a client-supplied field")
+    assert "turns" not in captured[0], (
+        "app.api.chat_routes.propose_action must never pass a `turns` kwarg into "
+        "gate.propose at all — not even an empty one — because this route's "
+        "parameters can be model-authored even though a person clicked")

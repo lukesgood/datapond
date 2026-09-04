@@ -62,12 +62,23 @@ def test_a_policy_store_that_cannot_be_read_is_not_checked_not_empty(monkeypatch
 
 
 def test_masking_delete_names_the_columns_that_stop_being_masked(monkeypatch):
+    """Only mask on the column — patching `_mask_policy_by_id` alone left
+    `_masks_for_column` hitting the real loader, which threw and landed in the
+    except branch; the assertion passed for the wrong reason (the failure path's
+    identity item, not the normal "stops being masked" path). Patching both here
+    exercises the path this test is named for."""
     from app.chat.analysis import governance as mod
     monkeypatch.setattr(mod, "_mask_policy_by_id",
                         lambda pid: {"id": "m-1", "table": "crm.customers",
-                                     "column": "email", "rule": "partial"})
+                                     "table_key": "crm.customers",
+                                     "schema_table": "crm.customers",
+                                     "column": "email", "rule": "partial",
+                                     "roles": ["analyst"]})
+    monkeypatch.setattr(mod, "_masks_for_column", lambda table_key, column: [])
     out = _run(mod.dependents_delete_masking_policy({"policy_id": "m-1"}, {"id": "u1"}))
     assert "email" in repr(out)
+    effects = " ".join(i["effect"] for i in out["items"])
+    assert "stops being masked" in effects
 
 
 # ── fix round 1 — findings 1, 2, 3, 4 ───────────────────────────────────────────
