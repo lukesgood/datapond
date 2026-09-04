@@ -9,6 +9,7 @@ import {
   readPanelOpen, serverPanelOpen, subscribeToPanelState, togglePanel,
 } from "@/lib/assistant-panel-state"
 import { Markdown } from "@/components/ui/markdown"
+import { DestructiveCard } from "@/components/chat/destructive-card"
 import { Bot, Loader2, PanelRightClose, Check, X, Play } from "lucide-react"
 
 type Turn = {
@@ -132,13 +133,17 @@ export function AssistantPanel() {
     }
   }
 
-  const resolveAction = async (accept: boolean) => {
+  const resolveAction = async (accept: boolean, typedTarget?: string) => {
     if (!pending || busy) return
     setBusy(true)
     try {
       const res = await fetch(
         `/api/chat/actions/${pending.id}/${accept ? "approve" : "reject"}`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(typedTarget ? { typed_target: typedTarget } : {}),
+        },
       )
       const data = await res.json().catch(() => ({}))
       setTurns(t => [...t, !res.ok
@@ -201,25 +206,27 @@ export function AssistantPanel() {
           </div>
         ))}
 
-        {pending && (
-          <div className="rounded-lg border border-primary/40 bg-primary/5 p-3">
-            <p className="text-xs font-medium">{pending.label}</p>
-            <PreviewBody preview={pending.preview} />
-            <div className="mt-2.5 flex gap-2">
-              <Button size="sm" className="h-7 gap-1.5 text-xs" disabled={busy}
-                      onClick={() => void resolveAction(true)}>
-                <Check className="h-3.5 w-3.5" /> Approve
-              </Button>
-              <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" disabled={busy}
-                      onClick={() => void resolveAction(false)}>
-                <X className="h-3.5 w-3.5" /> Dismiss
-              </Button>
-            </div>
-            <p className="mt-1.5 text-[10px] text-muted-foreground">
-              Nothing runs until you approve. This is what the server will do.
-            </p>
-          </div>
-        )}
+        {pending && (pending.preview?.target
+          ? <DestructiveCard pending={pending} busy={busy}
+                             onApprove={(typedTarget) => void resolveAction(true, typedTarget)}
+                             onDismiss={() => void resolveAction(false)} />
+          : <div className="rounded-lg border border-primary/40 bg-primary/5 p-3">
+              <p className="text-xs font-medium">{pending.label}</p>
+              <PreviewBody preview={pending.preview} />
+              <div className="mt-2.5 flex gap-2">
+                <Button size="sm" className="h-7 gap-1.5 text-xs" disabled={busy}
+                        onClick={() => void resolveAction(true)}>
+                  <Check className="h-3.5 w-3.5" /> Approve
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" disabled={busy}
+                        onClick={() => void resolveAction(false)}>
+                  <X className="h-3.5 w-3.5" /> Dismiss
+                </Button>
+              </div>
+              <p className="mt-1.5 text-[10px] text-muted-foreground">
+                Nothing runs until you approve. This is what the server will do.
+              </p>
+            </div>)}
         {busy && (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking…
