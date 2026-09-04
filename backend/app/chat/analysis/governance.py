@@ -176,14 +176,19 @@ class MaskPolicyCreateParams(_Strict):
 
 def _split_table(table: str):
     """'schema.table' or 'catalog.schema.table' -> (catalog_name, schema_name,
-    table_name). Two parts default the catalog the same way the Governance page's
-    policy forms do (catalog_name defaults to "iceberg", resolved at submission to
-    the runtime catalog)."""
+    table_name). Two parts default the catalog to the same runtime default the RLS
+    engine itself resolves against — `app.rls.engine._default_catalog()`
+    (RLS_DEFAULT_CATALOG or TRINO_CATALOG, else "iceberg") — and the same value
+    `rls_coverage` computes inline at `app/api/governance.py:698`. On this project's
+    AWS Single-Node Reference, Helm sets RLS_DEFAULT_CATALOG=AwsDataCatalog; a
+    literal "iceberg" here would store a policy the engine's own lookup can never
+    match, so this must not diverge from either of those two places."""
+    from app.rls.engine import _default_catalog
     parts = [p for p in str(table).split(".") if p]
     if len(parts) == 3:
         return parts[0], parts[1], parts[2]
     if len(parts) == 2:
-        return "iceberg", parts[0], parts[1]
+        return _default_catalog(), parts[0], parts[1]
     raise ValueError(
         f"table must be 'schema.table' or 'catalog.schema.table', got {table!r}")
 
