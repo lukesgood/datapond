@@ -41,6 +41,11 @@ def _params_for(action_id: str) -> dict:
         "governance.policy_coverage": {},
         "governance.summary_stats": {},
         "governance.pii_summary": {},
+        "governance.create_rls_policy": {"table": "crm.customers", "roles": ["analyst"],
+                                          "expression": "region = 'EU'"},
+        "governance.create_masking_policy": {"table": "crm.customers", "column": "email",
+                                              "masking_type": "partial_email",
+                                              "roles": ["analyst"]},
         "audit.activity_summary": {"days": 7},
         "spend.summarize": {"days": 30},
         "spend.diagnose_change": {"days": 7},
@@ -182,6 +187,8 @@ _EXPLICITLY_BOUND_PARAMS = {
     "governance.policy_coverage": {"user"},
     "governance.summary_stats": set(),         # _scan_pii_tables() — no params
     "governance.pii_summary": set(),           # _scan_pii_tables() — no params
+    "governance.create_rls_policy": {"body", "user"},
+    "governance.create_masking_policy": {"body", "user"},
     "audit.activity_summary": set(),           # _get_pool() — no params
     "spend.summarize": set(),                  # spend_summary() — no params
     "spend.diagnose_change": {"start_date", "end_date"},

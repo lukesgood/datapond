@@ -4,7 +4,7 @@ Declaration and implementation live together. `actions.py` owns the vocabulary �
 Action type, resolution, validation, the gate — and assembles what these modules
 declare.
 """
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, List, Literal, Optional
 
 from app.chat.actions import Action, ActionKind, _Strict
 from app.chat.analysis._resolve import _r
@@ -139,6 +139,161 @@ async def pii_summary(params: dict, user: dict) -> dict:
     }
 
 
+# ── Creating a policy: a mutate, undone by deleting it ─────────────────────────
+# `RlsPolicyIn` / `MaskPolicyIn` (app/api/governance.py) are what the real handlers
+# take — constructed here, never passed as dicts. Both handlers are
+# `(body, user: Optional[dict] = Depends(_get_current_user))`; the Depends default
+# is only meaningful when FastAPI itself resolves it; called directly, `user` must
+# be passed explicitly.
+#
+# `applicable_policies` (app/rls/engine.py) applies a policy only to roles present
+# in its role_map and not marked exempt there — an empty `roles` list means the
+# policy is stored but matches nobody, not that it applies to everyone. The
+# preview says that plainly rather than the (misleading, opposite) alternative.
+
+class RlsPolicyCreateParams(_Strict):
+    table: str                    # "schema.table" or "catalog.schema.table"
+    expression: str                # filter_expression: rows where this is true are visible
+    roles: List[str] = []          # role_names — empty means the policy matches nobody
+    exempt_roles: List[str] = []   # exempt_role_names
+    name: Optional[str] = None
+    description: Optional[str] = None
+    priority: int = 0
+
+
+class MaskPolicyCreateParams(_Strict):
+    table: str                    # "schema.table" or "catalog.schema.table"
+    column: str                    # column_name
+    masking_type: Literal[
+        "full", "partial_email", "partial_ssn", "partial_phone", "hash", "null",
+        "custom"] = "full"
+    custom_expression: Optional[str] = None
+    roles: List[str] = []          # role_names — empty means the policy matches nobody
+    exempt_roles: List[str] = []   # exempt_role_names
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+def _split_table(table: str):
+    """'schema.table' or 'catalog.schema.table' -> (catalog_name, schema_name,
+    table_name). Two parts default the catalog the same way the Governance page's
+    policy forms do (catalog_name defaults to "iceberg", resolved at submission to
+    the runtime catalog)."""
+    parts = [p for p in str(table).split(".") if p]
+    if len(parts) == 3:
+        return parts[0], parts[1], parts[2]
+    if len(parts) == 2:
+        return "iceberg", parts[0], parts[1]
+    raise ValueError(
+        f"table must be 'schema.table' or 'catalog.schema.table', got {table!r}")
+
+
+def _roles_summary(roles: List[str]) -> str:
+    return ", ".join(roles) if roles else \
+        "no roles — this policy will not apply to anyone until roles are added"
+
+
+def build_rls_policy_in(params: dict):
+    """The real `RlsPolicyIn` (app.api.governance), from chat params."""
+    from app.api.governance import RlsPolicyIn
+    catalog_name, schema_name, table_name = _split_table(params["table"])
+    roles = list(params.get("roles") or [])
+    name = params.get("name") or f"chat-{schema_name}-{table_name}-rls"
+    return RlsPolicyIn(
+        name=name,
+        description=params.get("description"),
+        catalog_name=catalog_name,
+        schema_name=schema_name,
+        table_name=table_name,
+        filter_expression=params["expression"],
+        enabled=True,
+        priority=params.get("priority") or 0,
+        role_names=roles,
+        exempt_role_names=list(params.get("exempt_roles") or []),
+    )
+
+
+def build_mask_policy_in(params: dict):
+    """The real `MaskPolicyIn` (app.api.governance), from chat params."""
+    from app.api.governance import MaskPolicyIn
+    catalog_name, schema_name, table_name = _split_table(params["table"])
+    roles = list(params.get("roles") or [])
+    name = params.get("name") or f"chat-{schema_name}-{table_name}-{params['column']}-mask"
+    return MaskPolicyIn(
+        name=name,
+        description=params.get("description"),
+        catalog_name=catalog_name,
+        schema_name=schema_name,
+        table_name=table_name,
+        column_name=params["column"],
+        masking_type=params.get("masking_type") or "full",
+        custom_expression=params.get("custom_expression"),
+        enabled=True,
+        role_names=roles,
+        exempt_role_names=list(params.get("exempt_roles") or []),
+    )
+
+
+async def preview_create_rls_policy(params: dict, user: dict) -> dict:
+    """Which table, which roles, and what the row filter actually does."""
+    catalog_name, schema_name, table_name = _split_table(params["table"])
+    roles = list(params.get("roles") or [])
+    exempt = list(params.get("exempt_roles") or [])
+    expression = params["expression"]
+    summary = (f"New row filter on {schema_name}.{table_name}: {_roles_summary(roles)} "
+               f"will only see rows where {expression}.")
+    if exempt:
+        summary += f" Exempt from it: {', '.join(exempt)}."
+    return {
+        "table": params["table"],
+        "catalog_name": catalog_name,
+        "schema_name": schema_name,
+        "table_name": table_name,
+        "roles": roles,
+        "exempt_roles": exempt,
+        "expression": expression,
+        "summary": summary,
+    }
+
+
+async def preview_create_masking_policy(params: dict, user: dict) -> dict:
+    """Which table and column, which roles, and what the mask actually does."""
+    catalog_name, schema_name, table_name = _split_table(params["table"])
+    roles = list(params.get("roles") or [])
+    exempt = list(params.get("exempt_roles") or [])
+    masking_type = params.get("masking_type") or "full"
+    column = params["column"]
+    rule = (params.get("custom_expression") or "a custom expression") \
+        if masking_type == "custom" else f"'{masking_type}' masking"
+    summary = (f"New column mask on {schema_name}.{table_name}.{column}: "
+               f"{_roles_summary(roles)} will see it replaced with {rule}.")
+    if exempt:
+        summary += f" Exempt from it: {', '.join(exempt)}."
+    return {
+        "table": params["table"],
+        "catalog_name": catalog_name,
+        "schema_name": schema_name,
+        "table_name": table_name,
+        "column": column,
+        "masking_type": masking_type,
+        "roles": roles,
+        "exempt_roles": exempt,
+        "summary": summary,
+    }
+
+
+async def create_rls_policy_action(params: dict, user: dict) -> dict:
+    from app.api.governance import create_rls_policy
+    body = build_rls_policy_in(params)
+    return await create_rls_policy(body, user=user)
+
+
+async def create_masking_policy_action(params: dict, user: dict) -> dict:
+    from app.api.governance import create_mask_policy
+    body = build_mask_policy_in(params)
+    return await create_mask_policy(body, user=user)
+
+
 ACTIONS = (
     Action("governance.explain_policy", "Explain policy",
            "Which row filters and column masks apply, and to whom.",
@@ -153,6 +308,14 @@ ACTIONS = (
            "Where PII was detected, as counts by table and category. Reports "
            "'not scanned' rather than 'clean' when no scan could run.",
            ("*",), "governance:read", ActionKind.READ, _Strict),
+    Action("governance.create_rls_policy", "Create row filter",
+           "Create a row-level security policy: a filter expression applied to a "
+           "table for a set of roles.",
+           ("*",), "governance:write", ActionKind.MUTATE, RlsPolicyCreateParams),
+    Action("governance.create_masking_policy", "Create column mask",
+           "Create a column-masking policy: replace one column's values for a set "
+           "of roles.",
+           ("*",), "governance:write", ActionKind.MUTATE, MaskPolicyCreateParams),
 )
 
 EXECUTORS: Dict[str, Callable] = {
@@ -160,6 +323,8 @@ EXECUTORS: Dict[str, Callable] = {
     "governance.policy_coverage": policy_coverage,
     "governance.summary_stats": summary_stats,
     "governance.pii_summary": pii_summary,
+    "governance.create_rls_policy": create_rls_policy_action,
+    "governance.create_masking_policy": create_masking_policy_action,
 }
 
 RESOLVERS: Dict[str, Callable] = {
@@ -170,6 +335,12 @@ RESOLVERS: Dict[str, Callable] = {
     # points at the synchronous work it actually reaches for instead.
     "governance.summary_stats": _r("app.api.governance", "_scan_pii_tables"),
     "governance.pii_summary": _r("app.api.governance", "_scan_pii_tables"),
+    # Not create_masking_policy: the real handler's name is create_mask_policy.
+    "governance.create_rls_policy": _r("app.api.governance", "create_rls_policy"),
+    "governance.create_masking_policy": _r("app.api.governance", "create_mask_policy"),
 }
 
-PREVIEWERS: Dict[str, Callable] = {}
+PREVIEWERS: Dict[str, Callable] = {
+    "governance.create_rls_policy": preview_create_rls_policy,
+    "governance.create_masking_policy": preview_create_masking_policy,
+}
