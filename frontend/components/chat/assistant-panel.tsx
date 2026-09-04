@@ -186,8 +186,11 @@ export function AssistantPanel() {
           <p className="text-xs text-muted-foreground">
             Ask about this deployment — the data, your sources and syncs, collections,
             services, storage, policies and spend. With your approval I can run a query,
-            save a dashboard, or create a collection. I cannot delete anything, run a
-            sync, or change settings.
+            save a dashboard, create a collection, set a refresh or sync schedule,
+            change a sync mode, manage collection members, or — with you typing the
+            target's name — delete a row-filter or masking policy, change model
+            configuration, or grant a role. I can never write a credential, delete an
+            account, run a sync, or delete a collection or dashboard.
           </p>
         )}
         {turns.map((turn, i) => turn.action ? (

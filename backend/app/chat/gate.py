@@ -229,7 +229,20 @@ async def approve(invocation_id: str, *, user: dict, store: InvocationStore,
         # first leaves a wrong guess exactly where it started: still 'proposed', free
         # to try again.
         expected = ((invocation.get("preview") or {}).get("target")) or ""
-        if not expected or normalise(typed_target or "") != normalise(expected):
+        if not expected:
+            # Not a mistyped guess — there is nothing recorded to type against. A
+            # stale or malformed preview, not a person who got the name wrong, so
+            # it gets its own reason and its own message rather than reusing the
+            # mismatch wording, which would read as "you typed it wrong" when the
+            # actual problem is that this invocation cannot be confirmed at all.
+            await _audit(store, "chat_action_refused", user,
+                         action=action.id, stage="approve",
+                         reason="no_target_recorded", invocation=invocation_id)
+            raise ActionRefused(
+                "This request has no confirmed target on record, so it cannot be "
+                "approved by typing a name. Ask again so a new confirmation can be "
+                "raised.")
+        if normalise(typed_target or "") != normalise(expected):
             await _audit(store, "chat_action_refused", user,
                          action=action.id, stage="approve",
                          reason="typed_target_mismatch", invocation=invocation_id)

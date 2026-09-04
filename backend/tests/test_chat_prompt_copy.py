@@ -49,3 +49,55 @@ def test_the_prompt_mentions_the_reach_it_now_has():
     prompt = _system_prompt("/knowledge", {})
     for word in ("sources", "services", "storage", "collections"):
         assert word in prompt.lower(), f"prompt no longer mentions {word}"
+
+
+def test_the_prompt_names_what_it_can_now_change():
+    """Task 11: the assistant can change configuration now — schedules, membership,
+    connector settings, policies, model configuration, roles. Say so."""
+    prompt = _system_prompt("/knowledge", {}).lower()
+    for phrase in ("schedule", "collection member", "sync mode", "row-filter",
+                   "masking", "model", "role"):
+        assert phrase in prompt, f"prompt no longer mentions {phrase}"
+
+
+def test_the_approval_only_actions_the_prompt_promises_are_not_destructive():
+    """The prompt says a refresh schedule, collection membership, a connector
+    schedule, and a sync mode change need only the person's approval — not a typed
+    target. Paired against the registry: each of these stays MUTATE. If one of them
+    were ever promoted to DESTRUCTIVE, the prompt would be understating what the gate
+    actually demands, which is the same drift this file exists to catch."""
+    from app.chat.actions import REGISTRY, ActionKind
+    approval_only_ids = ("knowledge.set_refresh_schedule", "knowledge.add_member",
+                        "knowledge.remove_member", "connectors.set_schedule",
+                        "connectors.set_sync_mode")
+    for action_id in approval_only_ids:
+        action = REGISTRY[action_id]  # KeyError, not .get() — a removed action must fail loudly
+        assert action.kind is ActionKind.MUTATE, action.id
+
+
+def test_the_typed_target_actions_the_prompt_promises_are_exactly_the_destructive_ones():
+    """'the last four asking them to type the target's name' — deleting a row-filter
+    policy, deleting a masking policy, changing model configuration, granting a role.
+    Checked both ways: nothing DESTRUCTIVE is missing from the prompt's promise, and
+    nothing the prompt promises is missing from what is actually DESTRUCTIVE."""
+    from app.chat.actions import REGISTRY, ActionKind
+    destructive_ids = {a.id for a in REGISTRY.values() if a.kind is ActionKind.DESTRUCTIVE}
+    assert destructive_ids == {
+        "governance.delete_rls_policy", "governance.delete_masking_policy",
+        "settings.set_model_config", "users.grant_role",
+    }
+
+
+def test_the_prompt_does_not_promise_disabling_a_refresh_schedule():
+    """schedule_ingest (app/api/ai_vectors.py) always sets refresh_enabled = true —
+    there is no off-path, so the assistant must not claim it can stop a schedule, only
+    set or change it. RefreshScheduleParams backs the same claim: nothing in its shape
+    could mean 'off'."""
+    from app.chat.analysis.knowledge import RefreshScheduleParams
+    assert "enabled" not in RefreshScheduleParams.model_fields
+
+    prompt = _system_prompt("/knowledge", {}).lower()
+    assert "never turn its schedule off" in prompt
+    assert "turn a schedule off" not in prompt
+    assert "turn schedules on" not in prompt
+    assert "on or off" not in prompt
