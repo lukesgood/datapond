@@ -13,15 +13,22 @@ field, so a key outside `ALLOWED_KEYS` cannot be refused by the params schema al
 `set_model_config` below refuses it again, at execution, before a `SettingsPatch` is
 even constructed.
 
-Changing `ai.litellm_model` changes which model queries embed against. A collection
-embedded under the old model and searched under the new one degrades silently — no
-error, no log line, just worse retrieval — which is exactly what
-`knowledge.diagnose_collection` was built to detect after the fact (see
-app/chat/analysis/knowledge.py). `dependents_set_model_config` below names the
-collections that would be stranded *before* the change is approved.
+None of the three settable keys touches embeddings. `ai.litellm_model` maps to
+`LITELLM_MODEL` (app/api/system_settings.py) — the *generation* model used for chat
+and cited answers. What a collection is embedded with, and what a query is embedded
+with, is `AI_EMBED_MODEL` (`_embed_model()` in app/api/ai_vectors.py) — a different
+env var, not in `AI_ENV_MAP`, and so not reachable through this action at all. A
+collection-stranding check against `ai.litellm_model` would therefore describe a
+change this action cannot make; `dependents_set_model_config` does not attempt one.
+
+What every one of the three keys *does* do is change how or with which model every
+later call is served — `ai.litellm_model` for generation calls, `ai.provider` and
+`ai.litellm_url` for the shared gateway path that both generation and embedding calls
+go through (`_gateway()` in app/api/ai_vectors.py reads `LITELLM_URL` once for both).
+`dependents_set_model_config` says that plainly for whichever key is being changed,
+rather than computing a list it cannot support.
 """
-import inspect
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict
 
 from pydantic import Field
 
@@ -33,11 +40,6 @@ from app.api.system_settings import AI_ENV_MAP, SENSITIVE_KEYS
 
 # Derived, not written out — see module docstring.
 ALLOWED_KEYS = set(AI_ENV_MAP) - set(SENSITIVE_KEYS)
-
-# The only key among ALLOWED_KEYS that selects the model queries run against, and so
-# the only one a stranded-collection check makes sense for. `ai.provider` and
-# `ai.litellm_url` change how a model is reached, not which one is active.
-_MODEL_KEYS = {"ai.litellm_model"}
 
 # The keys named in both the action description and the params field description
 # below (fix round 1): `named_by_user` only accepts the person's own words, and for
@@ -57,26 +59,6 @@ class SetModelConfigParams(_Strict):
             f"'the model' or 'the settings' alone does not identify one of these "
             f"three. If they haven't said which, ask before proposing."))
     value: Any
-
-
-async def _maybe_await(value: Any) -> Any:
-    """`_collections_by_embed_model` is a real `async def`, but tests replace it with
-    a plain synchronous callable — same reason governance.py has its own copy of
-    this: a dependents callable may or may not be a coroutine, and the caller
-    should not have to know which."""
-    if inspect.isawaitable(value):
-        return await value
-    return value
-
-
-async def _collections_by_embed_model() -> List[dict]:
-    """Every collection's name and the model it was embedded with."""
-    from app.api.auth import _get_pool
-
-    pool = await _get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT name, embed_model FROM ai_collections")
-    return [{"name": r["name"], "embed_model": r["embed_model"]} for r in rows]
 
 
 async def set_model_config(params: dict, user: dict) -> dict:
@@ -108,29 +90,36 @@ async def preview_set_model_config(params: dict, user: dict) -> dict:
 
 
 async def dependents_set_model_config(params: dict, user: dict) -> dict:
+    """A truthful consequence for each of the three settable keys — never an empty
+    `items` with an empty `not_checked`, which `Dependents`' own docstring says reads
+    as "nothing depends on this". None of the three can strand a collection (see the
+    module docstring), so this does not compute a per-collection list; it says what
+    actually happens instead."""
+    import os
+
     d = Dependents("settings.set_model_config")
     key = params.get("key")
     value = params.get("value")
 
-    if key not in _MODEL_KEYS:
-        # Genuinely nothing to check — ai.provider / ai.litellm_url change how the
-        # model is reached, not which embeddings it must match. An empty items list
-        # is correct here because nothing was skipped, not because nothing was read.
+    if key not in ALLOWED_KEYS:
+        d.skipped(f"{key!r} is not a settings key this action recognises, so what "
+                  f"depends on it could not be determined.")
         return d.done()
 
-    try:
-        collections = await _maybe_await(_collections_by_embed_model())
-    except Exception as e:
-        d.skipped(f"Could not read ai_collections to check which collections this "
-                  f"model change would strand: {e}")
-        return d.done()
+    current = os.getenv(AI_ENV_MAP[key], "")
 
-    for c in collections or []:
-        embed_model = c.get("embed_model")
-        if embed_model != value:
-            d.item("collection", c.get("name"),
-                   f"Embedded with {embed_model!r}; queries will use {value!r} after "
-                   f"this change — retrieval degrades with nothing logged.")
+    if key == "ai.litellm_model":
+        d.item("generation", "every chat reply and cited answer",
+               f"Asks the gateway to run {value!r} instead of {current!r}, "
+               f"immediately, for every generation call after this change. "
+               f"Collections and their embeddings are unaffected — retrieval is "
+               f"keyed on AI_EMBED_MODEL, a separate setting this action cannot "
+               f"change.")
+    else:
+        d.item("routing", "every chat, cited answer, and document/query embedding",
+               f"{key} feeds the one gateway path all of them share — changing it "
+               f"from {current!r} to {value!r} repoints every one of them "
+               f"immediately, not just new conversations.")
     return d.done()
 
 
@@ -139,9 +128,10 @@ ACTIONS = (
            f"Change one non-credential AI setting: {_KEY_LIST}. The person must "
            "name which setting themselves — if they haven't, ask (e.g. 'which "
            "setting: provider, litellm_url, or litellm_model?') rather than "
-           "proposing against 'the model' or 'the settings' generically. "
-           "Changing litellm_model can strand collections embedded with a "
-           "different model.",
+           "proposing against 'the model' or 'the settings' generically. Every "
+           "one of the three changes how or with what model later calls are "
+           "served, immediately — provider and litellm_url repoint the shared "
+           "gateway path chat, cited answers, and embeddings all use.",
            ("*",), "settings:write", ActionKind.DESTRUCTIVE, SetModelConfigParams,
            target_field="key"),
 )

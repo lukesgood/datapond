@@ -65,26 +65,49 @@ def test_an_allowed_key_is_written(monkeypatch):
     assert seen["body"].settings == {"ai.litellm_model": "claude-sonnet-5"}
 
 
-def test_changing_the_embedding_model_lists_the_collections_it_will_strand(monkeypatch):
-    """The reason this action computes dependents at all: a collection embedded with
-    one model and queried through another loses retrieval quality with nothing logged.
-    knowledge.diagnose_collection finds that afterwards; this shows it before."""
-    monkeypatch.setattr(mod, "_collections_by_embed_model",
-                        lambda: [{"name": "handbook", "embed_model": "titan-v1"},
-                                 {"name": "tickets", "embed_model": "titan-v2"}])
+def test_litellm_model_does_not_claim_to_strand_collections(monkeypatch):
+    """ai.litellm_model maps to LITELLM_MODEL, the *generation* model
+    (app/api/system_settings.py). What a collection is embedded with, and what a
+    query is embedded with, is AI_EMBED_MODEL (app/api/ai_vectors.py:_embed_model),
+    a different env var this action cannot reach at all — see
+    app/chat/analysis/knowledge.py's diagnose_collection, which compares against
+    exactly that. This action must never claim it can strand a collection."""
+    monkeypatch.setenv("LITELLM_MODEL", "claude-sonnet-5")
     out = _run(mod.dependents_set_model_config(
-        {"key": "ai.litellm_model", "value": "titan-v2"}, {"id": "u1"}))
-    names = repr(out)
-    assert "handbook" in names and "titan-v1" in names
+        {"key": "ai.litellm_model", "value": "claude-opus-5"}, {"id": "u1"}))
+    assert not any(item.get("kind") == "collection" for item in out["items"])
+    assert not out["not_checked"]
+    assert out["items"], "a truthful consequence must still be reported"
 
 
-def test_collections_that_cannot_be_listed_are_not_checked(monkeypatch):
-    def _boom():
-        raise RuntimeError("db down")
-
-    monkeypatch.setattr(mod, "_collections_by_embed_model", _boom)
+def test_litellm_model_reports_the_generation_consequence(monkeypatch):
+    monkeypatch.setenv("LITELLM_MODEL", "claude-sonnet-5")
     out = _run(mod.dependents_set_model_config(
-        {"key": "ai.litellm_model", "value": "titan-v2"}, {"id": "u1"}))
+        {"key": "ai.litellm_model", "value": "claude-opus-5"}, {"id": "u1"}))
+    text = repr(out)
+    assert "claude-sonnet-5" in text and "claude-opus-5" in text
+
+
+@pytest.mark.parametrize("key,env_name", [("ai.provider", "AI_PROVIDER"),
+                                          ("ai.litellm_url", "LITELLM_URL")])
+def test_provider_and_url_are_never_reported_as_nothing_depending(key, env_name,
+                                                                   monkeypatch):
+    """Critical 1&2: an early return of empty items and empty not_checked reads, per
+    Dependents' own docstring, as the affirmative claim that nothing depends on this
+    change — false for a key that repoints the single gateway path every chat, cited
+    answer, and embedding call goes through."""
+    monkeypatch.setenv(env_name, "old-value")
+    out = _run(mod.dependents_set_model_config(
+        {"key": key, "value": "new-value"}, {"id": "u1"}))
+    assert out["items"] or out["not_checked"]
+    assert out["items"], "the consequence is knowable, not merely unchecked"
+    text = repr(out)
+    assert "old-value" in text and "new-value" in text
+
+
+def test_an_unrecognised_key_is_reported_not_checked(monkeypatch):
+    out = _run(mod.dependents_set_model_config(
+        {"key": "ai.nonsense", "value": "x"}, {"id": "u1"}))
     assert out["items"] == [] and out["not_checked"]
 
 
