@@ -246,15 +246,22 @@ async def propose_action(request: ProposeRequest,
     }
 
 
+class ApproveRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    typed_target: Optional[str] = None
+
+
 @router.post("/chat/actions/{invocation_id}/approve")
-async def approve_action(invocation_id: str, user: dict = Depends(require_human)):
+async def approve_action(invocation_id: str, body: Optional[ApproveRequest] = None,
+                         user: dict = Depends(require_human)):
     """Run a proposed action. Takes an id — never parameters. See design §5.2."""
     store = await _store(user)
     try:
         invocation = await approve(
             invocation_id, user=user, store=store,
             executor=executors.EXECUTORS.get(
-                (await store.get(invocation_id) or {}).get("action_id", "")))
+                (await store.get(invocation_id) or {}).get("action_id", "")),
+            typed_target=(body.typed_target if body else None))
     except ActionRefused as e:
         raise HTTPException(status_code=403, detail=str(e))
     return {"id": invocation["id"], "status": invocation["status"],

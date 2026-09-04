@@ -31,7 +31,7 @@ from app.chat.actions import (
     resolve,
     validate_params,
 )
-from app.chat.naming import named_by_user
+from app.chat.naming import named_by_user, normalise
 from app.component_guard import capability_on
 from app.permissions import permissions_for
 
@@ -197,7 +197,8 @@ async def propose(
 
 
 async def approve(invocation_id: str, *, user: dict, store: InvocationStore,
-                  executor: Optional[Callable] = None) -> dict:
+                  executor: Optional[Callable] = None,
+                  typed_target: Optional[str] = None) -> dict:
     """Run a proposed invocation. Takes an id — never parameters."""
     invocation = await store.get(invocation_id)
     if not invocation:
@@ -218,6 +219,22 @@ async def approve(invocation_id: str, *, user: dict, store: InvocationStore,
         raise ActionRefused("A service account cannot approve an action.")
     action = resolve(invocation["action_id"])
     await _authorize(action, user, invocation.get("page", "*"), store, stage="approve")
+
+    if action.kind is ActionKind.DESTRUCTIVE:
+        # Checked before the claim below, deliberately. claim_for_approval is the
+        # state change — 'proposed' to 'approved' — and it is not reversible from
+        # here. If a mistyped name were caught after that claim, the invocation would
+        # be stuck 'approved' with nothing having executed, and a second, correctly
+        # typed attempt would be told "already resolved" instead of running. Checking
+        # first leaves a wrong guess exactly where it started: still 'proposed', free
+        # to try again.
+        expected = ((invocation.get("preview") or {}).get("target")) or ""
+        if not expected or normalise(typed_target or "") != normalise(expected):
+            await _audit(store, "chat_action_refused", user,
+                         action=action.id, stage="approve",
+                         reason="typed_target_mismatch", invocation=invocation_id)
+            raise ActionRefused(
+                f"To confirm, type the name exactly: {expected}")
 
     # The status check above is a read, and everything between it and this line is a
     # sequence of awaits — so two approvals of the same invocation (a double-click, a
