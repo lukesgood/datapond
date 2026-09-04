@@ -10,6 +10,7 @@ import {
 } from "@/lib/assistant-panel-state"
 import { Markdown } from "@/components/ui/markdown"
 import { DestructiveCard } from "@/components/chat/destructive-card"
+import { genericPreviewEntries } from "@/lib/preview-render"
 import { Bot, Loader2, PanelRightClose, Check, X, Play } from "lucide-react"
 
 type Turn = {
@@ -263,11 +264,29 @@ export function AssistantPanel() {
   )
 }
 
+/** What the server read, and what it is about to do — rendered generically past a
+ *  handful of keys with their own established treatment.
+ *
+ *  Critical 3: this used to handle only `reads`, `validated`, `already_exists`,
+ *  `cost_estimate_available`, `name` and `sql`. None of the five reversible actions
+ *  added in this branch (refresh schedule, member add/remove, connector schedule,
+ *  sync mode) emit any of those — they emit `collection`, `current_role`,
+ *  `new_sync_mode`, `current_schedule`, and so on — so their cards rendered only the
+ *  action label above a sentence promising to show what would happen. Rather than
+ *  add each new key to this list (breaking again the next time an action is added),
+ *  everything not already special-cased here falls through to
+ *  `genericPreviewEntries`: a readable label/value list, `summary` shown as the
+ *  lead sentence when a preview provides one.
+ */
 function PreviewBody({ preview }: { preview: Record<string, unknown> | null }) {
   if (!preview) return null
   const reads = preview.reads as string[] | undefined
+  const entries = genericPreviewEntries(preview)
   return (
     <div className="mt-1.5 space-y-1 text-xs text-muted-foreground">
+      {typeof preview.summary === "string" && preview.summary && (
+        <p className="text-foreground">{preview.summary}</p>
+      )}
       {reads && reads.length > 0 && (
         <p>Reads: <span className="font-mono text-[11px]">{reads.join(", ")}</span></p>
       )}
@@ -289,6 +308,13 @@ function PreviewBody({ preview }: { preview: Record<string, unknown> | null }) {
         <pre className="overflow-x-auto rounded border bg-background p-1.5 font-mono text-[10px]">
 {String(preview.sql)}
         </pre>
+      )}
+      {entries.length > 0 && (
+        <ul className="space-y-0.5">
+          {entries.map(e => (
+            <li key={e.key}>{e.label}: <span className="font-mono text-[11px]">{e.value}</span></li>
+          ))}
+        </ul>
       )}
     </div>
   )
