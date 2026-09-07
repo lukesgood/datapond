@@ -12,6 +12,7 @@ type Step = {
   href: string
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>
   color: string
+  cta?: boolean
 }
 
 export function JourneyStrip() {
@@ -48,17 +49,13 @@ export function JourneyStrip() {
       color: "var(--chart-4)",
     },
     {
-      // The API, not the model gateway. What an application is actually served is
-      // retrieval and cited answers over HTTP; the gateway is the infrastructure
-      // behind that, which is why it sits under Operate with the rest of running
-      // the platform. Pointing this step at /ai left the workflow describing a menu
-      // layout that no longer exists.
       n: "04",
-      title: "Serve",
-      sub: "Answers over HTTP",
+      title: "Connect your agent",
+      sub: "Issue a key, call this deployment",
       href: "/connect",
       icon: Plug,
       color: "var(--chart-2)",
+      cta: true,
     },
     {
       n: "05",
@@ -74,12 +71,19 @@ export function JourneyStrip() {
     <Card>
       <CardContent className="px-5 py-4">
         <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-          Portable core workflow
+          Core workflow
         </p>
         <div className="flex flex-wrap items-center gap-y-3">
           {steps.map((step, index) => (
             <div key={step.n} className="flex flex-1 items-center gap-3" style={{ minWidth: 150 }}>
-              <Link href={step.href} className="group flex items-center gap-3">
+              <Link
+                href={step.href}
+                className={
+                  step.cta
+                    ? "group flex items-center gap-3 rounded-lg border border-primary/40 bg-primary/5 px-2 py-1 -mx-2"
+                    : "group flex items-center gap-3"
+                }
+              >
                 <span
                   className="dp-num grid h-8 w-8 shrink-0 place-items-center rounded-lg text-xs font-bold text-white transition-transform group-hover:scale-105"
                   style={{ background: step.color }}
