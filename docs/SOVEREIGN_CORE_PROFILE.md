@@ -50,8 +50,16 @@ default; most other distributions do not). On a non-k3s cluster, an operator set
 - Confirmation that CoreDNS imports `/etc/coredns/custom/*.override`, or the S3
   virtual-host hostnames MinIO needs will not resolve in-cluster.
 
-Kubernetes + Helm; a node with at least 16 GB RAM and 8 vCPU for Ollama's defaults; a
-storage class for three PVCs (postgres 50Gi, minio 100Gi, ollama 20Gi). GPU optional.
+Kubernetes + Helm; a node with at least 32 GB RAM and 8 vCPU (matching
+`values-onprem.yaml`'s recommended capacity for the same two models); a storage class
+for four PVCs (postgres 50Gi, minio 100Gi, ollama 20Gi, valkey 5Gi). Rendered resource
+totals at the declared replica counts: requests 2.9 vCPU / 7.75 Gi, limits 10.5 vCPU /
+16.5 Gi — headroom above that, plus OS/kubelet overhead, is what the 32 GB figure
+covers.
+
+Inference in this profile is **CPU-only**: Ollama has no GPU wiring here, so the 7B
+chat model runs at single-digit tokens/s. The GPU-accelerated path is `vllm` (see
+Model configuration), not Ollama.
 
 ## Install
 

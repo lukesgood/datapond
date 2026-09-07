@@ -89,8 +89,12 @@ vllm:
 # ── Core ─────────────────────────────────────────────────────────────────────────
 backend:
   enabled: true
+  autoscaling:
+    maxReplicas: 3   # single-node starter — base chart default (10) assumes a multi-node cluster
 frontend:
   enabled: true
+  autoscaling:
+    maxReplicas: 2   # single-node starter — base chart default (5) assumes a multi-node cluster
 valkey:
   enabled: true
 postgres:

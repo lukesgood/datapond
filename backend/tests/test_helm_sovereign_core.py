@@ -70,6 +70,17 @@ def test_render_hides_data_navigation():
     assert re.search(r"name: AI_EGRESS_POLICY\n\s+value: \"local-only\"", m)
 
 
+def test_backend_autoscaling_capped_for_single_node():
+    # Base chart default is 10 (multi-node assumption). This profile is a single-node
+    # starter, so cap it — an uncapped HPA can schedule more backend pods than a
+    # single node has room for.
+    m = _render()
+    hpas = list(yaml.safe_load_all(m))
+    backend_hpa = next(d for d in hpas if d and d.get("kind") == "HorizontalPodAutoscaler"
+                        and d["spec"]["scaleTargetRef"]["name"] == "backend")
+    assert backend_hpa["spec"]["maxReplicas"] == 3
+
+
 def test_render_has_no_rls_claim():
     # No query engine in this profile, so FEATURE_RLS must not claim enforcement over
     # a surface that does not exist (templates/backend-deployment.yaml:365-375, gated
