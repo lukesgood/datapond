@@ -453,8 +453,8 @@ Settings → Service accounts 탭 → 계정 생성 → 키 발급·복사 → A
 | 보유해야 할 항목 | 보유 | 근거 | 갭 |
 |---|---|---|---|
 | 동일 코드의 온프렘 프로필 | ○ | `values-onprem.yaml`: MinIO(`:191-197`), Ollama/vLLM(`:62`, `:306-309`) | — |
-| **lean 온프렘 코어 프로필**(코어 + MinIO + 로컬 모델, add-on 없음) | ✕ | `values-onprem.yaml`은 add-on 8개 전부 `enabled: true`, maturity `community`(`:17`); foundation은 S3·Bedrock 전제 | 가장 안전한 자리에 "지원되는" 프로필이 없다 |
-| 온프렘 코어의 지원 티어 | △ | `SUPPORT.md`: 코어는 지원, add-on은 미지원. 그러나 프로필 단위로는 community | 문서와 프로필 라벨이 어긋남 |
+| **lean 온프렘 코어 프로필**(코어 + MinIO + 로컬 모델, add-on 없음) | ○ | `helm/datapond/values-sovereign-core.yaml` | — |
+| 온프렘 코어의 지원 티어 | ○ | `SUPPORT.md`, maturity `supported-starter` | — |
 | 로컬 임베딩 차원 호환 안내 | ○ | `DEPLOYMENT_PROFILES.md` 권고 5 | — |
 | 에어갭 설치 검증 | ○ 과거 | CLAUDE.md 완료 로그 #59 | 최근 acceptance 없음 |
 

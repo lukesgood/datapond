@@ -35,8 +35,9 @@ narrowed what non-admin accounts can do.
 ## Supported scope
 
 The **Portable Core** path — ingest, embed, retrieve, rerank, cited answers, plus
-access control, PII handling, audit and spend — and the **AWS Single-Node Reference**
-that runs it.
+access control, PII handling, audit and spend — on the two starters that run it:
+the **AWS Single-Node Reference** / `values-foundation.yaml`, and the self-hosted
+**Sovereign Core** (`values-sovereign-core.yaml`: in-cluster MinIO and Ollama).
 
 The optional OSS add-ons (Trino, Airflow, Spark, Polaris, RisingWave, OpenMetadata,
 Jupyter, MLflow) are configuration around upstream projects. We will help with how the

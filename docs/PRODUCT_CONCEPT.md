@@ -188,9 +188,10 @@ AWS Summit Seoul 2026의 규제 환경 에이전트 세션은 책임 소재와 �
 
 ## 배포 프로필
 
-앞세우는 두 개:
+앞세우는 세 개:
 
 - **Portable Core · AWS starter** (`values-foundation.yaml`): S3/Bedrock + in-cluster pgvector.
+- **Sovereign Core** (`values-sovereign-core.yaml`): AWS starter의 온프렘 쌍둥이 — in-cluster MinIO + Ollama, add-on 없음.
 - **AWS Single-Node Reference** (`values-prod-single.yaml`): Terraform 기반 Aurora/S3/Glue/Athena/Bedrock.
 
 나머지(`values-aws.yaml`, `values-onprem.yaml`, dev/quicktest/prod)는 compatibility·개발용이다.

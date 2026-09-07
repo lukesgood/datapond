@@ -7,6 +7,7 @@ Helm profile names are retained for compatibility. Product role, actual topology
 | Profile | Choose when | Avoid when |
 |---|---|---|
 | Portable Core · AWS | You need the smallest S3/Bedrock governed RAG starter | You need Catalog/SQL workflows out of the box |
+| Sovereign Core | You need the smallest self-hosted governed RAG starter with no data egress | You need Catalog/SQL or any OSS add-on |
 | AWS Single-Node Reference | You want the current end-to-end AWS Terraform + Helm reference | You require application-node HA or EKS |
 | AWS Hybrid Extended | You already operate Kubernetes and want AWS endpoints on it, without the chart changing what add-ons that cluster already runs | You expect a lean or automatically provisioned EKS stack |
 | Sovereign OSS Extended | You need local control and are prepared to operate the add-ons | You want the lowest operational burden |
@@ -18,6 +19,7 @@ Helm profile names are retained for compatibility. Product role, actual topology
 | Values file | Runtime label | Core database | Object/model | Catalog/query | Optional stack | Maturity |
 |---|---|---|---|---|---|---|
 | `values-foundation.yaml` | Portable Core · AWS | in-cluster PostgreSQL/pgvector | S3 + Bedrock | none | disabled | supported starter |
+| `values-sovereign-core.yaml` | Sovereign Core | in-cluster PostgreSQL/pgvector | MinIO + Ollama | none | disabled | supported starter |
 | `values-prod-single.yaml` | AWS Single-Node Reference | Aurora PostgreSQL/pgvector | S3 + Bedrock | Glue + Athena | heavy add-ons disabled | reference |
 | `values-aws.yaml` | AWS Hybrid Extended | external PostgreSQL | S3 + Bedrock | none set — preserved if already running, otherwise off | none set — preserved if already running, otherwise off | compatibility |
 | `values-onprem.yaml` | Sovereign OSS Extended | in-cluster PostgreSQL/pgvector | S3-compatible + local model path | Polaris + Trino | selected full OSS | community |
@@ -40,6 +42,16 @@ Runs approximately five workloads:
 Uses native S3 and Bedrock. It explicitly disables Trino, Spark, Polaris, Airflow, MLflow, RisingWave, OpenMetadata, Jupyter, Ollama, vLLM, and in-cluster MinIO.
 
 This profile does **not** set `catalog.backend: glue`. Therefore Sources/Catalog/SQL Lab are hidden. It is a governed RAG profile, not a complete managed lakehouse.
+
+## Sovereign Core
+
+File: `helm/datapond/values-sovereign-core.yaml`
+
+The on-prem twin of the Portable Core · AWS starter: the same five workloads plus
+in-cluster MinIO for objects and Ollama for a local embedding and chat model. No
+catalog/query service, every OSS add-on stated `false`, and `ai.egressPolicy:
+local-only`. See [SOVEREIGN_CORE_PROFILE.md](SOVEREIGN_CORE_PROFILE.md) for the full
+guide.
 
 ## AWS Single-Node Reference
 

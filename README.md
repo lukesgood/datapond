@@ -78,6 +78,7 @@ The product domain does not require every component in the diagram. Runtime capa
 | Helm values | Product role | What it actually does |
 |---|---|---|
 | `values-foundation.yaml` | **Portable Core · AWS starter** | About five workloads: backend, frontend, PostgreSQL/pgvector, LiteLLM, Valkey; external native S3 + Bedrock; no catalog/query service |
+| `values-sovereign-core.yaml` | **Sovereign Core** | On-prem twin of the AWS starter: core five + in-cluster MinIO + Ollama; no catalog/query, no add-ons, no egress |
 | `values-prod-single.yaml` | **AWS Single-Node Reference** | EC2/K3s application node with external Aurora, S3, Glue/Athena, Bedrock, ECR, TLS, and CloudWatch metrics; not application-node HA |
 | `values-aws.yaml` | **AWS Hybrid Extended compatibility** | Connects an existing Kubernetes cluster to S3, Bedrock, and external PostgreSQL; states none of the OSS add-on flags, so a fresh install renders none and an existing cluster keeps whatever it is already running; does not provision EKS |
 | `values-onprem.yaml` | **Sovereign OSS Extended** | Self-hosted core plus selected local/OSS services; higher operational footprint |
@@ -105,6 +106,8 @@ Then:
 5. Review **Governance** and **AI Gateway** for who called what, PII, usage, and spend.
 
 For the AWS infrastructure reference, follow [Deploying the AWS Single-Node Reference](docs/DEPLOY_SINGLE_NODE.md), not `values-aws.yaml`.
+
+Self-hosted instead of AWS? Use `values-sovereign-core.yaml` — the same core with in-cluster MinIO and Ollama instead of S3 and Bedrock. See [SOVEREIGN_CORE_PROFILE.md](docs/SOVEREIGN_CORE_PROFILE.md).
 
 ## Portability and exit strategy
 

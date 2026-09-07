@@ -17,6 +17,7 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Portable Core, 어댑터 계약, optional add-on 구조 |
 | [DEPLOYMENT_PROFILES.md](DEPLOYMENT_PROFILES.md) | Helm 프로필별 실제 구성과 선택 기준 |
 | [FOUNDATION_PROFILE.md](FOUNDATION_PROFILE.md) | `values-foundation.yaml` Portable Core · AWS starter 상세 |
+| [SOVEREIGN_CORE_PROFILE.md](SOVEREIGN_CORE_PROFILE.md) | values-sovereign-core.yaml Sovereign Core 상세 |
 | [PORTABILITY.md](PORTABILITY.md) | 데이터·모델·배포 이식성과 출구 전략 |
 
 ## 거버넌스·보안
@@ -48,7 +49,7 @@
 | 인증 — LDAP/AD | | ✅ `LDAP_ENABLED`, 기본 off | |
 | 인증 — OIDC SSO | | ✅ Enterprise 이미지(`/ee`) **＋** `OIDC_ENABLED` | SAML 미구현 |
 | RLS 엔진 (행 필터·컬럼 마스킹) | | ✅ `governance.rls.enabled` | |
-| S3/Bedrock adapter | ✅ AWS starter | | |
+| S3/Bedrock adapter | ✅ AWS starter · MinIO/Ollama in Sovereign Core | | |
 | Aurora/Glue/Athena adapter | | ✅ AWS single-node | |
 | Polaris/Trino | | ✅ OSS extended | |
 | RisingWave/OpenMetadata/Airflow/Spark/Jupyter/MLflow | | ✅ Optional add-on | |
