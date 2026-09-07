@@ -92,3 +92,16 @@ def test_export_streams_ndjson(monkeypatch):
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("application/x-ndjson")
     assert r.text.count("\n") == 1
+
+
+def test_summary_sql_counts_each_call_once():
+    # No DB is available in this test module (fake pool never executes real SQL),
+    # so this pins the query's shape statically rather than its runtime result:
+    # count(*)/FILTER counts must live in the CTE built over the base table, not
+    # in the part of the query that unnest()s resource (which fans a row with N
+    # resources out into N rows and would multiply every count/sum by N).
+    sql = tool_call_routes._SUMMARY_SQL
+    before_unnest, _, after_unnest = sql.partition("unnest(")
+    assert "count(*)" in before_unnest
+    assert "count(*)" not in after_unnest
+    assert sql.count("GROUP BY actor_id, actor_username, actor_kind") == 1

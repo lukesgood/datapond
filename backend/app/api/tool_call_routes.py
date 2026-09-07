@@ -9,8 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from app.api.auth import require_permission
 from app.api.connectors import get_db_pool
-from app.audit_retention import (retention_days, stream_tool_call_export,
-                                 tool_call_row_to_json, utcnow)
+from app.audit_retention import retention_days, stream_tool_call_export, utcnow
 from app.tool_call_log import TOOLS
 
 router = APIRouter(dependencies=[Depends(require_permission("audit:read"))])
@@ -22,20 +21,39 @@ _LIST_COLUMNS = ("id, occurred_at, actor_id::text AS actor_id, actor_username, a
                  "citation_sources, pii_masked, outcome, duration_ms, client_address, via")
 
 _SUMMARY_SQL = """
-SELECT actor_id::text AS actor_id, actor_username, actor_kind,
-       count(*)                                    AS calls,
-       count(*) FILTER (WHERE outcome = 'ok')       AS ok,
-       count(*) FILTER (WHERE outcome = 'degraded') AS degraded,
-       count(*) FILTER (WHERE outcome = 'error')    AS error,
-       array_remove(array_agg(DISTINCT r) FILTER (WHERE resource_kind = 'collection'), NULL) AS collections,
-       array_remove(array_agg(DISTINCT r) FILTER (WHERE resource_kind = 'tables'), NULL)     AS tables,
-       coalesce(sum(hit_count), 0)                  AS hits,
-       coalesce(sum(pii_masked), 0)                 AS pii_masked
-  FROM public.tool_call_log t
-  LEFT JOIN LATERAL unnest(t.resource) AS r ON true
- WHERE occurred_at >= $1 AND occurred_at <= $2
- GROUP BY actor_id, actor_username, actor_kind
- ORDER BY calls DESC
+WITH base AS (
+    SELECT actor_id, actor_username, actor_kind, outcome, hit_count, pii_masked,
+           resource_kind, resource
+      FROM public.tool_call_log
+     WHERE occurred_at >= $1 AND occurred_at <= $2
+),
+counts AS (
+    SELECT actor_id, actor_username, actor_kind,
+           count(*)                                    AS calls,
+           count(*) FILTER (WHERE outcome = 'ok')       AS ok,
+           count(*) FILTER (WHERE outcome = 'degraded') AS degraded,
+           count(*) FILTER (WHERE outcome = 'error')    AS error,
+           coalesce(sum(hit_count), 0)                  AS hits,
+           coalesce(sum(pii_masked), 0)                 AS pii_masked
+      FROM base
+     GROUP BY actor_id, actor_username, actor_kind
+),
+names AS (
+    SELECT b.actor_id,
+           array_agg(DISTINCT r) FILTER (WHERE b.resource_kind = 'collection') AS collections,
+           array_agg(DISTINCT r) FILTER (WHERE b.resource_kind = 'tables')     AS tables
+      FROM base b
+      CROSS JOIN LATERAL unnest(b.resource) AS r
+     GROUP BY b.actor_id
+)
+SELECT c.actor_id::text AS actor_id, c.actor_username, c.actor_kind,
+       c.calls, c.ok, c.degraded, c.error,
+       coalesce(n.collections, '{}') AS collections,
+       coalesce(n.tables, '{}')      AS tables,
+       c.hits, c.pii_masked
+  FROM counts c
+  LEFT JOIN names n ON n.actor_id IS NOT DISTINCT FROM c.actor_id
+ ORDER BY c.calls DESC
 """
 
 
