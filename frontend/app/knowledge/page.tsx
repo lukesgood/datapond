@@ -17,6 +17,7 @@ import { MySpend } from "@/components/ai/my-spend"
 import { CompositionPanel } from "@/components/knowledge/composition-panel"
 import { LineagePanel } from "@/components/knowledge/lineage-panel"
 import { MembersPanel } from "@/components/knowledge/members-panel"
+import { UseFromAppPanel } from "@/components/knowledge/use-from-app-panel"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -350,6 +351,7 @@ function Workspace({ name, onChange, empty, ownerId }: { name: string; onChange:
             <TabsTrigger value="ingest"><Upload className="h-3.5 w-3.5 mr-1" />Ingest</TabsTrigger>
             <TabsTrigger value="schedule"><Clock className="h-3.5 w-3.5 mr-1" />Schedule</TabsTrigger>
             <TabsTrigger value="members"><Users className="h-3.5 w-3.5 mr-1" />Members</TabsTrigger>
+            <TabsTrigger value="app">Use from app</TabsTrigger>
             {/* Only when the deployment has the capability. Without the flag every
                 concepts call 404s, so an always-present tab would greet everyone with
                 an error for a feature they have not turned on. The Concepts toggle in
@@ -361,6 +363,7 @@ function Workspace({ name, onChange, empty, ownerId }: { name: string; onChange:
           <TabsContent value="ingest"><IngestPanel name={name} ownerId={ownerId} onChange={onChange} /></TabsContent>
           <TabsContent value="schedule"><SchedulePanel name={name} ownerId={ownerId} /></TabsContent>
           <TabsContent value="members"><MembersPanel name={name} ownerId={ownerId} /></TabsContent>
+          <TabsContent value="app" className="mt-4"><UseFromAppPanel name={name} /></TabsContent>
           {/* Deliberately in Knowledge rather than a page of its own: concepts change
               what Search returns, so the cause belongs next to the effect. */}
           {ontologyOn && <TabsContent value="concepts"><ConceptsPanel /></TabsContent>}
