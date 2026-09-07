@@ -151,15 +151,15 @@ kubectl top nodes
 
 ```text
 helm/datapond/
-  values.yaml               # Base OSS extended defaults
-  values-foundation.yaml    # Portable Core · AWS starter
+  values.yaml                # Base OSS extended defaults
+  values-foundation.yaml     # Portable Core · AWS starter
   values-sovereign-core.yaml # Sovereign Core (on-prem twin: MinIO + Ollama)
-  values-prod-single.yaml   # AWS Single-Node Reference
-  values-onprem.yaml        # Sovereign OSS Extended
-  values-aws.yaml           # AWS Hybrid Extended compatibility; does not create EKS
-  values-dev.yaml           # Development
-  values-quicktest.yaml     # Integration/quick test
-  values-prod.yaml          # Self-hosted extended compatibility
+  values-prod-single.yaml    # AWS Single-Node Reference
+  values-onprem.yaml         # Sovereign OSS Extended
+  values-aws.yaml            # AWS Hybrid Extended compatibility; does not create EKS
+  values-dev.yaml            # Development
+  values-quicktest.yaml      # Integration/quick test
+  values-prod.yaml           # Self-hosted extended compatibility
   Chart.yaml
   templates/
 ```

@@ -72,11 +72,48 @@ CLAUDE.md's incomplete-items list.
 
 ## Install
 
-    helm upgrade --install datapond helm/datapond -n datapond --create-namespace \
-      -f helm/datapond/values-sovereign-core.yaml
+```bash
+helm upgrade --install datapond helm/datapond -n datapond --create-namespace \
+  -f helm/datapond/values-sovereign-core.yaml
+```
 
 First start pulls the two Ollama models; the LiteLLM init job registers them as `embed`
 and `default`.
+
+1. **Admin password.** The chart generates one and stores it in the `datapond-secrets`
+   Secret (`templates/secrets.yaml`):
+
+   ```bash
+   kubectl -n datapond get secret datapond-secrets -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d
+   ```
+
+2. **Reaching the UI.** Set `ingress.domain` (default `datapond.local`, resolved by the
+   chart's ingress template) to a domain you control. `ingress.tls.enabled` already
+   defaults to `false` in this profile — plain HTTP unless you turn it on. The
+   `cert-manager.io/cluster-issuer: letsencrypt-prod` annotation is still applied to the
+   Ingress regardless (there is no values key to remove it selectively); it is inert
+   without cert-manager installed in the cluster, and issuing a real certificate needs
+   outbound internet access to Let's Encrypt.
+
+3. **Create a bucket.** Nothing creates one automatically — the chart's bucket-init job
+   is gated on Polaris, which this profile does not run. Use Storage → create bucket in
+   the UI, or `POST /api/storage/buckets/{name}` as an admin, before S3 ingestion.
+
+4. **Confirm runtime identity.**
+
+   ```bash
+   curl -s https://<domain>/api/capabilities | jq '{profile_id, profile_maturity, knowledge, connectors, catalog, query, rls}'
+   ```
+
+   Expect `sovereign-core`, `supported-starter`, `true`, `false`, `false`, `false`,
+   `false`.
+
+5. **NetworkPolicy caveat.** With `networkPolicy.enabled: true` (this profile's
+   default), the `datapond-allow-web` policy admits ingress only from the `kube-system`
+   namespace and pods in the same namespace. If your ingress controller runs in its own
+   namespace (common outside k3s, where Traefik lives in `kube-system`), the UI will be
+   unreachable through it. There is no values key to widen the allowed namespace; set
+   `networkPolicy.enabled: false` on such clusters.
 
 ## Model configuration
 
@@ -84,13 +121,16 @@ and `default`.
 another model, set `ollama.embedModel` and `ai.embedDim` **before the first ingest**;
 changing the dimension later requires recreating `ai_chunks` and re-embedding.
 To use an external OpenAI-compatible server instead of Ollama, set `ollama.enabled: false`,
-`ai.llmEndpoint`, and a hand-written `litellm.config.model_list` with `embed`, `default`,
-`chat` entries.
+`ai.llmEndpoint`, and a hand-written `litellm.config.model_list` with `embed` and
+`default` entries — nothing consumes a logical model named `chat`.
 
 ## Security boundary
 
 Same as the AWS starter: application-level collection ACL, SQL-rewrite RLS when tables
 exist, PII masking, append-only audit. Add-ons are absent rather than disabled-but-present.
+
+This profile deploys MinIO, which is AGPL-3.0 — see `THIRD_PARTY_NOTICES.md` before
+procurement.
 
 The profile inherits the chart's default external scheme (`http`); once you front it
 with an HTTPS ingress, set `global.externalScheme: https` — WebAuthn and OIDC derive

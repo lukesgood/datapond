@@ -21,7 +21,9 @@ not derivation). Their licenses govern those components, not DataPond's code.
 
 **Procurement note for regulated environments:** Portable Core · AWS
 (`values-foundation.yaml`) and the AWS Single-Node Reference (`values-prod-single.yaml`)
-deploy neither MinIO nor Elasticsearch. `values-aws.yaml` deploys no MinIO. For
+deploy neither MinIO nor Elasticsearch. `values-aws.yaml` deploys no MinIO. Sovereign
+Core (`values-sovereign-core.yaml`) is the supported profile that ships MinIO — review
+its AGPL-3.0 terms before procurement (see `docs/SOVEREIGN_CORE_PROFILE.md`). For
 OpenMetadata (and the Elasticsearch it brings in) it sets no flag at all: a fresh
 `values-aws.yaml` install therefore deploys neither, and an upgrade of an existing
 `values-aws.yaml` release leaves OpenMetadata/Elasticsearch exactly as that namespace

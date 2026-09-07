@@ -46,8 +46,17 @@ def test_local_paths_are_on_and_consistent():
     assert v["ai"]["egressPolicy"] == "local-only"
     assert v["ai"]["embedDim"] == 1024
     assert v["ollama"]["embedModel"] == "bge-m3"
-    assert v["ollama"].get("embedLitellmName", "embed") == v["ai"].get("embedModel", "embed")
+    assert v["ollama"]["embedLitellmName"] == v["ai"]["embedModel"]
     assert "catalog" not in v, "a catalog backend would turn Sources/Catalog back on"
+
+
+def test_values_pins():
+    v = yaml.safe_load(VALUES.read_text())
+    assert "global" in v and v["global"].get("storageClass") == ""
+    assert "externalScheme" not in v.get("global", {})
+    assert v["minio"]["clusterIP"]
+    assert v["networkPolicy"]["enabled"] is True
+    assert "governance" not in v
 
 
 def test_render_has_core_minio_ollama_and_no_addons():
