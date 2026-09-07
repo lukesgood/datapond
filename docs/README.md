@@ -20,6 +20,12 @@
 | [SOVEREIGN_CORE_PROFILE.md](SOVEREIGN_CORE_PROFILE.md) | `values-sovereign-core.yaml` Sovereign Core 상세 |
 | [PORTABILITY.md](PORTABILITY.md) | 데이터·모델·배포 이식성과 출구 전략 |
 
+## 개발
+
+| 문서 | 목적 |
+|---|---|
+| [DEVELOPMENT.md](DEVELOPMENT.md) | 로컬 테스트 환경(venv, Python 3.11+, requirements 전부 설치)과 backend/frontend/Helm 검증 명령 |
+
 ## 거버넌스·보안
 
 | 문서 | 목적 |

@@ -166,6 +166,13 @@ helm/datapond/
 
 When adding a new component: add `enabled` flag, `image`, `replicas`, `resources`, `strategy: Recreate` to template, and mount `postgres-init-configmap` if DB needed.
 
+## Local tests
+
+Backend tests need a venv with every package in `backend/requirements.txt` (Homebrew Python refuses
+system installs): `cd backend && python3.12 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt && .venv/bin/python -m pytest tests -q --ignore=tests/acceptance`.
+A missing declared package surfaces as a failing test (e.g. `test_webauthn.py` without `webauthn`).
+See `docs/DEVELOPMENT.md`.
+
 ## Operational Commands
 
 ```bash
