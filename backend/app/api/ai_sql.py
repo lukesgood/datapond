@@ -33,6 +33,7 @@ from app.api.ai_backends import egress_policy, is_external_provider, provider_of
 from app.api.auth import require_permission, require_user
 from app.ai_context import set_actor, actor_payload
 from app.runtime import component_secret
+from app import tool_call_log
 
 logger = logging.getLogger(__name__)
 
@@ -371,9 +372,7 @@ class AskResponse(BaseModel):
 
 # ── Route ─────────────────────────────────────────────────────────────────────
 
-@router.post("/ai/sql", response_model=AskResponse,
-             dependencies=[Depends(require_permission("ai:generate"))])
-async def generate_sql(req: AskRequest, user: dict = Depends(require_user)):
+async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
     """Convert a natural language question to a Trino SQL query."""
     set_actor(user)  # attribute LLM spend to this user
     # ── PII guardrail (local, before the prompt reaches the LLM gateway) ──────
@@ -518,3 +517,27 @@ async def generate_sql(req: AskRequest, user: dict = Depends(require_user)):
         provider="none",
         pii_masked=pii_count,
     )
+
+
+@router.post("/ai/sql", response_model=AskResponse,
+             dependencies=[Depends(require_permission("ai:generate"))])
+async def generate_sql(req: AskRequest, user: dict = Depends(require_user)):
+    """Convert a natural language question to a SQL query, and log that it happened."""
+    from app.guardrails import pii_ko
+    masked_question = pii_ko.apply(req.question or "")[0]
+    started = time.perf_counter()
+    try:
+        resp = await _generate_sql_impl(req, user)
+    except Exception:
+        await tool_call_log.record(actor=user, tool="ai.sql", resource_kind="none",
+                                   resource=[], request_text=masked_question,
+                                   hit_count=0, outcome="error",
+                                   duration_ms=int((time.perf_counter() - started) * 1000))
+        raise
+    await tool_call_log.record(actor=user, tool="ai.sql", resource_kind="none",
+                               resource=[], request_text=masked_question,
+                               hit_count=0,
+                               pii_masked=int(resp.pii_masked or 0),
+                               outcome="ok" if resp.has_ai else "degraded",
+                               duration_ms=int((time.perf_counter() - started) * 1000))
+    return resp
