@@ -125,7 +125,7 @@ Pass condition: `documents > 0`, `chunks > 0`, and no embedding/provider error.
 
 ## 6. Validate retrieval before generation
 
-Issue `DATAPOND_KEY` as a service-account key (Settings → Service accounts) rather than using a person's login token.
+Issue `DATAPOND_KEY` as a service-account key (Settings → Service accounts) rather than using a person's login token. A freshly issued key belongs to a service account that is neither the collection's owner nor a member, so `/ai/search`/`/ai/rag` return `403` until you grant it access: in Knowledge → aws-acceptance → Members, add `svc-<name>` as `reader` — or, via the API, `curl -sk -X POST https://<domain>/api/ai/collections/aws-acceptance/members -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"username":"svc-<name>","role":"reader"}'` (using the admin `$TOKEN`, not `$DATAPOND_KEY`).
 
 ```bash
 curl -sk -X POST https://<domain>/api/ai/search \
