@@ -137,6 +137,7 @@ Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider r
 - Per-user LiteLLM usage and spend attribution
 - Capability-gated navigation and direct-route states
 - Community authentication plus Enterprise OIDC SSO
+- Append-only tool call log: who called search, cited answers, SQL generation or query execution, against which collection or tables, with hit count, cited sources and PII masked; NDJSON export and compliance-report section
 
 ### Optional
 
@@ -155,7 +156,6 @@ Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider r
 - Resource-server mode for external OIDC access tokens, required by OAuth-based MCP clients and by token exchange behind a gateway (API-key registration behind a gateway today collapses all agents into one service account)
 - Tool-facing OpenAPI subset (no `anyOf`, explicit operationIds) for gateway target registration; today the generated `/openapi.json` is not accepted by AgentCore Gateway as-is
 - Chunk/document-level caller filters inside a collection
-- Audit records for successful `/ai/search`, `/ai/rag`, and `/ai/sql` calls (what was asked, what was returned)
 - Enforced per-caller budgets (today: LiteLLM virtual-key budgets and reporting only)
 - Keys bound directly to collections or tables (today: collection membership and RLS by service-account identity)
 - Production default-deny RLS and WORM audit under a separate database role

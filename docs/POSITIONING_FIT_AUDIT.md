@@ -425,8 +425,8 @@ Settings → Service accounts 탭 → 계정 생성 → 키 발급·복사 → A
 | 테이블 행 필터·컬럼 마스킹, 서비스 계정 기준 | ○ | §2.3, 라이브 `rls.enabled: true` | `defaultDeny: false`(`values-prod-single.yaml:162`) |
 | SQL 문장 종류 게이트 | ○ | §2.2 | — |
 | PII 마스킹(적재·검색·인용) | ○ | §2.4 | SQL 결과 행 미검사 |
-| **성공한 검색·답변의 감사 기록** | ✕ | §2.5, §6.4 | 리드 차별점이 비어 있음 |
-| 인용·마스킹 수의 영속 | ✕ | §6.4 | — |
+| **성공한 검색·답변의 감사 기록** | ○ | `backend/app/tool_call_log.py`, `backend/app/api/tool_call_routes.py` | — |
+| 인용·마스킹 수의 영속 | ○ | `backend/app/tool_call_log.py`, `frontend/lib/compliance-report.ts` | — |
 | 호출자별 spend 귀속 | ○ | §2.6 | — |
 | **호출자별 예산 강제** | ✕ | §2.6 | 조회만 |
 | 권한 결정 감사 append-only + NDJSON export | ○ | §2.5 | WORM 아님 |
@@ -436,7 +436,7 @@ Settings → Service accounts 탭 → 계정 생성 → 키 발급·복사 → A
 | 보유해야 할 항목 | 보유 | 근거 | 갭 |
 |---|---|---|---|
 | Governance 화면의 감사·활동·AI 안전·데이터 보호·접근 제어·비용·리포트 탭 | ○ | `frontend/app/governance/page.tsx:1030-1036` | — |
-| 기간 지정 컴플라이언스 리포트(JSON 다운로드) | △ | `:821-891`, 항목은 `queries, aiSql, pii` | **에이전트의 검색·답변 호출이 항목에 없음** |
+| 기간 지정 컴플라이언스 리포트(JSON 다운로드) | ○ | `:821-891`, 항목은 `queries, aiSql, pii, tool_calls`; `frontend/lib/compliance-report.ts` | — |
 | 감사 NDJSON export(SIEM) | ○ API | `audit_export.py:34-64` | UI 버튼 없음(grep 0건) |
 | RLS 커버리지(보호 안 된 테이블 목록) | ○ | `governance/rls/coverage` | — |
 | "이 에이전트가 무엇을 읽었나" 화면 | ✕ | §6.7-3 | B의 감사 기록이 전제 |

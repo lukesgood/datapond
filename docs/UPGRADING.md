@@ -3,6 +3,17 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## tool_call_log (migration 0008)
+
+Every successful `/api/ai/search`, `/api/ai/rag`, `/api/ai/sql` and `/api/queries/execute`
+call now writes one row to `public.tool_call_log` (who, which tool, which collection or
+tables, hit count, cited sources, PII masked). The row is written after PII masking and is
+append-only under the same trigger as the security audit log. `save_history=false` no
+longer hides a query from the audit trail — it only controls the user-facing history.
+Retention: same window as `AUDIT_RETENTION_DAYS`. New read endpoints under
+`/api/audit/tool-calls` (`audit:read`). The governance compliance report gains an
+"Agent tool calls" section. Expect one extra INSERT per tool call.
+
 ## 2026-08 — `query:run` no longer means "may change the database"
 
 **What changed.** Running a statement that changes data or schema now needs a new

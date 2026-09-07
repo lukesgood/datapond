@@ -82,10 +82,9 @@ DataPond는 이 **호출자 단위 거버넌스가 붙은 데이터 도구 면**
 - 한국형 구조화 PII 마스킹: 적재 시, 검색 결과·인용에서 재마스킹
 - 권한 결정 감사(모든 거부 + 쓰기 허용), DB 트리거로 append-only, NDJSON export
 - 호출자 ID를 LiteLLM `end_user`로 전달해 서비스 계정별 usage/spend 조회
+- 성공한 search·rag·sql·query 호출의 append-only 도구 호출 감사(호출자, 컬렉션·테이블, hit 수, 인용 source, 마스킹 수), NDJSON export
 
 아직 아닌 것(로드맵 표기 원칙):
-
-- 성공한 `/ai/search`·`/ai/rag`·`/ai/sql` 호출의 감사 기록(무엇을 물었고 무엇을 받았는가)
 - 호출자별 예산 **강제**(현재는 LiteLLM 가상 키 예산과 조회만)
 - 키에 컬렉션·테이블 범위를 직접 묶는 것(현재는 멤버십·RLS로 간접)
 - Production default-deny RLS, WORM 감사(앱 role이 테이블 owner)
@@ -200,7 +199,7 @@ AWS Summit Seoul 2026의 규제 환경 에이전트 세션은 책임 소재와 �
 
 - 컬렉션 보안은 PostgreSQL native RLS가 아니라 application-level owner/admin/member ACL이다.
 - 테이블 RLS/마스킹은 SQL rewrite이며 `/queries/execute` 경로에 적용된다. `/ai/sql`은 생성만 한다.
-- 감사는 권한 결정 중심이다. 성공한 읽기 호출의 내용 기록은 roadmap이다.
+- 감사는 권한 결정과 도구 호출 두 축이다. 둘 다 append-only이며 WORM은 아니다.
 - 예산은 조회·알림이며 강제가 아니다.
 - UI capability gate는 UX 경계이며 API authorization을 대체하지 않는다.
 - 게이트웨이 뒤 등록 시 호출자 단위가 약해지는 한계는 "게이트웨이가 있어도 없어도" 절에 있다.
