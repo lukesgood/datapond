@@ -49,6 +49,29 @@ def test_build_row_rejects_unknown_vocabulary(field, value):
         tcl.build_row(**kwargs)
 
 
+def test_build_row_client_address_from_contextvar_when_arg_omitted():
+    assert tcl.current_client_address() is None
+    token = tcl.set_client_address("203.0.113.7")
+    try:
+        row = tcl.build_row(actor=HUMAN, tool="ai.search", resource_kind="collection",
+                            resource=["faq"], request_text="q")
+        assert row["client_address"] == "203.0.113.7"
+    finally:
+        tcl._client_address.reset(token)
+    assert tcl.current_client_address() is None
+
+
+def test_build_row_prefers_explicit_client_address_over_contextvar():
+    token = tcl.set_client_address("203.0.113.7")
+    try:
+        row = tcl.build_row(actor=HUMAN, tool="ai.search", resource_kind="collection",
+                            resource=["faq"], request_text="q",
+                            client_address="198.51.100.9")
+        assert row["client_address"] == "198.51.100.9"
+    finally:
+        tcl._client_address.reset(token)
+
+
 def test_via_context_defaults_to_api_and_restores():
     assert tcl.current_via() == "api"
     with tcl.via("chat"):

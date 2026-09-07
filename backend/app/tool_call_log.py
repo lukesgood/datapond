@@ -24,6 +24,13 @@ _MASKED_LIMIT = 512
 
 _via: contextvars.ContextVar[str] = contextvars.ContextVar("tool_call_via", default="api")
 
+# Set once per HTTP request by AuthMiddleware.dispatch (main.py) so every tool_call_log
+# row from that request — including ones written from chat executors, which call the
+# public search/rag wrappers with no Request object — gets a client address without
+# changing any wrapper's signature.
+_client_address: contextvars.ContextVar[Optional[str]] = \
+    contextvars.ContextVar("tool_call_client_address", default=None)
+
 
 def current_via() -> str:
     return _via.get()
@@ -36,6 +43,16 @@ def via(value: str) -> Iterator[None]:
         yield
     finally:
         _via.reset(token)
+
+
+def set_client_address(addr: Optional[str]):
+    """Set the current request's client address. Returns a token for
+    `_client_address.reset(token)` — call that when the request ends."""
+    return _client_address.set(addr)
+
+
+def current_client_address() -> Optional[str]:
+    return _client_address.get()
 
 
 def utcnow() -> datetime:
@@ -94,7 +111,7 @@ def build_row(*, actor: dict, tool: str, resource_kind: str, resource: List[str]
         "pii_masked": int(pii_masked or 0),
         "outcome": outcome,
         "duration_ms": duration_ms,
-        "client_address": client_address,
+        "client_address": client_address if client_address is not None else current_client_address(),
         "via": via or current_via(),
     }
 

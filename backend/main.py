@@ -116,7 +116,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 user = None
         if user:
             request.state.user = user
-            return await call_next(request)
+            # Same address security_audit's rate limiter counts against (proxy-aware
+            # via LOGIN_TRUST_PROXY), so both logs agree on who called from where.
+            # Reset after the response so it never leaks into an unrelated request.
+            from app import tool_call_log
+            from app.rate_limit import client_address
+            token = tool_call_log.set_client_address(client_address(request))
+            try:
+                return await call_next(request)
+            finally:
+                tool_call_log._client_address.reset(token)
         return JSONResponse(
             status_code=401,
             content={"detail": "Not authenticated"},
