@@ -9,9 +9,20 @@ import asyncio
 import pytest
 
 import app.api.ai_sql as m
+from app import tool_call_log
 
 USER = {"id": "00000000-0000-0000-0000-0000000000aa", "username": "admin", "role": "admin"}
 SCHEMA = "Available tables (catalog: AwsDataCatalog):\n  AwsDataCatalog.sales.orders: id (int), amt (double)"
+
+
+@pytest.fixture(autouse=True)
+def _no_tool_call_log_writes(monkeypatch):
+    """m.generate_sql is called here directly as a coroutine, bypassing the FastAPI
+    router — so the wrapper's real tool_call_log.record runs unmocked and tries a
+    genuine asyncpg connection. Stub it so these stay hermetic unit tests."""
+    async def _record(**kw):
+        return None
+    monkeypatch.setattr(tool_call_log, "record", _record)
 
 
 def _run(req):
