@@ -4,6 +4,7 @@ The forbidden strings are asserted by name. A future field added to the aggregat
 happens to carry one fails here rather than in someone's conversation.
 """
 import asyncio
+from datetime import date
 
 from app.chat.analysis import audit as audit_mod
 from app.chat.analysis import governance as gov_mod
@@ -17,12 +18,15 @@ def _run(c):
 
 
 class _Conn:
-    def __init__(self, rows):
+    def __init__(self, rows, tool_rows=None):
         self._rows = rows
-        self.sql = None
+        self._tool_rows = tool_rows if tool_rows is not None else []
+        self.queries = []
 
     async def fetch(self, sql, *args):
-        self.sql = sql
+        self.queries.append(sql)
+        if "tool_call_log" in sql:
+            return self._tool_rows
         return self._rows
 
 
@@ -43,8 +47,8 @@ class _Pool:
         return _Ctx()
 
 
-def _install_pool(monkeypatch, rows):
-    conn = _Conn(rows)
+def _install_pool(monkeypatch, rows, tool_rows=None):
+    conn = _Conn(rows, tool_rows)
 
     async def _pool():
         return _Pool(conn)
@@ -65,12 +69,42 @@ def test_the_summary_is_counts_and_nothing_else(monkeypatch):
 
 def test_the_query_never_selects_an_identifying_column(monkeypatch):
     """Read the SQL, not just the output. A column selected and then dropped in Python
-    is one line away from being returned."""
+    is one line away from being returned. Covers both queries the action runs —
+    _SUMMARY_SQL (security_audit_log) and _TOOL_SUMMARY_SQL (tool_call_log)."""
     conn = _install_pool(monkeypatch, [])
     _run(audit_mod.activity_summary({"days": 7}, {"id": "u1"}))
-    lowered = conn.sql.lower()
-    for column in ("actor_id", "actor_username", "client_address", "reason", "route"):
-        assert column not in lowered, f"{column} must not appear in the aggregate query"
+    assert len(conn.queries) == 2
+    for sql in conn.queries:
+        lowered = sql.lower()
+        for column in ("actor_id", "actor_username", "client_address", "reason",
+                       "route", "request_text", "resource"):
+            assert column not in lowered, f"{column} must not appear in the aggregate query"
+
+
+def test_tool_summary_sql_selects_only_categories_and_counts():
+    """_TOOL_SUMMARY_SQL, read statically rather than through a mocked pool: only
+    tool, outcome, day and count(*) AS n may be selected. Same constraint as
+    _SUMMARY_SQL above, enforced directly on the constant's text."""
+    sql = audit_mod._TOOL_SUMMARY_SQL
+    lowered = sql.lower()
+    select_clause = lowered.split("from")[0]
+    for column in ("tool", "outcome", "day", "count(*)"):
+        assert column in select_clause
+    for column in ("actor_id", "actor_username", "client_address", "reason",
+                   "route", "request_text", "resource", "collection", "table"):
+        assert column not in lowered, f"{column} must not appear in _TOOL_SUMMARY_SQL"
+
+
+def test_activity_summary_includes_tool_call_aggregate(monkeypatch):
+    _install_pool(monkeypatch, [], tool_rows=[
+        {"tool": "ai.search", "outcome": "ok", "day": date(2026, 9, 1), "n": 5},
+        {"tool": "ai.sql", "outcome": "error", "day": date(2026, 9, 1), "n": 2},
+    ])
+    out = _run(audit_mod.activity_summary({"days": 7}, {"id": "u1"}))
+    assert out["tool_calls"]["totals"] == {"ok": 5, "degraded": 0, "error": 2}
+    by_tool = out["tool_calls"]["by_tool"]
+    assert {"tool": "ai.search", "outcome": "ok", "day": "2026-09-01", "n": 5} in by_tool
+    assert {"tool": "ai.sql", "outcome": "error", "day": "2026-09-01", "n": 2} in by_tool
 
 
 def test_no_forbidden_string_survives_into_the_result(monkeypatch):

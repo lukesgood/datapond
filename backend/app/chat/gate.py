@@ -22,6 +22,7 @@ Postgres.
 import logging
 from typing import Any, Awaitable, Callable, Mapping, Optional, Protocol, Sequence
 
+from app import tool_call_log
 from app.chat.actions import (
     Action,
     ActionKind,
@@ -285,7 +286,8 @@ async def _execute(invocation: dict, action: Action, user: dict,
         raise ActionRefused(f"{action.label} is not available in this deployment.")
     try:
         # The stored parameters, not anything the client sent with the approval.
-        result = await _maybe_await(executor(invocation["params"], user))
+        with tool_call_log.via("chat"):
+            result = await _maybe_await(executor(invocation["params"], user))
     except Exception as e:
         logger.warning(f"[chat] {action.id} failed: {e}")
         await store.update(invocation["id"], status="failed", error=str(e)[:500])

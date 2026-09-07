@@ -34,6 +34,16 @@ _SUMMARY_SQL = """
      ORDER BY day
 """
 
+# Same constraint as _SUMMARY_SQL, enforced by tests/test_chat_audit_aggregate.py:
+# categories and counts only. No actor, no resource, no request text.
+_TOOL_SUMMARY_SQL = """
+    SELECT tool, outcome, date_trunc('day', occurred_at)::date AS day, count(*) AS n
+      FROM public.tool_call_log
+     WHERE occurred_at >= now() - ($1::int * interval '1 day')
+     GROUP BY tool, outcome, day
+     ORDER BY day
+"""
+
 
 async def activity_summary(params: dict, user: dict) -> dict:
     from app.api.auth import _get_pool
@@ -41,6 +51,7 @@ async def activity_summary(params: dict, user: dict) -> dict:
     pool = await _get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(_SUMMARY_SQL, params["days"])
+        tool_rows = await conn.fetch(_TOOL_SUMMARY_SQL, params["days"])
 
     totals = {"allowed": 0, "denied": 0}
     by_permission: Dict[str, dict] = {}
@@ -65,14 +76,21 @@ async def activity_summary(params: dict, user: dict) -> dict:
         "by_permission": sorted(by_permission.values(),
                                 key=lambda r: r["denied"] + r["allowed"], reverse=True),
         "by_day": [by_day[k] for k in sorted(by_day)],
+        "tool_calls": {
+            "totals": {o: sum(int(r["n"]) for r in tool_rows if r["outcome"] == o)
+                       for o in ("ok", "degraded", "error")},
+            "by_tool": [{"tool": r["tool"], "outcome": r["outcome"],
+                         "day": r["day"].isoformat(), "n": int(r["n"])} for r in tool_rows],
+        },
     }
 
 
 ACTIONS = (
     Action("audit.activity_summary", "Audit activity summary",
            "Authorisation activity over a period as counts: allowed and denied per "
-           "permission and per day. Returns no actor, address or target — those stay "
-           "on the Governance screen.",
+           "permission and per day, plus data-tool calls (search, answers, SQL) by "
+           "tool and outcome per day. Returns no actor, address or target — those "
+           "stay on the Governance screen.",
            ("*",), "audit:read", ActionKind.READ, AuditWindow),
 )
 
