@@ -124,7 +124,7 @@ async def record(*, actor: dict, tool: str, resource_kind: str, resource: List[s
         # app.api.auth at module load and this module is imported by route modules.
         from app.api.connectors import get_db_pool
         pool = await get_db_pool()
-        async with pool.acquire() as conn:
+        async with pool.acquire(timeout=2) as conn:
             await conn.execute(
                 _INSERT, row["occurred_at"], row["actor_id"], row["actor_username"],
                 row["actor_kind"], row["tool"], row["resource_kind"], row["resource"],

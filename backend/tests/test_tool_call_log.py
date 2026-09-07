@@ -86,13 +86,15 @@ class _FakeConn:
 class _FakePool:
     def __init__(self, conn):
         self._conn = conn
+        self.acquire_kwargs = None
 
-    def acquire(self):
+    def acquire(self, timeout=None):
+        self.acquire_kwargs = {"timeout": timeout}
         return self._conn
 
 
 class _BrokenPool:
-    def acquire(self):
+    def acquire(self, timeout=None):
         raise RuntimeError("pool is gone")
 
 
@@ -119,3 +121,14 @@ def test_record_never_raises(monkeypatch):
     _patch_pool(monkeypatch, _BrokenPool())
     _run(tcl.record(actor=HUMAN, tool="ai.sql", resource_kind="none", resource=[],
                     request_text="q"))  # must not raise
+
+
+def test_record_acquires_with_a_timeout(monkeypatch):
+    """A saturated pool must not stall the caller's response — record() bounds its
+    own wait for a connection rather than blocking forever."""
+    conn = _FakeConn()
+    pool = _FakePool(conn)
+    _patch_pool(monkeypatch, pool)
+    _run(tcl.record(actor=HUMAN, tool="ai.sql", resource_kind="none", resource=[],
+                    request_text="q"))
+    assert pool.acquire_kwargs == {"timeout": 2}
