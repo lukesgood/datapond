@@ -7,7 +7,7 @@ Helm profile names are retained for compatibility. Product role, actual topology
 | Profile | Choose when | Avoid when |
 |---|---|---|
 | Portable Core · AWS | You need the smallest S3/Bedrock governed RAG starter | You need Catalog/SQL workflows out of the box |
-| Sovereign Core | You need the smallest self-hosted governed RAG starter with no data egress | You need Catalog/SQL or any OSS add-on |
+| Sovereign Core | You need the smallest self-hosted governed RAG starter with no external model provider (local-only gateway policy) | You need Catalog/SQL or any OSS add-on |
 | AWS Single-Node Reference | You want the current end-to-end AWS Terraform + Helm reference | You require application-node HA or EKS |
 | AWS Hybrid Extended | You already operate Kubernetes and want AWS endpoints on it, without the chart changing what add-ons that cluster already runs | You expect a lean or automatically provisioned EKS stack |
 | Sovereign OSS Extended | You need local control and are prepared to operate the add-ons | You want the lowest operational burden |

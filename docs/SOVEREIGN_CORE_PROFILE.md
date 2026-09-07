@@ -126,8 +126,10 @@ To use an external OpenAI-compatible server instead of Ollama, set `ollama.enabl
 
 ## Security boundary
 
-Same as the AWS starter: application-level collection ACL, SQL-rewrite RLS when tables
-exist, PII masking, append-only audit. Add-ons are absent rather than disabled-but-present.
+Same as the AWS starter: application-level collection ACL, PII masking, append-only
+audit. No table RLS in this profile (no query engine; `FEATURE_RLS` renders false —
+choose `values-onprem.yaml` for Trino/Polaris with table policies). Add-ons are absent
+rather than disabled-but-present.
 
 This profile deploys MinIO, which is AGPL-3.0 — see `THIRD_PARTY_NOTICES.md` before
 procurement.
