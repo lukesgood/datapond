@@ -182,14 +182,14 @@ def _audit_retention_code() -> str:
 
 
 def test_prune_calls_the_sanctioned_functions_not_a_bare_delete():
-    """Behavioural half of the pin described in the module docstring: the exact two
+    """Behavioural half of the pin described in the module docstring: the exact three
     statements prune() sends, and that neither is a DELETE issued directly against
     the tables."""
     calls = []
-    conn = _FakeConn(calls, [("prune_security_audit_log", 4), ("prune_auth_audit_log", 9)])
+    conn = _FakeConn(calls, [("prune_security_audit_log", 4), ("prune_auth_audit_log", 9), ("prune_tool_call_log", 3)])
     result = _run(prune(conn, _now()))
-    assert result == {"security_audit_log": 4, "auth_audit_log": 9}
-    assert len(calls) == 2
+    assert result == {"security_audit_log": 4, "auth_audit_log": 9, "tool_call_log": 3}
+    assert len(calls) == 3
     for sql, args in calls:
         assert "select" in sql.lower()
         assert "delete" not in sql.lower(), (
@@ -200,13 +200,14 @@ def test_prune_calls_the_sanctioned_functions_not_a_bare_delete():
     sqls = {sql for sql, _ in calls}
     assert any("prune_security_audit_log" in s for s in sqls)
     assert any("prune_auth_audit_log" in s for s in sqls)
+    assert any("prune_tool_call_log" in s for s in sqls)
 
 
 def test_prune_returns_zero_for_a_table_with_nothing_to_remove():
     calls = []
-    conn = _FakeConn(calls, [("prune_security_audit_log", None), ("prune_auth_audit_log", None)])
+    conn = _FakeConn(calls, [("prune_security_audit_log", None), ("prune_auth_audit_log", None), ("prune_tool_call_log", None)])
     result = _run(prune(conn, _now()))
-    assert result == {"security_audit_log": 0, "auth_audit_log": 0}
+    assert result == {"security_audit_log": 0, "auth_audit_log": 0, "tool_call_log": 0}
 
 
 def test_module_source_never_spells_a_bare_delete_on_either_audit_table():
@@ -262,9 +263,9 @@ class _LockPool(_FakePool):
 def test_tick_prunes_and_releases_the_lock_when_it_gets_one(monkeypatch):
     monkeypatch.delenv("AUDIT_RETENTION_DAYS", raising=False)
     calls = []
-    pool = _LockPool(calls, [("prune_security_audit_log", 1), ("prune_auth_audit_log", 2)])
+    pool = _LockPool(calls, [("prune_security_audit_log", 1), ("prune_auth_audit_log", 2), ("prune_tool_call_log", 0)])
     result = _run(tick(pool))
-    assert result == {"security_audit_log": 1, "auth_audit_log": 2}
+    assert result == {"security_audit_log": 1, "auth_audit_log": 2, "tool_call_log": 0}
     assert pool.conn.unlocked is True
 
 

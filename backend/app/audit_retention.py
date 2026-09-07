@@ -105,6 +105,7 @@ def utcnow() -> datetime:
 # one is easy to spot, and so tests can assert against the literal text.
 _PRUNE_SECURITY_SQL = "SELECT prune_security_audit_log($1)"
 _PRUNE_AUTH_SQL = "SELECT prune_auth_audit_log($1)"
+_PRUNE_TOOL_CALL_SQL = "SELECT prune_tool_call_log($1)"
 
 
 async def prune(conn, cutoff: datetime) -> dict:
@@ -116,9 +117,11 @@ async def prune(conn, cutoff: datetime) -> dict:
     """
     security_removed = await conn.fetchval(_PRUNE_SECURITY_SQL, cutoff)
     auth_removed = await conn.fetchval(_PRUNE_AUTH_SQL, cutoff)
+    tool_call_removed = await conn.fetchval("SELECT prune_tool_call_log($1)", cutoff)
     return {
         "security_audit_log": int(security_removed or 0),
         "auth_audit_log": int(auth_removed or 0),
+        "tool_call_log": int(tool_call_removed or 0),
     }
 
 
@@ -235,5 +238,54 @@ async def stream_security_audit_export(
             yield security_audit_row_to_json(dict(row)) + "\n"
         last_row = rows[-1]
         last_occurred, last_id = last_row["occurred_at"], last_row["id"]
+        if len(rows) < page_size:
+            return
+
+
+_TOOL_COLUMNS = ("id, occurred_at, actor_id::text AS actor_id, actor_username, actor_kind, "
+                 "tool, resource_kind, resource, request_hash, request_masked, hit_count, "
+                 "citation_sources, pii_masked, outcome, duration_ms, client_address, via")
+
+_TOOL_EXPORT_FIRST_PAGE_SQL = f"""
+SELECT {_TOOL_COLUMNS} FROM public.tool_call_log
+ WHERE occurred_at >= $1 AND occurred_at <= $2
+ ORDER BY occurred_at ASC, id ASC
+ LIMIT $3
+"""
+
+_TOOL_EXPORT_NEXT_PAGE_SQL = f"""
+SELECT {_TOOL_COLUMNS} FROM public.tool_call_log
+ WHERE occurred_at >= $1 AND occurred_at <= $2
+   AND (occurred_at, id) > ($4, $5)
+ ORDER BY occurred_at ASC, id ASC
+ LIMIT $3
+"""
+
+
+def tool_call_row_to_json(row: dict) -> str:
+    d = dict(row)
+    ts = d.get("occurred_at")
+    d["occurred_at"] = ts.isoformat() if hasattr(ts, "isoformat") else ts
+    d["resource"] = list(d.get("resource") or [])
+    d["citation_sources"] = list(d.get("citation_sources") or [])
+    return json.dumps(d, ensure_ascii=False, separators=(",", ":"))
+
+
+async def stream_tool_call_export(pool, since: datetime, until: datetime,
+                                  page_size: int = _DEFAULT_PAGE_SIZE) -> AsyncIterator[str]:
+    """tool_call_log rows in [since, until], oldest first, one JSON object per line.
+    Keyset-paged on (occurred_at, id); a connection is held only per page."""
+    last = None
+    while True:
+        async with pool.acquire() as conn:
+            if last is None:
+                rows = await conn.fetch(_TOOL_EXPORT_FIRST_PAGE_SQL, since, until, page_size)
+            else:
+                rows = await conn.fetch(_TOOL_EXPORT_NEXT_PAGE_SQL, since, until,
+                                        page_size, last[0], last[1])
+        for r in rows:
+            d = dict(r)
+            yield tool_call_row_to_json(d) + "\n"
+            last = (d["occurred_at"], d["id"])
         if len(rows) < page_size:
             return
