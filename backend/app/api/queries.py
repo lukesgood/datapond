@@ -15,6 +15,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from app.api.auth import require_user, require_permission
+from app import tool_call_log
 
 # RLS (Layer 1) — gated by RLS_ENABLED (default off). See docs/RLS_DESIGN.md.
 # Query execution itself always requires an authenticated user (for history
@@ -196,8 +197,7 @@ def _may_write(user: dict) -> bool:
     return "query:write" in held
 
 
-@router.post("/queries/execute", response_model=QueryResult, dependencies=[Depends(require_permission("query:run"))])
-async def execute_query(
+async def _execute_query_impl(
     request: QueryExecuteRequest,
     db: Session = Depends(get_db),
     user: dict = Depends(require_user),
@@ -362,6 +362,33 @@ async def execute_query(
         row_count=len(rows),
         truncated=truncated
     )
+
+
+@router.post("/queries/execute", response_model=QueryResult,
+             dependencies=[Depends(require_permission("query:run"))])
+async def execute_query(
+    request: QueryExecuteRequest,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_user),
+):
+    """Run a SQL query through table resolution, RLS and masking, and log the call."""
+    from app.guardrails import pii_ko
+    masked_sql = pii_ko.apply(request.query or "")[0]
+    tables = tool_call_log.table_names(request.query or "")
+    started = time.perf_counter()
+    try:
+        result = await _execute_query_impl(request, db, user)
+    except Exception:
+        await tool_call_log.record(actor=user, tool="query.execute", resource_kind="tables",
+                                   resource=tables, request_text=masked_sql,
+                                   outcome="error",
+                                   duration_ms=int((time.perf_counter() - started) * 1000))
+        raise
+    await tool_call_log.record(actor=user, tool="query.execute", resource_kind="tables",
+                               resource=tables, request_text=masked_sql,
+                               hit_count=int(result.row_count or 0), outcome="ok",
+                               duration_ms=int((time.perf_counter() - started) * 1000))
+    return result
 
 
 @router.get("/queries/history", response_model=QueryHistoryListResponse)

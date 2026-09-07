@@ -39,11 +39,13 @@ def test_reading_is_not_taken_away_from_anyone():
 # ── the gate is on the path that runs SQL ─────────────────────────────────────
 
 def test_the_execute_route_consults_the_classifier():
+    """`execute_query` is a thin tool_call_log wrapper around `_execute_query_impl`,
+    which holds the actual execution path and the classifier check."""
     import inspect
 
     from app.api import queries
 
-    body = inspect.getsource(queries.execute_query)
+    body = inspect.getsource(queries._execute_query_impl)
     assert "statement_kind" in body, "the execute path does not classify the statement"
     assert "query:write" in body
 
@@ -55,7 +57,7 @@ def test_the_refusal_names_the_permission_to_ask_for():
 
     from app.api import queries
 
-    body = inspect.getsource(queries.execute_query)
+    body = inspect.getsource(queries._execute_query_impl)
     assert "403" in body or "status_code=403" in body
 
 
