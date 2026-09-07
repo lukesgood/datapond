@@ -21,8 +21,14 @@ in-cluster MinIO. `storage.bucket` is not a chart key.
 ## What does not run
 
 trino, spark, polaris, airflow, mlflow, risingwave, openmetadata, jupyter, vllm — all stated `false`.
-No catalog backend, so Sources / Catalog / Analytics stay hidden. Nothing leaves the cluster:
-`ai.egressPolicy: local-only`.
+No catalog backend, so Sources / Catalog / Analytics stay hidden.
+
+No prompt, document text or embedding is sent to an external model provider:
+`ai.egressPolicy: local-only` is enforced at the gateway and fails closed
+(`backend/app/api/ai_vectors.py:152-168`). It is not a network egress control — the
+NetworkPolicy allows outbound traffic (see `templates/networkpolicy.yaml`), and first
+boot pulls container images and ~6 GB of Ollama models from the internet unless you
+mirror them.
 
 ## Core workflow
 

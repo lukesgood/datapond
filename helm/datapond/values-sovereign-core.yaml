@@ -3,9 +3,14 @@
 #
 # Portable Core (backend, frontend, PostgreSQL/pgvector, LiteLLM, Valkey) plus in-cluster
 # MinIO for objects and Ollama for a local embedding + chat model. No catalog, no query
-# engine, no OSS add-on: Sources/Catalog/Analytics stay hidden, and nothing leaves the
-# cluster (ai.egressPolicy: local-only). Everything here is inside the supported scope
-# named in SUPPORT.md; values-onprem.yaml remains the extended community stack.
+# engine, no OSS add-on: Sources/Catalog/Analytics stay hidden. No prompt, document text
+# or embedding is sent to an external model provider: ai.egressPolicy: local-only is
+# enforced at the gateway and fails closed (backend/app/api/ai_vectors.py:152-168). It is
+# not a network egress control — the NetworkPolicy allows outbound traffic (see
+# templates/networkpolicy.yaml), and first boot pulls container images and ~6 GB of
+# Ollama models from the internet unless you mirror them. Everything here is inside the
+# supported scope named in SUPPORT.md; values-onprem.yaml remains the extended community
+# stack.
 #
 # Install:
 #   helm upgrade --install datapond helm/datapond -n datapond --create-namespace \
