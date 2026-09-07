@@ -69,3 +69,22 @@ def test_lists_owned_member_and_global_collections(monkeypatch):
     assert d["account_id"] == ACCT
     assert [c["name"] for c in d["collections"]] == ["faq", "mine", "public"]
     assert "ai_collection_members" in conn.sql[-1] and "owner_id IS NULL" in conn.sql[-1]
+
+
+def test_non_admin_is_refused(monkeypatch):
+    """The collections endpoint is admin-gated (dependencies=[Depends(require_admin)]).
+    Build the app WITHOUT overriding require_admin — only auth.require_user, which
+    require_admin itself depends on — so require_admin's own role check runs for real
+    against a non-admin viewer. require_admin raises 403 ("Admin required") for a
+    non-service user whose role isn't admin; assert the wider (401, 403) contract per
+    the brief in case that ever changes to a 401."""
+    app = FastAPI()
+    app.include_router(sar.router, prefix="/api")
+
+    async def _viewer():
+        return {"id": "33333333-3333-3333-3333-333333333333", "username": "v", "role": "viewer"}
+    app.dependency_overrides[auth.require_user] = _viewer
+
+    _patch(monkeypatch, _Conn(None, []))
+    r = TestClient(app).get(f"/api/service-accounts/{ACCT}/collections")
+    assert r.status_code in (401, 403)
