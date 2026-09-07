@@ -139,6 +139,7 @@ async def chat(request: ChatRequest,
     # used to call catalog.find_tables, find the table, and say nothing more.
     steps: List[dict] = []
     reply, action, invocation = "", None, None
+    budget_ended_a_read = False
     for step in range(_TURN_STEPS):
         try:
             reply, call = await _ask_model(
@@ -190,6 +191,11 @@ async def chat(request: ChatRequest,
 
         if not should_continue(action.kind.value, invocation["status"], step + 1,
                                _TURN_STEPS):
+            # A parked write stops the turn correctly — a person decides next. A
+            # read stopping here means the budget ran out (or the read failed)
+            # while the model was still working, and `reply` is the preamble it
+            # streamed before choosing this tool, not an answer.
+            budget_ended_a_read = action.kind is ActionKind.READ
             break
 
         # Feed what the read returned back, so the next step builds on it rather than
@@ -200,6 +206,30 @@ async def chat(request: ChatRequest,
         messages.append({"role": "user",
                          "content": f"Result of {action.id}: "
                                     f"{json.dumps(invocation.get('result'), ensure_ascii=False)[:2000]}"})
+
+    if budget_ended_a_read:
+        # Seen on live: seven collections, a four-step budget, and the turn ended
+        # on "I'll continue checking the remaining collections:" — a promise, with
+        # the four reads that DID run never summarised. One more model call with no
+        # tools on offer turns what ran into an answer; the model cannot chain
+        # further because there is nothing left to call, so the boundary
+        # should_continue enforces is intact. If this call fails, fall back to
+        # the preamble — degraded, not broken.
+        messages.append({"role": "assistant",
+                         "content": reply or f"(used {action.id})"})
+        messages.append({"role": "user",
+                         "content": f"Result of {action.id}: "
+                                    f"{json.dumps(invocation.get('result'), ensure_ascii=False)[:2000]}\n"
+                                    f"That was the last tool call available this "
+                                    f"turn. Answer now from what you have, and say "
+                                    f"plainly what you did not get to check."})
+        try:
+            closing, _ = await _ask_model(
+                _system_prompt(request.page, request.context), messages, [])
+            if closing:
+                reply = closing
+        except Exception as e:
+            logger.warning(f"[chat] closing call failed, keeping the preamble: {e}")
 
     if action is None or invocation is None:
         return {"reply": reply, "conversation_id": conversation_id,
