@@ -80,7 +80,7 @@ export function JourneyStrip() {
                 href={step.href}
                 className={
                   step.cta
-                    ? "group flex items-center gap-3 rounded-lg border border-primary/40 bg-primary/5 px-2 py-1 -mx-2"
+                    ? "group flex items-center gap-3 rounded-lg border border-primary/40 bg-primary/5 px-2 py-1"
                     : "group flex items-center gap-3"
                 }
               >
@@ -95,7 +95,7 @@ export function JourneyStrip() {
                     <step.icon className="h-3.5 w-3.5" style={{ color: step.color }} />
                     {step.title}
                   </span>
-                  <span className="block truncate text-[10.5px] capitalize text-muted-foreground">{step.sub}</span>
+                  <span className={`block truncate text-[10.5px] text-muted-foreground${step.cta ? "" : " capitalize"}`}>{step.sub}</span>
                 </span>
               </Link>
               {index < steps.length - 1 && (
