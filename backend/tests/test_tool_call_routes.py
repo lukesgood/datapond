@@ -105,3 +105,12 @@ def test_summary_sql_counts_each_call_once():
     assert "count(*)" in before_unnest
     assert "count(*)" not in after_unnest
     assert sql.count("GROUP BY actor_id, actor_username, actor_kind") == 1
+    # names CTE must group by all three too — actor_id alone cross-attributes
+    # resources between distinct actors that share a NULL actor_id (e.g. two
+    # different service accounts with no actor_id set).
+    _, _, after_names = sql.partition("names AS (")
+    names_cte, _, _ = after_names.partition(")\nSELECT")
+    assert "GROUP BY b.actor_id, b.actor_username, b.actor_kind" in names_cte
+    assert "n.actor_username = c.actor_username" in sql
+    assert "n.actor_kind = c.actor_kind" in sql
+    assert "ORDER BY c.calls DESC, c.actor_username ASC" in sql
