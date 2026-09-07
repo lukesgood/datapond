@@ -1,16 +1,18 @@
 # DataPond Documentation
 
-이 디렉터리의 현재 제품 문서는 **Portable AI Data Foundation**을 기준으로 한다. DataPond의 제품 경계는 governed RAG 애플리케이션 코어이며, AWS와 OSS 데이터 서비스는 프로필에 따라 선택되는 어댑터·add-on이다.
+이 디렉터리의 현재 제품 문서는 **AI 에이전트·앱을 위한 governed 데이터 도구 서버**(v6.0, 2026-09-07)를 기준으로 한다. DataPond의 제품 경계는 에이전트가 직접 호출하는(게이트웨이는 선택) 데이터 계층 거버넌스(호출자별 컬렉션·행 접근, 인용·마스킹 감사, 호출자별 예산)가 붙은 인용 RAG·governed SQL 도구 면이며, AWS와 OSS 데이터 서비스는 프로필에 따라 선택되는 어댑터·add-on이다.
 
-> **최종 갱신: 2026-08-24.** 아래 capability 표와 라이브 환경 상태는 이 날짜 기준이다. 상태가 걸린 항목(라이브 환경, capability)은 변경 시 이 인덱스도 함께 갱신한다.
+> **최종 갱신: 2026-09-07** (포지셔닝 v6.0). capability 표와 라이브 환경 상태는 2026-08-24 기준이다. 아래 capability 표와 라이브 환경 상태는 이 날짜 기준이다. 상태가 걸린 항목(라이브 환경, capability)은 변경 시 이 인덱스도 함께 갱신한다.
 
 ## 먼저 읽을 문서
 
 | 문서 | 목적 |
 |---|---|
-| [PRODUCT_CONCEPT.md](PRODUCT_CONCEPT.md) | 대상 사용자, 가치 제안, 제품 경계, 경쟁 기준 (v5.0 — **현행 정본**) |
+| [PRODUCT_CONCEPT.md](PRODUCT_CONCEPT.md) | 대상 사용자, 가치 제안, 제품 경계, 경쟁 기준 (v6.0 — **현행 정본**) |
+| [POSITIONING_REVIEW.md](POSITIONING_REVIEW.md) | v5.0→v6.0 포지셔닝 문제 분석과 결정 기록 (2026-09-07) |
+| [POSITIONING_FIT_AUDIT.md](POSITIONING_FIT_AUDIT.md) | v6.0 문장 기준 기능·사용성 적합도 점검과 우선순위 (2026-09-07) |
 | [PRODUCTIZATION_READINESS_ASSESSMENT.md](PRODUCTIZATION_READINESS_ASSESSMENT.md) | 현재 구현의 상품화 준비도, 출시 차단 요소, 개선 로드맵 |
-| [CONCEPT_RECONFIRMATION.md](CONCEPT_RECONFIRMATION.md) | v6 방향 **제안** 노트 (에이전트 governed 데이터 접근 계층 · 수요 게이트). v5.0을 대체하지 않으며, 수요 게이트 통과 후에야 정식 개정으로 승격된다 |
+| [CONCEPT_RECONFIRMATION.md](CONCEPT_RECONFIRMATION.md) | v6 방향 제안 노트 (2026-07-27). 2026-09-07 v6.0으로 승격됨. 수요 게이트(§5)는 여전히 유효하다 |
 | [ONTOLOGY_FEASIBILITY_REPORT.md](ONTOLOGY_FEASIBILITY_REPORT.md) | 온톨로지 실현가능성·가치 5개 실험 검증 리포트 (연구 기록) · 실험 하네스: [research/ontology-poc/](research/ontology-poc/) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Portable Core, 어댑터 계약, optional add-on 구조 |
 | [DEPLOYMENT_PROFILES.md](DEPLOYMENT_PROFILES.md) | Helm 프로필별 실제 구성과 선택 기준 |

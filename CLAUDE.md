@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DataPond is a **Portable AI Data Foundation** for governed RAG and agent applications. The shipped product core covers ingestion, chunk replacement, embeddings, pgvector retrieval, optional reranking, cited answers, collection access, PII controls, and per-user model spend. AWS is the current reference adapter environment, not the product boundary.
+DataPond is a **governed data tool server for AI agents and applications**: cited RAG and governed SQL exposed as tools, with collection/row access, PII masking, retrieval-level audit, and model spend controlled per caller at the data layer. Agents call it directly (REST today, MCP next); an agent gateway is optional, not assumed. The shipped core covers ingestion, chunk replacement, embeddings, pgvector retrieval, optional reranking, cited answers, service-account keys, collection ACL, RLS/masking, PII controls, audit, and per-caller spend. The tool surface today is REST/OpenAPI; an MCP server is roadmap. AWS is the current reference adapter environment, not the product boundary.
 
 Canonical product truth:
 - `README.md`
@@ -12,12 +12,14 @@ Canonical product truth:
 - `docs/ARCHITECTURE.md`
 - `docs/DEPLOYMENT_PROFILES.md`
 - `docs/PORTABILITY.md`
+- `docs/POSITIONING_REVIEW.md` (why v6.0) and `docs/POSITIONING_FIT_AUDIT.md` (what still does not fit)
 
 `docs/superpowers/plans/` and `docs/superpowers/specs/` are historical implementation records, not current product claims.
 
-Key positioning (v5.0 — Portable Core):
-- **Target:** AI application and platform teams moving governed RAG/agents from PoC to operation.
-- **Core value:** one application layer for ingest → embed → retrieve/rerank → cited answer plus access, PII, audit, and spend.
+Key positioning (v6.0 — governed tool layer, 2026-09-07):
+- **Target:** teams whose AI agents and applications need governed access to company documents and tables. First segment: Korean enterprises on AWS with personal-data obligations.
+- **Core value:** search, cited answers, and governed SQL as tools behind service-account keys, governed at the data layer (which caller reads which collection/row; what was cited and masked; per-caller spend). Orthogonal to agent gateways such as AgentCore Gateway: register behind one if the customer runs it, never require it. Portability is a lock-in objection remover, not the headline.
+- **Not doing:** gateway features (agent registry, SSO/SCIM sync, tool-level policy engine, rug-pull detection), coding-agent spend control, ontology Phase 1, more add-ons, more operator-assistant actions, regulated verticals as first partner.
 - **Portability:** S3 API, PostgreSQL + pgvector, LiteLLM/OpenAI-compatible model boundary, REST/OIDC, Helm/Kubernetes.
 - **AWS reference:** S3, Aurora, Glue/Athena, and Bedrock where the selected profile actually enables them.
 - **Optional OSS add-ons:** Polaris, Trino, RisingWave, OpenMetadata, Airflow, Spark, Jupyter, and MLflow.
@@ -340,7 +342,7 @@ See `.claude/agents/pm-agent.md` for detailed spawning examples and coordination
 
 | Doc | Purpose |
 |-----|---------|
-| `README.md` | Public overview — Portable AI Data Foundation |
+| `README.md` | Public overview — governed tool layer for AI agents and apps |
 | `docs/README.md` | Active documentation index and status matrix |
 | `docs/PRODUCT_CONCEPT.md` | Product strategy, boundary, users, and open-core policy |
 | `docs/ARCHITECTURE.md` | Portable Core, adapters, add-ons, and capability semantics |
@@ -356,7 +358,7 @@ See `.claude/agents/pm-agent.md` for detailed spawning examples and coordination
 
 ## Current Status
 
-> **Current direction (v5.0, 2026-07):** Portable **AI Data Foundation** with a governed RAG core, explicit adapter profiles, and optional OSS add-ons. The current AWS infrastructure reference is single-node EC2/K3s + Aurora/S3/Glue/Athena/Bedrock; `values-foundation.yaml` is the smaller in-cluster-pgvector AWS starter. The completion log below is historical implementation evidence and may use superseded profile terminology.
+> **Current direction (v6.0, 2026-09-07):** **governed tool layer for AI agents and apps** with a governed RAG/SQL core, explicit adapter profiles, and optional OSS add-ons (v5.0 "Portable AI Data Foundation" superseded; see `docs/POSITIONING_REVIEW.md`). The current AWS infrastructure reference is single-node EC2/K3s + Aurora/S3/Glue/Athena/Bedrock; `values-foundation.yaml` is the smaller in-cluster-pgvector AWS starter. The completion log below is historical implementation evidence and may use superseded profile terminology.
 
 ### Sprint 1: Ingestion (완료)
 - ✅ Incremental Sync: watermark 기반, max_value DB 저장, 빈 결과 시 덮어쓰기 방지

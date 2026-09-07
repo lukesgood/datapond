@@ -1,16 +1,19 @@
-# DataPond — Portable AI Data Foundation
+# DataPond — Governed data tool server for AI agents and apps
 
-> **Build governed RAG and agent data flows once. Keep storage, vectors, models, and deployment replaceable.**
+> **Give agents and applications governed access to your documents and tables. Cited RAG and governed SQL as tools, governed at the data layer: which caller may read which collection or row; what was cited and what was masked; how much each caller may spend.**
 
-DataPond is an open-core AI data foundation for teams moving RAG and agent applications from a prototype to an operated system. It ships the application layer that is repeatedly rebuilt by hand—ingestion, chunk replacement, embeddings, retrieval, optional reranking, cited answers, collection access, PII controls, and per-user model spend—while keeping infrastructure behind open contracts.
+DataPond is an open-core data tool server for teams whose AI agents and applications need to reach company data. Agents call it **directly** with a service-account key, and if your organization runs an agent gateway (Amazon Bedrock AgentCore Gateway, Obot, Runlayer) DataPond can be registered behind it as a target. Either way it does the part gateways do not: ingestion and freshness, chunking and embeddings, pgvector retrieval with optional reranking, cited answers, governed SQL, per-caller collection and row access, PII masking on the data itself, audit, and per-caller model spend. Infrastructure stays behind open contracts. Retrieval-level audit of successful calls and enforced per-caller budgets are listed under roadmap below, not claimed as shipped.
 
-**AWS is the current reference deployment, not the product boundary.** Use native S3, Aurora PostgreSQL/pgvector, Glue/Athena, and Bedrock where the AWS reference enables them, or run the same core with PostgreSQL, S3-compatible storage, local/cloud models through LiteLLM, and selected OSS add-ons.
+Today the tool surface is **REST/OpenAPI with service-account keys**. A read-only MCP server over the same action registry is the next slice, not yet shipped. DataPond does not build gateway features (agent registry, SSO/SCIM sync, tool-level policy engines). **AWS is the current reference deployment, not the product boundary.** Run on native S3, Aurora PostgreSQL/pgvector, Glue/Athena, and Bedrock, or on PostgreSQL, S3-compatible storage, and local/cloud models through LiteLLM.
+
+Positioning decision and its evidence: [docs/POSITIONING_REVIEW.md](docs/POSITIONING_REVIEW.md). How well the current build fits it: [docs/POSITIONING_FIT_AUDIT.md](docs/POSITIONING_FIT_AUDIT.md).
 
 ## Product model
 
 | Layer | Role | Current status |
 |---|---|---|
-| **Portable Core** | Knowledge/RAG APIs and UI, ingestion, pgvector retrieval, citations, PII, collection ACL, AI usage/spend | Shipped |
+| **Governed data tool server** | `/api/ai/search`, `/api/ai/rag`, `/api/ai/sql`, `/api/queries/execute` behind service-account keys; collection ACL, RLS/masking, PII, audit, per-caller spend; called directly, or registered behind an agent gateway if you run one | Shipped (REST); MCP next slice |
+| **Knowledge core** | Ingestion, chunk replacement, freshness scheduler, pgvector retrieval, citations, operator UI | Shipped |
 | **Open contracts** | S3 API, PostgreSQL + pgvector, LiteLLM/OpenAI-compatible model boundary, REST, OIDC, Helm/Kubernetes | Shipped |
 | **AWS adapters** | S3, Aurora, Bedrock; Glue/Athena in the single-node reference | Shipped per profile |
 | **OSS add-ons** | Trino, Polaris, RisingWave, OpenMetadata, Airflow, Jupyter, MLflow, Spark | Optional and capability-gated |
@@ -26,17 +29,19 @@ flowchart LR
     ING --> VEC[PostgreSQL + pgvector]
     VEC --> RET[Search · optional rerank]
     RET --> RAG[Cited RAG answer]
+    AGENT[Agent / app<br/>service-account key] --> RET
+    AGENT --> SQL[Governed SQL]
     GW[LiteLLM<br/>Bedrock · cloud · local] --> ING
     GW --> RAG
-    GOV[Collection access · audit · spend] --- ING
-    GOV --- RAG
+    GOV[Caller ACL · PII · audit · spend] --- RET
+    GOV --- SQL
 ```
 
 1. **Connect** content directly to Knowledge, or enable a source/catalog adapter.
-2. **Organize** it in collections; use Iceberg catalogs only when table workflows need them.
+2. **Organize** it in collections; share them with the people and service accounts that need them.
 3. **Ground** AI with chunking, embeddings, pgvector search, optional reranking, and citations.
-4. **Serve** models through LiteLLM logical model names.
-5. **Govern** collection access, PII behavior, audit events, and model spend.
+4. **Expose** search, cited answers, and governed SQL to your agent or app through a service-account key.
+5. **Govern** who called what, PII behavior, audit events, and per-caller model spend.
 
 ## Architecture
 
@@ -45,9 +50,9 @@ flowchart TB
     APP[AI apps and agents] --> CORE
 
     subgraph CORE[Apache-2.0 Portable Core]
-      API[Knowledge and RAG APIs]
+      API[Tool surface: search · rag · sql · query]
       PIPE[Ingest · embed · retrieve · rerank]
-      GOV[Access · PII · audit · spend]
+      GOV[Caller access · PII · audit · spend]
       UI[Operator UI]
     end
 
@@ -94,10 +99,10 @@ helm upgrade --install datapond helm/datapond \
 Then:
 
 1. Sign in and open **Knowledge**.
-2. Create a collection.
-3. Ingest text or an S3 source.
-4. Test semantic search, then ask a cited RAG question.
-5. Review **Governance** and **AI Gateway** for access, PII, usage, and spend.
+2. Create a collection and ingest text or an S3 source.
+3. Test semantic search, then ask a cited RAG question.
+4. Open **API**, issue a service-account key with `knowledge:read` and `ai:generate`, and call `/api/ai/rag` from your app or agent using the curl sample shown there.
+5. Review **Governance** and **AI Gateway** for who called what, PII, usage, and spend.
 
 For the AWS infrastructure reference, follow [Deploying the AWS Single-Node Reference](docs/DEPLOY_SINGLE_NODE.md), not `values-aws.yaml`.
 
@@ -124,7 +129,10 @@ Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider r
 - PostgreSQL/pgvector HNSW search
 - Optional LiteLLM reranking with vector-order fallback
 - Bedrock/LiteLLM cited RAG responses
-- Collection owner/admin/shared application-level ACL
+- Service-account keys scoped to role ∩ requested permissions, with expiry
+- Collection owner/admin/member (reader/editor) application-level ACL
+- SQL statement-kind gate: write statements need `query:write`, unclassifiable statements are refused
+- Append-only audit of authorization decisions with NDJSON export
 - Catalog → Knowledge bridge when a catalog adapter is enabled
 - Per-user LiteLLM usage and spend attribution
 - Capability-gated navigation and direct-route states
@@ -143,6 +151,14 @@ Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider r
 
 ### Roadmap or hardening
 
+- Read-only MCP server (2026-07-28 spec) over the same action registry and permission gate, for agents that connect directly
+- Resource-server mode for external OIDC access tokens, required by OAuth-based MCP clients and by token exchange behind a gateway (API-key registration behind a gateway today collapses all agents into one service account)
+- Tool-facing OpenAPI subset (no `anyOf`, explicit operationIds) for gateway target registration; today the generated `/openapi.json` is not accepted by AgentCore Gateway as-is
+- Chunk/document-level caller filters inside a collection
+- Audit records for successful `/ai/search`, `/ai/rag`, and `/ai/sql` calls (what was asked, what was returned)
+- Enforced per-caller budgets (today: LiteLLM virtual-key budgets and reporting only)
+- Keys bound directly to collections or tables (today: collection membership and RLS by service-account identity)
+- Production default-deny RLS and WORM audit under a separate database role
 - EKS infrastructure module and HA reference topology
 - EMR Serverless, S3 Tables, Lake Formation, AOSS, DataZone, Marketplace packaging
 - Database-enforced Knowledge collection RLS (current collection ACL is application-level)
@@ -154,6 +170,8 @@ Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider r
 
 - [Active documentation index](docs/README.md)
 - [Product concept](docs/PRODUCT_CONCEPT.md)
+- [Positioning review and decision](docs/POSITIONING_REVIEW.md)
+- [Positioning fit audit](docs/POSITIONING_FIT_AUDIT.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Deployment profiles](docs/DEPLOYMENT_PROFILES.md)
 - [Portable Core profile](docs/FOUNDATION_PROFILE.md)
