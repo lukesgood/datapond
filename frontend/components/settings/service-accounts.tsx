@@ -100,7 +100,7 @@ export function ServiceAccounts() {
         await load()
       } else {
         const d = await res.json().catch(() => ({}))
-        toast(d.detail ?? `Could not issue key (HTTP ${res.status})`, "error")
+        toast(typeof d.detail === "string" ? d.detail : `Could not issue key (HTTP ${res.status})`, "error")
       }
     } finally { setBusy(false) }
   }
@@ -237,7 +237,7 @@ export function ServiceAccounts() {
                 <div className="rounded-md border p-3 space-y-3 text-sm">
                   <div className="space-y-1">
                     <Label htmlFor={`key-name-${a.id}`} className="text-xs">Key name</Label>
-                    <Input id={`key-name-${a.id}`} value={keyName} onChange={e => setKeyName(e.target.value)} />
+                    <Input id={`key-name-${a.id}`} value={keyName} onChange={e => setKeyName(e.target.value)} maxLength={128} />
                   </div>
                   <div className="space-y-1">
                     <p className="text-xs font-medium">Scopes — the key can never do more than the account&apos;s role</p>
@@ -337,18 +337,21 @@ function AccountSpend({ accountId }: { accountId: string }) {
 }
 
 function AccountCollections({ accountId }: { accountId: string }) {
-  const [rows, setRows] = useState<AccountCollection[] | null>(null)
+  const [rows, setRows] = useState<AccountCollection[] | "error" | null>(null)
 
   useEffect(() => {
     let cancelled = false
     fetch(`/api/service-accounts/${accountId}/collections`)
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (!cancelled && d) setRows(d.collections) })
-      .catch(() => { if (!cancelled) setRows([]) })
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(d => { if (!cancelled) setRows(d.collections) })
+      .catch(() => { if (!cancelled) setRows("error") })
     return () => { cancelled = true }
   }, [accountId])
 
   if (rows === null) return <span className="text-xs text-muted-foreground">Collections: …</span>
+  if (rows === "error") {
+    return <span className="text-xs text-red-600">Collections: could not load</span>
+  }
   if (rows.length === 0) {
     return (
       <span className="text-xs text-muted-foreground">
@@ -357,8 +360,11 @@ function AccountCollections({ accountId }: { accountId: string }) {
     )
   }
   return (
-    <span className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-      Reads:
+    <span
+      className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground"
+      title="A key without knowledge:read cannot read these; a key without ai:generate cannot call search or answers."
+    >
+      Reads (with knowledge:read):
       {rows.map(c => (
         <Badge key={c.name} variant="outline" className="text-[10px]" title={`${c.access} · ${c.chunks} chunks`}>
           {c.name} · {c.access}
