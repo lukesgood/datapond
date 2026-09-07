@@ -105,12 +105,6 @@ postgres:
     username: datapond
     password: ""           # empty ⇒ Helm generates and preserves
 
-# ── Governance: RLS engine on, so table policies apply if tables are ever added ──
-governance:
-  rls:
-    enabled: true
-    defaultDeny: false
-
 # ── Every add-on explicitly off (unset would mean "preserve if already running") ─
 trino:
   enabled: false

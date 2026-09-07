@@ -68,3 +68,14 @@ def test_render_hides_data_navigation():
         assert re.search(rf"name: {flag}\n\s+value: \"false\"", m), flag
     assert re.search(r"name: FEATURE_OLLAMA\n\s+value: \"true\"", m)
     assert re.search(r"name: AI_EGRESS_POLICY\n\s+value: \"local-only\"", m)
+
+
+def test_render_has_no_rls_claim():
+    # No query engine in this profile, so FEATURE_RLS must not claim enforcement over
+    # a surface that does not exist (templates/backend-deployment.yaml:365-375, gated
+    # on governance.rls.enabled via `dig "enabled" false`, defaults false when the
+    # governance key is absent).
+    v = yaml.safe_load(VALUES.read_text())
+    assert "governance" not in v
+    m = _render()
+    assert re.search(r"name: FEATURE_RLS\n\s+value: \"false\"", m)
