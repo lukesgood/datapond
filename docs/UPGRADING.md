@@ -3,6 +3,14 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-09 — Service-account keys carry scopes and an expiry
+
+Keys issued from Settings → Service accounts default to `knowledge:read` + `ai:generate`
+and 90 days. Keys issued before this change keep their previous (role-wide, non-expiring)
+grants; revoke and reissue them to narrow. `GET /api/service-accounts/{id}/collections`
+lists what an account can read. `/api/api-surface` (the API page) now includes
+`POST /api/queries/execute`.
+
 ## 2026-09 — Every data-tool call leaves an audit row
 
 Every `/api/ai/search`, `/api/ai/rag`, `/api/ai/sql` and `/api/queries/execute` call —

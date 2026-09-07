@@ -125,9 +125,11 @@ Pass condition: `documents > 0`, `chunks > 0`, and no embedding/provider error.
 
 ## 6. Validate retrieval before generation
 
+Issue `DATAPOND_KEY` as a service-account key (Settings → Service accounts) rather than using a person's login token.
+
 ```bash
 curl -sk -X POST https://<domain>/api/ai/search \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $DATAPOND_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"collection":"aws-acceptance","query":"<known phrase>","k":5}' | jq .
 ```
@@ -143,7 +145,7 @@ Check:
 
 ```bash
 curl -sk -X POST https://<domain>/api/ai/rag \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $DATAPOND_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"collection":"aws-acceptance","question":"<answerable question>","k":5}' | jq .
 ```

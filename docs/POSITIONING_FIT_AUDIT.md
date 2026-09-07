@@ -400,18 +400,18 @@ AWS 문서(`gateway-schema-openapi`, `gateway-building-adding-targets-authorizat
 | 보유해야 할 항목 | 보유 | 근거 | 갭 |
 |---|---|---|---|
 | 서비스 계정 생성(이름·역할) UI | ○ | `components/settings/service-accounts.tsx:53-62`, 역할 선택 `:151-155` | — |
-| 키 발급 시 스코프 선택 | ✕ | `:71` `scopes: []` 고정 | UI 키는 role 전체 권한 |
-| 키 발급 시 만료 선택 | ✕ | 표시만(`:12` `expires_at`), 입력 없음 | 무기한 키가 기본 |
+| 키 발급 시 스코프 선택 | ○ | `frontend/components/settings/service-accounts.tsx`, `frontend/lib/service-account-keys.ts` | — |
+| 키 발급 시 만료 선택 | ○ | `frontend/components/settings/service-accounts.tsx`, `frontend/lib/service-account-keys.ts` | — |
 | 키 폐기 | ○ | `:82`, `:228` | — |
 | 서비스 계정별 호출 수·spend 표시 | ○ | `AccountSpend` `:250-267` | — |
-| 서비스 계정에 컬렉션 부여 | △ | 컬렉션 쪽 Members 탭에서 가능(§3.2). 계정 쪽에서 "이 에이전트가 볼 수 있는 컬렉션" 없음 | 방향이 하나뿐 |
+| 서비스 계정에 컬렉션 부여 | ○ | `backend/app/api/service_account_routes.py` `/collections`, `frontend/components/settings/service-accounts.tsx` `AccountCollections` | — |
 | `/connect`의 curl 예시와 브라우저 실행 | ○ | `connect/page.tsx:164-206` | — |
-| `/connect`가 `/queries/execute` 포함 | ✕ | `api_surface.py:19` | governed SQL이 도구 면에서 안 보임 |
-| 컬렉션 페이지 "앱에서 쓰기" 스니펫 | ✕ | §3.2 | — |
+| `/connect`가 `/queries/execute` 포함 | ○ | `backend/app/api/api_surface.py` `EXTRA_ROUTES` | — |
+| 컬렉션 페이지 "앱에서 쓰기" 스니펫 | ○ | `frontend/components/knowledge/use-from-app-panel.tsx`, `frontend/lib/app-snippets.ts` | — |
 | MCP 엔드포인트 | ✕ | §6.6 | 다음 슬라이스 |
 | OAuth resource-server(호스티드 MCP 클라이언트용) | ✕ | §6.2-2 | — |
 | API 키 호출 rate limit·회전 | ✕ | §2.1 | — |
-| 통합 도움말·문서(서비스 키 기준 curl) | ✕ | §3.2, docs의 curl은 사람 JWT | — |
+| 통합 도움말·문서(서비스 키 기준 curl) | ○ | `frontend/app/help/integrate/page.tsx`, `docs/AWS_MVP_RUNBOOK.md` | — |
 
 첫 governed 호출까지의 여정을 세면 **화면 4개, 조작 약 12회**다: 로그인 → Knowledge에서 컬렉션 생성·적재 →
 Settings → Service accounts 탭 → 계정 생성 → 키 발급·복사 → API 페이지 → curl 붙여넣기. 안내된 흐름이
