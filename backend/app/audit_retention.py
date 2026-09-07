@@ -6,13 +6,14 @@ Design: docs/superpowers/plans/2026-08-31-governance-and-audit-boundary.md (B4)
 **Retention.** B3 (migration `0005_audit_append_only`) made `security_audit_log`
 (B2) and `auth_audit_log` (baseline) reject UPDATE and DELETE from a
 `BEFORE UPDATE OR DELETE` trigger, and carved exactly one exception:
-`prune_security_audit_log(cutoff_ts)` / `prune_auth_audit_log(cutoff_ts)`, two
-`SECURITY DEFINER` functions that flip the trigger's escape-hatch GUC on, delete,
-and flip it back off. `prune()` below calls only those two functions — a bare
-`DELETE FROM security_audit_log ...` written here would hit the same trigger every
-other caller does and raise, but only against a real Postgres, which is why
-`tests/test_audit_retention.py` checks this module's own source text for a bare
-DELETE rather than trusting a mock to catch the mistake before production does.
+`prune_security_audit_log(cutoff_ts)` / `prune_auth_audit_log(cutoff_ts)` /
+`prune_tool_call_log(cutoff_ts)`, three `SECURITY DEFINER` functions that flip
+the trigger's escape-hatch GUC on, delete, and flip it back off. `prune()` below
+calls only those three functions — a bare `DELETE FROM security_audit_log ...`
+written here would hit the same trigger every other caller does and raise, but
+only against a real Postgres, which is why `tests/test_audit_retention.py` checks
+this module's own source text for a bare DELETE rather than trusting a mock to
+catch the mistake before production does.
 
 Why a floor instead of an off switch: `app/system_events.py` made this argument for
 infrastructure events (30-day default, 1-day floor) and it applies here at a longer
@@ -34,8 +35,8 @@ Runs its own loop (`run_retention`) rather than folding into
 `system_events.run_collector`'s tick. The two share only "periodic, one leader" —
 system_events reads Kubernetes and the node's uptime and can fail on something as
 mundane as a missing RBAC verb (see its `degraded_event` docstring); this module
-only ever calls two SQL functions against two tables it never has to reach a
-cluster API for. Combining them would put a Kubernetes-read hiccup and an
+only ever calls three SQL functions against three audit tables it never has to
+reach a cluster API for. Combining them would put a Kubernetes-read hiccup and an
 audit-retention bug in one failure domain and one log line, and would make
 understanding either module require reading both. Kept apart, each module's
 docstring is a complete account of what its own loop does.
@@ -100,8 +101,8 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# The only two statements this module ever sends to the audit tables. Kept as named
-# constants rather than built with string formatting so a diff that changed either
+# The only three statements this module ever sends to the audit tables. Kept as named
+# constants rather than built with string formatting so a diff that changed any
 # one is easy to spot, and so tests can assert against the literal text.
 _PRUNE_SECURITY_SQL = "SELECT prune_security_audit_log($1)"
 _PRUNE_AUTH_SQL = "SELECT prune_auth_audit_log($1)"
@@ -109,7 +110,7 @@ _PRUNE_TOOL_CALL_SQL = "SELECT prune_tool_call_log($1)"
 
 
 async def prune(conn, cutoff: datetime) -> dict:
-    """Delete everything older than `cutoff` from both audit tables, through the
+    """Delete everything older than `cutoff` from all three audit tables, through the
     sanctioned functions only — never a bare DELETE. See the module docstring and
     `tests/test_audit_retention.py::test_prune_calls_the_sanctioned_functions_not_a_bare_delete`.
 
@@ -117,7 +118,7 @@ async def prune(conn, cutoff: datetime) -> dict:
     """
     security_removed = await conn.fetchval(_PRUNE_SECURITY_SQL, cutoff)
     auth_removed = await conn.fetchval(_PRUNE_AUTH_SQL, cutoff)
-    tool_call_removed = await conn.fetchval("SELECT prune_tool_call_log($1)", cutoff)
+    tool_call_removed = await conn.fetchval(_PRUNE_TOOL_CALL_SQL, cutoff)
     return {
         "security_audit_log": int(security_removed or 0),
         "auth_audit_log": int(auth_removed or 0),

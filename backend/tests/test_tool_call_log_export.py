@@ -1,6 +1,12 @@
 import asyncio
+import ast
+import inspect
+import io
 import json
+import re
+import tokenize
 from datetime import datetime, timezone
+from pathlib import Path
 
 from app import audit_retention as ar
 
@@ -9,20 +15,57 @@ def _run(coro):
     return asyncio.new_event_loop().run_until_complete(coro)
 
 
-def test_prune_calls_the_sanctioned_function_only():
-    import inspect
-    src = inspect.getsource(ar.prune)
-    assert "prune_tool_call_log($1)" in src
-    # Verify no bare DELETE FROM statements in the function body
-    # (the docstring mentions DELETE, so we check the code part only)
-    lines = src.split('\n')
-    for line in lines:
-        # Skip docstring lines (anything in triple quotes)
-        if '"""' in line:
+def _audit_retention_source() -> str:
+    """Read the source of the audit_retention module."""
+    return Path(inspect.getfile(ar)).read_text()
+
+
+def _audit_retention_code() -> str:
+    """`app/audit_retention.py` with its comments and docstrings removed, and every
+    other string literal left in place. Mirrors test_audit_retention.py helper."""
+    src = _audit_retention_source()
+    lines = src.splitlines()
+    blanked = set()
+
+    # Docstrings: the first statement of a module, class or function when it is a
+    # bare string. ast gives the line span; the literal may be several lines long.
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        # Check for DELETE FROM (SQL statement, not prose)
-        if 'delete' in line.lower() and 'from' in line.lower():
-            raise AssertionError(f"Found bare DELETE statement: {line}")
+        if ast.get_docstring(node, clean=False) is None:
+            continue
+        doc = node.body[0]
+        blanked.update(range(doc.lineno, doc.end_lineno + 1))
+
+    # Comments: tokenized rather than regex-matched, so a `#` inside a SQL string
+    # does not truncate the statement that follows it on the same line.
+    out = [line for line in lines]
+    for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+        if tok.type != tokenize.COMMENT:
+            continue
+        (row, col), (_, end_col) = tok.start, tok.end
+        out[row - 1] = out[row - 1][:col] + out[row - 1][end_col:]
+
+    return "\n".join("" if i in blanked else line for i, line in enumerate(out, start=1))
+
+
+def test_prune_calls_the_sanctioned_function_only():
+    """Static check: module source contains the sanctioned function and no bare DELETE
+    for tool_call_log. This mirrors test_audit_retention.py::test_module_source_never_spells_a_bare_delete_on_either_audit_table
+    but scoped to tool_call_log specifically."""
+    src = _audit_retention_code()
+
+    # Check for bare DELETE FROM tool_call_log in the stripped code
+    assert not re.search(r"DELETE\s+FROM\s+(public\.)?tool_call_log\b", src, re.I), (
+        "found a bare DELETE FROM tool_call_log in app/audit_retention.py"
+    )
+
+    # Check that the sanctioned function is present
+    full_src = _audit_retention_source()
+    assert "SELECT prune_tool_call_log($1)" in full_src, (
+        "prune_tool_call_log($1) SQL statement not found in audit_retention.py"
+    )
 
 
 
