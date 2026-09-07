@@ -11,14 +11,19 @@ restated, so nothing can disagree.
 """
 import pytest
 
-from app.api.api_surface import build_api_surface, example_from_schema
+from app.api.api_surface import EXTRA_ROUTES, build_api_surface, example_from_schema
 
 
 def test_the_surface_is_the_ai_routes_not_every_route():
     import main
     surface = build_api_surface(main.app)
     assert surface, "no routes found"
-    assert all(e["path"].startswith("/api/ai/") for e in surface)
+    assert all(
+        e["path"].startswith("/api/ai/") or (e["path"], e["method"]) in EXTRA_ROUTES
+        for e in surface
+    )
+    # still not every route: the rest of the governed-SQL router stays out
+    assert "/api/queries/history" not in {e["path"] for e in surface}
 
 
 def test_it_finds_the_endpoints_an_application_actually_calls():
@@ -74,3 +79,14 @@ def test_types_are_rendered_as_something_a_person_can_edit():
               "required": ["n", "flag", "items", "obj"]}
     out = example_from_schema(schema)
     assert out == {"n": 0, "flag": False, "items": [], "obj": {}}
+
+
+def test_surface_includes_governed_sql_execute():
+    from fastapi import FastAPI
+    from app.api import queries
+    from app.api.api_surface import build_api_surface
+    app = FastAPI()
+    app.include_router(queries.router, prefix="/api")
+    entries = {(e["path"], e["method"]) for e in build_api_surface(app)}
+    assert ("/api/queries/execute", "POST") in entries
+    assert ("/api/queries/history", "GET") not in entries   # only the tool, not the rest of the router

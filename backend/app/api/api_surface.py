@@ -10,13 +10,18 @@ marker `require_permission` already sets on its guard, the summary from the rout
 own docstring, and the request skeleton from the pydantic model the route validates
 against.
 
-Scoped to `/api/ai/*` deliberately. The deployment serves 218 paths; the ones an
-application integrates against are the knowledge and generation surface, and putting
-the operational and administrative routes in front of a developer would bury it.
+Scoped to `/api/ai/*` deliberately, plus the governed SQL execute route named in
+EXTRA_ROUTES. The deployment serves 218 paths; the ones an application integrates
+against are the knowledge and generation surface, and putting the operational and
+administrative routes in front of a developer would bury it.
 """
 from typing import Any, Dict, List, Optional
 
 PREFIX = "/api/ai/"
+
+# Tools an application integrates against that do not live under /api/ai/. Listed one
+# by one so the operational routes of the same routers stay out of the surface.
+EXTRA_ROUTES = frozenset({("/api/queries/execute", "POST")})
 
 _PLACEHOLDER = {
     "string": "string", "integer": 0, "number": 0, "boolean": False,
@@ -83,9 +88,11 @@ def build_api_surface(app) -> List[dict]:
     out = []
     for route in app.routes:
         path = getattr(route, "path", "")
-        if not path.startswith(PREFIX) or not hasattr(route, "dependant"):
+        if not hasattr(route, "dependant"):
             continue
         for method in sorted(getattr(route, "methods", set()) - {"HEAD", "OPTIONS"}):
+            if not (path.startswith(PREFIX) or (path, method) in EXTRA_ROUTES):
+                continue
             doc = (getattr(route, "endpoint", None).__doc__ or "").strip()
             out.append({
                 "path": path,
