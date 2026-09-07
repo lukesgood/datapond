@@ -73,7 +73,7 @@ def test_no_menu_item_takes_a_name_a_workflow_step_already_uses():
 
 @pytest.mark.parametrize("step,expected_nav", [
     ("Ground", "Knowledge"),
-    ("Serve", "API"),
+    ("Connect your agent", "API"),
     ("Govern", "Governance"),
 ])
 def test_the_unconditional_steps_point_at_the_expected_page(step, expected_nav):
