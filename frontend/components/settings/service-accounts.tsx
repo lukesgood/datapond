@@ -1,11 +1,18 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
 import { Loader2, Bot, KeyRound, Trash2, Copy, Check } from "lucide-react"
+import { useToast } from "@/lib/toast"
+import {
+  DEFAULT_EXPIRY_DAYS, EXPIRY_OPTIONS, choosableScopes, defaultScopes, describeKey, keyRequestBody,
+} from "@/lib/service-account-keys"
 
 type ApiKey = {
   id: string; name: string; key_prefix: string; status: string
@@ -15,7 +22,8 @@ type Account = {
   id: string; username: string; display_name: string; role: string
   permissions: string[]; keys: ApiKey[]
 }
-type Payload = { accounts: Account[]; assignable_roles: string[] }
+type Payload = { accounts: Account[]; assignable_roles: string[]; grantable_permissions: string[] }
+type AccountCollection = { name: string; access: "owner" | "reader" | "editor" | "global"; chunks: number }
 
 /** Service accounts give an app or agent an identity of its own.
  *
@@ -31,6 +39,11 @@ export function ServiceAccounts() {
   const [issued, setIssued] = useState<{ key: string; account: string } | null>(null)
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [issuing, setIssuing] = useState<Account | null>(null)   // which account's issue form is open
+  const [keyName, setKeyName] = useState("")
+  const [keyScopes, setKeyScopes] = useState<string[]>([])
+  const [keyExpiry, setKeyExpiry] = useState<number | null>(DEFAULT_EXPIRY_DAYS)
+  const { toast } = useToast()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -62,19 +75,32 @@ export function ServiceAccounts() {
     } finally { setBusy(false) }
   }
 
-  const issueKey = async (account: Account) => {
+  const openIssue = (account: Account) => {
+    const choosable = choosableScopes(data?.grantable_permissions ?? [], account.permissions)
+    setIssuing(account)
+    setKeyName(`${account.username} key`)
+    setKeyScopes(defaultScopes(choosable))
+    setKeyExpiry(DEFAULT_EXPIRY_DAYS)
+  }
+
+  const submitIssue = async () => {
+    if (!issuing || busy) return
     setBusy(true)
     try {
-      const res = await fetch(`/api/service-accounts/${account.id}/keys`, {
+      const res = await fetch(`/api/service-accounts/${issuing.id}/keys`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: `${account.username} key`, scopes: [] }),
+        body: JSON.stringify(keyRequestBody(keyName.trim() || `${issuing.username} key`, keyScopes, keyExpiry)),
       })
       if (res.ok) {
         const d = await res.json()
-        setIssued({ key: d.key, account: account.username })
+        setIssued({ key: d.key, account: issuing.username })
         setCopied(false)
+        setIssuing(null)
         await load()
+      } else {
+        const d = await res.json().catch(() => ({}))
+        toast(d.detail ?? `Could not issue key (HTTP ${res.status})`, "error")
       }
     } finally { setBusy(false) }
   }
@@ -190,9 +216,10 @@ export function ServiceAccounts() {
                       and the integration is this account — a distinct user id, so its
                       spend is exactly measurable. */}
                   <AccountSpend accountId={a.id} />
+                  <AccountCollections accountId={a.id} />
                   <Badge variant="secondary">{a.role}</Badge>
                   <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
-                          disabled={busy} onClick={() => issueKey(a)}>
+                          disabled={busy} onClick={() => openIssue(a)}>
                     <KeyRound className="h-3.5 w-3.5" /> Issue key
                   </Button>
                 </div>
@@ -206,6 +233,43 @@ export function ServiceAccounts() {
                   </span>
                 ))}
               </div>
+              {issuing?.id === a.id && (
+                <div className="rounded-md border p-3 space-y-3 text-sm">
+                  <div className="space-y-1">
+                    <Label htmlFor={`key-name-${a.id}`} className="text-xs">Key name</Label>
+                    <Input id={`key-name-${a.id}`} value={keyName} onChange={e => setKeyName(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium">Scopes — the key can never do more than the account&apos;s role</p>
+                    {choosableScopes(data?.grantable_permissions ?? [], a.permissions).map(scope => (
+                      <label key={scope} className="flex items-center gap-2 text-xs">
+                        <Checkbox
+                          checked={keyScopes.includes(scope)}
+                          onCheckedChange={v => setKeyScopes(prev => v ? [...prev, scope] : prev.filter(s => s !== scope))}
+                        />
+                        <code className="font-mono">{scope}</code>
+                      </label>
+                    ))}
+                    {keyScopes.length === 0 && (
+                      <p className="text-xs text-amber-600">No scopes selected: the key gets every permission of the role.</p>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`key-expiry-${a.id}`} className="text-xs">Expires</Label>
+                    <select id={`key-expiry-${a.id}`} className="rounded-md border bg-background px-2 py-1 text-xs"
+                            value={keyExpiry === null ? "never" : String(keyExpiry)}
+                            onChange={e => setKeyExpiry(e.target.value === "never" ? null : Number(e.target.value))}>
+                      {EXPIRY_OPTIONS.map(o => (
+                        <option key={o.label} value={o.days === null ? "never" : String(o.days)}>{o.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={submitIssue} disabled={busy}>Issue key</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setIssuing(null)} disabled={busy}>Cancel</Button>
+                  </div>
+                </div>
+              )}
               {a.keys.length === 0 ? (
                 <p className="text-xs text-muted-foreground">No keys issued.</p>
               ) : (
@@ -214,7 +278,10 @@ export function ServiceAccounts() {
                     <li key={k.id} className="flex items-center justify-between gap-2 text-xs">
                       <span className="flex items-center gap-2 truncate">
                         <code className="font-mono">{k.key_prefix}…</code>
-                        <span className="text-muted-foreground truncate">{k.name}</span>
+                        <span className="text-muted-foreground truncate">
+                          {k.name}
+                          <span className="block text-[10.5px] text-muted-foreground">{describeKey(k)}</span>
+                        </span>
                         {k.status !== "active" && (
                           <Badge variant="outline" className="text-[10px]">{k.status}</Badge>
                         )}
@@ -265,6 +332,38 @@ function AccountSpend({ accountId }: { accountId: string }) {
       {s.requests === 0
         ? "no calls yet"
         : `${s.requests} call${s.requests === 1 ? "" : "s"} · $${s.spend.toFixed(s.spend >= 0.01 ? 4 : 6)}`}
+    </span>
+  )
+}
+
+function AccountCollections({ accountId }: { accountId: string }) {
+  const [rows, setRows] = useState<AccountCollection[] | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/service-accounts/${accountId}/collections`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && d) setRows(d.collections) })
+      .catch(() => { if (!cancelled) setRows([]) })
+    return () => { cancelled = true }
+  }, [accountId])
+
+  if (rows === null) return <span className="text-xs text-muted-foreground">Collections: …</span>
+  if (rows.length === 0) {
+    return (
+      <span className="text-xs text-muted-foreground">
+        Reads no collection yet — grant one under <Link href="/knowledge" className="underline">Knowledge → Members</Link>.
+      </span>
+    )
+  }
+  return (
+    <span className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+      Reads:
+      {rows.map(c => (
+        <Badge key={c.name} variant="outline" className="text-[10px]" title={`${c.access} · ${c.chunks} chunks`}>
+          {c.name} · {c.access}
+        </Badge>
+      ))}
     </span>
   )
 }
