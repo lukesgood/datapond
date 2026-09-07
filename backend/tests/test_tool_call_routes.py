@@ -10,12 +10,12 @@ AUDITOR = {"id": "33333333-3333-3333-3333-333333333333", "username": "aud", "rol
            "permissions": {"audit:read"}}
 
 
-def _app():
+def _app(user=None):
     app = FastAPI()
     app.include_router(tool_call_routes.router, prefix="/api")
 
     async def _override():
-        return AUDITOR
+        return user or AUDITOR
     app.dependency_overrides[_REAL_REQUIRE_USER] = _override
     return app
 
@@ -114,3 +114,23 @@ def test_summary_sql_counts_each_call_once():
     assert "n.actor_username = c.actor_username" in sql
     assert "n.actor_kind = c.actor_kind" in sql
     assert "ORDER BY c.calls DESC, c.actor_username ASC" in sql
+
+
+VIEWER = {"id": "44444444-4444-4444-4444-444444444444", "username": "vwr", "role": "viewer"}
+
+
+def test_viewer_without_audit_read_is_refused_on_every_route(monkeypatch):
+    """`require_user` is overridden but `require_permission("audit:read")` is not —
+    the real RBAC check runs, and `viewer` does not hold `audit:read`
+    (app/permissions.py: viewer = catalog:read/knowledge:read/query:run only)."""
+    _patch(monkeypatch, _Conn([], 0))
+    client = TestClient(_app(VIEWER))
+
+    r = client.get("/api/audit/tool-calls")
+    assert r.status_code == 403 and "audit:read" in r.json()["detail"]
+
+    r = client.get("/api/audit/tool-calls/summary")
+    assert r.status_code == 403 and "audit:read" in r.json()["detail"]
+
+    r = client.get("/api/audit/tool-calls/export")
+    assert r.status_code == 403 and "audit:read" in r.json()["detail"]

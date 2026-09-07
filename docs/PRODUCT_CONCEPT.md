@@ -85,6 +85,7 @@ DataPond는 이 **호출자 단위 거버넌스가 붙은 데이터 도구 면**
 - 성공한 search·rag·sql·query 호출의 append-only 도구 호출 감사(호출자, 컬렉션·테이블, hit 수, 인용 source, 마스킹 수), NDJSON export
 
 아직 아닌 것(로드맵 표기 원칙):
+
 - 호출자별 예산 **강제**(현재는 LiteLLM 가상 키 예산과 조회만)
 - 키에 컬렉션·테이블 범위를 직접 묶는 것(현재는 멤버십·RLS로 간접)
 - Production default-deny RLS, WORM 감사(앱 role이 테이블 owner)

@@ -1281,7 +1281,7 @@ async def collection_composition(name: str, user: dict = Depends(require_user)):
     return out
 
 
-async def _search_impl(req: SearchRequest, user: dict = Depends(require_user)):
+async def _search_impl(req: SearchRequest, user: dict):
     set_actor(user)
     q_text, q_find, q_block = _guard(req.query)
     if q_block:
@@ -1342,7 +1342,7 @@ async def rag(req: RagRequest, user: dict = Depends(require_user)):
                          lambda: _rag_impl(req, user))
 
 
-async def _rag_impl(req: RagRequest, user: dict = Depends(require_user)):
+async def _rag_impl(req: RagRequest, user: dict):
     """Retrieve top-k chunks, then ask the active LiteLLM chat model with that context.
     Returns the answer + the citations it was grounded on."""
     set_actor(user)
