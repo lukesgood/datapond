@@ -4,7 +4,7 @@ import Link from "next/link"
 import { Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import type { LucideIcon } from "lucide-react"
-import { ArrowDownToLine, ArrowRight, BookOpen, Bot, Code2, Database, HardDrive, Layers, ShieldCheck, Sparkles } from "lucide-react"
+import { ArrowDownToLine, ArrowRight, BookOpen, Bot, Code2, Database, HardDrive, Layers, Plug, ShieldCheck, Sparkles } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -36,6 +36,13 @@ const guides: Guide[] = [
     icon: Sparkles,
     href: "/knowledge",
     topics: ["Collections", "Ingestion", "Semantic search", "Citations"],
+  },
+  {
+    title: "Integrate an application or agent",
+    description: "Create an agent identity, issue a scoped key, call search and cited answers",
+    icon: Plug,
+    href: "/help/integrate",
+    topics: ["Service accounts", "Scoped keys", "Search and RAG calls", "Governed SQL", "Audit"],
   },
   {
     title: "AI Gateway",
