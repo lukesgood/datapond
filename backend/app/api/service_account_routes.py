@@ -74,6 +74,41 @@ async def list_service_accounts(admin: dict = Depends(require_admin)):
     }
 
 
+_ACCOUNT_COLLECTIONS_SQL = """
+SELECT col.name,
+       CASE WHEN col.owner_id = $1::uuid THEN 'owner'
+            WHEN m.role IS NOT NULL THEN m.role
+            ELSE 'global' END AS access,
+       (SELECT count(*) FROM ai_chunks ch WHERE ch.collection_id = col.id) AS chunks
+  FROM ai_collections col
+  LEFT JOIN ai_collection_members m ON m.collection_id = col.id AND m.user_id = $1::uuid
+ WHERE col.owner_id = $1::uuid OR m.user_id IS NOT NULL OR col.owner_id IS NULL
+ ORDER BY col.name
+"""
+
+
+@router.get("/service-accounts/{account_id}/collections", dependencies=[Depends(require_admin)])
+async def account_collections(account_id: str):
+    """Knowledge collections this service account can read, and why.
+
+    'owner' and 'reader'/'editor' come from ai_collections.owner_id and
+    ai_collection_members; 'global' is the legacy owner_id IS NULL rule that
+    knowledge:read holders can read. Grants themselves stay on the collection
+    (Knowledge → Members); this is the account-side view of the same rows.
+    """
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        acct = await conn.fetchrow(
+            "SELECT id, auth_method FROM users WHERE id = $1::uuid AND auth_method = 'service'",
+            account_id)
+        if not acct:
+            raise HTTPException(status_code=404, detail="Service account not found")
+        rows = await conn.fetch(_ACCOUNT_COLLECTIONS_SQL, account_id)
+    return {"account_id": account_id,
+            "collections": [{"name": r["name"], "access": r["access"],
+                             "chunks": int(r["chunks"] or 0)} for r in rows]}
+
+
 @router.post("/service-accounts", status_code=201)
 async def create_service_account(body: ServiceAccountCreate, admin: dict = Depends(require_admin)):
     if body.role not in ASSIGNABLE_ROLES:
