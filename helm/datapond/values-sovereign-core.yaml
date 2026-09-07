@@ -23,6 +23,11 @@ product:
     maturity: supported-starter
     topology: self-hosted-kubernetes
 
+global:
+  # empty = the cluster's default StorageClass (k3s: local-path). The chart omits
+  # storageClassName for an empty value.
+  storageClass: ""
+
 # TLS: once you front this with an HTTPS ingress, set global.externalScheme: https —
 # WebAuthn and OIDC derive their origin from it.
 
@@ -34,11 +39,10 @@ storage:
 
 minio:
   enabled: true
-  # Fixed ClusterIP required by templates/coredns-custom-configmap.yaml, which
-  # synthesizes A records for virtual-host-style S3 hostnames (e.g. Polaris/Iceberg
-  # clients that ignore path-style addressing). Same convention IP as the other
-  # in-cluster-MinIO profiles (values-onprem/dev/prod/quicktest.yaml); change per
-  # cluster if 10.43.107.150 collides with an existing allocation.
+  # Must be a free address inside YOUR cluster's service CIDR. 10.43.107.150 is
+  # k3s's default range (10.43.0.0/16); kubeadm defaults to 10.96.0.0/12, OpenShift
+  # to 172.30.0.0/16 — the API server rejects an address outside the range. Find
+  # yours: kubectl cluster-info dump | grep -m1 service-cluster-ip-range
   clusterIP: 10.43.107.150
   auth:
     rootUser: datapond
@@ -92,6 +96,10 @@ postgres:
   persistence:
     enabled: true
     size: 50Gi
+    # empty = the cluster's default StorageClass. Unlike minio/valkey, postgres does
+    # not inherit global.storageClass — it has its own key, defaulted to "local-path"
+    # in base values.yaml, so a k3s-shaped profile must clear it explicitly here too.
+    storageClass: ""
   auth:
     database: datapond
     username: datapond

@@ -31,6 +31,19 @@ service-account key → call `/api/ai/rag` from your agent → review Governance
 
 ## Prerequisites
 
+The defaults in this profile target **k3s**: the pinned `minio.clusterIP` assumes k3s's
+default service CIDR (`10.43.0.0/16`), `ingress.className` defaults to Traefik (k3s's
+built-in ingress controller), and the CoreDNS custom-override ConfigMap is inert unless
+CoreDNS actually imports `/etc/coredns/custom/*.override` (k3s's CoreDNS does this by
+default; most other distributions do not). On a non-k3s cluster, an operator sets:
+
+- `minio.clusterIP` — a free address inside your cluster's service CIDR. kubeadm
+  defaults to `10.96.0.0/12`, OpenShift to `172.30.0.0/16`. Find yours:
+  `kubectl cluster-info dump | grep -m1 service-cluster-ip-range`.
+- `ingress.className` — if the cluster's ingress controller is not Traefik (e.g. nginx).
+- Confirmation that CoreDNS imports `/etc/coredns/custom/*.override`, or the S3
+  virtual-host hostnames MinIO needs will not resolve in-cluster.
+
 Kubernetes + Helm; a node with at least 16 GB RAM and 8 vCPU for Ollama's defaults; a
 storage class for three PVCs (postgres 50Gi, minio 100Gi, ollama 20Gi). GPU optional.
 
