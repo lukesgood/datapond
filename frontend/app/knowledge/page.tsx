@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react"
 import { useToast } from "@/lib/toast"
 import Link from "next/link"
-import { Sparkles, Plus, Trash2, Search, MessageSquare, Database, Upload, AlertCircle, Loader2, FileText, ShieldCheck, Clock, Users, CheckCircle2, ArrowDownWideNarrow, BookMarked, Layers, GitBranch } from "lucide-react"
+import { Sparkles, Plus, Trash2, Search, MessageSquare, Database, Upload, AlertCircle, Loader2, FileText, ShieldCheck, Clock, Users, CheckCircle2, ArrowDownWideNarrow, BookMarked, Layers, GitBranch, Plug } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -351,7 +351,7 @@ function Workspace({ name, onChange, empty, ownerId }: { name: string; onChange:
             <TabsTrigger value="ingest"><Upload className="h-3.5 w-3.5 mr-1" />Ingest</TabsTrigger>
             <TabsTrigger value="schedule"><Clock className="h-3.5 w-3.5 mr-1" />Schedule</TabsTrigger>
             <TabsTrigger value="members"><Users className="h-3.5 w-3.5 mr-1" />Members</TabsTrigger>
-            <TabsTrigger value="app">Use from app</TabsTrigger>
+            <TabsTrigger value="app"><Plug className="h-3.5 w-3.5 mr-1" />Use from app</TabsTrigger>
             {/* Only when the deployment has the capability. Without the flag every
                 concepts call 404s, so an always-present tab would greet everyone with
                 an error for a feature they have not turned on. The Concepts toggle in

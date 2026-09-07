@@ -1,6 +1,6 @@
 """The dashboard's workflow and the menu have to agree.
 
-The dashboard opens with "Portable core workflow" — five numbered steps, each a link.
+The dashboard opens with "Core workflow" — five numbered steps, each a link.
 The sidebar is the same product organised a different way. When they drift, the first
 thing a new user does is follow a step to a page the menu files somewhere else, or
 under a different name.

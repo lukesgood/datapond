@@ -153,6 +153,9 @@ spend 귀속은 실제로 있다. 그러나 문장이 약속하는 "호출자 �
 
 ### 3.2 첫 여정이 "앱 연결"에서 끝나지 않는다
 
+> (2026-09-07 이후: 04단계는 'Connect your agent' CTA, 스트립 라벨은 'Core workflow', 통합 도움말은
+> `/help/integrate` — §7.1 참조)
+
 - 온보딩·체크리스트·빈 상태 없음. 신규 admin은 "Overview / Foundation health" + 상태 문장 +
   여정 스트립 + 통계 + 서비스 그리드를 본다 — `dashboard/page.tsx:166-250`
 - 여정 스트립 5단계 Connect → Organize → Ground → Serve → Govern — `journey-strip.tsx:26-68`.
