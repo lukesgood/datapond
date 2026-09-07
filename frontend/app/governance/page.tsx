@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { useCapabilities } from "@/lib/capabilities"
 import { useConfirm } from "@/lib/confirm"
 import { useToast } from "@/lib/toast"
+import { buildToolCallSection, windowParams } from "@/lib/compliance-report"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -825,6 +826,7 @@ export default function GovernancePage() {
     queries: true,
     aiSql: true,
     pii: true,
+    toolCalls: true,
   })
   const [exporting, setExporting] = useState(false)
 
@@ -849,7 +851,7 @@ export default function GovernancePage() {
       const report: Record<string, unknown> = {
         generated_at: new Date().toISOString(),
         date_range: { from: reportFrom || null, to: reportTo || null },
-        note: "AI-SQL safety and PII sections are current snapshots; only the query audit log is time-scoped per event.",
+        note: "AI-SQL safety and PII sections are current snapshots; the query audit log and agent tool calls are time-scoped per event.",
         sections: {},
       }
       const sections = report.sections as Record<string, unknown>
@@ -877,6 +879,17 @@ export default function GovernancePage() {
       }
       if (reportChecks.pii) {
         sections.pii_report = { scanned: piiScanned, tables: piiTables }
+      }
+      if (reportChecks.toolCalls) {
+        const qs = windowParams(reportFrom, reportTo)
+        qs.set("limit", String(AUDIT_LIMIT))
+        const [lr, sr] = await Promise.all([
+          fetch(`/api/audit/tool-calls?${qs}`),
+          fetch(`/api/audit/tool-calls/summary?${windowParams(reportFrom, reportTo)}`),
+        ])
+        if (!lr.ok) throw new Error(`tool-calls HTTP ${lr.status}`)
+        if (!sr.ok) throw new Error(`tool-calls summary HTTP ${sr.status}`)
+        sections.agent_tool_calls = buildToolCallSection(await lr.json(), await sr.json())
       }
 
       if (Object.keys(sections).length === 0) {
@@ -1527,6 +1540,7 @@ export default function GovernancePage() {
                     { key: "queries",  label: "Full query execution history" },
                     { key: "aiSql",    label: "AI SQL generation and safety assessment" },
                     { key: "pii",      label: "PII detection and masking status" },
+                    { key: "toolCalls", label: "Agent tool calls (search, cited answers, SQL) by caller" },
                   ].map(({ key, label }) => (
                     <div key={key} className="flex items-center gap-2">
                       <Checkbox
