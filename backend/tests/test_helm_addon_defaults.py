@@ -488,6 +488,7 @@ PROFILE_EXPECTATIONS = {
     "values-dev.yaml": ALL_ADDONS,
     "values-prod.yaml": ALL_ADDONS,
     "values-quicktest.yaml": ALL_ADDONS - {"spark"},
+    "values-sovereign-core.yaml": frozenset(),
 }
 
 

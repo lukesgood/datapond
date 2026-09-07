@@ -1,0 +1,125 @@
+# helm/datapond/values-sovereign-core.yaml
+# Sovereign Core — the on-prem twin of values-foundation.yaml.
+#
+# Portable Core (backend, frontend, PostgreSQL/pgvector, LiteLLM, Valkey) plus in-cluster
+# MinIO for objects and Ollama for a local embedding + chat model. No catalog, no query
+# engine, no OSS add-on: Sources/Catalog/Analytics stay hidden, and nothing leaves the
+# cluster (ai.egressPolicy: local-only). Everything here is inside the supported scope
+# named in SUPPORT.md; values-onprem.yaml remains the extended community stack.
+#
+# Install:
+#   helm upgrade --install datapond helm/datapond -n datapond --create-namespace \
+#     -f helm/datapond/values-sovereign-core.yaml
+#
+# Embedding dimension: ai.embedDim MUST equal the embedding model's output. bge-m3 is
+# 1024-d and matches ai_chunks vector(1024). Choosing a different model later is a new
+# deployment or a full re-embed, never a version bump.
+
+product:
+  profile:
+    id: sovereign-core
+    label: Sovereign Core
+    description: Self-hosted Portable Core with local model and storage, no data add-ons.
+    maturity: supported-starter
+    topology: self-hosted-kubernetes
+
+global:
+  externalScheme: https
+
+# ── Object storage: in-cluster MinIO, addressed through the S3 API ───────────────
+storage:
+  provider: s3
+  endpoint: "minio:9000"
+  region: "us-east-1"
+
+minio:
+  enabled: true
+  # Fixed ClusterIP required by templates/coredns-custom-configmap.yaml, which
+  # synthesizes A records for virtual-host-style S3 hostnames (e.g. Polaris/Iceberg
+  # clients that ignore path-style addressing). Same convention IP as the other
+  # in-cluster-MinIO profiles (values-onprem/dev/prod/quicktest.yaml); change per
+  # cluster if 10.43.107.150 collides with an existing allocation.
+  clusterIP: 10.43.107.150
+  auth:
+    rootUser: datapond
+    rootPassword: ""       # empty ⇒ Helm generates and preserves (templates/secrets.yaml)
+  persistence:
+    enabled: true
+    size: 100Gi
+
+# ── Model path: local Ollama registered into LiteLLM by the post-install job ────
+ai:
+  provider: ollama
+  llmEndpoint: ""
+  llmModel: "default"
+  egressPolicy: "local-only"
+  embedModel: "embed"
+  embedDim: 1024
+
+litellm:
+  enabled: true
+  config:
+    model_list: []         # seeded by templates/litellm-ollama-init-job.yaml
+
+ollama:
+  enabled: true
+  defaultModel: "qwen2.5-coder:7b"
+  litellmModelName: "default"
+  embedModel: "bge-m3"     # 1024-d — must match ai.embedDim
+  embedLitellmName: "embed"
+  resources:
+    requests: { cpu: 500m, memory: 4Gi }
+    limits: { cpu: 4000m, memory: 8Gi }
+  persistence:
+    enabled: true
+    size: 20Gi
+
+vllm:
+  enabled: false
+
+# ── Core ─────────────────────────────────────────────────────────────────────────
+backend:
+  enabled: true
+frontend:
+  enabled: true
+valkey:
+  enabled: true
+postgres:
+  enabled: true
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: 1000m, memory: 2Gi }
+  persistence:
+    enabled: true
+    size: 50Gi
+  auth:
+    database: datapond
+    username: datapond
+    password: ""           # empty ⇒ Helm generates and preserves
+
+# ── Governance: RLS engine on, so table policies apply if tables are ever added ──
+governance:
+  rls:
+    enabled: true
+    defaultDeny: false
+
+# ── Every add-on explicitly off (unset would mean "preserve if already running") ─
+trino:
+  enabled: false
+spark:
+  enabled: false
+polaris:
+  enabled: false
+airflow:
+  enabled: false
+mlflow:
+  enabled: false
+risingwave:
+  enabled: false
+openmetadata:
+  enabled: false
+jupyter:
+  enabled: false
+
+networkPolicy:
+  enabled: true
