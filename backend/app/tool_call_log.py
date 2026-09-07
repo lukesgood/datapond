@@ -1,0 +1,131 @@
+"""One row per successful data-tool call.
+
+security_audit records authorization decisions and skips allows on read permissions so
+the read paths pay nothing. This module records a different fact — a tool returned data
+to a caller — with the columns that fact needs: which collection or tables, how many
+hits, which sources were cited, how much PII was masked. It is written after the guard
+ran, so nothing raw lands here, and like security_audit it never raises into the caller.
+"""
+from __future__ import annotations
+
+import contextvars
+import hashlib
+import logging
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from typing import Iterator, List, Optional
+
+logger = logging.getLogger(__name__)
+
+TOOLS = ("ai.search", "ai.rag", "ai.sql", "query.execute")
+RESOURCE_KINDS = ("collection", "tables", "none")
+OUTCOMES = ("ok", "degraded", "error")
+_MASKED_LIMIT = 512
+
+_via: contextvars.ContextVar[str] = contextvars.ContextVar("tool_call_via", default="api")
+
+
+def current_via() -> str:
+    return _via.get()
+
+
+@contextmanager
+def via(value: str) -> Iterator[None]:
+    token = _via.set(value)
+    try:
+        yield
+    finally:
+        _via.reset(token)
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def table_names(sql: str) -> List[str]:
+    """Distinct dotted table names as written in `sql`, sorted; [] if unparseable."""
+    try:
+        import sqlglot
+        from sqlglot import exp
+        tree = sqlglot.parse_one(sql)
+    except Exception:
+        return []
+    names = set()
+    for t in tree.find_all(exp.Table):
+        parts = [p for p in (t.catalog, t.db, t.name) if p]
+        if parts:
+            names.add(".".join(parts))
+    return sorted(names)
+
+
+def build_row(*, actor: dict, tool: str, resource_kind: str, resource: List[str],
+              request_text: str, hit_count: int = 0,
+              citation_sources: Optional[List[str]] = None, pii_masked: int = 0,
+              outcome: str = "ok", duration_ms: Optional[int] = None,
+              client_address: Optional[str] = None, via: Optional[str] = None,
+              now: Optional[datetime] = None) -> dict:
+    if tool not in TOOLS:
+        raise ValueError(f"unknown tool {tool!r}")
+    if resource_kind not in RESOURCE_KINDS:
+        raise ValueError(f"unknown resource_kind {resource_kind!r}")
+    if outcome not in OUTCOMES:
+        raise ValueError(f"unknown outcome {outcome!r}")
+    actor = actor or {}
+    text = request_text or ""
+    return {
+        "occurred_at": now or utcnow(),
+        "actor_id": actor.get("id"),
+        "actor_username": actor.get("username") or "",
+        "actor_kind": "service" if actor.get("auth_method") == "service" else "human",
+        "tool": tool,
+        "resource_kind": resource_kind,
+        "resource": list(resource or []),
+        "request_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "request_masked": text[:_MASKED_LIMIT],
+        "hit_count": int(hit_count or 0),
+        "citation_sources": sorted(set(citation_sources or [])),
+        "pii_masked": int(pii_masked or 0),
+        "outcome": outcome,
+        "duration_ms": duration_ms,
+        "client_address": client_address,
+        "via": via or current_via(),
+    }
+
+
+_INSERT = """
+INSERT INTO public.tool_call_log
+    (occurred_at, actor_id, actor_username, actor_kind, tool, resource_kind, resource,
+     request_hash, request_masked, hit_count, citation_sources, pii_masked, outcome,
+     duration_ms, client_address, via)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+"""
+
+
+async def record(*, actor: dict, tool: str, resource_kind: str, resource: List[str],
+                 request_text: str, hit_count: int = 0,
+                 citation_sources: Optional[List[str]] = None, pii_masked: int = 0,
+                 outcome: str = "ok", duration_ms: Optional[int] = None,
+                 client_address: Optional[str] = None, via: Optional[str] = None) -> None:
+    """Write one row. Never raises into the caller — a failed audit write is logged."""
+    try:
+        row = build_row(actor=actor, tool=tool, resource_kind=resource_kind,
+                        resource=resource, request_text=request_text,
+                        hit_count=hit_count, citation_sources=citation_sources,
+                        pii_masked=pii_masked, outcome=outcome, duration_ms=duration_ms,
+                        client_address=client_address, via=via)
+        # Lazy import, same reason as security_audit: app.api.connectors imports
+        # app.api.auth at module load and this module is imported by route modules.
+        from app.api.connectors import get_db_pool
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                _INSERT, row["occurred_at"], row["actor_id"], row["actor_username"],
+                row["actor_kind"], row["tool"], row["resource_kind"], row["resource"],
+                row["request_hash"], row["request_masked"], row["hit_count"],
+                row["citation_sources"], row["pii_masked"], row["outcome"],
+                row["duration_ms"], row["client_address"], row["via"],
+            )
+    except Exception:
+        logger.error("tool_call_log: failed to record tool=%s actor=%s — this call is "
+                     "not in the tool call log", tool, (actor or {}).get("username"),
+                     exc_info=True)

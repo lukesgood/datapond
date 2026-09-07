@@ -1,0 +1,114 @@
+import asyncio
+import hashlib
+from datetime import datetime, timezone
+
+import pytest
+
+from app import tool_call_log as tcl
+
+
+def _run(coro):
+    return asyncio.new_event_loop().run_until_complete(coro)
+
+
+HUMAN = {"id": "11111111-1111-1111-1111-111111111111", "username": "mina", "role": "ai_engineer"}
+SERVICE = {**HUMAN, "id": "22222222-2222-2222-2222-222222222222", "username": "svc-bot",
+           "auth_method": "service"}
+
+
+def test_build_row_masks_hash_and_truncates():
+    text = "x" * 600
+    row = tcl.build_row(actor=HUMAN, tool="ai.search", resource_kind="collection",
+                        resource=["faq"], request_text=text, hit_count=3,
+                        citation_sources=["b.md", "a.md", "a.md"], pii_masked=2,
+                        now=datetime(2026, 9, 7, tzinfo=timezone.utc))
+    assert row["request_hash"] == hashlib.sha256(text.encode("utf-8")).hexdigest()
+    assert row["request_masked"] == "x" * 512
+    assert row["citation_sources"] == ["a.md", "b.md"]
+    assert row["actor_kind"] == "human"
+    assert row["via"] == "api"
+    assert row["occurred_at"] == datetime(2026, 9, 7, tzinfo=timezone.utc)
+
+
+def test_build_row_service_account_kind():
+    row = tcl.build_row(actor=SERVICE, tool="ai.rag", resource_kind="collection",
+                        resource=["faq"], request_text="q")
+    assert row["actor_kind"] == "service"
+    assert row["actor_id"] == SERVICE["id"]
+    assert row["actor_username"] == "svc-bot"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("tool", "nope"), ("resource_kind", "shelf"), ("outcome", "meh"),
+])
+def test_build_row_rejects_unknown_vocabulary(field, value):
+    kwargs = dict(actor=HUMAN, tool="ai.sql", resource_kind="none", resource=[],
+                  request_text="q", outcome="ok")
+    kwargs[field] = value
+    with pytest.raises(ValueError):
+        tcl.build_row(**kwargs)
+
+
+def test_via_context_defaults_to_api_and_restores():
+    assert tcl.current_via() == "api"
+    with tcl.via("chat"):
+        assert tcl.current_via() == "chat"
+    assert tcl.current_via() == "api"
+
+
+def test_table_names_from_sql():
+    assert tcl.table_names("SELECT a.x FROM sales.orders a JOIN dim.customer c ON a.c = c.id") \
+        == ["dim.customer", "sales.orders"]
+    assert tcl.table_names("this is not sql (") == []
+
+
+class _FakeConn:
+    def __init__(self):
+        self.calls = []
+
+    async def execute(self, sql, *args):
+        self.calls.append((sql, args))
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _FakePool:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def acquire(self):
+        return self._conn
+
+
+class _BrokenPool:
+    def acquire(self):
+        raise RuntimeError("pool is gone")
+
+
+def _patch_pool(monkeypatch, pool):
+    async def _get_db_pool():
+        return pool
+    import app.api.connectors as connectors
+    monkeypatch.setattr(connectors, "get_db_pool", _get_db_pool)
+
+
+def test_record_inserts_one_row(monkeypatch):
+    conn = _FakeConn()
+    _patch_pool(monkeypatch, _FakePool(conn))
+    _run(tcl.record(actor=HUMAN, tool="query.execute", resource_kind="tables",
+                    resource=["sales.orders"], request_text="SELECT 1", hit_count=1,
+                    outcome="ok", duration_ms=12))
+    assert len(conn.calls) == 1
+    sql, args = conn.calls[0]
+    assert "INSERT INTO public.tool_call_log" in sql
+    assert "query.execute" in args and ["sales.orders"] in args
+
+
+def test_record_never_raises(monkeypatch):
+    _patch_pool(monkeypatch, _BrokenPool())
+    _run(tcl.record(actor=HUMAN, tool="ai.sql", resource_kind="none", resource=[],
+                    request_text="q"))  # must not raise
