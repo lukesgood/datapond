@@ -31,6 +31,7 @@ import re
 import json
 import asyncio
 import logging
+import time
 import uuid
 from typing import Optional, List
 
@@ -46,6 +47,7 @@ from app.ai_context import set_actor, actor_payload
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
 from app.knowledge_access import may_read, may_write
 from app.runtime import component_secret
+from app import tool_call_log
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -1279,8 +1281,7 @@ async def collection_composition(name: str, user: dict = Depends(require_user)):
     return out
 
 
-@router.post("/ai/search", dependencies=[Depends(require_permission("ai:generate"))])
-async def search(req: SearchRequest, user: dict = Depends(require_user)):
+async def _search_impl(req: SearchRequest, user: dict = Depends(require_user)):
     set_actor(user)
     q_text, q_find, q_block = _guard(req.query)
     if q_block:
@@ -1299,8 +1300,49 @@ async def search(req: SearchRequest, user: dict = Depends(require_user)):
             "results": results}
 
 
+def _sources(hits) -> list:
+    return [h.get("source") for h in (hits or []) if isinstance(h, dict) and h.get("source")]
+
+
+async def _logged(tool: str, req_collection: str, masked_text: str, user: dict, impl):
+    """Run `impl()`, then record one tool_call_log row describing what it returned.
+    Failures are recorded as `error` and re-raised; the log never changes the response."""
+    started = time.perf_counter()
+    try:
+        result = await impl()
+    except Exception:
+        await tool_call_log.record(
+            actor=user, tool=tool, resource_kind="collection", resource=[req_collection],
+            request_text=masked_text, hit_count=0, outcome="error",
+            duration_ms=int((time.perf_counter() - started) * 1000))
+        raise
+    hits = result.get("results") if tool == "ai.search" else result.get("citations")
+    outcome = "degraded" if (tool == "ai.rag" and not result.get("has_ai")) else "ok"
+    await tool_call_log.record(
+        actor=user, tool=tool, resource_kind="collection", resource=[req_collection],
+        request_text=masked_text, hit_count=len(hits or []),
+        citation_sources=_sources(hits), pii_masked=int(result.get("pii_masked") or 0),
+        outcome=outcome, duration_ms=int((time.perf_counter() - started) * 1000))
+    return result
+
+
+@router.post("/ai/search", dependencies=[Depends(require_permission("ai:generate"))])
+async def search(req: SearchRequest, user: dict = Depends(require_user)):
+    masked, _, _ = _guard(req.query)
+    return await _logged("ai.search", req.collection, masked, user,
+                         lambda: _search_impl(req, user))
+
+
 @router.post("/ai/rag", dependencies=[Depends(require_permission("ai:generate"))])
 async def rag(req: RagRequest, user: dict = Depends(require_user)):
+    """Retrieve top-k chunks, then ask the active LiteLLM chat model with that context.
+    Returns the answer + the citations it was grounded on."""
+    masked, _, _ = _guard(req.question)
+    return await _logged("ai.rag", req.collection, masked, user,
+                         lambda: _rag_impl(req, user))
+
+
+async def _rag_impl(req: RagRequest, user: dict = Depends(require_user)):
     """Retrieve top-k chunks, then ask the active LiteLLM chat model with that context.
     Returns the answer + the citations it was grounded on."""
     set_actor(user)
