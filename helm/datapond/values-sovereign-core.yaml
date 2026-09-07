@@ -23,8 +23,8 @@ product:
     maturity: supported-starter
     topology: self-hosted-kubernetes
 
-global:
-  externalScheme: https
+# TLS: once you front this with an HTTPS ingress, set global.externalScheme: https —
+# WebAuthn and OIDC derive their origin from it.
 
 # ── Object storage: in-cluster MinIO, addressed through the S3 API ───────────────
 storage:
