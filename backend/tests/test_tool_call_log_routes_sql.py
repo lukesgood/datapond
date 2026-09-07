@@ -50,3 +50,23 @@ def test_generate_sql_without_backend_is_degraded(monkeypatch):
     monkeypatch.setattr(ai_sql, "_generate_sql_impl", _impl)
     TestClient(_app()).post("/api/ai/sql", json={"question": "count orders"})
     assert calls[0]["outcome"] == "degraded"
+
+
+def test_request_text_is_masked_even_under_block_mode(monkeypatch):
+    """PII_GUARDRAIL_MODE=block returns the ORIGINAL text to the caller (pii_ko.apply
+    contract) — the log must still never receive it raw."""
+    monkeypatch.setenv("PII_GUARDRAIL_MODE", "block")
+    calls = []
+
+    async def _record(**kw):
+        calls.append(kw)
+    monkeypatch.setattr(tool_call_log, "record", _record)
+
+    async def _impl(req, user):
+        return ai_sql.AskResponse(sql="SELECT 1", explanation="", has_ai=True,
+                                  provider="litellm", pii_masked=1)
+    monkeypatch.setattr(ai_sql, "_generate_sql_impl", _impl)
+
+    TestClient(_app()).post("/api/ai/sql",
+                            json={"question": "연락처 010-1234-5678"})
+    assert "010-1234-5678" not in calls[0]["request_text"]

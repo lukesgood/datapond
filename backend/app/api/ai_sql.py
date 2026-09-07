@@ -523,8 +523,7 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
              dependencies=[Depends(require_permission("ai:generate"))])
 async def generate_sql(req: AskRequest, user: dict = Depends(require_user)):
     """Convert a natural language question to a SQL query, and log that it happened."""
-    from app.guardrails import pii_ko
-    masked_question = pii_ko.apply(req.question or "")[0]
+    masked_question = tool_call_log.masked_for_log(req.question or "")
     started = time.perf_counter()
     try:
         resp = await _generate_sql_impl(req, user)

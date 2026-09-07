@@ -85,3 +85,31 @@ def test_request_text_is_the_masked_query(monkeypatch):
     TestClient(_app()).post("/api/ai/search",
                             json={"collection": "faq", "query": "연락처 010-1234-5678"})
     assert "010-1234-5678" not in calls[0]["request_text"]
+
+
+def test_request_text_is_masked_even_under_block_mode(monkeypatch):
+    """PII_GUARDRAIL_MODE=block returns the ORIGINAL text to the caller (pii_ko.apply
+    contract) — the log must still never receive it raw."""
+    monkeypatch.setenv("PII_GUARDRAIL_MODE", "block")
+    calls = _capture(monkeypatch)
+
+    async def _impl(req, user):
+        return {"collection": req.collection, "query": req.query, "pii_masked": 1,
+                "concepts": [], "results": []}
+    monkeypatch.setattr(ai_vectors, "_search_impl", _impl)
+    TestClient(_app()).post("/api/ai/search",
+                            json={"collection": "faq", "query": "연락처 010-1234-5678"})
+    assert "010-1234-5678" not in calls[0]["request_text"]
+
+
+def test_rag_request_text_is_masked_even_under_block_mode(monkeypatch):
+    monkeypatch.setenv("PII_GUARDRAIL_MODE", "block")
+    calls = _capture(monkeypatch)
+
+    async def _impl(req, user):
+        return {"answer": "", "citations": [], "has_ai": False,
+                "pii_masked": 1, "concepts": []}
+    monkeypatch.setattr(ai_vectors, "_rag_impl", _impl)
+    TestClient(_app()).post("/api/ai/rag",
+                            json={"collection": "faq", "question": "연락처 010-1234-5678"})
+    assert "010-1234-5678" not in calls[0]["request_text"]

@@ -49,7 +49,7 @@ CREATE TABLE public.tool_call_log (
     outcome        text        NOT NULL CHECK (outcome IN ('ok','degraded','error')),
     duration_ms    integer,
     client_address text,                           -- text, as in security_audit_log
-    via            text                            -- 'api' | 'ui' | 'chat'
+    via            text                            -- 'api' | 'chat'
 );
 CREATE INDEX tool_call_log_actor_time ON public.tool_call_log (actor_id, occurred_at DESC);
 CREATE INDEX tool_call_log_time ON public.tool_call_log (occurred_at DESC);
@@ -58,7 +58,9 @@ CREATE INDEX tool_call_log_time ON public.tool_call_log (occurred_at DESC);
 Rules:
 
 - **Masked before stored.** `request_masked` and `request_hash` are computed from the text *after*
-  `pii_ko` masking, using the same guard the endpoint already applied. Nothing raw is written.
+  `pii_ko` masking. Masking for the log is unconditional — independent of `PII_GUARDRAIL_MODE` —
+  so nothing raw is written even in `block` or `off` mode, where the caller-facing guard would
+  otherwise pass the text through unmasked.
 - **Never blocks the caller.** The writer catches and logs; a failed insert never fails the tool call
   (same contract as `security_audit.record`).
 - **Service accounts cannot opt out.** `save_history=false` on `/queries/execute` continues to control

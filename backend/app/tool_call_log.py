@@ -1,4 +1,4 @@
-"""One row per successful data-tool call.
+"""One row per data-tool call — success, degraded or error.
 
 security_audit records authorization decisions and skips allows on read permissions so
 the read paths pay nothing. This module records a different fact — a tool returned data
@@ -40,6 +40,13 @@ def via(value: str) -> Iterator[None]:
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def masked_for_log(text: str) -> str:
+    """Text as it may be stored: pii_ko masking applied regardless of PII_GUARDRAIL_MODE.
+    The guardrail mode decides what the caller gets; the log never gets anything raw."""
+    from app.guardrails import pii_ko
+    return pii_ko.mask(text or "")
 
 
 def table_names(sql: str) -> List[str]:

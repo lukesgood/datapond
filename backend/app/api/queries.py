@@ -372,8 +372,7 @@ async def execute_query(
     user: dict = Depends(require_user),
 ):
     """Run a SQL query through table resolution, RLS and masking, and log the call."""
-    from app.guardrails import pii_ko
-    masked_sql = pii_ko.apply(request.query or "")[0]
+    masked_sql = tool_call_log.masked_for_log(request.query or "")
     tables = tool_call_log.table_names(request.query or "")
     started = time.perf_counter()
     try:

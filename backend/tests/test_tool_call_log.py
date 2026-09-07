@@ -62,6 +62,13 @@ def test_table_names_from_sql():
     assert tcl.table_names("this is not sql (") == []
 
 
+@pytest.mark.parametrize("mode", ["block", "off"])
+def test_masked_for_log_ignores_guardrail_mode(monkeypatch, mode):
+    monkeypatch.setenv("PII_GUARDRAIL_MODE", mode)
+    out = tcl.masked_for_log("call me at 010-1234-5678")
+    assert "010-1234-5678" not in out
+
+
 class _FakeConn:
     def __init__(self):
         self.calls = []

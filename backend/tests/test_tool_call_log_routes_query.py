@@ -57,3 +57,25 @@ def test_save_history_false_does_not_skip_the_log(monkeypatch):
     TestClient(_app()).post("/api/queries/execute",
                             json={"query": "SELECT 1", "save_history": False})
     assert len(calls) == 1
+
+
+def test_request_text_is_masked_even_under_block_mode(monkeypatch):
+    """PII_GUARDRAIL_MODE=block returns the ORIGINAL text to the caller (pii_ko.apply
+    contract) — the log must still never receive it raw."""
+    monkeypatch.setenv("PII_GUARDRAIL_MODE", "block")
+    calls = []
+
+    async def _record(**kw):
+        calls.append(kw)
+    monkeypatch.setattr(tool_call_log, "record", _record)
+
+    async def _impl(request, db, user):
+        return QueryResult(columns=["n"], rows=[[1]], execution_time_ms=1.0,
+                           row_count=1, truncated=False)
+    monkeypatch.setattr(queries, "_execute_query_impl", _impl)
+
+    r = TestClient(_app()).post(
+        "/api/queries/execute",
+        json={"query": "SELECT * FROM t WHERE phone = '010-1234-5678'"})
+    assert r.status_code == 200
+    assert "010-1234-5678" not in calls[0]["request_text"]

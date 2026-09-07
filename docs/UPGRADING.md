@@ -3,16 +3,26 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
-## tool_call_log (migration 0008)
+## 2026-09 — Every data-tool call leaves an audit row
 
-Every successful `/api/ai/search`, `/api/ai/rag`, `/api/ai/sql` and `/api/queries/execute`
-call now writes one row to `public.tool_call_log` (who, which tool, which collection or
-tables, hit count, cited sources, PII masked). The row is written after PII masking and is
-append-only under the same trigger as the security audit log. `save_history=false` no
-longer hides a query from the audit trail — it only controls the user-facing history.
-Retention: same window as `AUDIT_RETENTION_DAYS`. New read endpoints under
-`/api/audit/tool-calls` (`audit:read`). The governance compliance report gains an
-"Agent tool calls" section. Expect one extra INSERT per tool call.
+Every `/api/ai/search`, `/api/ai/rag`, `/api/ai/sql` and `/api/queries/execute` call —
+successful, degraded (no AI backend configured) or failed — now writes one row to
+`public.tool_call_log` (who, which tool, which collection or tables, hit count, cited
+sources, PII masked). The row is written after PII masking and is append-only under the
+same trigger as the security audit log. `save_history=false` no longer hides a query from
+the audit trail — it only controls the user-facing history. Retention: same window as
+`AUDIT_RETENTION_DAYS`. New read endpoints under `/api/audit/tool-calls` (`audit:read`).
+The governance compliance report gains an "Agent tool calls" section. Expect one extra
+INSERT per tool call.
+
+Masking for the log is applied unconditionally — regardless of `PII_GUARDRAIL_MODE` —
+so a row never carries raw text even when the mode is `block` or `off` and the caller
+itself receives the unmasked text or a rejection. `pii_ko` only covers structured Korean
+identifiers (주민번호, 휴대전화, 사업자번호, 카드, 이메일 등); names and addresses are not
+masked, so free-text questions to `/ai/search` and `/ai/rag` are newly persisted (up to
+512 masked characters), while `/queries/execute` SQL was already stored raw in
+`query_history`. `via` is `api` or `chat` — browser and agent HTTP traffic both record
+`api`; only calls made through the chat executor path record `chat`.
 
 ## 2026-08 — `query:run` no longer means "may change the database"
 

@@ -1328,7 +1328,7 @@ async def _logged(tool: str, req_collection: str, masked_text: str, user: dict, 
 
 @router.post("/ai/search", dependencies=[Depends(require_permission("ai:generate"))])
 async def search(req: SearchRequest, user: dict = Depends(require_user)):
-    masked, _, _ = _guard(req.query)
+    masked = tool_call_log.masked_for_log(req.query)
     return await _logged("ai.search", req.collection, masked, user,
                          lambda: _search_impl(req, user))
 
@@ -1337,7 +1337,7 @@ async def search(req: SearchRequest, user: dict = Depends(require_user)):
 async def rag(req: RagRequest, user: dict = Depends(require_user)):
     """Retrieve top-k chunks, then ask the active LiteLLM chat model with that context.
     Returns the answer + the citations it was grounded on."""
-    masked, _, _ = _guard(req.question)
+    masked = tool_call_log.masked_for_log(req.question)
     return await _logged("ai.rag", req.collection, masked, user,
                          lambda: _rag_impl(req, user))
 
