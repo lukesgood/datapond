@@ -439,7 +439,7 @@ jobs:
         run: helm lint helm/datapond --values helm/datapond/values-quicktest.yaml
       - name: Template render (모든 프로파일 — 구문 검증)
         run: |
-          for v in values-quicktest values-onprem values-aws values-dev values-prod values-foundation values-prod-single; do
+          for v in values-quicktest values-onprem values-aws values-dev values-prod values-foundation values-prod-single values-sovereign-core; do
             f="helm/datapond/$v.yaml"
             [ -f "$f" ] && { echo "== render $v =="; helm template datapond helm/datapond --values "$f" >/dev/null; }
           done
@@ -473,6 +473,10 @@ jobs:
           echo "== a profile that enables them says so, and renders them =="
           check values-onprem.yaml trino FEATURE_TRINO
           check values-onprem.yaml airflow FEATURE_AIRFLOW
+          echo "== sovereign-core: disabled add-ons, local ollama enabled =="
+          check values-sovereign-core.yaml trino FEATURE_TRINO
+          check values-sovereign-core.yaml polaris FEATURE_POLARIS
+          check values-sovereign-core.yaml ollama FEATURE_OLLAMA
           echo "OK: FEATURE flag gating verified against what actually renders"
       - name: Critical secrets generated + injected
         run: |
@@ -495,8 +499,8 @@ jobs:
             grep -q "$k:" <<<"$out" || { echo "FAIL $k not generated"; exit 1; }
           done
           grep -q 'token="${JUPYTER_TOKEN}"' <<<"$out" || { echo "FAIL jupyter token still hardcoded"; exit 1; }
-          echo "== no weak literals in rendered manifests (base/prod/onprem/foundation) =="
-          for v in "" "--values helm/datapond/values-prod.yaml" "--values helm/datapond/values-onprem.yaml" "--values helm/datapond/values-foundation.yaml"; do
+          echo "== no weak literals in rendered manifests (base/prod/onprem/foundation/sovereign-core) =="
+          for v in "" "--values helm/datapond/values-prod.yaml" "--values helm/datapond/values-onprem.yaml" "--values helm/datapond/values-foundation.yaml" "--values helm/datapond/values-sovereign-core.yaml"; do
             r=$(helm template datapond helm/datapond $v)
             if grep -E 'CHANGE_THIS|changeme|datapond_password|datapond_s3_password' <<<"$r"; then
               echo "FAIL: weak credential literal rendered (profile: ${v:-base})"; exit 1
@@ -543,7 +547,7 @@ jobs:
           }
           for v in "" "--values helm/datapond/values-prod.yaml" "--values helm/datapond/values-onprem.yaml" \
                    "--values helm/datapond/values-quicktest.yaml" "--values helm/datapond/values-foundation.yaml" \
-                   "--values helm/datapond/values-aws.yaml"; do
+                   "--values helm/datapond/values-aws.yaml" "--values helm/datapond/values-sovereign-core.yaml"; do
             imgs=$(helm template datapond helm/datapond $v | grep -E '^\s*image:' | sed -E 's/.*image:\s*"?([^"]+)"?.*/\1/' || true)
             if grep -qE "$MOVING" <<<"$imgs"; then
               echo "FAIL: moving image tag in profile ${v:-base}:"; grep -E "$MOVING" <<<"$imgs"; exit 1
