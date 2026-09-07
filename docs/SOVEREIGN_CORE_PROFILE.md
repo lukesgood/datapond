@@ -61,6 +61,15 @@ Inference in this profile is **CPU-only**: Ollama has no GPU wiring here, so the
 chat model runs at single-digit tokens/s. The GPU-accelerated path is `vllm` (see
 Model configuration), not Ollama.
 
+## What is verified
+
+`maturity: supported-starter` is the same evidence class as the AWS starter, minus live
+acceptance: the profile is rendered, linted and flag-pinned in CI
+(`backend/tests/test_helm_sovereign_core.py`, `test_helm_addon_defaults.py`,
+`test_capability_support_tiers.py`). It has not been installed on a live self-hosted
+cluster in this evidence chain — that acceptance run is the open item tracked in
+CLAUDE.md's incomplete-items list.
+
 ## Install
 
     helm upgrade --install datapond helm/datapond -n datapond --create-namespace \

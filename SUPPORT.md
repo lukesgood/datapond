@@ -37,7 +37,9 @@ narrowed what non-admin accounts can do.
 The **Portable Core** path — ingest, embed, retrieve, rerank, cited answers, plus
 access control, PII handling, audit and spend — on the two starters that run it:
 the **AWS Single-Node Reference** / `values-foundation.yaml`, and the self-hosted
-**Sovereign Core** (`values-sovereign-core.yaml`: in-cluster MinIO and Ollama).
+**Sovereign Core** (`values-sovereign-core.yaml`: in-cluster MinIO and Ollama;
+rendered, linted and flag-pinned in CI; a live install acceptance on a self-hosted
+cluster is the open item tracked in CLAUDE.md).
 
 The optional OSS add-ons (Trino, Airflow, Spark, Polaris, RisingWave, OpenMetadata,
 Jupyter, MLflow) are configuration around upstream projects. We will help with how the
