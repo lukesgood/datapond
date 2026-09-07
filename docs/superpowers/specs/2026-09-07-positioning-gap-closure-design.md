@@ -35,7 +35,7 @@ every auth decision row with nulls or force the auth writer to learn about colle
 CREATE TABLE public.tool_call_log (
     id             bigserial PRIMARY KEY,
     occurred_at    timestamptz NOT NULL DEFAULT now(),
-    actor_id       uuid        NOT NULL,           -- users.id; service accounts are users
+    actor_id       uuid REFERENCES public.users (id) ON DELETE SET NULL,  -- service accounts are users; nullable like security_audit_log (internal principal has no id)
     actor_username text        NOT NULL,
     actor_kind     text        NOT NULL CHECK (actor_kind IN ('human','service')),
     tool           text        NOT NULL CHECK (tool IN ('ai.search','ai.rag','ai.sql','query.execute')),
@@ -48,7 +48,7 @@ CREATE TABLE public.tool_call_log (
     pii_masked     integer     NOT NULL DEFAULT 0,
     outcome        text        NOT NULL CHECK (outcome IN ('ok','degraded','error')),
     duration_ms    integer,
-    client_address inet,
+    client_address text,                           -- text, as in security_audit_log
     via            text                            -- 'api' | 'ui' | 'chat'
 );
 CREATE INDEX tool_call_log_actor_time ON public.tool_call_log (actor_id, occurred_at DESC);
