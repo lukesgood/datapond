@@ -15,9 +15,17 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Callable, Iterator, List, Optional
 
+from app.chat.actions import REGISTRY
+
 logger = logging.getLogger(__name__)
 
-TOOLS = ("ai.search", "ai.rag", "ai.sql", "query.execute")
+# The four rich-route tools, plus every action id in the registry — the MCP dispatcher
+# writes a fallback row (app/mcp/server.py) for any of the other 40 actions whose
+# executor never reaches an /ai/* route, and build_row must accept its id or that row
+# silently disappears into logger.error instead of the append-only table. The DB's
+# CHECK constraint (migration 0009) is the looser, permanent bound; Python stays
+# stricter and enumerates rather than pattern-matching it.
+TOOLS = ("ai.search", "ai.rag", "ai.sql", "query.execute") + tuple(REGISTRY)
 RESOURCE_KINDS = ("collection", "tables", "none")
 OUTCOMES = ("ok", "degraded", "error")
 _MASKED_LIMIT = 512
