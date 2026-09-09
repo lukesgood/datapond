@@ -17,11 +17,52 @@ def mcp_name(action_id: str) -> str:
     return action_id.replace(".", "_")
 
 
-_BY_MCP_NAME: Dict[str, str] = {mcp_name(a.id): a.id for a in REGISTRY.values()}
+def _build_name_map() -> Dict[str, str]:
+    """One entry per action id, keyed by its MCP name.
+
+    A collision here (two ids whose dots/underscores trade places, e.g. `a.b_c`
+    and `a_b.c`) would make one tool name silently resolve to the wrong action —
+    worse than the duplicate-id case app/chat/analysis/__init__.py already guards
+    at import, since a READ name could come to resolve to a write action. So this
+    raises at import too, the same way: structurally impossible, not merely
+    caught by a test.
+    """
+    ids_by_name: Dict[str, List[str]] = {}
+    for a in REGISTRY.values():
+        ids_by_name.setdefault(mcp_name(a.id), []).append(a.id)
+    collisions = {name: ids for name, ids in ids_by_name.items() if len(ids) > 1}
+    if collisions:
+        raise RuntimeError(f"colliding MCP tool names across action ids: {collisions}")
+    return {name: ids[0] for name, ids in ids_by_name.items()}
+
+
+_BY_MCP_NAME: Dict[str, str] = _build_name_map()
 
 
 def action_id_for(name: str) -> Optional[str]:
+    """The id for a tool name, whatever the action's kind — including a write
+    action's, so a dispatcher can tell "no such tool" apart from "that tool is a
+    write action" when composing its refusal. `name` comes off the wire as JSON,
+    so a client may legally send a list or dict here; match resolve()'s guard."""
+    if not isinstance(name, str):
+        return None
     return _BY_MCP_NAME.get(name)
+
+
+def read_action_id_for(name: str) -> Optional[str]:
+    """The id for a tool name, only if it names a READ action.
+
+    This is the lookup a dispatcher should reach for by reflex: `action_id_for`
+    stays permissive so a write action's id can still be reported by name in a
+    refusal, but nothing should resolve, authorize and execute through it.
+    """
+    action_id = action_id_for(name)
+    if action_id is None:
+        return None
+    action = REGISTRY.get(action_id)
+    if action is None or action.kind is not ActionKind.READ:
+        return None
+    return action_id
 
 
 def exposed_actions(permissions: Iterable[str],
