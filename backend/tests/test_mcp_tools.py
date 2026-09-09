@@ -157,3 +157,14 @@ def test_a_colliding_pair_of_mcp_names_fails_at_import_not_only_in_a_test():
         chat_actions.REGISTRY.clear()
         chat_actions.REGISTRY.update(original)
         importlib.reload(tools)
+
+
+def test_every_exposed_field_is_described():
+    """A client's model sees the JSON Schema and nothing else. A field it has to guess
+    at is a field it fills in wrong, so an undescribed parameter is an unshipped tool."""
+    missing = []
+    for action in tools.exposed_actions(ALL_PERMS, ALL_CAPS):
+        for field_name, field in action.params.model_fields.items():
+            if not (field.description or "").strip():
+                missing.append(f"{action.id}.{field_name}")
+    assert not missing, "undescribed parameters: " + ", ".join(sorted(missing))

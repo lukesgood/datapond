@@ -24,8 +24,10 @@ class KnowledgeQuery(_Strict):
     # Required, because SearchRequest.collection and RagRequest.collection are. An
     # optional field here would let the model omit what the API demands, and the call
     # would fail after the user had already been told it was happening.
-    collection: str
-    query: str
+    collection: str = Field(
+        description="The collection's name, as listed by knowledge_list_collections.")
+    query: str = Field(
+        description="The question or phrase to search for, in the words a person would use.")
 
 
 async def _existing_collections(user: dict) -> List[str]:
@@ -77,12 +79,17 @@ async def create_collection(params: dict, user: dict) -> dict:
 
 
 class CollectionSearch(_Strict):
-    q: Optional[str] = None
-    limit: int = Field(default=25, ge=1, le=100)
+    q: Optional[str] = Field(
+        default=None,
+        description="Match collection names containing this text. Omit to list them all.")
+    limit: int = Field(
+        default=25, ge=1, le=100,
+        description="How many collections to return, 1-100. Defaults to 25.")
 
 
 class CollectionRef(_Strict):
-    collection: str
+    collection: str = Field(
+        description="The collection's name, as listed by knowledge_list_collections.")
 
 
 async def list_collections_action(params: dict, user: dict) -> dict:

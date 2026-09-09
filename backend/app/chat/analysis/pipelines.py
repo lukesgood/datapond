@@ -8,8 +8,11 @@ from app.chat.analysis._resolve import _r
 
 
 class PipelineRuns(_Strict):
-    pipeline: str
-    limit: int = Field(default=10, ge=1, le=50)
+    pipeline: str = Field(
+        description="The pipeline or transform's name, as shown on the Transforms page.")
+    limit: int = Field(
+        default=10, ge=1, le=50,
+        description="How many runs to return, 1-50. Defaults to 10, newest first.")
 
 
 async def recent_runs(params: dict, user: dict) -> dict:

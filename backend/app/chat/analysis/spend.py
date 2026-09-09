@@ -14,11 +14,14 @@ from app.chat.analysis._resolve import _r
 
 
 class SpendQuery(_Strict):
-    days: int = 30
+    days: int = Field(
+        default=30, description="How many days of spend to summarise. Defaults to 30.")
 
 
 class SpendWindow(_Strict):
-    days: int = Field(default=7, ge=1, le=90)
+    days: int = Field(
+        default=7, ge=1, le=90,
+        description="How many days back to compare, 1-90. Defaults to 7.")
 
 
 async def summarize_spend(params: dict, user: dict) -> dict:

@@ -13,13 +13,22 @@ from app.chat.analysis._resolve import _r
 
 
 class ServiceRef(_Strict):
-    service: str
+    service: str = Field(
+        description="Which service to inspect, by the name Infrastructure lists — "
+                    "for example 'minio', 'airflow', 'mlflow'.")
 
 
 class EventWindow(_Strict):
-    hours: int = Field(default=168, ge=1, le=2160)
-    limit: int = Field(default=50, ge=1, le=200)
-    severity: Optional[str] = None
+    hours: int = Field(
+        default=168, ge=1, le=2160,
+        description="How many hours back to look, 1-2160 (90 days). Defaults to 168 (7 days).")
+    limit: int = Field(
+        default=50, ge=1, le=200,
+        description="How many events to return, 1-200. Defaults to 50, newest first.")
+    severity: Optional[str] = Field(
+        default=None,
+        description="Return only events of this severity, for example 'critical'. "
+                    "Omit for every severity.")
 
 
 async def service_health(params: dict, user: dict) -> dict:
