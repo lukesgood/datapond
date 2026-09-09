@@ -26,7 +26,12 @@ BEGIN
     END IF;
 END $$;
 
+-- NOT VALID: the new predicate is a strict superset of the one it replaces, so no
+-- existing row can violate it — validating that by scanning the table gains nothing
+-- and would hold ACCESS EXCLUSIVE on tool_call_log for the length of the scan. Future
+-- inserts are still checked; only that redundant initial scan is skipped.
 ALTER TABLE public.tool_call_log
     ADD CONSTRAINT tool_call_log_tool_check
     CHECK (tool IN ('ai.search', 'ai.rag', 'ai.sql', 'query.execute')
-           OR tool ~ '^[a-z][a-z_]*\.[a-z][a-z_]*$');
+           OR tool ~ '^[a-z][a-z_]*\.[a-z][a-z_]*$')
+    NOT VALID;

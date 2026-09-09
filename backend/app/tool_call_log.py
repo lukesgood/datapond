@@ -44,6 +44,12 @@ def counting() -> Iterator[Callable[[], int]]:
     sources, masked count — and a diagnostic tool still leaves a trace. Only a
     successful insert counts: a lost row must not suppress the fallback, or the call
     would disappear from the log altogether.
+
+    Blocks nest by shadowing, not by accumulating: a `record` call made inside a nested
+    `counting()` block is counted by that inner block only, and never reaches the outer
+    one. A dispatcher that opened its own `counting()` block around a call into another
+    `counting()`-wrapped path must not read 0 from the outer counter and write a
+    duplicate fallback row for a call the inner block already logged.
     """
     counter = [0]
     token = _calls.set(counter)

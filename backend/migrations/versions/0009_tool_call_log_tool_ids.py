@@ -21,6 +21,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Not an inverse of upgrade(): it drops the widened constraint and leaves the
+    # column unconstrained, rather than restoring 0008's four-value constraint. Once
+    # this revision has been live, action-id rows (catalog.find_tables, etc.) may
+    # already be in tool_call_log, and that table is append-only with no UPDATE or
+    # DELETE — restoring the old constraint would either fail immediately or leave rows
+    # that violate it with no way to fix them.
     run_sql(
         op.get_bind(),
         "ALTER TABLE public.tool_call_log "
