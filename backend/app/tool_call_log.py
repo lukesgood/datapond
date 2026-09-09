@@ -13,7 +13,7 @@ import hashlib
 import logging
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Iterator, List, Optional
+from typing import Callable, Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,27 @@ _via: contextvars.ContextVar[str] = contextvars.ContextVar("tool_call_via", defa
 # changing any wrapper's signature.
 _client_address: contextvars.ContextVar[Optional[str]] = \
     contextvars.ContextVar("tool_call_client_address", default=None)
+
+_calls: contextvars.ContextVar[Optional[List[int]]] = \
+    contextvars.ContextVar("tool_call_count", default=None)
+
+
+@contextmanager
+def counting() -> Iterator[Callable[[], int]]:
+    """Count the rows `record` writes inside this block.
+
+    The MCP dispatcher writes its own row only when the inner path wrote none, so a
+    data tool keeps the rich row its route builds — collection, hit count, cited
+    sources, masked count — and a diagnostic tool still leaves a trace. Only a
+    successful insert counts: a lost row must not suppress the fallback, or the call
+    would disappear from the log altogether.
+    """
+    counter = [0]
+    token = _calls.set(counter)
+    try:
+        yield lambda: counter[0]
+    finally:
+        _calls.reset(token)
 
 
 def current_via() -> str:
@@ -149,6 +170,9 @@ async def record(*, actor: dict, tool: str, resource_kind: str, resource: List[s
                 row["citation_sources"], row["pii_masked"], row["outcome"],
                 row["duration_ms"], row["client_address"], row["via"],
             )
+        counter = _calls.get()
+        if counter is not None:
+            counter[0] += 1
     except Exception:
         logger.error("tool_call_log: failed to record tool=%s actor=%s — this call is "
                      "not in the tool call log", tool, (actor or {}).get("username"),
