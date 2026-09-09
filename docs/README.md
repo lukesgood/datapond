@@ -19,6 +19,7 @@
 | [FOUNDATION_PROFILE.md](FOUNDATION_PROFILE.md) | `values-foundation.yaml` Portable Core · AWS starter 상세 |
 | [SOVEREIGN_CORE_PROFILE.md](SOVEREIGN_CORE_PROFILE.md) | `values-sovereign-core.yaml` Sovereign Core 상세 |
 | [PORTABILITY.md](PORTABILITY.md) | 데이터·모델·배포 이식성과 출구 전략 |
+| [MCP.md](MCP.md) | MCP 서버 — 도구 목록, 인증, 감사, 한계 |
 
 ## 개발
 

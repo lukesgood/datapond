@@ -4,7 +4,7 @@
 
 DataPond is an open-core data tool server for teams whose AI agents and applications need to reach company data. Agents call it **directly** with a service-account key, and if your organization runs an agent gateway (Amazon Bedrock AgentCore Gateway, Obot, Runlayer) DataPond can be registered behind it as a target. Either way it does the part gateways do not: ingestion and freshness, chunking and embeddings, pgvector retrieval with optional reranking, cited answers, governed SQL, per-caller collection and row access, PII masking on the data itself, audit, and per-caller model spend. Infrastructure stays behind open contracts. Retrieval-level audit of successful calls and enforced per-caller budgets are listed under roadmap below, not claimed as shipped.
 
-Today the tool surface is **REST/OpenAPI with service-account keys**. A read-only MCP server over the same action registry is the next slice, not yet shipped. DataPond does not build gateway features (agent registry, SSO/SCIM sync, tool-level policy engines). **AWS is the current reference deployment, not the product boundary.** Run on native S3, Aurora PostgreSQL/pgvector, Glue/Athena, and Bedrock, or on PostgreSQL, S3-compatible storage, and local/cloud models through LiteLLM.
+The tool surface is **REST/OpenAPI with service-account keys**, and a read-only MCP server at `POST /api/mcp` exposes the same 26 read actions as tools for agents that discover tools rather than being wired to them by hand. DataPond does not build gateway features (agent registry, SSO/SCIM sync, tool-level policy engines). **AWS is the current reference deployment, not the product boundary.** Run on native S3, Aurora PostgreSQL/pgvector, Glue/Athena, and Bedrock, or on PostgreSQL, S3-compatible storage, and local/cloud models through LiteLLM.
 
 Positioning decision and its evidence: [docs/POSITIONING_REVIEW.md](docs/POSITIONING_REVIEW.md). How well the current build fits it: [docs/POSITIONING_FIT_AUDIT.md](docs/POSITIONING_FIT_AUDIT.md).
 
@@ -12,7 +12,7 @@ Positioning decision and its evidence: [docs/POSITIONING_REVIEW.md](docs/POSITIO
 
 | Layer | Role | Current status |
 |---|---|---|
-| **Governed data tool server** | `/api/ai/search`, `/api/ai/rag`, `/api/ai/sql`, `/api/queries/execute` behind service-account keys; collection ACL, RLS/masking, PII, audit, per-caller spend; called directly, or registered behind an agent gateway if you run one | Shipped (REST); MCP next slice |
+| **Governed data tool server** | `/api/ai/search`, `/api/ai/rag`, `/api/ai/sql`, `/api/queries/execute` behind service-account keys; collection ACL, RLS/masking, PII, audit, per-caller spend; called directly, or registered behind an agent gateway if you run one | Shipped (REST and read-only MCP) |
 | **Knowledge core** | Ingestion, chunk replacement, freshness scheduler, pgvector retrieval, citations, operator UI | Shipped |
 | **Open contracts** | S3 API, PostgreSQL + pgvector, LiteLLM/OpenAI-compatible model boundary, REST, OIDC, Helm/Kubernetes | Shipped |
 | **AWS adapters** | S3, Aurora, Bedrock; Glue/Athena in the single-node reference | Shipped per profile |
@@ -141,6 +141,7 @@ Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider r
 - Capability-gated navigation and direct-route states
 - Community authentication plus Enterprise OIDC SSO
 - Append-only tool call log: who called search, cited answers, SQL generation or query execution, against which collection or tables, with hit count, cited sources and PII masked; NDJSON export and compliance-report section
+- Read-only MCP server at POST /api/mcp (2026-07-28 stateless HTTP): the 26 read actions as tools, scoped by the calling key, one audit row per call
 
 ### Optional
 
@@ -155,7 +156,6 @@ Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider r
 
 ### Roadmap or hardening
 
-- Read-only MCP server (2026-07-28 spec) over the same action registry and permission gate, for agents that connect directly
 - Resource-server mode for external OIDC access tokens, required by OAuth-based MCP clients and by token exchange behind a gateway (API-key registration behind a gateway today collapses all agents into one service account)
 - Tool-facing OpenAPI subset (no `anyOf`, explicit operationIds) for gateway target registration; today the generated `/openapi.json` is not accepted by AgentCore Gateway as-is
 - Chunk/document-level caller filters inside a collection
