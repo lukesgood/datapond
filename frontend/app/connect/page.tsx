@@ -88,6 +88,8 @@ export default function ApiPage() {
         </p>
       </div>
 
+      <McpCard origin={origin} />
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -107,6 +109,38 @@ export default function ApiPage() {
 
       {isAdmin ? <ServiceAccounts /> : <AskForAKey />}
     </div>
+  )
+}
+
+function McpCard({ origin }: { origin: string }) {
+  const base = origin || "https://your-deployment"
+  const curl = `curl -sX POST ${base}/api/mcp \\
+  -H "Authorization: Bearer $DATAPOND_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Terminal className="h-4 w-4 text-primary" />MCP
+        </CardTitle>
+        <CardDescription>
+          Model Context Protocol at <code className="font-mono">POST /api/mcp</code> — the
+          same 26 read actions as tools, for an agent that discovers its tools instead of
+          being wired to them by hand. Read-only, and authenticated with the same
+          service-account key as the REST endpoints below.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <pre className="overflow-x-auto rounded border bg-muted/40 p-2 font-mono text-[10px] leading-relaxed">
+{curl}
+        </pre>
+        <p className="text-[11px] text-muted-foreground">
+          Scopes, spend attribution and what a call refuses: <span className="font-mono">docs/MCP.md</span>.
+        </p>
+      </CardContent>
+    </Card>
   )
 }
 

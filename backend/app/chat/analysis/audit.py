@@ -18,7 +18,8 @@ from app.chat.analysis._resolve import _r
 
 
 class AuditWindow(_Strict):
-    days: int = Field(default=7, ge=1, le=90)
+    days: int = Field(default=7, ge=1, le=90,
+                       description="How many days back to summarise, 1-90. Defaults to 7.")
 
 
 # Every column here is a category or a count. Adding one that is not fails

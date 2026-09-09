@@ -375,7 +375,7 @@ AWS 문서(`gateway-schema-openapi`, `gateway-building-adding-targets-authorizat
 | 1 | 도구 호출 로그(`tool_call_log`) + 성공 호출 감사 | 리드 차별점 둘째, 규제 증빙 셋, 호출자 화면의 전제. 트렌드에서도 첫째 | 중 |
 | 2 | 에이전트당 서비스 계정 발급 UX: 스코프 명시, "이 에이전트용 키" 흐름, 컬렉션 페이지 스니펫 | 직접 호출이 기본 경로가 됐으므로 이 여정이 제품의 첫인상 | 소 |
 | 3 | UI 카피 "Foundation" 열두 곳, "AI Gateway" 메뉴 이름, `/openapi.json` 인증 | 문장과 화면의 불일치. 전부 작음 | 소 |
-| 4 | read 전용 MCP 서버 | 직접 호출 경로의 다음 슬라이스 | 중 |
+| ~~4~~ | ~~read 전용 MCP 서버~~ | ~~직접 호출 경로의 다음 슬라이스~~ — 2026-09-09 `backend/app/mcp/`로 착지, §7.1 축 A 참조 | ~~중~~ |
 | 5 | 외부 OIDC access token resource-server 모드 | OAuth 기반 MCP 클라이언트가 요구. 게이트웨이 token exchange도 이것으로 해결 | 중/대 |
 | 6 | 도구 전용 OpenAPI 서브셋 + 게이트웨이 등록 how-to | 게이트웨이를 쓰는 고객이 나타났을 때. 코드 변경 작음 | 소 |
 | 7 | 청크 메타데이터 기반 호출자 필터 | 문장은 "컬렉션·행"으로 이미 정정됨. 구현은 P1 | 중 |
@@ -411,7 +411,7 @@ AWS 문서(`gateway-schema-openapi`, `gateway-building-adding-targets-authorizat
 | `/connect`의 curl 예시와 브라우저 실행 | ○ | `connect/page.tsx:164-206` | — |
 | `/connect`가 `/queries/execute` 포함 | ○ | `backend/app/api/api_surface.py` `EXTRA_ROUTES` | — |
 | 컬렉션 페이지 "앱에서 쓰기" 스니펫 | ○ | `frontend/components/knowledge/use-from-app-panel.tsx`, `frontend/lib/app-snippets.ts` | — |
-| MCP 엔드포인트 | ✕ | §6.6 | 다음 슬라이스 |
+| MCP 엔드포인트 | ○ | `backend/app/mcp/` | — |
 | OAuth resource-server(호스티드 MCP 클라이언트용) | ✕ | §6.2-2 | — |
 | API 키 호출 rate limit·회전 | ✕ | §2.1 | — |
 | 통합 도움말·문서(서비스 키 기준 curl) | ○ | `frontend/app/help/integrate/page.tsx`, `docs/AWS_MVP_RUNBOOK.md` | — |

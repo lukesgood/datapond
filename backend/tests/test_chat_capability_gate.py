@@ -12,7 +12,7 @@ import pytest
 
 from app.chat.actions import (REGISTRY, Action, ActionKind, actions_for,
                               tool_definitions)
-from app.chat import gate
+from app.chat import authz, gate
 from app.chat.gate import ActionRefused
 
 
@@ -59,7 +59,7 @@ def test_tool_definitions_hides_them_from_the_model():
 
 def test_execution_refuses_a_forged_id_for_a_disabled_capability(monkeypatch):
     """The second gate. Not seeing an action is UX; being refused is the control."""
-    monkeypatch.setattr(gate, "capability_on", lambda key: False)
+    monkeypatch.setattr(authz, "capability_on", lambda key: False)
 
     class _Store:
         async def record_audit(self, *a, **k):
@@ -67,7 +67,7 @@ def test_execution_refuses_a_forged_id_for_a_disabled_capability(monkeypatch):
 
     user = {"id": "u1", "permissions": sorted(ALL)}
     with pytest.raises(ActionRefused):
-        _run(gate._authorize(REGISTRY["catalog.describe_table"], user, "*",
+        _run(gate._authorize(REGISTRY["catalog.describe_table"], user,
                              _Store(), stage="propose"))
 
 

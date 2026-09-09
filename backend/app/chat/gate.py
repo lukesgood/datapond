@@ -32,9 +32,8 @@ from app.chat.actions import (
     resolve,
     validate_params,
 )
+from app.chat.authz import CapabilityOff, NotPermitted, authorize, held_permissions
 from app.chat.naming import named_by_user, normalise
-from app.component_guard import capability_on
-from app.permissions import permissions_for
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +56,7 @@ class InvocationStore(Protocol):
                            user_email: Optional[str], details: dict) -> None: ...
 
 
-def _held_permissions(user: dict) -> set:
-    """A service-account key carries its own set (role narrowed by scopes); a person
-    is judged by role. Same rule as require_permission, so the gate and the API agree."""
-    granted = user.get("permissions")
-    return set(granted) if granted is not None else set(permissions_for(user.get("role")))
+_held_permissions = held_permissions  # moved to app.chat.authz; both surfaces share it
 
 
 def _require_owner(invocation: dict, user: dict) -> None:
@@ -93,23 +88,19 @@ async def _maybe_await(result: Any) -> Any:
     return result
 
 
-async def _authorize(action: Action, user: dict, page: str, store: InvocationStore,
+async def _authorize(action: Action, user: dict, store: InvocationStore,
                      stage: str) -> None:
-    if action.permission not in _held_permissions(user):
-        await _audit(store, "chat_action_refused", user,
-                     action=action.id, stage=stage, reason="permission",
-                     required=action.permission)
-        raise ActionRefused(
-            f"'{action.permission}' permission required to {action.label.lower()}.")
-
-    # The map a client sent is never the one that decides. Recomputed here from the
-    # server's own environment, by the same predicate the route guards use.
-    if action.capability and not capability_on(action.capability):
-        await _audit(store, "chat_action_refused", user,
-                     action=action.id, stage=stage, reason="capability",
-                     required=action.capability)
-        raise ActionRefused(
-            f"{action.label} needs a component this deployment does not run.")
+    """The shared decision, recorded in the panel's own vocabulary."""
+    try:
+        authorize(action, user)
+    except NotPermitted as e:
+        await _audit(store, "chat_action_refused", user, action=action.id,
+                     stage=stage, reason="permission", required=e.required)
+        raise ActionRefused(str(e)) from e
+    except CapabilityOff as e:
+        await _audit(store, "chat_action_refused", user, action=action.id,
+                     stage=stage, reason="capability", required=e.required)
+        raise ActionRefused(str(e)) from e
 
 
 async def propose(
@@ -144,7 +135,7 @@ async def propose(
                      action=str(action_id)[:120], stage="propose", reason="unknown_action")
         raise ActionRefused("That is not something I can do here.") from e
 
-    await _authorize(action, user, page, store, stage="propose")
+    await _authorize(action, user, store, stage="propose")
 
     try:
         clean = validate_params(action, params)
@@ -219,7 +210,7 @@ async def approve(invocation_id: str, *, user: dict, store: InvocationStore,
                      reason="service_account_cannot_approve")
         raise ActionRefused("A service account cannot approve an action.")
     action = resolve(invocation["action_id"])
-    await _authorize(action, user, invocation.get("page", "*"), store, stage="approve")
+    await _authorize(action, user, store, stage="approve")
 
     if action.kind is ActionKind.DESTRUCTIVE:
         # Checked before the claim below, deliberately. claim_for_approval is the

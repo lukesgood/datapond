@@ -10,14 +10,18 @@ from app.chat.analysis._resolve import _r
 
 
 class ConnectionRef(_Strict):
-    connection_id: str
+    connection_id: str = Field(
+        description="The source's id, as listed by connectors_list_sources.")
 
 
 class ConnectionHistory(_Strict):
-    connection_id: str
+    connection_id: str = Field(
+        description="The source's id, as listed by connectors_list_sources.")
     # Bounded: the model puts whatever comes back into a prompt, and an unbounded
     # history is an unbounded prompt.
-    limit: int = Field(default=20, ge=1, le=100)
+    limit: int = Field(
+        default=20, ge=1, le=100,
+        description="How many records to return, 1-100. Defaults to 20, newest first.")
 
 
 async def list_sources(params: dict, user: dict) -> dict:

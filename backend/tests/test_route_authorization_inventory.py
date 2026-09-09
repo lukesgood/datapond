@@ -39,6 +39,10 @@ UNGATED_BY_DESIGN = {
     # a permission, since holding the permission is not enough.
     ("POST", "/api/chat/actions/{invocation_id}/approve"): "per-invocation owner check in chat/gate.py",
     ("POST", "/api/chat/actions/{invocation_id}/reject"): "per-invocation owner check in chat/gate.py",
+
+    ("POST", "/api/mcp"): "carries authentication (resolve_principal -> require_user) "
+        "but no require_permission — the permission is per-tool, checked inside "
+        "the dispatcher (app/mcp/server.py:_call_tool).",
 }
 
 

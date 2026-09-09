@@ -15,7 +15,7 @@ import asyncio
 
 import pytest
 
-from app.chat import gate
+from app.chat import authz, gate
 from app.chat.actions import ActionKind, resolve
 from app.chat.gate import ActionRefused, propose
 
@@ -26,7 +26,7 @@ def _capabilities_on(monkeypatch):
     has its own tests in test_chat_capability_gate.py. query.generate_sql and
     query.run now carry a capability; hold it open so this environment's actual
     FEATURE_* flags can't fail a test about something else."""
-    monkeypatch.setattr(gate, "capability_on", lambda key: True)
+    monkeypatch.setattr(authz, "capability_on", lambda key: True)
 
 
 class Store:

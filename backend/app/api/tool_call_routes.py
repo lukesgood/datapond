@@ -80,7 +80,11 @@ async def list_tool_calls(
     """Page through tool_call_log rows in [since, until], newest first."""
     since_ts, until_ts = _window(since, until)
     if tool is not None and tool not in TOOLS:
-        raise HTTPException(status_code=400, detail=f"tool must be one of {list(TOOLS)}")
+        # Not `f"...one of {list(TOOLS)}"`: TOOLS is the full 44-entry action
+        # vocabulary (every registered action id, write actions included), and this
+        # 400 goes to any `audit:read` holder filtering the log — not a reason to
+        # hand them a directory of every action this deployment has, callable or not.
+        raise HTTPException(status_code=400, detail=f"{tool!r} is not a recognized tool")
     where = ["occurred_at >= $1", "occurred_at <= $2"]
     args = [since_ts, until_ts]
     if actor_id:

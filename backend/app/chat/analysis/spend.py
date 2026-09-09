@@ -14,11 +14,16 @@ from app.chat.analysis._resolve import _r
 
 
 class SpendQuery(_Strict):
-    days: int = 30
+    days: int = Field(
+        default=30,
+        description="Not currently applied — the summary always aggregates all-time "
+                    "spend across every virtual key, regardless of this value.")
 
 
 class SpendWindow(_Strict):
-    days: int = Field(default=7, ge=1, le=90)
+    days: int = Field(
+        default=7, ge=1, le=90,
+        description="How many days back to compare, 1-90. Defaults to 7.")
 
 
 async def summarize_spend(params: dict, user: dict) -> dict:
@@ -154,7 +159,7 @@ async def diagnose_change(params: dict, user: dict) -> dict:
 
 ACTIONS = (
     Action("spend.summarize", "Summarise spend",
-           "Model usage and cost over a period.",
+           "Model usage and cost, all-time across every virtual key.",
            ("/ai", "/settings"), "spend:read", ActionKind.READ, SpendQuery),
     Action("spend.diagnose_change", "Diagnose spend change",
            "Whether model spend changed against the previous period of the same "

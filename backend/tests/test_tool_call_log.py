@@ -49,6 +49,19 @@ def test_build_row_rejects_unknown_vocabulary(field, value):
         tcl.build_row(**kwargs)
 
 
+def test_build_row_accepts_every_registered_action_id():
+    """Widened per Task 5: the MCP dispatcher writes a fallback row (app/mcp/server.py)
+    for any action whose executor never reaches an /ai/* route — build_row must accept
+    its id or that row silently disappears into logger.error instead of the
+    append-only table."""
+    from app.chat.actions import REGISTRY
+    assert REGISTRY, "the action registry is unexpectedly empty"
+    for action_id in REGISTRY:
+        row = tcl.build_row(actor=HUMAN, tool=action_id, resource_kind="none",
+                            resource=[], request_text="q")
+        assert row["tool"] == action_id
+
+
 def test_build_row_client_address_from_contextvar_when_arg_omitted():
     assert tcl.current_client_address() is None
     token = tcl.set_client_address("203.0.113.7")

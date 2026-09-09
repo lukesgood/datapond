@@ -13,11 +13,19 @@ import hashlib
 import logging
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Iterator, List, Optional
+from typing import Callable, Iterator, List, Optional
+
+from app.chat.actions import REGISTRY
 
 logger = logging.getLogger(__name__)
 
-TOOLS = ("ai.search", "ai.rag", "ai.sql", "query.execute")
+# The four rich-route tools, plus every action id in the registry — the MCP dispatcher
+# writes a fallback row (app/mcp/server.py) for any of the other 40 actions whose
+# executor never reaches an /ai/* route, and build_row must accept its id or that row
+# silently disappears into logger.error instead of the append-only table. The DB's
+# CHECK constraint (migration 0009) is the looser, permanent bound; Python stays
+# stricter and enumerates rather than pattern-matching it.
+TOOLS = ("ai.search", "ai.rag", "ai.sql", "query.execute") + tuple(REGISTRY)
 RESOURCE_KINDS = ("collection", "tables", "none")
 OUTCOMES = ("ok", "degraded", "error")
 _MASKED_LIMIT = 512
@@ -30,6 +38,33 @@ _via: contextvars.ContextVar[str] = contextvars.ContextVar("tool_call_via", defa
 # changing any wrapper's signature.
 _client_address: contextvars.ContextVar[Optional[str]] = \
     contextvars.ContextVar("tool_call_client_address", default=None)
+
+_calls: contextvars.ContextVar[Optional[List[int]]] = \
+    contextvars.ContextVar("tool_call_count", default=None)
+
+
+@contextmanager
+def counting() -> Iterator[Callable[[], int]]:
+    """Count the rows `record` writes inside this block.
+
+    The MCP dispatcher writes its own row only when the inner path wrote none, so a
+    data tool keeps the rich row its route builds — collection, hit count, cited
+    sources, masked count — and a diagnostic tool still leaves a trace. Only a
+    successful insert counts: a lost row must not suppress the fallback, or the call
+    would disappear from the log altogether.
+
+    Blocks nest by shadowing, not by accumulating: a `record` call made inside a nested
+    `counting()` block is counted by that inner block only, and never reaches the outer
+    one. A dispatcher that opened its own `counting()` block around a call into another
+    `counting()`-wrapped path must not read 0 from the outer counter and write a
+    duplicate fallback row for a call the inner block already logged.
+    """
+    counter = [0]
+    token = _calls.set(counter)
+    try:
+        yield lambda: counter[0]
+    finally:
+        _calls.reset(token)
 
 
 def current_via() -> str:
@@ -149,6 +184,9 @@ async def record(*, actor: dict, tool: str, resource_kind: str, resource: List[s
                 row["citation_sources"], row["pii_masked"], row["outcome"],
                 row["duration_ms"], row["client_address"], row["via"],
             )
+        counter = _calls.get()
+        if counter is not None:
+            counter[0] += 1
     except Exception:
         logger.error("tool_call_log: failed to record tool=%s actor=%s — this call is "
                      "not in the tool call log", tool, (actor or {}).get("username"),

@@ -7,6 +7,8 @@ declare.
 import logging
 from typing import Callable, Dict
 
+from pydantic import Field
+
 from app.api.plan_review import parse_io_plan
 from app.api.query_engine import explain_statement
 from app.chat.actions import Action, ActionKind, _Strict
@@ -16,11 +18,12 @@ logger = logging.getLogger(__name__)
 
 
 class SqlText(_Strict):
-    sql: str
+    sql: str = Field(description="The SQL statement, as valid SQL for this catalog.")
 
 
 class NaturalQuestion(_Strict):
-    question: str
+    question: str = Field(
+        description="What you want to know, in plain language. The answer is SQL, which is not run.")
 
 
 async def generate_sql(params: dict, user: dict) -> dict:

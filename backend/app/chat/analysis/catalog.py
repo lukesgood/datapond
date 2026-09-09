@@ -7,6 +7,8 @@ declare.
 import re
 from typing import Callable, Dict, Optional
 
+from pydantic import Field
+
 from app.api.catalog_backend import get_catalog_reader
 from app.chat.actions import Action, ActionKind, _Strict
 from app.chat.analysis._resolve import _r
@@ -16,17 +18,27 @@ class TableRef(_Strict):
     # `namespace`, not `schema`: the latter shadows a BaseModel attribute, which
     # quietly drops it from the generated JSON Schema's `required` list — and the
     # product's own API already calls these namespaces.
-    namespace: str
-    table: str
+    namespace: str = Field(
+        description="The table's namespace (schema), as listed by catalog_find_tables.")
+    table: str = Field(
+        description="The table's name within the namespace, without the namespace prefix.")
 
 
 class TableSearch(_Strict):
-    query: str
+    query: str = Field(
+        description="Words to match against table and namespace names, for example "
+                    "'orders customer'. Column names are not searched.")
 
 
 class RelationshipQuery(_Strict):
-    table: Optional[str] = None
-    days: int = 30
+    table: Optional[str] = Field(
+        default=None,
+        description="Limit to relationships involving this table, written namespace.table. "
+                    "Omit for every relationship the catalog knows.")
+    days: int = Field(
+        default=30,
+        description="Relationships are inferred from column naming, not query history — "
+                    "this value does not currently affect the result.")
 
 
 async def describe_table(params: dict, user: dict) -> dict:
@@ -98,7 +110,7 @@ ACTIONS = (
            ("*",), "catalog:read", ActionKind.READ, TableSearch,
            capability="catalog"),
     Action("catalog.explain_relationships", "Explain relationships",
-           "How tables are joined, from observed query history and column naming.",
+           "How tables are joined, inferred from column naming — not from query history.",
            ("/catalog",), "catalog:read", ActionKind.READ, RelationshipQuery,
            capability="catalog"),
 )

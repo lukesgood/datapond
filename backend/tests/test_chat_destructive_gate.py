@@ -9,7 +9,7 @@ import asyncio
 
 import pytest
 
-from app.chat import gate
+from app.chat import authz, gate
 from app.chat import actions as chat_actions
 from app.chat.actions import Action, ActionKind, _Strict
 from app.chat.gate import ActionRefused
@@ -55,7 +55,7 @@ def _registry(monkeypatch):
     # gate.py does not import REGISTRY itself — resolve() reads it from the actions
     # module's own namespace, so that is the correct patch target.
     monkeypatch.setitem(chat_actions.REGISTRY, DROP.id, DROP)
-    monkeypatch.setattr(gate, "capability_on", lambda key: True)
+    monkeypatch.setattr(authz, "capability_on", lambda key: True)
 
 
 def test_a_target_the_user_named_reaches_the_card():

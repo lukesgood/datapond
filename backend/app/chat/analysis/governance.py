@@ -7,13 +7,17 @@ declare.
 import inspect
 from typing import Any, Callable, Dict, List, Literal, Optional
 
+from pydantic import Field
+
 from app.chat.actions import Action, ActionKind, _Strict
 from app.chat.analysis._resolve import _r
 from app.chat.dependents import Dependents
 
 
 class PolicyQuery(_Strict):
-    table: Optional[str] = None
+    table: Optional[str] = Field(
+        default=None,
+        description="Limit to policies on this table, written namespace.table. Omit for every policy.")
 
 
 async def explain_policy(params: dict, user: dict) -> dict:
