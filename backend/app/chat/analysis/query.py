@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class SqlText(_Strict):
-    sql: str = Field(description="The SQL statement to explain. It is analysed, not executed.")
+    sql: str = Field(description="The SQL statement, as valid SQL for this catalog.")
 
 
 class NaturalQuestion(_Strict):

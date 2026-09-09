@@ -26,7 +26,8 @@ class TableRef(_Strict):
 
 class TableSearch(_Strict):
     query: str = Field(
-        description="Words to match against table and column names, for example 'orders customer'.")
+        description="Words to match against table and namespace names, for example "
+                    "'orders customer'. Column names are not searched.")
 
 
 class RelationshipQuery(_Strict):
@@ -36,7 +37,8 @@ class RelationshipQuery(_Strict):
                     "Omit for every relationship the catalog knows.")
     days: int = Field(
         default=30,
-        description="How many days of query history to infer relationships from. Defaults to 30.")
+        description="Relationships are inferred from column naming, not query history — "
+                    "this value does not currently affect the result.")
 
 
 async def describe_table(params: dict, user: dict) -> dict:

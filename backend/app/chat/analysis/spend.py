@@ -15,7 +15,9 @@ from app.chat.analysis._resolve import _r
 
 class SpendQuery(_Strict):
     days: int = Field(
-        default=30, description="How many days of spend to summarise. Defaults to 30.")
+        default=30,
+        description="Not currently applied — the summary always aggregates all-time "
+                    "spend across every virtual key, regardless of this value.")
 
 
 class SpendWindow(_Strict):
