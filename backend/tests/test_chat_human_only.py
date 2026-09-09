@@ -19,7 +19,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.auth import require_human
-from app.chat import gate
+from app.chat import authz, gate
 
 SERVICE = {"id": "svc-1", "username": "svc-bot", "role": "ai_engineer",
            "auth_method": "service", "api_key_id": "k1",
@@ -36,7 +36,7 @@ def _capabilities_on(monkeypatch):
     """This file is about the human-only approval guarantee, not capability gating —
     which has its own tests. query.run carries a capability now; hold it open so this
     environment's actual FEATURE_* flags can't fail a test about something else."""
-    monkeypatch.setattr(gate, "capability_on", lambda key: True)
+    monkeypatch.setattr(authz, "capability_on", lambda key: True)
 
 
 # ── the route gate ────────────────────────────────────────────────────────────

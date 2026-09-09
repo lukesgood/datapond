@@ -7,7 +7,7 @@ import asyncio
 
 import pytest
 
-from app.chat import actions, gate
+from app.chat import actions, authz, gate
 from app.chat.actions import Action, ActionKind, _Strict
 from app.chat.gate import ActionRefused
 
@@ -63,7 +63,7 @@ USER = {"id": "u1", "permissions": ["governance:write"]}
 @pytest.fixture(autouse=True)
 def _registry(monkeypatch):
     monkeypatch.setitem(actions.REGISTRY, DROP.id, DROP)
-    monkeypatch.setattr(gate, "capability_on", lambda key: True)
+    monkeypatch.setattr(authz, "capability_on", lambda key: True)
 
 
 def test_the_exact_name_executes():
