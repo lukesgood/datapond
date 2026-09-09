@@ -82,7 +82,7 @@ POST /api/mcp   Authorization: Bearer dp_sk_…   Content-Type: application/json
      {"name":"knowledge_search","description":"…","inputSchema":{…}}, …]}}
 
 → {"jsonrpc":"2.0","id":3,"method":"tools/call",
-   "params":{"name":"knowledge_search","arguments":{"collection":"faq","query":"…","k":5}}}
+   "params":{"name":"knowledge_search","arguments":{"collection":"faq","query":"…"}}}
 ← {"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"{…}"}],"isError":false}}
 ```
 
@@ -291,9 +291,10 @@ in the next turn. For MCP it is not: the client's model sees the JSON Schema and
 field it has to guess at is a field it fills in wrong.
 
 So every parameter of every exposed action gets a `description`, and
-`tests/test_mcp_tools.py::test_every_exposed_field_is_described` fails on an empty one. This is the
-largest single piece of work in the plan and it is not optional; a tool a model cannot call correctly
-is not a shipped tool.
+`tests/test_mcp_tools.py::test_every_exposed_field_is_described` fails on an empty one. Measured on
+2026-09-09: 31 fields across 18 parameter models, none of them described today; five of the 26 actions
+take no parameters at all. It is not optional — a tool a model cannot call correctly is not a shipped
+tool — and it is the one task whose cost is proportional to the tool count rather than to the protocol.
 
 Descriptions state what the value is and where it comes from ("the collection's name, as listed by
 `knowledge_list_collections`"), not what the field is called.
