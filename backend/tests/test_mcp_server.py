@@ -12,7 +12,8 @@ from fastapi.testclient import TestClient
 
 from app import tool_call_log
 from app.api import auth
-from app.mcp import protocol, server
+from app.chat.actions import REGISTRY, ActionKind
+from app.mcp import protocol, server, tools
 from tests.conftest import _Conn, _Pool, _patch_pool
 
 _REAL_REQUIRE_USER = auth.require_user
@@ -20,6 +21,17 @@ _REAL_REQUIRE_USER = auth.require_user
 SERVICE = {"id": "22222222-2222-2222-2222-222222222222", "username": "svc-bot",
            "role": "ai_engineer", "auth_method": "service",
            "permissions": ["knowledge:read", "ai:generate"]}
+
+# Holds every permission any action in the registry needs — including every write's.
+# Used to prove the kind guard (read_action_id_for) refuses a write on its own, not
+# merely because this caller happens to lack the permission — see
+# test_a_write_is_refused_even_to_a_caller_who_holds_its_permission below.
+WRITER = {**SERVICE, "permissions": sorted({a.permission for a in REGISTRY.values()})}
+
+# Holds catalog:read only, so tools/list's permission filter admits catalog's three
+# actions on its own — isolating capability as the only thing left to spoof. See
+# test_tools_list_ignores_client_supplied_capabilities below.
+CATALOG_READER = {**SERVICE, "permissions": ["catalog:read"]}
 
 
 def _app(user=SERVICE):
@@ -120,6 +132,45 @@ def test_unknown_unauthorised_and_write_names_are_indistinguishable(name):
     assert result["content"][0]["text"] == f"No such tool: {name}."
 
 
+@pytest.mark.parametrize("name", [tools.mcp_name(a.id) for a in REGISTRY.values()
+                                  if a.kind is not ActionKind.READ])
+def test_a_write_is_refused_even_to_a_caller_who_holds_its_permission(name):
+    """The write case in test_unknown_unauthorised_and_write_names_are_indistinguishable
+    is parametrized on knowledge_create_collection, whose permission (knowledge:write)
+    SERVICE does not hold — so that test only ever proves `authorize` refuses it, never
+    that the kind guard (read_action_id_for, not action_id_for) is what stands between
+    tools/call and dispatching a write. WRITER holds every permission in the registry,
+    including this one's, so authorize alone would let it through; only the kind guard
+    stops it here.
+    """
+    r = _rpc(TestClient(_app(WRITER)), "tools/call", {"name": name, "arguments": {}})
+    assert r.json()["result"]["content"][0]["text"] == f"No such tool: {name}."
+
+
+def test_tools_list_ignores_client_supplied_capabilities(monkeypatch):
+    """tools/list must source capabilities from this server's own environment
+    (compute_capabilities(os.environ)) and never from the request — a client-supplied
+    map spoofing every gated capability on must not grow the list. `authorize` would
+    still refuse a spoofed tool at call time (it recomputes capability_on itself), but
+    tools/list itself would already have told an external agent which components this
+    deployment does not run, which is what this guards against.
+    """
+    for flag in ("FEATURE_TRINO", "FEATURE_POLARIS", "FEATURE_GLUE"):
+        monkeypatch.delenv(flag, raising=False)
+    client = TestClient(_app(CATALOG_READER))
+
+    baseline = _rpc(client, "tools/list").json()["result"]["tools"]
+    assert not any(t["name"].startswith("catalog_") for t in baseline)
+
+    spoofed = _rpc(client, "tools/list", {
+        "capabilities": {"catalog": True, "connectors": True, "query": True,
+                          "dashboards": True, "pipelines": True, "streaming": True,
+                          "experiments": True, "notebooks": True},
+    }).json()["result"]["tools"]
+    assert len(spoofed) == len(baseline)
+    assert not any(t["name"].startswith("catalog_") for t in spoofed)
+
+
 def test_an_executor_that_raises_becomes_a_tool_error(monkeypatch):
     async def _boom(params, user):
         raise RuntimeError("upstream is down")
@@ -135,13 +186,20 @@ def test_a_call_that_logged_nothing_gets_a_fallback_row(logged, monkeypatch):
     async def _exec(params, user):
         return {"collections": []}
     monkeypatch.setitem(server.EXECUTORS, "knowledge.list_collections", _exec)
+    # A phone number and an email in the arguments the fallback logs — tool_call_log
+    # is append-only (a trigger rejects UPDATE and DELETE), so a raw PII value that
+    # lands here can never be scrubbed. masked_for_log must run before the INSERT.
     _rpc(TestClient(_app()), "tools/call",
-         {"name": "knowledge_list_collections", "arguments": {}})
+         {"name": "knowledge_list_collections",
+          "arguments": {"q": "010-1234-5678 me@example.com"}})
     assert len(logged) == 1
     row = logged[0]
     assert row["tool"] == "knowledge.list_collections"
     assert row["outcome"] == "ok" and row["resource_kind"] == "none"
     assert row["via"] == "mcp"
+    assert "[휴대전화]" in row["request_masked"] and "[이메일]" in row["request_masked"]
+    assert "010-1234-5678" not in row["request_masked"]
+    assert "me@example.com" not in row["request_masked"]
 
 
 def test_a_call_whose_route_logged_does_not_get_a_second_row(logged, monkeypatch):
