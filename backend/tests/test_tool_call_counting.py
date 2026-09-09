@@ -9,6 +9,7 @@ does not.
 import asyncio
 
 from app import tool_call_log
+from tests.conftest import _Conn, _Pool, _patch_pool
 
 
 def _run(coro):
@@ -17,28 +18,6 @@ def _run(coro):
 
 ACTOR = {"id": "11111111-1111-1111-1111-111111111111", "username": "svc-bot",
          "auth_method": "service"}
-
-
-class _Conn:
-    def __init__(self):
-        self.rows = 0
-
-    async def execute(self, sql, *args):
-        self.rows += 1
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-
-class _Pool:
-    def __init__(self, conn):
-        self._conn = conn
-
-    def acquire(self, timeout=None):
-        return self._conn
 
 
 class _BrokenPool:
@@ -59,13 +38,6 @@ class _RejectingConn:
 
     async def __aexit__(self, *exc):
         return False
-
-
-def _patch_pool(monkeypatch, pool):
-    async def _get_db_pool():
-        return pool
-    import app.api.connectors as connectors
-    monkeypatch.setattr(connectors, "get_db_pool", _get_db_pool)
 
 
 def _record(**over):

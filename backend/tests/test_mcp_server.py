@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from app import tool_call_log
 from app.api import auth
 from app.mcp import protocol, server
+from tests.conftest import _Conn, _Pool, _patch_pool
 
 _REAL_REQUIRE_USER = auth.require_user
 
@@ -40,12 +41,12 @@ def _rpc(client, method, params=None, request_id=1):
 
 @pytest.fixture(autouse=True)
 def _no_log_writes(monkeypatch):
-    calls = []
-
-    async def _record(**kw):
-        calls.append(kw)
-    monkeypatch.setattr(tool_call_log, "record", _record)
-    return calls
+    """A fake connection pool, not a stand-in for record() itself — so the real
+    record() runs end to end (build_row, the INSERT, the success-only counting()
+    accounting) exactly as it does in production. See tests/conftest.py."""
+    conn = _Conn()
+    _patch_pool(monkeypatch, _Pool(conn))
+    return conn.rows
 
 
 @pytest.fixture

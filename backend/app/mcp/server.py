@@ -9,8 +9,7 @@ import json
 import logging
 import os
 import time
-from contextlib import contextmanager
-from typing import Any, Awaitable, Iterator, Optional
+from typing import Any, Awaitable, Optional
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.responses import JSONResponse
@@ -31,10 +30,6 @@ router = APIRouter()
 
 SERVER_NAME = "datapond"
 _UNKNOWN_TOOL = "No such tool: {name}."
-
-# Captured at import time, before any test's monkeypatch fixture can have touched
-# tool_call_log.record — see _counting_calls below.
-_REAL_RECORD = tool_call_log.record
 
 
 async def resolve_principal(user: dict = Depends(require_user)) -> dict:
@@ -81,38 +76,6 @@ def _readable_action(name: str) -> Optional[Action]:
         return None
 
 
-@contextmanager
-def _counting_calls() -> Iterator[Any]:
-    """`tool_call_log.counting()`, widened to also see a `tool_call_log.record` that
-    something upstream has replaced outright.
-
-    `counting()`'s own count comes from a ContextVar that the real `record()` bumps
-    itself, only after a successful INSERT — exactly right for production, where
-    treating an attempt as a write would let a silently-failed insert (e.g. against
-    the CHECK constraint) suppress the MCP fallback and vanish the call from the log
-    entirely, which is the one thing `counting()` exists to prevent. A wholesale
-    stand-in for `record` — the shape every test in this module uses, since none
-    talks to a real database — never touches that ContextVar at all, having no DB
-    outcome to report. So for a stand-in specifically, and only for the duration of
-    this block, completing without raising counts as one logged row; a genuine
-    `record()` keeps its stricter, success-only accounting untouched.
-    """
-    with tool_call_log.counting() as count:
-        bound = tool_call_log.record
-        extra = [0]
-        if bound is not _REAL_RECORD:
-            async def _observed(**kwargs):
-                result = await bound(**kwargs)
-                extra[0] += 1
-                return result
-            tool_call_log.record = _observed
-        try:
-            yield lambda: count() + extra[0]
-        finally:
-            if bound is not _REAL_RECORD:
-                tool_call_log.record = bound
-
-
 async def _log_fallback(rows_written: int, action: Action, params: dict,
                         user: dict, outcome: str, started: float) -> None:
     """A row for a call the inner path did not log — the actions whose executors
@@ -151,7 +114,7 @@ async def _call_tool(params: dict, user: dict) -> dict:
             f"{action.label} is not available in this deployment.", is_error=True)
 
     started = time.perf_counter()
-    with tool_call_log.via("mcp"), _counting_calls() as count:
+    with tool_call_log.via("mcp"), tool_call_log.counting() as count:
         try:
             payload = await _maybe_await(executor(clean, user))
         except Exception as e:
