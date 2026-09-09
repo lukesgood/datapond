@@ -110,7 +110,7 @@ ACTIONS = (
            ("*",), "catalog:read", ActionKind.READ, TableSearch,
            capability="catalog"),
     Action("catalog.explain_relationships", "Explain relationships",
-           "How tables are joined, from observed query history and column naming.",
+           "How tables are joined, inferred from column naming — not from query history.",
            ("/catalog",), "catalog:read", ActionKind.READ, RelationshipQuery,
            capability="catalog"),
 )

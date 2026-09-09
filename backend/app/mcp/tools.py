@@ -41,9 +41,14 @@ _BY_MCP_NAME: Dict[str, str] = _build_name_map()
 
 def action_id_for(name: str) -> Optional[str]:
     """The id for a tool name, whatever the action's kind — including a write
-    action's, so a dispatcher can tell "no such tool" apart from "that tool is a
-    write action" when composing its refusal. `name` comes off the wire as JSON,
-    so a client may legally send a list or dict here; match resolve()'s guard."""
+    action's. This resolves every registered name because `read_action_id_for`
+    below is built on it (a READ id is still an id); the server does not use this
+    function to distinguish "no such tool" from "that tool is a write action" in
+    its own refusal — `server.py`'s `_unknown()` deliberately answers both, and an
+    unauthorized tool, identically, so a call cannot be used to enumerate a
+    deployment's components or a caller's own missing scopes. `name` comes off the
+    wire as JSON, so a client may legally send a list or dict here; match
+    resolve()'s guard."""
     if not isinstance(name, str):
         return None
     return _BY_MCP_NAME.get(name)

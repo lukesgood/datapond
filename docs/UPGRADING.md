@@ -8,8 +8,11 @@ in the commit history; this file exists for the things an operator has to act on
 `POST /api/mcp` speaks MCP 2026-07-28 and exposes the 26 read actions as tools,
 authenticated with a service-account key. Nothing that writes is reachable. Each call
 writes one `tool_call_log` row with `via='mcp'`; migration 0009 widens that table's
-`tool` constraint so a row can name the action it logged. No configuration is
-required and nothing changes for a deployment that does not use it.
+`tool` constraint so a row can name the action it logged. No configuration is required
+to turn this on — `main.py` mounts the route unconditionally, with no capability flag —
+so every existing service-account key gains this surface on upgrade, scoped to
+whatever permissions it already holds. There is no setting to decline it; the read
+actions and the permission gate are the only boundary.
 
 ## 2026-09 — Service-account keys carry scopes and an expiry
 

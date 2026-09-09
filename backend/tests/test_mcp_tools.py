@@ -52,10 +52,22 @@ def test_only_read_actions_are_exposed():
 
 
 def test_a_narrow_key_sees_a_short_list():
-    narrow = {a.id for a in tools.exposed_actions(["knowledge:read"], ALL_CAPS)}
+    """`knowledge.search` needs `ai:generate`, not `knowledge:read` — it embeds the
+    query (and reranks), the same spend gate REST's `/ai/search` enforces. A
+    `knowledge:read`-only key sees collection metadata, never search itself."""
+    narrow = {a.id for a in tools.exposed_actions(["ai:generate"], ALL_CAPS)}
     assert "knowledge.search" in narrow
     assert "spend.summarize" not in narrow
     assert narrow < {a.id for a in tools.exposed_actions(ALL_PERMS, ALL_CAPS)}
+
+
+def test_knowledge_read_alone_does_not_reach_search():
+    """The gap `knowledge.search`'s permission fix closed: a `knowledge:read`-only
+    key must not see (and, via server.py's authorize(), must not be able to call)
+    a tool that spends a model call."""
+    narrow = {a.id for a in tools.exposed_actions(["knowledge:read"], ALL_CAPS)}
+    assert "knowledge.search" not in narrow
+    assert "knowledge.list_collections" in narrow
 
 
 def test_a_capability_that_is_off_hides_its_tools_from_everyone():
@@ -98,8 +110,12 @@ def test_read_action_id_for_accepts_every_read_action():
 
 
 def test_action_id_for_still_resolves_a_write_action_name():
-    """Task 5 needs this to tell 'no such tool' apart from 'that tool is a write
-    action' when composing the refusal — action_id_for stays permissive."""
+    """action_id_for stays permissive — it resolves a write action's name too,
+    because read_action_id_for is built on it. The server does not use that to
+    distinguish its refusals: an unknown tool, an unauthorized tool, and a write
+    action all answer identically (server.py's `_unknown()`), deliberately, so a
+    call cannot be used to enumerate a deployment's components or a caller's own
+    missing scopes."""
     write_action = next(a for a in REGISTRY.values() if a.kind is not ActionKind.READ)
     assert tools.action_id_for(tools.mcp_name(write_action.id)) == write_action.id
 

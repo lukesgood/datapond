@@ -23,19 +23,24 @@ supported yet, so hosted clients that require it cannot connect; `resolve_princi
       -H "Content-Type: application/json" \
       -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 
-The list is the caller's own: a key holding only `knowledge:read` sees the knowledge
-tools and nothing else, and a tool whose component this deployment does not run is
-absent for everyone — capabilities come from the server's own environment, never from
-the request. A tool you may not use is indistinguishable from one that does not exist —
+The list is the caller's own: a key holding only `knowledge:read` sees collection
+metadata (list, composition, freshness diagnosis) but not `knowledge_search` or
+`knowledge_answer_with_citations` — both spend a model call, so both need
+`ai:generate` — and a tool whose component this deployment does not run is absent for
+everyone, since capabilities come from the server's own environment, never from the
+request. A tool you may not use is indistinguishable from one that does not exist —
 that is deliberate, so a call cannot be used to enumerate your scopes or this
 deployment's components.
 
 ## What it costs
 
-`knowledge_answer_with_citations` and `query_generate_sql` call a model, and that spend
-is attributed to the calling service account exactly as it is over REST — the MCP
+`knowledge_search`, `knowledge_answer_with_citations` and `query_generate_sql` call a
+model — `knowledge_search` embeds the query, plus a rerank call when `AI_RERANK_MODEL`
+is configured, and it is the highest-volume tool on this surface. That spend is
+attributed to the calling service account exactly as it is over REST — the MCP
 executors call the same underlying functions the REST routes do. The other tools read
-from PostgreSQL and the configured adapters.
+from PostgreSQL and the configured adapters. `knowledge_search` and
+`knowledge_answer_with_citations` both need `ai:generate`, not `knowledge:read` alone.
 
 A few advertised parameters do not shape their result yet, and their descriptions say
 so: `catalog.explain_relationships`'s `days` (relationships come from column naming, not

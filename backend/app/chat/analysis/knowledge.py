@@ -322,7 +322,7 @@ async def remove_member_action(params: dict, user: dict) -> dict:
 ACTIONS = (
     Action("knowledge.search", "Search knowledge",
            "Retrieve passages from a knowledge collection.",
-           ("/knowledge",), "knowledge:read", ActionKind.READ, KnowledgeQuery),
+           ("/knowledge",), "ai:generate", ActionKind.READ, KnowledgeQuery),
     Action("knowledge.answer_with_citations", "Answer with citations",
            "Answer a question from a collection, with sources.",
            ("/knowledge",), "ai:generate", ActionKind.READ, KnowledgeQuery),

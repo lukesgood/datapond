@@ -159,7 +159,7 @@ async def diagnose_change(params: dict, user: dict) -> dict:
 
 ACTIONS = (
     Action("spend.summarize", "Summarise spend",
-           "Model usage and cost over a period.",
+           "Model usage and cost, all-time across every virtual key.",
            ("/ai", "/settings"), "spend:read", ActionKind.READ, SpendQuery),
     Action("spend.diagnose_change", "Diagnose spend change",
            "Whether model spend changed against the previous period of the same "
