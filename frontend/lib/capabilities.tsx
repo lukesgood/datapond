@@ -1,6 +1,7 @@
 "use client"
 import { createContext, useContext, useEffect, useState } from "react"
 import Link from "next/link"
+import { getToken } from "@/lib/auth"
 import { getProductProfile } from "@/lib/product-profile"
 
 export type Capabilities = Record<string, boolean | string> & {
@@ -29,7 +30,13 @@ export function CapabilitiesProvider({ children }: { children: React.ReactNode }
   // gates wait for an explicit true. `_loaded` distinguishes fetching from absent.
   const [caps, setCaps] = useState<Capabilities>({})
   useEffect(() => {
-    fetch("/api/capabilities")
+    // Send the token: /api/capabilities answers an anonymous caller with only the
+    // two flags the login page needs, and the full map to someone signed in. Without
+    // this header every gated page would fail closed for a legitimate user. Same
+    // shape as lib/permissions.tsx, which asks the server rather than reading the
+    // browser's copy.
+    const token = getToken()
+    fetch("/api/capabilities", token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
       .then((r) => (r.ok ? r.json() : {}))
       .then((c) => setCaps({ ...(c || {}), _loaded: true }))
       .catch(() => setCaps({ _loaded: true }))  // loaded, everything default-off-gated pages closed

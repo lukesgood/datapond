@@ -29,7 +29,7 @@ const SaveDashboardModal = dynamic(() => import("@/components/query/save-dashboa
 const LogToMlflowModal = dynamic(() => import("@/components/query/log-to-mlflow-modal").then(m => ({ default: m.LogToMlflowModal })), { ssr: false })
 const OpenInNotebookModal = dynamic(() => import("@/components/query/open-in-notebook-modal").then(m => ({ default: m.OpenInNotebookModal })), { ssr: false })
 import { useToast } from "@/lib/toast"
-import { useCapability, CapabilityGate } from "@/lib/capabilities"
+import { useCapabilities, useCapability, CapabilityGate } from "@/lib/capabilities"
 import { AnalyticsTabs } from "@/components/query/analytics-tabs"
 import { DashboardsGallery } from "@/components/dashboards/dashboards-gallery"
 
@@ -88,7 +88,6 @@ function QueryPageInner() {
   const [schemaOpen, setSchemaOpen]         = useState(true)
   const [schemaWidth, setSchemaWidth]       = useState(224)
   const [editorHeight, setEditorHeight]     = useState(240)
-  const [engineName, setEngineName]         = useState("Trino")
   const [engineStatus, setEngineStatus]     = useState<"healthy" | "unhealthy" | "unknown" | "managed">("unknown")
 
   // AI Assistant
@@ -109,22 +108,27 @@ function QueryPageInner() {
   const { toast } = useToast()
   const notebooksEnabled = useCapability("notebooks")
   const experimentsEnabled = useCapability("experiments")
+  const caps = useCapabilities()
+  // Derived, not stored: the engine is a function of the capability map, and a
+  // second copy in state can only disagree with it. Read off the provider rather
+  // than fetching /api/capabilities again — that endpoint answers an anonymous
+  // caller with two login-page flags only, and the provider is the one place that
+  // asks it with the signed-in caller's token.
+  const engineName = caps.query_engine === "athena" ? "Athena" : "Trino"
 
-  // Fetch the active query engine + its status on mount
+  // Waits for `_loaded` so a still-empty map is not read as "not Athena", which
+  // would ask /api/services about the wrong engine and report it unknown.
   useEffect(() => {
-    fetch("/api/capabilities").then(r => r.ok ? r.json() : null).then(caps => {
-      const eng = caps?.query_engine === "athena" ? "Athena" : "Trino"
-      setEngineName(eng)
-      const svcName = eng === "Athena" ? "Amazon Athena" : "trino"
-      fetch("/api/services").then(r => r.json())
-        .then((services: { name: string; status: string }[]) => {
-          const svc = services.find(s => s.name === svcName)
-          const status = svc?.status
-          setEngineStatus(status === "healthy" || status === "unhealthy" || status === "managed" ? status : "unknown")
-        })
-        .catch(() => setEngineStatus("unknown"))
-    }).catch(() => {})
-  }, [])
+    if (!caps._loaded) return
+    const svcName = engineName === "Athena" ? "Amazon Athena" : "trino"
+    fetch("/api/services").then(r => r.json())
+      .then((services: { name: string; status: string }[]) => {
+        const svc = services.find(s => s.name === svcName)
+        const status = svc?.status
+        setEngineStatus(status === "healthy" || status === "unhealthy" || status === "managed" ? status : "unknown")
+      })
+      .catch(() => setEngineStatus("unknown"))
+  }, [caps._loaded, engineName])
 
   // ── Schema panel horizontal resize ──────────────────────────────────────────
   const startSchemaResize = (e: React.MouseEvent) => {

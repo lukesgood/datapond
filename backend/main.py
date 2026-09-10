@@ -501,17 +501,50 @@ async def api_readiness_check(response: Response):
     return payload
 
 
+# The flags the login page renders from, and the only reason this endpoint is in
+# AUTH_EXEMPT: whether to offer the SSO button and the passkey prompt to someone who
+# has no token yet. The rest of the map — adapter names, profile, namespace — says
+# how this deployment is assembled, which is a reconnaissance answer rather than a
+# login-page one, so it waits for a caller who has signed in.
+PUBLIC_CAPABILITIES = ("sso", "webauthn")
+
+
+async def _caller_is_signed_in(request: Request) -> bool:
+    """Whether this request carries a token the deployment accepts.
+
+    AuthMiddleware skipped this path, so the question is asked here instead, with
+    the same verifier. Anything unverifiable answers False: the endpoint's contract
+    is that it never fails, and a session that expired mid-visit must still be able
+    to render the login page it is about to be bounced to.
+    """
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer ") or not auth[7:].strip():
+        return False
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.api import auth as auth_module
+    try:
+        creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=auth[7:])
+        return bool(await auth_module.get_current_user(creds))
+    except Exception:
+        return False
+
+
 @app.get("/api/capabilities")
-async def get_capabilities():
+async def get_capabilities(request: Request):
     """Feature capability flags from FEATURE_* env (default enabled).
 
-    Pure endpoint that never fails — useful for UI feature gating.
+    A signed-in caller gets the whole map the UI gates on. Anyone else gets
+    PUBLIC_CAPABILITIES and nothing more. Pure endpoint that never fails — useful
+    for UI feature gating.
     """
     caps = compute_capabilities(os.environ)
     caps["sso"] = EE_SSO and str(os.environ.get("OIDC_ENABLED", "")).strip().lower() in ("1", "true", "yes", "on")
     from app.api.webauthn import webauthn_enabled
     caps["webauthn"] = webauthn_enabled()
-    return caps
+    if await _caller_is_signed_in(request):
+        return caps
+    return {key: caps[key] for key in PUBLIC_CAPABILITIES}
 
 
 # 대시보드가 자주 폴링하므로 짧은 TTL 캐시 + 스레드 오프로드로 견고화.
