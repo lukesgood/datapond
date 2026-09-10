@@ -132,8 +132,14 @@ variable "route53_zone_id" {
 }
 
 variable "instance_type" {
+  # 4 vCPU / 16 GB — headroom over the t3.xlarge that ran foundation. m6a rather
+  # than m6i: identical spec (x86_64, nitro), but m6i spot in this account's
+  # us-east-1b sits around $0.128/h against m6a's $0.075/h, and a spot price that
+  # far above its neighbours is a demand signal. Both score the same on spot
+  # placement, so this buys cost, not availability — if the morning start still
+  # takes half an hour on a schedule, the fix is on-demand, not another type.
   type    = string
-  default = "m6i.xlarge" # 4 vCPU / 16 GB — headroom over the t3.xlarge that ran foundation
+  default = "m6a.xlarge"
 }
 
 variable "subnet_id" {
