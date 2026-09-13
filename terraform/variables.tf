@@ -132,14 +132,23 @@ variable "route53_zone_id" {
 }
 
 variable "instance_type" {
-  # 4 vCPU / 16 GB — headroom over the t3.xlarge that ran foundation. m6a rather
-  # than m6i: identical spec (x86_64, nitro), but m6i spot in this account's
-  # us-east-1b sits around $0.128/h against m6a's $0.075/h, and a spot price that
-  # far above its neighbours is a demand signal. Both score the same on spot
-  # placement, so this buys cost, not availability — if the morning start still
-  # takes half an hour on a schedule, the fix is on-demand, not another type.
+  # 4 vCPU / 16 GB — headroom over the t3.xlarge that ran foundation.
+  #
+  # Changing this on a running deployment means replacing the node, not editing it:
+  # `ModifyInstanceAttribute` answers `Client.UnsupportedOperation — Modifying
+  # 'instanceType' is not supported for spot instances`, and a dry run does NOT
+  # catch it (the same call returns DryRunOperation "would have succeeded"). Since
+  # use_spot keeps K3s and the Helm release on the instance's EBS root, a type
+  # change costs a rebuild — weigh it against what it buys.
+  #
+  # m6a.xlarge is the same spec at roughly half the spot price in us-east-1b
+  # ($0.075/h against m6i's $0.128/h) and scores the same on spot placement, so it
+  # is worth taking at the next rebuild. It is not worth a rebuild on its own: the
+  # morning-start delay that prompted the idea (seven retries over 30 minutes,
+  # 2026-09-08/09) resolved itself by 2026-09-11 with the type unchanged, which
+  # says the pressure was transient rather than a property of the type.
   type    = string
-  default = "m6a.xlarge"
+  default = "m6i.xlarge"
 }
 
 variable "subnet_id" {
