@@ -155,8 +155,16 @@ variable "root_volume_encrypted" {
   # True for every new install — see the comment on root_block_device in ec2.tf for why.
   # A deployment whose node predates that change keeps an unencrypted root volume, and
   # flipping this on it REPLACES the node. Set it false there until the volume has been
-  # encrypted in place (replace-root-volume from a snapshot of the current root, with
-  # EBS encryption by default enabled), then set it back.
+  # encrypted, then set it back. What worked on the reference node (2026-09-14), inside
+  # the scheduled off-hours stop so nothing had to go down:
+  #   1. with the node stopped, snapshot the root (consistent — K3s is shut down);
+  #   2. create-volume --encrypted from that snapshot, same AZ, type, IOPS, throughput;
+  #   3. detach the old root, attach the new one as the root device, set
+  #      DeleteOnTermination=true; keep the old volume until the node has run a while;
+  #   4. start once to prove K3s and the release come back, then stop again.
+  # create-replace-root-volume-task cannot do this from an encrypted snapshot copy
+  # (copies are outside the root volume's lineage), and the swap above does not need
+  # account-wide EBS encryption by default.
   type    = bool
   default = true
 }
