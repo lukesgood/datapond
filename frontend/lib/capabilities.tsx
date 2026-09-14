@@ -30,11 +30,11 @@ export function CapabilitiesProvider({ children }: { children: React.ReactNode }
   // gates wait for an explicit true. `_loaded` distinguishes fetching from absent.
   const [caps, setCaps] = useState<Capabilities>({})
   useEffect(() => {
-    // Send the token: /api/capabilities answers an anonymous caller with only the
-    // two flags the login page needs, and the full map to someone signed in. Without
-    // this header every gated page would fail closed for a legitimate user. Same
-    // shape as lib/permissions.tsx, which asks the server rather than reading the
-    // browser's copy.
+    // /api/capabilities answers an anonymous caller with only the two flags the login
+    // page needs, and the full map to someone signed in. The auth interceptor
+    // (lib/auth.ts installAuthInterceptor) already attaches the token to /api/ calls,
+    // and AuthInterceptor mounts ahead of this provider in the root layout, so this
+    // header is belt-and-braces: it keeps the full map from depending on mount order.
     const token = getToken()
     fetch("/api/capabilities", token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
       .then((r) => (r.ok ? r.json() : {}))
