@@ -139,7 +139,7 @@ export default function KnowledgePage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-5">
         {/* Collections list. Bounded and filterable: it used to render every
             collection into an unbounded column, so a deployment with a few hundred
             stretched the page far below the workspace it sits beside, with no way to
@@ -346,7 +346,12 @@ function Workspace({ name, onChange, empty, ownerId }: { name: string; onChange:
       <CardContent>
         {/* An empty collection has nothing to search — open on Ingest so the first step is obvious. */}
         <Tabs defaultValue={empty ? "ingest" : "search"}>
-          <TabsList><TabsTrigger value="search"><Search className="h-3.5 w-3.5 mr-1" />Search / RAG</TabsTrigger>
+          {/* More tabs than a narrow workspace fits (the assistant panel alone takes 360px):
+              wrap to a second row rather than push the card past the page edge — the grid
+              column above is minmax(0,1fr) for the same reason. A scrolling row showed
+              scrollbars and hid the last tab. */}
+          <TabsList className="max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto [&>[data-slot=tabs-trigger]]:h-7 [&>[data-slot=tabs-trigger]]:flex-none">
+            <TabsTrigger value="search"><Search className="h-3.5 w-3.5 mr-1" />Search / RAG</TabsTrigger>
             <TabsTrigger value="composition"><Layers className="h-3.5 w-3.5 mr-1" />Composition</TabsTrigger>
             <TabsTrigger value="ingest"><Upload className="h-3.5 w-3.5 mr-1" />Ingest</TabsTrigger>
             <TabsTrigger value="schedule"><Clock className="h-3.5 w-3.5 mr-1" />Schedule</TabsTrigger>
