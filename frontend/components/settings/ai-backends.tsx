@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import type { ChangeEventHandler } from "react"
 import { useToast } from "@/lib/toast"
+import { totalSpendLabel } from "@/lib/spend-summary"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -926,7 +927,9 @@ interface VKey {
 
 function VirtualKeys({ backends }: { backends: Backend[] }) {
   const [keys, setKeys]       = useState<VKey[]>([])
-  const [spend, setSpend]     = useState<{ total_spend: number; keys_with_spend: number } | null>(null)
+  // Whatever /api/settings/ai/spend sent: a total, or `{unavailable}` when the gateway
+  // could not be read. totalSpendLabel decides which, so the render never assumes.
+  const [spend, setSpend]     = useState<unknown>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy]       = useState<string | null>(null)
 
@@ -1022,7 +1025,15 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-lg border p-3">
             <span className="text-xs text-muted-foreground flex items-center gap-1"><DollarSign className="h-3 w-3" />Total spend</span>
-            <div className="text-lg font-bold mt-1">${spend ? spend.total_spend.toFixed(4) : "0.0000"}</div>
+            {(() => {
+              const label = totalSpendLabel(spend)
+              return (
+                <div className={`text-lg font-bold mt-1 ${label.measured ? "" : "text-muted-foreground"}`}
+                     title={label.measured ? undefined : label.title}>
+                  {label.text}
+                </div>
+              )
+            })()}
           </div>
           <div className="rounded-lg border p-3">
             <span className="text-xs text-muted-foreground">Active keys</span>

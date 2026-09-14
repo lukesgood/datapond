@@ -448,6 +448,12 @@ async def delete_key(token: str):
     return {"success": True}
 
 
+# /key/list refuses a page larger than 100. The limit turns "too many keys to add up" into
+# `unavailable` rather than a total that silently stopped counting.
+_KEY_PAGE_SIZE = 100
+_KEY_PAGE_LIMIT = 50
+
+
 @router.get("/settings/ai/spend", dependencies=[Depends(require_permission("spend:read"))])
 async def spend_summary():
     """Aggregate spend across all virtual keys (USD).
@@ -464,18 +470,34 @@ async def spend_summary():
     unavailable = None
     try:
         async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.get(f"{url}/key/list", headers=_headers(key),
-                            params={"return_full_object": "true", "size": "500"})
-            if r.status_code < 400:
+            # LiteLLM caps `size` at 100 and answers anything larger with 422 — this asked
+            # for 500, so every call came back unavailable. Walk the pages instead:
+            # stopping after the first would be a total, and a wrong one.
+            page = 1
+            while True:
+                r = await c.get(f"{url}/key/list", headers=_headers(key),
+                                params={"return_full_object": "true",
+                                        "size": str(_KEY_PAGE_SIZE), "page": str(page)})
+                if r.status_code >= 400:
+                    # The status, not the body: a 401 body from the gateway echoes part of
+                    # the key it rejected. A refusal on a later page discards the pages
+                    # already summed: a partial total is a wrong number, not a smaller one.
+                    unavailable = f"gateway returned HTTP {r.status_code}"
+                    break
                 data = r.json()
                 raw = data.get("keys", []) if isinstance(data, dict) else (data or [])
                 for k in raw:
                     if isinstance(k, dict) and k.get("spend"):
                         total += float(k["spend"]); n += 1
-            else:
-                # The status, not the body: a 401 body from the gateway echoes part of
-                # the key it rejected.
-                unavailable = f"gateway returned HTTP {r.status_code}"
+                # No page count (a bare list, or an older gateway) means one page. LiteLLM
+                # reports total_pages 0 when there are no keys.
+                pages = data.get("total_pages") if isinstance(data, dict) else None
+                if not isinstance(pages, int) or page >= pages:
+                    break
+                if pages > _KEY_PAGE_LIMIT:
+                    unavailable = f"more than {_KEY_PAGE_LIMIT * _KEY_PAGE_SIZE} virtual keys"
+                    break
+                page += 1
     except Exception as e:
         logger.warning(f"[ai_backends] spend summary failed: {e}")
         unavailable = "gateway could not be reached"
