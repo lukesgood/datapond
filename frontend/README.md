@@ -1,6 +1,6 @@
 # DataPond Frontend
 
-Next.js operator UI for the **Portable AI Data Foundation**.
+Next.js operator UI for the **governed data tool server**.
 
 ## Product information architecture
 

@@ -52,7 +52,7 @@ export default function ForgotPasswordPage() {
               </div>
               <span className="text-2xl font-bold tracking-tight text-white">DataPond</span>
             </div>
-            <p className="text-sm ml-12" style={{ color: "#7c93a3" }}>Portable AI Data Foundation</p>
+            <p className="text-sm ml-12" style={{ color: "#7c93a3" }}>Governed data tools for AI agents</p>
           </div>
           <div className="space-y-3">
             <h2 className="text-4xl font-bold text-white leading-tight">
@@ -63,7 +63,7 @@ export default function ForgotPasswordPage() {
             </p>
           </div>
           <p className="text-xs" style={{ color: "#3f5561" }}>
-            © 2026 DataPond · Portable AI Data Foundation
+            © 2026 DataPond · Governed data tool server
           </p>
         </div>
       </div>
@@ -77,7 +77,7 @@ export default function ForgotPasswordPage() {
               <Layers className="h-6 w-6 text-white" />
             </div>
             <h1 className="text-2xl font-bold">DataPond</h1>
-            <p className="text-sm text-muted-foreground">Portable AI Data Foundation</p>
+            <p className="text-sm text-muted-foreground">Governed data tools for AI agents</p>
           </div>
 
           {sent ? (

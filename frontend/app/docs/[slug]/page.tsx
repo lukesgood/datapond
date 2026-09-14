@@ -23,7 +23,7 @@ const ARTICLES: Record<string, Doc> = {
   overview: {
     title: "Platform Overview",
     status: "Shipped",
-    summary: "DataPond is a Portable AI Data Foundation for governed RAG and agent applications. The application core stays stable while storage, vector, model, catalog, and query providers are selected by deployment profile.",
+    summary: "DataPond is a governed data tool server for AI agents and applications: cited RAG and governed SQL as tools, with collection and row access, PII masking, retrieval-level audit, and per-caller spend controlled at the data layer. Storage, vector, model, catalog, and query providers are chosen by deployment profile, so the core is not tied to one cloud.",
     points: [
       "Shipped core: collections, ingestion, chunk replacement, embeddings, pgvector retrieval, optional reranking, cited RAG answers, PII controls, access controls, and spend attribution.",
       "Portable contracts: S3 API, PostgreSQL + pgvector, LiteLLM/OpenAI-compatible model access, REST APIs, OIDC, Helm, and Kubernetes.",
