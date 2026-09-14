@@ -109,9 +109,11 @@ resource "aws_cloudwatch_dashboard" "datapond" {
 
 # Cost guardrail: alarm when a day's Athena scan crosses the threshold.
 resource "aws_cloudwatch_metric_alarm" "athena_daily_scan" {
-  count               = var.athena_daily_scan_alarm_tb > 0 ? 1 : 0
-  alarm_name          = "${var.name_prefix}-athena-daily-scan"
-  alarm_description   = "Athena BytesScanned over 1 day exceeded ${var.athena_daily_scan_alarm_tb} TB (~$${var.athena_daily_scan_alarm_tb * 5}). Investigate for a runaway/unpartitioned scan."
+  count      = var.athena_daily_scan_alarm_tb > 0 ? 1 : 0
+  alarm_name = "${var.name_prefix}-athena-daily-scan"
+  # format(), not "~$${...}": in HCL "$${" is the escape for a literal "${", so the old
+  # string rendered the expression text where the dollar figure belonged.
+  alarm_description   = format("Athena BytesScanned over 1 day exceeded %s TB (~$%s). Investigate a runaway/unpartitioned scan.", var.athena_daily_scan_alarm_tb, var.athena_daily_scan_alarm_tb * 5)
   namespace           = local.cw_ns
   metric_name         = "BytesScanned"
   dimensions          = { Engine = "Athena" }

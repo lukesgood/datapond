@@ -14,6 +14,18 @@ variable "github_oidc_enabled" {
   default = false # master switch for the ECR-push OIDC role below
 }
 
+variable "github_ecr_push_enabled" {
+  type = bool
+  # The ecr_push role serves ecr-push.yml, which only builds images. deploy-aws.yml builds,
+  # pushes and deploys with the cd role below, so enabling OIDC for deploys should not also
+  # hand out an unused push credential. Turn this on only if ecr-push.yml is used.
+  default = false
+}
+
+locals {
+  ecr_push_enabled = var.github_oidc_enabled && var.github_ecr_push_enabled
+}
+
 variable "github_oidc_create_provider" {
   type = bool
   # true ⇒ create the aws_iam_openid_connect_provider for token.actions.githubusercontent.com.
@@ -56,7 +68,7 @@ locals {
 }
 
 data "aws_iam_policy_document" "ecr_push_assume" {
-  count = var.github_oidc_enabled ? 1 : 0
+  count = local.ecr_push_enabled ? 1 : 0
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]
     principals {
@@ -77,13 +89,13 @@ data "aws_iam_policy_document" "ecr_push_assume" {
 }
 
 resource "aws_iam_role" "ecr_push" {
-  count              = var.github_oidc_enabled ? 1 : 0
+  count              = local.ecr_push_enabled ? 1 : 0
   name               = "${var.name_prefix}-ecr-push"
   assume_role_policy = data.aws_iam_policy_document.ecr_push_assume[0].json
 }
 
 data "aws_iam_policy_document" "ecr_push" {
-  count = var.github_oidc_enabled ? 1 : 0
+  count = local.ecr_push_enabled ? 1 : 0
   statement {
     sid       = "EcrAuth"
     actions   = ["ecr:GetAuthorizationToken"]
@@ -106,14 +118,14 @@ data "aws_iam_policy_document" "ecr_push" {
 }
 
 resource "aws_iam_role_policy" "ecr_push" {
-  count  = var.github_oidc_enabled ? 1 : 0
+  count  = local.ecr_push_enabled ? 1 : 0
   name   = "${var.name_prefix}-ecr-push-policy"
   role   = aws_iam_role.ecr_push[0].id
   policy = data.aws_iam_policy_document.ecr_push[0].json
 }
 
 output "ecr_push_role_arn" {
-  value = var.github_oidc_enabled ? aws_iam_role.ecr_push[0].arn : ""
+  value = local.ecr_push_enabled ? aws_iam_role.ecr_push[0].arn : ""
 }
 
 # ── CD role for .github/workflows/deploy-aws.yml ──────────────────────────────────────

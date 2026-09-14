@@ -151,6 +151,16 @@ variable "instance_type" {
   default = "m6i.xlarge"
 }
 
+variable "root_volume_encrypted" {
+  # True for every new install — see the comment on root_block_device in ec2.tf for why.
+  # A deployment whose node predates that change keeps an unencrypted root volume, and
+  # flipping this on it REPLACES the node. Set it false there until the volume has been
+  # encrypted in place (replace-root-volume from a snapshot of the current root, with
+  # EBS encryption by default enabled), then set it back.
+  type    = bool
+  default = true
+}
+
 variable "subnet_id" {
   type    = string
   default = "" # Public subnet for the node. Default "" ⇒ first default-VPC subnet (data lookup).

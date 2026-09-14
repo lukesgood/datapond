@@ -83,6 +83,28 @@ terraform apply <the-same-vars>
 
 Review the plan before applying. This creates billable resources and modifies networking, IAM, DNS, storage, and databases.
 
+### Planning against an existing deployment
+
+A deployment that is already running has inputs that differ from the defaults, and a
+plan without them proposes to undo that deployment: replace the node, delete the
+Route53 record, drop the alarm's notification topic, destroy the GitHub OIDC role.
+Keep those inputs in a gitignored `live.tfvars` (see `live.tfvars` rules in
+`.gitignore`) and store a copy next to the state, so the next operator plans against
+the same inputs:
+
+```bash
+aws s3 cp live.tfvars "s3://$STATE_BUCKET/datapond/live.tfvars" --sse AES256   # after editing
+aws s3 cp "s3://$STATE_BUCKET/datapond/live.tfvars" live.tfvars                # before planning
+terraform plan -var-file=live.tfvars
+```
+
+It holds no secret. `db_master_password` stays out of it: pass it through
+`TF_VAR_db_master_password` and do not keep a saved plan file, which embeds it.
+
+An unexplained change in that plan is drift. Settle it in code or in `live.tfvars`
+before any apply, rather than applying a plan with changes nobody can account for.
+
+
 ## Bedrock prerequisite
 
 Terraform grants IAM permission but cannot grant account/region model access. Enable the configured Titan, Claude, and optional rerank models in Bedrock before acceptance testing. See [AWS_BEDROCK_SETUP.md](../docs/AWS_BEDROCK_SETUP.md).

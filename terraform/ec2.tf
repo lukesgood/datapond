@@ -67,7 +67,7 @@ resource "aws_instance" "node" {
     # procedure B re-seeds datapond-secrets from the vault, which is what makes the
     # rebuilt node able to decrypt what is already in Aurora. Everything else in this
     # file applies in place.
-    encrypted  = true
+    encrypted  = var.root_volume_encrypted
     kms_key_id = var.db_kms_key_id # null ⇒ the account's default EBS key
   }
 
@@ -114,7 +114,10 @@ resource "aws_instance" "node" {
   # had touched. A fresh install still gets the current image; replacing an existing
   # node becomes a deliberate act (`terraform apply -replace=aws_instance.node`).
   lifecycle {
-    ignore_changes = [ami]
+    # user_data runs only on first boot, and changing it on a live instance makes AWS stop
+    # and start the node to no effect. A bootstrap change reaches a node when one is
+    # created — the same deliberate act as an AMI change.
+    ignore_changes = [ami, user_data]
   }
 
   user_data = templatefile("${path.module}/templates/user-data.sh.tftpl", {

@@ -63,3 +63,7 @@ crash.log
 
 # subagent-driven-development scratch (ledgers, briefs, review packages)
 .superpowers/
+# Per-environment terraform values (domain, zone id, feature flags). Not secrets, but
+# account-specific; the live copy is kept beside the state in S3 (terraform/README.md).
+terraform/*.tfvars
+!terraform/*.tfvars.example
