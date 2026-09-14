@@ -552,7 +552,11 @@ export function UsagePanel() {
     // Budget alerts are best-effort — a failure here must never blank the usage panel.
     fetch("/api/settings/ai/budget-alerts")
       .then(r => (r.ok ? r.json() : null)).then(setBa).catch(() => setBa(null))
-    fetch("/api/settings/ai/usage").then(r => r.json()).then(setU).catch(() => {}).finally(() => setLoading(false))
+    // Same guard as the line above. Without it a 401 body ({"detail": "Not authenticated"})
+    // became `u`, passed the `if (!u)` check below, and crashed rendering on
+    // fmt$(u.total_spend) before the session-expired overlay could show.
+    fetch("/api/settings/ai/usage")
+      .then(r => (r.ok ? r.json() : null)).then(setU).catch(() => {}).finally(() => setLoading(false))
   }, [])
   useEffect(() => {
     const timer = setTimeout(() => { void load() }, 0)
