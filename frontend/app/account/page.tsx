@@ -1,20 +1,20 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import { User, KeyRound, Loader2 } from "lucide-react"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { PasskeyManager } from "@/components/passkey-manager"
-import { getUser } from "@/lib/auth"
+import { readUser, serverUser, subscribeToUser } from "@/lib/auth"
 import { useToast } from "@/lib/toast"
 import { useCapabilityStrict } from "@/lib/capabilities"
 
 // Per-user account settings — a user's OWN sign-in credentials (password + passkeys),
 // separate from the admin/platform Settings page. Available to every logged-in user.
 export default function AccountPage() {
-  const [user] = useState(() => getUser())
+  const user = useSyncExternalStore(subscribeToUser, readUser, serverUser)
   const webauthnEnabled = useCapabilityStrict("webauthn")
   const { toast } = useToast()
   const [pw, setPw] = useState("")

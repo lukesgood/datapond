@@ -8,8 +8,8 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
-import { getUser, logout, type AuthUser } from "@/lib/auth"
+import { useEffect, useSyncExternalStore } from "react"
+import { logout, readUser, serverUser, subscribeToUser } from "@/lib/auth"
 import { supportBadge, supportTier } from "@/lib/capability-support"
 import { useCapabilities } from "@/lib/capabilities"
 import { usePermissions } from "@/lib/permissions"
@@ -120,7 +120,10 @@ const bottomItems = [
 export function AppSidebar() {
   const pathname  = usePathname()
   const router    = useRouter()
-  const [user] = useState<AuthUser | null>(() => getUser())
+  // Through useSyncExternalStore rather than a lazy useState: the server has no
+  // localStorage, so an initialiser rendered no user block there and the browser
+  // hydrated one in — React error #418 on every page this sidebar is on.
+  const user = useSyncExternalStore(subscribeToUser, readUser, serverUser)
   const { setOpenMobile } = useSidebar()
   const caps = useCapabilities()
   const { permissions, loaded: permsLoaded } = usePermissions()

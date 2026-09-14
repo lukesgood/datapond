@@ -43,17 +43,78 @@ export function getUser(): AuthUser | null {
   } catch { return null }
 }
 
+// ── The signed-in user, for components that render it ─────────────────────────
+//
+// getUser() is fine inside an event handler or an effect. It is not fine as a value a
+// component renders: the server has no localStorage, so `{user && …}` produces one HTML
+// on the server and another in the browser, which React reports as hydration error #418
+// on every page that component appears on. The sidebar did exactly that. A component
+// that renders the user reads it with
+//   useSyncExternalStore(subscribeToUser, readUser, serverUser)
+// — the same arrangement lib/assistant-panel-state.ts uses for the same reason.
+
+const userListeners = new Set<() => void>()
+
+/** Subscribe to changes. A `storage` event covers another tab signing in or out;
+ *  saveAuth() and clearAuth() notify this tab directly, because `storage` never fires in
+ *  the tab that made the change. Returns the unsubscribe, as useSyncExternalStore expects. */
+export function subscribeToUser(onChange: () => void) {
+  userListeners.add(onChange)
+  const hasWindow = typeof window !== "undefined"
+  if (hasWindow) window.addEventListener("storage", onChange)
+  return () => {
+    userListeners.delete(onChange)
+    if (hasWindow) window.removeEventListener("storage", onChange)
+  }
+}
+
+let cachedRaw: string | null | undefined
+let cachedUser: AuthUser | null = null
+
+/** The stored user, or null. Returns the same object for as long as the stored value is
+ *  unchanged: useSyncExternalStore compares snapshots by identity, and a fresh JSON.parse
+ *  on every call would read as a change on every render. */
+export function readUser(): AuthUser | null {
+  let raw: string | null
+  try {
+    raw = localStorage.getItem(USER_KEY)
+  } catch {
+    // No localStorage (the server) or site data blocked — the same answer as signed out.
+    return null
+  }
+  if (raw === cachedRaw) return cachedUser
+  cachedRaw = raw
+  try {
+    cachedUser = raw ? (JSON.parse(raw) as AuthUser) : null
+  } catch {
+    cachedUser = null
+  }
+  return cachedUser
+}
+
+/** The server cannot know who is signed in, so it renders signed out and the browser
+ *  hydrates to whatever readUser() then reports. */
+export function serverUser(): AuthUser | null {
+  return null
+}
+
+function notifyUserChanged() {
+  userListeners.forEach(fn => fn())
+}
+
 export function saveAuth(token: string, user: AuthUser) {
   localStorage.setItem(TOKEN_KEY, token)
   localStorage.setItem(USER_KEY, JSON.stringify(user))
   // Also save to cookie for middleware auth check
   document.cookie = `datapond_token=${token}; path=/; max-age=${24 * 3600}; SameSite=Lax`
+  notifyUserChanged()
 }
 
 export function clearAuth() {
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(USER_KEY)
   document.cookie = "datapond_token=; path=/; max-age=0"
+  notifyUserChanged()
 }
 
 export function isAuthenticated(): boolean {
