@@ -53,8 +53,8 @@ spec:
               number: {{ .Values.jupyter.service.port }}
       {{- end }}
 
-      {{- if (include "datapond.addonOn" (dict "root" $ "component" "mlflow")) }}
-      # MLflow
+      {{- if include "datapond.mlflowUiPublic" $ }}
+      # MLflow — no authentication of its own; see mlflow.ingress in values.yaml
       - path: /mlflow
         pathType: Prefix
         backend:

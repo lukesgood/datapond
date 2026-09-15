@@ -1,4 +1,11 @@
 {{- if include "datapond.addonOn" (dict "root" $ "component" "mlflow") }}
+{{- /* The database the way litellm-deployment.yaml resolves it: the external database
+       (Aurora) when configured, the in-cluster postgres otherwise. This template used to
+       hard-code host `postgres`, which does not exist once externalDatabase is on. */}}
+{{- $pgHost := ternary .Values.externalDatabase.host (.Values.postgres.name | default "postgres") .Values.externalDatabase.enabled }}
+{{- $pgPort := ternary (.Values.externalDatabase.port | default 5432) (.Values.postgres.service.port | default 5432) .Values.externalDatabase.enabled }}
+{{- $sslmode := ternary (.Values.externalDatabase.sslmode | default "require") "disable" .Values.externalDatabase.enabled }}
+{{- $db := .Values.mlflow.backend.database | default "mlflow" }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,6 +26,37 @@ spec:
         app: {{ .Values.mlflow.name }}
     spec:
       serviceAccountName: {{ .Values.mlflow.serviceAccountName | default "datapond-mlflow" }}
+      initContainers:
+      # MLflow creates its tables but not its database, and on an external database nothing
+      # else does either (postgres-init runs only on a fresh in-cluster PG). Idempotent.
+      - name: ensure-mlflow-db
+        image: postgres:16.14-alpine
+        env:
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_USER
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_PASSWORD
+        - name: PGSSLMODE
+          value: {{ $sslmode | quote }}
+        command:
+          - sh
+          - -c
+          - |
+            until pg_isready -h {{ $pgHost }} -p {{ $pgPort }} -U "$PGUSER"; do
+              echo "Waiting for PostgreSQL at {{ $pgHost }}..."
+              sleep 2
+            done
+            psql -h {{ $pgHost }} -p {{ $pgPort }} -U "$PGUSER" -d postgres -tAc \
+              "SELECT 1 FROM pg_database WHERE datname='{{ $db }}'" | grep -q 1 || \
+              psql -h {{ $pgHost }} -p {{ $pgPort }} -U "$PGUSER" -d postgres \
+              -c "CREATE DATABASE {{ $db }}"
+            echo "mlflow DB ensured on {{ $pgHost }}."
       containers:
       - name: mlflow
         image: "{{ .Values.mlflow.image.repository }}:{{ .Values.mlflow.image.tag }}"
@@ -29,12 +67,12 @@ spec:
         - /bin/sh
         - -c
         - |
-          pip install psycopg2-binary && \
-          mlflow server \
+          pip install --no-cache-dir psycopg2-binary==2.9.9 && \
+          exec mlflow server \
             --host 0.0.0.0 \
             --port {{ .Values.mlflow.service.port }} \
-            --backend-store-uri postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/mlflow \
-            --default-artifact-root s3://mlflow-artifacts \
+            --backend-store-uri "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ $pgHost }}:{{ $pgPort }}/{{ $db }}?sslmode={{ $sslmode }}" \
+            --default-artifact-root {{ .Values.mlflow.artifactRoot | default "s3://mlflow-artifacts" | quote }} \
             --static-prefix /mlflow
         env:
         # MLflow serves via gunicorn, which by default only trusts X-Forwarded-*

@@ -110,6 +110,9 @@ def compute_capabilities(env: Mapping) -> dict:
         "pipelines": _gated("pipelines"),  # Transforms
         "streaming": _gated("streaming"),
         "experiments": _gated("experiments"),
+        # MLflow's own UI published at /mlflow. It has no authentication, so a deployment
+        # can run experiments without it; links to it follow this, not "experiments".
+        "mlflow_ui": _feat(env, "MLFLOW_UI", default=False),
         "notebooks": _gated("notebooks"),
         "rls": _feat(env, "RLS", default=False),
         # Phase 0 ontology slice: concept store + opt-in query expansion. Fail-closed.

@@ -123,3 +123,14 @@ The same answer shaped for `{{- if }}`: non-empty when on, empty when off.
 {{- define "datapond.addonOn" -}}
 {{- if eq (include "datapond.addonEnabledOrPreserved" .) "true" -}}on{{- end -}}
 {{- end -}}
+
+{{/*
+Whether MLflow's own UI is published at /mlflow. The MLflow server has no authentication,
+so a deployment can run the add-on and still keep its UI off the ingress
+(mlflow.ingress.enabled=false); the console's /api/mlflow routes reach it in-cluster
+either way. Unset means published, as before. Non-empty when published.
+*/}}
+{{- define "datapond.mlflowUiPublic" -}}
+{{- $ingress := (.Values.mlflow).ingress | default (dict) -}}
+{{- if and (include "datapond.addonOn" (dict "root" . "component" "mlflow")) (ne (toString $ingress.enabled) "false") -}}on{{- end -}}
+{{- end -}}

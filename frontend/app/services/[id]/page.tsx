@@ -44,6 +44,7 @@ import { LogsViewer } from "@/components/services/logs-viewer"
 import { MetricsChart, type ServiceMetricsData } from "@/components/services/metrics-chart"
 import { PodList } from "@/components/services/pod-list"
 import { usePermissions } from "@/lib/permissions"
+import { useCapability } from "@/lib/capabilities"
 
 // Only services that actually expose a sub-path console. Trino / MinIO UIs
 // don't support sub-path hosting and AWS-managed services have no in-cluster UI.
@@ -93,6 +94,10 @@ interface RawPod {
 }
 
 export default function ServiceDetailPage() {
+  // MLflow's UI is published only when mlflow_ui is true (it has no authentication).
+  const mlflowUiPublished = useCapability("mlflow_ui")
+  const consoleUrl = (name: string): string | undefined =>
+    name === "mlflow" && !mlflowUiPublished ? undefined : EXTERNAL_URLS[name]
   const params = useParams()
   const router = useRouter()
   const serviceId = params.id as string
@@ -476,11 +481,11 @@ export default function ServiceDetailPage() {
               </Button>
             </>
           )}
-          {!isManaged && EXTERNAL_URLS[service.name] && (
+          {!isManaged && consoleUrl(service.name) && (
             <Button
               variant="default"
               size="sm"
-              onClick={() => window.open(EXTERNAL_URLS[service.name], "_blank")}
+              onClick={() => window.open(consoleUrl(service.name), "_blank")}
             >
               <ExternalLink className="mr-2 h-4 w-4" />
               Open UI
@@ -642,14 +647,14 @@ export default function ServiceDetailPage() {
                     <div className="grid grid-cols-3 gap-2 py-2 border-b text-sm">
                       <span className="font-medium">URL</span>
                       <span className="col-span-2">
-                        {EXTERNAL_URLS[service.name] ? (
+                        {consoleUrl(service.name) ? (
                           <a
-                            href={EXTERNAL_URLS[service.name]}
+                            href={consoleUrl(service.name)}
                             target="_blank"
                             rel="noreferrer"
                             className="text-primary hover:underline"
                           >
-                            {EXTERNAL_URLS[service.name]}
+                            {consoleUrl(service.name)}
                           </a>
                         ) : (
                           "N/A"

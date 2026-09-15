@@ -386,6 +386,18 @@ mlflow:
     database: mlflow
     username: datapond
 
+  # Where runs' artifacts are written. The default is the in-cluster MinIO bucket; on
+  # AWS point it at a prefix of the deployment bucket (s3://<bucket>/mlflow-artifacts),
+  # which the node role already covers. The MLflow server itself never reads them here:
+  # the console's /api/mlflow routes read run metadata, and clients write artifacts.
+  artifactRoot: s3://mlflow-artifacts
+
+  # The MLflow server has no authentication of its own. `ingress.enabled` publishes its
+  # UI at /mlflow for anyone who can reach the host; set it false where the console's
+  # /api/mlflow routes, which check the caller, should be the only way in.
+  ingress:
+    enabled: true
+
 # Airflow
 airflow:
   # unset: keep it if this namespace already runs it, otherwise off. See

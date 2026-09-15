@@ -19,6 +19,7 @@ import {
 import { InfraTabs } from "@/components/infra/infra-tabs"
 import { SystemPanel } from "@/components/infra/system-panel"
 import { EventsPanel } from "@/components/infra/events-panel"
+import { useCapabilities, type Capabilities } from "@/lib/capabilities"
 
 interface Service {
   name: string
@@ -38,7 +39,10 @@ const EXTERNAL_URLS: Record<string, string> = {
   airflow:       "/airflow",
 }
 
-function getExternalUrl(name: string): string | null {
+// MLflow has no authentication, so a deployment can run it with its UI kept off the
+// ingress; then /mlflow is not there to open. mlflow_ui says whether it is.
+function getExternalUrl(name: string, caps: Capabilities): string | null {
+  if (name === "mlflow" && caps.mlflow_ui !== true) return null
   return EXTERNAL_URLS[name] ?? null
 }
 
@@ -46,6 +50,7 @@ function getExternalUrl(name: string): string | null {
 // workloads and configured external adapters. Deep links to /services/[id] for
 // per-service detail are preserved.
 function ServicesPanel() {
+  const caps = useCapabilities()
   const router = useRouter()
   const [services, setServices] = useState<Service[]>([])
   const [loading, setLoading] = useState(true)
@@ -374,13 +379,13 @@ function ServicesPanel() {
                         Details
                       </Button>
                     )}
-                    {getExternalUrl(service.name) && (
+                    {getExternalUrl(service.name, caps) && (
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={(e) => {
                           e.stopPropagation()
-                          window.open(getExternalUrl(service.name)!, "_blank")
+                          window.open(getExternalUrl(service.name, caps)!, "_blank")
                         }}
                       >
                         <ExternalLink className="h-4 w-4" />

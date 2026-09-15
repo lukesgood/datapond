@@ -329,6 +329,9 @@ spec:
           value: "{{ include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "airflow") }}"
         - name: FEATURE_MLFLOW
           value: "{{ include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "mlflow") }}"
+        # Whether MLflow's own UI is on the ingress, so the console links to it only then.
+        - name: FEATURE_MLFLOW_UI
+          value: "{{ if include "datapond.mlflowUiPublic" $ }}true{{ else }}false{{ end }}"
         - name: FEATURE_RISINGWAVE
           value: "{{ include "datapond.addonEnabledOrPreserved" (dict "root" $ "component" "risingwave") }}"
         - name: FEATURE_OPENMETADATA

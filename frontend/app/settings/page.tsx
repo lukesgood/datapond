@@ -46,7 +46,9 @@ const ACCESS_URL_DEFS = [
   { service: "Backend API",    path: "/api/health",       cred: undefined },
   { service: "JupyterLab",     path: "/jupyter",          cred: undefined,          cap: "notebooks" },
   { service: "Airflow",        path: "/airflow/",         cred: undefined,          cap: "pipelines" },
-  { service: "MLflow",         path: "/mlflow/",          cred: undefined,          cap: "experiments" },
+  // mlflow_ui, not experiments: MLflow has no authentication, so a deployment can run
+  // experiments with its UI kept off the ingress, and then this link would be dead.
+  { service: "MLflow",         path: "/mlflow/",          cred: undefined,          cap: "mlflow_ui" },
 ]
 
 const PROFILE_VALUES: Record<string, string> = {
@@ -132,6 +134,7 @@ export default function SettingsPage() {
   const notebooksEnabled = useCapability("notebooks")
   const pipelinesEnabled = useCapability("pipelines")
   const experimentsEnabled = useCapability("experiments")
+  const mlflowUiEnabled = useCapability("mlflow_ui")
   const [services, setServices] = useState<ServiceSummary[]>([])
   const [stats, setStats]       = useState<DashboardStats | null>(null)
   const [loading, setLoading]   = useState(true)
@@ -258,6 +261,7 @@ export default function SettingsPage() {
                   {ACCESS_URL_DEFS.filter(({ cap }) =>
                     cap === "notebooks" ? notebooksEnabled :
                     cap === "pipelines" ? pipelinesEnabled :
+                    cap === "mlflow_ui" ? mlflowUiEnabled :
                     cap === "experiments" ? experimentsEnabled : true
                   ).map(({ service, path, cred }) => {
                     const url = mounted
