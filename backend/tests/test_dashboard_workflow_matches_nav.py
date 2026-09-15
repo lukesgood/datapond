@@ -26,10 +26,16 @@ SIDEBAR = FRONTEND / "components/app-sidebar.tsx"
 
 
 def _journey_steps():
-    """(number, title, href) for each step, including conditional hrefs."""
+    """(number, title, href) for each step, including conditional hrefs.
+
+    Each step runs from its `n: "NN"` to the next one or the end of the steps array.
+    This used to end a step at its `color:` field, so dropping per-step colours from
+    the strip left the parser matching nothing; a styling field is no anchor."""
     text = STRIP.read_text()
+    array = re.search(r"const steps: Step\[\] = \[(.*?)\n  \]", text, re.S)
+    assert array, "steps array not found in journey-strip.tsx"
     steps = []
-    for block in re.findall(r'n:\s*"(\d+)",(.*?)color:', text, re.S):
+    for block in re.findall(r'n:\s*"(\d+)",(.*?)(?=\bn:\s*"\d+"|\Z)', array.group(1), re.S):
         number, body = block
         title = re.search(r'title:\s*"([^"]+)"', body)
         hrefs = re.findall(r'"(/[a-z-]*)"', body.split("href:", 1)[1].split("\n")[0]) \
