@@ -217,9 +217,14 @@ def test_a_call_whose_route_logged_does_not_get_a_second_row(logged, monkeypatch
     assert logged[0]["tool"] == "ai.search" and logged[0]["hit_count"] == 2
 
 
-def test_a_refused_call_writes_no_row(logged):
+def test_a_refused_call_writes_one_refused_row(logged):
+    """This used to assert `logged == []`. A refused call is the row an auditor most
+    wants — a key asking for what it may not have — so it is now recorded. The answer
+    to the caller is unchanged; see the indistinguishability tests above."""
     _rpc(TestClient(_app()), "tools/call", {"name": "spend_summarize", "arguments": {}})
-    assert logged == []
+    assert len(logged) == 1
+    assert logged[0]["outcome"] == "refused" and logged[0]["tool"] == "spend.summarize"
+    assert logged[0]["via"] == "mcp"
 
 
 def test_a_failing_call_is_logged_as_an_error(logged, monkeypatch):
@@ -229,3 +234,60 @@ def test_a_failing_call_is_logged_as_an_error(logged, monkeypatch):
     _rpc(TestClient(_app()), "tools/call",
          {"name": "knowledge_list_collections", "arguments": {}})
     assert len(logged) == 1 and logged[0]["outcome"] == "error"
+
+
+# ── Refusals are audited ─────────────────────────────────────────────────────
+# Names here are MCP names (action ids with dots replaced by underscores), and the
+# argument shapes are the ones the existing tests above established as valid/invalid —
+# otherwise a test could pass because the name was unknown rather than for its own
+# reason.
+
+def _refusals(rows):
+    return [r for r in rows if r["outcome"] == "refused"]
+
+
+def test_a_name_that_never_existed_is_recorded_under_the_sentinel(logged):
+    r = _rpc(TestClient(_app()), "tools/call", {"name": "no_such_tool", "arguments": {}})
+    assert r.json()["result"]["isError"] is True
+    [row] = _refusals(logged)
+    assert row["tool"] == tool_call_log.UNKNOWN_TOOL
+    assert row["via"] == "mcp" and row["actor_username"] == "svc-bot"
+    assert "no_such_tool" in row["request_masked"]
+
+
+def test_a_write_name_is_recorded_under_the_sentinel_with_the_name_kept(logged):
+    """A write is not an action this surface can run, so `_readable_action` never
+    resolves it and the row cannot claim a tool that was going to run. The requested
+    name is kept in request_masked, which is where the auditor reads it. Resolving it
+    through the permissive lookup just for the log would put the very resolver the
+    dispatch guard exists to avoid back into this path."""
+    _rpc(TestClient(_app(WRITER)), "tools/call",
+         {"name": "knowledge_create_collection", "arguments": {}})
+    [row] = _refusals(logged)
+    assert row["tool"] == tool_call_log.UNKNOWN_TOOL
+    assert "knowledge_create_collection" in row["request_masked"]
+
+
+def test_bad_arguments_are_recorded_as_refused(logged):
+    # the shape test_bad_arguments_are_a_tool_error_not_a_protocol_error uses: no query
+    _rpc(TestClient(_app()), "tools/call",
+         {"name": "knowledge_search", "arguments": {"collection": "faq"}})
+    [row] = _refusals(logged)
+    assert row["tool"] == "knowledge.search"
+
+
+def test_an_action_this_deployment_does_not_run_is_recorded_as_refused(monkeypatch, logged):
+    monkeypatch.delitem(server.EXECUTORS, "knowledge.list_collections", raising=False)
+    _rpc(TestClient(_app()), "tools/call",
+         {"name": "knowledge_list_collections", "arguments": {}})
+    [row] = _refusals(logged)
+    assert row["tool"] == "knowledge.list_collections"
+
+
+def test_a_successful_call_records_no_refusal(monkeypatch, logged):
+    async def _exec(params, user):
+        return {"results": []}
+    monkeypatch.setitem(server.EXECUTORS, "knowledge.search", _exec)
+    _rpc(TestClient(_app()), "tools/call",
+         {"name": "knowledge_search", "arguments": {"collection": "faq", "query": "hi"}})
+    assert _refusals(logged) == [] and len(logged) == 1

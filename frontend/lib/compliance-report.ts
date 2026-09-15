@@ -5,6 +5,9 @@ export type ToolCallRow = Record<string, unknown>
 export type ToolCallActor = {
   actor_id?: string | null; actor_username: string; actor_kind: string
   calls: number; ok: number; degraded: number; error: number
+  // Refused: turned away before it ran — the caller asked for a tool it may not
+  // have. Older deployments do not send it (migration 0010).
+  refused?: number
   collections: string[]; tables: string[]; hits: number; pii_masked: number
 }
 export type ToolCallSection = {

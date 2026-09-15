@@ -33,6 +33,7 @@ counts AS (
            count(*) FILTER (WHERE outcome = 'ok')       AS ok,
            count(*) FILTER (WHERE outcome = 'degraded') AS degraded,
            count(*) FILTER (WHERE outcome = 'error')    AS error,
+           count(*) FILTER (WHERE outcome = 'refused')  AS refused,
            coalesce(sum(hit_count), 0)                  AS hits,
            coalesce(sum(pii_masked), 0)                 AS pii_masked
       FROM base
@@ -47,7 +48,7 @@ names AS (
      GROUP BY b.actor_id, b.actor_username, b.actor_kind
 )
 SELECT c.actor_id::text AS actor_id, c.actor_username, c.actor_kind,
-       c.calls, c.ok, c.degraded, c.error,
+       c.calls, c.ok, c.degraded, c.error, c.refused,
        coalesce(n.collections, '{}') AS collections,
        coalesce(n.tables, '{}')      AS tables,
        c.hits, c.pii_masked

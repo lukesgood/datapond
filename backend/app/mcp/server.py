@@ -76,6 +76,27 @@ def _readable_action(name: str) -> Optional[Action]:
         return None
 
 
+async def _log_refusal(name: str, action: Optional[Action], arguments: Any,
+                       user: dict, started: float) -> None:
+    """One row for a call that was turned away before it ran.
+
+    The answer to the caller is unchanged — `_unknown()` still cannot be told apart from
+    a name that does not exist — but the deployment keeps the record: this key asked for
+    this name at this time and was refused. That is the line an auditor reads, and it
+    was the one thing the log did not have.
+    """
+    # `action` is set only when the name resolved to a READ action, so a write and a
+    # name that never existed both log the sentinel: the row never names a tool that
+    # was going to run. The requested name stays in request_masked either way.
+    await tool_call_log.record(
+        actor=user, tool=action.id if action else tool_call_log.UNKNOWN_TOOL,
+        resource_kind="none", resource=[],
+        request_text=tool_call_log.masked_for_log(
+            json.dumps({"name": name, "arguments": arguments}, ensure_ascii=False, default=str)),
+        outcome="refused", via="mcp",
+        duration_ms=int((time.perf_counter() - started) * 1000))
+
+
 async def _log_fallback(rows_written: int, action: Action, params: dict,
                         user: dict, outcome: str, started: float) -> None:
     """A row for a call the inner path did not log — the actions whose executors
@@ -95,25 +116,30 @@ async def _call_tool(params: dict, user: dict) -> dict:
     if not isinstance(name, str) or not name:
         return protocol.tool_call_result("A tool name is required.", is_error=True)
     arguments = params.get("arguments") or {}
+    started = time.perf_counter()
 
     action = _readable_action(name)
     if action is None:
+        await _log_refusal(name, None, arguments, user, started)
         return _unknown(name)
     try:
         authorize(action, user)
     except (NotPermitted, CapabilityOff):
+        # The row names the action; the answer to the caller still does not.
+        await _log_refusal(name, action, arguments, user, started)
         return _unknown(name)
     try:
         clean = validate_params(action, arguments)
     except InvalidParams as e:
+        await _log_refusal(name, action, arguments, user, started)
         return protocol.tool_call_result(str(e), is_error=True)
 
     executor = EXECUTORS.get(action.id)
     if executor is None:
+        await _log_refusal(name, action, arguments, user, started)
         return protocol.tool_call_result(
             f"{action.label} is not available in this deployment.", is_error=True)
 
-    started = time.perf_counter()
     with tool_call_log.via("mcp"), tool_call_log.counting() as count:
         try:
             payload = await _maybe_await(executor(clean, user))

@@ -168,3 +168,13 @@ def test_record_acquires_with_a_timeout(monkeypatch):
     _run(tcl.record(actor=HUMAN, tool="ai.sql", resource_kind="none", resource=[],
                     request_text="q"))
     assert pool.acquire_kwargs == {"timeout": 2}
+
+
+def test_refused_is_part_of_the_vocabulary():
+    """A call turned away before it ran (migration 0010). The sentinel tool exists for
+    the refusal whose requested name is not a tool at all."""
+    row = tcl.build_row(actor=SERVICE, tool=tcl.UNKNOWN_TOOL, resource_kind="none",
+                        resource=[], request_text='{"name": "no.such.tool"}',
+                        outcome="refused")
+    assert row["outcome"] == "refused" and row["tool"] == tcl.UNKNOWN_TOOL
+    assert "refused" in tcl.OUTCOMES and tcl.UNKNOWN_TOOL in tcl.TOOLS

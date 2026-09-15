@@ -25,9 +25,16 @@ logger = logging.getLogger(__name__)
 # silently disappears into logger.error instead of the append-only table. The DB's
 # CHECK constraint (migration 0009) is the looser, permanent bound; Python stays
 # stricter and enumerates rather than pattern-matching it.
-TOOLS = ("ai.search", "ai.rag", "ai.sql", "query.execute") + tuple(REGISTRY)
+# The name a refused call asked for is not a tool: it may not exist, or may be one
+# this caller may not see. The row carries this sentinel and keeps the requested
+# name in request_masked, so the log says "asked for something it could not have"
+# without inventing a tool. Matches the DB's tool pattern (0009).
+UNKNOWN_TOOL = "mcp.unknown_tool"
+TOOLS = ("ai.search", "ai.rag", "ai.sql", "query.execute", UNKNOWN_TOOL) + tuple(REGISTRY)
 RESOURCE_KINDS = ("collection", "tables", "none")
-OUTCOMES = ("ok", "degraded", "error")
+# refused: turned away before it ran — unknown or unpermitted name, a write, bad
+# arguments, or an action this deployment does not run (migration 0010).
+OUTCOMES = ("ok", "degraded", "error", "refused")
 _MASKED_LIMIT = 512
 
 _via: contextvars.ContextVar[str] = contextvars.ContextVar("tool_call_via", default="api")
