@@ -127,10 +127,10 @@ const LAYER_STYLES = {
     border: "border-[var(--dp-warn)]/30",
     selectedBorder: "border-[var(--dp-warn)]",
     ring: "ring-[var(--dp-warn)]/30",
-    badge: "bg-[var(--dp-warn)]/15 text-[var(--dp-warn)]",
+    badge: "bg-[var(--dp-warn)]/15 text-[var(--dp-warn-text)]",
     dot: "bg-[var(--dp-warn)]",
     label: "BRONZE",
-    textColor: "text-[var(--dp-warn)]",
+    textColor: "text-[var(--dp-warn-text)]",
     handleColor: "#f59e0b",
   },
   silver: {
@@ -151,10 +151,10 @@ const LAYER_STYLES = {
     border: "border-[var(--dp-warn)]/30",
     selectedBorder: "border-[var(--dp-warn)]",
     ring: "ring-[var(--dp-warn)]/30",
-    badge: "bg-[var(--dp-warn)]/15 text-[var(--dp-warn)]",
+    badge: "bg-[var(--dp-warn)]/15 text-[var(--dp-warn-text)]",
     dot: "bg-[var(--dp-warn)]",
     label: "GOLD",
-    textColor: "text-[var(--dp-warn)]",
+    textColor: "text-[var(--dp-warn-text)]",
     handleColor: "#eab308",
   },
 }
@@ -184,9 +184,9 @@ function uid() {
 // ── Dagre Auto-Layout ─────────────────────────────────────────────────────────
 
 const LAYER_HEADER_CONFIG: Record<string, { label: string; color: string; barColor: string }> = {
-  bronze: { label: "BRONZE",  color: "text-[var(--dp-warn)]",  barColor: "bg-[var(--dp-warn)]" },
+  bronze: { label: "BRONZE",  color: "text-[var(--dp-warn-text)]",  barColor: "bg-[var(--dp-warn)]" },
   silver: { label: "SILVER",  color: "text-slate-500",  barColor: "bg-slate-400" },
-  gold:   { label: "GOLD",    color: "text-[var(--dp-warn)]", barColor: "bg-[var(--dp-warn)]" },
+  gold:   { label: "GOLD",    color: "text-[var(--dp-warn-text)]", barColor: "bg-[var(--dp-warn)]" },
 }
 
 const elk = new ELK()
@@ -389,8 +389,8 @@ function SqlTokens({ sql }: { sql: string }) {
   let i = 0
   while ((m = re.exec(sql)) !== null) {
     const [full, tmpl, str, lc, bc, word, num] = m
-    if (tmpl)        parts.push(<span key={i++} className="text-[var(--dp-good)]">{tmpl}</span>)
-    else if (str)    parts.push(<span key={i++} className="text-[var(--dp-warn)]">{str}</span>)
+    if (tmpl)        parts.push(<span key={i++} className="text-[var(--dp-good-text)]">{tmpl}</span>)
+    else if (str)    parts.push(<span key={i++} className="text-[var(--dp-warn-text)]">{str}</span>)
     else if (lc||bc) parts.push(<span key={i++} className="text-muted-foreground/60 italic">{full}</span>)
     else if (word && SQL_KW.has(word.toUpperCase())) parts.push(<span key={i++} className="text-blue-500 font-medium">{word}</span>)
     else if (num)    parts.push(<span key={i++} className="text-purple-500">{num}</span>)
@@ -1290,7 +1290,7 @@ function PipelineForm({
         )}
 
         {pipeline.advanced.alertOnFailure && !pipeline.advanced.alertEmail && (
-          <div className="rounded-md border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-3 py-2 text-2xs text-[var(--dp-warn)]">
+          <div className="rounded-md border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-3 py-2 text-2xs text-[var(--dp-warn-text)]">
             No alerts will be sent unless you enter a recipient email.
           </div>
         )}
@@ -1977,7 +1977,7 @@ export default function NewPipelinePage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
         <div className="h-16 w-16 rounded-full bg-[var(--dp-good)]/10 flex items-center justify-center">
-          <CheckCircle2 className="h-8 w-8 text-[var(--dp-good)]" />
+          <CheckCircle2 className="h-8 w-8 text-[var(--dp-good-text)]" />
         </div>
         <div className="text-center">
           <p className="text-xl font-semibold">Pipeline Deployed!</p>
@@ -2099,17 +2099,17 @@ export default function NewPipelinePage() {
           )}
           {validationNotice && (validationNotice.hasNotes ? (
             <div className="relative group">
-              <div className="flex items-center gap-1.5 text-xs text-[var(--dp-warn)] cursor-pointer">
+              <div className="flex items-center gap-1.5 text-xs text-[var(--dp-warn-text)] cursor-pointer">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                 <span>{validationNotice.label}</span>
               </div>
               <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block w-80 p-3 bg-background border rounded-lg shadow-lg">
-                <p className="text-2xs font-bold text-[var(--dp-warn)] mb-1.5">
+                <p className="text-2xs font-bold text-[var(--dp-warn-text)] mb-1.5">
                   {validationNotice.heading}
                 </p>
                 <ul className="space-y-1">
                   {validationNotice.notes.map((note, i) => (
-                    <li key={i} className="text-2xs text-[var(--dp-warn)]/90 flex items-start gap-1">
+                    <li key={i} className="text-2xs text-[var(--dp-warn-text)]/90 flex items-start gap-1">
                       <span className="shrink-0 mt-0.5">•</span>
                       <span>{note}</span>
                     </li>
@@ -2118,7 +2118,7 @@ export default function NewPipelinePage() {
               </div>
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 text-xs text-[var(--dp-good)]">
+            <div className="flex items-center gap-1.5 text-xs text-[var(--dp-good-text)]">
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
               <span>{validationNotice.label}</span>
             </div>
@@ -2126,7 +2126,7 @@ export default function NewPipelinePage() {
           {/* Live readiness pill — proactively answers "why can't I deploy?" */}
           {liveIssues.length === 0 ? (
             <div
-              className="hidden lg:flex items-center gap-1.5 rounded-md border border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10 px-2.5 py-1 text-2xs font-medium text-[var(--dp-good)]"
+              className="hidden lg:flex items-center gap-1.5 rounded-md border border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10 px-2.5 py-1 text-2xs font-medium text-[var(--dp-good-text)]"
               title="All checks passed — ready to deploy"
             >
               <CheckCircle2 className="h-3 w-3 shrink-0" />
@@ -2134,7 +2134,7 @@ export default function NewPipelinePage() {
             </div>
           ) : (
             <div
-              className="hidden lg:flex items-center gap-1 rounded-md border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-2.5 py-1 text-2xs font-medium text-[var(--dp-warn)]"
+              className="hidden lg:flex items-center gap-1 rounded-md border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-2.5 py-1 text-2xs font-medium text-[var(--dp-warn-text)]"
               title={`Fix before deploy:\n${liveIssues.map((e) => "• " + e).join("\n")}`}
             >
               <span className="tabular-nums font-bold">{liveIssues.length}</span>
@@ -2165,7 +2165,7 @@ export default function NewPipelinePage() {
             {saveStatus === "saving" ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : saveStatus === "saved" ? (
-              <CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good)]" />
+              <CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good-text)]" />
             ) : (
               <Save className="h-3.5 w-3.5" />
             )}
@@ -2254,7 +2254,7 @@ export default function NewPipelinePage() {
                     <button
                       onClick={() => addNode("bronze")}
                       className="px-3 py-1.5 rounded-lg border-2 border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10
-                        hover:bg-[var(--dp-warn)]/15 text-xs font-medium text-[var(--dp-warn)] transition-colors mt-2"
+                        hover:bg-[var(--dp-warn)]/15 text-xs font-medium text-[var(--dp-warn-text)] transition-colors mt-2"
                     >
                       + Start with an empty Bronze Source
                     </button>
@@ -2387,7 +2387,7 @@ export default function NewPipelinePage() {
           draggable
           onDragStart={(e) => { e.dataTransfer.setData("application/datapond-layer", "bronze"); e.dataTransfer.effectAllowed = "move" }}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 border-[var(--dp-warn)]/30
-            bg-[var(--dp-warn)]/10 hover:bg-[var(--dp-warn)]/15 transition-colors text-xs font-medium text-[var(--dp-warn)] cursor-grab active:cursor-grabbing"
+            bg-[var(--dp-warn)]/10 hover:bg-[var(--dp-warn)]/15 transition-colors text-xs font-medium text-[var(--dp-warn-text)] cursor-grab active:cursor-grabbing"
         >
           <div className="h-3 w-0.5 bg-[var(--dp-warn)] rounded" />
           Bronze Source
@@ -2411,7 +2411,7 @@ export default function NewPipelinePage() {
           draggable
           onDragStart={(e) => { e.dataTransfer.setData("application/datapond-layer", "gold"); e.dataTransfer.effectAllowed = "move" }}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 border-[var(--dp-warn)]/30
-            bg-[var(--dp-warn)]/10 hover:bg-[var(--dp-warn)]/15 transition-colors text-xs font-medium text-[var(--dp-warn)] cursor-grab active:cursor-grabbing"
+            bg-[var(--dp-warn)]/10 hover:bg-[var(--dp-warn)]/15 transition-colors text-xs font-medium text-[var(--dp-warn-text)] cursor-grab active:cursor-grabbing"
         >
           <div className="h-3 w-0.5 bg-[var(--dp-warn)] rounded" />
           Gold Aggregate
@@ -2497,7 +2497,7 @@ export default function NewPipelinePage() {
                 return filtered.map(n => {
                   const d = n.data as BronzeData | SilverData | GoldData
                   const dot = n.data.layer === "bronze" ? "bg-[var(--dp-warn)]" : n.data.layer === "silver" ? "bg-slate-400" : "bg-[var(--dp-warn)]"
-                  const badge = n.data.layer === "bronze" ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]" : n.data.layer === "silver" ? "bg-slate-100 text-slate-600" : "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]"
+                  const badge = n.data.layer === "bronze" ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)]" : n.data.layer === "silver" ? "bg-slate-100 text-slate-600" : "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)]"
                   return (
                     <button
                       key={n.id}

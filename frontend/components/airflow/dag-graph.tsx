@@ -32,7 +32,7 @@ const STATE_STYLES: Record<string, { bg: string; border: string; icon: React.Rea
   success: {
     bg: "bg-[var(--dp-good)]/10",
     border: "border-[var(--dp-good)]/60",
-    icon: <CheckCircle2 className="h-3 w-3 text-[var(--dp-good)]" />,
+    icon: <CheckCircle2 className="h-3 w-3 text-[var(--dp-good-text)]" />,
     dot: "bg-[var(--dp-good)]",
   },
   failed: {
@@ -50,7 +50,7 @@ const STATE_STYLES: Record<string, { bg: string; border: string; icon: React.Rea
   queued: {
     bg: "bg-[var(--dp-warn)]/10",
     border: "border-[var(--dp-warn)]/60",
-    icon: <PlayCircle className="h-3 w-3 text-[var(--dp-warn)]" />,
+    icon: <PlayCircle className="h-3 w-3 text-[var(--dp-warn-text)]" />,
     dot: "bg-[var(--dp-warn)]",
   },
   skipped: {

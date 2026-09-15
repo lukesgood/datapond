@@ -125,7 +125,7 @@ export default function KnowledgePage() {
         </div>
         <div className="flex items-center gap-2">
           {egress && (
-            <Badge variant="outline" className={egress === "local-only" ? "border-[var(--dp-good)]/30 text-[var(--dp-good)]" : ""}>
+            <Badge variant="outline" className={egress === "local-only" ? "border-[var(--dp-good)]/30 text-[var(--dp-good-text)]" : ""}>
               AI egress: {egress}
             </Badge>
           )}
@@ -134,7 +134,7 @@ export default function KnowledgePage() {
       </div>
 
       {err && (
-        <div className="flex items-center gap-2 rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/5 px-4 py-2.5 text-xs text-[var(--dp-warn)]">
+        <div className="flex items-center gap-2 rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/5 px-4 py-2.5 text-xs text-[var(--dp-warn-text)]">
           <AlertCircle className="h-4 w-4 shrink-0" />{err}
         </div>
       )}
@@ -445,7 +445,7 @@ function SchedulePanel({ name, ownerId }: { name: string; ownerId: string | null
         <div>Last run: {state.last_refreshed_at ? new Date(state.last_refreshed_at).toLocaleString() : "not yet"}</div>
         {state.last_refresh_status && (
           <div className="flex items-center gap-1">Status:
-            <span className={okStatus ? "text-[var(--dp-good)]" : "text-[var(--dp-warn)]"}>{state.last_refresh_status}</span>
+            <span className={okStatus ? "text-[var(--dp-good-text)]" : "text-[var(--dp-warn-text)]"}>{state.last_refresh_status}</span>
           </div>
         )}
       </div>
@@ -551,7 +551,7 @@ function SearchPanel({ name }: { name: string }) {
       {/* PII signal stands alone only for Search (no answer); for a RAG answer it
           folds into the answer's trust bar so governance reads in one place. */}
       {pii > 0 && !(ans && hasAi) && (
-        <div className="text-2xs text-[var(--dp-good)] flex items-center gap-1"><ShieldCheck className="h-3 w-3" />{pii} PII item(s) masked before processing (guardrail)</div>
+        <div className="text-2xs text-[var(--dp-good-text)] flex items-center gap-1"><ShieldCheck className="h-3 w-3" />{pii} PII item(s) masked before processing (guardrail)</div>
       )}
       {/* Search mode has no trust bar — show which concepts widened the query here. */}
       {concepts.length > 0 && !(ans && hasAi) && (
@@ -559,7 +559,7 @@ function SearchPanel({ name }: { name: string }) {
           expanded via
           {concepts.map(c => (
             <span key={c.name} title={`+${(c.added || []).join(", ") || "—"}`}
-              className={`inline-flex items-center gap-0.5 rounded px-1 py-px text-2xs font-medium ${c.pii ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]" : "bg-primary/10 text-primary"}`}>
+              className={`inline-flex items-center gap-0.5 rounded px-1 py-px text-2xs font-medium ${c.pii ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)]" : "bg-primary/10 text-primary"}`}>
               {c.name}{c.pii && <ShieldCheck className="h-2.5 w-2.5" />}
             </span>
           ))}
@@ -583,13 +583,13 @@ function SearchPanel({ name }: { name: string }) {
                 <div className="text-base leading-7 text-foreground whitespace-pre-wrap">{renderCitedAnswer(ans)}</div>
                 <div className="mt-3.5 flex flex-wrap items-center gap-x-3.5 gap-y-1.5 border-t pt-2.5 text-2xs text-muted-foreground">
                   <span className="flex items-center gap-1"><FileText className="h-3 w-3" /><span className="dp-num font-medium text-foreground">{hits.length}</span>&nbsp;source{hits.length === 1 ? "" : "s"}</span>
-                  {pii > 0 && <span className="flex items-center gap-1 text-[var(--dp-good)]"><ShieldCheck className="h-3 w-3" /><span className="dp-num font-medium">{pii}</span>&nbsp;PII masked</span>}
+                  {pii > 0 && <span className="flex items-center gap-1 text-[var(--dp-good-text)]"><ShieldCheck className="h-3 w-3" /><span className="dp-num font-medium">{pii}</span>&nbsp;PII masked</span>}
                   {reranked && <span className="flex items-center gap-1 text-primary"><Sparkles className="h-3 w-3" />reranked</span>}
                   {concepts.length > 0 && (
                     <span className="flex items-center gap-1" title={concepts.map(c => `${c.name}: +${(c.added || []).join(", ") || "—"}`).join("\n")}>
                       expanded via
                       {concepts.map(c => (
-                        <span key={c.name} className={`inline-flex items-center gap-0.5 rounded px-1 py-px text-2xs font-medium ${c.pii ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]" : "bg-primary/10 text-primary"}`}>
+                        <span key={c.name} className={`inline-flex items-center gap-0.5 rounded px-1 py-px text-2xs font-medium ${c.pii ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)]" : "bg-primary/10 text-primary"}`}>
                           {c.name}{c.pii && <ShieldCheck className="h-2.5 w-2.5" />}
                         </span>
                       ))}
@@ -603,7 +603,7 @@ function SearchPanel({ name }: { name: string }) {
       })()}
       {ans && !hasAi && (
         <div className="rounded-md border border-[var(--dp-warn)]/40 bg-[var(--dp-warn)]/5 px-3 py-2 text-xs text-muted-foreground flex items-start gap-1.5">
-          <AlertCircle className="h-3.5 w-3.5 text-[var(--dp-warn)] mt-0.5 shrink-0" />
+          <AlertCircle className="h-3.5 w-3.5 text-[var(--dp-warn-text)] mt-0.5 shrink-0" />
           <span>No answer generated — the AI model isn&apos;t configured or the call failed. Showing retrieved results below only. Ask an administrator to configure a model in the AI Gateway to get cited answers.</span>
         </div>
       )}
@@ -819,7 +819,7 @@ function IngestPanel({ name, ownerId, onChange }: { name: string; ownerId: strin
       )}
       {result && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-[var(--dp-good)]/25 bg-[var(--dp-good)]/[0.06] px-3 py-2 text-xs">
-          <span className="flex items-center gap-1.5 font-medium text-[var(--dp-good)]">
+          <span className="flex items-center gap-1.5 font-medium text-[var(--dp-good-text)]">
             <CheckCircle2 className="h-3.5 w-3.5" />Ingested
           </span>
           {result.docs != null && <span className="text-muted-foreground"><b className="tabular-nums text-foreground">{result.docs.toLocaleString()}</b> docs</span>}

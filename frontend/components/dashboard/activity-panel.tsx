@@ -15,7 +15,7 @@ function Metric({ label, value, sub, warn, title }: { label: string; value: stri
   return (
     <div className="border-b px-5 py-4 last:border-b-0 sm:[&:nth-child(odd)]:border-r lg:border-b-0 lg:border-r lg:last:border-r-0">
       <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <p className={`dp-num mt-1 text-3xl font-semibold tracking-tight${warn ? " text-[var(--dp-warn)]" : ""}`} title={title}>{value}</p>
+      <p className={`dp-num mt-1 text-3xl font-semibold tracking-tight${warn ? " text-[var(--dp-warn-text)]" : ""}`} title={title}>{value}</p>
       {sub && <p className="mt-1 text-xs text-muted-foreground">{sub}</p>}
     </div>
   )
@@ -90,7 +90,7 @@ export function ActivityPanel({ canAudit, canSpend, actors, totals, spend, budge
                         <span className="ml-2 text-xs text-muted-foreground">{a.actor_kind}</span>
                       </td>
                       <td className="dp-num py-1.5 text-right">{(a.calls ?? 0).toLocaleString("en-US")}</td>
-                      <td className={`dp-num py-1.5 text-right${(a.error ?? 0) > 0 ? " text-[var(--dp-warn)]" : ""}`}>{a.error ?? 0}</td>
+                      <td className={`dp-num py-1.5 text-right${(a.error ?? 0) > 0 ? " text-[var(--dp-warn-text)]" : ""}`}>{a.error ?? 0}</td>
                       <td className="dp-num py-1.5 text-right">{a.pii_masked ?? 0}</td>
                     </tr>
                   ))}

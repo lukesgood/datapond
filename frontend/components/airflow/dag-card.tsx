@@ -25,7 +25,7 @@ interface DagCardProps {
 
 function StateIndicator({ state }: { state?: string }) {
   if (state === "success")
-    return <span className="flex items-center gap-1 text-xs text-[var(--dp-good)]"><CheckCircle2 className="h-3.5 w-3.5" />Success</span>
+    return <span className="flex items-center gap-1 text-xs text-[var(--dp-good-text)]"><CheckCircle2 className="h-3.5 w-3.5" />Success</span>
   if (state === "failed")
     return <span className="flex items-center gap-1 text-xs text-destructive"><XCircle className="h-3.5 w-3.5" />Failed</span>
   if (state === "running")
@@ -55,8 +55,8 @@ export function DagCard({
             <Badge
               variant="outline"
               className={`text-2xs h-5 px-1.5 ${
-                savedStatus === "deployed" ? "border-[var(--dp-good)]/40 text-[var(--dp-good)] bg-[var(--dp-good)]/10" :
-                savedStatus === "draft" ? "border-[var(--dp-warn)]/40 text-[var(--dp-warn)] bg-[var(--dp-warn)]/10" : ""
+                savedStatus === "deployed" ? "border-[var(--dp-good)]/40 text-[var(--dp-good-text)] bg-[var(--dp-good)]/10" :
+                savedStatus === "draft" ? "border-[var(--dp-warn)]/40 text-[var(--dp-warn-text)] bg-[var(--dp-warn)]/10" : ""
               }`}
             >
               {savedStatus}
@@ -133,7 +133,7 @@ export function DagCard({
           title={is_paused ? "Resume" : "Pause"}
         >
           {is_paused
-            ? <Play className="h-3.5 w-3.5 text-[var(--dp-good)]" />
+            ? <Play className="h-3.5 w-3.5 text-[var(--dp-good-text)]" />
             : <Pause className="h-3.5 w-3.5" />
           }
         </Button>

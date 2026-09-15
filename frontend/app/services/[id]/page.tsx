@@ -342,7 +342,7 @@ export default function ServiceDetailPage() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "healthy":
-        return <CheckCircle2 className="h-4 w-4 text-[var(--dp-good)]" />
+        return <CheckCircle2 className="h-4 w-4 text-[var(--dp-good-text)]" />
       case "managed":
         return <ExternalLink className="h-4 w-4 text-muted-foreground" />
       case "unhealthy":

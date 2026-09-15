@@ -117,7 +117,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
       case "RUNNING":
         return <PlayCircle className="h-4 w-4 text-blue-500" />
       case "FINISHED":
-        return <CheckCircle className="h-4 w-4 text-[var(--dp-good)]" />
+        return <CheckCircle className="h-4 w-4 text-[var(--dp-good-text)]" />
       case "FAILED":
         return <XCircle className="h-4 w-4 text-destructive" />
       default:
@@ -137,7 +137,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
         )
       case "FINISHED":
         return (
-          <Badge variant="outline" className="border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10 text-[var(--dp-good)]">
+          <Badge variant="outline" className="border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10 text-[var(--dp-good-text)]">
             Finished
           </Badge>
         )
@@ -459,7 +459,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                               <span
                                 className={cn(
                                   "tabular-nums inline-flex items-center gap-1",
-                                  isBest && "font-semibold text-[var(--dp-good)]"
+                                  isBest && "font-semibold text-[var(--dp-good-text)]"
                                 )}
                               >
                                 {v.toFixed(4)}
@@ -548,7 +548,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                             <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{metric}</td>
                             {vals.map((v, i) => (
                               <td key={i} className={`px-4 py-2 font-mono text-xs font-medium tabular-nums ${
-                                v === best && numVals.length > 1 ? "text-[var(--dp-good)]" : ""
+                                v === best && numVals.length > 1 ? "text-[var(--dp-good-text)]" : ""
                               }`}>
                                 {v != null ? Number(v).toFixed(4) : "—"}
                                 {v === best && numVals.length > 1 && (
@@ -593,7 +593,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                   {(compareData.diff_params?.length ?? 0) > 0 && (
                     <>
                       <tr className="bg-[var(--dp-warn)]/5">
-                        <td colSpan={compareData.runs.length + 1} className="px-4 py-1 text-2xs font-semibold text-[var(--dp-warn)] uppercase tracking-wide">
+                        <td colSpan={compareData.runs.length + 1} className="px-4 py-1 text-2xs font-semibold text-[var(--dp-warn-text)] uppercase tracking-wide">
                           Differing Parameters
                         </td>
                       </tr>
@@ -605,7 +605,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                           <tr key={param} className="border-b hover:bg-muted/20">
                             <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{param}</td>
                             {vals.map((v, i) => (
-                              <td key={i} className="px-4 py-2 font-mono text-xs font-medium text-[var(--dp-warn)]">
+                              <td key={i} className="px-4 py-2 font-mono text-xs font-medium text-[var(--dp-warn-text)]">
                                 {v ?? <span className="text-muted-foreground/40">—</span>}
                               </td>
                             ))}

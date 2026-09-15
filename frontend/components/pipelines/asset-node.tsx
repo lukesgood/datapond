@@ -15,9 +15,9 @@ export interface AssetNodeData {
 }
 
 const LAYER_COLORS = {
-  bronze: { bg: "bg-[var(--dp-warn)]/10", border: "border-[var(--dp-warn)]/40", text: "text-[var(--dp-warn)]", accent: "#d97706" },
+  bronze: { bg: "bg-[var(--dp-warn)]/10", border: "border-[var(--dp-warn)]/40", text: "text-[var(--dp-warn-text)]", accent: "#d97706" },
   silver: { bg: "bg-slate-50", border: "border-slate-300", text: "text-slate-700", accent: "#64748b" },
-  gold: { bg: "bg-[var(--dp-warn)]/10", border: "border-[var(--dp-warn)]/60", text: "text-[var(--dp-warn)]", accent: "#ca8a04" },
+  gold: { bg: "bg-[var(--dp-warn)]/10", border: "border-[var(--dp-warn)]/60", text: "text-[var(--dp-warn-text)]", accent: "#ca8a04" },
   quality: { bg: "bg-violet-50", border: "border-violet-300", text: "text-violet-800", accent: "#7c3aed" },
 }
 

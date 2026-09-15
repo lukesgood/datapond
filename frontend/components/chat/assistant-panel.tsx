@@ -296,7 +296,7 @@ function PreviewBody({ preview }: { preview: Record<string, unknown> | null }) {
         </p>
       )}
       {preview.already_exists === true && (
-        <p className="text-[var(--dp-warn)]">
+        <p className="text-[var(--dp-warn-text)]">
           A collection with that name already exists.
         </p>
       )}

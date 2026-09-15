@@ -103,19 +103,19 @@ function CdcPrereqPanel({ dbName, dbUser }: { dbName?: string; dbUser?: string }
         onClick={e => { e.stopPropagation(); setOpen(v => !v) }}
         className="w-full flex items-center gap-2 px-3 py-2 text-left"
       >
-        <AlertTriangle className="h-3.5 w-3.5 text-[var(--dp-warn)] shrink-0" />
-        <span className="text-xs font-medium text-[var(--dp-warn)]">Prerequisites required</span>
-        <ChevronDown className={`h-3.5 w-3.5 text-[var(--dp-warn)] ml-auto transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
+        <AlertTriangle className="h-3.5 w-3.5 text-[var(--dp-warn-text)] shrink-0" />
+        <span className="text-xs font-medium text-[var(--dp-warn-text)]">Prerequisites required</span>
+        <ChevronDown className={`h-3.5 w-3.5 text-[var(--dp-warn-text)] ml-auto transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && (
         <div className="border-t border-[var(--dp-warn)]/30 px-3 pb-3 space-y-3">
           {CDC_PREREQS.map((p, i) => (
             <div key={i} className="pt-2.5">
-              <p className="text-xs font-semibold text-[var(--dp-warn)]">{i + 1}. {p.label}</p>
-              <p className="text-2xs text-[var(--dp-warn)] mt-0.5 mb-1.5">{p.desc}</p>
+              <p className="text-xs font-semibold text-[var(--dp-warn-text)]">{i + 1}. {p.label}</p>
+              <p className="text-2xs text-[var(--dp-warn-text)] mt-0.5 mb-1.5">{p.desc}</p>
               <div className="relative rounded bg-[var(--dp-warn)]/8 border border-[var(--dp-warn)]/30 px-3 py-1.5">
-                <pre className="text-2xs font-mono text-[var(--dp-warn)] whitespace-pre-wrap pr-12">
+                <pre className="text-2xs font-mono text-[var(--dp-warn-text)] whitespace-pre-wrap pr-12">
                   {p.sql.replace("{db}", db).replace(/{user}/g, user)}
                 </pre>
                 <div className="absolute top-1.5 right-2">
@@ -495,8 +495,8 @@ function StreamingPageInner() {
   const tableCount = pipelines.reduce((n, p) => n + p.tables.length, 0)
   const liveCount = pipelines.filter(isPipelineLive).length
 
-  const statusColor = cluster?.status === "healthy" ? "text-[var(--dp-good)]"
-    : cluster?.status === "degraded" ? "text-[var(--dp-warn)]" : "text-destructive"
+  const statusColor = cluster?.status === "healthy" ? "text-[var(--dp-good-text)]"
+    : cluster?.status === "degraded" ? "text-[var(--dp-warn-text)]" : "text-destructive"
   const StatusIcon = cluster?.status === "healthy" ? CheckCircle2
     : cluster?.status === "degraded" ? AlertCircle : XCircle
 
@@ -638,7 +638,7 @@ function StreamingPageInner() {
                   { label: "Live", value: liveCount, good: true },
                 ].map(s => (
                   <div key={s.label} className="rounded-md border px-2.5 py-1 flex items-center gap-1.5">
-                    <span className={`dp-num text-sm font-bold tabular-nums ${s.good && s.value > 0 ? "text-[var(--dp-good)]" : ""}`}>{s.value}</span>
+                    <span className={`dp-num text-sm font-bold tabular-nums ${s.good && s.value > 0 ? "text-[var(--dp-good-text)]" : ""}`}>{s.value}</span>
                     <span className="text-xs text-muted-foreground">{s.label}</span>
                   </div>
                 ))}
@@ -675,12 +675,12 @@ function StreamingPageInner() {
                           <div className="flex items-center gap-2">
                             {p.name}
                             {isPipelineLive(p) ? (
-                              <span className="inline-flex items-center gap-1 rounded-full border border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10 px-1.5 py-0.5 text-2xs font-medium text-[var(--dp-good)]"
+                              <span className="inline-flex items-center gap-1 rounded-full border border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10 px-1.5 py-0.5 text-2xs font-medium text-[var(--dp-good-text)]"
                                 title="Full source → view → sink set is materializing">
                                 <span className="h-1.5 w-1.5 rounded-full bg-[var(--dp-good)]" />Live
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 rounded-full border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-1.5 py-0.5 text-2xs font-medium text-[var(--dp-warn)]"
+                              <span className="inline-flex items-center gap-1 rounded-full border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-1.5 py-0.5 text-2xs font-medium text-[var(--dp-warn-text)]"
                                 title="Incomplete — missing a source, view, or sink object">
                                 <span className="h-1.5 w-1.5 rounded-full bg-[var(--dp-warn)]" />Partial
                               </span>
@@ -957,7 +957,7 @@ function StreamingPageInner() {
               <div className="flex items-center justify-between px-4 py-2 bg-muted/30 border-b text-xs text-muted-foreground">
                 {sqlResult.columns
                   ? <span>{sqlResult.row_count} rows · {sqlResult.execution_time_ms}ms</span>
-                  : <span className="text-[var(--dp-good)]">{sqlResult.message} · {sqlResult.execution_time_ms}ms</span>}
+                  : <span className="text-[var(--dp-good-text)]">{sqlResult.message} · {sqlResult.execution_time_ms}ms</span>}
               </div>
               {sqlResult.columns && sqlResult.rows && (
                 <div className="overflow-x-auto max-h-72 overflow-y-auto">

@@ -82,7 +82,7 @@ function CopyButton({ text }: { text: string }) {
   return (
     <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0"
       onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500) }}>
-      {copied ? <CheckCircle2 className="h-3 w-3 text-[var(--dp-good)]" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
+      {copied ? <CheckCircle2 className="h-3 w-3 text-[var(--dp-good-text)]" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
     </Button>
   )
 }
@@ -336,8 +336,8 @@ export default function SettingsPage() {
                         status === "available" ? "bg-blue-400"  : "bg-muted-foreground/30"}`} />
                       <span className="flex-1">{label}</span>
                       <span className="text-xs text-muted-foreground">{note}</span>
-                      {status === "ok"        && <Badge variant="secondary" className="text-2xs h-4 px-1.5 bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-0">Active</Badge>}
-                      {status === "pending"   && <Badge variant="secondary" className="text-2xs h-4 px-1.5 bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-0">Pending</Badge>}
+                      {status === "ok"        && <Badge variant="secondary" className="text-2xs h-4 px-1.5 bg-[var(--dp-good)]/10 text-[var(--dp-good-text)] border-0">Active</Badge>}
+                      {status === "pending"   && <Badge variant="secondary" className="text-2xs h-4 px-1.5 bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)] border-0">Pending</Badge>}
                       {status === "available" && <Badge variant="secondary" className="text-2xs h-4 px-1.5 bg-primary/10 text-primary border-0">Available</Badge>}
                       {status === "planned"   && <Badge variant="secondary" className="text-2xs h-4 px-1.5">Planned</Badge>}
                     </div>
@@ -415,7 +415,7 @@ export default function SettingsPage() {
                     </div>
                   </>
                 ) : (
-                  <div className="rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/5 px-4 py-3 text-xs text-[var(--dp-warn)]">
+                  <div className="rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/5 px-4 py-3 text-xs text-[var(--dp-warn-text)]">
                     Runtime profile identity or namespace is unavailable/custom. Upgrade commands are suppressed; use the values files and namespace from your actual deployment pipeline.
                   </div>
                 )}
@@ -433,8 +433,8 @@ export default function SettingsPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center gap-3 rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/5 px-4 py-3">
-                  <AlertCircle className="h-4 w-4 text-[var(--dp-warn)] shrink-0" />
-                  <p className="text-xs text-[var(--dp-warn)]"><span className="font-medium">Operator configuration</span> — {helmConfig ? "use the steps below to enable or update email notifications." : "use your deployment pipeline to configure SMTP safely."}</p>
+                  <AlertCircle className="h-4 w-4 text-[var(--dp-warn-text)] shrink-0" />
+                  <p className="text-xs text-[var(--dp-warn-text)]"><span className="font-medium">Operator configuration</span> — {helmConfig ? "use the steps below to enable or update email notifications." : "use your deployment pipeline to configure SMTP safely."}</p>
                 </div>
 
                 {helmConfig ? (
@@ -798,10 +798,10 @@ function UserManagement() {
                     </td>
                     <td className="px-4 py-3">
                       {u.is_active
-                        ? <span className="flex items-center gap-1 text-[var(--dp-good)] text-xs"><CheckCircle2 className="h-3.5 w-3.5" />Active</span>
+                        ? <span className="flex items-center gap-1 text-[var(--dp-good-text)] text-xs"><CheckCircle2 className="h-3.5 w-3.5" />Active</span>
                         : <span className="flex items-center gap-1 text-muted-foreground text-xs"><UserX className="h-3.5 w-3.5" />Inactive</span>}
                       {u.require_password_change && (
-                        <span className="text-2xs text-[var(--dp-warn)] block mt-0.5">Must change password</span>
+                        <span className="text-2xs text-[var(--dp-warn-text)] block mt-0.5">Must change password</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground hidden md:table-cell">

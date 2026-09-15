@@ -85,7 +85,7 @@ export function DestructiveCard({ pending, onApprove, onDismiss, busy }: {
       )}
 
       {dependents === null ? (
-        <p className="mt-2 text-2xs text-[var(--dp-warn)]">
+        <p className="mt-2 text-2xs text-[var(--dp-warn-text)]">
           What else depends on this could not be checked. Proceed carefully.
         </p>
       ) : (
@@ -101,7 +101,7 @@ export function DestructiveCard({ pending, onApprove, onDismiss, busy }: {
             <p className="mt-2 text-2xs text-muted-foreground">Nothing else depends on this.</p>
           )}
           {notChecked.length > 0 && (
-            <ul className="mt-2 space-y-1 text-2xs text-[var(--dp-warn)]">
+            <ul className="mt-2 space-y-1 text-2xs text-[var(--dp-warn-text)]">
               {notChecked.map((r, i) => <li key={i}>{r}</li>)}
             </ul>
           )}

@@ -76,7 +76,7 @@ const FLOW_STEPS = [
     icon: BarChart2,
     label: "Query",
     desc: "Configured SQL adapter and BI tools",
-    color: "bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-[var(--dp-good)]/20",
+    color: "bg-[var(--dp-good)]/10 text-[var(--dp-good-text)] border-[var(--dp-good)]/20",
     dot: "bg-[var(--dp-good)]",
   },
 ]
@@ -193,7 +193,7 @@ function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated }: {
 
         {/* Status message */}
         {sampleMsg && (
-          <p className={`text-xs text-center ${sampleMsg.includes("Failed") ? "text-destructive" : "text-[var(--dp-good)]"}`}>
+          <p className={`text-xs text-center ${sampleMsg.includes("Failed") ? "text-destructive" : "text-[var(--dp-good-text)]"}`}>
             {sampleMsg}
           </p>
         )}
@@ -333,9 +333,9 @@ function ConnectorsPageInner() {
   // so status is scannable at a glance and not carried by text/color alone.
   const statusBadge = (status: string) => {
     const map: Record<string, { label: string; cls: string; dot: string }> = {
-      active:  { label: "Active",  cls: "bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-[var(--dp-good)]/20", dot: "bg-[var(--dp-good)]" },
+      active:  { label: "Active",  cls: "bg-[var(--dp-good)]/10 text-[var(--dp-good-text)] border-[var(--dp-good)]/20", dot: "bg-[var(--dp-good)]" },
       error:   { label: "Error",   cls: "bg-destructive/10 text-destructive border-destructive/20",              dot: "bg-destructive" },
-      paused:  { label: "Paused",  cls: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-[var(--dp-warn)]/20", dot: "bg-[var(--dp-warn)]" },
+      paused:  { label: "Paused",  cls: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)] border-[var(--dp-warn)]/20", dot: "bg-[var(--dp-warn)]" },
       pending: { label: "Pending", cls: "bg-muted text-muted-foreground border-border",                          dot: "bg-muted-foreground animate-pulse" },
     }
     const s = map[status] ?? { label: status, cls: "bg-muted text-muted-foreground border-border", dot: "bg-muted-foreground" }
@@ -406,14 +406,14 @@ function ConnectorsPageInner() {
               value: avgSuccessRate !== null ? `${avgSuccessRate}%` : "—",
               sub: "across all sources",
               icon: TrendingUp,
-              color: avgSuccessRate !== null && avgSuccessRate < 80 ? "text-destructive" : avgSuccessRate !== null && avgSuccessRate >= 95 ? "text-[var(--dp-good)]" : "",
+              color: avgSuccessRate !== null && avgSuccessRate < 80 ? "text-destructive" : avgSuccessRate !== null && avgSuccessRate >= 95 ? "text-[var(--dp-good-text)]" : "",
             },
             {
               label: "Stale Sources",
               value: staleSources,
               sub: staleSources === 0 ? "all sources up to date" : "last sync > 24h ago",
               icon: ShieldAlert,
-              color: staleSources > 0 ? "text-[var(--dp-warn)]" : "text-[var(--dp-good)]",
+              color: staleSources > 0 ? "text-[var(--dp-warn-text)]" : "text-[var(--dp-good-text)]",
               highlight: staleSources > 0,
             },
           ].map(({ label, value, sub, icon: Icon, color, highlight }) => (
@@ -458,7 +458,7 @@ function ConnectorsPageInner() {
               <span className="text-muted-foreground">
                 <span className="font-semibold text-foreground">{connections.length}</span> total
               </span>
-              <span className="text-[var(--dp-good)]">
+              <span className="text-[var(--dp-good-text)]">
                 <span className="font-semibold">{activeCount}</span> active
               </span>
               {errorCount > 0 && (
@@ -595,7 +595,7 @@ function ConnectorsPageInner() {
                           const rate = connStats.get(conn.id)?.successRate
                           if (rate == null) return <span className="text-muted-foreground">—</span>
                           return (
-                            <span className={rate >= 80 ? "text-[var(--dp-good)] font-medium" : rate >= 50 ? "text-[var(--dp-warn)] font-medium" : "text-destructive font-medium"}>
+                            <span className={rate >= 80 ? "text-[var(--dp-good-text)] font-medium" : rate >= 50 ? "text-[var(--dp-warn-text)] font-medium" : "text-destructive font-medium"}>
                               {rate}%
                             </span>
                           )

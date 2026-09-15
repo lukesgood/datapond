@@ -116,7 +116,7 @@ function EventBadge({ type }: { type: string }) {
   const map: Record<string, { label: string; className: string }> = {
     query_executed:    { label: "Query executed",    className: "border-primary/40 text-primary" },
     query_error:       { label: "Query error",       className: "border-destructive/40 text-destructive" },
-    query_timeout:     { label: "Query timeout",      className: "border-[var(--dp-warn)]/40 text-[var(--dp-warn)]" },
+    query_timeout:     { label: "Query timeout",      className: "border-[var(--dp-warn)]/40 text-[var(--dp-warn-text)]" },
   }
   const cfg = map[type] ?? { label: type, className: "border-gray-300 text-gray-400" }
   return (
@@ -146,17 +146,17 @@ function SourceBadge({ source }: { source: string }) {
 
 function ResultBadge({ result }: { result: string }) {
   if (result === "통과" || result === "pass" || result === "success")
-    return <Badge className="bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-0">Passed</Badge>
+    return <Badge className="bg-[var(--dp-good)]/10 text-[var(--dp-good-text)] border-0">Passed</Badge>
   if (result === "failure" || result === "failed")
     return <Badge className="bg-destructive/10 text-destructive border-0">Failed</Badge>
   if (result === "error")
     return <Badge className="bg-destructive/10 text-destructive border-0">Error</Badge>
   if (result === "timeout")
-    return <Badge className="bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-0">Timeout</Badge>
+    return <Badge className="bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)] border-0">Timeout</Badge>
   if (result === "차단" || result === "blocked")
     return <Badge className="bg-destructive/10 text-destructive border-0">Blocked</Badge>
   if (result === "마스킹" || result === "masked")
-    return <Badge className="bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-0">Masked</Badge>
+    return <Badge className="bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)] border-0">Masked</Badge>
   return <Badge variant="secondary">{result}</Badge>
 }
 
@@ -166,15 +166,15 @@ function RiskBadge({ risk }: { risk: string }) {
   if (risk === "high")
     return <Badge className="bg-destructive/10 text-destructive border-0">High risk</Badge>
   if (risk === "medium")
-    return <Badge className="bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-0">Caution</Badge>
-  return <Badge className="bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-0">Normal</Badge>
+    return <Badge className="bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)] border-0">Caution</Badge>
+  return <Badge className="bg-[var(--dp-good)]/10 text-[var(--dp-good-text)] border-0">Normal</Badge>
 }
 
 // ─── PII type color ───────────────────────────────────────────────────────────
 
 const PII_COLORS: Record<string, string> = {
   email:   "bg-blue-500/10 text-blue-500",
-  phone:   "bg-[var(--dp-good)]/10 text-[var(--dp-good)]",
+  phone:   "bg-[var(--dp-good)]/10 text-[var(--dp-good-text)]",
   ssn:     "bg-destructive/10 text-destructive",
   card:    "bg-destructive/10 text-destructive",
   name:    "bg-gray-500/10 text-gray-500",
@@ -210,9 +210,9 @@ function StatPill({
     tone === "bad"
       ? "border-destructive/30 bg-destructive/5 text-destructive"
       : tone === "warn"
-        ? "border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/5 text-[var(--dp-warn)]"
+        ? "border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/5 text-[var(--dp-warn-text)]"
         : tone === "good"
-          ? "border-[var(--dp-good)]/30 bg-[var(--dp-good)]/5 text-[var(--dp-good)]"
+          ? "border-[var(--dp-good)]/30 bg-[var(--dp-good)]/5 text-[var(--dp-good-text)]"
           : "text-muted-foreground"
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 ${toneCls}`}>
@@ -1031,7 +1031,7 @@ export default function GovernancePage() {
           label="PII detections"
           value={stats?.pii_detections ?? null}
           icon={<ShieldAlert className="h-5 w-5" />}
-          colorClass="text-[var(--dp-warn)]"
+          colorClass="text-[var(--dp-warn-text)]"
           bgClass="bg-[var(--dp-warn)]/10"
           loading={statsLoading}
         />

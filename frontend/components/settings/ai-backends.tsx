@@ -252,7 +252,7 @@ export function AiBackends() {
             <p className="mt-1">
               <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-2xs font-medium ${
                 localOnly
-                  ? "border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10 text-[var(--dp-good)]"
+                  ? "border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10 text-[var(--dp-good-text)]"
                   : "border-border bg-muted text-muted-foreground"}`}>
                 AI egress: {localOnly
                   ? "local-only — external LLMs blocked (no data egress)"
@@ -269,7 +269,7 @@ export function AiBackends() {
       </div>
 
       {loadErr && (
-        <div className="flex items-center gap-2 rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-4 py-2.5 text-xs text-[var(--dp-warn)]">
+        <div className="flex items-center gap-2 rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-4 py-2.5 text-xs text-[var(--dp-warn-text)]">
           <AlertCircle className="h-4 w-4 shrink-0" />{loadErr}
         </div>
       )}
@@ -319,7 +319,7 @@ export function AiBackends() {
                         {b.model}{b.api_base ? ` · ${b.api_base}` : ""}
                       </p>
                       {t && !t.testing && (
-                        <p className={`text-2xs mt-1.5 flex items-center gap-1 ${t.ok ? "text-[var(--dp-good)]" : "text-destructive"}`}>
+                        <p className={`text-2xs mt-1.5 flex items-center gap-1 ${t.ok ? "text-[var(--dp-good-text)]" : "text-destructive"}`}>
                           {t.ok ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
                           {t.ok ? `OK · ${t.latency_ms}ms` : `Failed · ${t.message}`}
                         </p>
@@ -387,7 +387,7 @@ export function AiBackends() {
               </div>
 
               {providerBlocked && (
-                <div className="flex items-start gap-2 rounded-md border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-3 py-2 text-2xs text-[var(--dp-warn)]">
+                <div className="flex items-start gap-2 rounded-md border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-3 py-2 text-2xs text-[var(--dp-warn-text)]">
                   <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                   <span>This environment runs a <b>local-only</b> AI egress policy — external
                   providers are blocked to keep data in your environment. Choose Ollama or vLLM, or change
@@ -842,7 +842,7 @@ function SpendReportSection() {
                     “By model” usage above (from <span className="font-mono">/global/spend/models</span>) is the most current source.
                   </p>
                 )}
-                {data.detail && <p className="text-2xs text-[var(--dp-warn)]">{data.detail}</p>}
+                {data.detail && <p className="text-2xs text-[var(--dp-warn-text)]">{data.detail}</p>}
               </>
             )
           })()}
@@ -857,8 +857,8 @@ function GatewayBanner({ status, loading, onRefresh }: {
 }) {
   const g = status?.gateway
   const tone =
-    g === "healthy"      ? { dot: "bg-[var(--dp-good)]", text: "text-[var(--dp-good)]", label: "Gateway healthy" } :
-    g === "unhealthy"    ? { dot: "bg-[var(--dp-warn)]", text: "text-[var(--dp-warn)]", label: "Gateway degraded" } :
+    g === "healthy"      ? { dot: "bg-[var(--dp-good)]", text: "text-[var(--dp-good-text)]", label: "Gateway healthy" } :
+    g === "unhealthy"    ? { dot: "bg-[var(--dp-warn)]", text: "text-[var(--dp-warn-text)]", label: "Gateway degraded" } :
     g === "unconfigured" ? { dot: "bg-muted-foreground/40", text: "text-muted-foreground", label: "Gateway not configured" } :
                            { dot: "bg-destructive", text: "text-destructive", label: "Gateway unreachable" }
 
@@ -1101,12 +1101,12 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
           {newKey ? (
             <div className="space-y-3 py-2">
               <div className="rounded-lg border border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10 p-3">
-                <p className="text-xs text-[var(--dp-good)] font-medium mb-2">✓ Key generated — shown only this once. Copy it somewhere safe.</p>
+                <p className="text-xs text-[var(--dp-good-text)] font-medium mb-2">✓ Key generated — shown only this once. Copy it somewhere safe.</p>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 text-xs font-mono bg-background border rounded px-2 py-1.5 break-all">{newKey}</code>
                   <Button size="icon" variant="outline" className="h-8 w-8 shrink-0"
                     onClick={() => { navigator.clipboard.writeText(newKey); setCopied(true); setTimeout(() => setCopied(false), 1500) }}>
-                    {copied ? <CheckCircle2 className="h-4 w-4 text-[var(--dp-good)]" /> : <Copy className="h-4 w-4" />}
+                    {copied ? <CheckCircle2 className="h-4 w-4 text-[var(--dp-good-text)]" /> : <Copy className="h-4 w-4" />}
                   </Button>
                 </div>
               </div>

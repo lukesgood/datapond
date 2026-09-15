@@ -120,10 +120,10 @@ function CdcPrereqSidebar({ db, user }: { db?: string; user?: string }) {
   return (
     <div className="rounded-xl border bg-[var(--dp-warn)]/5 border-[var(--dp-warn)]/30 overflow-hidden">
       <div className="px-4 py-3 border-b border-[var(--dp-warn)]/30 flex items-center gap-2">
-        <AlertTriangle className="h-4 w-4 text-[var(--dp-warn)] shrink-0" />
+        <AlertTriangle className="h-4 w-4 text-[var(--dp-warn-text)] shrink-0" />
         <div>
-          <p className="text-sm font-semibold text-[var(--dp-warn)]">Source DB Prerequisites</p>
-          <p className="text-2xs text-[var(--dp-warn)] mt-0.5">Complete before connecting</p>
+          <p className="text-sm font-semibold text-[var(--dp-warn-text)]">Source DB Prerequisites</p>
+          <p className="text-2xs text-[var(--dp-warn-text)] mt-0.5">Complete before connecting</p>
         </div>
       </div>
 
@@ -131,13 +131,13 @@ function CdcPrereqSidebar({ db, user }: { db?: string; user?: string }) {
         {PREREQ_STEPS.map((p, i) => (
           <div key={i}>
             <div className="flex items-center gap-1.5 mb-1">
-              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--dp-warn)]/15 text-2xs font-bold text-[var(--dp-warn)] shrink-0">{i + 1}</span>
-              <span className="text-xs font-semibold text-[var(--dp-warn)]">{p.label}</span>
-              {p.optional && <span className="text-2xs text-[var(--dp-warn)] ml-auto">optional</span>}
+              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--dp-warn)]/15 text-2xs font-bold text-[var(--dp-warn-text)] shrink-0">{i + 1}</span>
+              <span className="text-xs font-semibold text-[var(--dp-warn-text)]">{p.label}</span>
+              {p.optional && <span className="text-2xs text-[var(--dp-warn-text)] ml-auto">optional</span>}
             </div>
-            <p className="text-2xs text-[var(--dp-warn)] mb-1.5 ml-5">{p.desc}</p>
+            <p className="text-2xs text-[var(--dp-warn-text)] mb-1.5 ml-5">{p.desc}</p>
             <div className="relative rounded-md bg-white/70 border border-[var(--dp-warn)]/30 ml-5">
-              <pre className="text-2xs font-mono text-[var(--dp-warn)] px-2.5 py-2 pr-14 whitespace-pre-wrap break-all">
+              <pre className="text-2xs font-mono text-[var(--dp-warn-text)] px-2.5 py-2 pr-14 whitespace-pre-wrap break-all">
                 {p.sql.replace(/{db}/g, d).replace(/{user}/g, u)}
               </pre>
               <div className="absolute top-1.5 right-2">
@@ -145,7 +145,7 @@ function CdcPrereqSidebar({ db, user }: { db?: string; user?: string }) {
               </div>
             </div>
             {p.note && (
-              <p className="text-2xs text-[var(--dp-warn)] mt-1 ml-5 italic">{p.note}</p>
+              <p className="text-2xs text-[var(--dp-warn-text)] mt-1 ml-5 italic">{p.note}</p>
             )}
           </div>
         ))}
@@ -657,9 +657,9 @@ function NewStreamingPipelineInner() {
                 {/* Connection status */}
                 <div className="flex items-center gap-2">
                   {cdcTestResult.success
-                    ? <CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good)] shrink-0" />
+                    ? <CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good-text)] shrink-0" />
                     : <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />}
-                  <span className={cdcTestResult.success ? "text-[var(--dp-good)] font-medium" : "text-destructive font-medium"}>
+                  <span className={cdcTestResult.success ? "text-[var(--dp-good-text)] font-medium" : "text-destructive font-medium"}>
                     {cdcTestResult.success ? "Connected successfully" : `Connection failed: ${cdcTestResult.error}`}
                   </span>
                 </div>
@@ -669,16 +669,16 @@ function NewStreamingPipelineInner() {
                     {/* WAL level check */}
                     <div className="flex items-center gap-2">
                       {cdcTestResult.wal_ok
-                        ? <CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good)] shrink-0" />
-                        : <AlertTriangle className="h-3.5 w-3.5 text-[var(--dp-warn)] shrink-0" />}
-                      <span className={cdcTestResult.wal_ok ? "text-[var(--dp-good)]" : "text-[var(--dp-warn)]"}>
+                        ? <CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good-text)] shrink-0" />
+                        : <AlertTriangle className="h-3.5 w-3.5 text-[var(--dp-warn-text)] shrink-0" />}
+                      <span className={cdcTestResult.wal_ok ? "text-[var(--dp-good-text)]" : "text-[var(--dp-warn-text)]"}>
                         WAL level: <code className="font-mono">{cdcTestResult.wal_level}</code>
                         {!cdcTestResult.wal_ok && " — must be logical for CDC"}
                       </span>
                       {!cdcTestResult.wal_ok && (
                         <button
                           onClick={() => navigator.clipboard.writeText("ALTER SYSTEM SET wal_level = logical;\nSELECT pg_reload_conf();")}
-                          className="ml-auto text-2xs text-[var(--dp-warn)] hover:underline underline-offset-2"
+                          className="ml-auto text-2xs text-[var(--dp-warn-text)] hover:underline underline-offset-2"
                         >
                           Copy fix SQL
                         </button>
@@ -693,7 +693,7 @@ function NewStreamingPipelineInner() {
           {tableError && (
             <p className={`text-xs rounded px-3 py-2 ${
               tableError.startsWith("Warning:")
-                ? "text-[var(--dp-warn)] bg-[var(--dp-warn)]/10 border border-[var(--dp-warn)]/30"
+                ? "text-[var(--dp-warn-text)] bg-[var(--dp-warn)]/10 border border-[var(--dp-warn)]/30"
                 : "text-destructive bg-destructive/5"
             }`}>
               {tableError}
@@ -978,7 +978,7 @@ function NewStreamingPipelineInner() {
           {success ? (
             <>
               <div className="rounded-full bg-[var(--dp-good)]/15 p-4">
-                <CheckCircle2 className="h-10 w-10 text-[var(--dp-good)]" />
+                <CheckCircle2 className="h-10 w-10 text-[var(--dp-good-text)]" />
               </div>
               <div>
                 <p className="font-semibold text-lg">Pipeline created successfully</p>

@@ -251,7 +251,7 @@ export function ServiceAccounts() {
                       </label>
                     ))}
                     {keyScopes.length === 0 && (
-                      <p className="text-xs text-[var(--dp-warn)]">No scopes selected: the key gets every permission of the role.</p>
+                      <p className="text-xs text-[var(--dp-warn-text)]">No scopes selected: the key gets every permission of the role.</p>
                     )}
                   </div>
                   <div className="space-y-1">

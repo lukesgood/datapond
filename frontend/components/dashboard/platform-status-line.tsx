@@ -31,7 +31,7 @@ export function PlatformStatusLine({ platform, collections, chunks, storedHuman,
         </span>
       )}
       {platform && platform.attention.length > 0 && (
-        <span className="font-medium text-[var(--dp-warn)]">Needs attention: {platform.attention.join(", ")}</span>
+        <span className="font-medium text-[var(--dp-warn-text)]">Needs attention: {platform.attention.join(", ")}</span>
       )}
       {facts.map((f) => <span key={f}>{f}</span>)}
       {canManage && (

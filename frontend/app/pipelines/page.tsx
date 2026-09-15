@@ -483,14 +483,14 @@ function PipelinesPageInner() {
                       <td className="px-4 py-2.5">
                         <div className="flex flex-col gap-0.5">
                           <span className={`text-2xs px-1.5 py-0.5 rounded font-medium w-fit ${
-                            t.status === "deployed" ? "bg-[var(--dp-good)]/10 text-[var(--dp-good)]" : "bg-muted text-muted-foreground"
+                            t.status === "deployed" ? "bg-[var(--dp-good)]/10 text-[var(--dp-good-text)]" : "bg-muted text-muted-foreground"
                           }`}>
                             {t.status}
                           </span>
                           {t.last_run_state && (
                             <span
                               className={`inline-flex items-center gap-1 text-2xs w-fit ${
-                                t.last_run_state === "success" ? "text-[var(--dp-good)]" :
+                                t.last_run_state === "success" ? "text-[var(--dp-good-text)]" :
                                 t.last_run_state === "failed" ? "text-destructive" :
                                 t.last_run_state === "running" ? "text-primary" : "text-muted-foreground"
                               }`}
@@ -601,7 +601,7 @@ function PipelinesPageInner() {
                     </td>
                   </tr>
                 ) : recentRuns.map((run) => {
-                  const stateColor = run.state === "success" ? "text-[var(--dp-good)]"
+                  const stateColor = run.state === "success" ? "text-[var(--dp-good-text)]"
                     : run.state === "failed" ? "text-destructive"
                     : run.state === "running" ? "text-primary"
                     : "text-muted-foreground"

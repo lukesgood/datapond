@@ -233,8 +233,8 @@ export function DashboardsGallery() {
                         </div>
                       ) : preview.error ? (
                         <div className="h-full flex flex-col items-center justify-center gap-1 px-3 text-center">
-                          <AlertTriangle className="h-4 w-4 text-[var(--dp-warn)]" />
-                          <span className="text-xs font-medium text-[var(--dp-warn)]">Preview failed</span>
+                          <AlertTriangle className="h-4 w-4 text-[var(--dp-warn-text)]" />
+                          <span className="text-xs font-medium text-[var(--dp-warn-text)]">Preview failed</span>
                           <span className="text-2xs text-muted-foreground line-clamp-2">{preview.error}</span>
                         </div>
                       ) : preview.data.length === 0 ? (

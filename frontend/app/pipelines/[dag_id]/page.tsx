@@ -82,10 +82,10 @@ function RunStateBadge({ state }: { state: string }) {
   // Theme-aware: light-mode 700 text + dark-mode lighter text so the pill stays
   // legible on both backgrounds (bare 700 text is too dark on the dark surface).
   const map: Record<string, string> = {
-    success: "bg-[var(--dp-good)]/15 text-[var(--dp-good)] border-[var(--dp-good)]/30",
+    success: "bg-[var(--dp-good)]/15 text-[var(--dp-good-text)] border-[var(--dp-good)]/30",
     failed:  "bg-destructive/15 text-destructive border-destructive/30",
     running: "bg-blue-500/15 text-blue-700 border-blue-200 dark:text-blue-300 dark:border-blue-500/30",
-    queued:  "bg-[var(--dp-warn)]/15 text-[var(--dp-warn)] border-[var(--dp-warn)]/30",
+    queued:  "bg-[var(--dp-warn)]/15 text-[var(--dp-warn-text)] border-[var(--dp-warn)]/30",
   }
   const icons: Record<string, React.ReactNode> = {
     success: <CheckCircle2 className="h-3 w-3" />,
@@ -311,7 +311,7 @@ export default function DagDetailPage() {
           { label: "Total Runs",    value: stats?.total_runs ?? "—",                 icon: Activity },
           { label: "Success",       value: stats ? `${stats.success_rate.toFixed(0)}%` : "—", icon: TrendingUp,
             sub: stats ? `${stats.success_runs} runs` : undefined,
-            color: stats && stats.success_rate >= 90 ? "text-[var(--dp-good)]" : stats && stats.success_rate < 70 ? "text-destructive" : "" },
+            color: stats && stats.success_rate >= 90 ? "text-[var(--dp-good-text)]" : stats && stats.success_rate < 70 ? "text-destructive" : "" },
           { label: "Failed",        value: stats?.failed_runs ?? "—",                icon: XCircle,
             color: stats && stats.failed_runs > 0 ? "text-destructive" : "" },
           { label: "Running",       value: stats?.running_runs ?? "—",               icon: RefreshCw,

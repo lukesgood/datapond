@@ -35,15 +35,15 @@ export function TaskList({ tasks, onViewLogs }: TaskListProps) {
   const getStateIcon = (state?: string) => {
     switch (state) {
       case "success":
-        return <CheckCircle2 className="h-4 w-4 text-[var(--dp-good)]" />
+        return <CheckCircle2 className="h-4 w-4 text-[var(--dp-good-text)]" />
       case "failed":
         return <XCircle className="h-4 w-4 text-destructive" />
       case "running":
         return <Clock className="h-4 w-4 text-primary animate-spin" />
       case "queued":
-        return <Play className="h-4 w-4 text-[var(--dp-warn)]" />
+        return <Play className="h-4 w-4 text-[var(--dp-warn-text)]" />
       case "upstream_failed":
-        return <XCircle className="h-4 w-4 text-[var(--dp-warn)]" />
+        return <XCircle className="h-4 w-4 text-[var(--dp-warn-text)]" />
       case "skipped":
         return <Activity className="h-4 w-4 text-gray-500" />
       default:

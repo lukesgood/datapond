@@ -544,7 +544,7 @@ function SendToKnowledgeDialog({ table, onClose }: { table: Table; onClose: () =
                 <option value="@weekly">Schedule — weekly</option>
               </select>
             </div>
-            {msg && <p className="text-xs text-[var(--dp-good)]">{msg}</p>}
+            {msg && <p className="text-xs text-[var(--dp-good-text)]">{msg}</p>}
             {err && <div role="alert" aria-live="polite"><ErrorBox msg={err} /></div>}
           </div>
         <DialogFooter>

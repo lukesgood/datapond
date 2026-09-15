@@ -79,7 +79,7 @@ export default function AccountPage() {
               onChange={e => setPw(e.target.value)} placeholder="At least 6 characters"
               aria-invalid={tooShort} aria-describedby={tooShort ? "new-password-hint" : undefined} />
             {tooShort && (
-              <p id="new-password-hint" className="text-2xs text-[var(--dp-warn)]">
+              <p id="new-password-hint" className="text-2xs text-[var(--dp-warn-text)]">
                 Use at least 6 characters.
               </p>
             )}

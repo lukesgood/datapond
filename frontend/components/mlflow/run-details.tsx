@@ -94,7 +94,7 @@ export function RunDetails({ run }: RunDetailsProps) {
       case "RUNNING":
         return <PlayCircle className="h-5 w-5 text-blue-500" />
       case "FINISHED":
-        return <CheckCircle className="h-5 w-5 text-[var(--dp-good)]" />
+        return <CheckCircle className="h-5 w-5 text-[var(--dp-good-text)]" />
       case "FAILED":
         return <XCircle className="h-5 w-5 text-destructive" />
       default:

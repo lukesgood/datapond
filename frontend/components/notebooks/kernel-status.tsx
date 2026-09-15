@@ -85,9 +85,9 @@ export function KernelStatus({ onRefresh }: KernelStatusProps) {
   const getStateIcon = (state: Kernel["execution_state"]) => {
     switch (state) {
       case "idle":
-        return <Circle className="h-3 w-3 text-[var(--dp-good)] fill-[var(--dp-good)]" />
+        return <Circle className="h-3 w-3 text-[var(--dp-good-text)] fill-[var(--dp-good)]" />
       case "busy":
-        return <Circle className="h-3 w-3 text-[var(--dp-warn)] fill-[var(--dp-warn)] animate-pulse" />
+        return <Circle className="h-3 w-3 text-[var(--dp-warn-text)] fill-[var(--dp-warn)] animate-pulse" />
       case "starting":
         return <Circle className="h-3 w-3 text-blue-500 fill-blue-500 animate-pulse" />
       default:

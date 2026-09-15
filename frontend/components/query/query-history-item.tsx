@@ -46,7 +46,7 @@ export function QueryHistoryItem({ query, onSelect }: Props) {
       >
         <Star
           className={`h-3.5 w-3.5 ${
-            isFav ? "fill-[var(--dp-warn)] text-[var(--dp-warn)]" : "text-gray-400"
+            isFav ? "fill-[var(--dp-warn)] text-[var(--dp-warn-text)]" : "text-gray-400"
           }`}
         />
       </Button>
@@ -62,7 +62,7 @@ export function QueryHistoryItem({ query, onSelect }: Props) {
       <div className="flex items-center gap-2 flex-wrap">
         {/* Status */}
         {query.status === "success" ? (
-          <div className="flex items-center gap-1 text-[var(--dp-good)]">
+          <div className="flex items-center gap-1 text-[var(--dp-good-text)]">
             <CheckCircle className="h-3 w-3" />
             <span className="text-xs">Success</span>
           </div>

@@ -243,7 +243,7 @@ function TablesCard({
                             </span>
                           )}
                           {incMisconfigured && (
-                            <span className="text-2xs text-[var(--dp-warn)] block">⚠ no watermark column</span>
+                            <span className="text-2xs text-[var(--dp-warn-text)] block">⚠ no watermark column</span>
                           )}
                           {table.partition_spec && table.partition_spec.length > 0 && (
                             <span className="text-2xs text-muted-foreground/70 font-mono block truncate">
@@ -261,7 +261,7 @@ function TablesCard({
                         className={`w-28 text-left`}
                       >
                         <span className={`text-2xs px-1.5 py-0.5 rounded font-medium border ${
-                          incMisconfigured       ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-[var(--dp-warn)]/20" :
+                          incMisconfigured       ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)] border-[var(--dp-warn)]/20" :
                           mode === "incremental" ? "bg-primary/10 text-primary border-primary/20" :
                           "bg-muted text-muted-foreground border-transparent"
                         }`}>
@@ -355,7 +355,7 @@ function TablesCard({
                           </div>
                         </div>
                         {editMode === "incremental" && !editIncCol && (
-                          <p className="text-2xs text-[var(--dp-warn)] flex items-center gap-1">
+                          <p className="text-2xs text-[var(--dp-warn-text)] flex items-center gap-1">
                             ⚠ No watermark column set — incremental will load all rows on first run
                           </p>
                         )}
@@ -373,7 +373,7 @@ function TablesCard({
                             className="h-7 text-xs font-mono"
                           />
                           {editMode === "incremental" && editKeyCols.trim() && (
-                            <p className="text-2xs text-[var(--dp-good)]">merge by [{editKeyCols.split(",").map(s=>s.trim()).filter(Boolean).join(", ")}] — updates changed rows, prevents duplicates</p>
+                            <p className="text-2xs text-[var(--dp-good-text)]">merge by [{editKeyCols.split(",").map(s=>s.trim()).filter(Boolean).join(", ")}] — updates changed rows, prevents duplicates</p>
                           )}
                         </div>
                         {/* PII masking — masks sensitive columns before load (sovereignty/compliance). Applies to all sync modes */}
@@ -388,7 +388,7 @@ function TablesCard({
                             className="h-7 text-xs font-mono"
                           />
                           {editPiiCols.trim() && (
-                            <p className="text-2xs text-[var(--dp-good)]">
+                            <p className="text-2xs text-[var(--dp-good-text)]">
                               Masked before load: {editPiiCols.trim() === "*" ? "all string columns" : `[${editPiiCols.split(",").map(s=>s.trim()).filter(Boolean).join(", ")}]`} (SSN/phone/card/email, etc.)
                             </p>
                           )}
@@ -521,11 +521,11 @@ function ScheduleCard({
         {/* Status */}
         {schedule ? (
           <div className="flex items-center gap-2 rounded-lg bg-[var(--dp-good)]/10 border border-[var(--dp-good)]/20 px-3 py-2">
-            <Zap className="h-4 w-4 text-[var(--dp-good)] shrink-0" />
+            <Zap className="h-4 w-4 text-[var(--dp-good-text)] shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-[var(--dp-good)]">{parseCron(schedule)}</p>
+              <p className="text-sm font-medium text-[var(--dp-good-text)]">{parseCron(schedule)}</p>
               {nextRun(schedule) && (
-                <p className="text-xs text-[var(--dp-good)]/70 flex items-center gap-1 mt-0.5">
+                <p className="text-xs text-[var(--dp-good-text)]/70 flex items-center gap-1 mt-0.5">
                   <Clock className="h-3 w-3" />Next run {nextRun(schedule)}
                 </p>
               )}
@@ -582,7 +582,7 @@ function ScheduleCard({
         {scheduleMsg && (
           <p className={`text-xs flex items-center gap-1 ${
             scheduleMsg.toLowerCase().includes("error") || scheduleMsg.toLowerCase().includes("fail")
-              ? "text-destructive" : "text-[var(--dp-good)]"
+              ? "text-destructive" : "text-[var(--dp-good-text)]"
           }`}>
             {scheduleMsg.toLowerCase().includes("error") || scheduleMsg.toLowerCase().includes("fail")
               ? <X className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
@@ -1107,7 +1107,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
 
       {/* Feedback */}
       {syncedOk && catalogEnabled && (
-        <div className="flex items-center gap-2 rounded-md bg-[var(--dp-good)]/10 border border-[var(--dp-good)]/20 px-3 py-2 text-sm text-[var(--dp-good)]">
+        <div className="flex items-center gap-2 rounded-md bg-[var(--dp-good)]/10 border border-[var(--dp-good)]/20 px-3 py-2 text-sm text-[var(--dp-good-text)]">
           <Check className="h-4 w-4 shrink-0" />
           <span className="flex-1">Sync complete — your data is ready to explore.</span>
           <Button size="sm" variant="outline" className="h-7" render={<Link href="/catalog" />}>
@@ -1116,14 +1116,14 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           <button
             aria-label="Dismiss"
             onClick={() => setSyncedOk(false)}
-            className="text-[var(--dp-good)]/70 hover:text-[var(--dp-good)]"
+            className="text-[var(--dp-good-text)]/70 hover:text-[var(--dp-good-text)]"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
       )}
       {saveMessage && (
-        <div className={`text-sm px-1 ${saveMessage.includes("success") ? "text-[var(--dp-good)]" : "text-destructive"}`}>
+        <div className={`text-sm px-1 ${saveMessage.includes("success") ? "text-[var(--dp-good-text)]" : "text-destructive"}`}>
           {saveMessage}
         </div>
       )}
@@ -1189,7 +1189,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         <Card className={`flex flex-col ${freshnessStale ? "border-[var(--dp-warn)]/40" : ""}`}>
           <CardHeader className="pb-2 flex-1">
             <CardDescription className="flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5" />Data Freshness</CardDescription>
-            <CardTitle className={`text-xl ${freshnessStale ? "text-[var(--dp-warn)]" : ""}`}>{freshnessLabel}</CardTitle>
+            <CardTitle className={`text-xl ${freshnessStale ? "text-[var(--dp-warn-text)]" : ""}`}>{freshnessLabel}</CardTitle>
             <p className="text-2xs text-muted-foreground mt-0.5">
               {connector.last_sync_at ? formatDateTime(connector.last_sync_at) : "never synced"}
             </p>
@@ -1313,7 +1313,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                 )}
                 {!qualityChecks.some(c => c.overall_status === "alert") &&
                   qualityChecks.some(c => c.overall_status === "warning") && (
-                  <span className="text-2xs px-1.5 py-0.5 rounded bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] font-medium">Warning</span>
+                  <span className="text-2xs px-1.5 py-0.5 rounded bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)] font-medium">Warning</span>
                 )}
               </div>
               <button onClick={fetchQuality} aria-label="Refresh data quality checks" className="text-2xs text-muted-foreground hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:underline">Refresh</button>
@@ -1332,9 +1332,9 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                     <span className="font-mono text-xs font-medium">{table}</span>
                     <div className="flex items-center gap-2">
                       <span className={`text-2xs px-1.5 py-0.5 rounded font-medium ${
-                        check.overall_status === "ok" ? "bg-[var(--dp-good)]/10 text-[var(--dp-good)]" :
+                        check.overall_status === "ok" ? "bg-[var(--dp-good)]/10 text-[var(--dp-good-text)]" :
                         check.overall_status === "alert" ? "bg-destructive/10 text-destructive" :
-                        "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]"
+                        "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)]"
                       }`}>{check.overall_status}</span>
                       <span className="text-2xs text-muted-foreground">
                         {new Date(check.checked_at).toLocaleString()}
@@ -1349,7 +1349,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                     {check.row_change_pct != null && (
                       <span className={`font-mono text-2xs ${
                         check.row_change_status === "alert" ? "text-destructive" :
-                        check.row_change_status === "warning" ? "text-[var(--dp-warn)]" :
+                        check.row_change_status === "warning" ? "text-[var(--dp-warn-text)]" :
                         "text-muted-foreground"
                       }`}>
                         {check.row_change_pct > 0 ? "+" : ""}{check.row_change_pct.toFixed(1)}% vs prev
@@ -1362,7 +1362,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                     <div className="space-y-1 mb-2">
                       {(check.warnings ?? []).map((warning, i) => (
                         <div key={i} className={`text-2xs px-2 py-1 rounded flex items-start gap-1.5 ${
-                          warning.severity === "alert" ? "bg-destructive/10 text-destructive" : "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]"
+                          warning.severity === "alert" ? "bg-destructive/10 text-destructive" : "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)]"
                         }`}>
                           <span>{warning.severity === "alert" ? "⚠" : "○"}</span>
                           <span>{warning.message}</span>
@@ -1395,7 +1395,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                             </div>
                             <span className={`text-2xs font-mono w-10 text-right ${
                               value.status === "alert" ? "text-destructive" :
-                              value.status === "warning" ? "text-[var(--dp-warn)]" :
+                              value.status === "warning" ? "text-[var(--dp-warn-text)]" :
                               "text-muted-foreground"
                             }`}>{value.null_rate}%</span>
                           </div>

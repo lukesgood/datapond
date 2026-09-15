@@ -129,7 +129,7 @@ export function LogsViewer({
           {/* Logs content */}
           <Card>
             <CardContent className="p-4">
-              <pre className="text-xs font-mono bg-black text-[var(--dp-good)] p-4 rounded-lg overflow-auto max-h-[50vh] whitespace-pre-wrap break-words">
+              <pre className="text-xs font-mono bg-black text-[var(--dp-good-text)] p-4 rounded-lg overflow-auto max-h-[50vh] whitespace-pre-wrap break-words">
                 {loading ? "Loading logs..." : filteredLogs || "No logs available"}
               </pre>
             </CardContent>

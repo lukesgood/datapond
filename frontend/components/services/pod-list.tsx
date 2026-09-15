@@ -48,11 +48,11 @@ export function PodList({
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "Running":
-        return <CheckCircle2 className="h-4 w-4 text-[var(--dp-good)]" />
+        return <CheckCircle2 className="h-4 w-4 text-[var(--dp-good-text)]" />
       case "Failed":
         return <AlertCircle className="h-4 w-4 text-destructive" />
       case "Pending":
-        return <Clock className="h-4 w-4 text-[var(--dp-warn)]" />
+        return <Clock className="h-4 w-4 text-[var(--dp-warn-text)]" />
       default:
         return <Clock className="h-4 w-4 text-gray-500" />
     }

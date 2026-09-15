@@ -117,7 +117,7 @@ type RunStatus = Run["info"]["status"]
 function StatusBadge({ status }: { status: RunStatus }) {
   if (status === "FINISHED") {
     return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--dp-good)] bg-[var(--dp-good)]/10 px-1.5 py-0.5 rounded-md border border-[var(--dp-good)]/30">
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--dp-good-text)] bg-[var(--dp-good)]/10 px-1.5 py-0.5 rounded-md border border-[var(--dp-good)]/30">
         <CheckCircle2 className="h-3 w-3" />
         Finished
       </span>
@@ -414,7 +414,7 @@ function CompareView({
                               <span
                                 className={cn(
                                   "tabular-nums",
-                                  isBest && "text-[var(--dp-good)] font-semibold"
+                                  isBest && "text-[var(--dp-good-text)] font-semibold"
                                 )}
                               >
                                 {v !== undefined ? v.toPrecision(5) : <span className="text-muted-foreground/40">—</span>}

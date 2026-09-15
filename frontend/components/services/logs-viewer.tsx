@@ -60,7 +60,7 @@ export function LogsViewer({
       case "error":
         return "text-destructive"
       case "warn":
-        return "text-[var(--dp-warn)]"
+        return "text-[var(--dp-warn-text)]"
       default:
         return "text-slate-300"
     }

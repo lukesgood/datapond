@@ -38,8 +38,8 @@ interface SystemInfo {
 }
 
 const CMP_STATUS: Record<string, { label: string; cls: string }> = {
-  ok:           { label: "Meets recommended", cls: "bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-[var(--dp-good)]/30" },
-  warning:      { label: "Below recommended", cls: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-[var(--dp-warn)]/30" },
+  ok:           { label: "Meets recommended", cls: "bg-[var(--dp-good)]/10 text-[var(--dp-good-text)] border-[var(--dp-good)]/30" },
+  warning:      { label: "Below recommended", cls: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)] border-[var(--dp-warn)]/30" },
   insufficient: { label: "Below minimum", cls: "bg-destructive/10 text-destructive border-destructive/30" },
   unknown:      { label: "Unknown", cls: "bg-muted text-muted-foreground border-transparent" },
 }
@@ -48,7 +48,7 @@ const CMP_STATUS: Record<string, { label: string; cls: string }> = {
 function Meter({ label, pct, Icon }: { label: string; pct?: number | null; Icon: ComponentType<{ className?: string }> }) {
   const v = typeof pct === "number" ? pct : null
   const color = v == null ? "bg-muted-foreground/30" : v > 85 ? "bg-destructive" : v > 60 ? "bg-[var(--dp-warn)]" : "bg-[var(--dp-good)]"
-  const tag = v == null ? null : v > 85 ? { t: "High", c: "text-destructive" } : v > 60 ? { t: "Elevated", c: "text-[var(--dp-warn)]" } : { t: "Nominal", c: "text-[var(--dp-good)]" }
+  const tag = v == null ? null : v > 85 ? { t: "High", c: "text-destructive" } : v > 60 ? { t: "Elevated", c: "text-[var(--dp-warn-text)]" } : { t: "Nominal", c: "text-[var(--dp-good-text)]" }
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-sm">
@@ -167,9 +167,9 @@ export function SystemPanel() {
                 <div className="flex justify-between gap-3 py-1.5 text-sm">
                   <span className="text-muted-foreground">Node Status</span>
                   <span className="flex gap-1.5">
-                    <Badge variant="outline" className={`text-2xs ${n.ready === true ? "text-[var(--dp-good)] border-[var(--dp-good)]/30" : n.ready === false ? "text-destructive border-destructive/30" : "text-muted-foreground"}`}>{n.ready === true ? "Ready" : n.ready === false ? "NotReady" : "Unknown"}</Badge>
-                    {n.memory_pressure && <Badge variant="outline" className="text-2xs text-[var(--dp-warn)] border-[var(--dp-warn)]/30">MemPressure</Badge>}
-                    {n.disk_pressure && <Badge variant="outline" className="text-2xs text-[var(--dp-warn)] border-[var(--dp-warn)]/30">DiskPressure</Badge>}
+                    <Badge variant="outline" className={`text-2xs ${n.ready === true ? "text-[var(--dp-good-text)] border-[var(--dp-good)]/30" : n.ready === false ? "text-destructive border-destructive/30" : "text-muted-foreground"}`}>{n.ready === true ? "Ready" : n.ready === false ? "NotReady" : "Unknown"}</Badge>
+                    {n.memory_pressure && <Badge variant="outline" className="text-2xs text-[var(--dp-warn-text)] border-[var(--dp-warn)]/30">MemPressure</Badge>}
+                    {n.disk_pressure && <Badge variant="outline" className="text-2xs text-[var(--dp-warn-text)] border-[var(--dp-warn)]/30">DiskPressure</Badge>}
                   </span>
                 </div>
                 </div>
@@ -205,7 +205,7 @@ export function SystemPanel() {
                   <Cloud className="h-4 w-4" />AWS EC2 Instance
                   {/* Spot is interruptible — flag it in warn so it can't be mistaken for on-demand. */}
                   {info.cloud.lifecycle === "spot" ? (
-                    <Badge variant="outline" className="text-2xs text-[var(--dp-warn)] border-[var(--dp-warn)]/30">Spot · interruptible</Badge>
+                    <Badge variant="outline" className="text-2xs text-[var(--dp-warn-text)] border-[var(--dp-warn)]/30">Spot · interruptible</Badge>
                   ) : (
                     <Badge variant="outline" className="text-2xs text-muted-foreground">{info.cloud.lifecycle ?? "on-demand"}</Badge>
                   )}

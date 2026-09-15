@@ -599,8 +599,8 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
               ${validateResult.success ? "border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10" : "border-destructive/30 bg-destructive/5"}`}>
               <div className="flex items-center gap-1.5 font-medium">
                 {validateResult.success
-                  ? <><CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good)]" />
-                      <span className="text-[var(--dp-good)]">
+                  ? <><CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good-text)]" />
+                      <span className="text-[var(--dp-good-text)]">
                         Ready to deploy — <code>{validateResult.pipeline_name}</code>
                       </span></>
                   : <><XCircle className="h-3.5 w-3.5 text-destructive" />
@@ -608,13 +608,13 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
                 }
               </div>
               {validateResult.warnings?.map((w, i) => (
-                <p key={i} className="text-[var(--dp-warn)]">⚠ {w}</p>
+                <p key={i} className="text-[var(--dp-warn-text)]">⚠ {w}</p>
               ))}
             </div>
           )}
 
           {overwrite && (
-            <div className="flex items-center gap-2 rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 p-3 text-xs text-[var(--dp-warn)]">
+            <div className="flex items-center gap-2 rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 p-3 text-xs text-[var(--dp-warn-text)]">
               <AlertCircle className="h-3.5 w-3.5 shrink-0" />
               Pipeline already exists. Deploying will overwrite the current version.
             </div>
@@ -624,7 +624,7 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
           {deployStep === "done" && deployResult && (
             <div className="flex flex-col items-center gap-4 py-8 text-center">
               <div className="h-14 w-14 rounded-full bg-[var(--dp-good)]/10 flex items-center justify-center">
-                <CheckCircle2 className="h-7 w-7 text-[var(--dp-good)]" />
+                <CheckCircle2 className="h-7 w-7 text-[var(--dp-good-text)]" />
               </div>
               <div>
                 <p className="font-semibold">Pipeline Deployed!</p>

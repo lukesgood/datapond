@@ -33,3 +33,11 @@ test("status colour comes from the tokens, not the raw palette", () => {
   )
   assert.deepEqual(offenders, [], "use text-[var(--dp-good)], text-[var(--dp-warn)], or text-destructive")
 })
+
+test("status colour as text uses the text tones", () => {
+  // --dp-good and --dp-warn are fill tones: as text they measured 3.1:1 and 2.4:1.
+  const offenders = ROOTS.flatMap(sources).flatMap((file) =>
+    [...readFileSync(file, "utf8").matchAll(/(?<![\w-])(?:[a-z0-9-]+:)*text-\[var\(--dp-(?:good|warn)\)\]/g)].map((m) => `${file}: ${m[0]}`),
+  )
+  assert.deepEqual(offenders, [], "use text-[var(--dp-good-text)] or text-[var(--dp-warn-text)]")
+})

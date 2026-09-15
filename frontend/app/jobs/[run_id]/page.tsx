@@ -394,7 +394,7 @@ export default function RunDetailPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold dp-num tabular-nums" style={{ color: "var(--dp-good)" }}>{successTasks}</div>
+            <div className="text-2xl font-bold dp-num tabular-nums" style={{ color: "var(--dp-good-text)" }}>{successTasks}</div>
           </CardContent>
         </Card>
 

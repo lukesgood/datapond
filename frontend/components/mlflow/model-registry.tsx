@@ -301,7 +301,7 @@ export function ModelRegistry() {
                                     }
                                     disabled={version.current_stage === "Production"}
                                   >
-                                    <ArrowUpCircle className="mr-2 h-4 w-4 text-[var(--dp-good)]" />
+                                    <ArrowUpCircle className="mr-2 h-4 w-4 text-[var(--dp-good-text)]" />
                                     Promote to Production
                                   </DropdownMenuItem>
                                   <DropdownMenuSeparator />

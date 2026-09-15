@@ -390,7 +390,7 @@ export default function DashboardViewPage() {
           {!executing && execError && (
             <div className="flex items-center justify-center h-[400px]">
               <div className="text-center space-y-3 max-w-md px-4">
-                <AlertTriangle className="h-8 w-8 mx-auto text-[var(--dp-warn)]" />
+                <AlertTriangle className="h-8 w-8 mx-auto text-[var(--dp-warn-text)]" />
                 <div>
                   <p className="text-sm font-medium">Query failed</p>
                   <p className="text-xs text-muted-foreground mt-1 break-words">{execError}</p>

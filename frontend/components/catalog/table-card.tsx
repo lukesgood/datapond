@@ -17,7 +17,7 @@ interface TableCardProps {
 
 const CATALOG_TYPE_STYLES: Record<string, { label: string; cls: string }> = {
   managed:  { label: "Managed",  cls: "bg-[var(--dp-managed)]/10 text-[var(--dp-managed)] border-[var(--dp-managed)]/25" },
-  external: { label: "External", cls: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-[var(--dp-warn)]/25" },
+  external: { label: "External", cls: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)] border-[var(--dp-warn)]/25" },
   foreign:  { label: "Foreign",  cls: "bg-[var(--chart-2)]/10 text-[var(--chart-2)] border-[var(--chart-2)]/25" },
 }
 

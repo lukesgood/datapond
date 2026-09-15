@@ -58,9 +58,9 @@ type PlanReview = {
 
 const FINDING_STYLE: Record<PlanFinding["severity"], string> = {
   critical: "text-destructive",
-  warning:  "text-[var(--dp-warn)]",
+  warning:  "text-[var(--dp-warn-text)]",
   info:     "text-muted-foreground",
-  good:     "text-[var(--dp-good)]",
+  good:     "text-[var(--dp-good-text)]",
 }
 
 function QueryPageInner() {
@@ -472,7 +472,7 @@ function QueryPageInner() {
             title={aiCheck.error || "Resolved against the catalog with EXPLAIN (TYPE VALIDATE)"}
             className={`shrink-0 rounded px-1.5 py-0.5 text-2xs font-medium ${
               aiCheck.ok
-                ? "bg-[var(--dp-good)]/10 text-[var(--dp-good)]"
+                ? "bg-[var(--dp-good)]/10 text-[var(--dp-good-text)]"
                 : "bg-destructive/10 text-destructive"
             }`}
           >
@@ -614,7 +614,7 @@ function QueryPageInner() {
                   aria-label="Copy SQL to clipboard" title="Copy SQL to clipboard"
                 >
                   {copied
-                    ? <Check className="h-3 w-3 text-[var(--dp-good)]" />
+                    ? <Check className="h-3 w-3 text-[var(--dp-good-text)]" />
                     : <Copy className="h-3 w-3" />}
                   {copied ? "Copied" : "Copy"}
                 </Button>
@@ -682,7 +682,7 @@ function QueryPageInner() {
                     {results.truncated && (
                       <Badge
                         variant="outline"
-                        className="text-2xs h-4 px-1.5 font-normal gap-1 text-[var(--dp-warn)] border-[var(--dp-warn)]/40"
+                        className="text-2xs h-4 px-1.5 font-normal gap-1 text-[var(--dp-warn-text)] border-[var(--dp-warn)]/40"
                         title="Add your own LIMIT clause to see more rows"
                       >
                         <AlertCircle className="h-3 w-3" />
@@ -692,7 +692,7 @@ function QueryPageInner() {
                     {resultsStale && (
                       <Badge
                         variant="outline"
-                        className="text-2xs h-4 px-1.5 font-normal gap-1 text-[var(--dp-warn)] border-[var(--dp-warn)]/40"
+                        className="text-2xs h-4 px-1.5 font-normal gap-1 text-[var(--dp-warn-text)] border-[var(--dp-warn)]/40"
                         title="The editor has changed since these results were produced — re-run to refresh"
                       >
                         <AlertCircle className="h-3 w-3" />

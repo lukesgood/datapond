@@ -15,8 +15,8 @@ interface Schema { name: string; tables: Table[] }
 interface Catalog { name: string; catalog_type?: string; schemas: Schema[] }
 
 const CATALOG_TYPE_BADGE: Record<string, { label: string; cls: string }> = {
-  managed:  { label: "M", cls: "text-[var(--dp-good)] bg-[var(--dp-good)]/10" },
-  external: { label: "E", cls: "text-[var(--dp-warn)] bg-[var(--dp-warn)]/10" },
+  managed:  { label: "M", cls: "text-[var(--dp-good-text)] bg-[var(--dp-good)]/10" },
+  external: { label: "E", cls: "text-[var(--dp-warn-text)] bg-[var(--dp-warn)]/10" },
   foreign:  { label: "F", cls: "text-[var(--dp-managed)] bg-[var(--dp-managed)]/10" },
 }
 
@@ -38,7 +38,7 @@ function typeTag(raw: string): { label: string; cls: string } {
   if (["double","float","real","decimal","numeric","float64"].includes(t))
     return { label: "dec", cls: "text-[var(--chart-4)] bg-[var(--chart-4)]/10" }
   if (["varchar","char","text","string","character varying"].includes(t))
-    return { label: "str", cls: "text-[var(--dp-good)] bg-[var(--dp-good)]/10" }
+    return { label: "str", cls: "text-[var(--dp-good-text)] bg-[var(--dp-good)]/10" }
   if (["boolean","bool"].includes(t))
     return { label: "bool", cls: "text-[var(--chart-5)] bg-[var(--chart-5)]/10" }
   if (["timestamp","date","time","timestamptz"].includes(t))

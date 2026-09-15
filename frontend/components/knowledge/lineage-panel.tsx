@@ -94,7 +94,7 @@ export function LineagePanel() {
                 {f.table && <><Chip node={f.table} /><ArrowRight className="h-3 w-3 text-muted-foreground" /></>}
                 <Chip node={collection} />
                 {!f.active && (
-                  <span className="rounded bg-[var(--dp-warn)]/10 px-1.5 py-0.5 text-2xs text-[var(--dp-warn)]">
+                  <span className="rounded bg-[var(--dp-warn)]/10 px-1.5 py-0.5 text-2xs text-[var(--dp-warn-text)]">
                     refresh paused
                   </span>
                 )}

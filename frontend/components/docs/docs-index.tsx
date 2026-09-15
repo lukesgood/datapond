@@ -45,8 +45,8 @@ type DocCategory = {
 
 // Encode lifecycle status as color so readers can scan shipped vs. optional vs. roadmap at a glance.
 const STATUS_STYLES: Record<NonNullable<DocLink["badge"]>, string> = {
-  Shipped: "bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-[var(--dp-good)]/25",
-  Optional: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-[var(--dp-warn)]/25",
+  Shipped: "bg-[var(--dp-good)]/10 text-[var(--dp-good-text)] border-[var(--dp-good)]/25",
+  Optional: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)] border-[var(--dp-warn)]/25",
   Reference: "bg-primary/10 text-primary border-primary/25",
   Roadmap: "bg-muted text-muted-foreground border-border",
 }

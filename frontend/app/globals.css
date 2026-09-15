@@ -102,6 +102,11 @@
   --dp-aqua: #0894ac;
   --dp-good: #0f9d6c;
   --dp-warn: #e08a00;
+  /* Text in a status colour. The base tones are for fills, dots, and borders: as text
+     they measured 3.1:1 (good) and 2.4:1 (warn) on the page ground, under the 4.5:1 body
+     text needs. These darker tones clear it (about 4.7 and 4.8). */
+  --dp-good-text: #0b7a55;
+  --dp-warn-text: #9a5b00;
   --dp-bad: #e11d48;
   --dp-managed: #0e7490;
   --dp-shadow: 0 1px 2px rgb(14 28 34 / 0.04), 0 10px 26px -14px rgb(14 28 34 / 0.16);
@@ -152,6 +157,8 @@
   --dp-aqua: #22c3d6;
   --dp-good: #2dd4a7;
   --dp-warn: #fbbf24;
+  --dp-good-text: #2dd4a7;
+  --dp-warn-text: #fbbf24;
   --dp-bad: #fb7185;
   --dp-managed: #22d3ee;
   --dp-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 14px 30px -16px rgb(0 0 0 / 0.7);

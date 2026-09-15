@@ -294,8 +294,8 @@ const ORDER = [
 
 // Match lifecycle status to color, consistent with the docs index badges.
 const STATUS_STYLES: Record<Status, string> = {
-  Shipped: "bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-[var(--dp-good)]/25",
-  Optional: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-[var(--dp-warn)]/25",
+  Shipped: "bg-[var(--dp-good)]/10 text-[var(--dp-good-text)] border-[var(--dp-good)]/25",
+  Optional: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)] border-[var(--dp-warn)]/25",
   Reference: "bg-primary/10 text-primary border-primary/25",
   Roadmap: "bg-muted text-muted-foreground border-border",
 }

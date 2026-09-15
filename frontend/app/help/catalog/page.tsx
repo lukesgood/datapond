@@ -48,7 +48,7 @@ export default function CatalogHelpPage() {
       {/* Page Header */}
       <div className="flex items-start gap-4">
         <div className="inline-flex p-3 rounded-lg bg-[var(--dp-good)]/10">
-          <Database className="h-8 w-8 text-[var(--dp-good)]" />
+          <Database className="h-8 w-8 text-[var(--dp-good-text)]" />
         </div>
         <div>
           <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-primary">Guide</p>

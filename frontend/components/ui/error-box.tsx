@@ -18,7 +18,7 @@ export function ErrorBox({ msg, action, className = "" }: {
 }) {
   if (!msg) return null
   return (
-    <div className={`rounded-md border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-3 py-2 text-xs text-[var(--dp-warn)] space-y-1 ${className}`}>
+    <div className={`rounded-md border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-3 py-2 text-xs text-[var(--dp-warn-text)] space-y-1 ${className}`}>
       <div className="flex items-start gap-2">
         <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" /><span>{msg}</span>
       </div>

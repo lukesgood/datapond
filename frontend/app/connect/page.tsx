@@ -217,7 +217,7 @@ function EndpointRow({ e, origin }: { e: Endpoint; origin: string }) {
         <span className={`w-14 shrink-0 rounded px-1.5 py-0.5 text-center font-mono text-2xs font-semibold ${
           e.method === "GET" ? "bg-primary/10 text-primary"
             : e.method === "DELETE" ? "bg-destructive/10 text-destructive"
-            : "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]"}`}>
+            : "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)]"}`}>
           {e.method}
         </span>
         <span className="min-w-0 flex-1 truncate font-mono text-xs">{e.path}</span>
@@ -270,7 +270,7 @@ function EndpointRow({ e, origin }: { e: Endpoint; origin: string }) {
           {res && (
             <div>
               <span className="text-2xs font-medium">
-                Response <span className={res.status >= 400 || res.status === 0 ? "text-destructive" : "text-[var(--dp-good)]"}>
+                Response <span className={res.status >= 400 || res.status === 0 ? "text-destructive" : "text-[var(--dp-good-text)]"}>
                   {res.status || "error"}
                 </span>
               </span>

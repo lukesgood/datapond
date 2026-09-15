@@ -197,7 +197,7 @@ export function LogToMlflowModal({
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <FlaskConical className="h-4 w-4 text-[var(--dp-warn)]" />
+            <FlaskConical className="h-4 w-4 text-[var(--dp-warn-text)]" />
             Log to MLflow
           </DialogTitle>
         </DialogHeader>
@@ -206,7 +206,7 @@ export function LogToMlflowModal({
         {result ? (
           <div className="py-4 space-y-4">
             <div className="flex flex-col items-center gap-3 py-4 text-center">
-              <CheckCircle2 className="h-10 w-10 text-[var(--dp-good)]" />
+              <CheckCircle2 className="h-10 w-10 text-[var(--dp-good-text)]" />
               <div>
                 <p className="font-medium text-sm">Run logged successfully!</p>
                 <p className="text-xs text-muted-foreground mt-0.5">

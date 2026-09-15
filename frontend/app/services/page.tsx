@@ -275,11 +275,11 @@ function ServicesPanel() {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm font-medium">Healthy</CardTitle>
-                  <CheckCircle2 className="h-4 w-4 text-[var(--dp-good)]" />
+                  <CheckCircle2 className="h-4 w-4 text-[var(--dp-good-text)]" />
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-[var(--dp-good)] dp-num">{healthyCount}</div>
+                <div className="text-2xl font-bold text-[var(--dp-good-text)] dp-num">{healthyCount}</div>
               </CardContent>
             </Card>
 
@@ -312,7 +312,7 @@ function ServicesPanel() {
               silently showing state that may be stale. */}
           {error && services.length > 0 && (
             <div className="flex items-center gap-2 rounded-md border border-[var(--dp-warn)]/40 bg-[var(--dp-warn)]/10 px-3 py-2 text-xs">
-              <AlertCircle className="h-4 w-4 shrink-0 text-[var(--dp-warn)]" />
+              <AlertCircle className="h-4 w-4 shrink-0 text-[var(--dp-warn-text)]" />
               <span>Showing last known state — refresh failed ({error}).</span>
             </div>
           )}

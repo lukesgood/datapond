@@ -159,7 +159,7 @@ export function ConnectionForm({
       {/* Credential handling reassurance — only when the form actually collects a secret. */}
       {hasSecret && (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-[var(--dp-good)]" />
+          <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-[var(--dp-good-text)]" />
           Credentials are encrypted at rest by the platform credential vault.
         </p>
       )}
@@ -178,7 +178,7 @@ export function ConnectionForm({
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             )}
             {testStatus === "success" && (
-              <CheckCircle2 className="mr-2 h-4 w-4 text-[var(--dp-good)]" />
+              <CheckCircle2 className="mr-2 h-4 w-4 text-[var(--dp-good-text)]" />
             )}
             {testStatus === "error" && (
               <XCircle className="mr-2 h-4 w-4 text-destructive" />
@@ -195,8 +195,8 @@ export function ConnectionForm({
 
           {testStatus === "success" && (
             <Alert className="border-[var(--dp-good)]/50 bg-[var(--dp-good)]/10">
-              <CheckCircle2 className="h-4 w-4 text-[var(--dp-good)]" />
-              <AlertDescription className="text-[var(--dp-good)]">
+              <CheckCircle2 className="h-4 w-4 text-[var(--dp-good-text)]" />
+              <AlertDescription className="text-[var(--dp-good-text)]">
                 {testMessage || "Connection successful!"}
               </AlertDescription>
             </Alert>

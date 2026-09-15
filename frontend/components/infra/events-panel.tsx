@@ -30,7 +30,7 @@ interface EventsResponse {
 
 const SEVERITY = {
   critical: { label: "Critical", Icon: ShieldAlert,   cls: "bg-destructive/10 text-destructive border-destructive/30" },
-  warning:  { label: "Warning",  Icon: AlertTriangle, cls: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-[var(--dp-warn)]/30" },
+  warning:  { label: "Warning",  Icon: AlertTriangle, cls: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)] border-[var(--dp-warn)]/30" },
   info:     { label: "Info",     Icon: Info,          cls: "bg-muted text-muted-foreground border-transparent" },
 } as const
 
@@ -186,7 +186,7 @@ export function EventsPanel() {
             const note = causeNote(e)
             return (
               <div key={e.id} className="rounded-md border p-3 flex gap-3">
-                <meta.Icon className={`h-4 w-4 mt-0.5 shrink-0 ${e.severity === "critical" ? "text-destructive" : e.severity === "warning" ? "text-[var(--dp-warn)]" : "text-muted-foreground"}`} />
+                <meta.Icon className={`h-4 w-4 mt-0.5 shrink-0 ${e.severity === "critical" ? "text-destructive" : e.severity === "warning" ? "text-[var(--dp-warn-text)]" : "text-muted-foreground"}`} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                     <span className="text-sm font-medium">{KIND_LABEL[e.kind] ?? e.kind}</span>
@@ -195,7 +195,7 @@ export function EventsPanel() {
                     <span className="text-xs text-muted-foreground ml-auto tabular-nums">{when(e.last_seen)}</span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1 break-words">{e.message}</p>
-                  {note && <p className="text-xs mt-1 text-[var(--dp-warn)]">{note}</p>}
+                  {note && <p className="text-xs mt-1 text-[var(--dp-warn-text)]">{note}</p>}
                   <p className="text-2xs text-muted-foreground mt-1">
                     {summarizeOccurrences(e.occurrences, e.first_seen, e.last_seen)}
                     {e.occurrences > 1 && <> · first {when(e.first_seen)}</>}

@@ -158,7 +158,7 @@ export default function ConnectorsHelpPage() {
 
             <div className="flex items-start gap-3">
               <div className="inline-flex p-2 rounded-lg bg-[var(--dp-good)]/10 flex-shrink-0">
-                <HardDrive className="h-5 w-5 text-[var(--dp-good)]" />
+                <HardDrive className="h-5 w-5 text-[var(--dp-good-text)]" />
               </div>
               <div>
                 <h3 className="font-semibold">Storage Connectors</h3>
@@ -176,7 +176,7 @@ export default function ConnectorsHelpPage() {
 
             <div className="flex items-start gap-3">
               <div className="inline-flex p-2 rounded-lg bg-[var(--dp-warn)]/10 flex-shrink-0">
-                <Radio className="h-5 w-5 text-[var(--dp-warn)]" />
+                <Radio className="h-5 w-5 text-[var(--dp-warn-text)]" />
               </div>
               <div>
                 <h3 className="font-semibold">Streaming Connectors</h3>

@@ -14,9 +14,9 @@ interface ConnectorCardProps {
 export function ConnectorCard({ connector }: ConnectorCardProps) {
   const categoryColors = {
     database: "bg-blue-500/10 text-blue-500",
-    storage: "bg-[var(--dp-good)]/10 text-[var(--dp-good)]",
+    storage: "bg-[var(--dp-good)]/10 text-[var(--dp-good-text)]",
     streaming: "bg-purple-500/10 text-purple-500",
-    saas: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]"
+    saas: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)]"
   }
 
   return (
