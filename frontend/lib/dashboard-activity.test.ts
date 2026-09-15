@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { activitySentence, activityTotals, actorsFrom, platformStatus, startOfLocalDay } from "./dashboard-activity.ts"
+import { activitySentence, activityTotals, actorsFrom, platformStatus, spendFromBudgetAlerts, startOfLocalDay } from "./dashboard-activity.ts"
 
 test("today starts at local midnight", () => {
   const d = startOfLocalDay(new Date(2026, 8, 15, 14, 30, 12))
@@ -34,4 +34,11 @@ test("adapters are counted as configured, and unhealthy workloads are named", ()
     { name: "aurora", status: "managed" }, { name: "litellm", status: "unhealthy" },
   ])
   assert.deepEqual(p, { healthy: 1, observed: 3, configured: 1, attention: ["litellm", "valkey"] })
+})
+
+test("model spend is the gateway total, and an unread gateway is not zero", () => {
+  assert.deepEqual(spendFromBudgetAlerts({ spend_total: 0.299768, global: null, alerts: [] }), { total_spend: 0.299768 })
+  assert.deepEqual(spendFromBudgetAlerts({ spend_total: 0 }), { total_spend: 0 })
+  assert.deepEqual(spendFromBudgetAlerts({ spend_total: null }), { unavailable: "gateway spend could not be read" })
+  assert.deepEqual(spendFromBudgetAlerts(undefined), { unavailable: "gateway spend could not be read" })
 })

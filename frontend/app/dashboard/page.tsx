@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { ErrorBox } from "@/components/ui/error-box"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
-  activitySentence, activityTotals, actorsFrom, platformStatus, startOfLocalDay,
+  activitySentence, activityTotals, actorsFrom, platformStatus, spendFromBudgetAlerts, startOfLocalDay,
   type ActorSummary, type ServiceState,
 } from "@/lib/dashboard-activity"
 import { useHasPermission } from "@/lib/permissions"
@@ -47,9 +47,9 @@ export default function DashboardPage() {
     setRefreshing(true)
     const since = encodeURIComponent(startOfLocalDay(new Date()).toISOString())
     const when = (allowed: boolean, url: string) => (allowed ? fetchJson(url) : Promise.resolve(SKIPPED))
-    const [calls, spendRes, budgetRes, svc, cols, store] = await Promise.allSettled([
+    const [calls, budgetRes, svc, cols, store] = await Promise.allSettled([
       when(canAudit, `/api/audit/tool-calls/summary?since=${since}`),
-      when(canSpend, "/api/settings/ai/spend"),
+      // Carries the gateway-wide spend (spendFromBudgetAlerts) as well as the budget.
       when(canSpend, "/api/settings/ai/budget-alerts"),
       fetchJson("/api/services"),
       when(canKnowledge, "/api/ai/collections"),
@@ -62,9 +62,8 @@ export default function DashboardPage() {
     setActors(actorList)
     if (canAudit && actorList === null) failed.push("tool call activity")
 
-    // totalSpendLabel reads an `unavailable` payload as not measured; a failed request is the same.
-    setSpend(spendRes.status === "fulfilled" && spendRes.value !== SKIPPED ? spendRes.value : null)
     const budgetValue = value(budgetRes)
+    setSpend(budgetValue === SKIPPED ? null : spendFromBudgetAlerts(budgetValue))
     setBudget(budgetValue && budgetValue !== SKIPPED && typeof budgetValue === "object"
       ? ((budgetValue as { global?: GlobalBudget }).global ?? null) : null)
     if (canSpend && budgetRes.status === "rejected") failed.push("budget")

@@ -73,3 +73,13 @@ export function platformStatus(services: ServiceState[]): PlatformStatus {
     attention: observed.filter((s) => s.status !== "healthy").map((s) => s.name).sort(),
   }
 }
+
+/** Gateway-wide lifetime spend from GET /api/settings/ai/budget-alerts, in the shape
+ *  totalSpendLabel reads. /settings/ai/spend is not this: it sums spend recorded against
+ *  virtual keys only, and read $0.00 on a deployment whose gateway had spent $0.30. */
+export function spendFromBudgetAlerts(payload: unknown): { total_spend: number } | { unavailable: string } {
+  const total = typeof payload === "object" && payload !== null ? (payload as { spend_total?: unknown }).spend_total : undefined
+  return typeof total === "number" && Number.isFinite(total)
+    ? { total_spend: total }
+    : { unavailable: "gateway spend could not be read" }
+}

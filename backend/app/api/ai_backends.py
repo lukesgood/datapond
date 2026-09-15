@@ -728,12 +728,15 @@ async def budget_alerts(threshold: float = 80.0):
     for near-limit alerting on external-LLM spend."""
     url, key = _gateway()
     h = _headers(key)
-    out = {"threshold": threshold, "global": None, "alerts": []}
+    # spend_total is the gateway-wide lifetime spend whether or not a budget is set; None
+    # when /global/spend could not be read. `global` stays budget-only, as before.
+    out = {"threshold": threshold, "global": None, "alerts": [], "spend_total": None}
     try:
         async with httpx.AsyncClient(timeout=10) as c:
             gs = await c.get(f"{url}/global/spend", headers=h)
             if gs.status_code < 400:
                 d = gs.json(); mb = float(d.get("max_budget") or 0); sp = float(d.get("spend") or 0)
+                out["spend_total"] = round(sp, 6)
                 if mb:
                     pct = round(sp / mb * 100, 1)
                     out["global"] = {"spend": round(sp, 6), "max_budget": mb, "pct": pct,
