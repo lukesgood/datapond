@@ -1,7 +1,6 @@
 "use client"
 
 import Link from "next/link"
-import { Card, CardContent } from "@/components/ui/card"
 import { ArrowDownToLine, Database, Sparkles, Plug, ShieldCheck } from "lucide-react"
 import { useCapabilities } from "@/lib/capabilities"
 
@@ -10,8 +9,7 @@ type Step = {
   title: string
   sub: string
   href: string
-  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>
-  color: string
+  icon: React.ComponentType<{ className?: string }>
   cta?: boolean
 }
 
@@ -30,7 +28,6 @@ export function JourneyStrip() {
       sub: sourcesEnabled ? "Sources" : "Files, text & S3",
       href: sourcesEnabled ? "/connectors" : "/knowledge",
       icon: ArrowDownToLine,
-      color: "var(--chart-1)",
     },
     {
       n: "02",
@@ -38,7 +35,6 @@ export function JourneyStrip() {
       sub: catalogEnabled ? `${catalog} catalog` : "Knowledge collections",
       href: catalogEnabled ? "/catalog" : "/knowledge",
       icon: Database,
-      color: "var(--chart-3)",
     },
     {
       n: "03",
@@ -46,7 +42,6 @@ export function JourneyStrip() {
       sub: "Embed · retrieve · rerank",
       href: "/knowledge",
       icon: Sparkles,
-      color: "var(--chart-4)",
     },
     {
       n: "04",
@@ -54,7 +49,6 @@ export function JourneyStrip() {
       sub: "Issue a key, call this deployment",
       href: "/connect",
       icon: Plug,
-      color: "var(--chart-2)",
       cta: true,
     },
     {
@@ -63,14 +57,13 @@ export function JourneyStrip() {
       sub: "Access · PII · spend",
       href: "/governance",
       icon: ShieldCheck,
-      color: "var(--chart-5)",
     },
   ]
 
   return (
-    <Card>
-      <CardContent className="px-5 py-4">
-        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
+    // Secondary to the activity above: no card, a muted ground, one accent colour.
+    <section className="rounded-lg border border-dashed px-5 py-4">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
           Core workflow
         </p>
         <div className="flex flex-wrap items-center gap-y-3">
@@ -85,17 +78,16 @@ export function JourneyStrip() {
                 }
               >
                 <span
-                  className="dp-num grid h-8 w-8 shrink-0 place-items-center rounded-lg text-xs font-bold text-white transition-transform group-hover:scale-105"
-                  style={{ background: step.color }}
+                  className="dp-num grid h-7 w-7 shrink-0 place-items-center rounded-md bg-primary/10 text-xs font-semibold text-primary transition-transform group-hover:scale-105"
                 >
                   {step.n}
                 </span>
                 <span className="min-w-0">
-                  <span className="flex items-center gap-1.5 text-[13px] font-semibold group-hover:text-primary">
-                    <step.icon className="h-3.5 w-3.5" style={{ color: step.color }} />
+                  <span className="flex items-center gap-1.5 text-sm font-semibold group-hover:text-primary">
+                    <step.icon className="h-3.5 w-3.5 text-muted-foreground" />
                     {step.title}
                   </span>
-                  <span className={`block truncate text-[10.5px] text-muted-foreground${step.cta ? "" : " capitalize"}`}>{step.sub}</span>
+                  <span className={`block truncate text-xs text-muted-foreground${step.cta ? "" : " capitalize"}`}>{step.sub}</span>
                 </span>
               </Link>
               {index < steps.length - 1 && (
@@ -104,7 +96,6 @@ export function JourneyStrip() {
             </div>
           ))}
         </div>
-      </CardContent>
-    </Card>
+    </section>
   )
 }
