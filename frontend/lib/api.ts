@@ -156,6 +156,7 @@ export interface AuditLogItem {
   event_type: string
   query_text: string | null
   user_id: string | null
+  user_name?: string | null
   status: string
   execution_time_ms: number | null
   rows_returned: number | null
@@ -171,6 +172,7 @@ export interface AuditStreamItem {
   source: string
   event_type: string
   actor: string | null
+  actor_name?: string | null
   target: string | null
   action: string | null
   status: string | null

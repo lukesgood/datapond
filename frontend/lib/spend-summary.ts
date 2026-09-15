@@ -1,3 +1,5 @@
+import { formatUsd } from "./format-usd.ts"
+
 /** "Total spend" on the AI Gateway page, from GET /api/settings/ai/spend.
  *
  *  That endpoint answers `{total_spend, keys_with_spend}` when it could read the gateway
@@ -13,7 +15,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function totalSpendLabel(summary: unknown): SpendLabel {
   if (isRecord(summary) && typeof summary.total_spend === "number" && Number.isFinite(summary.total_spend)) {
-    return { text: `$${summary.total_spend.toFixed(4)}`, measured: true }
+    return { text: formatUsd(summary.total_spend), measured: true }
   }
   // Same convention as the Governance stat cards: an em dash with a "Not measured" title,
   // never a zero, when nothing was measured.

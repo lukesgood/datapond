@@ -48,6 +48,8 @@ import type {
   PiiTable,
   AiSafetyFlag,
 } from "@/lib/api"
+import { formatUsd } from "@/lib/format-usd"
+import { callerLabel } from "@/lib/caller-label"
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -581,6 +583,7 @@ interface AiUsageModel {
 }
 interface AiUsageUser {
   user: string
+  name?: string | null
   spend: number
   requests: number
   total_tokens: number
@@ -598,10 +601,6 @@ interface AiUsage {
   users: AiUsageUser[]
   keys: AiUsageKey[]
   total_tokens: number
-}
-
-function fmtUsd(n: number): string {
-  return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: n < 1 ? 4 : 2 })}`
 }
 
 function CostTab() {
@@ -636,7 +635,7 @@ function CostTab() {
           <CardContent className="pt-5 pb-4">
             <p className="text-sm text-muted-foreground">Total AI spend</p>
             <p className="dp-num text-3xl font-bold mt-1 text-[var(--chart-1)]">
-              {usage ? fmtUsd(usage.total_spend) : "$0.00"}
+              {usage ? formatUsd(usage.total_spend) : "$0.00"}
             </p>
             {usage?.max_budget != null && budgetPct != null && (
               <div className="mt-2 space-y-1">
@@ -645,7 +644,7 @@ function CostTab() {
                   colorVar={budgetPct >= 90 ? "var(--destructive)" : budgetPct >= 75 ? "var(--dp-warn)" : "var(--dp-good)"}
                 />
                 <p className="text-xs text-muted-foreground">
-                  {budgetPct}% of {fmtUsd(usage.max_budget)} budget
+                  {budgetPct}% of {formatUsd(usage.max_budget)} budget
                 </p>
               </div>
             )}
@@ -704,12 +703,12 @@ function CostTab() {
                       <TableRow key={u.user}>
                         <TableCell className="text-sm">
                           <div className="space-y-1 max-w-[220px]">
-                            {u.user === "unattributed" ? <span className="text-muted-foreground italic">unattributed</span> : u.user}
+                            {u.user === "unattributed" ? <span className="text-muted-foreground italic">unattributed</span> : <span title={callerLabel(u.name, u.user).title}>{callerLabel(u.name, u.user).text}</span>}
                             {/* Share of total spend — scannable ranking without a chart lib */}
                             {usage!.total_spend > 0 && <ShareBar pct={(u.spend / usage!.total_spend) * 100} />}
                           </div>
                         </TableCell>
-                        <TableCell className="dp-num text-right">{fmtUsd(u.spend)}</TableCell>
+                        <TableCell className="dp-num text-right">{formatUsd(u.spend)}</TableCell>
                         <TableCell className="dp-num text-right">{u.requests.toLocaleString()}</TableCell>
                         <TableCell className="dp-num text-right">{u.total_tokens.toLocaleString()}</TableCell>
                       </TableRow>
@@ -747,7 +746,7 @@ function CostTab() {
                             {usage!.total_spend > 0 && <ShareBar pct={(m.spend / usage!.total_spend) * 100} colorVar="var(--chart-2)" />}
                           </div>
                         </TableCell>
-                        <TableCell className="dp-num text-right">{fmtUsd(m.spend)}</TableCell>
+                        <TableCell className="dp-num text-right">{formatUsd(m.spend)}</TableCell>
                         <TableCell className="dp-num text-right">{m.requests.toLocaleString()}</TableCell>
                         <TableCell className="dp-num text-right">{m.total_tokens.toLocaleString()}</TableCell>
                       </TableRow>
@@ -985,6 +984,7 @@ export default function GovernancePage() {
         const q = searchQuery.toLowerCase()
         return (
           i.user_id?.toLowerCase().includes(q) ||
+          i.user_name?.toLowerCase().includes(q) ||
           i.catalog?.toLowerCase().includes(q) ||
           i.schema_name?.toLowerCase().includes(q) ||
           i.query_text?.toLowerCase().includes(q) ||
@@ -1156,7 +1156,7 @@ export default function GovernancePage() {
                         <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                           {relativeTime(item.created_at)}
                         </TableCell>
-                        <TableCell className="text-sm">{item.user_id ?? "—"}</TableCell>
+                        <TableCell className="text-sm" title={callerLabel(item.user_name, item.user_id).title}>{callerLabel(item.user_name, item.user_id).text}</TableCell>
                         <TableCell><EventBadge type={item.event_type} /></TableCell>
                         <TableCell className="text-sm font-mono text-xs max-w-[200px] truncate">
                           {[item.catalog, item.schema_name].filter(Boolean).join(".") || item.query_text || "—"}
@@ -1282,7 +1282,7 @@ export default function GovernancePage() {
                             </span>
                           )}
                         </TableCell>
-                        <TableCell className="text-sm max-w-[160px] truncate">{item.actor ?? "—"}</TableCell>
+                        <TableCell className="text-sm max-w-[160px] truncate" title={callerLabel(item.actor_name, item.actor).title}>{callerLabel(item.actor_name, item.actor).text}</TableCell>
                         <TableCell className="text-sm font-mono text-xs max-w-[200px] truncate">
                           {item.target ?? "—"}
                         </TableCell>

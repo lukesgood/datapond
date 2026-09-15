@@ -14,11 +14,11 @@ import { test } from "node:test"
 import { totalSpendLabel } from "./spend-summary.ts"
 
 test("a measured total renders as dollars", () => {
-  assert.deepEqual(totalSpendLabel({ total_spend: 3.5, keys_with_spend: 2 }), { text: "$3.5000", measured: true })
+  assert.deepEqual(totalSpendLabel({ total_spend: 3.5, keys_with_spend: 2 }), { text: "$3.50", measured: true })
 })
 
 test("a measured zero is still a measurement", () => {
-  assert.deepEqual(totalSpendLabel({ total_spend: 0, keys_with_spend: 0 }), { text: "$0.0000", measured: true })
+  assert.deepEqual(totalSpendLabel({ total_spend: 0, keys_with_spend: 0 }), { text: "$0.00", measured: true })
 })
 
 test("an unreadable gateway renders as not measured, with the reason, instead of throwing", () => {

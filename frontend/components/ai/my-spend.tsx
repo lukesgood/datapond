@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { DollarSign, Loader2 } from "lucide-react"
+import { formatUsd } from "@/lib/format-usd"
 
 type AppRow = { app: string; spend: number; requests: number; total_tokens: number }
 type Mine = { spend: number; requests: number; total_tokens: number; models: string[]; apps: AppRow[] }
@@ -44,7 +45,6 @@ export function MySpend() {
   }
   if (!m) return null
 
-  const fmt$ = (n: number) => n >= 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(6)}`
   const fmtN = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 
   return (
@@ -60,7 +60,7 @@ export function MySpend() {
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid grid-cols-3 gap-3">
-          {[["Spend", fmt$(m.spend)], ["Requests", fmtN(m.requests)],
+          {[["Spend", formatUsd(m.spend)], ["Requests", fmtN(m.requests)],
             ["Tokens", fmtN(m.total_tokens)]].map(([k, v]) => (
             <div key={k} className="rounded-lg border p-3">
               <div className="text-[11px] text-muted-foreground">{k}</div>
@@ -79,7 +79,7 @@ export function MySpend() {
                 <span>{LABELS[a.app] ?? a.app}</span>
                 <span className="flex gap-4 tabular-nums text-muted-foreground">
                   <span>{fmtN(a.requests)} req</span>
-                  <span className="w-16 text-right font-medium text-foreground">{fmt$(a.spend)}</span>
+                  <span className="w-16 text-right font-medium text-foreground">{formatUsd(a.spend)}</span>
                 </span>
               </div>
             ))}

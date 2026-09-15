@@ -25,6 +25,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
+from app.user_labels import labels_async
 from app.api.auth import require_admin, require_permission, require_user
 from app.api.connectors import get_db_pool
 from app.runtime import component_secret
@@ -675,7 +676,23 @@ async def usage_summary():
                     })
     except Exception as e:
         logger.warning(f"[ai_backends] usage summary failed: {e}")
+    out["users"] = await _with_user_names(out["users"])
     return out
+
+
+async def _with_user_names(users: list) -> list:
+    """Each spend row gains `name`: end_user is a DataPond user id, which reads as noise."""
+    ids = [u["user"] for u in users if u.get("user") and u["user"] != "unattributed"]
+    names = {}
+    if ids:
+        try:
+            from app.api.connectors import get_db_pool
+            pool = await get_db_pool()
+            async with pool.acquire() as conn:
+                names = await labels_async(conn, ids)
+        except Exception as e:
+            logger.warning(f"[ai_backends] spend user names unavailable: {e}")
+    return [{**u, "name": names.get(u.get("user"))} for u in users]
 
 
 @router.get("/settings/ai/spend/report", dependencies=[Depends(require_permission("spend:read"))])

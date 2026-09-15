@@ -22,6 +22,7 @@ from app.models.query import QueryHistory
 logger = logging.getLogger(__name__)
 
 from app.api.auth import require_permission
+from app.user_labels import labels_sync
 
 router = APIRouter()
 
@@ -87,6 +88,7 @@ class AuditLogItem(BaseModel):
     event_type: str
     query_text: Optional[str] = None
     user_id: Optional[str] = None
+    user_name: Optional[str] = None  # label for user_id; None when unknown
     status: str
     execution_time_ms: Optional[int] = None
     rows_returned: Optional[int] = None
@@ -106,6 +108,7 @@ class AuditStreamItem(BaseModel):
     source: str                       # query | auth | connector
     event_type: str
     actor: Optional[str] = None       # who (user id/email, or None for automation)
+    actor_name: Optional[str] = None  # readable label when actor is a user id
     target: Optional[str] = None      # what (table / resource)
     action: Optional[str] = None
     status: Optional[str] = None      # success | error | failure | timeout | ...
@@ -248,6 +251,7 @@ async def get_audit_log(
             .offset(offset)
             .all()
         )
+        names = labels_sync(db, [item.user_id for item in items])
 
         def _event_type(status: str) -> str:
             return {
@@ -263,6 +267,7 @@ async def get_audit_log(
                     event_type=_event_type(item.status),
                     query_text=item.query_text,
                     user_id=str(item.user_id) if item.user_id else None,
+                    user_name=names.get(str(item.user_id)) if item.user_id else None,
                     status=item.status,
                     execution_time_ms=item.execution_time_ms,
                     rows_returned=item.rows_returned,
@@ -647,6 +652,11 @@ async def get_audit_stream(
 
     scored.sort(key=lambda t: t[0], reverse=True)
     items = [it for _, it in scored[:limit]]
+    # query rows (and auth rows without an email) carry a bare user id as the actor.
+    names = labels_sync(db, [it.actor for it in items if it.actor and "@" not in it.actor])
+    for it in items:
+        if it.actor:
+            it.actor_name = names.get(it.actor)
     return AuditStreamResponse(items=items, total=len(items), sources=sources_ok)
 
 

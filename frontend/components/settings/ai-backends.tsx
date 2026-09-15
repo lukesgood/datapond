@@ -18,6 +18,8 @@ import {
   Sparkles, Plus, Trash2, CheckCircle2, XCircle, Loader2, RefreshCw,
   Eye, EyeOff, Zap, Server, AlertCircle, Star, KeyRound, Copy, DollarSign, CalendarRange,
 } from "lucide-react"
+import { formatUsd } from "@/lib/format-usd"
+import { callerLabel } from "@/lib/caller-label"
 
 // Provider catalog — mirrors PROVIDERS in backend/app/api/ai_backends.py.
 // `fields` drives which inputs the Add-backend form shows.
@@ -516,7 +518,7 @@ export function AiBackends() {
 
 interface ModelUsage { model: string; spend: number; requests: number; total_tokens: number; prompt_tokens: number; completion_tokens: number }
 interface KeyUsage { key_alias: string | null; spend: number; max_budget: number | null; pct: number | null }
-interface UserUsage { user: string; spend: number; requests: number; total_tokens: number }
+interface UserUsage { user: string; name?: string | null; spend: number; requests: number; total_tokens: number }
 /** What the spend was FOR. `app` is the product feature — ai_chat (the assistant),
  *  ai_sql (Ask AI), ai_rag, ai_embed — or "untagged" for calls that carry no tag. */
 const APP_LABELS: Record<string, string> = {
@@ -530,7 +532,6 @@ const APP_LABELS: Record<string, string> = {
 interface AppUsage { app: string; spend: number; requests: number; total_tokens: number }
 interface Usage { total_spend: number; max_budget: number | null; total_tokens: number; models: ModelUsage[]; keys: KeyUsage[]; users?: UserUsage[]; apps?: AppUsage[]; egress_policy?: string }
 
-const fmt$ = (n: number) => "$" + (n < 0.01 ? n.toFixed(6) : n.toFixed(4))
 const fmtN = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n)
 
 // Shape of GET /api/settings/ai/budget-alerts — covers both per-key breaches and
@@ -555,7 +556,7 @@ export function UsagePanel() {
       .then(r => (r.ok ? r.json() : null)).then(setBa).catch(() => setBa(null))
     // Same guard as the line above. Without it a 401 body ({"detail": "Not authenticated"})
     // became `u`, passed the `if (!u)` check below, and crashed rendering on
-    // fmt$(u.total_spend) before the session-expired overlay could show.
+    // formatUsd(u.total_spend) before the session-expired overlay could show.
     fetch("/api/settings/ai/usage")
       .then(r => (r.ok ? r.json() : null)).then(setU).catch(() => {}).finally(() => setLoading(false))
   }, [])
@@ -578,7 +579,7 @@ export function UsagePanel() {
           <span>
             {globalAlert && (
               <span className="block">
-                <b>Global budget alert:</b> {globalAlert.pct}% used ({fmt$(globalAlert.spend)} / {fmt$(globalAlert.max_budget)}).
+                <b>Global budget alert:</b> {globalAlert.pct}% used ({formatUsd(globalAlert.spend)} / {formatUsd(globalAlert.max_budget)}).
               </span>
             )}
             {keyAlerts.length > 0 && (
@@ -600,7 +601,7 @@ export function UsagePanel() {
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-lg border p-3">
             <div className="text-[11px] text-muted-foreground">Total spend</div>
-            <div className="text-lg font-semibold">{fmt$(u.total_spend)}{u.max_budget ? <span className="text-xs text-muted-foreground"> / {fmt$(u.max_budget)}</span> : null}</div>
+            <div className="text-lg font-semibold">{formatUsd(u.total_spend)}{u.max_budget ? <span className="text-xs text-muted-foreground"> / {formatUsd(u.max_budget)}</span> : null}</div>
           </div>
           <div className="rounded-lg border p-3">
             <div className="text-[11px] text-muted-foreground">Tokens (recent)</div>
@@ -630,7 +631,7 @@ export function UsagePanel() {
                     <span className="relative flex gap-4 tabular-nums text-muted-foreground">
                       <span>{fmtN(a.requests)} req</span>
                       <span>{fmtN(a.total_tokens)} tok</span>
-                      <span className="w-16 text-right font-medium text-foreground">{fmt$(a.spend)}</span>
+                      <span className="w-16 text-right font-medium text-foreground">{formatUsd(a.spend)}</span>
                     </span>
                   </div>
                 ))}
@@ -666,7 +667,7 @@ export function UsagePanel() {
                       style={{ width: `${Math.max(2, (m.spend / maxSpend) * 100)}%` }} />
                   )}
                   <span className="relative font-mono truncate">{m.model}</span>
-                  <span className="relative text-right tabular-nums">{fmt$(m.spend)}</span>
+                  <span className="relative text-right tabular-nums">{formatUsd(m.spend)}</span>
                   <span className="relative text-right tabular-nums text-muted-foreground">{m.requests}</span>
                   <span className="relative text-right tabular-nums text-muted-foreground">{fmtN(m.total_tokens)} <span className="opacity-60">({fmtN(m.prompt_tokens)}/{fmtN(m.completion_tokens)})</span></span>
                 </div>
@@ -685,8 +686,8 @@ export function UsagePanel() {
               </div>
               {u.users.map((x, i) => (
                 <div key={i} className="grid grid-cols-[1fr_auto_auto] gap-3 px-3 py-1.5 text-xs items-center">
-                  <span className="font-mono truncate">{x.user}</span>
-                  <span className="text-right">{fmt$(x.spend)}</span>
+                  <span className="truncate" title={callerLabel(x.name, x.user).title}>{callerLabel(x.name, x.user).text}</span>
+                  <span className="text-right">{formatUsd(x.spend)}</span>
                   <span className="text-right text-muted-foreground">{x.requests} / {fmtN(x.total_tokens)}</span>
                 </div>
               ))}
@@ -702,7 +703,7 @@ export function UsagePanel() {
                 <div key={i} className="text-xs">
                   <div className="flex justify-between mb-0.5">
                     <span className="font-mono">{k.key_alias || "key"}</span>
-                    <span className="text-muted-foreground">{fmt$(k.spend)} / {fmt$(k.max_budget!)} ({k.pct}%)</span>
+                    <span className="text-muted-foreground">{formatUsd(k.spend)} / {formatUsd(k.max_budget!)} ({k.pct}%)</span>
                   </div>
                   <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                     <div className={`h-full ${(k.pct || 0) >= 90 ? "bg-destructive" : (k.pct || 0) >= 70 ? "bg-[var(--dp-warn)]" : "bg-primary"}`}
@@ -755,13 +756,13 @@ function SpendBars({ rows }: { rows: { label: string; spend: number }[] }) {
     <div className="rounded-md border p-3">
       <div className="mb-2 flex items-baseline justify-between text-[11px] text-muted-foreground">
         <span>Daily spend</span>
-        <span className="tabular-nums">peak {fmt$(peak)} · {peakLabel.label}</span>
+        <span className="tabular-nums">peak {formatUsd(peak)} · {peakLabel.label}</span>
       </div>
       <div className="flex h-24 items-end gap-px overflow-x-auto border-b pb-px">
         {rows.map((r, i) => {
           const isPeak = r.spend === peak
           return (
-            <div key={i} title={`${r.label} · ${fmt$(r.spend)}`}
+            <div key={i} title={`${r.label} · ${formatUsd(r.spend)}`}
               className="group flex min-w-[3px] flex-1 flex-col justify-end self-stretch">
               <div className={`w-full rounded-t-sm transition-colors ${isPeak ? "bg-primary" : "bg-primary/35 group-hover:bg-primary/60"}`}
                 style={{ height: `${Math.max(2, (r.spend / peak) * 100)}%` }} />
@@ -821,7 +822,7 @@ function SpendReportSection() {
             return (
               <>
                 <div className="text-[11px] text-muted-foreground">
-                  {data.start_date} → {data.end_date} · total {fmt$(total)}
+                  {data.start_date} → {data.end_date} · total {formatUsd(total)}
                 </div>
                 {rows.length > 0 ? (
                   <>
@@ -830,7 +831,7 @@ function SpendReportSection() {
                       {rows.map((r, i) => (
                         <div key={i} className="grid grid-cols-[1fr_auto] gap-3 px-3 py-1.5 text-xs">
                           <span className="font-mono truncate">{r.label}</span>
-                          <span className="text-right tabular-nums">{fmt$(r.spend)}</span>
+                          <span className="text-right tabular-nums">{formatUsd(r.spend)}</span>
                         </div>
                       ))}
                     </div>
@@ -1062,7 +1063,7 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
                         {k.models.length > 0 && <Badge variant="secondary" className="h-4 text-[10px]">{k.models.join(", ")}</Badge>}
                       </div>
                       <p className="text-[11px] text-muted-foreground mt-1 tabular-nums">
-                        spend ${Number(k.spend).toFixed(4)}{k.max_budget != null ? ` / $${k.max_budget}` : " · no budget cap"}
+                        spend {formatUsd(Number(k.spend))}{k.max_budget != null ? ` / ${formatUsd(k.max_budget)}` : " · no budget cap"}
                         {k.rpm_limit != null ? ` · ${k.rpm_limit} rpm` : ""}{k.tpm_limit != null ? ` · ${k.tpm_limit} tpm` : ""}
                       </p>
                       {pct != null && (
@@ -1072,7 +1073,7 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
                               {pct >= 100 ? "Budget exhausted" : `${Math.round(pct)}% of budget`}
                             </span>
                             <span className="text-muted-foreground">
-                              ${Math.max(0, (k.max_budget || 0) - k.spend).toFixed(2)} left
+                              {formatUsd(Math.max(0, (k.max_budget || 0) - k.spend))} left
                             </span>
                           </div>
                           <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
