@@ -217,7 +217,7 @@ function EndpointRow({ e, origin }: { e: Endpoint; origin: string }) {
         <span className={`w-14 shrink-0 rounded px-1.5 py-0.5 text-center font-mono text-2xs font-semibold ${
           e.method === "GET" ? "bg-primary/10 text-primary"
             : e.method === "DELETE" ? "bg-destructive/10 text-destructive"
-            : "bg-amber-500/10 text-amber-700 dark:text-amber-400"}`}>
+            : "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]"}`}>
           {e.method}
         </span>
         <span className="min-w-0 flex-1 truncate font-mono text-xs">{e.path}</span>

@@ -35,15 +35,15 @@ export function TaskList({ tasks, onViewLogs }: TaskListProps) {
   const getStateIcon = (state?: string) => {
     switch (state) {
       case "success":
-        return <CheckCircle2 className="h-4 w-4 text-green-500" />
+        return <CheckCircle2 className="h-4 w-4 text-[var(--dp-good)]" />
       case "failed":
-        return <XCircle className="h-4 w-4 text-red-500" />
+        return <XCircle className="h-4 w-4 text-destructive" />
       case "running":
         return <Clock className="h-4 w-4 text-primary animate-spin" />
       case "queued":
-        return <Play className="h-4 w-4 text-yellow-500" />
+        return <Play className="h-4 w-4 text-[var(--dp-warn)]" />
       case "upstream_failed":
-        return <XCircle className="h-4 w-4 text-orange-500" />
+        return <XCircle className="h-4 w-4 text-[var(--dp-warn)]" />
       case "skipped":
         return <Activity className="h-4 w-4 text-gray-500" />
       default:
@@ -54,15 +54,15 @@ export function TaskList({ tasks, onViewLogs }: TaskListProps) {
   const getStateBadge = (state?: string) => {
     switch (state) {
       case "success":
-        return <Badge className="bg-green-600">Success</Badge>
+        return <Badge className="bg-[var(--dp-good)]">Success</Badge>
       case "failed":
         return <Badge variant="destructive">Failed</Badge>
       case "running":
         return <Badge className="bg-primary">Running</Badge>
       case "queued":
-        return <Badge className="bg-yellow-600">Queued</Badge>
+        return <Badge className="bg-[var(--dp-warn)]">Queued</Badge>
       case "upstream_failed":
-        return <Badge className="bg-orange-600">Upstream Failed</Badge>
+        return <Badge className="bg-[var(--dp-warn)]">Upstream Failed</Badge>
       case "skipped":
         return <Badge variant="secondary">Skipped</Badge>
       default:

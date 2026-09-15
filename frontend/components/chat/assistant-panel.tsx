@@ -291,12 +291,12 @@ function PreviewBody({ preview }: { preview: Record<string, unknown> | null }) {
         <p>Reads: <span className="font-mono text-2xs">{reads.join(", ")}</span></p>
       )}
       {preview.validated === false && (
-        <p className="text-red-600 dark:text-red-400">
+        <p className="text-destructive">
           Will not run: {String(preview.error ?? "invalid statement")}
         </p>
       )}
       {preview.already_exists === true && (
-        <p className="text-amber-600 dark:text-amber-400">
+        <p className="text-[var(--dp-warn)]">
           A collection with that name already exists.
         </p>
       )}

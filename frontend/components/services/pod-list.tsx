@@ -48,11 +48,11 @@ export function PodList({
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "Running":
-        return <CheckCircle2 className="h-4 w-4 text-green-500" />
+        return <CheckCircle2 className="h-4 w-4 text-[var(--dp-good)]" />
       case "Failed":
-        return <AlertCircle className="h-4 w-4 text-red-500" />
+        return <AlertCircle className="h-4 w-4 text-destructive" />
       case "Pending":
-        return <Clock className="h-4 w-4 text-yellow-500" />
+        return <Clock className="h-4 w-4 text-[var(--dp-warn)]" />
       default:
         return <Clock className="h-4 w-4 text-gray-500" />
     }
@@ -62,7 +62,7 @@ export function PodList({
     switch (status) {
       case "Running":
         return (
-          <Badge variant="default" className="bg-green-600">
+          <Badge variant="default" className="bg-[var(--dp-good)]">
             Running
           </Badge>
         )
@@ -70,7 +70,7 @@ export function PodList({
         return <Badge variant="destructive">Failed</Badge>
       case "Pending":
         return (
-          <Badge variant="secondary" className="bg-yellow-600">
+          <Badge variant="secondary" className="bg-[var(--dp-warn)]">
             Pending
           </Badge>
         )

@@ -117,7 +117,7 @@ type RunStatus = Run["info"]["status"]
 function StatusBadge({ status }: { status: RunStatus }) {
   if (status === "FINISHED") {
     return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-400 px-1.5 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--dp-good)] bg-[var(--dp-good)]/10 px-1.5 py-0.5 rounded-md border border-[var(--dp-good)]/30">
         <CheckCircle2 className="h-3 w-3" />
         Finished
       </span>
@@ -133,7 +133,7 @@ function StatusBadge({ status }: { status: RunStatus }) {
   }
   if (status === "FAILED" || status === "KILLED") {
     return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600 bg-red-50 dark:bg-red-950/40 dark:text-red-400 px-1.5 py-0.5 rounded-md border border-red-200 dark:border-red-800">
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-destructive bg-destructive/10 px-1.5 py-0.5 rounded-md border border-destructive/30">
         <XCircle className="h-3 w-3" />
         {status === "KILLED" ? "Killed" : "Failed"}
       </span>
@@ -414,7 +414,7 @@ function CompareView({
                               <span
                                 className={cn(
                                   "tabular-nums",
-                                  isBest && "text-emerald-600 dark:text-emerald-400 font-semibold"
+                                  isBest && "text-[var(--dp-good)] font-semibold"
                                 )}
                               >
                                 {v !== undefined ? v.toPrecision(5) : <span className="text-muted-foreground/40">—</span>}
@@ -422,7 +422,7 @@ function CompareView({
                               {v !== undefined && nums.length > 1 && (
                                 <div className="mt-1 h-1 w-16 rounded-full bg-muted overflow-hidden">
                                   <div
-                                    className={cn("h-full rounded-full", isBest ? "bg-emerald-500" : "bg-blue-500/50")}
+                                    className={cn("h-full rounded-full", isBest ? "bg-[var(--dp-good)]" : "bg-blue-500/50")}
                                     style={{ width: `${Math.round(goodness * 100)}%` }}
                                   />
                                 </div>

@@ -131,7 +131,7 @@ export function ConceptsPanel() {
               <div className="min-w-0">
                 <span className="text-xs font-medium">{c.name}</span>
                 {c.pii && (
-                  <span className="ml-1.5 rounded bg-amber-500/10 px-1 py-0.5 text-2xs text-amber-600 dark:text-amber-400">PII</span>
+                  <span className="ml-1.5 rounded bg-[var(--dp-warn)]/10 px-1 py-0.5 text-2xs text-[var(--dp-warn)]">PII</span>
                 )}
                 <div className="mt-0.5 flex flex-wrap gap-1">
                   {c.terms.length === 0 ? (

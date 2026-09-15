@@ -25,9 +25,9 @@ interface DagCardProps {
 
 function StateIndicator({ state }: { state?: string }) {
   if (state === "success")
-    return <span className="flex items-center gap-1 text-xs text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" />Success</span>
+    return <span className="flex items-center gap-1 text-xs text-[var(--dp-good)]"><CheckCircle2 className="h-3.5 w-3.5" />Success</span>
   if (state === "failed")
-    return <span className="flex items-center gap-1 text-xs text-red-500"><XCircle className="h-3.5 w-3.5" />Failed</span>
+    return <span className="flex items-center gap-1 text-xs text-destructive"><XCircle className="h-3.5 w-3.5" />Failed</span>
   if (state === "running")
     return <span className="flex items-center gap-1 text-xs text-blue-500"><Clock className="h-3.5 w-3.5 animate-pulse" />Running</span>
   return <span className="text-xs text-muted-foreground">No runs yet</span>
@@ -55,8 +55,8 @@ export function DagCard({
             <Badge
               variant="outline"
               className={`text-2xs h-5 px-1.5 ${
-                savedStatus === "deployed" ? "border-emerald-300 text-emerald-700 bg-emerald-50" :
-                savedStatus === "draft" ? "border-amber-300 text-amber-700 bg-amber-50" : ""
+                savedStatus === "deployed" ? "border-[var(--dp-good)]/40 text-[var(--dp-good)] bg-[var(--dp-good)]/10" :
+                savedStatus === "draft" ? "border-[var(--dp-warn)]/40 text-[var(--dp-warn)] bg-[var(--dp-warn)]/10" : ""
               }`}
             >
               {savedStatus}
@@ -64,7 +64,7 @@ export function DagCard({
           )}
           <Badge
             variant={is_paused ? "outline" : "default"}
-            className={`shrink-0 text-2xs h-5 px-1.5 ${!is_paused ? "bg-emerald-600 hover:bg-emerald-600" : ""}`}
+            className={`shrink-0 text-2xs h-5 px-1.5 ${!is_paused ? "bg-[var(--dp-good)] hover:bg-[var(--dp-good)]" : ""}`}
           >
             {is_paused ? "Paused" : "Active"}
           </Badge>
@@ -102,8 +102,8 @@ export function DagCard({
         <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
           <div
             className={`h-full rounded-full transition-all ${
-              success_rate >= 90 ? "bg-emerald-500" :
-              success_rate >= 70 ? "bg-yellow-500" : "bg-red-500"
+              success_rate >= 90 ? "bg-[var(--dp-good)]" :
+              success_rate >= 70 ? "bg-[var(--dp-warn)]" : "bg-destructive"
             }`}
             style={{ width: `${success_rate}%` }}
           />
@@ -133,7 +133,7 @@ export function DagCard({
           title={is_paused ? "Resume" : "Pause"}
         >
           {is_paused
-            ? <Play className="h-3.5 w-3.5 text-emerald-600" />
+            ? <Play className="h-3.5 w-3.5 text-[var(--dp-good)]" />
             : <Pause className="h-3.5 w-3.5" />
           }
         </Button>
@@ -150,7 +150,7 @@ export function DagCard({
         {onDelete && (
           <Button
             variant="outline" size="sm"
-            className="h-7 w-7 p-0 hover:bg-red-50 hover:border-red-200 hover:text-red-600"
+            className="h-7 w-7 p-0 hover:bg-destructive/10 hover:border-destructive/30 hover:text-destructive"
             onClick={() => onDelete(dag_id)}
             aria-label="Delete pipeline" title="Delete pipeline"
           >

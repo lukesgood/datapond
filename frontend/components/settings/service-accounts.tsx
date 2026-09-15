@@ -251,7 +251,7 @@ export function ServiceAccounts() {
                       </label>
                     ))}
                     {keyScopes.length === 0 && (
-                      <p className="text-xs text-amber-600">No scopes selected: the key gets every permission of the role.</p>
+                      <p className="text-xs text-[var(--dp-warn)]">No scopes selected: the key gets every permission of the role.</p>
                     )}
                   </div>
                   <div className="space-y-1">
@@ -295,7 +295,7 @@ export function ServiceAccounts() {
                             onClick={() => revoke(k.id)}
                             disabled={busy}
                             aria-label="Revoke key"
-                            className="text-muted-foreground hover:text-red-600"
+                            className="text-muted-foreground hover:text-destructive"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -350,7 +350,7 @@ function AccountCollections({ accountId }: { accountId: string }) {
 
   if (rows === null) return <span className="text-xs text-muted-foreground">Collections: …</span>
   if (rows === "error") {
-    return <span className="text-xs text-red-600">Collections: could not load</span>
+    return <span className="text-xs text-destructive">Collections: could not load</span>
   }
   if (rows.length === 0) {
     return (

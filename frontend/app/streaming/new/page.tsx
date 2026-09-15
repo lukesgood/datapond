@@ -118,12 +118,12 @@ function CdcPrereqSidebar({ db, user }: { db?: string; user?: string }) {
   const u = user || "your_user"
 
   return (
-    <div className="rounded-xl border bg-amber-50/50 border-amber-200 overflow-hidden">
-      <div className="px-4 py-3 border-b border-amber-200 flex items-center gap-2">
-        <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+    <div className="rounded-xl border bg-[var(--dp-warn)]/5 border-[var(--dp-warn)]/30 overflow-hidden">
+      <div className="px-4 py-3 border-b border-[var(--dp-warn)]/30 flex items-center gap-2">
+        <AlertTriangle className="h-4 w-4 text-[var(--dp-warn)] shrink-0" />
         <div>
-          <p className="text-sm font-semibold text-amber-800">Source DB Prerequisites</p>
-          <p className="text-2xs text-amber-600 mt-0.5">Complete before connecting</p>
+          <p className="text-sm font-semibold text-[var(--dp-warn)]">Source DB Prerequisites</p>
+          <p className="text-2xs text-[var(--dp-warn)] mt-0.5">Complete before connecting</p>
         </div>
       </div>
 
@@ -131,13 +131,13 @@ function CdcPrereqSidebar({ db, user }: { db?: string; user?: string }) {
         {PREREQ_STEPS.map((p, i) => (
           <div key={i}>
             <div className="flex items-center gap-1.5 mb-1">
-              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-amber-500/15 text-2xs font-bold text-amber-700 shrink-0">{i + 1}</span>
-              <span className="text-xs font-semibold text-amber-800">{p.label}</span>
-              {p.optional && <span className="text-2xs text-amber-500 ml-auto">optional</span>}
+              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--dp-warn)]/15 text-2xs font-bold text-[var(--dp-warn)] shrink-0">{i + 1}</span>
+              <span className="text-xs font-semibold text-[var(--dp-warn)]">{p.label}</span>
+              {p.optional && <span className="text-2xs text-[var(--dp-warn)] ml-auto">optional</span>}
             </div>
-            <p className="text-2xs text-amber-700 mb-1.5 ml-5">{p.desc}</p>
-            <div className="relative rounded-md bg-white/70 border border-amber-200 ml-5">
-              <pre className="text-2xs font-mono text-amber-900 px-2.5 py-2 pr-14 whitespace-pre-wrap break-all">
+            <p className="text-2xs text-[var(--dp-warn)] mb-1.5 ml-5">{p.desc}</p>
+            <div className="relative rounded-md bg-white/70 border border-[var(--dp-warn)]/30 ml-5">
+              <pre className="text-2xs font-mono text-[var(--dp-warn)] px-2.5 py-2 pr-14 whitespace-pre-wrap break-all">
                 {p.sql.replace(/{db}/g, d).replace(/{user}/g, u)}
               </pre>
               <div className="absolute top-1.5 right-2">
@@ -145,7 +145,7 @@ function CdcPrereqSidebar({ db, user }: { db?: string; user?: string }) {
               </div>
             </div>
             {p.note && (
-              <p className="text-2xs text-amber-600 mt-1 ml-5 italic">{p.note}</p>
+              <p className="text-2xs text-[var(--dp-warn)] mt-1 ml-5 italic">{p.note}</p>
             )}
           </div>
         ))}
@@ -180,7 +180,7 @@ function StepIndicator({
               <span
                 className={`w-5 h-5 rounded-full flex items-center justify-center font-medium ${
                   i < stepIndex
-                    ? "bg-green-600 text-white"
+                    ? "bg-[var(--dp-good)] text-white"
                     : i === stepIndex
                       ? "bg-primary text-primary-foreground"
                       : "bg-muted text-muted-foreground"
@@ -652,14 +652,14 @@ function NewStreamingPipelineInner() {
 
             {cdcTestResult && (
               <div className={`rounded-lg border px-3 py-2.5 space-y-1.5 text-xs ${
-                cdcTestResult.success ? "border-green-200 bg-green-50" : "border-destructive/30 bg-destructive/5"
+                cdcTestResult.success ? "border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10" : "border-destructive/30 bg-destructive/5"
               }`}>
                 {/* Connection status */}
                 <div className="flex items-center gap-2">
                   {cdcTestResult.success
-                    ? <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                    ? <CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good)] shrink-0" />
                     : <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />}
-                  <span className={cdcTestResult.success ? "text-green-700 font-medium" : "text-destructive font-medium"}>
+                  <span className={cdcTestResult.success ? "text-[var(--dp-good)] font-medium" : "text-destructive font-medium"}>
                     {cdcTestResult.success ? "Connected successfully" : `Connection failed: ${cdcTestResult.error}`}
                   </span>
                 </div>
@@ -669,16 +669,16 @@ function NewStreamingPipelineInner() {
                     {/* WAL level check */}
                     <div className="flex items-center gap-2">
                       {cdcTestResult.wal_ok
-                        ? <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />
-                        : <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
-                      <span className={cdcTestResult.wal_ok ? "text-green-700" : "text-amber-700"}>
+                        ? <CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good)] shrink-0" />
+                        : <AlertTriangle className="h-3.5 w-3.5 text-[var(--dp-warn)] shrink-0" />}
+                      <span className={cdcTestResult.wal_ok ? "text-[var(--dp-good)]" : "text-[var(--dp-warn)]"}>
                         WAL level: <code className="font-mono">{cdcTestResult.wal_level}</code>
                         {!cdcTestResult.wal_ok && " — must be logical for CDC"}
                       </span>
                       {!cdcTestResult.wal_ok && (
                         <button
                           onClick={() => navigator.clipboard.writeText("ALTER SYSTEM SET wal_level = logical;\nSELECT pg_reload_conf();")}
-                          className="ml-auto text-2xs text-amber-600 hover:underline underline-offset-2"
+                          className="ml-auto text-2xs text-[var(--dp-warn)] hover:underline underline-offset-2"
                         >
                           Copy fix SQL
                         </button>
@@ -693,7 +693,7 @@ function NewStreamingPipelineInner() {
           {tableError && (
             <p className={`text-xs rounded px-3 py-2 ${
               tableError.startsWith("Warning:")
-                ? "text-amber-700 bg-amber-50 border border-amber-200"
+                ? "text-[var(--dp-warn)] bg-[var(--dp-warn)]/10 border border-[var(--dp-warn)]/30"
                 : "text-destructive bg-destructive/5"
             }`}>
               {tableError}
@@ -977,8 +977,8 @@ function NewStreamingPipelineInner() {
         <div className="flex flex-col items-center py-10 space-y-5 text-center">
           {success ? (
             <>
-              <div className="rounded-full bg-green-100 p-4">
-                <CheckCircle2 className="h-10 w-10 text-green-600" />
+              <div className="rounded-full bg-[var(--dp-good)]/15 p-4">
+                <CheckCircle2 className="h-10 w-10 text-[var(--dp-good)]" />
               </div>
               <div>
                 <p className="font-semibold text-lg">Pipeline created successfully</p>

@@ -429,7 +429,7 @@ function NotebooksPageInner() {
           <CardContent>
             <div className="flex items-center gap-2">
               {jupyterStatus === "healthy" ? (
-                <Badge variant="default" className="bg-green-600">Running</Badge>
+                <Badge variant="default" className="bg-[var(--dp-good)]">Running</Badge>
               ) : (
                 <Badge variant="destructive">Offline</Badge>
               )}

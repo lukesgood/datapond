@@ -118,8 +118,8 @@ function SessionRow({ session, defaultOpen }: { session: SyncSession; defaultOpe
     session.isLive
       ? <Loader2 className="h-4 w-4 text-primary animate-spin shrink-0" />
       : session.status === "failed"
-        ? <XCircle className="h-4 w-4 text-red-500 shrink-0" />
-        : <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+        ? <XCircle className="h-4 w-4 text-destructive shrink-0" />
+        : <CheckCircle2 className="h-4 w-4 text-[var(--dp-good)] shrink-0" />
 
   return (
     <div className={`border-l-2 pl-3 ${headerColor}`}>
@@ -199,8 +199,8 @@ function SessionRow({ session, defaultOpen }: { session: SyncSession; defaultOpe
               <div className="flex items-center gap-2 px-2 py-1">
                 {t.status === "pending" && <span className="text-muted-foreground w-3.5 shrink-0">○</span>}
                 {t.status === "running" && <Loader2 className="h-3.5 w-3.5 text-primary animate-spin shrink-0" />}
-                {t.status === "success" && <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />}
-                {t.status === "failed"  && <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                {t.status === "success" && <CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good)] shrink-0" />}
+                {t.status === "failed"  && <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />}
 
                 <span className={`font-mono flex-1 truncate ${
                   t.status === "pending" ? "text-muted-foreground"
@@ -228,7 +228,7 @@ function SessionRow({ session, defaultOpen }: { session: SyncSession; defaultOpe
                     return (
                       <div key={si} className="flex items-center gap-2 text-2xs">
                         <span className={`shrink-0 w-16 font-medium ${
-                          isDrop ? "text-amber-500"
+                          isDrop ? "text-[var(--dp-warn)]"
                           : isInsert ? "text-primary"
                           : "text-muted-foreground"
                         }`}>{s.step}</span>

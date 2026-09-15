@@ -122,15 +122,15 @@ interface FlowCoordinateAdapter {
 
 const LAYER_STYLES = {
   bronze: {
-    bar: "bg-amber-500",
-    header: "bg-amber-50 border-amber-200",
-    border: "border-amber-200",
-    selectedBorder: "border-amber-500",
-    ring: "ring-amber-200",
-    badge: "bg-amber-100 text-amber-800",
-    dot: "bg-amber-500",
+    bar: "bg-[var(--dp-warn)]",
+    header: "bg-[var(--dp-warn)]/10 border-[var(--dp-warn)]/30",
+    border: "border-[var(--dp-warn)]/30",
+    selectedBorder: "border-[var(--dp-warn)]",
+    ring: "ring-[var(--dp-warn)]/30",
+    badge: "bg-[var(--dp-warn)]/15 text-[var(--dp-warn)]",
+    dot: "bg-[var(--dp-warn)]",
     label: "BRONZE",
-    textColor: "text-amber-700",
+    textColor: "text-[var(--dp-warn)]",
     handleColor: "#f59e0b",
   },
   silver: {
@@ -146,15 +146,15 @@ const LAYER_STYLES = {
     handleColor: "#94a3b8",
   },
   gold: {
-    bar: "bg-yellow-400",
-    header: "bg-yellow-50 border-yellow-200",
-    border: "border-yellow-200",
-    selectedBorder: "border-yellow-500",
-    ring: "ring-yellow-200",
-    badge: "bg-yellow-100 text-yellow-800",
-    dot: "bg-yellow-500",
+    bar: "bg-[var(--dp-warn)]",
+    header: "bg-[var(--dp-warn)]/10 border-[var(--dp-warn)]/30",
+    border: "border-[var(--dp-warn)]/30",
+    selectedBorder: "border-[var(--dp-warn)]",
+    ring: "ring-[var(--dp-warn)]/30",
+    badge: "bg-[var(--dp-warn)]/15 text-[var(--dp-warn)]",
+    dot: "bg-[var(--dp-warn)]",
     label: "GOLD",
-    textColor: "text-yellow-700",
+    textColor: "text-[var(--dp-warn)]",
     handleColor: "#eab308",
   },
 }
@@ -184,9 +184,9 @@ function uid() {
 // ── Dagre Auto-Layout ─────────────────────────────────────────────────────────
 
 const LAYER_HEADER_CONFIG: Record<string, { label: string; color: string; barColor: string }> = {
-  bronze: { label: "BRONZE",  color: "text-amber-600",  barColor: "bg-amber-400" },
+  bronze: { label: "BRONZE",  color: "text-[var(--dp-warn)]",  barColor: "bg-[var(--dp-warn)]" },
   silver: { label: "SILVER",  color: "text-slate-500",  barColor: "bg-slate-400" },
-  gold:   { label: "GOLD",    color: "text-yellow-600", barColor: "bg-yellow-400" },
+  gold:   { label: "GOLD",    color: "text-[var(--dp-warn)]", barColor: "bg-[var(--dp-warn)]" },
 }
 
 const elk = new ELK()
@@ -389,8 +389,8 @@ function SqlTokens({ sql }: { sql: string }) {
   let i = 0
   while ((m = re.exec(sql)) !== null) {
     const [full, tmpl, str, lc, bc, word, num] = m
-    if (tmpl)        parts.push(<span key={i++} className="text-emerald-600">{tmpl}</span>)
-    else if (str)    parts.push(<span key={i++} className="text-amber-600">{str}</span>)
+    if (tmpl)        parts.push(<span key={i++} className="text-[var(--dp-good)]">{tmpl}</span>)
+    else if (str)    parts.push(<span key={i++} className="text-[var(--dp-warn)]">{str}</span>)
     else if (lc||bc) parts.push(<span key={i++} className="text-muted-foreground/60 italic">{full}</span>)
     else if (word && SQL_KW.has(word.toUpperCase())) parts.push(<span key={i++} className="text-blue-500 font-medium">{word}</span>)
     else if (num)    parts.push(<span key={i++} className="text-purple-500">{num}</span>)
@@ -423,7 +423,7 @@ function BronzeNode({ data, selected }: NodeProps<BronzeData>) {
   return (
     <div
       className={`relative w-56 rounded-xl border-2 bg-white shadow-sm transition-all
-        ${hasError ? "border-red-400 ring-2 ring-red-200 shadow-red-100" :
+        ${hasError ? "border-destructive/60 ring-2 ring-destructive/30 shadow-red-100" :
           selected ? `${style.selectedBorder} shadow-md ring-2 ${style.ring}` : style.border}`}
     >
       {/* Left color bar */}
@@ -487,7 +487,7 @@ function SilverNode({ data, selected }: NodeProps<SilverData>) {
   return (
     <div
       className={`relative w-56 rounded-xl border-2 bg-white shadow-sm transition-all
-        ${hasError ? "border-red-400 ring-2 ring-red-200 shadow-red-100" :
+        ${hasError ? "border-destructive/60 ring-2 ring-destructive/30 shadow-red-100" :
           selected ? `${style.selectedBorder} shadow-md ring-2 ${style.ring}` : style.border}`}
     >
       {/* Left color bar */}
@@ -553,7 +553,7 @@ function GoldNode({ data, selected }: NodeProps<GoldData>) {
   return (
     <div
       className={`relative w-56 rounded-xl border-2 bg-white shadow-sm transition-all
-        ${hasError ? "border-red-400 ring-2 ring-red-200 shadow-red-100" :
+        ${hasError ? "border-destructive/60 ring-2 ring-destructive/30 shadow-red-100" :
           selected ? `${style.selectedBorder} shadow-md ring-2 ${style.ring}` : style.border}`}
     >
       {/* Left color bar */}
@@ -867,7 +867,7 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
       <div className="mt-5 pt-4 border-t">
         <button onClick={onDelete}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md
-            bg-red-50 border border-red-200 text-red-700 hover:bg-red-100
+            bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/15
             transition-colors text-xs font-medium">
           <Trash2 className="h-3.5 w-3.5" />Delete Node
         </button>
@@ -963,7 +963,7 @@ function SilverForm({ data, onChange, onDelete }: SilverFormProps) {
       <div className="mt-4 pt-3 border-t">
         <button onClick={onDelete}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md
-            bg-red-50 border border-red-200 text-red-700 hover:bg-red-100
+            bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/15
             transition-colors text-xs font-medium">
           <Trash2 className="h-3.5 w-3.5" />Delete Node
         </button>
@@ -1040,7 +1040,7 @@ function GoldForm({ data, onChange, onDelete }: GoldFormProps) {
       <div className="mt-4 pt-3 border-t">
         <button onClick={onDelete}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md
-            bg-red-50 border border-red-200 text-red-700 hover:bg-red-100
+            bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/15
             transition-colors text-xs font-medium">
           <Trash2 className="h-3.5 w-3.5" />Delete Node
         </button>
@@ -1290,7 +1290,7 @@ function PipelineForm({
         )}
 
         {pipeline.advanced.alertOnFailure && !pipeline.advanced.alertEmail && (
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-2xs text-amber-800">
+          <div className="rounded-md border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-3 py-2 text-2xs text-[var(--dp-warn)]">
             No alerts will be sent unless you enter a recipient email.
           </div>
         )}
@@ -1976,8 +1976,8 @@ export default function NewPipelinePage() {
   if (deployed && deployResult) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
-        <div className="h-16 w-16 rounded-full bg-emerald-50 flex items-center justify-center">
-          <CheckCircle2 className="h-8 w-8 text-emerald-600" />
+        <div className="h-16 w-16 rounded-full bg-[var(--dp-good)]/10 flex items-center justify-center">
+          <CheckCircle2 className="h-8 w-8 text-[var(--dp-good)]" />
         </div>
         <div className="text-center">
           <p className="text-xl font-semibold">Pipeline Deployed!</p>
@@ -2099,17 +2099,17 @@ export default function NewPipelinePage() {
           )}
           {validationNotice && (validationNotice.hasNotes ? (
             <div className="relative group">
-              <div className="flex items-center gap-1.5 text-xs text-amber-600 cursor-pointer">
+              <div className="flex items-center gap-1.5 text-xs text-[var(--dp-warn)] cursor-pointer">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                 <span>{validationNotice.label}</span>
               </div>
               <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block w-80 p-3 bg-background border rounded-lg shadow-lg">
-                <p className="text-2xs font-bold text-amber-600 mb-1.5">
+                <p className="text-2xs font-bold text-[var(--dp-warn)] mb-1.5">
                   {validationNotice.heading}
                 </p>
                 <ul className="space-y-1">
                   {validationNotice.notes.map((note, i) => (
-                    <li key={i} className="text-2xs text-amber-700/90 flex items-start gap-1">
+                    <li key={i} className="text-2xs text-[var(--dp-warn)]/90 flex items-start gap-1">
                       <span className="shrink-0 mt-0.5">•</span>
                       <span>{note}</span>
                     </li>
@@ -2118,7 +2118,7 @@ export default function NewPipelinePage() {
               </div>
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 text-xs text-emerald-600">
+            <div className="flex items-center gap-1.5 text-xs text-[var(--dp-good)]">
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
               <span>{validationNotice.label}</span>
             </div>
@@ -2126,7 +2126,7 @@ export default function NewPipelinePage() {
           {/* Live readiness pill — proactively answers "why can't I deploy?" */}
           {liveIssues.length === 0 ? (
             <div
-              className="hidden lg:flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-2xs font-medium text-emerald-700"
+              className="hidden lg:flex items-center gap-1.5 rounded-md border border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10 px-2.5 py-1 text-2xs font-medium text-[var(--dp-good)]"
               title="All checks passed — ready to deploy"
             >
               <CheckCircle2 className="h-3 w-3 shrink-0" />
@@ -2134,7 +2134,7 @@ export default function NewPipelinePage() {
             </div>
           ) : (
             <div
-              className="hidden lg:flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-2xs font-medium text-amber-700"
+              className="hidden lg:flex items-center gap-1 rounded-md border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-2.5 py-1 text-2xs font-medium text-[var(--dp-warn)]"
               title={`Fix before deploy:\n${liveIssues.map((e) => "• " + e).join("\n")}`}
             >
               <span className="tabular-nums font-bold">{liveIssues.length}</span>
@@ -2165,7 +2165,7 @@ export default function NewPipelinePage() {
             {saveStatus === "saving" ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : saveStatus === "saved" ? (
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+              <CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good)]" />
             ) : (
               <Save className="h-3.5 w-3.5" />
             )}
@@ -2253,8 +2253,8 @@ export default function NewPipelinePage() {
                     </div>
                     <button
                       onClick={() => addNode("bronze")}
-                      className="px-3 py-1.5 rounded-lg border-2 border-amber-200 bg-amber-50
-                        hover:bg-amber-100 text-xs font-medium text-amber-800 transition-colors mt-2"
+                      className="px-3 py-1.5 rounded-lg border-2 border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10
+                        hover:bg-[var(--dp-warn)]/15 text-xs font-medium text-[var(--dp-warn)] transition-colors mt-2"
                     >
                       + Start with an empty Bronze Source
                     </button>
@@ -2301,8 +2301,8 @@ export default function NewPipelinePage() {
             {/* Dynamic node tabs — one per node */}
             {nodes.filter(n => n.type !== "layerHeader").map((n) => {
               const d = n.data as BronzeData | SilverData | GoldData
-              const color = n.data.layer === "bronze" ? "bg-amber-500"
-                : n.data.layer === "silver" ? "bg-slate-400" : "bg-yellow-400"
+              const color = n.data.layer === "bronze" ? "bg-[var(--dp-warn)]"
+                : n.data.layer === "silver" ? "bg-slate-400" : "bg-[var(--dp-warn)]"
               const isActive = selectedNodeId === n.id
               const hasError = liveErrorNodeIds.has(n.id)
               return (
@@ -2319,7 +2319,7 @@ export default function NewPipelinePage() {
                 >
                   <div className={`h-2 w-1 rounded-full ${color}`} />
                   {d.name || `${n.data.layer}-${n.id.slice(-4)}`}
-                  {hasError && <span className="h-1.5 w-1.5 rounded-full bg-red-500 shrink-0" />}
+                  {hasError && <span className="h-1.5 w-1.5 rounded-full bg-destructive shrink-0" />}
                 </button>
               )
             })}
@@ -2386,10 +2386,10 @@ export default function NewPipelinePage() {
           onClick={() => addNode("bronze")}
           draggable
           onDragStart={(e) => { e.dataTransfer.setData("application/datapond-layer", "bronze"); e.dataTransfer.effectAllowed = "move" }}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 border-amber-200
-            bg-amber-50 hover:bg-amber-100 transition-colors text-xs font-medium text-amber-800 cursor-grab active:cursor-grabbing"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 border-[var(--dp-warn)]/30
+            bg-[var(--dp-warn)]/10 hover:bg-[var(--dp-warn)]/15 transition-colors text-xs font-medium text-[var(--dp-warn)] cursor-grab active:cursor-grabbing"
         >
-          <div className="h-3 w-0.5 bg-amber-500 rounded" />
+          <div className="h-3 w-0.5 bg-[var(--dp-warn)] rounded" />
           Bronze Source
         </button>
 
@@ -2410,10 +2410,10 @@ export default function NewPipelinePage() {
           onClick={() => addNode("gold")}
           draggable
           onDragStart={(e) => { e.dataTransfer.setData("application/datapond-layer", "gold"); e.dataTransfer.effectAllowed = "move" }}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 border-yellow-200
-            bg-yellow-50 hover:bg-yellow-100 transition-colors text-xs font-medium text-yellow-800 cursor-grab active:cursor-grabbing"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 border-[var(--dp-warn)]/30
+            bg-[var(--dp-warn)]/10 hover:bg-[var(--dp-warn)]/15 transition-colors text-xs font-medium text-[var(--dp-warn)] cursor-grab active:cursor-grabbing"
         >
-          <div className="h-3 w-0.5 bg-yellow-400 rounded" />
+          <div className="h-3 w-0.5 bg-[var(--dp-warn)] rounded" />
           Gold Aggregate
         </button>
 
@@ -2496,8 +2496,8 @@ export default function NewPipelinePage() {
                 )
                 return filtered.map(n => {
                   const d = n.data as BronzeData | SilverData | GoldData
-                  const dot = n.data.layer === "bronze" ? "bg-amber-500" : n.data.layer === "silver" ? "bg-slate-400" : "bg-yellow-400"
-                  const badge = n.data.layer === "bronze" ? "bg-amber-50 text-amber-700" : n.data.layer === "silver" ? "bg-slate-100 text-slate-600" : "bg-yellow-50 text-yellow-700"
+                  const dot = n.data.layer === "bronze" ? "bg-[var(--dp-warn)]" : n.data.layer === "silver" ? "bg-slate-400" : "bg-[var(--dp-warn)]"
+                  const badge = n.data.layer === "bronze" ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]" : n.data.layer === "silver" ? "bg-slate-100 text-slate-600" : "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]"
                   return (
                     <button
                       key={n.id}

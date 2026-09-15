@@ -178,7 +178,7 @@ export function ConnectionForm({
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             )}
             {testStatus === "success" && (
-              <CheckCircle2 className="mr-2 h-4 w-4 text-green-500" />
+              <CheckCircle2 className="mr-2 h-4 w-4 text-[var(--dp-good)]" />
             )}
             {testStatus === "error" && (
               <XCircle className="mr-2 h-4 w-4 text-destructive" />
@@ -194,9 +194,9 @@ export function ConnectionForm({
           )}
 
           {testStatus === "success" && (
-            <Alert className="border-green-500/50 bg-green-500/10">
-              <CheckCircle2 className="h-4 w-4 text-green-500" />
-              <AlertDescription className="text-green-500">
+            <Alert className="border-[var(--dp-good)]/50 bg-[var(--dp-good)]/10">
+              <CheckCircle2 className="h-4 w-4 text-[var(--dp-good)]" />
+              <AlertDescription className="text-[var(--dp-good)]">
                 {testMessage || "Connection successful!"}
               </AlertDescription>
             </Alert>

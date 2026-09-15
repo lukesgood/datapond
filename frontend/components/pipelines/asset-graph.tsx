@@ -222,7 +222,7 @@ function AssetGraphInner({ nodes: rawNodes, edges: rawEdges, taskStates = {}, on
         <Panel position="bottom-left">
           <div className="flex items-center gap-3 bg-background border border-border rounded-md px-2.5 py-1.5 shadow-sm mb-2 ml-2">
             {[
-              { icon: Database, label: "Source", color: "text-amber-600" },
+              { icon: Database, label: "Source", color: "text-[var(--dp-warn)]" },
               { icon: Table2, label: "Table", color: "text-slate-600" },
               { icon: ShieldCheck, label: "Quality", color: "text-violet-600" },
             ].map(({ icon: Icon, label, color }) => (

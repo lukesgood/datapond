@@ -22,13 +22,13 @@ interface DagRunListProps {
 
 function StateBadge({ state }: { state: string }) {
   if (state === "success")
-    return <span className="flex items-center gap-1 text-2xs font-medium text-green-600"><CheckCircle2 className="h-3 w-3" />Success</span>
+    return <span className="flex items-center gap-1 text-2xs font-medium text-[var(--dp-good)]"><CheckCircle2 className="h-3 w-3" />Success</span>
   if (state === "failed")
-    return <span className="flex items-center gap-1 text-2xs font-medium text-red-500"><XCircle className="h-3 w-3" />Failed</span>
+    return <span className="flex items-center gap-1 text-2xs font-medium text-destructive"><XCircle className="h-3 w-3" />Failed</span>
   if (state === "running")
     return <span className="flex items-center gap-1 text-2xs font-medium text-primary"><Clock className="h-3 w-3 animate-spin" />Running</span>
   if (state === "queued")
-    return <span className="flex items-center gap-1 text-2xs font-medium text-yellow-600"><PlayCircle className="h-3 w-3" />Queued</span>
+    return <span className="flex items-center gap-1 text-2xs font-medium text-[var(--dp-warn)]"><PlayCircle className="h-3 w-3" />Queued</span>
   return <Badge variant="secondary" className="text-2xs h-4">{state}</Badge>
 }
 

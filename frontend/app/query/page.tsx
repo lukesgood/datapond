@@ -57,10 +57,10 @@ type PlanReview = {
 }
 
 const FINDING_STYLE: Record<PlanFinding["severity"], string> = {
-  critical: "text-red-600 dark:text-red-400",
-  warning:  "text-amber-600 dark:text-amber-400",
+  critical: "text-destructive",
+  warning:  "text-[var(--dp-warn)]",
   info:     "text-muted-foreground",
-  good:     "text-emerald-600 dark:text-emerald-400",
+  good:     "text-[var(--dp-good)]",
 }
 
 function QueryPageInner() {
@@ -472,8 +472,8 @@ function QueryPageInner() {
             title={aiCheck.error || "Resolved against the catalog with EXPLAIN (TYPE VALIDATE)"}
             className={`shrink-0 rounded px-1.5 py-0.5 text-2xs font-medium ${
               aiCheck.ok
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                : "bg-red-500/10 text-red-600 dark:text-red-400"
+                ? "bg-[var(--dp-good)]/10 text-[var(--dp-good)]"
+                : "bg-destructive/10 text-destructive"
             }`}
           >
             {aiCheck.ok ? "Catalog-checked" : "Check failed"}

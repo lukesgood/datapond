@@ -324,9 +324,9 @@ export default function LoginPage() {
           </div>
 
           {notice && (
-            <div role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
-              <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" />
-              <p className="text-sm text-emerald-700 dark:text-emerald-400">{notice}</p>
+            <div role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg border border-[var(--dp-good)]/30 bg-[var(--dp-good)]/5 px-3 py-2.5">
+              <ShieldCheck className="h-4 w-4 text-[var(--dp-good)] shrink-0" />
+              <p className="text-sm text-[var(--dp-good)]">{notice}</p>
             </div>
           )}
 
@@ -386,7 +386,7 @@ export default function LoginPage() {
               {capsLock && (
                 // Honest keyboard-state hint: a common cause of "wrong password" that
                 // the user can't otherwise see while typing into a masked field.
-                <p role="status" aria-live="polite" className="flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                <p role="status" aria-live="polite" className="flex items-center gap-1.5 text-xs font-medium text-[var(--dp-warn)]">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                   Caps Lock is on
                 </p>
@@ -430,10 +430,10 @@ export default function LoginPage() {
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
         <div className="bg-background rounded-2xl border shadow-2xl w-full max-w-md mx-4 overflow-hidden">
           {/* Header */}
-          <div className="px-6 py-5 border-b bg-amber-50/50 dark:bg-amber-950/20">
+          <div className="px-6 py-5 border-b bg-[var(--dp-warn)]/5">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center">
-                <AlertTriangle className="h-5 w-5 text-amber-600" />
+              <div className="h-10 w-10 rounded-full bg-[var(--dp-warn)]/15 flex items-center justify-center">
+                <AlertTriangle className="h-5 w-5 text-[var(--dp-warn)]" />
               </div>
               <div>
                 <h3 className="text-base font-semibold">Password Change Required</h3>
@@ -444,7 +444,7 @@ export default function LoginPage() {
 
           {/* Body */}
           <div className="px-6 py-5 space-y-4">
-            <div className="rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-3 text-sm text-amber-700">
+            <div className="rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/5 px-4 py-3 text-sm text-[var(--dp-warn)]">
               This is your first login or you are using a temporary password. Please set a new password to continue accessing the platform.
             </div>
 

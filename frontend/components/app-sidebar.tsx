@@ -158,7 +158,7 @@ export function AppSidebar() {
         {/* Active deployment identity — metadata only; capabilities remain authoritative. */}
         <div className="mx-3 mb-3 rounded-lg border bg-muted/40 px-3 py-2" title={profile.description}>
           <div className="flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--dp-good)]" />
             <p className="truncate text-2xs font-semibold">{profile.label}</p>
           </div>
           <p className="mt-0.5 truncate pl-3.5 text-2xs capitalize text-muted-foreground">

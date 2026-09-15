@@ -42,13 +42,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             className={`
               flex items-center gap-3 min-w-[300px] px-4 py-3 rounded-lg shadow-lg
               bg-background border animate-in slide-in-from-right
-              ${t.type === "success" ? "border-green-500" : ""}
-              ${t.type === "error" ? "border-red-500" : ""}
+              ${t.type === "success" ? "border-[var(--dp-good)]" : ""}
+              ${t.type === "error" ? "border-destructive" : ""}
               ${t.type === "info" ? "border-blue-500" : ""}
             `}
           >
-            {t.type === "success" && <CheckCircle className="h-5 w-5 text-green-500" />}
-            {t.type === "error" && <AlertCircle className="h-5 w-5 text-red-500" />}
+            {t.type === "success" && <CheckCircle className="h-5 w-5 text-[var(--dp-good)]" />}
+            {t.type === "error" && <AlertCircle className="h-5 w-5 text-destructive" />}
             {t.type === "info" && <Info className="h-5 w-5 text-blue-500" />}
             <p className="flex-1 text-sm">{t.message}</p>
             <button

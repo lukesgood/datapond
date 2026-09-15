@@ -82,7 +82,7 @@ function CopyButton({ text }: { text: string }) {
   return (
     <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0"
       onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500) }}>
-      {copied ? <CheckCircle2 className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
+      {copied ? <CheckCircle2 className="h-3 w-3 text-[var(--dp-good)]" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
     </Button>
   )
 }
@@ -215,7 +215,7 @@ export default function SettingsPage() {
               <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs text-muted-foreground">{label}</span>
-                  <span className={`h-2 w-2 rounded-full ${ok ? "bg-green-500" : warn ? "bg-red-500" : "bg-amber-400"}`} />
+                  <span className={`h-2 w-2 rounded-full ${ok ? "bg-[var(--dp-good)]" : warn ? "bg-destructive" : "bg-[var(--dp-warn)]"}`} />
                 </div>
                 {loading && value === null
                   ? <Skeleton className="h-7 w-16 mt-1" />
@@ -331,8 +331,8 @@ export default function SettingsPage() {
                   ].map(({ label, status, note }) => (
                     <div key={label} className="flex items-center gap-3 py-2.5 text-sm">
                       <span className={`h-2 w-2 rounded-full shrink-0 ${
-                        status === "ok"        ? "bg-green-500" :
-                        status === "pending"   ? "bg-amber-400" :
+                        status === "ok"        ? "bg-[var(--dp-good)]" :
+                        status === "pending"   ? "bg-[var(--dp-warn)]" :
                         status === "available" ? "bg-blue-400"  : "bg-muted-foreground/30"}`} />
                       <span className="flex-1">{label}</span>
                       <span className="text-xs text-muted-foreground">{note}</span>
@@ -415,7 +415,7 @@ export default function SettingsPage() {
                     </div>
                   </>
                 ) : (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-3 text-xs text-amber-700">
+                  <div className="rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/5 px-4 py-3 text-xs text-[var(--dp-warn)]">
                     Runtime profile identity or namespace is unavailable/custom. Upgrade commands are suppressed; use the values files and namespace from your actual deployment pipeline.
                   </div>
                 )}
@@ -432,9 +432,9 @@ export default function SettingsPage() {
                 <CardDescription>Configure Airflow SMTP for pipeline failure notifications</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-3">
-                  <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
-                  <p className="text-xs text-amber-700"><span className="font-medium">Operator configuration</span> — {helmConfig ? "use the steps below to enable or update email notifications." : "use your deployment pipeline to configure SMTP safely."}</p>
+                <div className="flex items-center gap-3 rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/5 px-4 py-3">
+                  <AlertCircle className="h-4 w-4 text-[var(--dp-warn)] shrink-0" />
+                  <p className="text-xs text-[var(--dp-warn)]"><span className="font-medium">Operator configuration</span> — {helmConfig ? "use the steps below to enable or update email notifications." : "use your deployment pipeline to configure SMTP safely."}</p>
                 </div>
 
                 {helmConfig ? (
@@ -798,10 +798,10 @@ function UserManagement() {
                     </td>
                     <td className="px-4 py-3">
                       {u.is_active
-                        ? <span className="flex items-center gap-1 text-green-600 text-xs"><CheckCircle2 className="h-3.5 w-3.5" />Active</span>
+                        ? <span className="flex items-center gap-1 text-[var(--dp-good)] text-xs"><CheckCircle2 className="h-3.5 w-3.5" />Active</span>
                         : <span className="flex items-center gap-1 text-muted-foreground text-xs"><UserX className="h-3.5 w-3.5" />Inactive</span>}
                       {u.require_password_change && (
-                        <span className="text-2xs text-amber-500 block mt-0.5">Must change password</span>
+                        <span className="text-2xs text-[var(--dp-warn)] block mt-0.5">Must change password</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground hidden md:table-cell">

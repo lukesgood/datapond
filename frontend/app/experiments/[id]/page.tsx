@@ -117,9 +117,9 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
       case "RUNNING":
         return <PlayCircle className="h-4 w-4 text-blue-500" />
       case "FINISHED":
-        return <CheckCircle className="h-4 w-4 text-green-500" />
+        return <CheckCircle className="h-4 w-4 text-[var(--dp-good)]" />
       case "FAILED":
-        return <XCircle className="h-4 w-4 text-red-500" />
+        return <XCircle className="h-4 w-4 text-destructive" />
       default:
         return <Clock className="h-4 w-4 text-gray-500" />
     }
@@ -137,7 +137,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
         )
       case "FINISHED":
         return (
-          <Badge variant="outline" className="border-emerald-200 dark:border-emerald-800 bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
+          <Badge variant="outline" className="border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10 text-[var(--dp-good)]">
             Finished
           </Badge>
         )
@@ -459,7 +459,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                               <span
                                 className={cn(
                                   "tabular-nums inline-flex items-center gap-1",
-                                  isBest && "font-semibold text-emerald-600 dark:text-emerald-400"
+                                  isBest && "font-semibold text-[var(--dp-good)]"
                                 )}
                               >
                                 {v.toFixed(4)}
@@ -468,7 +468,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                               {stat.count > 1 && (
                                 <div className="h-1.5 w-14 rounded-full bg-muted overflow-hidden">
                                   <div
-                                    className={cn("h-full rounded-full", isBest ? "bg-emerald-500" : "bg-blue-500/50")}
+                                    className={cn("h-full rounded-full", isBest ? "bg-[var(--dp-good)]" : "bg-blue-500/50")}
                                     style={{ width: `${Math.round(goodness * 100)}%` }}
                                   />
                                 </div>
@@ -548,7 +548,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                             <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{metric}</td>
                             {vals.map((v, i) => (
                               <td key={i} className={`px-4 py-2 font-mono text-xs font-medium tabular-nums ${
-                                v === best && numVals.length > 1 ? "text-emerald-600 dark:text-emerald-400" : ""
+                                v === best && numVals.length > 1 ? "text-[var(--dp-good)]" : ""
                               }`}>
                                 {v != null ? Number(v).toFixed(4) : "—"}
                                 {v === best && numVals.length > 1 && (
@@ -592,8 +592,8 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                   {/* Diff params */}
                   {(compareData.diff_params?.length ?? 0) > 0 && (
                     <>
-                      <tr className="bg-amber-50/50 dark:bg-amber-900/10">
-                        <td colSpan={compareData.runs.length + 1} className="px-4 py-1 text-2xs font-semibold text-amber-600 uppercase tracking-wide">
+                      <tr className="bg-[var(--dp-warn)]/5">
+                        <td colSpan={compareData.runs.length + 1} className="px-4 py-1 text-2xs font-semibold text-[var(--dp-warn)] uppercase tracking-wide">
                           Differing Parameters
                         </td>
                       </tr>
@@ -605,7 +605,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                           <tr key={param} className="border-b hover:bg-muted/20">
                             <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{param}</td>
                             {vals.map((v, i) => (
-                              <td key={i} className="px-4 py-2 font-mono text-xs font-medium text-amber-600">
+                              <td key={i} className="px-4 py-2 font-mono text-xs font-medium text-[var(--dp-warn)]">
                                 {v ?? <span className="text-muted-foreground/40">—</span>}
                               </td>
                             ))}

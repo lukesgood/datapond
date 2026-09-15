@@ -49,7 +49,7 @@ export function ExperimentCard({
       return <Badge variant="destructive">Archived</Badge>
     }
     if (runCount > 0) {
-      return <Badge className="bg-green-600">Active</Badge>
+      return <Badge className="bg-[var(--dp-good)]">Active</Badge>
     }
     return <Badge variant="outline">No Runs</Badge>
   }

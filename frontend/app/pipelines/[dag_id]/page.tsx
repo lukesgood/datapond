@@ -82,10 +82,10 @@ function RunStateBadge({ state }: { state: string }) {
   // Theme-aware: light-mode 700 text + dark-mode lighter text so the pill stays
   // legible on both backgrounds (bare 700 text is too dark on the dark surface).
   const map: Record<string, string> = {
-    success: "bg-emerald-500/15 text-emerald-700 border-emerald-200 dark:text-emerald-300 dark:border-emerald-500/30",
-    failed:  "bg-red-500/15 text-red-700 border-red-200 dark:text-red-400 dark:border-red-500/30",
+    success: "bg-[var(--dp-good)]/15 text-[var(--dp-good)] border-[var(--dp-good)]/30",
+    failed:  "bg-destructive/15 text-destructive border-destructive/30",
     running: "bg-blue-500/15 text-blue-700 border-blue-200 dark:text-blue-300 dark:border-blue-500/30",
-    queued:  "bg-yellow-500/15 text-yellow-700 border-yellow-200 dark:text-yellow-300 dark:border-yellow-500/30",
+    queued:  "bg-[var(--dp-warn)]/15 text-[var(--dp-warn)] border-[var(--dp-warn)]/30",
   }
   const icons: Record<string, React.ReactNode> = {
     success: <CheckCircle2 className="h-3 w-3" />,
@@ -103,10 +103,10 @@ function RunStateBadge({ state }: { state: string }) {
 // Solid fill per run state for the compact run-history strip (colored segments).
 function runStateBar(state: string) {
   switch (state) {
-    case "success": return "bg-emerald-500"
-    case "failed":  return "bg-red-500"
+    case "success": return "bg-[var(--dp-good)]"
+    case "failed":  return "bg-destructive"
     case "running": return "bg-blue-500 animate-pulse"
-    case "queued":  return "bg-yellow-500"
+    case "queued":  return "bg-[var(--dp-warn)]"
     default:        return "bg-muted-foreground/25"
   }
 }
@@ -276,7 +276,7 @@ export default function DagDetailPage() {
             <span className="text-sm font-semibold truncate">{dag_id}</span>
             {dag?.is_paused
               ? <Badge variant="outline" className="text-xs shrink-0">Paused</Badge>
-              : <Badge className="text-xs bg-emerald-600 hover:bg-emerald-600 shrink-0">Active</Badge>
+              : <Badge className="text-xs bg-[var(--dp-good)] hover:bg-[var(--dp-good)] shrink-0">Active</Badge>
             }
           </div>
           {dag?.description && (
@@ -311,9 +311,9 @@ export default function DagDetailPage() {
           { label: "Total Runs",    value: stats?.total_runs ?? "—",                 icon: Activity },
           { label: "Success",       value: stats ? `${stats.success_rate.toFixed(0)}%` : "—", icon: TrendingUp,
             sub: stats ? `${stats.success_runs} runs` : undefined,
-            color: stats && stats.success_rate >= 90 ? "text-emerald-600" : stats && stats.success_rate < 70 ? "text-red-600" : "" },
+            color: stats && stats.success_rate >= 90 ? "text-[var(--dp-good)]" : stats && stats.success_rate < 70 ? "text-destructive" : "" },
           { label: "Failed",        value: stats?.failed_runs ?? "—",                icon: XCircle,
-            color: stats && stats.failed_runs > 0 ? "text-red-600" : "" },
+            color: stats && stats.failed_runs > 0 ? "text-destructive" : "" },
           { label: "Running",       value: stats?.running_runs ?? "—",               icon: RefreshCw,
             color: stats && stats.running_runs > 0 ? "text-blue-600" : "" },
           { label: "Avg Duration",  value: fmtDuration(stats?.avg_duration),         icon: Timer },

@@ -66,7 +66,7 @@ export function AssetContextPanel({ nodeId, nodeData, edges, allNodes, onClose }
               {upstream.map((n) => (
                 <div key={n!.id} className="flex items-center gap-2 text-xs bg-muted rounded px-2 py-1.5">
                   <div className={`h-1.5 w-1.5 rounded-full ${
-                    n!.data.layer === "bronze" ? "bg-amber-500" : n!.data.layer === "gold" ? "bg-yellow-500" : "bg-slate-400"
+                    n!.data.layer === "bronze" ? "bg-[var(--dp-warn)]" : n!.data.layer === "gold" ? "bg-[var(--dp-warn)]" : "bg-slate-400"
                   }`} />
                   <span className="truncate">{n!.id}</span>
                 </div>
@@ -85,7 +85,7 @@ export function AssetContextPanel({ nodeId, nodeData, edges, allNodes, onClose }
               {downstream.map((n) => (
                 <div key={n!.id} className="flex items-center gap-2 text-xs bg-muted rounded px-2 py-1.5">
                   <div className={`h-1.5 w-1.5 rounded-full ${
-                    n!.data.layer === "gold" ? "bg-yellow-500" : n!.data.layer === "quality" ? "bg-violet-500" : "bg-slate-400"
+                    n!.data.layer === "gold" ? "bg-[var(--dp-warn)]" : n!.data.layer === "quality" ? "bg-violet-500" : "bg-slate-400"
                   }`} />
                   <span className="truncate">{n!.id}</span>
                 </div>

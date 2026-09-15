@@ -360,8 +360,8 @@ export function OpenInNotebookModal({
           /* Success state */
           <div className="space-y-4 py-2">
             <div className="flex flex-col items-center gap-3 py-4 text-center">
-              <div className="h-12 w-12 rounded-full bg-emerald-50 flex items-center justify-center">
-                <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+              <div className="h-12 w-12 rounded-full bg-[var(--dp-good)]/10 flex items-center justify-center">
+                <CheckCircle2 className="h-6 w-6 text-[var(--dp-good)]" />
               </div>
               <div>
                 <p className="font-medium text-sm">노트북이 준비됐습니다</p>

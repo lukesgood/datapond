@@ -148,7 +148,7 @@ function StepBar({ step }: { step: DeployStep }) {
       {steps.map((s, i) => (
         <span key={s.key} className="flex items-center gap-1.5">
           <span className={`inline-flex items-center justify-center h-5 w-5 rounded-full text-2xs font-medium
-            ${i < cur ? "bg-emerald-500 text-white" :
+            ${i < cur ? "bg-[var(--dp-good)] text-white" :
               i === cur ? "bg-primary text-primary-foreground" :
               "bg-muted text-muted-foreground"}`}>
             {i < cur ? "✓" : i + 1}
@@ -596,11 +596,11 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
           {/* ── Validate result ── */}
           {validateResult && deployStep === "validate" && (
             <div className={`rounded-lg border p-3 text-xs space-y-1.5
-              ${validateResult.success ? "border-emerald-200 bg-emerald-50" : "border-destructive/30 bg-destructive/5"}`}>
+              ${validateResult.success ? "border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10" : "border-destructive/30 bg-destructive/5"}`}>
               <div className="flex items-center gap-1.5 font-medium">
                 {validateResult.success
-                  ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                      <span className="text-emerald-700">
+                  ? <><CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good)]" />
+                      <span className="text-[var(--dp-good)]">
                         Ready to deploy — <code>{validateResult.pipeline_name}</code>
                       </span></>
                   : <><XCircle className="h-3.5 w-3.5 text-destructive" />
@@ -608,13 +608,13 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
                 }
               </div>
               {validateResult.warnings?.map((w, i) => (
-                <p key={i} className="text-yellow-700">⚠ {w}</p>
+                <p key={i} className="text-[var(--dp-warn)]">⚠ {w}</p>
               ))}
             </div>
           )}
 
           {overwrite && (
-            <div className="flex items-center gap-2 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-xs text-yellow-800">
+            <div className="flex items-center gap-2 rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 p-3 text-xs text-[var(--dp-warn)]">
               <AlertCircle className="h-3.5 w-3.5 shrink-0" />
               Pipeline already exists. Deploying will overwrite the current version.
             </div>
@@ -623,8 +623,8 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
           {/* ── Done ── */}
           {deployStep === "done" && deployResult && (
             <div className="flex flex-col items-center gap-4 py-8 text-center">
-              <div className="h-14 w-14 rounded-full bg-emerald-50 flex items-center justify-center">
-                <CheckCircle2 className="h-7 w-7 text-emerald-600" />
+              <div className="h-14 w-14 rounded-full bg-[var(--dp-good)]/10 flex items-center justify-center">
+                <CheckCircle2 className="h-7 w-7 text-[var(--dp-good)]" />
               </div>
               <div>
                 <p className="font-semibold">Pipeline Deployed!</p>

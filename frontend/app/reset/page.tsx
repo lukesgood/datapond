@@ -154,7 +154,7 @@ export default function ResetPasswordPage() {
                   </button>
                 </div>
                 {capsLock ? (
-                  <p role="status" aria-live="polite" className="flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                  <p role="status" aria-live="polite" className="flex items-center gap-1.5 text-xs font-medium text-[var(--dp-warn)]">
                     <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                     Caps Lock is on
                   </p>
@@ -178,7 +178,7 @@ export default function ResetPasswordPage() {
                 />
                 {/* Honest pre-submit match feedback — green only once the pair is actually valid. */}
                 {matches ? (
-                  <p role="status" aria-live="polite" className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                  <p role="status" aria-live="polite" className="flex items-center gap-1.5 text-xs font-medium text-[var(--dp-good)]">
                     <Check className="h-3.5 w-3.5 shrink-0" />
                     Passwords match
                   </p>

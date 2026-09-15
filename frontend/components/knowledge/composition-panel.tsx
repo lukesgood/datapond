@@ -124,7 +124,7 @@ export function CompositionPanel({ name, onChange }: { name: string; onChange?: 
       </div>
 
       {c.scheduled_source_has_no_chunks && (
-        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+        <div className="flex items-start gap-2 rounded-md border border-[var(--dp-warn)]/40 bg-[var(--dp-warn)]/5 px-3 py-2 text-xs text-[var(--dp-warn)]">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
             A refresh is scheduled, but none of the chunks here came from it. The

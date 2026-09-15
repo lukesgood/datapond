@@ -174,9 +174,9 @@ function RiskBadge({ risk }: { risk: string }) {
 
 const PII_COLORS: Record<string, string> = {
   email:   "bg-blue-500/10 text-blue-500",
-  phone:   "bg-emerald-500/10 text-emerald-600",
-  ssn:     "bg-red-500/10 text-red-500",
-  card:    "bg-red-500/10 text-red-500",
+  phone:   "bg-[var(--dp-good)]/10 text-[var(--dp-good)]",
+  ssn:     "bg-destructive/10 text-destructive",
+  card:    "bg-destructive/10 text-destructive",
   name:    "bg-gray-500/10 text-gray-500",
   address: "bg-gray-500/10 text-gray-500",
   dob:     "bg-violet-500/10 text-violet-500",
@@ -554,7 +554,7 @@ function AccessControlTab() {
           </div>
           <Button size="sm" variant="outline" onClick={runPreview}>Run preview</Button>
           {pvResult && (
-            <div role={pvResult.error ? "alert" : undefined} aria-live={pvResult.error ? "polite" : undefined} className={`rounded-md p-3 text-xs font-mono whitespace-pre-wrap ${pvResult.allowed ? "bg-emerald-500/10" : "bg-red-500/10"}`}>
+            <div role={pvResult.error ? "alert" : undefined} aria-live={pvResult.error ? "polite" : undefined} className={`rounded-md p-3 text-xs font-mono whitespace-pre-wrap ${pvResult.allowed ? "bg-[var(--dp-good)]/10" : "bg-destructive/10"}`}>
               {pvResult.error ? `Error: ${pvResult.error}`
                 : pvResult.allowed ? `✅ Allowed → ${pvResult.rewritten_sql}`
                 : `⛔ Blocked: ${pvResult.reason}`}

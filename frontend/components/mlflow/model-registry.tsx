@@ -95,7 +95,7 @@ export function ModelRegistry() {
   const getStageBadge = (stage: string) => {
     switch (stage) {
       case "Production":
-        return <Badge className="bg-green-600">Production</Badge>
+        return <Badge className="bg-[var(--dp-good)]">Production</Badge>
       case "Staging":
         return <Badge className="bg-blue-600">Staging</Badge>
       case "Archived":
@@ -270,7 +270,7 @@ export function ModelRegistry() {
                             <TableCell className="font-medium">v{version.version}</TableCell>
                             <TableCell>{getStageBadge(version.current_stage)}</TableCell>
                             <TableCell>
-                              <Badge variant="outline" className="bg-green-50">
+                              <Badge variant="outline" className="bg-[var(--dp-good)]/10">
                                 {version.status}
                               </Badge>
                             </TableCell>
@@ -301,7 +301,7 @@ export function ModelRegistry() {
                                     }
                                     disabled={version.current_stage === "Production"}
                                   >
-                                    <ArrowUpCircle className="mr-2 h-4 w-4 text-green-600" />
+                                    <ArrowUpCircle className="mr-2 h-4 w-4 text-[var(--dp-good)]" />
                                     Promote to Production
                                   </DropdownMenuItem>
                                   <DropdownMenuSeparator />

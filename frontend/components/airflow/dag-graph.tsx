@@ -30,16 +30,16 @@ interface DagGraphProps {
 // ── State config ───────────────────────────────────────────────────────────
 const STATE_STYLES: Record<string, { bg: string; border: string; icon: React.ReactNode; dot: string }> = {
   success: {
-    bg: "bg-emerald-50",
-    border: "border-emerald-400",
-    icon: <CheckCircle2 className="h-3 w-3 text-emerald-600" />,
-    dot: "bg-emerald-500",
+    bg: "bg-[var(--dp-good)]/10",
+    border: "border-[var(--dp-good)]/60",
+    icon: <CheckCircle2 className="h-3 w-3 text-[var(--dp-good)]" />,
+    dot: "bg-[var(--dp-good)]",
   },
   failed: {
-    bg: "bg-red-50",
-    border: "border-red-400",
-    icon: <XCircle className="h-3 w-3 text-red-600" />,
-    dot: "bg-red-500",
+    bg: "bg-destructive/10",
+    border: "border-destructive/60",
+    icon: <XCircle className="h-3 w-3 text-destructive" />,
+    dot: "bg-destructive",
   },
   running: {
     bg: "bg-blue-50",
@@ -48,10 +48,10 @@ const STATE_STYLES: Record<string, { bg: string; border: string; icon: React.Rea
     dot: "bg-blue-500",
   },
   queued: {
-    bg: "bg-yellow-50",
-    border: "border-yellow-400",
-    icon: <PlayCircle className="h-3 w-3 text-yellow-600" />,
-    dot: "bg-yellow-500",
+    bg: "bg-[var(--dp-warn)]/10",
+    border: "border-[var(--dp-warn)]/60",
+    icon: <PlayCircle className="h-3 w-3 text-[var(--dp-warn)]" />,
+    dot: "bg-[var(--dp-warn)]",
   },
   skipped: {
     bg: "bg-slate-50",

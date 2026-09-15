@@ -415,7 +415,7 @@ function PipelinesPageInner() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs text-muted-foreground">{label}</span>
-                <Icon className={`h-3.5 w-3.5 ${accent ? "text-red-400" : "text-muted-foreground"}`} />
+                <Icon className={`h-3.5 w-3.5 ${accent ? "text-destructive" : "text-muted-foreground"}`} />
               </div>
               <div className={`text-2xl font-bold ${accent ? "text-destructive" : ""}`}>{value}</div>
               <div className="text-2xs text-muted-foreground mt-0.5">{sub}</div>
@@ -483,14 +483,14 @@ function PipelinesPageInner() {
                       <td className="px-4 py-2.5">
                         <div className="flex flex-col gap-0.5">
                           <span className={`text-2xs px-1.5 py-0.5 rounded font-medium w-fit ${
-                            t.status === "deployed" ? "bg-green-500/10 text-green-600" : "bg-muted text-muted-foreground"
+                            t.status === "deployed" ? "bg-[var(--dp-good)]/10 text-[var(--dp-good)]" : "bg-muted text-muted-foreground"
                           }`}>
                             {t.status}
                           </span>
                           {t.last_run_state && (
                             <span
                               className={`inline-flex items-center gap-1 text-2xs w-fit ${
-                                t.last_run_state === "success" ? "text-green-600" :
+                                t.last_run_state === "success" ? "text-[var(--dp-good)]" :
                                 t.last_run_state === "failed" ? "text-destructive" :
                                 t.last_run_state === "running" ? "text-primary" : "text-muted-foreground"
                               }`}
@@ -601,7 +601,7 @@ function PipelinesPageInner() {
                     </td>
                   </tr>
                 ) : recentRuns.map((run) => {
-                  const stateColor = run.state === "success" ? "text-green-600"
+                  const stateColor = run.state === "success" ? "text-[var(--dp-good)]"
                     : run.state === "failed" ? "text-destructive"
                     : run.state === "running" ? "text-primary"
                     : "text-muted-foreground"

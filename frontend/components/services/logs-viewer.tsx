@@ -58,9 +58,9 @@ export function LogsViewer({
     const level = detectLogLevel(log)
     switch (level) {
       case "error":
-        return "text-red-400"
+        return "text-destructive"
       case "warn":
-        return "text-yellow-400"
+        return "text-[var(--dp-warn)]"
       default:
         return "text-slate-300"
     }
@@ -83,7 +83,7 @@ export function LogsViewer({
     const parts = log.split(new RegExp(`(${searchTerm})`, "gi"))
     return parts.map((part, i) =>
       part.toLowerCase() === searchTerm.toLowerCase() ? (
-        <span key={i} className="bg-yellow-500 text-black">
+        <span key={i} className="bg-[var(--dp-warn)] text-black">
           {part}
         </span>
       ) : (
