@@ -109,7 +109,7 @@ export function ConceptsPanel() {
         </div>
       )}
       {!canEdit && (
-        <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <p className="flex items-center gap-1.5 text-2xs text-muted-foreground">
           <ShieldAlert className="h-3 w-3" />
           Read-only. Curating concepts needs the same permission as ingesting into a
           collection.
@@ -131,15 +131,15 @@ export function ConceptsPanel() {
               <div className="min-w-0">
                 <span className="text-xs font-medium">{c.name}</span>
                 {c.pii && (
-                  <span className="ml-1.5 rounded bg-amber-500/10 px-1 py-0.5 text-[10px] text-amber-600 dark:text-amber-400">PII</span>
+                  <span className="ml-1.5 rounded bg-amber-500/10 px-1 py-0.5 text-2xs text-amber-600 dark:text-amber-400">PII</span>
                 )}
                 <div className="mt-0.5 flex flex-wrap gap-1">
                   {c.terms.length === 0 ? (
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="text-2xs text-muted-foreground">
                       no terms — this concept expands nothing
                     </span>
                   ) : c.terms.map(t => (
-                    <span key={t} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">{t}</span>
+                    <span key={t} className="rounded bg-muted px-1.5 py-0.5 font-mono text-2xs">{t}</span>
                   ))}
                 </div>
               </div>

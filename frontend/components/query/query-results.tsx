@@ -161,7 +161,7 @@ export function QueryResults({
                 >
                   <div className="flex items-center gap-1.5">
                     {col}
-                    <span className="text-muted-foreground/50 font-normal text-[10px] hidden sm:inline">
+                    <span className="text-muted-foreground/50 font-normal text-2xs hidden sm:inline">
                       {colTypes[i] === "number" ? "#" : colTypes[i] === "date" ? "⏱" : ""}
                     </span>
                   </div>
@@ -187,11 +187,11 @@ export function QueryResults({
                       `}
                     >
                       {isNull ? (
-                        <span className="italic text-[10px]">null</span>
+                        <span className="italic text-2xs">null</span>
                       ) : type === "boolean" ? (
                         <Badge
                           variant={cell ? "default" : "secondary"}
-                          className="text-[10px] h-4 px-1"
+                          className="text-2xs h-4 px-1"
                         >
                           {String(cell)}
                         </Badge>

@@ -118,7 +118,7 @@ export function CompositionPanel({ name, onChange }: { name: string; onChange?: 
           ) : null}
         </p>
         <button onClick={() => void load()}
-                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
+                className="flex items-center gap-1 text-2xs text-muted-foreground hover:text-foreground">
           <RefreshCw className="h-3 w-3" />Refresh
         </button>
       </div>
@@ -142,14 +142,14 @@ export function CompositionPanel({ name, onChange }: { name: string; onChange?: 
             <div className="relative flex items-center justify-between gap-3">
               <span className="flex min-w-0 items-center gap-1.5">
                 <Database className="h-3 w-3 shrink-0 text-muted-foreground" />
-                <span className="truncate font-mono text-[11px]">{s.source}</span>
+                <span className="truncate font-mono text-2xs">{s.source}</span>
                 {s.scheduled && (
-                  <span className="shrink-0 rounded bg-primary/15 px-1 py-0.5 text-[10px] text-primary">
+                  <span className="shrink-0 rounded bg-primary/15 px-1 py-0.5 text-2xs text-primary">
                     scheduled
                   </span>
                 )}
               </span>
-              <span className="flex shrink-0 items-center gap-3 text-[11px] tabular-nums text-muted-foreground">
+              <span className="flex shrink-0 items-center gap-3 text-2xs tabular-nums text-muted-foreground">
                 {s.last_ingested && (
                   <span className="flex items-center gap-0.5">
                     <Clock className="h-2.5 w-2.5" />{new Date(s.last_ingested).toLocaleDateString()}
@@ -174,7 +174,7 @@ export function CompositionPanel({ name, onChange }: { name: string; onChange?: 
 
       {canEdit && <DescriptionField value={c.description ?? ""} busy={busy} onSave={saveDescription} />}
 
-      <p className="text-[10px] text-muted-foreground">
+      <p className="text-2xs text-muted-foreground">
         A scheduled source is replaced whole on each refresh; the rest stay until
         someone removes them. That is why an old date means different things on
         different rows.
@@ -198,7 +198,7 @@ function DescriptionField({ value, busy, onSave }: {
              placeholder="What this collection holds…"
              className="h-8 flex-1 rounded-md border bg-background px-2 text-xs" />
       <button onClick={() => onSave(draft.trim())} disabled={!dirty || busy}
-              className="shrink-0 rounded-md border px-2 py-1 text-[11px] disabled:opacity-40 hover:bg-muted/40">
+              className="shrink-0 rounded-md border px-2 py-1 text-2xs disabled:opacity-40 hover:bg-muted/40">
         Save
       </button>
     </div>

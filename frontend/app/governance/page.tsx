@@ -188,7 +188,7 @@ function PiiTypeBadge({ column, type }: { column: string; type: string }) {
     <Badge className={`${cls} border-0 gap-1`}>
       <Lock className="h-2.5 w-2.5" />
       {column}
-      <span className="opacity-60 text-[10px]">({type})</span>
+      <span className="opacity-60 text-2xs">({type})</span>
     </Badge>
   )
 }
@@ -479,9 +479,9 @@ function AccessControlTab() {
                 <TableRow key={p.id}>
                   <TableCell className="font-mono text-xs">{p.catalog_name}.{p.schema_name}.{p.table_name}</TableCell>
                   <TableCell className="font-mono text-xs max-w-[260px] truncate" title={p.filter_expression}>{p.filter_expression}</TableCell>
-                  <TableCell>{p.roles.map((r) => <Badge key={r} variant="secondary" className="text-[10px] mr-1">{r}</Badge>)}{p.exempt_roles.map((r) => <Badge key={r} variant="outline" className="text-[10px] mr-1">Exempt: {r}</Badge>)}</TableCell>
+                  <TableCell>{p.roles.map((r) => <Badge key={r} variant="secondary" className="text-2xs mr-1">{r}</Badge>)}{p.exempt_roles.map((r) => <Badge key={r} variant="outline" className="text-2xs mr-1">Exempt: {r}</Badge>)}</TableCell>
                   <TableCell className="text-xs">{p.priority}</TableCell>
-                  <TableCell><Badge variant={p.enabled ? "secondary" : "outline"} className="text-[10px] cursor-pointer" onClick={() => togglePolicy(p)}>{p.enabled ? "Active" : "Inactive"}</Badge></TableCell>
+                  <TableCell><Badge variant={p.enabled ? "secondary" : "outline"} className="text-2xs cursor-pointer" onClick={() => togglePolicy(p)}>{p.enabled ? "Active" : "Inactive"}</Badge></TableCell>
                   <TableCell><Button variant="ghost" size="sm" className="text-destructive h-7" onClick={() => deletePolicy(p.id)}>Delete</Button></TableCell>
                 </TableRow>
               ))}
@@ -532,9 +532,9 @@ function AccessControlTab() {
               {masks.map((m) => (
                 <TableRow key={m.id}>
                   <TableCell className="font-mono text-xs">{m.schema_name}.{m.table_name}.{m.column_name}</TableCell>
-                  <TableCell><Badge variant="outline" className="text-[10px]">{m.masking_type}</Badge></TableCell>
-                  <TableCell>{m.roles.map((r) => <Badge key={r} variant="secondary" className="text-[10px] mr-1">{r}</Badge>)}</TableCell>
-                  <TableCell><Badge variant={m.enabled ? "secondary" : "outline"} className="text-[10px]">{m.enabled ? "Active" : "Inactive"}</Badge></TableCell>
+                  <TableCell><Badge variant="outline" className="text-2xs">{m.masking_type}</Badge></TableCell>
+                  <TableCell>{m.roles.map((r) => <Badge key={r} variant="secondary" className="text-2xs mr-1">{r}</Badge>)}</TableCell>
+                  <TableCell><Badge variant={m.enabled ? "secondary" : "outline"} className="text-2xs">{m.enabled ? "Active" : "Inactive"}</Badge></TableCell>
                   <TableCell><Button variant="ghost" size="sm" className="text-destructive h-7" onClick={() => deleteMask(m.id)}>Delete</Button></TableCell>
                 </TableRow>
               ))}

@@ -54,7 +54,7 @@ function Meter({ label, pct, Icon }: { label: string; pct?: number | null; Icon:
       <div className="flex items-center justify-between text-sm">
         <span className="flex items-center gap-1.5 text-muted-foreground"><Icon className="h-3.5 w-3.5" />{label}</span>
         <span className="flex items-baseline gap-2">
-          {tag && <span className={`text-[10px] font-medium uppercase tracking-wide ${tag.c}`}>{tag.t}</span>}
+          {tag && <span className={`text-2xs font-medium uppercase tracking-wide ${tag.c}`}>{tag.t}</span>}
           <span className="dp-num font-medium tabular-nums">{v == null ? "—" : `${v}%`}</span>
         </span>
       </div>
@@ -80,12 +80,12 @@ function StatTile({ label, value, unit, sub }: { label: string; value?: string |
   const has = value != null && value !== ""
   return (
     <div className="rounded-md border bg-muted/30 px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">{label}</div>
+      <div className="text-2xs uppercase tracking-wide text-muted-foreground font-medium">{label}</div>
       <div className="mt-0.5 flex items-baseline gap-1">
         <span className="dp-num text-lg font-semibold tabular-nums truncate" title={has ? String(value) : undefined}>{has ? value : "—"}</span>
         {has && unit && <span className="text-xs text-muted-foreground">{unit}</span>}
       </div>
-      {sub && <div className="text-[10px] text-muted-foreground truncate">{sub}</div>}
+      {sub && <div className="text-2xs text-muted-foreground truncate">{sub}</div>}
     </div>
   )
 }
@@ -167,9 +167,9 @@ export function SystemPanel() {
                 <div className="flex justify-between gap-3 py-1.5 text-sm">
                   <span className="text-muted-foreground">Node Status</span>
                   <span className="flex gap-1.5">
-                    <Badge variant="outline" className={`text-[10px] ${n.ready === true ? "text-[var(--dp-good)] border-[var(--dp-good)]/30" : n.ready === false ? "text-destructive border-destructive/30" : "text-muted-foreground"}`}>{n.ready === true ? "Ready" : n.ready === false ? "NotReady" : "Unknown"}</Badge>
-                    {n.memory_pressure && <Badge variant="outline" className="text-[10px] text-[var(--dp-warn)] border-[var(--dp-warn)]/30">MemPressure</Badge>}
-                    {n.disk_pressure && <Badge variant="outline" className="text-[10px] text-[var(--dp-warn)] border-[var(--dp-warn)]/30">DiskPressure</Badge>}
+                    <Badge variant="outline" className={`text-2xs ${n.ready === true ? "text-[var(--dp-good)] border-[var(--dp-good)]/30" : n.ready === false ? "text-destructive border-destructive/30" : "text-muted-foreground"}`}>{n.ready === true ? "Ready" : n.ready === false ? "NotReady" : "Unknown"}</Badge>
+                    {n.memory_pressure && <Badge variant="outline" className="text-2xs text-[var(--dp-warn)] border-[var(--dp-warn)]/30">MemPressure</Badge>}
+                    {n.disk_pressure && <Badge variant="outline" className="text-2xs text-[var(--dp-warn)] border-[var(--dp-warn)]/30">DiskPressure</Badge>}
                   </span>
                 </div>
                 </div>
@@ -205,9 +205,9 @@ export function SystemPanel() {
                   <Cloud className="h-4 w-4" />AWS EC2 Instance
                   {/* Spot is interruptible — flag it in warn so it can't be mistaken for on-demand. */}
                   {info.cloud.lifecycle === "spot" ? (
-                    <Badge variant="outline" className="text-[10px] text-[var(--dp-warn)] border-[var(--dp-warn)]/30">Spot · interruptible</Badge>
+                    <Badge variant="outline" className="text-2xs text-[var(--dp-warn)] border-[var(--dp-warn)]/30">Spot · interruptible</Badge>
                   ) : (
-                    <Badge variant="outline" className="text-[10px] text-muted-foreground">{info.cloud.lifecycle ?? "on-demand"}</Badge>
+                    <Badge variant="outline" className="text-2xs text-muted-foreground">{info.cloud.lifecycle ?? "on-demand"}</Badge>
                   )}
                 </CardTitle>
                 <CardDescription>Underlying cloud compute resource · live EC2 instance metadata</CardDescription>
@@ -246,20 +246,20 @@ export function SystemPanel() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-4 gap-y-1 text-sm">
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Resource</div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">Required (min)</div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">Recommended</div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">Actual</div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">Status</div>
+                <div className="text-2xs uppercase tracking-wide text-muted-foreground font-medium">Resource</div>
+                <div className="text-2xs uppercase tracking-wide text-muted-foreground font-medium text-right">Required (min)</div>
+                <div className="text-2xs uppercase tracking-wide text-muted-foreground font-medium text-right">Recommended</div>
+                <div className="text-2xs uppercase tracking-wide text-muted-foreground font-medium text-right">Actual</div>
+                <div className="text-2xs uppercase tracking-wide text-muted-foreground font-medium text-right">Status</div>
                 {(info?.comparison ?? []).map((r) => {
                   const st = CMP_STATUS[r.status] ?? CMP_STATUS.unknown
                   return (
                     <div key={r.resource} className="contents">
-                      <div className="py-1.5 font-medium border-t">{r.resource} <span className="text-[10px] text-muted-foreground">({r.unit})</span></div>
+                      <div className="py-1.5 font-medium border-t">{r.resource} <span className="text-2xs text-muted-foreground">({r.unit})</span></div>
                       <div className="py-1.5 font-mono text-right text-muted-foreground border-t">{r.required}</div>
                       <div className="py-1.5 font-mono text-right text-muted-foreground border-t">{r.recommended}</div>
                       <div className="py-1.5 font-mono text-right font-semibold border-t">{r.actual ?? "—"}</div>
-                      <div className="py-1.5 text-right border-t"><Badge variant="outline" className={`text-[10px] ${st.cls}`}>{st.label}</Badge></div>
+                      <div className="py-1.5 text-right border-t"><Badge variant="outline" className={`text-2xs ${st.cls}`}>{st.label}</Badge></div>
                     </div>
                   )
                 })}
@@ -275,14 +275,14 @@ export function SystemPanel() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-[1fr_1.5fr_auto_auto_auto] gap-x-4 gap-y-1 text-sm">
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Component</div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Image</div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">CPU Req/Limit</div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">Memory Req/Limit</div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">Ready</div>
+                <div className="text-2xs uppercase tracking-wide text-muted-foreground font-medium">Component</div>
+                <div className="text-2xs uppercase tracking-wide text-muted-foreground font-medium">Image</div>
+                <div className="text-2xs uppercase tracking-wide text-muted-foreground font-medium text-right">CPU Req/Limit</div>
+                <div className="text-2xs uppercase tracking-wide text-muted-foreground font-medium text-right">Memory Req/Limit</div>
+                <div className="text-2xs uppercase tracking-wide text-muted-foreground font-medium text-right">Ready</div>
                 {(info?.components ?? []).map((co) => (
                   <div key={co.name} className="contents">
-                    <div className="py-1 font-medium truncate border-t">{co.name}<span className="ml-1.5 text-[10px] text-muted-foreground">{co.kind}</span></div>
+                    <div className="py-1 font-medium truncate border-t">{co.name}<span className="ml-1.5 text-2xs text-muted-foreground">{co.kind}</span></div>
                     <div className="py-1 font-mono text-xs text-muted-foreground truncate border-t">{co.image}</div>
                     <div className="py-1 font-mono text-xs text-right text-muted-foreground border-t">{co.cpu_request ?? "-"}/{co.cpu_limit ?? "-"}</div>
                     <div className="py-1 font-mono text-xs text-right text-muted-foreground border-t">{co.mem_request ?? "-"}/{co.mem_limit ?? "-"}</div>
@@ -301,15 +301,15 @@ export function SystemPanel() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-[1.5fr_auto_auto_1fr] gap-x-4 gap-y-1 text-sm">
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Name</div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium text-right">Capacity</div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Status</div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">StorageClass</div>
+                <div className="text-2xs uppercase tracking-wide text-muted-foreground font-medium">Name</div>
+                <div className="text-2xs uppercase tracking-wide text-muted-foreground font-medium text-right">Capacity</div>
+                <div className="text-2xs uppercase tracking-wide text-muted-foreground font-medium">Status</div>
+                <div className="text-2xs uppercase tracking-wide text-muted-foreground font-medium">StorageClass</div>
                 {(info?.storage ?? []).map((s) => (
                   <div key={s.name} className="contents">
                     <div className="py-1 font-mono text-xs truncate border-t">{s.name}</div>
                     <div className="py-1 font-mono text-right border-t">{s.capacity}</div>
-                    <div className="py-1 border-t"><Badge variant={s.status === "Bound" ? "secondary" : "destructive"} className="text-[10px]">{s.status}</Badge></div>
+                    <div className="py-1 border-t"><Badge variant={s.status === "Bound" ? "secondary" : "destructive"} className="text-2xs">{s.status}</Badge></div>
                     <div className="py-1 text-xs text-muted-foreground truncate border-t">{s.storage_class ?? "-"}</div>
                   </div>
                 ))}

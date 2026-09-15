@@ -226,7 +226,7 @@ function AssetGraphInner({ nodes: rawNodes, edges: rawEdges, taskStates = {}, on
               { icon: Table2, label: "Table", color: "text-slate-600" },
               { icon: ShieldCheck, label: "Quality", color: "text-violet-600" },
             ].map(({ icon: Icon, label, color }) => (
-              <div key={label} className="flex items-center gap-1 text-[9px]">
+              <div key={label} className="flex items-center gap-1 text-2xs">
                 <Icon className={`h-2.5 w-2.5 ${color}`} />
                 <span className="text-muted-foreground">{label}</span>
               </div>

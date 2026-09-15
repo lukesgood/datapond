@@ -30,7 +30,7 @@ export function ConnectorCard({ connector }: ConnectorCardProps) {
             <CardTitle className="text-sm font-semibold">{connector.name}</CardTitle>
             <Badge
               variant="secondary"
-              className={`mt-1 text-[10px] h-4 px-1.5 ${categoryColors[connector.category]}`}
+              className={`mt-1 text-2xs h-4 px-1.5 ${categoryColors[connector.category]}`}
             >
               {connector.category}
             </Badge>
@@ -47,7 +47,7 @@ export function ConnectorCard({ connector }: ConnectorCardProps) {
         {/* Features — fixed height slot (always reserves space) */}
         <div className="flex flex-wrap gap-1 min-h-[1.5rem] mb-4">
           {connector.features?.slice(0, 3).map((feature) => (
-            <Badge key={feature} variant="outline" className="text-[10px] h-5 px-1.5">
+            <Badge key={feature} variant="outline" className="text-2xs h-5 px-1.5">
               {feature}
             </Badge>
           ))}

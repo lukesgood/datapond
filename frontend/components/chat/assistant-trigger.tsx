@@ -68,7 +68,7 @@ export function AssistantTrigger() {
       title="Assistant"
       className={`dp-gradient-deep fixed top-1/2 z-50 flex w-11 -translate-y-1/2
                   items-center justify-center gap-2.5 rounded-l-xl [padding:16px_0]
-                  text-[13px] font-semibold tracking-wider text-white
+                  text-sm font-semibold tracking-wider text-white
                   shadow-[-6px_0_20px_-6px_var(--dp-aqua)] transition-[right,filter]
                   duration-200 hover:brightness-115 [writing-mode:vertical-rl]
                   ${open ? "right-[360px]" : "right-0"}`}

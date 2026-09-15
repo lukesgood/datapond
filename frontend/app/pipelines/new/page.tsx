@@ -432,7 +432,7 @@ function BronzeNode({ data, selected }: NodeProps<BronzeData>) {
       {/* Header */}
       <div className={`pl-3 pr-3 py-2 border-b ${style.header} rounded-t-xl`}>
         <div className="flex items-center justify-between">
-          <span className={`text-[9px] font-bold tracking-[0.15em] ${style.textColor}`}>
+          <span className={`text-2xs font-bold tracking-[0.15em] ${style.textColor}`}>
             {style.label}
           </span>
           <div className={`h-2 w-2 rounded-full ${style.dot}`} />
@@ -452,13 +452,13 @@ function BronzeNode({ data, selected }: NodeProps<BronzeData>) {
           <p className="text-xs text-gray-400 italic">No connection</p>
         )}
         {data.table && (
-          <p className="font-mono text-[11px] text-gray-500 truncate">{data.table}</p>
+          <p className="font-mono text-2xs text-gray-500 truncate">{data.table}</p>
         )}
         <div className="flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
-          <span className="text-[10px] text-gray-500">{data.mode}</span>
+          <span className="text-2xs text-gray-500">{data.mode}</span>
           {data.mode === "incremental" && data.watermarkColumn && (
-            <span className="font-mono text-[10px] text-gray-400">{data.watermarkColumn}</span>
+            <span className="font-mono text-2xs text-gray-400">{data.watermarkColumn}</span>
           )}
         </div>
       </div>
@@ -508,7 +508,7 @@ function SilverNode({ data, selected }: NodeProps<SilverData>) {
       {/* Header */}
       <div className={`pl-3 pr-3 py-2 border-b ${style.header} rounded-t-xl`}>
         <div className="flex items-center justify-between">
-          <span className={`text-[9px] font-bold tracking-[0.15em] ${style.textColor}`}>
+          <span className={`text-2xs font-bold tracking-[0.15em] ${style.textColor}`}>
             {style.label}
           </span>
           <div className={`h-2 w-2 rounded-full ${style.dot}`} />
@@ -520,12 +520,12 @@ function SilverNode({ data, selected }: NodeProps<SilverData>) {
 
       {/* Body */}
       <div className="pl-3 pr-3 py-2.5 space-y-1.5">
-        <div className="font-mono text-[10px] leading-relaxed" style={{ maxHeight: '3.6em', overflow: 'hidden' }}>
+        <div className="font-mono text-2xs leading-relaxed" style={{ maxHeight: '3.6em', overflow: 'hidden' }}>
           <SqlTokens sql={sqlPreview} />
         </div>
         <div className="flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
-          <span className="text-[10px] text-gray-500">{data.mode}</span>
+          <span className="text-2xs text-gray-500">{data.mode}</span>
         </div>
       </div>
 
@@ -574,7 +574,7 @@ function GoldNode({ data, selected }: NodeProps<GoldData>) {
       {/* Header */}
       <div className={`pl-3 pr-3 py-2 border-b ${style.header} rounded-t-xl`}>
         <div className="flex items-center justify-between">
-          <span className={`text-[9px] font-bold tracking-[0.15em] ${style.textColor}`}>
+          <span className={`text-2xs font-bold tracking-[0.15em] ${style.textColor}`}>
             {style.label}
           </span>
           <div className={`h-2 w-2 rounded-full ${style.dot}`} />
@@ -586,12 +586,12 @@ function GoldNode({ data, selected }: NodeProps<GoldData>) {
 
       {/* Body */}
       <div className="pl-3 pr-3 py-2.5 space-y-1.5">
-        <div className="font-mono text-[10px] leading-relaxed" style={{ maxHeight: '3.6em', overflow: 'hidden' }}>
+        <div className="font-mono text-2xs leading-relaxed" style={{ maxHeight: '3.6em', overflow: 'hidden' }}>
           <SqlTokens sql={sqlPreview} />
         </div>
         <div className="flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
-          <span className="text-[10px] text-gray-500">{data.aggregation || "custom"}</span>
+          <span className="text-2xs text-gray-500">{data.aggregation || "custom"}</span>
         </div>
       </div>
     </div>
@@ -602,7 +602,7 @@ function GoldNode({ data, selected }: NodeProps<GoldData>) {
 function LayerHeaderNode({ data }: NodeProps<{ label: string; color: string; barColor: string }>) {
   return (
     <div className="pointer-events-none select-none flex flex-col items-center gap-1 opacity-70">
-      <span className={`text-[11px] font-bold tracking-[0.18em] uppercase ${data.color}`}>
+      <span className={`text-2xs font-bold tracking-[0.18em] uppercase ${data.color}`}>
         {data.label}
       </span>
       <div className={`h-0.5 w-12 rounded-full ${data.barColor}`} />
@@ -722,7 +722,7 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
           </SelectContent>
         </Select>
         {data.connectionType && (
-          <p className="text-[11px] text-muted-foreground">Type: {data.connectionType}</p>
+          <p className="text-2xs text-muted-foreground">Type: {data.connectionType}</p>
         )}
       </div>
 
@@ -757,7 +757,7 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
             }}
             className="font-mono text-sm h-9" placeholder="public.orders" />
         )}
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-2xs text-muted-foreground">
           {tables.length > 0 ? "Select from fetched tables" : "Auto-fetched when a connection is selected"}
         </p>
       </div>
@@ -805,7 +805,7 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
               onChange={(e) => onChange({ watermarkColumn: e.target.value })}
               className="font-mono text-sm h-9" placeholder="updated_at" />
           )}
-          <p className="text-[11px] text-muted-foreground">Extract only rows changed since the last run</p>
+          <p className="text-2xs text-muted-foreground">Extract only rows changed since the last run</p>
         </div>
       )}
 
@@ -830,7 +830,7 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
               onChange={(e) => onChange({ primaryKey: e.target.value })}
               className="font-mono text-sm h-9" placeholder="id" />
           )}
-          <p className="text-[11px] text-muted-foreground">Composite key: id,tenant_id</p>
+          <p className="text-2xs text-muted-foreground">Composite key: id,tenant_id</p>
         </div>
       )}
 
@@ -851,12 +851,12 @@ function BronzeForm({ data, connections, onChange, onDelete }: BronzeFormProps) 
 
       {columns.length > 0 && (
         <div className="mt-4 p-3 bg-muted/50 rounded-lg">
-          <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase mb-2">
+          <p className="text-2xs font-bold tracking-widest text-muted-foreground uppercase mb-2">
             Table Schema ({columns.length} columns)
           </p>
           <div className="flex flex-wrap gap-1.5">
             {columns.map((c) => (
-              <span key={c.name} className="text-[10px] font-mono bg-background border rounded px-1.5 py-0.5">
+              <span key={c.name} className="text-2xs font-mono bg-background border rounded px-1.5 py-0.5">
                 {c.name}<span className="text-muted-foreground ml-1">{c.type}</span>
               </span>
             ))}
@@ -916,7 +916,7 @@ function SilverForm({ data, onChange, onDelete }: SilverFormProps) {
           <Input value={data.primaryKey}
             onChange={(e) => onChange({ primaryKey: e.target.value })}
             className="font-mono text-sm h-9" placeholder="id" />
-          <p className="text-[11px] text-muted-foreground">Dedup / Merge key</p>
+          <p className="text-2xs text-muted-foreground">Dedup / Merge key</p>
         </div>
 
         <div className="space-y-1.5">
@@ -924,7 +924,7 @@ function SilverForm({ data, onChange, onDelete }: SilverFormProps) {
           <Input value={data.partitionBy}
             onChange={(e) => onChange({ partitionBy: e.target.value })}
             className="font-mono text-sm h-9" placeholder="DATE(updated_at)" />
-          <p className="text-[11px] text-muted-foreground">Iceberg partition expression</p>
+          <p className="text-2xs text-muted-foreground">Iceberg partition expression</p>
         </div>
 
         <div className="space-y-1.5">
@@ -932,7 +932,7 @@ function SilverForm({ data, onChange, onDelete }: SilverFormProps) {
           <Input value={data.qualityCheck}
             onChange={(e) => onChange({ qualityCheck: e.target.value })}
             className="font-mono text-sm h-9" placeholder="amount > 0" />
-          <p className="text-[11px] text-muted-foreground">WHERE condition — halts on failure</p>
+          <p className="text-2xs text-muted-foreground">WHERE condition — halts on failure</p>
         </div>
 
         <div className="space-y-1.5 col-span-2">
@@ -947,14 +947,14 @@ function SilverForm({ data, onChange, onDelete }: SilverFormProps) {
       <div className="mt-4 space-y-1.5">
         <Label className="text-xs font-medium flex items-center gap-2">
           SQL Transform
-          <span className="text-[9px] font-bold tracking-wider px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-200">SQL</span>
-          <span className="text-[11px] font-normal text-muted-foreground">
+          <span className="text-2xs font-bold tracking-wider px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-200">SQL</span>
+          <span className="text-2xs font-normal text-muted-foreground">
             {`{{ source('name') }}`} · {`{{ ref('name') }}`} · {`{{ incremental_filter('col') }}`}
           </span>
         </Label>
         <Textarea value={data.sql}
           onChange={(e) => onChange({ sql: e.target.value })}
-          className="font-mono text-[13px] resize-y leading-relaxed border-0 bg-slate-950 text-slate-100 rounded-lg focus-visible:ring-1 focus-visible:ring-blue-500 placeholder:text-slate-500"
+          className="font-mono text-sm resize-y leading-relaxed border-0 bg-slate-950 text-slate-100 rounded-lg focus-visible:ring-1 focus-visible:ring-blue-500 placeholder:text-slate-500"
           style={{ minHeight: 160 }}
           spellCheck={false}
         />
@@ -1027,11 +1027,11 @@ function GoldForm({ data, onChange, onDelete }: GoldFormProps) {
       <div className="mt-4 space-y-1.5">
         <Label className="text-xs font-medium flex items-center gap-2">
           SQL Aggregate
-          <span className="text-[9px] font-bold tracking-wider px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-200">SQL</span>
+          <span className="text-2xs font-bold tracking-wider px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-200">SQL</span>
         </Label>
         <Textarea value={data.sql}
           onChange={(e) => onChange({ sql: e.target.value })}
-          className="font-mono text-[13px] resize-y leading-relaxed border-0 bg-slate-950 text-slate-100 rounded-lg focus-visible:ring-1 focus-visible:ring-blue-500"
+          className="font-mono text-sm resize-y leading-relaxed border-0 bg-slate-950 text-slate-100 rounded-lg focus-visible:ring-1 focus-visible:ring-blue-500"
           style={{ minHeight: 140 }}
           spellCheck={false}
         />
@@ -1071,7 +1071,7 @@ function PipelineForm({
 
       {/* ── 1. Basic ─────────────────────────────────────────────── */}
       <div className="pb-5 space-y-3">
-        <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
+        <p className="text-2xs font-bold tracking-widest text-muted-foreground uppercase">
           Basic
         </p>
 
@@ -1086,7 +1086,7 @@ function PipelineForm({
             className="font-mono text-sm h-9"
             placeholder="my_pipeline"
           />
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-2xs text-muted-foreground">
             Letters, numbers, and underscores only (used as the Airflow DAG ID)
           </p>
         </div>
@@ -1110,14 +1110,14 @@ function PipelineForm({
             className="text-xs h-8"
             placeholder="data-engineering-team"
           />
-          <p className="text-[11px] text-muted-foreground">Person or team responsible (Airflow DAG owner)</p>
+          <p className="text-2xs text-muted-foreground">Person or team responsible (Airflow DAG owner)</p>
         </div>
         </div>
       </div>
 
       {/* ── 2. Schedule ──────────────────────────────────────────── */}
       <div className="py-5 space-y-3">
-        <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
+        <p className="text-2xs font-bold tracking-widest text-muted-foreground uppercase">
           Schedule
         </p>
 
@@ -1133,7 +1133,7 @@ function PipelineForm({
                   <div className="flex items-center justify-between gap-6 w-full">
                     <span className="font-medium">{o.label}</span>
                     {o.cron && (
-                      <code className="text-[11px] text-muted-foreground font-mono">{o.cron}</code>
+                      <code className="text-2xs text-muted-foreground font-mono">{o.cron}</code>
                     )}
                   </div>
                 </SelectItem>
@@ -1149,7 +1149,7 @@ function PipelineForm({
               ) : (
                 <span className="text-xs text-muted-foreground flex-1">{selectedSchedule.desc}</span>
               )}
-              <span className="text-[11px] text-muted-foreground">{selectedSchedule.desc}</span>
+              <span className="text-2xs text-muted-foreground">{selectedSchedule.desc}</span>
             </div>
           )}
         </div>
@@ -1163,7 +1163,7 @@ function PipelineForm({
               className="font-mono text-sm h-9"
               placeholder="0 6 * * 1-5"
             />
-            <div className="rounded-md bg-muted/40 border px-3 py-2 text-[11px] text-muted-foreground space-y-0.5">
+            <div className="rounded-md bg-muted/40 border px-3 py-2 text-2xs text-muted-foreground space-y-0.5">
               <p className="font-medium text-foreground text-xs mb-1">Cron format: minute hour day month weekday</p>
               <p><code className="font-mono">0 6 * * *</code> — Every day at 6:00 AM</p>
               <p><code className="font-mono">0 */4 * * *</code> — Every 4 hours</p>
@@ -1176,7 +1176,7 @@ function PipelineForm({
         <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
           <div>
             <p className="text-xs font-medium">Catchup</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
+            <p className="text-2xs text-muted-foreground mt-0.5">
               Automatically backfill missed past runs (warning: may trigger many runs)
             </p>
           </div>
@@ -1189,7 +1189,7 @@ function PipelineForm({
 
       {/* ── 3. Tagging ───────────────────────────────────────────── */}
       <div className="py-5 space-y-3">
-        <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
+        <p className="text-2xs font-bold tracking-widest text-muted-foreground uppercase">
           Tags
         </p>
 
@@ -1201,7 +1201,7 @@ function PipelineForm({
             className="text-sm h-8"
             placeholder="sales, daily, production"
           />
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-2xs text-muted-foreground">
             Comma-separated — used for search and filtering in the Airflow UI.{" "}
             <code className="bg-muted px-1 rounded">datapond-pipeline</code> is included automatically
           </p>
@@ -1210,7 +1210,7 @@ function PipelineForm({
 
       {/* ── 4. Reliability ───────────────────────────────────────── */}
       <div className="py-5 space-y-3">
-        <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
+        <p className="text-2xs font-bold tracking-widest text-muted-foreground uppercase">
           Reliability
         </p>
 
@@ -1246,7 +1246,7 @@ function PipelineForm({
             className="font-mono text-sm h-8"
             placeholder="1"
           />
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-2xs text-muted-foreground">
             Number of concurrent DAG runs allowed. 1 recommended (prevents data duplication)
           </p>
         </div>
@@ -1254,14 +1254,14 @@ function PipelineForm({
 
       {/* ── 5. Alerts ────────────────────────────────────────────── */}
       <div className="py-5 space-y-3">
-        <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
+        <p className="text-2xs font-bold tracking-widest text-muted-foreground uppercase">
           Alerts
         </p>
 
         <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
           <div>
             <p className="text-xs font-medium">Email alerts</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
+            <p className="text-2xs text-muted-foreground mt-0.5">
               Send email on pipeline failure or retry
             </p>
           </div>
@@ -1281,7 +1281,7 @@ function PipelineForm({
               className="text-sm h-8"
               placeholder="oncall@company.com, data-team@company.com"
             />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Enter multiple addresses separated by commas —
               Airflow SMTP must be configured for delivery
               (<a href="/settings" className="underline hover:text-foreground">see Settings</a>)
@@ -1290,7 +1290,7 @@ function PipelineForm({
         )}
 
         {pipeline.advanced.alertOnFailure && !pipeline.advanced.alertEmail && (
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-2xs text-amber-800">
             No alerts will be sent unless you enter a recipient email.
           </div>
         )}
@@ -1298,10 +1298,10 @@ function PipelineForm({
 
       {/* ── 6. Generated Code ────────────────────────────────────── */}
       <div className="p-4 space-y-2">
-        <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
+        <p className="text-2xs font-bold tracking-widest text-muted-foreground uppercase">
           Generated Code
         </p>
-        <pre className="font-mono text-[10px] bg-muted/50 border p-3 rounded-lg
+        <pre className="font-mono text-2xs bg-muted/50 border p-3 rounded-lg
                         overflow-auto max-h-52 text-muted-foreground leading-relaxed
                         whitespace-pre">
           {code}
@@ -2073,7 +2073,7 @@ export default function NewPipelinePage() {
           {draftRestored && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <span>Draft restored</span>
-              <button onClick={clearDraft} className="text-destructive hover:underline text-[11px]">Reset</button>
+              <button onClick={clearDraft} className="text-destructive hover:underline text-2xs">Reset</button>
             </div>
           )}
           {error && (
@@ -2084,10 +2084,10 @@ export default function NewPipelinePage() {
               </div>
               {error.includes("\n") && (
                 <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block w-80 p-3 bg-background border rounded-lg shadow-lg">
-                  <p className="text-[10px] font-bold text-destructive mb-1.5">Validation errors ({error.split("\n").length})</p>
+                  <p className="text-2xs font-bold text-destructive mb-1.5">Validation errors ({error.split("\n").length})</p>
                   <ul className="space-y-1">
                     {error.split("\n").map((e, i) => (
-                      <li key={i} className="text-[11px] text-destructive/80 flex items-start gap-1">
+                      <li key={i} className="text-2xs text-destructive/80 flex items-start gap-1">
                         <span className="shrink-0 mt-0.5">•</span>
                         <span>{e}</span>
                       </li>
@@ -2104,12 +2104,12 @@ export default function NewPipelinePage() {
                 <span>{validationNotice.label}</span>
               </div>
               <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block w-80 p-3 bg-background border rounded-lg shadow-lg">
-                <p className="text-[10px] font-bold text-amber-600 mb-1.5">
+                <p className="text-2xs font-bold text-amber-600 mb-1.5">
                   {validationNotice.heading}
                 </p>
                 <ul className="space-y-1">
                   {validationNotice.notes.map((note, i) => (
-                    <li key={i} className="text-[11px] text-amber-700/90 flex items-start gap-1">
+                    <li key={i} className="text-2xs text-amber-700/90 flex items-start gap-1">
                       <span className="shrink-0 mt-0.5">•</span>
                       <span>{note}</span>
                     </li>
@@ -2126,7 +2126,7 @@ export default function NewPipelinePage() {
           {/* Live readiness pill — proactively answers "why can't I deploy?" */}
           {liveIssues.length === 0 ? (
             <div
-              className="hidden lg:flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700"
+              className="hidden lg:flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-2xs font-medium text-emerald-700"
               title="All checks passed — ready to deploy"
             >
               <CheckCircle2 className="h-3 w-3 shrink-0" />
@@ -2134,7 +2134,7 @@ export default function NewPipelinePage() {
             </div>
           ) : (
             <div
-              className="hidden lg:flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700"
+              className="hidden lg:flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-2xs font-medium text-amber-700"
               title={`Fix before deploy:\n${liveIssues.map((e) => "• " + e).join("\n")}`}
             >
               <span className="tabular-nums font-bold">{liveIssues.length}</span>
@@ -2246,7 +2246,7 @@ export default function NewPipelinePage() {
                           <span className="text-lg">{t.icon}</span>
                           <div>
                             <div className="text-xs font-medium">{t.name}</div>
-                            <div className="text-[10px] text-muted-foreground">{t.category}</div>
+                            <div className="text-2xs text-muted-foreground">{t.category}</div>
                           </div>
                         </button>
                       ))}
@@ -2326,12 +2326,12 @@ export default function NewPipelinePage() {
 
             {/* Node count + search shortcut */}
             <div className="ml-auto flex items-center gap-2 px-3 shrink-0">
-              <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+              <span className="text-2xs text-muted-foreground whitespace-nowrap">
                 {nodes.filter(n => n.type !== "layerHeader").length} nodes
               </span>
               <button
                 onClick={() => { setSearchOpen(true); setSearchQuery("") }}
-                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground border rounded px-1.5 py-0.5 transition-colors"
+                className="flex items-center gap-1 text-2xs text-muted-foreground hover:text-foreground border rounded px-1.5 py-0.5 transition-colors"
                 aria-label="Search nodes (Ctrl+K)" title="Search nodes (Ctrl+K)"
               >
                 <Search className="h-2.5 w-2.5" />
@@ -2483,7 +2483,7 @@ export default function NewPipelinePage() {
                 placeholder="Search nodes by name..."
                 className="flex-1 text-sm outline-none bg-transparent placeholder:text-muted-foreground"
               />
-              <kbd className="text-[10px] text-muted-foreground border rounded px-1.5 py-0.5 shrink-0">esc</kbd>
+              <kbd className="text-2xs text-muted-foreground border rounded px-1.5 py-0.5 shrink-0">esc</kbd>
             </div>
             <div className="max-h-72 overflow-y-auto py-1">
               {(() => {
@@ -2510,13 +2510,13 @@ export default function NewPipelinePage() {
                     >
                       <div className={`h-2 w-2 rounded-full shrink-0 ${dot}`} />
                       <span className="font-mono flex-1 text-left truncate">{d.name || n.id}</span>
-                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded capitalize ${badge}`}>{n.data.layer}</span>
+                      <span className={`text-2xs font-medium px-1.5 py-0.5 rounded capitalize ${badge}`}>{n.data.layer}</span>
                     </button>
                   )
                 })
               })()}
             </div>
-            <div className="border-t px-4 py-2 flex items-center gap-4 text-[11px] text-muted-foreground bg-muted/20">
+            <div className="border-t px-4 py-2 flex items-center gap-4 text-2xs text-muted-foreground bg-muted/20">
               <span><kbd className="border rounded px-1">↑↓</kbd> navigate</span>
               <span><kbd className="border rounded px-1">↵</kbd> select</span>
               <span><kbd className="border rounded px-1">esc</kbd> close</span>
@@ -2555,7 +2555,7 @@ export default function NewPipelinePage() {
                     <span className="text-xl">{t.icon}</span>
                     <div>
                       <div className="text-sm font-medium">{t.name}</div>
-                      <div className="text-[10px] text-muted-foreground font-medium">{t.category} · {t.nodes.length} nodes</div>
+                      <div className="text-2xs text-muted-foreground font-medium">{t.category} · {t.nodes.length} nodes</div>
                     </div>
                   </div>
                   <p className="text-xs text-muted-foreground leading-relaxed">{t.description}</p>

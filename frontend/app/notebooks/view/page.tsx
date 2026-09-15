@@ -198,7 +198,7 @@ function NotebookViewer() {
           <div>
             <h2 className="text-xl font-bold">{notebookName}</h2>
             <div className="flex items-center gap-2 mt-0.5">
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{kernelName}</Badge>
+              <Badge variant="secondary" className="text-2xs px-1.5 py-0">{kernelName}</Badge>
               <span className="text-xs text-muted-foreground">{notebook.cells.length} cells · {codeCount} code</span>
               {path && <span className="text-xs text-muted-foreground font-mono">{path}</span>}
             </div>
@@ -234,12 +234,12 @@ function NotebookViewer() {
               <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/30 border-b">
                 <Badge
                   variant={cell.cell_type === "code" ? "default" : "secondary"}
-                  className="text-[10px] px-1.5 py-0 h-4"
+                  className="text-2xs px-1.5 py-0 h-4"
                 >
                   {cell.cell_type}
                 </Badge>
                 {cell.cell_type === "code" && (
-                  <span className="text-[10px] text-muted-foreground font-mono">
+                  <span className="text-2xs text-muted-foreground font-mono">
                     In [{cell.execution_count ?? " "}]
                   </span>
                 )}
@@ -269,7 +269,7 @@ function NotebookViewer() {
                           if (isImage) {
                             return (
                               <div key={oi} className="flex gap-2 p-3">
-                                <span className="shrink-0 pt-0.5 text-[10px] font-mono text-muted-foreground">Out</span>
+                                <span className="shrink-0 pt-0.5 text-2xs font-mono text-muted-foreground">Out</span>
                                 <Image
                                   src={`data:image/png;base64,${output.data!["image/png"]}`}
                                   alt="Notebook output"
@@ -286,7 +286,7 @@ function NotebookViewer() {
                             <div key={oi} className={`flex gap-2 px-4 py-2 ${
                               isError || isStderr ? "bg-destructive/10" : "bg-muted/30"
                             }`}>
-                              <span className={`shrink-0 select-none pt-px text-[10px] font-mono ${
+                              <span className={`shrink-0 select-none pt-px text-2xs font-mono ${
                                 isError || isStderr ? "text-destructive/70" : "text-muted-foreground/70"
                               }`}>{label}</span>
                               <pre className={`min-w-0 flex-1 overflow-x-auto text-xs font-mono ${

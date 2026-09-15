@@ -162,7 +162,7 @@ export function SourceAccessPanel({
               </span>
               {/* No remove control: there is no grant row to delete, and this panel
                   has no transfer-ownership action. */}
-              <Badge variant="outline" className="text-[10px] gap-1">
+              <Badge variant="outline" className="text-2xs gap-1">
                 <ShieldCheck className="h-2.5 w-2.5" />Owner
               </Badge>
             </div>
@@ -170,7 +170,7 @@ export function SourceAccessPanel({
             <div key={row.username} className="flex items-center justify-between gap-3 px-3 py-2">
               <span className="truncate text-xs font-mono">{row.username}</span>
               <span className="flex shrink-0 items-center gap-2">
-                <Badge variant="outline" className="text-[10px]">{roleLabel(row.role)}</Badge>
+                <Badge variant="outline" className="text-2xs">{roleLabel(row.role)}</Badge>
                 {mayManage && (
                   <button onClick={() => void removeMember(row.username)} disabled={busy}
                           aria-label={`Remove ${row.username}`}

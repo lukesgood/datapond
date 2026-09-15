@@ -516,7 +516,7 @@ function SendToKnowledgeDialog({ table, onClose }: { table: Table; onClose: () =
               Embeds a text column from <span className="font-mono">{table.namespace}.{table.name}</span> into a RAG collection.
             </p>
             <div className="space-y-1">
-              <label className="text-[11px] text-muted-foreground">Collection</label>
+              <label className="text-2xs text-muted-foreground">Collection</label>
               <select value={collection} onChange={e => setCollection(e.target.value)}
                 className="h-9 w-full rounded-md border bg-background px-2 text-xs">
                 {collections.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
@@ -527,7 +527,7 @@ function SendToKnowledgeDialog({ table, onClose }: { table: Table; onClose: () =
               )}
             </div>
             <div className="space-y-1">
-              <label className="text-[11px] text-muted-foreground">Text column</label>
+              <label className="text-2xs text-muted-foreground">Text column</label>
               <select value={col} onChange={e => setCol(e.target.value)}
                 className="h-9 w-full rounded-md border bg-background px-2 text-xs">
                 <option value="">column…</option>
@@ -535,7 +535,7 @@ function SendToKnowledgeDialog({ table, onClose }: { table: Table; onClose: () =
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-[11px] text-muted-foreground">Mode</label>
+              <label className="text-2xs text-muted-foreground">Mode</label>
               <select value={sched} onChange={e => setSched(e.target.value)}
                 className="h-9 w-full rounded-md border bg-background px-2 text-xs">
                 <option value="">Ingest once (now)</option>

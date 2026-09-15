@@ -52,7 +52,7 @@ function sizeBar(bytes: number, total: number) {
       <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
         <div className="h-full bg-primary/60 rounded-full" style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-[11px] text-muted-foreground w-10 text-right tabular-nums">
+      <span className="text-2xs text-muted-foreground w-10 text-right tabular-nums">
         {pct.toFixed(0)}%
       </span>
     </div>
@@ -271,7 +271,7 @@ export default function StoragePage() {
                 ? <Skeleton className="h-6 w-20 mt-1" />
                 : <div className="text-xl font-bold truncate">{value}</div>
               }
-              <div className="text-[11px] text-muted-foreground mt-0.5 truncate">{sub}</div>
+              <div className="text-2xs text-muted-foreground mt-0.5 truncate">{sub}</div>
             </CardContent>
           </Card>
         ))}
@@ -289,7 +289,7 @@ export default function StoragePage() {
                 <CardTitle className="text-sm">New Bucket</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-2xs text-muted-foreground">
                   Bucket lifecycle is managed by your AWS account/Terraform on this profile — create buckets there.
                 </p>
               </CardContent>
@@ -315,7 +315,7 @@ export default function StoragePage() {
                   </Button>
                 </div>
                 {actionError && <div role="alert" aria-live="polite"><ErrorBox msg={actionError} /></div>}
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-2xs text-muted-foreground">
                   Lowercase letters, numbers, and hyphens only
                 </p>
               </CardContent>
@@ -328,7 +328,7 @@ export default function StoragePage() {
               <CardTitle className="text-sm flex items-center justify-between">
                 Buckets
                 {overview && (
-                  <Badge variant="secondary" className="text-[10px] h-4 px-1.5">
+                  <Badge variant="secondary" className="text-2xs h-4 px-1.5">
                     {overview.bucket_count}
                   </Badge>
                 )}
@@ -369,11 +369,11 @@ export default function StoragePage() {
                         <div className="min-w-0 flex-1 space-y-1">
                           <div className="flex items-center justify-between gap-2">
                             <span className="truncate text-sm font-medium">{b.name}</span>
-                            <span className="shrink-0 text-[11px] text-muted-foreground">
+                            <span className="shrink-0 text-2xs text-muted-foreground">
                               {b.total_size_human}
                             </span>
                           </div>
-                          <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                          <div className="flex items-center justify-between gap-2 text-2xs text-muted-foreground">
                             <span>{b.object_count.toLocaleString()} objects</span>
                             {b.created_at && (
                               <span>
@@ -426,7 +426,7 @@ export default function StoragePage() {
                     ) : "Object Browser"}
                   </CardTitle>
                   {selectedBucket && (
-                    <CardDescription className="text-[11px] mt-0.5">
+                    <CardDescription className="text-2xs mt-0.5">
                       {objectsLoading
                         ? "Loading..."
                         : objectFilter.trim()
@@ -528,7 +528,7 @@ export default function StoragePage() {
                     <Search className="h-6 w-6 text-muted-foreground/20 mb-2" />
                     <p className="text-sm text-muted-foreground">No objects match “{objectFilter}”</p>
                     {objectsCapped && (
-                      <p className="mt-1 text-[11px] text-muted-foreground/70">Only the first {OBJECT_LIMIT} objects are loaded — a match may exist beyond them.</p>
+                      <p className="mt-1 text-2xs text-muted-foreground/70">Only the first {OBJECT_LIMIT} objects are loaded — a match may exist beyond them.</p>
                     )}
                   </div>
                 ) : (

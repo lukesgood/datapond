@@ -75,9 +75,9 @@ export function DestructiveCard({ pending, onApprove, onDismiss, busy }: {
         {pending.label}
       </p>
 
-      {previewSummary && <p className="mt-1.5 text-[11px]">{previewSummary}</p>}
+      {previewSummary && <p className="mt-1.5 text-2xs">{previewSummary}</p>}
       {previewEntries.length > 0 && (
-        <ul className="mt-1.5 space-y-0.5 text-[11px] text-muted-foreground">
+        <ul className="mt-1.5 space-y-0.5 text-2xs text-muted-foreground">
           {previewEntries.map(e => (
             <li key={e.key}>{e.label}: <span className="font-mono">{e.value}</span></li>
           ))}
@@ -85,30 +85,30 @@ export function DestructiveCard({ pending, onApprove, onDismiss, busy }: {
       )}
 
       {dependents === null ? (
-        <p className="mt-2 text-[11px] text-[var(--dp-warn)]">
+        <p className="mt-2 text-2xs text-[var(--dp-warn)]">
           What else depends on this could not be checked. Proceed carefully.
         </p>
       ) : (
         <>
           {items.length > 0 && (
-            <ul className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+            <ul className="mt-2 space-y-1 text-2xs text-muted-foreground">
               {items.map((d, i) => (
                 <li key={i}><span className="font-medium">{d.name}</span> — {d.effect}</li>
               ))}
             </ul>
           )}
           {items.length === 0 && notChecked.length === 0 && (
-            <p className="mt-2 text-[11px] text-muted-foreground">Nothing else depends on this.</p>
+            <p className="mt-2 text-2xs text-muted-foreground">Nothing else depends on this.</p>
           )}
           {notChecked.length > 0 && (
-            <ul className="mt-2 space-y-1 text-[11px] text-[var(--dp-warn)]">
+            <ul className="mt-2 space-y-1 text-2xs text-[var(--dp-warn)]">
               {notChecked.map((r, i) => <li key={i}>{r}</li>)}
             </ul>
           )}
         </>
       )}
 
-      <label className="mt-3 block text-[11px] text-muted-foreground">
+      <label className="mt-3 block text-2xs text-muted-foreground">
         Type <span className="font-mono font-medium text-foreground">{target}</span> to confirm
         <input
           value={typed}

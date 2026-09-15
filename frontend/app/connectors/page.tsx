@@ -144,7 +144,7 @@ function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated }: {
               </div>
               <div className="text-center space-y-1">
                 <div className="text-sm font-bold">{step.label}</div>
-                <div className="text-[11px] leading-relaxed opacity-75">{step.desc}</div>
+                <div className="text-2xs leading-relaxed opacity-75">{step.desc}</div>
               </div>
             </div>
             {/* Arrow */}
@@ -341,7 +341,7 @@ function ConnectorsPageInner() {
     const s = map[status] ?? { label: status, cls: "bg-muted text-muted-foreground border-border", dot: "bg-muted-foreground" }
     return (
       <span
-        className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium capitalize ${s.cls}`}
+        className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-2xs font-medium capitalize ${s.cls}`}
         aria-label={`Status: ${s.label}`}
       >
         <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} aria-hidden />
@@ -423,7 +423,7 @@ function ConnectorsPageInner() {
                 <Icon className={`h-3.5 w-3.5 ${color || "text-muted-foreground"}`} />
               </div>
               <div className={`text-2xl font-bold ${color}`}>{value}</div>
-              <div className="text-[11px] text-muted-foreground mt-0.5">{sub}</div>
+              <div className="text-2xs text-muted-foreground mt-0.5">{sub}</div>
             </div>
           ))}
         </div>
@@ -437,7 +437,7 @@ function ConnectorsPageInner() {
               <Plug className="h-3.5 w-3.5" />
               Active Sources
               {connections.length > 0 && (
-                <Badge variant="secondary" className="text-[9px] h-4 px-1 ml-0.5">
+                <Badge variant="secondary" className="text-2xs h-4 px-1 ml-0.5">
                   {connections.length}
                 </Badge>
               )}
@@ -575,7 +575,7 @@ function ConnectorsPageInner() {
                               <Zap className="h-3 w-3" />{parseCron(conn.schedule)}
                             </span>
                             {nextRun(conn.schedule) && (
-                              <span className="text-[10px] text-muted-foreground">{nextRun(conn.schedule)}</span>
+                              <span className="text-2xs text-muted-foreground">{nextRun(conn.schedule)}</span>
                             )}
                           </div>
                         ) : (

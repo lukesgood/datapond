@@ -339,7 +339,7 @@ export default function DocArticlePage() {
           <Card>
             <CardContent className="space-y-4 py-5">
               {/* Lead paragraph reads at body weight/foreground; bullets carry the detail. */}
-              <p className="text-[15px] leading-relaxed text-foreground">{doc.summary}</p>
+              <p className="text-base leading-relaxed text-foreground">{doc.summary}</p>
               <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground marker:text-primary/60">
                 {doc.points.map((point) => <li key={point}>{point}</li>)}
               </ul>
@@ -352,7 +352,7 @@ export default function DocArticlePage() {
                   ))}
                 </div>
               )}
-              <p className="flex items-center gap-1 pt-2 text-[11px] text-muted-foreground">
+              <p className="flex items-center gap-1 pt-2 text-2xs text-muted-foreground">
                 <ExternalLink className="h-3 w-3" /> Canonical operator guides live in the repository <span className="font-mono">docs/</span> directory.
               </p>
             </CardContent>
@@ -367,7 +367,7 @@ export default function DocArticlePage() {
                 >
                   <ArrowLeft className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:-translate-x-0.5" />
                   <span className="min-w-0">
-                    <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">Previous</span>
+                    <span className="block text-2xs uppercase tracking-wide text-muted-foreground">Previous</span>
                     <span className="block truncate text-sm font-medium">{ARTICLES[prevSlug].title}</span>
                   </span>
                 </Link>
@@ -378,7 +378,7 @@ export default function DocArticlePage() {
                   className="group flex flex-1 items-center justify-end gap-2 rounded-md border px-3 py-2.5 text-right transition-colors hover:border-primary/40 hover:bg-muted"
                 >
                   <span className="min-w-0">
-                    <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">Next</span>
+                    <span className="block text-2xs uppercase tracking-wide text-muted-foreground">Next</span>
                     <span className="block truncate text-sm font-medium">{ARTICLES[nextSlug].title}</span>
                   </span>
                   <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />

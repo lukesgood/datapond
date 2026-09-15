@@ -48,8 +48,8 @@ export default function AccountPage() {
   return (
     <div className="flex-1 space-y-5 p-8 pt-6">
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">Account</p>
-        <h1 className="mt-0.5 text-[23px] font-semibold tracking-tight">Your account</h1>
+        <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-primary">Account</p>
+        <h1 className="mt-0.5 text-2xl font-semibold tracking-tight">Your account</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Manage your own sign-in credentials — password and passkeys.
         </p>
@@ -79,7 +79,7 @@ export default function AccountPage() {
               onChange={e => setPw(e.target.value)} placeholder="At least 6 characters"
               aria-invalid={tooShort} aria-describedby={tooShort ? "new-password-hint" : undefined} />
             {tooShort && (
-              <p id="new-password-hint" className="text-[11px] text-[var(--dp-warn)]">
+              <p id="new-password-hint" className="text-2xs text-[var(--dp-warn)]">
                 Use at least 6 characters.
               </p>
             )}
@@ -91,7 +91,7 @@ export default function AccountPage() {
               onKeyDown={e => e.key === "Enter" && changePassword()}
               aria-invalid={mismatch} aria-describedby={mismatch ? "confirm-password-hint" : undefined} />
             {mismatch && (
-              <p id="confirm-password-hint" className="text-[11px] text-destructive">
+              <p id="confirm-password-hint" className="text-2xs text-destructive">
                 Passwords do not match.
               </p>
             )}

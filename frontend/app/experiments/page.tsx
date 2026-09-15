@@ -257,7 +257,7 @@ function RunDetailPanel({
             <TabsTrigger value="metrics" className="text-xs px-2 h-7">
               Metrics
               {run.data.metrics.length > 0 && (
-                <span className="ml-1 text-[10px] bg-muted text-muted-foreground rounded px-1">
+                <span className="ml-1 text-2xs bg-muted text-muted-foreground rounded px-1">
                   {run.data.metrics.length}
                 </span>
               )}
@@ -265,7 +265,7 @@ function RunDetailPanel({
             <TabsTrigger value="params" className="text-xs px-2 h-7">
               Params
               {run.data.params.length > 0 && (
-                <span className="ml-1 text-[10px] bg-muted text-muted-foreground rounded px-1">
+                <span className="ml-1 text-2xs bg-muted text-muted-foreground rounded px-1">
                   {run.data.params.length}
                 </span>
               )}
@@ -305,7 +305,7 @@ function RunDetailPanel({
               <Separator />
               <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">Run ID</span>
-                <span className="text-[10px] font-mono text-muted-foreground">{run.info.run_id.slice(0, 12)}…</span>
+                <span className="text-2xs font-mono text-muted-foreground">{run.info.run_id.slice(0, 12)}…</span>
               </div>
             </div>
           </TabsContent>
@@ -360,7 +360,7 @@ function CompareView({
         <div className="flex items-center gap-2">
           <GitCompare className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">Run Comparison</span>
-          <Badge variant="secondary" className="text-[10px]">{result.runs.length} runs</Badge>
+          <Badge variant="secondary" className="text-2xs">{result.runs.length} runs</Badge>
         </div>
         <Button variant="ghost" size="icon-sm" onClick={onClose} className="h-7 w-7">
           <X className="h-3.5 w-3.5" />
@@ -842,7 +842,7 @@ function ExperimentsPageInner() {
         {/* ── LEFT: Experiment list (~240px) ─────────────────────────────── */}
         <div className="w-60 shrink-0 border-r flex flex-col overflow-hidden bg-muted/30">
           <div className="px-3 py-2 border-b flex items-center justify-between">
-            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+            <span className="text-2xs font-medium text-muted-foreground uppercase tracking-wide">
               Experiments
             </span>
             {loadingExps && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
@@ -859,7 +859,7 @@ function ExperimentsPageInner() {
               <div className="flex flex-col items-center justify-center h-40 text-center px-4">
                 <FlaskConical className="h-8 w-8 text-muted-foreground/30 mb-2" />
                 <p className="text-xs text-muted-foreground">No experiments yet.</p>
-                <p className="text-[11px] text-muted-foreground/60 mt-1">
+                <p className="text-2xs text-muted-foreground/60 mt-1">
                   Create your first experiment to start tracking ML runs.
                 </p>
                 <Button
@@ -901,13 +901,13 @@ function ExperimentsPageInner() {
                           </span>
                           <div className="flex items-center gap-1 shrink-0">
                             {isDefault && (
-                              <Badge variant="secondary" className="text-[9px] h-3.5 px-1">
+                              <Badge variant="secondary" className="text-2xs h-3.5 px-1">
                                 default
                               </Badge>
                             )}
                             <span
                               className={cn(
-                                "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
+                                "text-2xs font-medium px-1.5 py-0.5 rounded-full",
                                 count > 0
                                   ? "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400"
                                   : "bg-muted text-muted-foreground"
@@ -1101,25 +1101,25 @@ function ExperimentsPageInner() {
                               {previewMetrics.map((m) => (
                                 <span
                                   key={m.key}
-                                  className="inline-flex items-baseline gap-0.5 text-[10px] font-mono"
+                                  className="inline-flex items-baseline gap-0.5 text-2xs font-mono"
                                 >
                                   <span className="text-muted-foreground">{m.key}:</span>
                                   <span className="font-medium">{m.value.toPrecision(4)}</span>
                                 </span>
                               ))}
                               {run.data.metrics.length > 2 && (
-                                <span className="text-[10px] text-muted-foreground">
+                                <span className="text-2xs text-muted-foreground">
                                   +{run.data.metrics.length - 2}
                                 </span>
                               )}
                             </div>
                           ) : (
-                            <span className="text-muted-foreground/40 text-[11px]">—</span>
+                            <span className="text-muted-foreground/40 text-2xs">—</span>
                           )}
                         </TableCell>
 
                         {/* Start time */}
-                        <TableCell className="text-[11px] text-muted-foreground">
+                        <TableCell className="text-2xs text-muted-foreground">
                           {formatTs(run.info.start_time)}
                         </TableCell>
 

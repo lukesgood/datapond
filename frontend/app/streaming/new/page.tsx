@@ -81,7 +81,7 @@ function CopyBtn({ text }: { text: string }) {
   return (
     <button
       onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-      className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+      className="text-2xs text-muted-foreground hover:text-foreground transition-colors"
     >
       {copied ? "Copied!" : "Copy"}
     </button>
@@ -123,7 +123,7 @@ function CdcPrereqSidebar({ db, user }: { db?: string; user?: string }) {
         <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
         <div>
           <p className="text-sm font-semibold text-amber-800">Source DB Prerequisites</p>
-          <p className="text-[11px] text-amber-600 mt-0.5">Complete before connecting</p>
+          <p className="text-2xs text-amber-600 mt-0.5">Complete before connecting</p>
         </div>
       </div>
 
@@ -131,13 +131,13 @@ function CdcPrereqSidebar({ db, user }: { db?: string; user?: string }) {
         {PREREQ_STEPS.map((p, i) => (
           <div key={i}>
             <div className="flex items-center gap-1.5 mb-1">
-              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-amber-500/15 text-[10px] font-bold text-amber-700 shrink-0">{i + 1}</span>
+              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-amber-500/15 text-2xs font-bold text-amber-700 shrink-0">{i + 1}</span>
               <span className="text-xs font-semibold text-amber-800">{p.label}</span>
-              {p.optional && <span className="text-[10px] text-amber-500 ml-auto">optional</span>}
+              {p.optional && <span className="text-2xs text-amber-500 ml-auto">optional</span>}
             </div>
-            <p className="text-[11px] text-amber-700 mb-1.5 ml-5">{p.desc}</p>
+            <p className="text-2xs text-amber-700 mb-1.5 ml-5">{p.desc}</p>
             <div className="relative rounded-md bg-white/70 border border-amber-200 ml-5">
-              <pre className="text-[11px] font-mono text-amber-900 px-2.5 py-2 pr-14 whitespace-pre-wrap break-all">
+              <pre className="text-2xs font-mono text-amber-900 px-2.5 py-2 pr-14 whitespace-pre-wrap break-all">
                 {p.sql.replace(/{db}/g, d).replace(/{user}/g, u)}
               </pre>
               <div className="absolute top-1.5 right-2">
@@ -145,7 +145,7 @@ function CdcPrereqSidebar({ db, user }: { db?: string; user?: string }) {
               </div>
             </div>
             {p.note && (
-              <p className="text-[10px] text-amber-600 mt-1 ml-5 italic">{p.note}</p>
+              <p className="text-2xs text-amber-600 mt-1 ml-5 italic">{p.note}</p>
             )}
           </div>
         ))}
@@ -463,7 +463,7 @@ function NewStreamingPipelineInner() {
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-semibold">{src.name}</span>
                       {!src.available && (
-                        <Badge variant="secondary" className="text-[10px]">Coming Soon</Badge>
+                        <Badge variant="secondary" className="text-2xs">Coming Soon</Badge>
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">{src.description}</p>
@@ -471,7 +471,7 @@ function NewStreamingPipelineInner() {
                       {src.features.map(f => (
                         <span
                           key={f}
-                          className="text-[10px] bg-muted px-2 py-0.5 rounded-full font-medium"
+                          className="text-2xs bg-muted px-2 py-0.5 rounded-full font-medium"
                         >
                           {f}
                         </span>
@@ -522,7 +522,7 @@ function NewStreamingPipelineInner() {
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-semibold">{src.name}</span>
                       {!src.available && (
-                        <Badge variant="secondary" className="text-[10px]">Coming Soon</Badge>
+                        <Badge variant="secondary" className="text-2xs">Coming Soon</Badge>
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">{src.description}</p>
@@ -530,7 +530,7 @@ function NewStreamingPipelineInner() {
                       {src.features.map(f => (
                         <span
                           key={f}
-                          className="text-[10px] bg-muted px-2 py-0.5 rounded-full font-medium"
+                          className="text-2xs bg-muted px-2 py-0.5 rounded-full font-medium"
                         >
                           {f}
                         </span>
@@ -678,7 +678,7 @@ function NewStreamingPipelineInner() {
                       {!cdcTestResult.wal_ok && (
                         <button
                           onClick={() => navigator.clipboard.writeText("ALTER SYSTEM SET wal_level = logical;\nSELECT pg_reload_conf();")}
-                          className="ml-auto text-[10px] text-amber-600 hover:underline underline-offset-2"
+                          className="ml-auto text-2xs text-amber-600 hover:underline underline-offset-2"
                         >
                           Copy fix SQL
                         </button>
@@ -709,7 +709,7 @@ function NewStreamingPipelineInner() {
               !cdcForm.db_user && "Username",
             ].filter(Boolean)
             return missing.length > 0 ? (
-              <p className="text-[11px] text-muted-foreground">Required to continue: {missing.join(", ")}</p>
+              <p className="text-2xs text-muted-foreground">Required to continue: {missing.join(", ")}</p>
             ) : null
           })()}
         </div>
@@ -895,7 +895,7 @@ function NewStreamingPipelineInner() {
               className="w-full h-20 px-3 py-2 text-xs font-mono rounded-md border bg-background resize-none focus:outline-none focus:ring-1 focus:ring-ring"
               placeholder="user_id BIGINT, event VARCHAR, ts TIMESTAMPTZ"
             />
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Default <code className="font-mono">data JSONB</code> captures raw JSON. Define columns to extract specific fields.
             </p>
           </div>
@@ -909,7 +909,7 @@ function NewStreamingPipelineInner() {
               eventForm.source_type === "kinesis" && !eventForm.stream_name && "Stream Name",
             ].filter(Boolean)
             return missing.length > 0 ? (
-              <p className="text-[11px] text-muted-foreground">Required to continue: {missing.join(", ")}</p>
+              <p className="text-2xs text-muted-foreground">Required to continue: {missing.join(", ")}</p>
             ) : null
           })()}
         </div>

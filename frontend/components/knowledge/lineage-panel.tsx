@@ -79,7 +79,7 @@ export function LineagePanel() {
             {feeds.length === 0 ? (
               <div className="flex items-center gap-2 text-xs">
                 <Chip node={collection} />
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-2xs text-muted-foreground">
                   no upstream — ingested directly
                 </span>
               </div>
@@ -94,7 +94,7 @@ export function LineagePanel() {
                 {f.table && <><Chip node={f.table} /><ArrowRight className="h-3 w-3 text-muted-foreground" /></>}
                 <Chip node={collection} />
                 {!f.active && (
-                  <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-400">
+                  <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-2xs text-amber-700 dark:text-amber-400">
                     refresh paused
                   </span>
                 )}
@@ -111,11 +111,11 @@ function Chip({ node }: { node: Node }) {
   const Icon = ICON[node.kind]
   const failed = node.status === "failed"
   return (
-    <span className={`flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] ${
+    <span className={`flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-2xs ${
       failed ? "border-destructive/50 bg-destructive/5 text-destructive" : "bg-background"}`}>
       <Icon className="h-3 w-3 text-muted-foreground" />
       <span className="font-mono">{node.label}</span>
-      {failed && <span className="text-[10px]">last sync failed</span>}
+      {failed && <span className="text-2xs">last sync failed</span>}
     </span>
   )
 }

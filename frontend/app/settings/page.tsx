@@ -91,10 +91,10 @@ function CodeBlock({ label, code }: { label: string; code: string }) {
   return (
     <div className="rounded-md border overflow-hidden">
       <div className="flex items-center justify-between px-3 py-1.5 bg-muted/40 border-b">
-        <span className="text-[11px] text-muted-foreground font-medium">{label}</span>
+        <span className="text-2xs text-muted-foreground font-medium">{label}</span>
         <CopyButton text={code} />
       </div>
-      <pre className="px-3 py-2.5 text-[11px] font-mono overflow-x-auto whitespace-pre leading-relaxed">{code}</pre>
+      <pre className="px-3 py-2.5 text-2xs font-mono overflow-x-auto whitespace-pre leading-relaxed">{code}</pre>
     </div>
   )
 }
@@ -220,7 +220,7 @@ export default function SettingsPage() {
                 {loading && value === null
                   ? <Skeleton className="h-7 w-16 mt-1" />
                   : <div className={`text-2xl font-bold ${warn ? "text-destructive" : ""}`}>{value}</div>}
-                <div className="text-[11px] text-muted-foreground mt-0.5">{sub}</div>
+                <div className="text-2xs text-muted-foreground mt-0.5">{sub}</div>
               </CardContent>
             </Card>
           ))}
@@ -272,7 +272,7 @@ export default function SettingsPage() {
                           <CopyButton text={url} />
                         </div>
                         {cred && (
-                          <code className="text-[11px] text-muted-foreground shrink-0 bg-muted px-1.5 py-0.5 rounded">{cred}</code>
+                          <code className="text-2xs text-muted-foreground shrink-0 bg-muted px-1.5 py-0.5 rounded">{cred}</code>
                         )}
                       </div>
                     )
@@ -336,10 +336,10 @@ export default function SettingsPage() {
                         status === "available" ? "bg-blue-400"  : "bg-muted-foreground/30"}`} />
                       <span className="flex-1">{label}</span>
                       <span className="text-xs text-muted-foreground">{note}</span>
-                      {status === "ok"        && <Badge variant="secondary" className="text-[10px] h-4 px-1.5 bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-0">Active</Badge>}
-                      {status === "pending"   && <Badge variant="secondary" className="text-[10px] h-4 px-1.5 bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-0">Pending</Badge>}
-                      {status === "available" && <Badge variant="secondary" className="text-[10px] h-4 px-1.5 bg-primary/10 text-primary border-0">Available</Badge>}
-                      {status === "planned"   && <Badge variant="secondary" className="text-[10px] h-4 px-1.5">Planned</Badge>}
+                      {status === "ok"        && <Badge variant="secondary" className="text-2xs h-4 px-1.5 bg-[var(--dp-good)]/10 text-[var(--dp-good)] border-0">Active</Badge>}
+                      {status === "pending"   && <Badge variant="secondary" className="text-2xs h-4 px-1.5 bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-0">Pending</Badge>}
+                      {status === "available" && <Badge variant="secondary" className="text-2xs h-4 px-1.5 bg-primary/10 text-primary border-0">Available</Badge>}
+                      {status === "planned"   && <Badge variant="secondary" className="text-2xs h-4 px-1.5">Planned</Badge>}
                     </div>
                   ))}
                 </div>
@@ -468,7 +468,7 @@ export default function SettingsPage() {
                           <span className="font-medium w-24 shrink-0">{p.name}</span>
                           <code className="text-muted-foreground">{p.host}:{p.port}</code>
                         </div>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">{p.note}</p>
+                        <p className="text-2xs text-muted-foreground mt-0.5">{p.note}</p>
                       </div>
                     ))}
                   </div>
@@ -754,16 +754,16 @@ function UserManagement() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
                         <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                          <span className="text-[11px] font-semibold text-primary">
+                          <span className="text-2xs font-semibold text-primary">
                             {(u.display_name || u.username || "?")[0].toUpperCase()}
                           </span>
                         </div>
                         <div>
                           <p className="font-medium text-sm leading-tight">
                             {u.display_name || u.username}
-                            {u.id === currentUser?.id && <span className="ml-1.5 text-[10px] text-muted-foreground">(you)</span>}
+                            {u.id === currentUser?.id && <span className="ml-1.5 text-2xs text-muted-foreground">(you)</span>}
                           </p>
-                          <p className="text-[11px] text-muted-foreground">@{u.username}</p>
+                          <p className="text-2xs text-muted-foreground">@{u.username}</p>
                         </div>
                       </div>
                     </td>
@@ -771,7 +771,7 @@ function UserManagement() {
                       {u.id === currentUser?.id ? (
                         // A person can't change their own role here — same rule the
                         // old toggle button enforced by hiding itself for this row.
-                        <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-[10px] gap-1">
+                        <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-2xs gap-1">
                           {u.role === "admin" && <Shield className="h-2.5 w-2.5" />}
                           {u.role}
                         </Badge>
@@ -788,7 +788,7 @@ function UserManagement() {
                               <SelectItem key={o.value} value={o.value} className="text-xs">
                                 <div className="flex flex-col items-start gap-0.5 py-0.5 max-w-xs">
                                   <span className="whitespace-normal">{o.label}</span>
-                                  <span className="text-[10px] text-muted-foreground font-normal">{o.description}</span>
+                                  <span className="text-2xs text-muted-foreground font-normal">{o.description}</span>
                                 </div>
                               </SelectItem>
                             ))}
@@ -801,7 +801,7 @@ function UserManagement() {
                         ? <span className="flex items-center gap-1 text-green-600 text-xs"><CheckCircle2 className="h-3.5 w-3.5" />Active</span>
                         : <span className="flex items-center gap-1 text-muted-foreground text-xs"><UserX className="h-3.5 w-3.5" />Inactive</span>}
                       {u.require_password_change && (
-                        <span className="text-[10px] text-amber-500 block mt-0.5">Must change password</span>
+                        <span className="text-2xs text-amber-500 block mt-0.5">Must change password</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground hidden md:table-cell">
@@ -865,7 +865,7 @@ function UserManagement() {
                   {showNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-              <p className="text-[11px] text-muted-foreground">User must change password on first login</p>
+              <p className="text-2xs text-muted-foreground">User must change password on first login</p>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Role</Label>
@@ -876,7 +876,7 @@ function UserManagement() {
                     <SelectItem key={o.value} value={o.value}>
                       <div className="flex flex-col items-start gap-0.5 py-0.5 max-w-xs">
                         <span className="whitespace-normal">{o.label}</span>
-                        <span className="text-[10px] text-muted-foreground font-normal">{o.description}</span>
+                        <span className="text-2xs text-muted-foreground font-normal">{o.description}</span>
                       </div>
                     </SelectItem>
                   ))}
@@ -910,7 +910,7 @@ function UserManagement() {
                   {showResetPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-              <p className="text-[11px] text-muted-foreground">User will be prompted to change password on next login</p>
+              <p className="text-2xs text-muted-foreground">User will be prompted to change password on next login</p>
             </div>
             {resetError && <ErrorBox msg={resetError} />}
           </div>
@@ -928,7 +928,7 @@ function UserManagement() {
         <DialogContent>
           <DialogHeader><DialogTitle>RLS Attributes — @{attrTarget?.username}</DialogTitle></DialogHeader>
           <div className="space-y-3 py-2">
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Referenced by row-level security (RLS) policies via <code>current_user_attribute(...)</code>. Leave blank to remove an attribute.
             </p>
             <div className="space-y-1.5">

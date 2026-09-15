@@ -147,7 +147,7 @@ function StepBar({ step }: { step: DeployStep }) {
     <div className="flex items-center gap-1.5 text-xs">
       {steps.map((s, i) => (
         <span key={s.key} className="flex items-center gap-1.5">
-          <span className={`inline-flex items-center justify-center h-5 w-5 rounded-full text-[10px] font-medium
+          <span className={`inline-flex items-center justify-center h-5 w-5 rounded-full text-2xs font-medium
             ${i < cur ? "bg-emerald-500 text-white" :
               i === cur ? "bg-primary text-primary-foreground" :
               "bg-muted text-muted-foreground"}`}>
@@ -420,13 +420,13 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="space-y-1">
-                          <Label className="text-[11px]">Source Name</Label>
+                          <Label className="text-2xs">Source Name</Label>
                           <Input value={src.name}
                             onChange={e => updateSource(src.id, { name: e.target.value.replace(/\s/g, "_") })}
                             className="h-7 text-xs font-mono" placeholder="raw_orders" />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-[11px]">Connection</Label>
+                          <Label className="text-2xs">Connection</Label>
                           <Select value={src.connectionName}
                             onValueChange={(v) => {
                               if (!v) return
@@ -448,13 +448,13 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
                           </Select>
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-[11px]">Table</Label>
+                          <Label className="text-2xs">Table</Label>
                           <Input value={src.table}
                             onChange={e => updateSource(src.id, { table: e.target.value })}
                             className="h-7 text-xs font-mono" placeholder="schema.table_name" />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-[11px]">Sync Mode</Label>
+                          <Label className="text-2xs">Sync Mode</Label>
                           <Select value={src.mode}
                             onValueChange={(v) => {
                               if (v === "incremental" || v === "full_refresh") updateSource(src.id, { mode: v })
@@ -470,7 +470,7 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
                         </div>
                         {src.mode === "incremental" && (
                           <div className="col-span-2 space-y-1">
-                            <Label className="text-[11px]">Watermark Column</Label>
+                            <Label className="text-2xs">Watermark Column</Label>
                             <Input value={src.watermarkColumn}
                               onChange={e => updateSource(src.id, { watermarkColumn: e.target.value })}
                               className="h-7 text-xs font-mono" placeholder="updated_at" />
@@ -509,13 +509,13 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
                       </div>
                       <div className="grid grid-cols-3 gap-2">
                         <div className="space-y-1">
-                          <Label className="text-[11px]">Output Table Name</Label>
+                          <Label className="text-2xs">Output Table Name</Label>
                           <Input value={tr.name}
                             onChange={e => updateTransform(tr.id, { name: e.target.value.replace(/\s/g, "_") })}
                             className="h-7 text-xs font-mono" />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-[11px]">Depends On</Label>
+                          <Label className="text-2xs">Depends On</Label>
                           <Select value={tr.dependsOn}
                             onValueChange={(v) => { if (v) updateTransform(tr.id, { dependsOn: v }) }}>
                             <SelectTrigger className="h-7 text-xs">
@@ -528,7 +528,7 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
                           </Select>
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-[11px]">Mode</Label>
+                          <Label className="text-2xs">Mode</Label>
                           <Select value={tr.mode}
                             onValueChange={(v) => {
                               if (v === "incremental" || v === "full_refresh") updateTransform(tr.id, { mode: v })
@@ -542,7 +542,7 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
                         </div>
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-[11px]">
+                        <Label className="text-2xs">
                           SQL Transform
                           <span className="ml-1 font-normal text-muted-foreground">
                             (use {`{{ source('name') }}`} or {`{{ ref('name') }}`})
@@ -555,7 +555,7 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-[11px]">
+                        <Label className="text-2xs">
                           Quality Check
                           <span className="ml-1 font-normal text-muted-foreground">(SQL WHERE condition, optional)</span>
                         </Label>
@@ -574,7 +574,7 @@ export function CreatePipelineModal({ open, onOpenChange, onDeployed }: Props) {
                     <Code2 className="h-3 w-3" />
                     <span>Preview generated code</span>
                   </summary>
-                  <pre className="mt-2 p-3 rounded-md bg-muted text-[11px] font-mono overflow-x-auto
+                  <pre className="mt-2 p-3 rounded-md bg-muted text-2xs font-mono overflow-x-auto
                                   border whitespace-pre-wrap">
                     {currentCode}
                   </pre>

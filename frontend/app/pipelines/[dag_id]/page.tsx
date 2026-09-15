@@ -324,7 +324,7 @@ export default function DagDetailPage() {
           <div key={label} className="flex items-center gap-3 px-4 py-2.5 border-r last:border-r-0">
             <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
             <div className="min-w-0">
-              <div className="text-[11px] text-muted-foreground">{label}</div>
+              <div className="text-2xs text-muted-foreground">{label}</div>
               {loading && !stats
                 ? <Skeleton className="h-5 w-12 mt-0.5" />
                 : <div className={`text-sm font-semibold leading-tight ${color ?? ""}`}>{value}</div>
@@ -343,7 +343,7 @@ export default function DagDetailPage() {
         const bad = recent.filter(r => r.state === "failed").length
         return (
           <div className="flex items-center gap-3 px-4 h-8 border-b shrink-0 bg-muted/10">
-            <span className="text-[11px] text-muted-foreground shrink-0">Run history</span>
+            <span className="text-2xs text-muted-foreground shrink-0">Run history</span>
             <div
               className="flex items-center gap-0.5 flex-1 overflow-hidden"
               role="img"
@@ -357,7 +357,7 @@ export default function DagDetailPage() {
                 />
               ))}
             </div>
-            <span className="text-[11px] text-muted-foreground shrink-0 tabular-nums">
+            <span className="text-2xs text-muted-foreground shrink-0 tabular-nums">
               {ok}/{recent.length} ok · newest →
             </span>
           </div>
@@ -446,7 +446,7 @@ export default function DagDetailPage() {
                 className="font-mono text-sm resize-none"
                 rows={5}
               />
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-2xs text-muted-foreground">
                 Enter parameters to pass to the DAG as JSON
               </p>
             </div>

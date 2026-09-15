@@ -63,7 +63,7 @@ export function MySpend() {
           {[["Spend", formatUsd(m.spend)], ["Requests", fmtN(m.requests)],
             ["Tokens", fmtN(m.total_tokens)]].map(([k, v]) => (
             <div key={k} className="rounded-lg border p-3">
-              <div className="text-[11px] text-muted-foreground">{k}</div>
+              <div className="text-2xs text-muted-foreground">{k}</div>
               <div className="text-lg font-semibold tabular-nums">{v}</div>
             </div>
           ))}

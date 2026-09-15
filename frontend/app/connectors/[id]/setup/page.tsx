@@ -420,7 +420,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
               ) : (
                 <div className="space-y-px">
                   {/* Header */}
-                  <div className="grid grid-cols-[auto_1fr_1fr] gap-3 px-3 pb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground border-b">
+                  <div className="grid grid-cols-[auto_1fr_1fr] gap-3 px-3 pb-2 text-2xs font-medium uppercase tracking-wide text-muted-foreground border-b">
                     <span className="w-8">Sync</span>
                     <span>Table</span>
                     <span>Incremental Column <span className="normal-case font-normal">(optional)</span></span>
@@ -464,7 +464,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                             <span className="font-mono text-xs font-medium truncate">{table.name}</span>
                           </div>
                           {table.columns && (
-                            <p className="text-[10px] text-muted-foreground ml-5">
+                            <p className="text-2xs text-muted-foreground ml-5">
                               {table.columns.length} columns
                             </p>
                           )}
@@ -488,13 +488,13 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                               {/* Recommended columns first */}
                               {tsColumns.length > 0 && (
                                 <>
-                                  <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                                  <div className="px-2 py-1 text-2xs font-medium text-muted-foreground uppercase tracking-wide">
                                     Recommended
                                   </div>
                                   {tsColumns.map(c => (
                                     <SelectItem key={c.name} value={c.name} className="text-xs">
                                       {c.name}
-                                      <span className="ml-1 text-muted-foreground font-mono text-[10px]">{c.type}</span>
+                                      <span className="ml-1 text-muted-foreground font-mono text-2xs">{c.type}</span>
                                     </SelectItem>
                                   ))}
                                 </>
@@ -502,13 +502,13 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                               {/* All other columns */}
                               {allColumns.filter(c => !tsColumns.find(t => t.name === c.name)).length > 0 && (
                                 <>
-                                  <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                                  <div className="px-2 py-1 text-2xs font-medium text-muted-foreground uppercase tracking-wide">
                                     All columns
                                   </div>
                                   {allColumns.filter(c => !tsColumns.find(t => t.name === c.name)).map(c => (
                                     <SelectItem key={c.name} value={c.name} className="text-xs">
                                       {c.name}
-                                      <span className="ml-1 text-muted-foreground font-mono text-[10px]">{c.type}</span>
+                                      <span className="ml-1 text-muted-foreground font-mono text-2xs">{c.type}</span>
                                     </SelectItem>
                                   ))}
                                 </>
@@ -516,7 +516,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                             </SelectContent>
                           </Select>
                         ) : (
-                          <span className="text-[10px] text-muted-foreground/50">skipped</span>
+                          <span className="text-2xs text-muted-foreground/50">skipped</span>
                         )}
                       </div>
                     )
@@ -573,7 +573,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                         {syncMode === opt.value && <CheckCircle2 className="h-3.5 w-3.5 text-primary ml-auto" />}
                       </div>
                       <p className="text-xs text-muted-foreground">{opt.desc}</p>
-                      {opt.note && <p className={`text-[10px] mt-1 font-medium ${opt.noteColor}`}>{opt.note}</p>}
+                      {opt.note && <p className={`text-2xs mt-1 font-medium ${opt.noteColor}`}>{opt.note}</p>}
                     </button>
                   ))}
                 </div>
@@ -609,9 +609,9 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                     >
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium">{opt.label}</span>
-                        {opt.cron && <span className="font-mono text-[10px] text-muted-foreground">{opt.cron}</span>}
+                        {opt.cron && <span className="font-mono text-2xs text-muted-foreground">{opt.cron}</span>}
                       </div>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">{opt.desc}</p>
+                      <p className="text-2xs text-muted-foreground mt-0.5">{opt.desc}</p>
                     </button>
                   ))}
                 </div>

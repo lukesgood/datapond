@@ -54,14 +54,14 @@ function AssetNodeComponent({ data, selected }: NodeProps<AssetNodeData>) {
       {/* Single compact row */}
       <div className="flex items-center gap-1.5">
         <Icon className={`h-3 w-3 ${layer.text} shrink-0 opacity-70`} />
-        <span className={`text-[11px] font-medium truncate flex-1 ${layer.text}`}>
+        <span className={`text-2xs font-medium truncate flex-1 ${layer.text}`}>
           {data.label}
         </span>
         {stateDot && (
           <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${stateDot}`} />
         )}
         {data.mode === "incremental" && (
-          <span className="text-[8px] text-muted-foreground shrink-0">Δ</span>
+          <span className="text-2xs text-muted-foreground shrink-0">Δ</span>
         )}
       </div>
 

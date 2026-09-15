@@ -147,7 +147,7 @@ export function DocsIndex() {
         </Breadcrumb>
 
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">Product truth</p>
+          <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-primary">Product truth</p>
           <h1 className="mt-1 text-3xl font-bold tracking-tight">Documentation</h1>
           <p className="mt-2 max-w-2xl text-muted-foreground">
             Build on the Portable Core, choose adapters deliberately, and know which capabilities are shipped, optional, or roadmap.
@@ -211,7 +211,7 @@ export function DocsIndex() {
                               <ArrowRight className="h-4 w-4 shrink-0 -translate-x-1 text-muted-foreground opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
                             </CardTitle>
                             {doc.badge && (
-                              <Badge variant="outline" className={`shrink-0 text-[10px] ${STATUS_STYLES[doc.badge]}`}>{doc.badge}</Badge>
+                              <Badge variant="outline" className={`shrink-0 text-2xs ${STATUS_STYLES[doc.badge]}`}>{doc.badge}</Badge>
                             )}
                           </div>
                           <CardDescription>{doc.description}</CardDescription>

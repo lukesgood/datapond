@@ -99,7 +99,7 @@ export function ComparePanel({ name }: { name: string }) {
           <div className="grid grid-cols-3 gap-3">
             {[["Only in A", onlyA], ["In both", shared], ["Only in B", onlyB]].map(([k, v]) => (
               <div key={k as string} className="rounded-lg border p-3">
-                <div className="text-[11px] text-muted-foreground">{k}</div>
+                <div className="text-2xs text-muted-foreground">{k}</div>
                 <div className="text-lg font-semibold tabular-nums">{v}</div>
               </div>
             ))}
@@ -162,10 +162,10 @@ function Results({ title, hits, other, keyOf }: {
         {hits.map((h, i) => {
           const only = !other.has(keyOf(h))
           return (
-            <div key={i} className={`px-3 py-2 text-[11px] ${only ? "bg-primary/5" : ""}`}>
+            <div key={i} className={`px-3 py-2 text-2xs ${only ? "bg-primary/5" : ""}`}>
               <div className="mb-0.5 flex items-center gap-2">
                 <span className="tabular-nums text-muted-foreground">#{i + 1}</span>
-                {only && <span className="rounded bg-primary/15 px-1 text-[10px] text-primary">only here</span>}
+                {only && <span className="rounded bg-primary/15 px-1 text-2xs text-primary">only here</span>}
                 {h.source && <span className="truncate font-mono text-muted-foreground">{h.source}</span>}
               </div>
               <p className="line-clamp-2 text-muted-foreground">{h.content}</p>

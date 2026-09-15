@@ -192,7 +192,7 @@ export function SchemaTree({ onTableSelect }: Props) {
           )}
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-2xs text-muted-foreground">
             {search
               ? `${totalTables} result${totalTables !== 1 ? "s" : ""}`
               : `${filtered.length} catalog${filtered.length !== 1 ? "s" : ""}`}
@@ -241,11 +241,11 @@ export function SchemaTree({ onTableSelect }: Props) {
                   <Database className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <span className="truncate">{cat.name}</span>
                   {cat.catalog_type && CATALOG_TYPE_BADGE[cat.catalog_type] && (
-                    <span className={`text-[9px] font-medium px-1 rounded shrink-0 ${CATALOG_TYPE_BADGE[cat.catalog_type].cls}`}>
+                    <span className={`text-2xs font-medium px-1 rounded shrink-0 ${CATALOG_TYPE_BADGE[cat.catalog_type].cls}`}>
                       {CATALOG_TYPE_BADGE[cat.catalog_type].label}
                     </span>
                   )}
-                  <span className="ml-auto text-[10px] text-muted-foreground font-normal">
+                  <span className="ml-auto text-2xs text-muted-foreground font-normal">
                     {cat.schemas.reduce((a, s) => a + s.tables.length, 0)}
                   </span>
                 </button>
@@ -263,7 +263,7 @@ export function SchemaTree({ onTableSelect }: Props) {
                       >
                         <ChevronRight className={`h-3 w-3 shrink-0 transition-transform ${schemaOpen ? "rotate-90" : ""}`} />
                         <span className="truncate font-medium">{schema.name}</span>
-                        <span className="ml-auto text-[10px]">{schema.tables.length}</span>
+                        <span className="ml-auto text-2xs">{schema.tables.length}</span>
                       </button>
 
                       {schemaOpen && schema.tables.map(table => {
@@ -306,10 +306,10 @@ export function SchemaTree({ onTableSelect }: Props) {
                             {tableOpen && (
                               <div className="pl-14 pr-2 pb-1">
                                 {colsLoading && (!cols || cols.length === 0) && (
-                                  <p className="text-[11px] text-muted-foreground/60 italic py-0.5">Loading columns…</p>
+                                  <p className="text-2xs text-muted-foreground/60 italic py-0.5">Loading columns…</p>
                                 )}
                                 {!colsLoading && cols && cols.length === 0 && (
-                                  <p className="text-[11px] text-muted-foreground/60 italic py-0.5">No column info</p>
+                                  <p className="text-2xs text-muted-foreground/60 italic py-0.5">No column info</p>
                                 )}
                                 {(cols || []).map(col => {
                                   const tag = typeTag(col.type)
@@ -321,12 +321,12 @@ export function SchemaTree({ onTableSelect }: Props) {
                                     >
                                       <Columns3 className="h-2.5 w-2.5 shrink-0 text-muted-foreground/50" />
                                       <span
-                                        className="text-[11px] text-muted-foreground truncate flex-1 min-w-0"
+                                        className="text-2xs text-muted-foreground truncate flex-1 min-w-0"
                                         title={`${col.name}: ${col.type}`}
                                       >
                                         {col.name}
                                       </span>
-                                      <span className={`text-[9px] font-mono px-1 py-px rounded shrink-0 ${tag.cls}`}>
+                                      <span className={`text-2xs font-mono px-1 py-px rounded shrink-0 ${tag.cls}`}>
                                         {tag.label}
                                       </span>
                                     </div>
@@ -339,7 +339,7 @@ export function SchemaTree({ onTableSelect }: Props) {
                       })}
 
                       {schemaOpen && schema.tables.length === 0 && (
-                        <p className="pl-12 py-1 text-[11px] text-muted-foreground/60 italic">
+                        <p className="pl-12 py-1 text-2xs text-muted-foreground/60 italic">
                           No tables
                         </p>
                       )}

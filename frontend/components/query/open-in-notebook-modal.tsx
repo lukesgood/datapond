@@ -299,7 +299,7 @@ export function OpenInNotebookModal({
                   {columns.length} columns
                 </span>
               </div>
-              <code className="text-[11px] text-muted-foreground line-clamp-2 font-mono block">
+              <code className="text-2xs text-muted-foreground line-clamp-2 font-mono block">
                 {queryText.replace(/\s+/g, " ").trim().slice(0, 120)}
                 {queryText.length > 120 ? "..." : ""}
               </code>
@@ -331,7 +331,7 @@ export function OpenInNotebookModal({
                   className="h-8 text-sm font-mono"
                   placeholder="analysis_2026-05-04"
                 />
-                <Badge variant="outline" className="text-[10px] shrink-0">.ipynb</Badge>
+                <Badge variant="outline" className="text-2xs shrink-0">.ipynb</Badge>
               </div>
             </div>
 

@@ -150,8 +150,8 @@ export function AppSidebar() {
               shadow-[0_5px_0_rgba(255,255,255,.5),0_-5px_0_rgba(255,255,255,.35)]" />
           </div>
           <div className="min-w-0 leading-tight">
-            <h1 className="text-[15px] font-bold tracking-tight">DataPond</h1>
-            <p className="text-[10.5px] font-medium text-muted-foreground">Governed data tools for AI</p>
+            <h1 className="text-base font-bold tracking-tight">DataPond</h1>
+            <p className="text-2xs font-medium text-muted-foreground">Governed data tools for AI</p>
           </div>
         </div>
 
@@ -159,9 +159,9 @@ export function AppSidebar() {
         <div className="mx-3 mb-3 rounded-lg border bg-muted/40 px-3 py-2" title={profile.description}>
           <div className="flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            <p className="truncate text-[11px] font-semibold">{profile.label}</p>
+            <p className="truncate text-2xs font-semibold">{profile.label}</p>
           </div>
-          <p className="mt-0.5 truncate pl-3.5 text-[9.5px] capitalize text-muted-foreground">
+          <p className="mt-0.5 truncate pl-3.5 text-2xs capitalize text-muted-foreground">
             {profile.maturity.replaceAll("-", " ")} · {profile.topology.replaceAll("-", " ")}
           </p>
         </div>
@@ -208,7 +208,7 @@ export function AppSidebar() {
                               <span>{item.title}</span>
                               {badge && (
                                 <span title={badge.title}
-                                      className="ml-auto rounded-full border px-1.5 py-0 text-[9.5px] font-medium text-muted-foreground">
+                                      className="ml-auto rounded-full border px-1.5 py-0 text-2xs font-medium text-muted-foreground">
                                   {badge.label}
                                 </span>
                               )}
@@ -221,7 +221,7 @@ export function AppSidebar() {
                               <span>{item.title}</span>
                               {badge && (
                                 <span title={badge.title}
-                                      className="ml-auto rounded-full border px-1.5 py-0 text-[9.5px] font-medium text-muted-foreground">
+                                      className="ml-auto rounded-full border px-1.5 py-0 text-2xs font-medium text-muted-foreground">
                                   {badge.label}
                                 </span>
                               )}
@@ -267,7 +267,7 @@ export function AppSidebar() {
                   </div>
                   <div className="flex-1 min-w-0 text-left">
                     <p className="text-xs font-medium truncate">{user.display_name}</p>
-                    <p className="text-[10px] text-muted-foreground capitalize">{user.role}</p>
+                    <p className="text-2xs text-muted-foreground capitalize">{user.role}</p>
                   </div>
                 </Link>
                 <button

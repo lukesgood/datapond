@@ -114,7 +114,7 @@ export function PasskeyManager() {
                 <KeyRound className="h-4 w-4 text-muted-foreground shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">{cred.name || "Unnamed passkey"}</p>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-2xs text-muted-foreground">
                     Added {new Date(cred.created_at).toLocaleDateString()}
                     {cred.last_used_at ? ` · Last used ${new Date(cred.last_used_at).toLocaleDateString()}` : " · Never used"}
                   </p>

@@ -51,7 +51,7 @@ export default function SqlLabHelpPage() {
           <Code2 className="h-8 w-8 text-blue-500" />
         </div>
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">Guide</p>
+          <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-primary">Guide</p>
           <h1 className="mt-1 text-3xl font-bold tracking-tight">SQL Lab</h1>
           <p className="mt-2 text-muted-foreground">
             Interactive query interface for your data

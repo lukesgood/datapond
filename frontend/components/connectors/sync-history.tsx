@@ -90,7 +90,7 @@ function ErrorDetail({ error }: { error: string }) {
       {isLong && (
         <button
           onClick={() => setExpanded(v => !v)}
-          className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+          className="text-2xs text-muted-foreground hover:text-foreground underline underline-offset-2"
         >
           {expanded ? "Show less" : "Show full error"}
         </button>
@@ -136,7 +136,7 @@ function SessionRow({ session, defaultOpen }: { session: SyncSession; defaultOpe
               {session.isLive ? "Syncing…" : fmtDate(session.started_at)}
             </span>
             {session.sync_mode && (
-              <Badge variant="outline" className="text-[10px] h-4 px-1">{session.sync_mode}</Badge>
+              <Badge variant="outline" className="text-2xs h-4 px-1">{session.sync_mode}</Badge>
             )}
           </div>
 
@@ -149,10 +149,10 @@ function SessionRow({ session, defaultOpen }: { session: SyncSession; defaultOpe
                   style={{ width: `${pct}%` }}
                 />
               </div>
-              <span className="text-[10px] text-muted-foreground font-mono shrink-0">{pct}%</span>
+              <span className="text-2xs text-muted-foreground font-mono shrink-0">{pct}%</span>
             </div>
           ) : (
-            <div className="flex items-center gap-3 mt-0.5 text-[11px] text-muted-foreground">
+            <div className="flex items-center gap-3 mt-0.5 text-2xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Rows3 className="h-3 w-3" />
                 {session.rows_processed.toLocaleString()} rows
@@ -215,7 +215,7 @@ function SessionRow({ session, defaultOpen }: { session: SyncSession; defaultOpe
                   </span>
                 )}
                 {t.status === "running" && (
-                  <span className="text-primary text-[10px] shrink-0">processing…</span>
+                  <span className="text-primary text-2xs shrink-0">processing…</span>
                 )}
               </div>
 
@@ -226,7 +226,7 @@ function SessionRow({ session, defaultOpen }: { session: SyncSession; defaultOpe
                     const isInsert = s.step === "insert"
                     const isDrop   = s.step === "drop"
                     return (
-                      <div key={si} className="flex items-center gap-2 text-[10px]">
+                      <div key={si} className="flex items-center gap-2 text-2xs">
                         <span className={`shrink-0 w-16 font-medium ${
                           isDrop ? "text-amber-500"
                           : isInsert ? "text-primary"
@@ -263,7 +263,7 @@ function SessionRow({ session, defaultOpen }: { session: SyncSession; defaultOpe
                   {t.steps
                     .filter(s => s.step !== "skip" && s.step !== "schema_check" || s.action === "drop")
                     .map((s, si) => (
-                      <span key={si} className="text-[10px] text-muted-foreground/60">
+                      <span key={si} className="text-2xs text-muted-foreground/60">
                         {s.step === "insert" ? `inserted ${s.rows_done?.toLocaleString()} rows`
                           : s.step === "drop" ? "schema updated"
                           : s.step === "done" ? ""

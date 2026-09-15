@@ -209,7 +209,7 @@ export function DashboardsGallery() {
                         <CardTitle className="text-sm truncate">{dashboard.name}</CardTitle>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                        <Badge variant="secondary" className="text-2xs px-1.5 py-0">
                           {chartType}
                         </Badge>
                         {dashboard.is_public
@@ -235,7 +235,7 @@ export function DashboardsGallery() {
                         <div className="h-full flex flex-col items-center justify-center gap-1 px-3 text-center">
                           <AlertTriangle className="h-4 w-4 text-[var(--dp-warn)]" />
                           <span className="text-xs font-medium text-[var(--dp-warn)]">Preview failed</span>
-                          <span className="text-[10px] text-muted-foreground line-clamp-2">{preview.error}</span>
+                          <span className="text-2xs text-muted-foreground line-clamp-2">{preview.error}</span>
                         </div>
                       ) : preview.data.length === 0 ? (
                         <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
@@ -263,7 +263,7 @@ export function DashboardsGallery() {
                           </table>
                           {/* Honesty: don't let a 5-row cap read as the full result set. */}
                           {preview.data.length > 5 && (
-                            <p className="px-1 pt-1 text-[10px] text-muted-foreground">
+                            <p className="px-1 pt-1 text-2xs text-muted-foreground">
                               +{(preview.data.length - 5).toLocaleString()} more {preview.data.length - 5 === 1 ? "row" : "rows"}
                             </p>
                           )}
@@ -287,12 +287,12 @@ export function DashboardsGallery() {
 
                     {/* Footer */}
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <div className="flex items-center gap-1 text-2xs text-muted-foreground">
                         <Clock className="h-3 w-3" />
                         {formatDistanceToNow(new Date(dashboard.updated_at), { addSuffix: true })}
                       </div>
                       <Button variant="ghost" size="sm"
-                        className="h-6 text-[10px] px-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity"
+                        className="h-6 text-2xs px-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity"
                         onClick={(e) => { e.stopPropagation(); router.push(`/dashboards/${dashboard.id}`) }}>
                         <Eye className="h-3 w-3 mr-1" />Open
                       </Button>

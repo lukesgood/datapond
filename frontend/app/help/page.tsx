@@ -140,7 +140,7 @@ function GuidesHub() {
         </Breadcrumb>
 
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">{profile.label}</p>
+          <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-primary">{profile.label}</p>
           <h1 className="mt-1 text-3xl font-bold tracking-tight">Guides</h1>
           <p className="mt-2 text-muted-foreground">Follow the core AI workflow first; add data-plane modules only when the use case requires them.</p>
         </div>

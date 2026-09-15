@@ -197,7 +197,7 @@ function TablesCard({
         ) : (
           <div>
             {/* Header row */}
-            <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-2 px-2 pb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground border-b">
+            <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-2 px-2 pb-1.5 text-2xs font-medium uppercase tracking-wide text-muted-foreground border-b">
               <span className="w-8">Sync</span>
               <span>Table</span>
               <span className="text-right w-20">Last Rows</span>
@@ -238,15 +238,15 @@ function TablesCard({
                             {table.name}
                           </span>
                           {incCol && (
-                            <span className="text-[10px] text-primary/70 font-mono block truncate">
+                            <span className="text-2xs text-primary/70 font-mono block truncate">
                               ↑ {incCol}{lastVal ? ` · last: ${String(lastVal).slice(0,16)}` : " · no watermark yet"}
                             </span>
                           )}
                           {incMisconfigured && (
-                            <span className="text-[10px] text-[var(--dp-warn)] block">⚠ no watermark column</span>
+                            <span className="text-2xs text-[var(--dp-warn)] block">⚠ no watermark column</span>
                           )}
                           {table.partition_spec && table.partition_spec.length > 0 && (
-                            <span className="text-[10px] text-muted-foreground/70 font-mono block truncate">
+                            <span className="text-2xs text-muted-foreground/70 font-mono block truncate">
                               ⊞ {table.partition_spec.map(p => `${p.transform}(${p.column})`).join(", ")}
                             </span>
                           )}
@@ -260,7 +260,7 @@ function TablesCard({
                         onClick={() => isEditing ? setEditingTable(null) : startEdit(table)}
                         className={`w-28 text-left`}
                       >
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${
+                        <span className={`text-2xs px-1.5 py-0.5 rounded font-medium border ${
                           incMisconfigured       ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] border-[var(--dp-warn)]/20" :
                           mode === "incremental" ? "bg-primary/10 text-primary border-primary/20" :
                           "bg-muted text-muted-foreground border-transparent"
@@ -273,11 +273,11 @@ function TablesCard({
                         {table.enabled ? (
                           <button
                             onClick={() => isEditing ? setEditingTable(null) : startEdit(table)}
-                            className="text-[10px] text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+                            className="text-2xs text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity">
                             {isEditing ? "Cancel" : "Edit"}
                           </button>
                         ) : (
-                          <span className="text-[10px] text-muted-foreground/40">skipped</span>
+                          <span className="text-2xs text-muted-foreground/40">skipped</span>
                         )}
                       </div>
                     </div>
@@ -287,7 +287,7 @@ function TablesCard({
                       <div className="px-10 pb-3 pt-1 bg-muted/20 border-t space-y-3">
                         <div className="grid grid-cols-2 gap-3">
                           <div className="space-y-1">
-                            <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Sync Mode</label>
+                            <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Sync Mode</label>
                             <Select value={editMode} onValueChange={v => { setEditMode(v ?? "full"); if (v !== "incremental") setEditIncCol("") }}>
                               <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
                               <SelectContent>
@@ -297,7 +297,7 @@ function TablesCard({
                             </Select>
                           </div>
                           <div className="space-y-1">
-                            <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                            <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
                               Watermark Column
                               {editMode !== "incremental" && <span className="ml-1 font-normal normal-case">(incremental only)</span>}
                             </label>
@@ -318,7 +318,7 @@ function TablesCard({
                                     c.name.includes("updated_at") || c.name.includes("created_at") || c.name.includes("modified")
                                   ).length > 0 && (
                                     <>
-                                      <div className="px-2 py-1 text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Recommended</div>
+                                      <div className="px-2 py-1 text-2xs text-muted-foreground uppercase tracking-wide font-medium">Recommended</div>
                                       {schemaColumns.filter(c =>
                                         c.type.toLowerCase().includes("timestamp") || c.type.toLowerCase().includes("date") ||
                                         c.name.includes("updated_at") || c.name.includes("created_at") || c.name.includes("modified")
@@ -327,7 +327,7 @@ function TablesCard({
                                           {c.name} <span className="text-muted-foreground font-mono ml-1">{c.type}</span>
                                         </SelectItem>
                                       ))}
-                                      <div className="px-2 py-1 text-[10px] text-muted-foreground uppercase tracking-wide font-medium">All Columns</div>
+                                      <div className="px-2 py-1 text-2xs text-muted-foreground uppercase tracking-wide font-medium">All Columns</div>
                                     </>
                                   )}
                                   {schemaColumns.filter(c =>
@@ -355,13 +355,13 @@ function TablesCard({
                           </div>
                         </div>
                         {editMode === "incremental" && !editIncCol && (
-                          <p className="text-[10px] text-[var(--dp-warn)] flex items-center gap-1">
+                          <p className="text-2xs text-[var(--dp-warn)] flex items-center gap-1">
                             ⚠ No watermark column set — incremental will load all rows on first run
                           </p>
                         )}
                         {/* Incremental upsert PK — when set, merges instead of appending (updates changed rows, prevents duplicates) */}
                         <div className="space-y-1 pt-1">
-                          <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
                             Key Columns (upsert PK)
                             {editMode !== "incremental" && <span className="ml-1 font-normal normal-case">(incremental only)</span>}
                           </label>
@@ -373,12 +373,12 @@ function TablesCard({
                             className="h-7 text-xs font-mono"
                           />
                           {editMode === "incremental" && editKeyCols.trim() && (
-                            <p className="text-[10px] text-[var(--dp-good)]">merge by [{editKeyCols.split(",").map(s=>s.trim()).filter(Boolean).join(", ")}] — updates changed rows, prevents duplicates</p>
+                            <p className="text-2xs text-[var(--dp-good)]">merge by [{editKeyCols.split(",").map(s=>s.trim()).filter(Boolean).join(", ")}] — updates changed rows, prevents duplicates</p>
                           )}
                         </div>
                         {/* PII masking — masks sensitive columns before load (sovereignty/compliance). Applies to all sync modes */}
                         <div className="space-y-1 pt-1 border-t">
-                          <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
                             PII Masking Columns
                           </label>
                           <Input
@@ -388,7 +388,7 @@ function TablesCard({
                             className="h-7 text-xs font-mono"
                           />
                           {editPiiCols.trim() && (
-                            <p className="text-[10px] text-[var(--dp-good)]">
+                            <p className="text-2xs text-[var(--dp-good)]">
                               Masked before load: {editPiiCols.trim() === "*" ? "all string columns" : `[${editPiiCols.split(",").map(s=>s.trim()).filter(Boolean).join(", ")}]`} (SSN/phone/card/email, etc.)
                             </p>
                           )}
@@ -396,7 +396,7 @@ function TablesCard({
                         {/* Partitioning (Iceberg) */}
                         <div className="grid grid-cols-2 gap-3 pt-1 border-t">
                           <div className="space-y-1">
-                            <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Partition Column</label>
+                            <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Partition Column</label>
                             <Select value={editPartCol || "__auto__"} onValueChange={v => setEditPartCol(v === "__auto__" ? "" : (v ?? ""))}>
                               <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
                               <SelectContent>
@@ -411,7 +411,7 @@ function TablesCard({
                             </Select>
                           </div>
                           <div className="space-y-1">
-                            <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                            <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
                               Transform {(editPartCol === "" || editPartCol === "__none__") && <span className="font-normal normal-case">(when a column is selected)</span>}
                             </label>
                             <Select value={editPartTransform} onValueChange={v => setEditPartTransform(v ?? "day")}>
@@ -426,7 +426,7 @@ function TablesCard({
                             </Select>
                           </div>
                         </div>
-                        <p className="text-[10px] text-muted-foreground">
+                        <p className="text-2xs text-muted-foreground">
                           Partitioning applies when a new table is created. Existing tables pick it up on the next full sync (recreate).
                         </p>
                         <div className="flex items-center gap-2">
@@ -1139,7 +1139,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                 ? <>{tables.filter(t => t.enabled).length}<span className="text-sm font-normal text-muted-foreground">/{tables.length}</span></>
                 : "—"}
             </CardTitle>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
+            <p className="text-2xs text-muted-foreground mt-0.5">
               {tables.length > 0 ? `${tables.filter(t => !t.enabled).length} excluded` : "Sync to discover"}
             </p>
           </CardHeader>
@@ -1149,7 +1149,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           <CardHeader className="pb-2 flex-1">
             <CardDescription className="flex items-center gap-1.5"><Rows3 className="h-3.5 w-3.5" />Last Sync Rows</CardDescription>
             <CardTitle className="text-2xl">{lastRunRows != null ? lastRunRows.toLocaleString() : "—"}</CardTitle>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
+            <p className="text-2xs text-muted-foreground mt-0.5">
               {lastRunRows != null ? "rows ingested" : "no data yet"}
             </p>
           </CardHeader>
@@ -1163,7 +1163,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
             <CardTitle className={`text-2xl ${successRate !== null && successRate < 80 ? "text-destructive" : ""}`}>
               {successRate !== null ? `${successRate}%` : "—"}
             </CardTitle>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
+            <p className="text-2xs text-muted-foreground mt-0.5">
               {recentSessions.length > 0 ? `last ${recentSessions.length} syncs` : "no history"}
             </p>
             {/* Per-run outcome strip (oldest→newest) — encodes the rate as form+color
@@ -1190,7 +1190,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           <CardHeader className="pb-2 flex-1">
             <CardDescription className="flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5" />Data Freshness</CardDescription>
             <CardTitle className={`text-xl ${freshnessStale ? "text-[var(--dp-warn)]" : ""}`}>{freshnessLabel}</CardTitle>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
+            <p className="text-2xs text-muted-foreground mt-0.5">
               {connector.last_sync_at ? formatDateTime(connector.last_sync_at) : "never synced"}
             </p>
           </CardHeader>
@@ -1309,14 +1309,14 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-semibold">Data Quality</h3>
                 {qualityChecks.some(c => c.overall_status === "alert") && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-destructive/10 text-destructive font-medium">Alert</span>
+                  <span className="text-2xs px-1.5 py-0.5 rounded bg-destructive/10 text-destructive font-medium">Alert</span>
                 )}
                 {!qualityChecks.some(c => c.overall_status === "alert") &&
                   qualityChecks.some(c => c.overall_status === "warning") && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] font-medium">Warning</span>
+                  <span className="text-2xs px-1.5 py-0.5 rounded bg-[var(--dp-warn)]/10 text-[var(--dp-warn)] font-medium">Warning</span>
                 )}
               </div>
-              <button onClick={fetchQuality} aria-label="Refresh data quality checks" className="text-[10px] text-muted-foreground hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:underline">Refresh</button>
+              <button onClick={fetchQuality} aria-label="Refresh data quality checks" className="text-2xs text-muted-foreground hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:underline">Refresh</button>
             </div>
           </CardHeader>
           <CardContent className="p-0">
@@ -1331,12 +1331,12 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-mono text-xs font-medium">{table}</span>
                     <div className="flex items-center gap-2">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                      <span className={`text-2xs px-1.5 py-0.5 rounded font-medium ${
                         check.overall_status === "ok" ? "bg-[var(--dp-good)]/10 text-[var(--dp-good)]" :
                         check.overall_status === "alert" ? "bg-destructive/10 text-destructive" :
                         "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]"
                       }`}>{check.overall_status}</span>
-                      <span className="text-[10px] text-muted-foreground">
+                      <span className="text-2xs text-muted-foreground">
                         {new Date(check.checked_at).toLocaleString()}
                       </span>
                     </div>
@@ -1347,7 +1347,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                     <span className="text-muted-foreground">Rows:</span>
                     <span className="font-mono font-medium">{check.rows_current?.toLocaleString()}</span>
                     {check.row_change_pct != null && (
-                      <span className={`font-mono text-[10px] ${
+                      <span className={`font-mono text-2xs ${
                         check.row_change_status === "alert" ? "text-destructive" :
                         check.row_change_status === "warning" ? "text-[var(--dp-warn)]" :
                         "text-muted-foreground"
@@ -1361,7 +1361,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                   {(check.warnings ?? []).length > 0 && (
                     <div className="space-y-1 mb-2">
                       {(check.warnings ?? []).map((warning, i) => (
-                        <div key={i} className={`text-[10px] px-2 py-1 rounded flex items-start gap-1.5 ${
+                        <div key={i} className={`text-2xs px-2 py-1 rounded flex items-start gap-1.5 ${
                           warning.severity === "alert" ? "bg-destructive/10 text-destructive" : "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]"
                         }`}>
                           <span>{warning.severity === "alert" ? "⚠" : "○"}</span>
@@ -1382,7 +1382,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                       <>
                         {shown.map(([col, value]) => (
                           <div key={col} className="flex items-center gap-2 mt-1">
-                            <span className="font-mono text-[10px] text-muted-foreground w-32 truncate">{col}</span>
+                            <span className="font-mono text-2xs text-muted-foreground w-32 truncate">{col}</span>
                             <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
                               <div
                                 className={`h-full rounded-full ${
@@ -1393,7 +1393,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                                 style={{ width: `${Math.min(value.null_rate, 100)}%` }}
                               />
                             </div>
-                            <span className={`text-[10px] font-mono w-10 text-right ${
+                            <span className={`text-2xs font-mono w-10 text-right ${
                               value.status === "alert" ? "text-destructive" :
                               value.status === "warning" ? "text-[var(--dp-warn)]" :
                               "text-muted-foreground"
@@ -1401,7 +1401,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                           </div>
                         ))}
                         {hidden > 0 && (
-                          <p className="text-[10px] text-muted-foreground mt-1.5">
+                          <p className="text-2xs text-muted-foreground mt-1.5">
                             +{hidden} more column{hidden > 1 ? "s" : ""} with nulls
                           </p>
                         )}

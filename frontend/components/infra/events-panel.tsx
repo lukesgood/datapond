@@ -191,12 +191,12 @@ export function EventsPanel() {
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                     <span className="text-sm font-medium">{KIND_LABEL[e.kind] ?? e.kind}</span>
                     <code className="text-xs text-muted-foreground truncate">{e.object}</code>
-                    <Badge variant="outline" className="text-[10px] h-4 px-1.5">{e.source}</Badge>
+                    <Badge variant="outline" className="text-2xs h-4 px-1.5">{e.source}</Badge>
                     <span className="text-xs text-muted-foreground ml-auto tabular-nums">{when(e.last_seen)}</span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1 break-words">{e.message}</p>
                   {note && <p className="text-xs mt-1 text-[var(--dp-warn)]">{note}</p>}
-                  <p className="text-[11px] text-muted-foreground mt-1">
+                  <p className="text-2xs text-muted-foreground mt-1">
                     {summarizeOccurrences(e.occurrences, e.first_seen, e.last_seen)}
                     {e.occurrences > 1 && <> · first {when(e.first_seen)}</>}
                   </p>

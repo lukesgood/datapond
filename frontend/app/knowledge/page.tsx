@@ -177,9 +177,9 @@ export default function KnowledgePage() {
                     <div className="font-medium text-sm flex items-center gap-1.5">
                       <Database className="h-3.5 w-3.5 text-muted-foreground" />{c.name}
                       {c.owner_id === null
-                        ? <Badge variant="outline" className="text-[9px] gap-0.5"><Users className="h-2.5 w-2.5" />shared</Badge>
+                        ? <Badge variant="outline" className="text-2xs gap-0.5"><Users className="h-2.5 w-2.5" />shared</Badge>
                         : (me && c.owner_id !== me.id)
-                          ? <Badge variant="outline" className="text-[9px]">other</Badge>
+                          ? <Badge variant="outline" className="text-2xs">other</Badge>
                           : null}
                     </div>
                     {/* DELETE /ai/collections/{name} is knowledge:write alone — it
@@ -189,21 +189,21 @@ export default function KnowledgePage() {
                         className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
                     )}
                   </div>
-                  <div className="dp-num text-[11px] text-muted-foreground mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
+                  <div className="dp-num text-2xs text-muted-foreground mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
                     <span>{c.chunks} vectors</span>·<span>{c.embed_model} ({c.dim}d)</span>
                     {c.sources != null && <><span>·</span><span>{c.sources} sources</span></>}
                   </div>
-                  <div className="text-[10px] text-muted-foreground/70 mt-0.5 flex flex-wrap gap-x-2 items-center">
-                    <Badge variant="outline" className="text-[9px] gap-0.5"><Database className="h-2.5 w-2.5" />{c.index || "HNSW · cosine"}</Badge>
+                  <div className="text-2xs text-muted-foreground/70 mt-0.5 flex flex-wrap gap-x-2 items-center">
+                    <Badge variant="outline" className="text-2xs gap-0.5"><Database className="h-2.5 w-2.5" />{c.index || "HNSW · cosine"}</Badge>
                     <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />Last ingested {timeAgo(c.last_ingested)}</span>
                   </div>
-                  {c.description && <div className="text-[11px] text-muted-foreground mt-0.5 truncate">{c.description}</div>}
+                  {c.description && <div className="text-2xs text-muted-foreground mt-0.5 truncate">{c.description}</div>}
                 </CardContent>
               </Card>
             ))}
           </div>
           {total > cols.length && (
-            <p className="text-center text-[11px] text-muted-foreground">
+            <p className="text-center text-2xs text-muted-foreground">
               Showing {cols.length} of {total}. Narrow the filter to find the rest.
             </p>
           )}
@@ -242,7 +242,7 @@ export default function KnowledgePage() {
             <CardDescription>What feeds each collection, and what a source change makes stale.</CardDescription>
           </div>
           <button onClick={() => setShowLineage(v => !v)}
-                  className="text-[11px] text-muted-foreground hover:text-foreground">
+                  className="text-2xs text-muted-foreground hover:text-foreground">
             {showLineage ? "Hide" : "Show"}
           </button>
         </CardHeader>
@@ -314,13 +314,13 @@ function CreateCollection({ onCreated }: { onCreated: () => void }) {
                       <span className="font-medium">{p.label}</span>
                       <span className="ml-1.5 text-muted-foreground">{p.hint}</span>
                     </span>
-                    <span className="dp-num shrink-0 text-[10px] text-muted-foreground">
+                    <span className="dp-num shrink-0 text-2xs text-muted-foreground">
                       {p.chunk_size}/{p.chunk_overlap}
                     </span>
                   </button>
                 ))}
               </div>
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-2xs text-muted-foreground">
                 Changeable later, but only for what you ingest after — chunks already
                 stored keep the split they were made with.
               </p>
@@ -551,15 +551,15 @@ function SearchPanel({ name }: { name: string }) {
       {/* PII signal stands alone only for Search (no answer); for a RAG answer it
           folds into the answer's trust bar so governance reads in one place. */}
       {pii > 0 && !(ans && hasAi) && (
-        <div className="text-[11px] text-[var(--dp-good)] flex items-center gap-1"><ShieldCheck className="h-3 w-3" />{pii} PII item(s) masked before processing (guardrail)</div>
+        <div className="text-2xs text-[var(--dp-good)] flex items-center gap-1"><ShieldCheck className="h-3 w-3" />{pii} PII item(s) masked before processing (guardrail)</div>
       )}
       {/* Search mode has no trust bar — show which concepts widened the query here. */}
       {concepts.length > 0 && !(ans && hasAi) && (
-        <div className="flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-1 text-2xs text-muted-foreground">
           expanded via
           {concepts.map(c => (
             <span key={c.name} title={`+${(c.added || []).join(", ") || "—"}`}
-              className={`inline-flex items-center gap-0.5 rounded px-1 py-px text-[10px] font-medium ${c.pii ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]" : "bg-primary/10 text-primary"}`}>
+              className={`inline-flex items-center gap-0.5 rounded px-1 py-px text-2xs font-medium ${c.pii ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]" : "bg-primary/10 text-primary"}`}>
               {c.name}{c.pii && <ShieldCheck className="h-2.5 w-2.5" />}
             </span>
           ))}
@@ -577,11 +577,11 @@ function SearchPanel({ name }: { name: string }) {
             <div className="flex">
               <div className="w-1 shrink-0 bg-gradient-to-b from-primary to-[var(--chart-3)]" aria-hidden />
               <CardContent className="flex-1 py-3.5">
-                <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
+                <div className="mb-2 flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-[0.12em] text-primary">
                   <Sparkles className="h-3.5 w-3.5" />Grounded answer
                 </div>
-                <div className="text-[15px] leading-7 text-foreground whitespace-pre-wrap">{renderCitedAnswer(ans)}</div>
-                <div className="mt-3.5 flex flex-wrap items-center gap-x-3.5 gap-y-1.5 border-t pt-2.5 text-[11px] text-muted-foreground">
+                <div className="text-base leading-7 text-foreground whitespace-pre-wrap">{renderCitedAnswer(ans)}</div>
+                <div className="mt-3.5 flex flex-wrap items-center gap-x-3.5 gap-y-1.5 border-t pt-2.5 text-2xs text-muted-foreground">
                   <span className="flex items-center gap-1"><FileText className="h-3 w-3" /><span className="dp-num font-medium text-foreground">{hits.length}</span>&nbsp;source{hits.length === 1 ? "" : "s"}</span>
                   {pii > 0 && <span className="flex items-center gap-1 text-[var(--dp-good)]"><ShieldCheck className="h-3 w-3" /><span className="dp-num font-medium">{pii}</span>&nbsp;PII masked</span>}
                   {reranked && <span className="flex items-center gap-1 text-primary"><Sparkles className="h-3 w-3" />reranked</span>}
@@ -589,7 +589,7 @@ function SearchPanel({ name }: { name: string }) {
                     <span className="flex items-center gap-1" title={concepts.map(c => `${c.name}: +${(c.added || []).join(", ") || "—"}`).join("\n")}>
                       expanded via
                       {concepts.map(c => (
-                        <span key={c.name} className={`inline-flex items-center gap-0.5 rounded px-1 py-px text-[10px] font-medium ${c.pii ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]" : "bg-primary/10 text-primary"}`}>
+                        <span key={c.name} className={`inline-flex items-center gap-0.5 rounded px-1 py-px text-2xs font-medium ${c.pii ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn)]" : "bg-primary/10 text-primary"}`}>
                           {c.name}{c.pii && <ShieldCheck className="h-2.5 w-2.5" />}
                         </span>
                       ))}
@@ -610,18 +610,18 @@ function SearchPanel({ name }: { name: string }) {
 
       {hits.length > 0 && (
         <div className="space-y-2">
-          <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground">{mode === "rag" ? "Sources" : "Results"}</p>
+          <p className="text-2xs font-medium uppercase tracking-[0.1em] text-muted-foreground">{mode === "rag" ? "Sources" : "Results"}</p>
           {hits.map((h, i) => (
             <div key={i} className="rounded-lg border bg-card px-3 py-2.5 text-xs transition-colors hover:border-primary/30">
-              <div className="mb-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+              <div className="mb-1.5 flex items-center gap-2 text-2xs text-muted-foreground">
                 {/* number echoes the answer's inline [n] chips */}
-                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-primary/10 dp-num text-[10px] font-semibold text-primary">{i + 1}</span>
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-primary/10 dp-num text-2xs font-semibold text-primary">{i + 1}</span>
                 <span className="flex min-w-0 items-center gap-1 truncate"><FileText className="h-3 w-3 shrink-0" />{h.source || "n/a"}</span>
                 <span className="ml-auto flex shrink-0 items-center gap-1">
                   {typeof h.rerank_score === "number" && (
-                    <Badge variant="outline" className="dp-num text-[10px] border-primary/40 text-primary" title="Reranked relevance score">rerank {h.rerank_score.toFixed(3)}</Badge>
+                    <Badge variant="outline" className="dp-num text-2xs border-primary/40 text-primary" title="Reranked relevance score">rerank {h.rerank_score.toFixed(3)}</Badge>
                   )}
-                  <Badge variant="outline" className="dp-num text-[10px]" title="Cosine similarity">{h.score?.toFixed(3)}</Badge>
+                  <Badge variant="outline" className="dp-num text-2xs" title="Cosine similarity">{h.score?.toFixed(3)}</Badge>
                 </span>
               </div>
               <div className="line-clamp-3 leading-relaxed text-muted-foreground">{h.content}</div>
@@ -749,7 +749,7 @@ function IngestPanel({ name, ownerId, onChange }: { name: string; ownerId: strin
           <Textarea value={text} onChange={e => setText(e.target.value)} placeholder="Paste documents to embed…" className="min-h-[160px] text-sm" />
           <div className="flex items-center justify-between">
             <Button onClick={ingestText} disabled={!text.trim() || busy}>{busy && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}Ingest</Button>
-            {text.trim() && <span className="text-[11px] tabular-nums text-muted-foreground">{text.length.toLocaleString()} chars · masked at ingest</span>}
+            {text.trim() && <span className="text-2xs tabular-nums text-muted-foreground">{text.length.toLocaleString()} chars · masked at ingest</span>}
           </div>
         </>
       ) : (
@@ -811,7 +811,7 @@ function IngestPanel({ name, ownerId, onChange }: { name: string; ownerId: strin
                 Schedule ingest</Button>
             </div>
           )})()}
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-2xs text-muted-foreground">
             Scheduled ingest re-embeds this source on the selected interval
             {sourceType === "iceberg" ? " and when a linked connector sync marks it stale." : "."}
           </p>
@@ -825,7 +825,7 @@ function IngestPanel({ name, ownerId, onChange }: { name: string; ownerId: strin
           {result.docs != null && <span className="text-muted-foreground"><b className="tabular-nums text-foreground">{result.docs.toLocaleString()}</b> docs</span>}
           <span className="text-muted-foreground"><b className="tabular-nums text-foreground">{result.chunks.toLocaleString()}</b> chunks embedded</span>
           <span className="text-muted-foreground"><b className="tabular-nums text-foreground">{result.pii.toLocaleString()}</b> PII masked</span>
-          <span className="ml-auto text-[11px] text-muted-foreground">now searchable in this collection</span>
+          <span className="ml-auto text-2xs text-muted-foreground">now searchable in this collection</span>
         </div>
       )}
       {e && <ErrorBox msg={e} />}

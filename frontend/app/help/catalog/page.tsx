@@ -51,7 +51,7 @@ export default function CatalogHelpPage() {
           <Database className="h-8 w-8 text-green-500" />
         </div>
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">Guide</p>
+          <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-primary">Guide</p>
           <h1 className="mt-1 text-3xl font-bold tracking-tight">Data Catalog</h1>
           <p className="mt-2 text-muted-foreground">
             Browse, search, and explore Iceberg tables across all namespaces

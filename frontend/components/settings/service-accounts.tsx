@@ -228,7 +228,7 @@ export function ServiceAccounts() {
             <CardContent className="space-y-3">
               <div className="flex flex-wrap gap-1">
                 {a.permissions.map(p => (
-                  <span key={p} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+                  <span key={p} className="rounded bg-muted px-1.5 py-0.5 font-mono text-2xs">
                     {p}
                   </span>
                 ))}
@@ -280,10 +280,10 @@ export function ServiceAccounts() {
                         <code className="font-mono">{k.key_prefix}…</code>
                         <span className="text-muted-foreground truncate">
                           {k.name}
-                          <span className="block text-[10.5px] text-muted-foreground">{describeKey(k)}</span>
+                          <span className="block text-2xs text-muted-foreground">{describeKey(k)}</span>
                         </span>
                         {k.status !== "active" && (
-                          <Badge variant="outline" className="text-[10px]">{k.status}</Badge>
+                          <Badge variant="outline" className="text-2xs">{k.status}</Badge>
                         )}
                       </span>
                       <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
@@ -328,7 +328,7 @@ function AccountSpend({ accountId }: { accountId: string }) {
 
   if (!s) return null
   return (
-    <span className="text-[11px] tabular-nums text-muted-foreground">
+    <span className="text-2xs tabular-nums text-muted-foreground">
       {s.requests === 0
         ? "no calls yet"
         : `${s.requests} call${s.requests === 1 ? "" : "s"} · $${s.spend.toFixed(s.spend >= 0.01 ? 4 : 6)}`}
@@ -366,7 +366,7 @@ function AccountCollections({ accountId }: { accountId: string }) {
     >
       Reads (with knowledge:read):
       {rows.map(c => (
-        <Badge key={c.name} variant="outline" className="text-[10px]" title={`${c.access} · ${c.chunks} chunks`}>
+        <Badge key={c.name} variant="outline" className="text-2xs" title={`${c.access} · ${c.chunks} chunks`}>
           {c.name} · {c.access}
         </Badge>
       ))}

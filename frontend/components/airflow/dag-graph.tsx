@@ -104,14 +104,14 @@ function TaskNode({ data, selected }: NodeProps<TaskData>) {
         {opLabel && (
           <div className="flex items-center gap-1 mt-1">
             <Zap className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
-            <span className="text-[10px] text-muted-foreground truncate">{opLabel}</span>
+            <span className="text-2xs text-muted-foreground truncate">{opLabel}</span>
           </div>
         )}
 
         {/* Trigger rule (if not default) */}
         {data.trigger_rule && data.trigger_rule !== "all_success" && (
           <div className="mt-1.5">
-            <span className="text-[9px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded font-mono">
+            <span className="text-2xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded font-mono">
               {data.trigger_rule}
             </span>
           </div>
@@ -236,7 +236,7 @@ export function DagGraph({ nodes: rawNodes, edges: rawEdges, taskStates = {} }: 
             {legendItems.map(({ state, label }) => {
               const s = STATE_STYLES[state]
               return (
-                <div key={state} className="flex items-center gap-1.5 text-[11px]">
+                <div key={state} className="flex items-center gap-1.5 text-2xs">
                   <div className={`h-2 w-2 rounded-full ${s.dot}`} />
                   <span className="text-muted-foreground">{label}</span>
                 </div>

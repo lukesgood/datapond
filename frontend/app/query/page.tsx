@@ -440,7 +440,7 @@ function QueryPageInner() {
           >
             <Play className={`h-3.5 w-3.5 ${isRunning ? "animate-pulse" : ""}`} />
             Run
-            <kbd className="hidden lg:inline-flex items-center text-[10px] opacity-70
+            <kbd className="hidden lg:inline-flex items-center text-2xs opacity-70
                            bg-primary-foreground/20 border border-primary-foreground/30
                            rounded px-1 py-px font-mono">⌘↵</kbd>
           </Button>
@@ -470,7 +470,7 @@ function QueryPageInner() {
         {aiCheck && (
           <span
             title={aiCheck.error || "Resolved against the catalog with EXPLAIN (TYPE VALIDATE)"}
-            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+            className={`shrink-0 rounded px-1.5 py-0.5 text-2xs font-medium ${
               aiCheck.ok
                 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                 : "bg-red-500/10 text-red-600 dark:text-red-400"
@@ -480,7 +480,7 @@ function QueryPageInner() {
           </span>
         )}
         {planLoading && (
-          <span className="shrink-0 text-[10px] text-muted-foreground">Checking plan…</span>
+          <span className="shrink-0 text-2xs text-muted-foreground">Checking plan…</span>
         )}
         {aiExplanation && (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground max-w-xs truncate">
@@ -497,14 +497,14 @@ function QueryPageInner() {
         <div className="shrink-0 border-b bg-muted/30 px-3 py-2 text-xs">
           {/* The answer first: which tables. Everything else is secondary. */}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Reads</span>
+            <span className="text-2xs uppercase tracking-wide text-muted-foreground">Reads</span>
             {planReview.accessed.map(t => (
               <span
                 key={`${t.schema}.${t.table}`}
-                className="rounded border bg-background px-1.5 py-0.5 font-mono text-[11px]"
+                className="rounded border bg-background px-1.5 py-0.5 font-mono text-2xs"
               >
                 {t.schema}.{t.table}
-                <span className="ml-1.5 text-[10px] text-muted-foreground">
+                <span className="ml-1.5 text-2xs text-muted-foreground">
                   {t.filters.length
                     ? t.filters.map(f => `${f.column} ${f.summary}`).join(", ")
                     : "no filter"}
@@ -519,7 +519,7 @@ function QueryPageInner() {
             {planReview.characteristics.length > 0 && (
               <button
                 onClick={() => setPlanDetail(v => !v)}
-                className="ml-auto shrink-0 text-[10px] text-muted-foreground hover:text-foreground"
+                className="ml-auto shrink-0 text-2xs text-muted-foreground hover:text-foreground"
               >
                 {planDetail ? "Hide plan details" : `Plan details (${planReview.characteristics.length})`}
               </button>
@@ -596,7 +596,7 @@ function QueryPageInner() {
                 <div className="h-3.5 w-px bg-border" />
                 <Badge
                   variant="outline"
-                  className="text-[10px] h-4 px-1.5 font-normal gap-1"
+                  className="text-2xs h-4 px-1.5 font-normal gap-1"
                   title={`Query engine: ${engineName} (${engineStatus})`}
                 >
                   <span className={`h-1.5 w-1.5 rounded-full inline-block ${
@@ -608,7 +608,7 @@ function QueryPageInner() {
               </div>
               <div className="flex items-center gap-0.5">
                 <Button
-                  variant="ghost" size="sm" className="h-6 px-2 text-[11px] gap-1
+                  variant="ghost" size="sm" className="h-6 px-2 text-2xs gap-1
                     text-muted-foreground hover:text-foreground"
                   onClick={copySql}
                   aria-label="Copy SQL to clipboard" title="Copy SQL to clipboard"
@@ -619,7 +619,7 @@ function QueryPageInner() {
                   {copied ? "Copied" : "Copy"}
                 </Button>
                 <Button
-                  variant="ghost" size="sm" className="h-6 px-2 text-[11px] gap-1
+                  variant="ghost" size="sm" className="h-6 px-2 text-2xs gap-1
                     text-muted-foreground hover:text-foreground"
                   onClick={formatQuery}
                   aria-label="Format SQL" title="Format SQL"
@@ -628,7 +628,7 @@ function QueryPageInner() {
                   Format
                 </Button>
                 <Button
-                  variant="ghost" size="sm" className="h-6 px-2 text-[11px] gap-1
+                  variant="ghost" size="sm" className="h-6 px-2 text-2xs gap-1
                     text-muted-foreground hover:text-destructive"
                   onClick={() => { setQuery(DEFAULT_QUERY); setResults(null); setQueryStatus("idle"); setError(null) }}
                   aria-label="Clear editor" title="Clear editor"
@@ -666,15 +666,15 @@ function QueryPageInner() {
                 {hasResults && (
                   <>
                     <div className="h-3.5 w-px bg-border" />
-                    <span className="dp-num text-[11px] text-muted-foreground">
+                    <span className="dp-num text-2xs text-muted-foreground">
                       {results.truncated ? "first " : ""}{results.rows.length.toLocaleString()} rows
                     </span>
-                    <span className="text-[11px] text-muted-foreground/60">·</span>
-                    <span className="dp-num text-[11px] text-muted-foreground">
+                    <span className="text-2xs text-muted-foreground/60">·</span>
+                    <span className="dp-num text-2xs text-muted-foreground">
                       {results.columns.length} cols
                     </span>
-                    <span className="text-[11px] text-muted-foreground/60">·</span>
-                    <span className="dp-num text-[11px] text-muted-foreground">
+                    <span className="text-2xs text-muted-foreground/60">·</span>
+                    <span className="dp-num text-2xs text-muted-foreground">
                       {results.execution_time_ms < 1000
                         ? `${Math.round(results.execution_time_ms)}ms`
                         : `${(results.execution_time_ms / 1000).toFixed(2)}s`}
@@ -682,7 +682,7 @@ function QueryPageInner() {
                     {results.truncated && (
                       <Badge
                         variant="outline"
-                        className="text-[10px] h-4 px-1.5 font-normal gap-1 text-[var(--dp-warn)] border-[var(--dp-warn)]/40"
+                        className="text-2xs h-4 px-1.5 font-normal gap-1 text-[var(--dp-warn)] border-[var(--dp-warn)]/40"
                         title="Add your own LIMIT clause to see more rows"
                       >
                         <AlertCircle className="h-3 w-3" />
@@ -692,7 +692,7 @@ function QueryPageInner() {
                     {resultsStale && (
                       <Badge
                         variant="outline"
-                        className="text-[10px] h-4 px-1.5 font-normal gap-1 text-[var(--dp-warn)] border-[var(--dp-warn)]/40"
+                        className="text-2xs h-4 px-1.5 font-normal gap-1 text-[var(--dp-warn)] border-[var(--dp-warn)]/40"
                         title="The editor has changed since these results were produced — re-run to refresh"
                       >
                         <AlertCircle className="h-3 w-3" />
@@ -718,7 +718,7 @@ function QueryPageInner() {
                   </div>
                   <p className="text-sm text-muted-foreground">Write a query and run it to see results here</p>
                   <p className="text-xs text-muted-foreground/60">
-                    Press <kbd className="px-1.5 py-0.5 text-[10px] border rounded font-mono">⌘↵</kbd> or click Run — or pick a table from the schema tree to start
+                    Press <kbd className="px-1.5 py-0.5 text-2xs border rounded font-mono">⌘↵</kbd> or click Run — or pick a table from the schema tree to start
                   </p>
                 </div>
               )}

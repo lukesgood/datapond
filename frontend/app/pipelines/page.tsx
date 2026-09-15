@@ -418,7 +418,7 @@ function PipelinesPageInner() {
                 <Icon className={`h-3.5 w-3.5 ${accent ? "text-red-400" : "text-muted-foreground"}`} />
               </div>
               <div className={`text-2xl font-bold ${accent ? "text-destructive" : ""}`}>{value}</div>
-              <div className="text-[11px] text-muted-foreground mt-0.5">{sub}</div>
+              <div className="text-2xs text-muted-foreground mt-0.5">{sub}</div>
             </CardContent>
           </Card>
         ))}
@@ -482,14 +482,14 @@ function PipelinesPageInner() {
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="flex flex-col gap-0.5">
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium w-fit ${
+                          <span className={`text-2xs px-1.5 py-0.5 rounded font-medium w-fit ${
                             t.status === "deployed" ? "bg-green-500/10 text-green-600" : "bg-muted text-muted-foreground"
                           }`}>
                             {t.status}
                           </span>
                           {t.last_run_state && (
                             <span
-                              className={`inline-flex items-center gap-1 text-[10px] w-fit ${
+                              className={`inline-flex items-center gap-1 text-2xs w-fit ${
                                 t.last_run_state === "success" ? "text-green-600" :
                                 t.last_run_state === "failed" ? "text-destructive" :
                                 t.last_run_state === "running" ? "text-primary" : "text-muted-foreground"
@@ -514,14 +514,14 @@ function PipelinesPageInner() {
                         <div className="flex items-center gap-1 justify-end">
                           <Button
                             variant="ghost" size="sm" aria-label={`Edit ${t.name}`}
-                            className="h-6 text-[10px] px-2"
+                            className="h-6 text-2xs px-2"
                             onClick={() => router.push(`/pipelines/new?load=${encodeURIComponent(t.name)}`)}
                           >
                             <Pencil className="h-3 w-3" />
                           </Button>
                           <Button
                             variant="ghost" size="sm" aria-label={`Run ${t.name}`}
-                            className="h-6 text-[10px] px-2"
+                            className="h-6 text-2xs px-2"
                             disabled={triggeringTransform === t.id}
                             onClick={() => handleTriggerTransform(t.id, t.dag_id || "")}
                           >
@@ -533,7 +533,7 @@ function PipelinesPageInner() {
                           </Button>
                           <Button
                             variant="ghost" size="sm"
-                            className="h-6 text-[10px] px-2 text-destructive hover:text-destructive"
+                            className="h-6 text-2xs px-2 text-destructive hover:text-destructive"
                             onClick={() => handleDeleteTransform(t.id, t.name)}
                           >
                             <XCircle className="h-3 w-3" />

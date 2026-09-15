@@ -22,14 +22,14 @@ interface DagRunListProps {
 
 function StateBadge({ state }: { state: string }) {
   if (state === "success")
-    return <span className="flex items-center gap-1 text-[11px] font-medium text-green-600"><CheckCircle2 className="h-3 w-3" />Success</span>
+    return <span className="flex items-center gap-1 text-2xs font-medium text-green-600"><CheckCircle2 className="h-3 w-3" />Success</span>
   if (state === "failed")
-    return <span className="flex items-center gap-1 text-[11px] font-medium text-red-500"><XCircle className="h-3 w-3" />Failed</span>
+    return <span className="flex items-center gap-1 text-2xs font-medium text-red-500"><XCircle className="h-3 w-3" />Failed</span>
   if (state === "running")
-    return <span className="flex items-center gap-1 text-[11px] font-medium text-primary"><Clock className="h-3 w-3 animate-spin" />Running</span>
+    return <span className="flex items-center gap-1 text-2xs font-medium text-primary"><Clock className="h-3 w-3 animate-spin" />Running</span>
   if (state === "queued")
-    return <span className="flex items-center gap-1 text-[11px] font-medium text-yellow-600"><PlayCircle className="h-3 w-3" />Queued</span>
-  return <Badge variant="secondary" className="text-[10px] h-4">{state}</Badge>
+    return <span className="flex items-center gap-1 text-2xs font-medium text-yellow-600"><PlayCircle className="h-3 w-3" />Queued</span>
+  return <Badge variant="secondary" className="text-2xs h-4">{state}</Badge>
 }
 
 function duration(start?: string, end?: string): string | null {
@@ -57,7 +57,7 @@ export function DagRunList({ runs, showDagId = false }: DagRunListProps) {
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
           Recent Runs
         </span>
-        <Badge variant="secondary" className="text-[10px] h-4 px-1.5 ml-auto">
+        <Badge variant="secondary" className="text-2xs h-4 px-1.5 ml-auto">
           {runs.length}
         </Badge>
       </div>
@@ -67,7 +67,7 @@ export function DagRunList({ runs, showDagId = false }: DagRunListProps) {
         <div className="flex flex-col items-center justify-center py-10 text-center">
           <Workflow className="h-7 w-7 text-muted-foreground/20 mb-2" />
           <p className="text-xs text-muted-foreground">No runs yet</p>
-          <p className="text-[11px] text-muted-foreground/50 mt-0.5">
+          <p className="text-2xs text-muted-foreground/50 mt-0.5">
             Trigger a pipeline to see results
           </p>
         </div>
@@ -90,7 +90,7 @@ export function DagRunList({ runs, showDagId = false }: DagRunListProps) {
                 </div>
 
                 {/* Bottom: started + duration */}
-                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <div className="flex items-center justify-between text-2xs text-muted-foreground">
                   <span>{run.start_date ? timeAgo(run.start_date) : "—"}</span>
                   {run.start_date && (
                     <span className="flex items-center gap-1 shrink-0">

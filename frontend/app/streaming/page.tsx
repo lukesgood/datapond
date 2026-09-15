@@ -66,7 +66,7 @@ function CopyBtn({ text }: { text: string }) {
   return (
     <button
       onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-      className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+      className="flex items-center gap-1 text-2xs text-muted-foreground hover:text-foreground transition-colors"
     >
       <Copy className="h-3 w-3" />{copied ? "Copied!" : "Copy"}
     </button>
@@ -113,9 +113,9 @@ function CdcPrereqPanel({ dbName, dbUser }: { dbName?: string; dbUser?: string }
           {CDC_PREREQS.map((p, i) => (
             <div key={i} className="pt-2.5">
               <p className="text-xs font-semibold text-amber-800">{i + 1}. {p.label}</p>
-              <p className="text-[11px] text-amber-700 mt-0.5 mb-1.5">{p.desc}</p>
+              <p className="text-2xs text-amber-700 mt-0.5 mb-1.5">{p.desc}</p>
               <div className="relative rounded bg-amber-900/8 border border-amber-200 px-3 py-1.5">
-                <pre className="text-[11px] font-mono text-amber-900 whitespace-pre-wrap pr-12">
+                <pre className="text-2xs font-mono text-amber-900 whitespace-pre-wrap pr-12">
                   {p.sql.replace("{db}", db).replace(/{user}/g, user)}
                 </pre>
                 <div className="absolute top-1.5 right-2">
@@ -573,7 +573,7 @@ function StreamingPageInner() {
             <Zap className="h-3.5 w-3.5" />
             Active Streams
             {pipelines.length > 0 && (
-              <Badge variant="secondary" className="text-[9px] h-4 px-1 ml-0.5">{pipelines.length}</Badge>
+              <Badge variant="secondary" className="text-2xs h-4 px-1 ml-0.5">{pipelines.length}</Badge>
             )}
           </TabsTrigger>
           <TabsTrigger value="add-source" className="text-xs h-7 gap-1.5">
@@ -675,12 +675,12 @@ function StreamingPageInner() {
                           <div className="flex items-center gap-2">
                             {p.name}
                             {isPipelineLive(p) ? (
-                              <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-1.5 py-0.5 text-[10px] font-medium text-green-700"
+                              <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-1.5 py-0.5 text-2xs font-medium text-green-700"
                                 title="Full source → view → sink set is materializing">
                                 <span className="h-1.5 w-1.5 rounded-full bg-green-500" />Live
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+                              <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-2xs font-medium text-amber-700"
                                 title="Incomplete — missing a source, view, or sink object">
                                 <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />Partial
                               </span>
@@ -704,7 +704,7 @@ function StreamingPageInner() {
                         <TableCell>
                           <div className="flex flex-wrap gap-1 max-w-[280px]">
                             {p.tables.map(t => (
-                              <span key={t} className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded">{t}</span>
+                              <span key={t} className="text-2xs font-mono bg-muted px-1.5 py-0.5 rounded">{t}</span>
                             ))}
                           </div>
                         </TableCell>
@@ -880,12 +880,12 @@ function StreamingPageInner() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-sm font-semibold">{src.name}</span>
-                      {!src.available && <Badge variant="secondary" className="text-[10px] h-4 px-1">Soon</Badge>}
+                      {!src.available && <Badge variant="secondary" className="text-2xs h-4 px-1">Soon</Badge>}
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed">{src.description}</p>
                     <div className="flex flex-wrap gap-1 mt-2">
                       {src.features.map(f => (
-                        <span key={f} className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-medium">{f}</span>
+                        <span key={f} className="text-2xs bg-muted px-1.5 py-0.5 rounded font-medium">{f}</span>
                       ))}
                     </div>
                   </div>

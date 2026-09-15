@@ -233,7 +233,7 @@ export function LogToMlflowModal({
           <div className="space-y-4 py-2">
             {/* Query preview */}
             <div className="rounded-md border bg-muted/40 p-3 space-y-2">
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+              <p className="text-2xs font-medium text-muted-foreground uppercase tracking-wide">
                 Query Preview
               </p>
               <p className="text-xs font-mono text-foreground/80 line-clamp-2 leading-relaxed">
@@ -243,13 +243,13 @@ export function LogToMlflowModal({
                 )}
               </p>
               <div className="flex gap-2 pt-0.5">
-                <Badge variant="secondary" className="text-[11px] h-5">
+                <Badge variant="secondary" className="text-2xs h-5">
                   {rowCount.toLocaleString()} rows
                 </Badge>
-                <Badge variant="secondary" className="text-[11px] h-5">
+                <Badge variant="secondary" className="text-2xs h-5">
                   {executionTimeMs >= 1000 ? `${executionTimeSec}s` : `${executionTimeMs}ms`}
                 </Badge>
-                <Badge variant="secondary" className="text-[11px] h-5">
+                <Badge variant="secondary" className="text-2xs h-5">
                   {columns.length} columns
                 </Badge>
               </div>
@@ -263,7 +263,7 @@ export function LogToMlflowModal({
                   <button
                     type="button"
                     onClick={() => setShowNewExp(true)}
-                    className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                    className="inline-flex items-center gap-1 text-2xs text-primary hover:underline"
                   >
                     <Plus className="h-3 w-3" />
                     New experiment
@@ -346,7 +346,7 @@ export function LogToMlflowModal({
                 <button
                   type="button"
                   onClick={addParam}
-                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                  className="inline-flex items-center gap-1 text-2xs text-primary hover:underline"
                 >
                   <Plus className="h-3 w-3" />
                   Add
@@ -390,14 +390,14 @@ export function LogToMlflowModal({
                 <button
                   type="button"
                   onClick={addMetric}
-                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                  className="inline-flex items-center gap-1 text-2xs text-primary hover:underline"
                 >
                   <Plus className="h-3 w-3" />
                   Add
                 </button>
               </div>
               {customMetrics.length === 0 && (
-                <p className="text-[11px] text-muted-foreground">No custom metrics yet.</p>
+                <p className="text-2xs text-muted-foreground">No custom metrics yet.</p>
               )}
               <div className="space-y-1.5">
                 {customMetrics.map((row, i) => (

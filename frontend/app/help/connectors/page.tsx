@@ -52,7 +52,7 @@ export default function ConnectorsHelpPage() {
           <Plug className="h-8 w-8 text-purple-500" />
         </div>
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">Guide</p>
+          <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-primary">Guide</p>
           <h1 className="mt-1 text-3xl font-bold tracking-tight">Connectors</h1>
           <p className="mt-2 text-muted-foreground">
             Connect to databases, storage, and streaming sources

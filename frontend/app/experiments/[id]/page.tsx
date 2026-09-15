@@ -463,7 +463,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                                 )}
                               >
                                 {v.toFixed(4)}
-                                {isBest && <span className="text-[10px]">★</span>}
+                                {isBest && <span className="text-2xs">★</span>}
                               </span>
                               {stat.count > 1 && (
                                 <div className="h-1.5 w-14 rounded-full bg-muted overflow-hidden">
@@ -521,7 +521,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                         <div className="font-mono truncate max-w-[160px]">
                           {run.info.run_name || run.info.run_id.slice(0, 8)}
                         </div>
-                        <div className="text-[10px] font-normal text-muted-foreground">
+                        <div className="text-2xs font-normal text-muted-foreground">
                           {run.info.run_id.slice(0, 8)}
                         </div>
                       </th>
@@ -533,7 +533,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                   {(compareData.common_metrics?.length ?? 0) > 0 && (
                     <>
                       <tr className="bg-muted/20">
-                        <td colSpan={compareData.runs.length + 1} className="px-4 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        <td colSpan={compareData.runs.length + 1} className="px-4 py-1 text-2xs font-semibold text-muted-foreground uppercase tracking-wide">
                           Metrics
                         </td>
                       </tr>
@@ -552,7 +552,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                               }`}>
                                 {v != null ? Number(v).toFixed(4) : "—"}
                                 {v === best && numVals.length > 1 && (
-                                  <span className="ml-1 text-[10px]">★</span>
+                                  <span className="ml-1 text-2xs">★</span>
                                 )}
                               </td>
                             ))}
@@ -565,7 +565,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                   {(compareData.common_params?.length ?? 0) > 0 && (
                     <>
                       <tr className="bg-muted/20">
-                        <td colSpan={compareData.runs.length + 1} className="px-4 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        <td colSpan={compareData.runs.length + 1} className="px-4 py-1 text-2xs font-semibold text-muted-foreground uppercase tracking-wide">
                           Parameters
                         </td>
                       </tr>
@@ -593,7 +593,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
                   {(compareData.diff_params?.length ?? 0) > 0 && (
                     <>
                       <tr className="bg-amber-50/50 dark:bg-amber-900/10">
-                        <td colSpan={compareData.runs.length + 1} className="px-4 py-1 text-[10px] font-semibold text-amber-600 uppercase tracking-wide">
+                        <td colSpan={compareData.runs.length + 1} className="px-4 py-1 text-2xs font-semibold text-amber-600 uppercase tracking-wide">
                           Differing Parameters
                         </td>
                       </tr>

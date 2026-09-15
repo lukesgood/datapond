@@ -42,9 +42,9 @@ function ring(nodes: GraphNode[], selectedId?: string): Node[] {
       data: {
         label: (
           <div className="text-left leading-tight">
-            <div className="text-[9px] uppercase tracking-wide opacity-60">{schema}</div>
-            <div className="text-[12px] font-medium">{table}</div>
-            <div className="text-[9px] opacity-60">
+            <div className="text-2xs uppercase tracking-wide opacity-60">{schema}</div>
+            <div className="text-xs font-medium">{table}</div>
+            <div className="text-2xs opacity-60">
               {node.query_count > 0 ? `${node.query_count} queries` : "not queried"}
             </div>
           </div>
@@ -216,7 +216,7 @@ export function RelationshipGraph({ days = 30 }: { days?: number }) {
 
 function DetailHeading({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">{children}</p>
+    <p className="mb-1 text-2xs uppercase tracking-wide text-muted-foreground">{children}</p>
   )
 }
 
@@ -227,7 +227,7 @@ function NodeDetail({ node, graph }: { node: GraphNode; graph: Graph }) {
   return (
     <div className="space-y-3">
       <div>
-        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{schema}</p>
+        <p className="text-2xs uppercase tracking-wide text-muted-foreground">{schema}</p>
         <p className="font-medium text-sm">{table}</p>
         <p className="text-muted-foreground">
           {node.query_count > 0
@@ -239,7 +239,7 @@ function NodeDetail({ node, graph }: { node: GraphNode; graph: Graph }) {
       {node.columns.length > 0 && (
         <div>
           <DetailHeading>Columns ({node.columns.length})</DetailHeading>
-          <ul className="space-y-0.5 font-mono text-[11px]">
+          <ul className="space-y-0.5 font-mono text-2xs">
             {node.columns.map(c => (
               <li key={c.name} className="flex justify-between gap-2">
                 <span className="truncate">{c.name}</span>
@@ -261,7 +261,7 @@ function NodeDetail({ node, graph }: { node: GraphNode; graph: Graph }) {
               const j = e.joins[0]
               return (
                 <li key={`${other}-${i}`}>
-                  <span className="font-mono text-[11px]">{other}</span>
+                  <span className="font-mono text-2xs">{other}</span>
                   <span className="ml-1 text-muted-foreground">
                     {j ? `on ${j.left_column} = ${j.right_column}` : ""}
                     {e.evidence === "observed" ? ` · ×${e.count}` : " · candidate"}
@@ -275,7 +275,7 @@ function NodeDetail({ node, graph }: { node: GraphNode; graph: Graph }) {
 
       <a
         href={`/catalog/${schema}/${table}`}
-        className="inline-block text-[11px] text-primary hover:underline"
+        className="inline-block text-2xs text-primary hover:underline"
       >
         Open table →
       </a>
@@ -289,8 +289,8 @@ function EdgeDetail({ edge }: { edge: GraphEdge }) {
     <div className="space-y-3">
       <div>
         <DetailHeading>Relationship</DetailHeading>
-        <p className="font-mono text-[11px]">{edge.source}</p>
-        <p className="font-mono text-[11px]">{edge.target}</p>
+        <p className="font-mono text-2xs">{edge.source}</p>
+        <p className="font-mono text-2xs">{edge.target}</p>
         <p className="mt-1">
           {observed ? (
             <span className="text-foreground">
@@ -306,7 +306,7 @@ function EdgeDetail({ edge }: { edge: GraphEdge }) {
 
       <div>
         <DetailHeading>Join keys</DetailHeading>
-        <ul className="space-y-0.5 font-mono text-[11px]">
+        <ul className="space-y-0.5 font-mono text-2xs">
           {edge.joins.map((j, i) => (
             <li key={i} className="flex justify-between gap-2">
               <span className="truncate">{j.left_column} = {j.right_column}</span>
@@ -319,16 +319,16 @@ function EdgeDetail({ edge }: { edge: GraphEdge }) {
       {edge.join_sql && (
         <div>
           <DetailHeading>Start from this</DetailHeading>
-          <pre className="overflow-x-auto rounded border bg-background p-2 font-mono text-[10px] leading-relaxed">
+          <pre className="overflow-x-auto rounded border bg-background p-2 font-mono text-2xs leading-relaxed">
 {edge.join_sql}
           </pre>
           <a
             href={`/query?sql=${encodeURIComponent(edge.join_sql)}`}
-            className="mt-1 inline-block text-[11px] text-primary hover:underline"
+            className="mt-1 inline-block text-2xs text-primary hover:underline"
           >
             Open in Analytics →
           </a>
-          <p className="mt-1 text-[10px] text-muted-foreground">
+          <p className="mt-1 text-2xs text-muted-foreground">
             Rebuilt from the join keys — never copied from a stored query, which can
             carry values in its WHERE clause.
           </p>

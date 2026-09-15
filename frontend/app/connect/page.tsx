@@ -80,8 +80,8 @@ export default function ApiPage() {
   return (
     <div className="flex-1 space-y-5 p-8 pt-6">
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">Build AI</p>
-        <h1 className="mt-0.5 text-[23px] font-semibold tracking-tight">API</h1>
+        <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-primary">Build AI</p>
+        <h1 className="mt-0.5 text-2xl font-semibold tracking-tight">API</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Call this deployment from your own application. Everything below is read from
           the running server, so it stays true as the API changes.
@@ -133,10 +133,10 @@ function McpCard({ origin }: { origin: string }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
-        <pre className="overflow-x-auto rounded border bg-muted/40 p-2 font-mono text-[10px] leading-relaxed">
+        <pre className="overflow-x-auto rounded border bg-muted/40 p-2 font-mono text-2xs leading-relaxed">
 {curl}
         </pre>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-2xs text-muted-foreground">
           Scopes, spend attribution and what a call refuses: <span className="font-mono">docs/MCP.md</span>.
         </p>
       </CardContent>
@@ -214,7 +214,7 @@ function EndpointRow({ e, origin }: { e: Endpoint; origin: string }) {
     <div className="rounded-lg border">
       <button onClick={() => setOpen(o => !o)}
               className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted/40">
-        <span className={`w-14 shrink-0 rounded px-1.5 py-0.5 text-center font-mono text-[10px] font-semibold ${
+        <span className={`w-14 shrink-0 rounded px-1.5 py-0.5 text-center font-mono text-2xs font-semibold ${
           e.method === "GET" ? "bg-primary/10 text-primary"
             : e.method === "DELETE" ? "bg-destructive/10 text-destructive"
             : "bg-amber-500/10 text-amber-700 dark:text-amber-400"}`}>
@@ -222,7 +222,7 @@ function EndpointRow({ e, origin }: { e: Endpoint; origin: string }) {
         </span>
         <span className="min-w-0 flex-1 truncate font-mono text-xs">{e.path}</span>
         {e.permission && (
-          <code className="hidden shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground sm:block">
+          <code className="hidden shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-2xs text-muted-foreground sm:block">
             {e.permission}
           </code>
         )}
@@ -233,14 +233,14 @@ function EndpointRow({ e, origin }: { e: Endpoint; origin: string }) {
           {e.summary && <p className="text-xs text-muted-foreground">{e.summary}</p>}
 
           <div>
-            <span className="text-[11px] font-medium">curl</span>
-            <pre className="mt-1 overflow-x-auto rounded border bg-muted/40 p-2 font-mono text-[10px] leading-relaxed">
+            <span className="text-2xs font-medium">curl</span>
+            <pre className="mt-1 overflow-x-auto rounded border bg-muted/40 p-2 font-mono text-2xs leading-relaxed">
 {curl}
             </pre>
           </div>
 
           {templated ? (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               This path takes a value in the URL, so it is not runnable from here —
               the curl above shows the shape.
             </p>
@@ -248,10 +248,10 @@ function EndpointRow({ e, origin }: { e: Endpoint; origin: string }) {
             <>
               {hasBody && (
                 <div>
-                  <span className="text-[11px] font-medium">Request body</span>
+                  <span className="text-2xs font-medium">Request body</span>
                   <textarea value={body} onChange={ev => setBody(ev.target.value)} rows={5}
                             spellCheck={false}
-                            className="mt-1 w-full rounded border bg-background p-2 font-mono text-[11px]" />
+                            className="mt-1 w-full rounded border bg-background p-2 font-mono text-2xs" />
                 </div>
               )}
               <div className="flex items-center gap-2">
@@ -259,7 +259,7 @@ function EndpointRow({ e, origin }: { e: Endpoint; origin: string }) {
                   {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
                   Send
                 </Button>
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-2xs text-muted-foreground">
                   Runs with your browser session, not an API key — same request and
                   response, no credential to paste in.
                 </span>
@@ -269,12 +269,12 @@ function EndpointRow({ e, origin }: { e: Endpoint; origin: string }) {
 
           {res && (
             <div>
-              <span className="text-[11px] font-medium">
+              <span className="text-2xs font-medium">
                 Response <span className={res.status >= 400 || res.status === 0 ? "text-destructive" : "text-[var(--dp-good)]"}>
                   {res.status || "error"}
                 </span>
               </span>
-              <pre className="mt-1 max-h-64 overflow-auto rounded border bg-muted/40 p-2 font-mono text-[10px] leading-relaxed">
+              <pre className="mt-1 max-h-64 overflow-auto rounded border bg-muted/40 p-2 font-mono text-2xs leading-relaxed">
 {res.text}
               </pre>
             </div>

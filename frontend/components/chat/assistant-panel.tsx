@@ -228,7 +228,7 @@ export function AssistantPanel() {
                   <X className="h-3.5 w-3.5" /> Dismiss
                 </Button>
               </div>
-              <p className="mt-1.5 text-[10px] text-muted-foreground">
+              <p className="mt-1.5 text-2xs text-muted-foreground">
                 Nothing runs until you approve. This is what the server will do.
               </p>
             </div>)}
@@ -256,7 +256,7 @@ export function AssistantPanel() {
             Send
           </Button>
         </div>
-        <p className="mt-1 text-[10px] text-muted-foreground">
+        <p className="mt-1 text-2xs text-muted-foreground">
           Conversation is not saved. Requests that change something are recorded.
         </p>
       </div>
@@ -288,7 +288,7 @@ function PreviewBody({ preview }: { preview: Record<string, unknown> | null }) {
         <p className="text-foreground">{preview.summary}</p>
       )}
       {reads && reads.length > 0 && (
-        <p>Reads: <span className="font-mono text-[11px]">{reads.join(", ")}</span></p>
+        <p>Reads: <span className="font-mono text-2xs">{reads.join(", ")}</span></p>
       )}
       {preview.validated === false && (
         <p className="text-red-600 dark:text-red-400">
@@ -305,14 +305,14 @@ function PreviewBody({ preview }: { preview: Record<string, unknown> | null }) {
       )}
       {typeof preview.name === "string" && <p>Name: <b>{preview.name}</b></p>}
       {typeof preview.sql === "string" && (
-        <pre className="overflow-x-auto rounded border bg-background p-1.5 font-mono text-[10px]">
+        <pre className="overflow-x-auto rounded border bg-background p-1.5 font-mono text-2xs">
 {String(preview.sql)}
         </pre>
       )}
       {entries.length > 0 && (
         <ul className="space-y-0.5">
           {entries.map(e => (
-            <li key={e.key}>{e.label}: <span className="font-mono text-[11px]">{e.value}</span></li>
+            <li key={e.key}>{e.label}: <span className="font-mono text-2xs">{e.value}</span></li>
           ))}
         </ul>
       )}
@@ -340,11 +340,11 @@ function ActionResult({ action, onPropose, busy }: {
         {typeof r.explanation === "string" && r.explanation && (
           <p className="mb-1.5 text-muted-foreground">{r.explanation}</p>
         )}
-        <pre className="overflow-x-auto rounded border bg-background p-2 font-mono text-[10.5px] leading-relaxed">
+        <pre className="overflow-x-auto rounded border bg-background p-2 font-mono text-2xs leading-relaxed">
 {String(r.sql)}
         </pre>
         {r.validated === false ? (
-          <p className="mt-1.5 text-[11px] text-destructive">
+          <p className="mt-1.5 text-2xs text-destructive">
             The catalog rejected this statement, so it is not offered to run.
           </p>
         ) : (
@@ -354,7 +354,7 @@ function ActionResult({ action, onPropose, busy }: {
           </Button>
         )}
         {r.needs_input === true && (
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
+          <p className="mt-1.5 text-2xs text-muted-foreground">
             The question was ambiguous — check the statement before running it.
           </p>
         )}
@@ -371,13 +371,13 @@ function ActionResult({ action, onPropose, busy }: {
           <table className="w-full">
             <thead className="border-b bg-muted/40">
               <tr>{cols.map(c => (
-                <th key={c} className="px-2 py-1 text-left text-[10.5px] font-medium">{c}</th>
+                <th key={c} className="px-2 py-1 text-left text-2xs font-medium">{c}</th>
               ))}</tr>
             </thead>
             <tbody className="divide-y">
               {rows.slice(0, 20).map((row, i) => (
                 <tr key={i}>{row.map((cell, j) => (
-                  <td key={j} className="px-2 py-1 font-mono text-[10.5px] tabular-nums">
+                  <td key={j} className="px-2 py-1 font-mono text-2xs tabular-nums">
                     {cell === null ? <span className="text-muted-foreground">null</span> : String(cell)}
                   </td>
                 ))}</tr>
@@ -385,7 +385,7 @@ function ActionResult({ action, onPropose, busy }: {
             </tbody>
           </table>
         </div>
-        <p className="border-t px-2 py-1 text-[10px] text-muted-foreground">
+        <p className="border-t px-2 py-1 text-2xs text-muted-foreground">
           {typeof r.row_count === "number" ? `${r.row_count} row(s)` : `${rows.length} row(s)`}
           {rows.length > 20 && " · showing the first 20"}
           {r.truncated === true && " · the result was truncated"}

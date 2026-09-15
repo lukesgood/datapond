@@ -250,7 +250,7 @@ export function AiBackends() {
           </p>
           {status?.egress_policy && (
             <p className="mt-1">
-              <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium ${
+              <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-2xs font-medium ${
                 localOnly
                   ? "border-[var(--dp-good)]/30 bg-[var(--dp-good)]/10 text-[var(--dp-good)]"
                   : "border-border bg-muted text-muted-foreground"}`}>
@@ -307,19 +307,19 @@ export function AiBackends() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-sm">{b.model_name}</span>
                         {b.is_active && (
-                          <Badge className="h-5 gap-1 bg-primary/10 text-primary border-primary/20 text-[10px]">
+                          <Badge className="h-5 gap-1 bg-primary/10 text-primary border-primary/20 text-2xs">
                             <Star className="h-2.5 w-2.5 fill-primary" />Active
                           </Badge>
                         )}
-                        <Badge variant="secondary" className="h-5 text-[10px]">
+                        <Badge variant="secondary" className="h-5 text-2xs">
                           {PROVIDERS[b.provider]?.label || b.provider}
                         </Badge>
                       </div>
-                      <p className="text-[11px] text-muted-foreground font-mono mt-1 truncate">
+                      <p className="text-2xs text-muted-foreground font-mono mt-1 truncate">
                         {b.model}{b.api_base ? ` · ${b.api_base}` : ""}
                       </p>
                       {t && !t.testing && (
-                        <p className={`text-[11px] mt-1.5 flex items-center gap-1 ${t.ok ? "text-[var(--dp-good)]" : "text-destructive"}`}>
+                        <p className={`text-2xs mt-1.5 flex items-center gap-1 ${t.ok ? "text-[var(--dp-good)]" : "text-destructive"}`}>
                           {t.ok ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
                           {t.ok ? `OK · ${t.latency_ms}ms` : `Failed · ${t.message}`}
                         </p>
@@ -361,7 +361,7 @@ export function AiBackends() {
           <div className="space-y-4 py-2">
             {/* ── Provider & model ─────────────────────────────────────────── */}
             <section className="space-y-3">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Provider &amp; model</div>
+              <div className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">Provider &amp; model</div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs">Provider</Label>
@@ -387,7 +387,7 @@ export function AiBackends() {
               </div>
 
               {providerBlocked && (
-                <div className="flex items-start gap-2 rounded-md border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-3 py-2 text-[11px] text-[var(--dp-warn)]">
+                <div className="flex items-start gap-2 rounded-md border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/10 px-3 py-2 text-2xs text-[var(--dp-warn)]">
                   <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                   <span>This environment runs a <b>local-only</b> AI egress policy — external
                   providers are blocked to keep data in your environment. Choose Ollama or vLLM, or change
@@ -405,7 +405,7 @@ export function AiBackends() {
             {/* ── Connection — endpoint & credentials for the chosen provider ── */}
             {(prov?.fields.includes("api_base") || prov?.fields.includes("aws") || prov?.fields.includes("api_key")) && (
               <section className="space-y-3">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Connection</div>
+                <div className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">Connection</div>
 
                 {prov?.fields.includes("api_base") && (
                   <div className="space-y-1.5">
@@ -454,13 +454,13 @@ export function AiBackends() {
                   </div>
                 )}
 
-                {prov?.hint && <p className="text-[11px] text-muted-foreground">{prov.hint}</p>}
+                {prov?.hint && <p className="text-2xs text-muted-foreground">{prov.hint}</p>}
               </section>
             )}
 
             {/* ── Limits & tuning — optional per-model params, collapsed for density ── */}
             <details className="rounded-lg border bg-muted/10 px-3 py-2">
-              <summary className="flex cursor-pointer select-none items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <summary className="flex cursor-pointer select-none items-center justify-between text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Limits &amp; tuning <span className="font-normal normal-case tracking-normal opacity-70">optional</span>
               </summary>
               <div className="grid grid-cols-2 gap-3 pt-3">
@@ -497,7 +497,7 @@ export function AiBackends() {
           </div>
           <DialogFooter className="items-center sm:justify-between">
             {/* Tell the admin exactly what is missing rather than a dead disabled button. */}
-            <span className="text-[11px] text-muted-foreground flex items-center gap-1.5 mr-auto">
+            <span className="text-2xs text-muted-foreground flex items-center gap-1.5 mr-auto">
               {formIssue && !addErr && <><AlertCircle className="h-3.5 w-3.5 shrink-0" />{formIssue}</>}
             </span>
             <div className="flex items-center gap-2">
@@ -600,15 +600,15 @@ export function UsagePanel() {
       <CardContent className="space-y-4">
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-lg border p-3">
-            <div className="text-[11px] text-muted-foreground">Total spend</div>
+            <div className="text-2xs text-muted-foreground">Total spend</div>
             <div className="text-lg font-semibold">{formatUsd(u.total_spend)}{u.max_budget ? <span className="text-xs text-muted-foreground"> / {formatUsd(u.max_budget)}</span> : null}</div>
           </div>
           <div className="rounded-lg border p-3">
-            <div className="text-[11px] text-muted-foreground">Tokens (recent)</div>
+            <div className="text-2xs text-muted-foreground">Tokens (recent)</div>
             <div className="text-lg font-semibold">{fmtN(u.total_tokens)}</div>
           </div>
           <div className="rounded-lg border p-3">
-            <div className="text-[11px] text-muted-foreground">Models</div>
+            <div className="text-2xs text-muted-foreground">Models</div>
             <div className="text-lg font-semibold">{u.models.length}</div>
           </div>
         </div>
@@ -637,7 +637,7 @@ export function UsagePanel() {
                 ))}
               </div>
               {ranked.some(a => a.app === "untagged") && (
-                <p className="border-t px-3 py-1.5 text-[10px] text-muted-foreground">
+                <p className="border-t px-3 py-1.5 text-2xs text-muted-foreground">
                   “Untagged” is spend recorded before feature tagging, or from a caller
                   that does not set one. It is shown rather than dropped so these rows
                   add up to the total above.
@@ -657,7 +657,7 @@ export function UsagePanel() {
           <div>
             <div className="text-xs font-medium mb-1.5">By model</div>
             <div className="rounded-lg border divide-y">
-              <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-3 py-1.5 text-[11px] text-muted-foreground">
+              <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-3 py-1.5 text-2xs text-muted-foreground">
                 <span>Model</span><span className="text-right">Spend</span><span className="text-right">Req</span><span className="text-right">Tokens (in/out)</span>
               </div>
               {ranked.map(m => (
@@ -681,7 +681,7 @@ export function UsagePanel() {
           <div>
             <div className="text-xs font-medium mb-1.5">By user</div>
             <div className="rounded-lg border divide-y">
-              <div className="grid grid-cols-[1fr_auto_auto] gap-3 px-3 py-1.5 text-[11px] text-muted-foreground">
+              <div className="grid grid-cols-[1fr_auto_auto] gap-3 px-3 py-1.5 text-2xs text-muted-foreground">
                 <span>User</span><span className="text-right">Spend</span><span className="text-right">Req / Tokens</span>
               </div>
               {u.users.map((x, i) => (
@@ -754,7 +754,7 @@ function SpendBars({ rows }: { rows: { label: string; spend: number }[] }) {
   const peakLabel = rows.reduce((a, b) => (b.spend > a.spend ? b : a), rows[0])
   return (
     <div className="rounded-md border p-3">
-      <div className="mb-2 flex items-baseline justify-between text-[11px] text-muted-foreground">
+      <div className="mb-2 flex items-baseline justify-between text-2xs text-muted-foreground">
         <span>Daily spend</span>
         <span className="tabular-nums">peak {formatUsd(peak)} · {peakLabel.label}</span>
       </div>
@@ -771,7 +771,7 @@ function SpendBars({ rows }: { rows: { label: string; spend: number }[] }) {
         })}
       </div>
       {rows.length > 1 && (
-        <div className="mt-1 flex justify-between text-[10px] tabular-nums text-muted-foreground">
+        <div className="mt-1 flex justify-between text-2xs tabular-nums text-muted-foreground">
           <span>{rows[0].label}</span>
           <span>{rows[rows.length - 1].label}</span>
         </div>
@@ -806,11 +806,11 @@ function SpendReportSection() {
         <div className="border-t px-3 py-3 space-y-3">
           <div className="flex flex-wrap items-end gap-2">
             <div className="space-y-1">
-              <Label className="text-[11px] text-muted-foreground">Start</Label>
+              <Label className="text-2xs text-muted-foreground">Start</Label>
               <Input type="date" value={start} onChange={e => setStart(e.target.value)} className="h-8 text-xs w-[150px]" />
             </div>
             <div className="space-y-1">
-              <Label className="text-[11px] text-muted-foreground">End</Label>
+              <Label className="text-2xs text-muted-foreground">End</Label>
               <Input type="date" value={end} onChange={e => setEnd(e.target.value)} className="h-8 text-xs w-[150px]" />
             </div>
             <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-1.5">
@@ -821,7 +821,7 @@ function SpendReportSection() {
             const total = rows.reduce((s, r) => s + r.spend, 0)
             return (
               <>
-                <div className="text-[11px] text-muted-foreground">
+                <div className="text-2xs text-muted-foreground">
                   {data.start_date} → {data.end_date} · total {formatUsd(total)}
                 </div>
                 {rows.length > 0 ? (
@@ -837,12 +837,12 @@ function SpendReportSection() {
                     </div>
                   </>
                 ) : (
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-2xs text-muted-foreground">
                     No spend rolled up for this range. LiteLLM rolls report data periodically — the live
                     “By model” usage above (from <span className="font-mono">/global/spend/models</span>) is the most current source.
                   </p>
                 )}
-                {data.detail && <p className="text-[11px] text-[var(--dp-warn)]">{data.detail}</p>}
+                {data.detail && <p className="text-2xs text-[var(--dp-warn)]">{data.detail}</p>}
               </>
             )
           })()}
@@ -904,7 +904,7 @@ function GatewayBanner({ status, loading, onRefresh }: {
         {/* Surface the gateway's own reason when it is not healthy — otherwise a
             degraded/unreachable status reads as a dead-end with no cause. */}
         {!loading && status?.detail && g !== "healthy" && (
-          <p className={`mt-3 flex items-start gap-1.5 text-[11px] ${tone.text}`}>
+          <p className={`mt-3 flex items-start gap-1.5 text-2xs ${tone.text}`}>
             <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-px" />
             <span>{status.detail}</span>
           </p>
@@ -1059,16 +1059,16 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-sm">{k.key_alias || "(no alias)"}</span>
-                        <code className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{k.token?.slice(0, 12)}…</code>
-                        {k.models.length > 0 && <Badge variant="secondary" className="h-4 text-[10px]">{k.models.join(", ")}</Badge>}
+                        <code className="text-2xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{k.token?.slice(0, 12)}…</code>
+                        {k.models.length > 0 && <Badge variant="secondary" className="h-4 text-2xs">{k.models.join(", ")}</Badge>}
                       </div>
-                      <p className="text-[11px] text-muted-foreground mt-1 tabular-nums">
+                      <p className="text-2xs text-muted-foreground mt-1 tabular-nums">
                         spend {formatUsd(Number(k.spend))}{k.max_budget != null ? ` / ${formatUsd(k.max_budget)}` : " · no budget cap"}
                         {k.rpm_limit != null ? ` · ${k.rpm_limit} rpm` : ""}{k.tpm_limit != null ? ` · ${k.tpm_limit} tpm` : ""}
                       </p>
                       {pct != null && (
                         <div className="mt-1.5">
-                          <div className="flex items-center justify-between text-[10px] tabular-nums mb-0.5">
+                          <div className="flex items-center justify-between text-2xs tabular-nums mb-0.5">
                             <span className={pct >= 100 ? "text-destructive font-medium" : "text-muted-foreground"}>
                               {pct >= 100 ? "Budget exhausted" : `${Math.round(pct)}% of budget`}
                             </span>
@@ -1120,12 +1120,12 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
               <div className="space-y-1.5">
                 <Label className="text-xs">Allowed models <span className="text-muted-foreground">(leave blank for all)</span></Label>
                 {backends.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground">No backends registered — all allowed</p>
+                  <p className="text-2xs text-muted-foreground">No backends registered — all allowed</p>
                 ) : (
                   <div className="flex flex-wrap gap-1.5">
                     {backends.map(b => (
                       <button key={b.model_name} type="button" onClick={() => toggleModel(b.model_name)}
-                        className={`text-[11px] px-2 py-1 rounded border ${models.includes(b.model_name) ? "bg-primary/10 border-primary/30 text-primary" : "bg-muted/30 text-muted-foreground"}`}>
+                        className={`text-2xs px-2 py-1 rounded border ${models.includes(b.model_name) ? "bg-primary/10 border-primary/30 text-primary" : "bg-muted/30 text-muted-foreground"}`}>
                         {b.model_name}
                       </button>
                     ))}
@@ -1159,7 +1159,7 @@ function VirtualKeys({ backends }: { backends: Backend[] }) {
             ) : (
               <>
                 {/* Explain the one required field instead of a silently-disabled button. */}
-                <span className="text-[11px] text-muted-foreground flex items-center gap-1.5 mr-auto">
+                <span className="text-2xs text-muted-foreground flex items-center gap-1.5 mr-auto">
                   {!alias.trim() && !genErr && <><AlertCircle className="h-3.5 w-3.5 shrink-0" />An alias is required — it labels this key in spend reports.</>}
                 </span>
                 <div className="flex items-center gap-2">

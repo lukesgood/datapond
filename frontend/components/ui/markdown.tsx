@@ -19,12 +19,12 @@ export function Markdown({ text, citations = false, className = "" }: {
     <div className={`space-y-2 ${className}`}>
       {blocks.map((b, i) => {
         if (b.t === "pre") return (
-          <pre key={i} className="overflow-x-auto rounded-md border bg-muted/50 p-2 font-mono text-[11px] leading-relaxed">
+          <pre key={i} className="overflow-x-auto rounded-md border bg-muted/50 p-2 font-mono text-2xs leading-relaxed">
             {b.v}
           </pre>
         )
         if (b.t === "h") {
-          const size = b.level <= 2 ? "text-sm" : "text-[13px]"
+          const size = b.level <= 2 ? "text-sm" : "text-sm"
           return <p key={i} className={`${size} font-semibold`}><Spans spans={b.spans} /></p>
         }
         if (b.t === "ul") return (
@@ -54,7 +54,7 @@ export function Spans({ spans }: { spans: Inline[] }) {
           <code key={i} className="rounded bg-muted px-1 py-px font-mono text-[0.9em]">{s.v}</code>
         )
         if (s.t === "cite") return (
-          <sup key={i} className="mx-0.5 inline-flex items-center rounded bg-primary/10 px-1 py-px align-baseline text-[10px] font-semibold text-primary">
+          <sup key={i} className="mx-0.5 inline-flex items-center rounded bg-primary/10 px-1 py-px align-baseline text-2xs font-semibold text-primary">
             {s.v}
           </sup>
         )

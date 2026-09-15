@@ -54,7 +54,7 @@ export function DagCard({
           {savedStatus && (
             <Badge
               variant="outline"
-              className={`text-[10px] h-5 px-1.5 ${
+              className={`text-2xs h-5 px-1.5 ${
                 savedStatus === "deployed" ? "border-emerald-300 text-emerald-700 bg-emerald-50" :
                 savedStatus === "draft" ? "border-amber-300 text-amber-700 bg-amber-50" : ""
               }`}
@@ -64,7 +64,7 @@ export function DagCard({
           )}
           <Badge
             variant={is_paused ? "outline" : "default"}
-            className={`shrink-0 text-[10px] h-5 px-1.5 ${!is_paused ? "bg-emerald-600 hover:bg-emerald-600" : ""}`}
+            className={`shrink-0 text-2xs h-5 px-1.5 ${!is_paused ? "bg-emerald-600 hover:bg-emerald-600" : ""}`}
           >
             {is_paused ? "Paused" : "Active"}
           </Badge>
