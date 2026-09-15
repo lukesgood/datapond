@@ -128,6 +128,19 @@ helm upgrade --install datapond helm/datapond -n datapond \
 
 The database password supplied to Helm must match Aurora. Follow the full secret ordering, ECR, TLS, and verification procedure in [DEPLOY_SINGLE_NODE.md](../docs/DEPLOY_SINGLE_NODE.md).
 
+## Backups
+
+| What | How | Retention |
+|---|---|---|
+| Aurora | automated backups + PITR (`db_backup_retention_period`) | 14 days |
+| S3 data bucket | versioning, with noncurrent expiry | 90 days |
+| Node root volume | DLM daily snapshot (`dlm.tf`), taken after the evening stop so the volume is quiescent | 7 snapshots |
+
+The root volume is the only copy of the K3s datastore, every Kubernetes Secret, and the
+local-path PVCs. It had no backup at all until `dlm.tf`; `root_snapshot_enabled=false`
+turns the schedule off, and the volume is selected by its `Backup = daily` tag
+(`ec2.tf`), not by instance id.
+
 ## Availability and recovery
 
 This reference intentionally uses one EC2/K3s application node. Aurora and S3 are managed/durable, but the application node is not HA. The operating model is fast rebuild:

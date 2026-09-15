@@ -127,6 +127,63 @@ resource "aws_cloudwatch_metric_alarm" "athena_daily_scan" {
   ok_actions          = local.alarm_topic_arn == "" ? [] : [local.alarm_topic_arn]
 }
 
+variable "node_alarms_enabled" {
+  type        = bool
+  default     = true
+  description = "Alarm on the node failing its EC2 status checks and on Aurora running at its capacity ceiling."
+}
+
+variable "aurora_capacity_alarm_pct" {
+  type        = number
+  default     = 90
+  description = "Alarm when Aurora's serverless capacity stays at/above this percent of db_max_acu."
+}
+
+# The node is unhealthy while running. treat_missing_data = notBreaching matters here:
+# the scheduler stops the node every evening and a stopped instance publishes no status
+# checks, which would otherwise page every night.
+#
+# What this does NOT cover: a morning start that never happened. A stopped instance is
+# indistinguishable from a scheduled stop in CloudWatch (no data either way), and spot
+# capacity refusals — 12 in the week of 2026-09-15 — surface as StartInstances errors in
+# CloudTrail, not as a metric. Catching those needs an EventBridge rule on the scheduler
+# invocation, not an alarm; it is deliberately not built here.
+resource "aws_cloudwatch_metric_alarm" "node_status_check" {
+  count               = var.node_alarms_enabled ? 1 : 0
+  alarm_name          = "${var.name_prefix}-node-status-check"
+  alarm_description   = "The ${var.name_prefix} node failed an EC2 status check — the instance or its host is unhealthy while it is meant to be running."
+  namespace           = "AWS/EC2"
+  metric_name         = "StatusCheckFailed"
+  dimensions          = { InstanceId = aws_instance.node.id }
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 2
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = local.alarm_topic_arn == "" ? [] : [local.alarm_topic_arn]
+  ok_actions          = local.alarm_topic_arn == "" ? [] : [local.alarm_topic_arn]
+}
+
+# Aurora pinned at its ceiling means queries are queueing behind capacity, which reads
+# as "the product is slow" long before anything errors.
+resource "aws_cloudwatch_metric_alarm" "aurora_capacity" {
+  count               = var.node_alarms_enabled ? 1 : 0
+  alarm_name          = "${var.name_prefix}-aurora-capacity"
+  alarm_description   = format("Aurora served at or above %s%% of its %s ACU ceiling for 15 minutes — raise db_max_acu or find the query holding it there.", var.aurora_capacity_alarm_pct, var.db_max_acu)
+  namespace           = "AWS/RDS"
+  metric_name         = "ServerlessDatabaseCapacity"
+  dimensions          = { DBClusterIdentifier = aws_rds_cluster.aurora.cluster_identifier }
+  statistic           = "Average"
+  period              = 300
+  evaluation_periods  = 3
+  threshold           = var.db_max_acu * var.aurora_capacity_alarm_pct / 100
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = local.alarm_topic_arn == "" ? [] : [local.alarm_topic_arn]
+  ok_actions          = local.alarm_topic_arn == "" ? [] : [local.alarm_topic_arn]
+}
+
 output "cloudwatch_dashboard_name" {
   value = aws_cloudwatch_dashboard.datapond.dashboard_name
 }

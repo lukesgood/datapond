@@ -69,6 +69,14 @@ resource "aws_instance" "node" {
     # file applies in place.
     encrypted  = var.root_volume_encrypted
     kms_key_id = var.db_kms_key_id # null ⇒ the account's default EBS key
+
+    # Backup = daily is what dlm.tf's policy selects on. Without a tag the volume had
+    # no backup: this is the only copy of the K3s datastore and the cluster Secrets.
+    tags = {
+      Name       = "${var.name_prefix}-k3s-root"
+      Backup     = "daily"
+      managed-by = "terraform"
+    }
   }
 
   # IMDSv2 only. Under IMDSv1 anything that can be made to reach 169.254.169.254
