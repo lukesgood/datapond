@@ -6,7 +6,13 @@ import { useState, useEffect, useCallback } from "react"
 import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
 } from "recharts"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -184,19 +190,22 @@ function MetricsChartOrTable({ metrics }: { metrics: Metric[] }) {
       .sort(([a], [b]) => Number(a) - Number(b))
       .map(([step, vals]) => ({ step: Number(step), ...vals }))
 
-    const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"]
+    const COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"]
 
     return (
       <div className="space-y-3">
-        <div className="h-36 w-full">
+        <div className="h-48 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
-              <XAxis dataKey="step" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} width={36} />
+            <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 16, left: 0 }}>
+              <XAxis dataKey="step" tick={{ fontSize: 11 }}
+                     label={{ value: "Step", position: "insideBottom", offset: -10, fontSize: 11, fill: "var(--muted-foreground)" }} />
+              <YAxis tick={{ fontSize: 11 }} width={36} />
               <Tooltip
-                contentStyle={{ fontSize: 11 }}
+                contentStyle={{ fontSize: 12 }}
                 formatter={(v) => typeof v === "number" ? v.toPrecision(5) : v}
               />
+              {/* Colour alone did not say which line was which metric. */}
+              <Legend verticalAlign="top" height={20} iconSize={8} wrapperStyle={{ fontSize: 11 }} />
               {keys.map((k, i) => (
                 <Line
                   key={k}

@@ -75,7 +75,8 @@ export function ChartRenderer({
 
   const commonProps = {
     data,
-    margin: { top: 10, right: 30, left: 0, bottom: 0 },
+    // Room for the axis names below and to the left.
+    margin: { top: 10, right: 30, left: 12, bottom: 24 },
   }
 
   if (chartType === "line") {
@@ -85,12 +86,14 @@ export function ChartRenderer({
           {showGrid && <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />}
           <XAxis
             dataKey={xAxis}
+            label={{ value: xAxis, position: "insideBottom", offset: -16, fill: AXIS_STROKE, fontSize: 12 }}
             stroke={AXIS_STROKE}
             fontSize={12}
             tickLine={false}
             axisLine={false}
           />
           <YAxis
+            label={{ value: yAxis, angle: -90, position: "insideLeft", fill: AXIS_STROKE, fontSize: 12, style: { textAnchor: "middle" } }}
             stroke={AXIS_STROKE}
             fontSize={12}
             tickLine={false}
@@ -126,12 +129,14 @@ export function ChartRenderer({
           {showGrid && <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />}
           <XAxis
             dataKey={xAxis}
+            label={{ value: xAxis, position: "insideBottom", offset: -16, fill: AXIS_STROKE, fontSize: 12 }}
             stroke={AXIS_STROKE}
             fontSize={12}
             tickLine={false}
             axisLine={false}
           />
           <YAxis
+            label={{ value: yAxis, angle: -90, position: "insideLeft", fill: AXIS_STROKE, fontSize: 12, style: { textAnchor: "middle" } }}
             stroke={AXIS_STROKE}
             fontSize={12}
             tickLine={false}
@@ -160,12 +165,14 @@ export function ChartRenderer({
           {showGrid && <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />}
           <XAxis
             dataKey={xAxis}
+            label={{ value: xAxis, position: "insideBottom", offset: -16, fill: AXIS_STROKE, fontSize: 12 }}
             stroke={AXIS_STROKE}
             fontSize={12}
             tickLine={false}
             axisLine={false}
           />
           <YAxis
+            label={{ value: yAxis, angle: -90, position: "insideLeft", fill: AXIS_STROKE, fontSize: 12, style: { textAnchor: "middle" } }}
             stroke={AXIS_STROKE}
             fontSize={12}
             tickLine={false}
