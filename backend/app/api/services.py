@@ -166,6 +166,19 @@ def get_restart_count(pod) -> int:
         return 0
     return sum(c.restart_count for c in pod.status.container_statuses)
 
+def _is_job_pod(pod) -> bool:
+    """True for a pod a Job created. The migrate Job's pod carries app=backend, finishes
+    (phase Succeeded, never Ready), and stays for ttlSecondsAfterFinished — an hour after
+    every deploy. Counted with the Deployment's pods, it made backend "unhealthy"."""
+    owners = getattr(getattr(pod, "metadata", None), "owner_references", None) or []
+    return any(getattr(owner, "kind", None) == "Job" for owner in owners)
+
+
+def workload_pods(pods) -> list:
+    """The pods that serve a workload: everything the selector matched except Job pods."""
+    return [pod for pod in pods if not _is_job_pod(pod)]
+
+
 def get_service_label_selector(service: str) -> str:
     """Get label selector for service"""
     # Try common label patterns
@@ -303,7 +316,7 @@ async def get_service_detail(service: str):
             namespace=NAMESPACE,
             label_selector=get_service_label_selector(app_label),
         )
-        pod_items = pods.items
+        pod_items = workload_pods(pods.items)
         if pod_items:
             all_running = all(p.status.phase == "Running" for p in pod_items)
             all_ready = all(is_pod_ready(p) for p in pod_items)
@@ -756,7 +769,8 @@ async def get_service_health(service: str):
             label_selector=get_service_label_selector(service)
         )
 
-        if not pods.items:
+        items = workload_pods(pods.items)
+        if not items:
             return ServiceHealth(
                 service=service,
                 status="unknown",
@@ -765,13 +779,13 @@ async def get_service_health(service: str):
                 pods_total=0
             )
 
-        total_pods = len(pods.items)
-        ready_pods = sum(1 for p in pods.items if is_pod_ready(p))
+        total_pods = len(items)
+        ready_pods = sum(1 for p in items if is_pod_ready(p))
 
         # Check for recent restarts
         last_restart = None
         max_restarts = 0
-        for pod in pods.items:
+        for pod in items:
             restart_count = get_restart_count(pod)
             if restart_count > max_restarts:
                 max_restarts = restart_count

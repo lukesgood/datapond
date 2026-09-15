@@ -19,7 +19,7 @@ _log = logging.getLogger(__name__)
 from app.api.queries import router as queries_router
 from app.api.catalog import router as catalog_router
 from app.api.connectors import router as connectors_router
-from app.api.services import router as services_router
+from app.api.services import router as services_router, workload_pods
 from app.api.system_events_routes import router as system_events_router
 from app.api.notebooks import router as notebooks_router
 from app.api.mlflow_integration import router as mlflow_router
@@ -576,7 +576,8 @@ def _compute_services_sync() -> List[ServiceStatus]:
             out.append(ServiceStatus(name=svc["name"], status="managed", version="Configured adapter",
                                      description=svc.get("desc"), kind="managed"))
             continue
-        sp = by_app.get(svc["app"], [])
+        # A finished Job pod (the migrate Job carries app=backend) is not the workload.
+        sp = workload_pods(by_app.get(svc["app"], []))
         if not sp:
             status = "unknown"
         else:
