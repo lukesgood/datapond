@@ -540,6 +540,17 @@ externalDatabase:
   enabled: false
   adapter: postgresql  # postgresql | aurora; identity only, connection remains PostgreSQL-compatible
   port: 5432
+  # Optional: the role the BACKEND connects as at runtime, when it should not be the
+  # role that owns the tables. Migration 0012 creates `datapond_app`, which holds
+  # SELECT/INSERT on the audit tables and no ownership, so it cannot re-grant itself
+  # UPDATE or drop the append-only trigger — which is what makes those tables WORM
+  # rather than append-only-by-convention (see 0005's honesty note).
+  #
+  # Unset means today's behaviour exactly: backend and migrations share one credential.
+  # Setting it is a cutover — the role has to be given LOGIN and a password first, and
+  # the migration job keeps using the owning credential. See docs/DEPLOY_SINGLE_NODE.md.
+  appUser: ""
+  appPasswordSecretKey: ""   # key in datapond-secrets holding that role's password
 
 # Trino (SQL Analytics with Iceberg)
 trino:

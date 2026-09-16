@@ -463,6 +463,65 @@ aws ssm start-session --region us-east-1 --target "$(terraform -chdir=terraform 
 tag with `--reset-then-reuse-values`, `pullPolicy: IfNotPresent`, rollout wait). It does
 NOT build or push — images must already be in ECR.
 
+### Making the audit tables WORM (optional, and a real cutover)
+
+Migration 0005 made `security_audit_log` and `auth_audit_log` append-only and said
+plainly what that does not buy: the application connects as the role that **owns** those
+tables, and an owner can re-grant itself UPDATE, disable the trigger, or drop it. So the
+trigger stops the product's own code paths and a stray endpoint — not an operator at a
+psql prompt, and not SQL injection with stacked statements.
+
+Migration 0012 creates the role that closes it: `datapond_app`, holding SELECT/INSERT on
+the three audit tables (`security_audit_log`, `auth_audit_log`, `tool_call_log`), full
+DML elsewhere, and ownership of nothing. It is created `NOLOGIN`, so running the
+migration changes no behaviour at all. Everything below is the cutover, and it is
+deliberately manual: a wrong grant here locks the product out of its own database.
+
+```bash
+# 1. Give the role a login and a password (psql as the Aurora master user).
+ALTER ROLE datapond_app LOGIN PASSWORD '<strong-random-password>';
+
+# 2. Put that password in the cluster secret, under a key of your choosing.
+kubectl -n datapond patch secret datapond-secrets --type merge \
+  -p "{\"data\":{\"APP_DB_PASSWORD\":\"$(printf %s '<same-password>' | base64)\"}}"
+
+# 3. Point only the backend at it (the migration Job keeps the owning credential).
+helm -n datapond upgrade datapond helm/datapond --reset-then-reuse-values \
+  --set externalDatabase.appUser=datapond_app \
+  --set externalDatabase.appPasswordSecretKey=APP_DB_PASSWORD
+```
+
+Verify all three properties before believing it:
+
+```bash
+kubectl -n datapond exec deploy/backend -c backend -- python -c "
+import os, psycopg2
+c = psycopg2.connect(os.environ['DATABASE_URL']); cur = c.cursor()
+cur.execute('SELECT current_user'); print('connected as', cur.fetchone()[0])
+cur.execute('SELECT count(*) FROM security_audit_log'); print('can read:', cur.fetchone()[0])
+try:
+    cur.execute(\"UPDATE security_audit_log SET reason = 'x'\"); print('UPDATE SUCCEEDED — not WORM')
+except Exception as e:
+    print('UPDATE refused, as intended:', type(e).__name__)
+"
+```
+
+Expected: `connected as datapond_app`, a row count, and a refused UPDATE. The login page
+and `/api/health` must also still answer — a missing grant shows up as a 500 on the
+first query, not at connection time.
+
+**Rolling back** is unsetting the two values and rolling the backend; the owning
+credential still works, and nothing about the data changes:
+
+```bash
+helm -n datapond upgrade datapond helm/datapond --reset-then-reuse-values \
+  --set externalDatabase.appUser="" --set externalDatabase.appPasswordSecretKey=""
+```
+
+**Not done on the live reference deployment.** It still connects as the owning role, so
+its audit tables are append-only by trigger, not WORM. Doing it needs the password step
+above, which is an operator action with a credential this repo never holds.
+
 ### Changing release values (not image tags)
 
 `deploy-node-helm.sh` sets image tags and nothing else, and it keeps everything already
