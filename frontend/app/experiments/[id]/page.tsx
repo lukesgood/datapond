@@ -121,7 +121,7 @@ export default function ExperimentDetailPage({ params }: { params: { id: string 
       case "FAILED":
         return <XCircle className="h-4 w-4 text-destructive" />
       default:
-        return <Clock className="h-4 w-4 text-gray-500" />
+        return <Clock className="h-4 w-4 text-muted-foreground" />
     }
   }
 

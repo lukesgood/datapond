@@ -98,7 +98,7 @@ export function RunDetails({ run }: RunDetailsProps) {
       case "FAILED":
         return <XCircle className="h-5 w-5 text-destructive" />
       default:
-        return <Clock className="h-5 w-5 text-gray-500" />
+        return <Clock className="h-5 w-5 text-muted-foreground" />
     }
   }
 

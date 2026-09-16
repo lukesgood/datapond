@@ -35,7 +35,7 @@ export function QueryHistoryItem({ query, onSelect }: Props) {
   return (
     <div
       onClick={() => onSelect(query.query_text)}
-      className="group relative p-3 rounded-lg hover:bg-gray-100 cursor-pointer transition-colors border border-transparent hover:border-gray-200"
+      className="group relative p-3 rounded-lg hover:bg-muted cursor-pointer transition-colors border border-transparent hover:border-border"
     >
       {/* Star favorite button */}
       <Button
@@ -46,14 +46,14 @@ export function QueryHistoryItem({ query, onSelect }: Props) {
       >
         <Star
           className={`h-3.5 w-3.5 ${
-            isFav ? "fill-[var(--dp-warn)] text-[var(--dp-warn-text)]" : "text-gray-400"
+            isFav ? "fill-[var(--dp-warn)] text-[var(--dp-warn-text)]" : "text-muted-foreground"
           }`}
         />
       </Button>
 
       {/* Query text */}
       <div className="mb-2 pr-8">
-        <code className="text-xs font-mono text-gray-700 line-clamp-2">
+        <code className="text-xs font-mono text-foreground line-clamp-2">
           {truncateQuery(query.query_text)}
         </code>
       </div>
@@ -86,7 +86,7 @@ export function QueryHistoryItem({ query, onSelect }: Props) {
         )}
 
         {/* Timestamp */}
-        <div className="flex items-center gap-1 text-xs text-gray-500 ml-auto">
+        <div className="flex items-center gap-1 text-xs text-muted-foreground ml-auto">
           <Clock className="h-3 w-3" />
           <span>
             {formatDistanceToNow(new Date(query.created_at), { addSuffix: true })}
