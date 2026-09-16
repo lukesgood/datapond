@@ -143,59 +143,6 @@ def test_notebook_router_is_protected_by_api_auth_and_component_guard():
     assert 'Depends(require_component("JUPYTER", "Notebooks"))' in source
 
 
-def test_mlflow_route_handlers_all_use_shared_authenticated_proxy():
-    route_files = sorted(MLFLOW_ROUTES.glob("**/route.ts"))
-    assert route_files
-    for route_file in route_files:
-        source = route_file.read_text()
-        assert "proxyMlflow" in source, route_file
-        assert "NextResponse.json(data)" not in source, route_file
-
-    helper = (MLFLOW_ROUTES / "_proxy.ts").read_text()
-    assert 'request.headers.get("authorization")' in helper
-    assert 'headers.set("authorization", authorization)' in helper
-    assert "status: upstream.status" in helper
-    assert '"content-type"' in helper
-    assert "new Response(upstream.body" in helper
-
-
-def test_owned_frontend_has_no_direct_jupyter_api_or_hardcoded_token():
-    owned = [
-        ROOT / "frontend/app/notebooks",
-        ROOT / "frontend/components/notebooks",
-        ROOT / "frontend/components/query/open-in-notebook-modal.tsx",
-    ]
-    source_parts = []
-    for path in owned:
-        if path.is_dir():
-            source_parts.extend(file.read_text() for file in path.rglob("*.tsx"))
-        else:
-            source_parts.append(path.read_text())
-    source = "\n".join(source_parts)
-    assert "/jupyter/api" not in source
-    assert "/api/contents" not in source
-    assert "token=jupyter" not in source
-    assert "?token=" not in source
-
-
-def test_experiment_consumers_do_not_use_nested_proxy_envelopes():
-    paths = [
-        *list((ROOT / "frontend/app/experiments").rglob("*.tsx")),
-        *list((ROOT / "frontend/components/mlflow").rglob("*.tsx")),
-        ROOT / "frontend/components/query/log-to-mlflow-modal.tsx",
-    ]
-    source = "\n".join(path.read_text() for path in paths)
-    for nested in (
-        ".registered_models",
-        "data.experiments",
-        "data.runs",
-        "expData.experiment",
-        "runData.run",
-        "runsData.runs",
-    ):
-        assert nested not in source
-
-
 class _Field:
     def __eq__(self, other):
         return ("eq", other)

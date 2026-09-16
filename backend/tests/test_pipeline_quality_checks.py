@@ -145,17 +145,12 @@ def test_the_action_is_the_one_the_console_promises():
     """The field's help text says "halts on failure", so the emitted decorator is
     `expect_or_fail` — `QualityAction.FAIL`. `expect` logs and `expect_or_drop` filters
     rows, and either would quietly turn the console's promise into a different one."""
-    import inspect
-
-    from pathlib import Path
-
-    helper = (Path(__file__).resolve().parents[2]
-              / "frontend/lib/pipeline-quality.ts").read_text()
-    assert "expect_or_fail" in helper, (
-        "the frontend helper no longer writes the action the console promises")
-    # That the helper stopped *emitting* the dead form is pinned on the frontend side
-    # (lib/pipeline-quality.test.ts, plus the scan over both builders) — asserting it
-    # here would only catch the prose in this file's own docstring, which quotes it.
+    # The frontend half — that the helper emits expect_or_fail and not expect() or
+    # expect_or_drop() — is pinned in frontend/lib/pipeline-quality.test.ts, which
+    # asserts the emitted decorator line directly. This test used to read that .ts file
+    # and grep it, which made a frontend edit able to fail backend CI while proving
+    # less than the frontend test already does. What is left here is the backend half:
+    # the action the console promises has to exist in the DSL.
     from app.pipelines.decorators import quality
     assert callable(quality.expect_or_fail)
 
