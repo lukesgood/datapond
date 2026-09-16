@@ -118,6 +118,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 user = None
         if user:
             request.state.user = user
+            # One place, every route: a caller held to a stricter PII guardrail gets it
+            # applied for the whole request. No reset token like the one below — each
+            # request runs in its own context and tighten() only ever moves toward
+            # block, so there is nothing to leak forward (see pii_ko.tighten).
+            from app.guardrails import pii_ko
+            pii_ko.tighten(user.get("pii_mode"))
             # Same address security_audit's rate limiter counts against (proxy-aware
             # via LOGIN_TRUST_PROXY), so both logs agree on who called from where.
             # Reset after the response so it never leaks into an unrelated request.

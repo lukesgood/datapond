@@ -14,9 +14,12 @@ Mode — env PII_GUARDRAIL_MODE:
 Covered: 주민/외국인등록번호(체크섬), 휴대전화, 사업자등록번호, 신용카드(Luhn),
          여권번호, 이메일. (계좌·운전면허는 오탐이 많아 기본 제외 — 필요 시 확장.)
 """
+import contextvars
 import os
 import re
 import logging
+from contextlib import contextmanager
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +100,65 @@ def mask(text: str, findings: list[dict] | None = None) -> str:
     return out
 
 
-def get_mode() -> str:
+MODES = ("off", "mask", "block")
+
+# How much each mode protects. The effective mode is the STRICTEST of everything that
+# applies, never the nearest or the last one set: a deployment that runs in `block`
+# cannot be softened to `off` by a collection setting or a caller's own preference,
+# which is the only way a guardrail is worth the name.
+_STRICTNESS = {"off": 0, "mask": 1, "block": 2}
+
+# Set per request by whoever knows the scope — the collection gate knows the
+# collection's setting, the route knows the caller's. Same shape as the actor and
+# via context this codebase already uses, so no call site has to thread a mode through.
+_scoped_mode: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "pii_scoped_mode", default=None)
+
+
+def env_mode() -> str:
+    """What the deployment is configured to do, ignoring any per-request scope."""
     return (os.getenv("PII_GUARDRAIL_MODE", "mask") or "mask").strip().lower()
+
+
+def strictest(*modes: Optional[str]) -> Optional[str]:
+    """The most protective of the modes given. Unknown values and None are ignored
+    rather than treated as `off` — a typo in a policy row must not disable masking."""
+    known = [m for m in modes if m in _STRICTNESS]
+    return max(known, key=lambda m: _STRICTNESS[m]) if known else None
+
+
+@contextmanager
+def scope(*modes: Optional[str]):
+    """Apply the strictest of `modes` and the deployment default for this request.
+
+    Nests: an inner scope can only tighten what an outer one set.
+    """
+    tightened = strictest(_scoped_mode.get(), *modes)
+    token = _scoped_mode.set(tightened)
+    try:
+        yield tightened
+    finally:
+        _scoped_mode.reset(token)
+
+
+def tighten(*modes: Optional[str]) -> str:
+    """Tighten this request's guardrail and leave it tightened.
+
+    `scope()` needs a with-block, which the collection gate cannot give: it is called
+    at the top of a route and the mode has to hold for everything that follows. There
+    is no matching loosen() — the value only ever moves toward `block`, and each
+    request gets its own context, so nothing leaks into the next one.
+    """
+    tightened = strictest(_scoped_mode.get(), *modes)
+    if tightened is not None:
+        _scoped_mode.set(tightened)
+    return get_mode()
+
+
+def get_mode() -> str:
+    """The mode in force here: the strictest of the deployment default and whatever
+    scope this request is running in."""
+    return strictest(env_mode(), _scoped_mode.get()) or env_mode()
 
 
 def apply(text: str) -> tuple[str, list[dict], bool]:

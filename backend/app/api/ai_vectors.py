@@ -724,7 +724,7 @@ async def _collection_id(
     exactly as before membership existed.
     """
     row = await c.fetchrow(
-        """SELECT col.id, col.owner_id, m.role AS member_role
+        """SELECT col.id, col.owner_id, col.pii_mode, m.role AS member_role
            FROM ai_collections col
            LEFT JOIN ai_collection_members m
              ON m.collection_id = col.id AND m.user_id = $2
@@ -739,6 +739,12 @@ async def _collection_id(
         else may_read(collection, user, member_role)
     if not allowed:
         raise HTTPException(403, f"Not authorized for collection '{name}'.")
+    # A collection holding identifiers can be held to a stricter guardrail than the
+    # deployment default. Applied here because this is the one gate every route that
+    # touches an existing collection goes through, and it only ever tightens — see
+    # pii_ko.tighten.
+    from app.guardrails import pii_ko
+    pii_ko.tighten(row.get("pii_mode"))
     return row["id"]
 
 
@@ -1289,7 +1295,8 @@ async def _search_impl(req: SearchRequest, user: dict):
     set_actor(user)
     q_text, q_find, q_block = _guard(req.query)
     if q_block:
-        raise HTTPException(400, "Query blocked by PII guardrail (PII_GUARDRAIL_MODE=block).")
+        raise HTTPException(400, "Query blocked by the PII guardrail, which is set to block "
+                              "for this request (deployment default or this collection).")
     # Optional concept expansion AFTER the PII guard (expansion terms are curated
     # vocabulary, never user PII). Retrieval sees the expanded text; the response
     # reports which concepts fired so the UI can show them (incl. PII-tagged ones).
@@ -1358,7 +1365,8 @@ async def _rag_impl(req: RagRequest, user: dict):
     # PII guardrail on the question before it reaches retrieval/the LLM.
     q_text, q_find, q_block = _guard(req.question)
     if q_block:
-        return {"answer": "The question contains detected personal information (PII) and was blocked (PII_GUARDRAIL_MODE=block).",
+        return {"answer": "The question contains personal data and the PII guardrail is set "
+                          "to block for this request (deployment default or this collection).",
                 "citations": [], "has_ai": False, "pii_masked": len(q_find)}
 
     # Optional concept expansion — retrieval sees the expanded text, the LLM keeps

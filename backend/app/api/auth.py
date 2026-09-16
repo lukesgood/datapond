@@ -204,7 +204,7 @@ async def _recheck_user(uid: str, claims: dict) -> Optional[dict]:
         # request path — the recheck must never block a request indefinitely.
         async with pool.acquire(timeout=RECHECK_TIMEOUT_S) as conn:
             row = await conn.fetchrow(
-                "SELECT is_active, role FROM users WHERE id = $1", uid_uuid,
+                "SELECT is_active, role, pii_mode FROM users WHERE id = $1", uid_uuid,
                 timeout=RECHECK_TIMEOUT_S,
             )
     except Exception as e:                       # infra error / timeout -> fail open
@@ -215,6 +215,19 @@ async def _recheck_user(uid: str, claims: dict) -> Optional[dict]:
     # Refresh role from the DB so a privilege change (e.g. admin -> viewer) takes
     # effect on the next request instead of at token expiry.
     claims["role"] = row["role"] or claims["role"]
+    # A caller can be held to a stricter PII guardrail than the deployment default.
+    # Carried on the identity, applied once per request by AuthMiddleware — this
+    # function only reads it, because the fail-open path above returns before here and
+    # a guardrail that depends on the database being reachable is not a guardrail.
+    # .get(), not row["pii_mode"]: asyncpg Records and the test doubles both support it,
+    # and a deployment whose backend starts before migration 0011 has run must not turn
+    # every authenticated request into a KeyError. (That window already degrades to the
+    # fail-open path above — the column is missing, the query raises, token claims are
+    # used — so the only thing to get right here is not crashing when the row is older
+    # or narrower than this code expects.)
+    mode = row.get("pii_mode") if hasattr(row, "get") else None
+    if mode:
+        claims["pii_mode"] = mode
     return claims
 
 

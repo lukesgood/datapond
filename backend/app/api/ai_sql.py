@@ -389,7 +389,8 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
         return AskResponse(
             sql="-- 요청에 개인정보(PII)가 감지되어 차단되었습니다.\n"
                 f"-- 감지 유형: {', '.join(types)}",
-            explanation="개인정보 가드레일에 의해 차단됨 (PII_GUARDRAIL_MODE=block).",
+            explanation="개인정보 가드레일이 이 요청에 대해 차단으로 설정되어 있습니다 "
+                        "(배포 기본값 또는 해당 컬렉션 설정).",
             has_ai=False,
             provider="guardrail:blocked",
             pii_masked=pii_count,
