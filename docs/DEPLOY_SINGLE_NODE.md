@@ -358,6 +358,42 @@ kubectl -n datapond rollout status deploy/frontend
 
 ---
 
+### 5a. Optional: experiments (MLflow)
+
+`values-prod-single.yaml` keeps every OSS add-on off, and that is the profile's
+contract: a fresh install of the AWS reference runs the Portable Core only. Turning
+MLflow on is a per-deployment decision, applied with `--set` on top of the profile —
+the live reference has had it on since 2026-09-16.
+
+```bash
+helm upgrade datapond helm/datapond -n datapond --reset-then-reuse-values \
+  --set mlflow.enabled=true \
+  --set mlflow.ingress.enabled=false \
+  --set-string mlflow.artifactRoot="s3://$BUCKET/mlflow-artifacts"
+```
+
+Three things to know before you run it:
+
+- **The database is created for you.** MLflow creates its tables but not its database.
+  An init container runs `CREATE DATABASE mlflow` against the external database
+  (Aurora here, `sslmode=require`), the same way LiteLLM's does. Nothing to pre-create.
+- **Keep `mlflow.ingress.enabled=false` unless you have put an authenticating proxy in
+  front.** The MLflow server has no authentication of its own, so publishing `/mlflow`
+  exposes create/delete of experiments to anyone who can reach the host. With it off,
+  MLflow is reachable only in-cluster, and the console's `/api/mlflow/*` routes — which
+  do check the caller — remain the way in. `/api/capabilities` reports `mlflow_ui`
+  false, and the console then hides its "open MLflow" links instead of offering dead
+  ones.
+- **Artifacts go to the deployment bucket.** The default (`s3://mlflow-artifacts`) is
+  the in-cluster MinIO bucket and does not exist on AWS. The node role already covers
+  `s3://<bucket>/*`, so a prefix of the Terraform bucket needs no extra IAM. The MLflow
+  pod itself is not given instance-metadata access (see `networkpolicy.yaml`); clients
+  write artifacts, the server only records where they went.
+
+`--reset-then-reuse-values` keeps the release's existing values, so this does not need
+the install flags from §5 repeated. `deploy-aws.yml` preserves the setting on later
+deploys for the same reason.
+
 ## 6. Verify
 
 ```bash
