@@ -97,3 +97,33 @@ jobs:
           done
           aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$CMD" --instance-id "$NODE" --query StandardOutputContent --output text
           aws s3 rm "s3://$BUCKET/deploy/bundle-$TAG.tgz" --region "$AWS_REGION" || true
+
+      - name: Smoke test on the node
+        env:
+          NODE: ${{ secrets.NODE_INSTANCE_ID }}
+        run: |
+          # helm --wait already proved the rollout finished; this proves the app answers.
+          # Run from inside the cluster so it needs no domain, no public DNS, and no
+          # secret beyond the instance id this job already uses.
+          SCRIPT='export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+          kubectl -n datapond rollout status deploy/backend --timeout=60s
+          kubectl -n datapond exec deploy/backend -c backend -- python -c "
+          import json, urllib.request
+          body = json.load(urllib.request.urlopen(\"http://localhost:8000/api/health\", timeout=10))
+          print(\"health:\", body)
+          " '
+          CMD=$(aws ssm send-command --region "$AWS_REGION" --instance-ids "$NODE" \
+            --document-name AWS-RunShellScript --comment "CD smoke $GITHUB_SHA" \
+            --parameters "executionTimeout=300,commands=[\"echo $(printf '%s' "$SCRIPT" | base64 | tr -d '\n') | base64 -d > /tmp/smoke.sh\",\"bash /tmp/smoke.sh\"]" \
+            --query Command.CommandId --output text)
+          for i in $(seq 1 20); do
+            S=$(aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$CMD" --instance-id "$NODE" --query Status --output text 2>/dev/null || echo Pending)
+            [ "$S" = Success ] && break
+            case "$S" in Failed|TimedOut|Cancelled)
+              aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$CMD" --instance-id "$NODE" --query StandardErrorContent --output text
+              echo "::error::smoke test failed after a successful rollout — the app is not answering"
+              exit 1;;
+            esac
+            sleep 10
+          done
+          aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$CMD" --instance-id "$NODE" --query StandardOutputContent --output text

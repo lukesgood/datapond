@@ -463,6 +463,34 @@ aws ssm start-session --region us-east-1 --target "$(terraform -chdir=terraform 
 tag with `--reset-then-reuse-values`, `pullPolicy: IfNotPresent`, rollout wait). It does
 NOT build or push — images must already be in ECR.
 
+### Changing release values (not image tags)
+
+`deploy-node-helm.sh` sets image tags and nothing else, and it keeps everything already
+in the release (`--reset-then-reuse-values`). So a value set once by hand — the MLflow
+flags in §5a, an Aurora endpoint, an ingress domain — survives every later deploy. That
+is the intended way to hold a per-deployment decision.
+
+There is one trap. `deploy-aws.yml` **deletes** `s3://<bucket>/deploy/bundle-<tag>.tgz`
+after it rolls the node, so the chart that CD used is gone by the time you want to run
+a `--set` against it. Stage your own copy of the chart at the deployed commit:
+
+```bash
+SHA=$(git rev-parse --short=7 HEAD)          # the commit currently deployed
+git archive --format=tar.gz -o /tmp/chart.tgz "$SHA" helm/datapond
+aws s3 cp /tmp/chart.tgz "s3://$BUCKET/deploy/values-change-$SHA.tgz"
+
+# on the node (aws ssm start-session or send-command):
+cd /tmp && aws s3 cp "s3://$BUCKET/deploy/values-change-$SHA.tgz" c.tgz && tar xzf c.tgz
+KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm -n datapond upgrade datapond helm/datapond \
+  --reset-then-reuse-values --set <the value you are changing> --wait --timeout 600s
+
+aws s3 rm "s3://$BUCKET/deploy/values-change-$SHA.tgz"   # afterwards
+```
+
+Take `helm -n datapond get values datapond` before and after and diff them: the whole
+point of `--reset-then-reuse-values` is that nothing else moves, and that is worth
+seeing rather than assuming.
+
 ---
 
 ## 7. Disaster recovery
