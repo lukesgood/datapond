@@ -12,6 +12,7 @@ import { useEffect, useSyncExternalStore } from "react"
 import { logout, readUser, serverUser, subscribeToUser } from "@/lib/auth"
 import { supportBadge, supportTier } from "@/lib/capability-support"
 import { useCapabilities } from "@/lib/capabilities"
+import { BOTTOM_ITEMS, NAV_SECTIONS } from "@/lib/nav-items"
 import { usePermissions } from "@/lib/permissions"
 import { getProductProfile } from "@/lib/product-profile"
 
@@ -27,95 +28,16 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 
-type NavItem = {
-  title: string
-  url: string
-  icon: React.ComponentType<{ className?: string }>
-  capability?: string
-  /** Permission required to see this item, per backend/app/permissions.py. The API
-   *  enforces it regardless; this keeps people out of screens they cannot use. */
-  permission?: string
-  external?: boolean
+
+// Icons live here, not in lib/nav-items.ts: that module is imported by a unit test.
+const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  "/knowledge": Sparkles, "/connect": Plug, "/connectors": ArrowDownToLine,
+  "/catalog": Database, "/query": BarChart3, "/pipelines": GitBranch, "/streaming": Radio,
+  "/notebooks": FileCode, "/experiments": FlaskConical, "/ai": Bot, "/governance": ShieldCheck,
+  "/storage": HardDrive, "/services": Server, "/settings": Settings, "/help": HelpCircle,
 }
-
-type NavSection = {
-  label: string
-  hint: string
-  items: NavItem[]
-}
-
-// Core product workflows stay visible in every profile. Optional data and
-// workload modules fail closed until /api/capabilities explicitly enables them.
-const mainSections: NavSection[] = [
-  {
-    label: "Build AI",
-    hint: "Ground and serve AI applications",
-    items: [
-      { title: "Knowledge",  url: "/knowledge", icon: Sparkles },
-      // "API", not "Connect". The dashboard's workflow already owns that word for
-      // step 01 — connecting a data *source* — which is what it means everywhere
-      // else in a data platform, and the menu item for it is Sources. Two opposite
-      // ends of the pipeline cannot share a name. The URL stays /connect: /api is
-      // the backend proxy prefix.
-      //
-      // ai:generate, not knowledge:read. knowledge:read covers viewer,
-      // business_analyst, data_engineer and auditor — none of whom write an
-      // application against the retrieval API.
-      { title: "API",        url: "/connect",   icon: Plug, permission: "ai:generate" },
-    ],
-  },
-  {
-    label: "Data",
-    hint: "Optional ingestion, catalog, and query adapters",
-    items: [
-      { title: "Sources",   url: "/connectors", icon: ArrowDownToLine, capability: "connectors", permission: "connector:read" },
-      { title: "Catalog",   url: "/catalog",    icon: Database,        capability: "catalog" },
-      { title: "Analytics", url: "/query",      icon: BarChart3,       capability: "query", permission: "query:run" },
-    ],
-  },
-  {
-    label: "Pipelines",
-    hint: "Optional transform and streaming workloads",
-    items: [
-      { title: "Transforms", url: "/pipelines", icon: GitBranch, capability: "pipelines", permission: "pipeline:write" },
-      { title: "Streaming",  url: "/streaming", icon: Radio,     capability: "streaming", permission: "pipeline:write" },
-    ],
-  },
-  {
-    label: "Data Science",
-    hint: "Optional notebooks and ML tracking",
-    items: [
-      { title: "Notebooks",   url: "/notebooks",   icon: FileCode,     capability: "notebooks", permission: "workbench:read" },
-      { title: "Experiments", url: "/experiments", icon: FlaskConical, capability: "experiments", permission: "workbench:read" },
-    ],
-  },
-  {
-    label: "Operate",
-    hint: "Govern and run the foundation",
-    items: [
-      // Not in "Build AI", where it sat next to Knowledge. Nobody builds anything on
-      // this page: it registers providers, issues keys, and reports spend — operator
-      // actions, which is what this group is for. The audience settled it. Every role
-      // that can see it (admin, ai_engineer, auditor) holds spend:read, so the two
-      // roles that most obviously build AI applications — data_scientist and
-      // business_analyst — could not see it, while auditor, who builds nothing,
-      // could.
-      { title: "AI Gateway",     url: "/ai",        icon: Bot, permission: "spend:read" },
-      { title: "Governance",     url: "/governance", icon: ShieldCheck, permission: "governance:read" },
-      { title: "Storage",        url: "/storage",    icon: HardDrive, permission: "service:manage" },
-      // Infrastructure = Services (workloads/adapters) + System (node) as one
-      // workspace at /services with tabs; /system redirects into it.
-      { title: "Infrastructure", url: "/services",   icon: Server, permission: "service:manage" },
-      { title: "Settings",       url: "/settings",   icon: Settings, permission: "settings:write" },
-    ],
-  },
-]
-
-// Help = Guides + Documentation as one workspace at /help with tabs; /docs
-// redirects into it.
-const bottomItems = [
-  { title: "Help", url: "/help", icon: HelpCircle },
-]
+const mainSections = NAV_SECTIONS
+const bottomItems = BOTTOM_ITEMS
 
 export function AppSidebar() {
   const pathname  = usePathname()
@@ -204,7 +126,7 @@ export function AppSidebar() {
                         {item.external ? (
                           <a href={item.url} target="_blank" rel="noopener noreferrer">
                             <SidebarMenuButton>
-                              <item.icon />
+                              {(() => { const Icon = ICONS[item.url]; return Icon ? <Icon /> : null })()}
                               <span>{item.title}</span>
                               {badge && (
                                 <span title={badge.title}
@@ -217,7 +139,7 @@ export function AppSidebar() {
                         ) : (
                           <Link href={item.url} aria-current={isActive(item.url) ? "page" : undefined}>
                             <SidebarMenuButton isActive={isActive(item.url)}>
-                              <item.icon />
+                              {(() => { const Icon = ICONS[item.url]; return Icon ? <Icon /> : null })()}
                               <span>{item.title}</span>
                               {badge && (
                                 <span title={badge.title}
@@ -245,7 +167,7 @@ export function AppSidebar() {
               <SidebarMenuItem key={item.title}>
                 <Link href={item.url} aria-current={isActive(item.url) ? "page" : undefined}>
                   <SidebarMenuButton isActive={isActive(item.url)}>
-                    <item.icon />
+                    {(() => { const Icon = ICONS[item.url]; return Icon ? <Icon /> : null })()}
                     <span>{item.title}</span>
                   </SidebarMenuButton>
                 </Link>
