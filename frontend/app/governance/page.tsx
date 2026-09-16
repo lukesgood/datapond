@@ -118,7 +118,7 @@ function EventBadge({ type }: { type: string }) {
     query_error:       { label: "Query error",       className: "border-destructive/40 text-destructive" },
     query_timeout:     { label: "Query timeout",      className: "border-[var(--dp-warn)]/40 text-[var(--dp-warn-text)]" },
   }
-  const cfg = map[type] ?? { label: type, className: "border-gray-300 text-gray-400" }
+  const cfg = map[type] ?? { label: type, className: "border-border text-muted-foreground" }
   return (
     <Badge variant="outline" className={cfg.className}>
       {cfg.label}
@@ -134,7 +134,7 @@ function SourceBadge({ source }: { source: string }) {
     auth:      { label: "Auth",      className: "border-[var(--chart-3)]/40 text-[var(--chart-3)]" },
     connector: { label: "Connector", className: "border-[var(--chart-4)]/40 text-[var(--chart-4)]" },
   }
-  const cfg = map[source] ?? { label: source, className: "border-gray-300 text-gray-400" }
+  const cfg = map[source] ?? { label: source, className: "border-border text-muted-foreground" }
   return (
     <Badge variant="outline" className={cfg.className}>
       {cfg.label}
@@ -172,18 +172,21 @@ function RiskBadge({ risk }: { risk: string }) {
 
 // ─── PII type color ───────────────────────────────────────────────────────────
 
+// Categories, not statuses: the identifiers that carry legal weight (SSN, card) keep
+// the destructive tone, and the rest come from the chart ramp rather than raw palette
+// hues, so they follow the theme like every other colour in the console.
 const PII_COLORS: Record<string, string> = {
-  email:   "bg-blue-500/10 text-blue-500",
+  email:   "bg-[var(--chart-1)]/10 text-[var(--chart-1)]",
   phone:   "bg-[var(--dp-good)]/10 text-[var(--dp-good-text)]",
   ssn:     "bg-destructive/10 text-destructive",
   card:    "bg-destructive/10 text-destructive",
-  name:    "bg-gray-500/10 text-gray-500",
-  address: "bg-gray-500/10 text-gray-500",
-  dob:     "bg-violet-500/10 text-violet-500",
+  name:    "bg-muted text-muted-foreground",
+  address: "bg-muted text-muted-foreground",
+  dob:     "bg-[var(--chart-4)]/10 text-[var(--chart-4)]",
 }
 
 function PiiTypeBadge({ column, type }: { column: string; type: string }) {
-  const cls = PII_COLORS[type.toLowerCase()] ?? "bg-gray-500/10 text-gray-500"
+  const cls = PII_COLORS[type.toLowerCase()] ?? "bg-muted text-muted-foreground"
   return (
     <Badge className={`${cls} border-0 gap-1`}>
       <Lock className="h-2.5 w-2.5" />
@@ -798,6 +801,7 @@ export default function GovernancePage() {
   // audit log
   const [auditItems, setAuditItems] = useState<AuditLogItem[]>([])
   const [auditTotal, setAuditTotal] = useState(0)
+  const [auditOffset, setAuditOffset] = useState(0)
   const [auditLoading, setAuditLoading] = useState(true)
   const [eventTypeFilter, setEventTypeFilter] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
@@ -835,6 +839,8 @@ export default function GovernancePage() {
   // `capped` flag when we hit it); AI-SQL safety, PII, and the blocked summary
   // are current snapshots already loaded on the page. No placeholders.
   const AUDIT_LIMIT = 200
+  // One screenful per request; the backend allows up to 200 per call.
+  const AUDIT_PAGE = 50
   const exportReport = async () => {
     setExporting(true)
     try {
@@ -946,19 +952,22 @@ export default function GovernancePage() {
   useEffect(() => {
     const request = window.setTimeout(() => {
       setAuditLoading(true)
-      const qs = new URLSearchParams({ limit: "50", offset: "0" })
+      const qs = new URLSearchParams({ limit: String(AUDIT_PAGE), offset: String(auditOffset) })
       if (eventTypeFilter !== "all") qs.set("event_type", eventTypeFilter)
       fetch(`/api/governance/audit-log?${qs}`)
         .then((r) => r.json())
         .then((d) => {
-          setAuditItems(d.items ?? [])
+          // Append past the first page: the table used to ask for 50 at offset 0 and
+          // nothing else, so a deployment with more than fifty entries could not reach
+          // the fifty-first from this screen at all.
+          setAuditItems((prev) => (auditOffset === 0 ? (d.items ?? []) : [...prev, ...(d.items ?? [])]))
           setAuditTotal(d.total ?? 0)
         })
         .catch(() => {})
         .finally(() => setAuditLoading(false))
     }, 0)
     return () => window.clearTimeout(request)
-  }, [eventTypeFilter])
+  }, [eventTypeFilter, auditOffset])
 
   // Unified activity stream — re-fetch when source filter changes
   useEffect(() => {
@@ -1063,7 +1072,12 @@ export default function GovernancePage() {
         <TabsContent value="audit" className="mt-4 space-y-4">
           {/* Filter bar */}
           <div className="flex flex-col sm:flex-row gap-3">
-            <Select value={eventTypeFilter} onValueChange={(v) => setEventTypeFilter(v ?? "all")}>
+            <Select value={eventTypeFilter} onValueChange={(v) => {
+                // A new filter is a new result set: start it at the top rather than at
+                // the offset the previous one had reached.
+                setEventTypeFilter(v ?? "all")
+                setAuditOffset(0)
+              }}>
               <SelectTrigger className="w-full sm:w-52">
                 <SelectValue placeholder="Event type" />
               </SelectTrigger>
@@ -1170,11 +1184,22 @@ export default function GovernancePage() {
             </CardContent>
           </Card>
 
-          {!auditLoading && (
+          <div className="flex flex-wrap items-center gap-3">
             <p className="text-xs text-muted-foreground">
               Showing {filteredAudit.length} of {auditTotal} total
+              {searchQuery && " — search filters the entries loaded so far"}
             </p>
-          )}
+            {auditItems.length < auditTotal && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={auditLoading}
+                onClick={() => setAuditOffset(auditItems.length)}
+              >
+                {auditLoading ? "Loading…" : `Load ${Math.min(AUDIT_PAGE, auditTotal - auditItems.length)} more`}
+              </Button>
+            )}
+          </div>
         </TabsContent>
 
         {/* ── Tab: Activity (unified audit stream) ──────────────────────── */}

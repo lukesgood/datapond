@@ -42,10 +42,12 @@ const STATE_STYLES: Record<string, { bg: string; border: string; icon: React.Rea
     dot: "bg-destructive",
   },
   running: {
-    bg: "bg-blue-50",
-    border: "border-blue-400",
-    icon: <Clock className="h-3 w-3 text-blue-600 animate-spin" />,
-    dot: "bg-blue-500",
+    // In progress is its own state, not a warning: the chart ramp's first stop, which
+    // is the accent this console already uses for "active".
+    bg: "bg-[var(--chart-1)]/10",
+    border: "border-[var(--chart-1)]/60",
+    icon: <Clock className="h-3 w-3 text-[var(--chart-1)] animate-spin" />,
+    dot: "bg-[var(--chart-1)]",
   },
   queued: {
     bg: "bg-[var(--dp-warn)]/10",
@@ -54,16 +56,17 @@ const STATE_STYLES: Record<string, { bg: string; border: string; icon: React.Rea
     dot: "bg-[var(--dp-warn)]",
   },
   skipped: {
-    bg: "bg-slate-50",
-    border: "border-slate-300",
-    icon: <AlertCircle className="h-3 w-3 text-slate-400" />,
-    dot: "bg-slate-400",
+    bg: "bg-muted",
+    border: "border-border",
+    icon: <AlertCircle className="h-3 w-3 text-muted-foreground" />,
+    dot: "bg-muted-foreground/60",
   },
   default: {
-    bg: "bg-white",
-    border: "border-slate-200",
-    icon: <Box className="h-3 w-3 text-slate-400" />,
-    dot: "bg-slate-300",
+    // Neutral, and theme-aware: bg-white was invisible against a dark surface.
+    bg: "bg-card",
+    border: "border-border",
+    icon: <Box className="h-3 w-3 text-muted-foreground" />,
+    dot: "bg-muted-foreground/40",
   },
 }
 
