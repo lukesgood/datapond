@@ -189,7 +189,7 @@ export function AssistantPanel() {
             services, storage, policies and spend. With your approval I can run a query,
             save a dashboard, create a collection, create a row-filter or masking
             policy, set a refresh or sync schedule, change a sync mode, manage
-            collection members, or — with you typing the target's name — delete a
+            collection members, or — with you typing the target&apos;s name — delete a
             row-filter or masking policy, change model configuration, or grant a role.
             I can never write a credential, delete an account, run a sync, or delete a
             collection or dashboard.

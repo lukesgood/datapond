@@ -268,7 +268,10 @@ function QueryPageInner() {
       setError(err instanceof Error ? err.message : "Unknown error")
       setQueryStatus("error")
     }
-  }, [query])
+  // aiGeneratedSql decides whether this run is attributed as ai_sql or ui, so the
+  // callback has to be rebuilt when it changes — otherwise a query the assistant
+  // wrote is logged as hand-written.
+  }, [query, aiGeneratedSql])
 
   // Global ⌘/Ctrl+Enter runs the query from anywhere on the page. Monaco owns
   // this binding while focused (it stops propagation), so skip when the editor
