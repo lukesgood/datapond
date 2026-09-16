@@ -65,3 +65,38 @@ def test_an_unreadable_gateway_is_not_zero_spend(monkeypatch):
     _install(monkeypatch, _Gateway({}, up=False))
     out = _run(ai_backends.budget_alerts())
     assert out["spend_total"] is None
+
+
+# ── Per-caller caps on the usage rows ────────────────────────────────────────
+
+class _CustomerGateway(_Gateway):
+    """Adds /customer/list to the fake, the way the proxy answers it."""
+
+    def __init__(self, customers, up=True):
+        super().__init__({}, up=up)
+        self.customers = customers
+
+    async def get(self, url, headers=None, params=None):
+        if url.endswith("/customer/list"):
+            if not self.up:
+                raise ConnectionError("gateway down")
+            return _Resp(200, self.customers)
+        return await super().get(url, headers=headers, params=params)
+
+
+def test_usage_rows_carry_each_callers_cap(monkeypatch):
+    _install(monkeypatch, _CustomerGateway([
+        {"user_id": "u1", "max_budget": 5.0},
+        {"user_id": "u2", "litellm_budget_table": {"max_budget": 0.5}},
+        {"user_id": "u3"},
+    ]))
+    rows = _run(ai_backends._with_user_budgets(
+        [{"user": "u1"}, {"user": "u2"}, {"user": "u3"}, {"user": "unattributed"}]))
+    assert [(r["user"], r["max_budget"]) for r in rows] == [
+        ("u1", 5.0), ("u2", 0.5), ("u3", None), ("unattributed", None)]
+
+
+def test_an_unreadable_gateway_leaves_caps_unknown_not_unlimited(monkeypatch):
+    _install(monkeypatch, _CustomerGateway([], up=False))
+    rows = _run(ai_backends._with_user_budgets([{"user": "u1", "spend": 1.0}]))
+    assert rows == [{"user": "u1", "spend": 1.0, "max_budget": None}]

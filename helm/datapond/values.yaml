@@ -890,6 +890,13 @@ litellm:
     tag: "v1.91.0"
     pullPolicy: IfNotPresent
 
+  # Default per-caller model spend cap, as a LiteLLM budget id (create the budget with
+  # POST /budget/new). Every caller without a budget of its own — including one the
+  # gateway has not seen yet — is held to it, so a new agent key cannot spend without
+  # limit before anyone notices. Unset means no default: caps then exist only for the
+  # callers an operator sets one for (PUT /api/settings/ai/budgets/<caller>).
+  endUserBudgetId: ""
+
   service:
     type: ClusterIP
     port: 4000

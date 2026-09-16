@@ -39,6 +39,7 @@ from app.api.auth import (
 from app.api.transforms import router as transforms_router
 from app.api.ai_sql import router as ai_sql_router
 from app.api.ai_backends import router as ai_backends_router
+from app.api.ai_budgets import router as ai_budgets_router
 from app.api.ai_vectors import router as ai_vectors_router
 from app.api.ontology import router as ontology_router
 from app.api.system_settings import router as system_settings_router, load_settings_on_startup
@@ -389,6 +390,7 @@ app.include_router(mlflow_router, prefix="/api",
                                  Depends(require_permission("workbench:read"))])
 app.include_router(airflow_router, prefix="/api")
 app.include_router(service_accounts_router, prefix="/api")
+app.include_router(ai_budgets_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(dashboards_router, prefix="/api")
 app.include_router(pipelines_router, prefix="/api")

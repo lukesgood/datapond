@@ -54,3 +54,13 @@ def actor_payload(app: str) -> dict:
         # has to land somewhere nameable.
         return {"metadata": tags}
     return {"user": a["id"], "metadata": {**tags, "user_id": a["id"], "username": a["name"]}}
+
+
+def current_actor() -> dict:
+    """The request's actor as tool_call_log wants it — {} when there is none.
+
+    tool_call_log.build_row reads `id`/`username`/`auth_method`; the ContextVar carries
+    id and name, which is what a refusal row needs to name the caller.
+    """
+    a = _actor.get()
+    return {"id": a["id"], "username": a["name"]} if a else {}

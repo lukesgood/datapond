@@ -43,7 +43,8 @@ from pydantic import BaseModel, Field
 from app.api.connectors import get_db_pool
 from app.api.auth import require_user
 from app.api.auth import require_permission, require_permission_or_internal
-from app.ai_context import set_actor, actor_payload
+from app.ai_context import set_actor, actor_payload, current_actor
+from app.ai_budget import is_budget_refusal, refuse_over_budget
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
 from app.knowledge_access import may_read, may_write
 from app.runtime import component_secret
@@ -202,6 +203,9 @@ async def _embed(texts: List[str]) -> List[List[float]]:
         r = await c.post(f"{url}/v1/embeddings", headers=_headers(key),
                          json={"model": _embed_model(), "input": texts, **actor_payload("ai_embed")})
     if r.status_code >= 400:
+        if is_budget_refusal(r.status_code, r.text):
+            raise await refuse_over_budget(actor=current_actor(), tool="ai.search",
+                                           request_text="embedding", body=r.text)
         raise HTTPException(502, f"Embedding failed: {(r.text or '')[:200]}")
     data = r.json().get("data", [])
     data.sort(key=lambda x: x.get("index", 0))
@@ -1408,6 +1412,14 @@ async def _rag_impl(req: RagRequest, user: dict):
                                                 {"role": "user", "content": user_msg}],
                                    **actor_payload("ai_rag")})
         if r.status_code >= 400:
+            # A spend cap is not an outage: say which it was, and audit the refusal.
+            if is_budget_refusal(r.status_code, r.text):
+                await refuse_over_budget(actor=current_actor(), tool="ai.rag",
+                                         request_text=user_msg, body=r.text)
+                return {"answer": "(Model spend budget reached for this caller) "
+                                  "Returning search results only.",
+                        "citations": hits, "has_ai": False, "pii_masked": pii_masked,
+                        "concepts": concepts_used}
             return {"answer": f"(LLM call failed: {r.status_code}) Returning search results only.",
                     "citations": hits, "has_ai": False, "pii_masked": pii_masked,
                     "concepts": concepts_used}

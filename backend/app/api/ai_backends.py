@@ -677,7 +677,35 @@ async def usage_summary():
     except Exception as e:
         logger.warning(f"[ai_backends] usage summary failed: {e}")
     out["users"] = await _with_user_names(out["users"])
+    out["users"] = await _with_user_budgets(out["users"])
     return out
+
+
+async def _with_user_budgets(users: list) -> list:
+    """Each spend row gains `max_budget`: what this caller may spend, not just what it has.
+
+    Read once from /customer/list rather than per caller. A caller with no cap, and a
+    gateway that could not be read, both leave it None — the AI Gateway page shows a cap
+    only when there is one to show, and never invents "unlimited".
+    """
+    url, key = _gateway()
+    caps: dict = {}
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(f"{url}/customer/list", headers=_headers(key))
+        if r.status_code < 400:
+            rows = r.json()
+            rows = rows if isinstance(rows, list) else rows.get("customers", [])
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                budget = row.get("litellm_budget_table") or {}
+                cap = row.get("max_budget", budget.get("max_budget"))
+                if cap is not None:
+                    caps[str(row.get("user_id"))] = float(cap)
+    except Exception as e:
+        logger.warning(f"[ai_backends] caller budgets unavailable: {e}")
+    return [{**u, "max_budget": caps.get(str(u.get("user")))} for u in users]
 
 
 async def _with_user_names(users: list) -> list:

@@ -518,7 +518,9 @@ export function AiBackends() {
 
 interface ModelUsage { model: string; spend: number; requests: number; total_tokens: number; prompt_tokens: number; completion_tokens: number }
 interface KeyUsage { key_alias: string | null; spend: number; max_budget: number | null; pct: number | null }
-interface UserUsage { user: string; name?: string | null; spend: number; requests: number; total_tokens: number }
+// max_budget: what this caller may spend (a gateway customer budget). null means no
+// cap set, or a gateway that could not be read — never "unlimited".
+interface UserUsage { user: string; name?: string | null; spend: number; requests: number; total_tokens: number; max_budget?: number | null }
 /** What the spend was FOR. `app` is the product feature — ai_chat (the assistant),
  *  ai_sql (Ask AI), ai_rag, ai_embed — or "untagged" for calls that carry no tag. */
 const APP_LABELS: Record<string, string> = {
@@ -682,12 +684,17 @@ export function UsagePanel() {
             <div className="text-xs font-medium mb-1.5">By user</div>
             <div className="rounded-lg border divide-y">
               <div className="grid grid-cols-[1fr_auto_auto] gap-3 px-3 py-1.5 text-2xs text-muted-foreground">
-                <span>User</span><span className="text-right">Spend</span><span className="text-right">Req / Tokens</span>
+                <span>User</span><span className="text-right">Spend / budget</span><span className="text-right">Req / Tokens</span>
               </div>
               {u.users.map((x, i) => (
                 <div key={i} className="grid grid-cols-[1fr_auto_auto] gap-3 px-3 py-1.5 text-xs items-center">
                   <span className="truncate" title={callerLabel(x.name, x.user).title}>{callerLabel(x.name, x.user).text}</span>
-                  <span className="text-right">{formatUsd(x.spend)}</span>
+                  <span className="text-right">
+                    {formatUsd(x.spend)}
+                    {x.max_budget != null && (
+                      <span className="text-muted-foreground"> / {formatUsd(x.max_budget)}</span>
+                    )}
+                  </span>
                   <span className="text-right text-muted-foreground">{x.requests} / {fmtN(x.total_tokens)}</span>
                 </div>
               ))}

@@ -35,6 +35,10 @@ data:
     litellm_settings:
       drop_params: true
       telemetry: false
+      {{- with .Values.litellm.endUserBudgetId }}
+      # Applies to every end user (DataPond caller) without a budget of its own.
+      max_end_user_budget_id: {{ . | quote }}
+      {{- end }}
       {{- if and .Values.litellm.cache .Values.valkey.enabled }}
       # Response caching → Valkey (Redis-compatible) for cost/latency reduction
       cache: true

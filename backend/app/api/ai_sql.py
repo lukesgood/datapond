@@ -32,6 +32,7 @@ from app.guardrails import pii_ko
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
 from app.api.auth import require_permission, require_user
 from app.ai_context import set_actor, actor_payload
+from app.ai_budget import budget_error, is_budget_refusal
 from app.runtime import component_secret
 from app import tool_call_log
 
@@ -167,6 +168,10 @@ def _call_litellm(system: str, messages: list) -> str:
     headers = {"Authorization": f"Bearer {cfg['master_key']}"} if cfg["master_key"] else {}
     with httpx.Client(timeout=httpx.Timeout(connect=3.0, read=60.0, write=10.0, pool=5.0)) as client:
         resp = client.post(f"{cfg['litellm_url']}/v1/chat/completions", json=payload, headers=headers)
+        # The gateway answers an over-budget caller with an auth error, which
+        # raise_for_status would turn into a generic 500 two frames up.
+        if is_budget_refusal(resp.status_code, resp.text):
+            raise budget_error(resp.text)
         resp.raise_for_status()
     data = resp.json()
     return data["choices"][0]["message"]["content"].strip()
