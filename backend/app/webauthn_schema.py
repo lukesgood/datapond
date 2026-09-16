@@ -1,5 +1,9 @@
-"""Idempotent webauthn_credentials migration — applied every startup (auth.sql is
-sentinel-guarded and won't re-run on an existing DB). Mirrors app/rls/migrate.py."""
+"""Idempotent webauthn_credentials migration. Mirrors app/rls/migrate.py.
+
+NOT CURRENTLY CALLED — 0001_baseline.sql creates webauthn_credentials and the migrate
+Job applies it as the owning credential. Left in place for the fresh-DB path, but the
+runtime role is not granted DDL (see app/api/system_settings._ensure_table), and
+CREATE INDEX needs table ownership, so calling this from a request path would fail."""
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS webauthn_credentials (

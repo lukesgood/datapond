@@ -324,21 +324,24 @@ async def get_db_pool():
     global _db_pool
     if _db_pool is None or _db_pool._closed:
         _db_pool = await asyncpg.create_pool(**_pool_kwargs())
-        # 풀 생성 시 1회 멱등 마이그레이션 (CREATE TABLE IF NOT EXISTS는 컬럼을 추가하지 않음).
-        # 실패해도 무시하되, 매 호출이 아닌 풀 재생성 시에만 재시도한다.
+        # 풀 생성 시 1회 멱등 마이그레이션. 0001_baseline.sql이 이 컬럼들을 정의하므로
+        # 마이그레이션된 DB에서는 아래 조회가 전부이고 ALTER는 실행되지 않는다. 최소권한
+        # 런타임 역할(externalDatabase.appUser)에서 중요하다 — ADD COLUMN IF NOT EXISTS도
+        # 테이블 소유권을 요구해서, 무조건 실행하면 풀을 만들 때마다 실패를 남긴다.
+        #   key_columns: 증분 upsert(merge)용 PK. NULL/[] = upsert 비활성(append).
+        #   pii_columns: 적재 전 마스킹할 컬럼(["*"]=모든 문자열 컬럼). NULL/[] = 비활성.
         try:
             async with _db_pool.acquire() as conn:
-                await conn.execute(
-                    "ALTER TABLE connector_sync_jobs ADD COLUMN IF NOT EXISTS partition_spec JSONB"
-                )
-                # key_columns: 증분 upsert(merge)용 PK. NULL/[] = upsert 비활성(append).
-                await conn.execute(
-                    "ALTER TABLE connector_sync_jobs ADD COLUMN IF NOT EXISTS key_columns JSONB"
-                )
-                # pii_columns: 적재 전 마스킹할 컬럼(["*"]=모든 문자열 컬럼). NULL/[] = 비활성.
-                await conn.execute(
-                    "ALTER TABLE connector_sync_jobs ADD COLUMN IF NOT EXISTS pii_columns JSONB"
-                )
+                have = {r["column_name"] for r in await conn.fetch(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema='public' AND table_name='connector_sync_jobs'"
+                )}
+                for col in ("partition_spec", "key_columns", "pii_columns"):
+                    if col not in have:
+                        await conn.execute(
+                            f"ALTER TABLE connector_sync_jobs "
+                            f"ADD COLUMN IF NOT EXISTS {col} JSONB"
+                        )
         except Exception as e:
             logger.warning(f"[connectors] 컬럼 ensure 실패(무시): {e}")
     return _db_pool

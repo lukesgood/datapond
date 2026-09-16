@@ -477,6 +477,26 @@ DML elsewhere, and ownership of nothing. It is created `NOLOGIN`, so running the
 migration changes no behaviour at all. Everything below is the cutover, and it is
 deliberately manual: a wrong grant here locks the product out of its own database.
 
+**Prerequisite — the runtime must not issue DDL.** The backend still runs two DDL paths
+at request time: `system_settings._ensure_table` and the column `ensure` inside
+`connectors.get_db_pool`. Both are no-ops on a migrated database — 0001_baseline.sql
+defines everything they create — but they were written as bare `CREATE TABLE IF NOT
+EXISTS` / `ADD COLUMN IF NOT EXISTS`, and that is not sufficient: PostgreSQL checks
+CREATE on the schema *before* it checks whether the object already exists. Probed
+against the live database with `SET ROLE datapond_app`:
+
+| statement | result as `datapond_app` |
+|---|---|
+| `SELECT` on any table | allowed |
+| `CREATE TABLE <new> (…)` | `permission denied for schema public` |
+| `CREATE TABLE IF NOT EXISTS <existing>` | `permission denied for schema public` |
+| `CREATE INDEX IF NOT EXISTS <existing>` | `must be owner of table …` |
+| `UPDATE security_audit_log` | `permission denied for table …` |
+
+Both paths therefore look the object up first and issue DDL only when it is genuinely
+absent (`tests/test_runtime_ddl_guards.py`). Without that guard the cutover does not
+fail at startup — it 500s the settings endpoints the first time someone opens Settings.
+
 ```bash
 # 1. Give the role a login and a password (psql as the Aurora master user).
 ALTER ROLE datapond_app LOGIN PASSWORD '<strong-random-password>';
@@ -519,8 +539,9 @@ helm -n datapond upgrade datapond helm/datapond --reset-then-reuse-values \
 ```
 
 **Not done on the live reference deployment.** It still connects as the owning role, so
-its audit tables are append-only by trigger, not WORM. Doing it needs the password step
-above, which is an operator action with a credential this repo never holds.
+its audit tables are append-only by trigger, not WORM. The code-side prerequisite above
+is in place and verified against the live database; what remains is step 1's password,
+an operator action with a credential this repo never holds.
 
 ### Changing release values (not image tags)
 

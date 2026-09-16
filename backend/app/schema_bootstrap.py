@@ -11,8 +11,14 @@ makes startup a no-op on existing installs (e.g. the live cluster) and a one-tim
 bootstrap on an empty DB, with no error spam.
 
 Ordering matters: auth.sql (creates `users`) must run before rls_migration.sql, which
-ALTERs `users` and references it. main.py calls ensure_base_schema() before
-ensure_rls_schema(). Best-effort — never raises, so a DB hiccup can't block startup.
+ALTERs `users` and references it. Best-effort — never raises, so a DB hiccup can't
+block startup.
+
+NOT CURRENTLY CALLED. Schema creation moved to the migration runner (app/migrations,
+run by the migrate Job as the owning credential); 0001_baseline.sql defines these
+tables. This module is kept for the air-gap/fresh-DB path it documents, but nothing
+in the app invokes it — do not add a call without reading the note in
+app/api/system_settings._ensure_table first: the runtime role is not allowed DDL.
 """
 from __future__ import annotations
 

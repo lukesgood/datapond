@@ -48,8 +48,17 @@ _DDL = """CREATE TABLE IF NOT EXISTS system_settings (
 
 
 async def _ensure_table(conn) -> None:
-    """Create system_settings if absent — no schema/migration file defines it, so a
-    fresh deploy would otherwise 500 on the first settings query."""
+    """Create system_settings only when it is genuinely absent.
+
+    0001_baseline.sql defines this table, so on any migrated database the lookup
+    below is the whole function and no DDL is issued. That is what lets the
+    backend run as a least-privilege role (externalDatabase.appUser): PostgreSQL
+    checks CREATE on the schema *before* it checks whether the table exists, so
+    an unconditional CREATE TABLE IF NOT EXISTS here would 500 every settings
+    endpoint for a role that is only granted DML.
+    """
+    if await conn.fetchval("SELECT to_regclass('public.system_settings')") is not None:
+        return
     await conn.execute(_DDL)
 
 
