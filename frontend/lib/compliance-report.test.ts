@@ -27,13 +27,13 @@ test("buildToolCallSection carries totals, capped flag and per-actor rows", () =
 test("a refusal count rides along when the deployment sends one", () => {
   const withRefusals = buildToolCallSection(
     { rows: [], total: 0, capped: false },
-    { by_actor: [{ actor_username: "svc-bot", actor_kind: "service", calls: 2, ok: 1, degraded: 0, error: 0, refused: 1, collections: [], tables: [] }] },
+    { by_actor: [{ actor_username: "svc-bot", actor_kind: "service", calls: 2, ok: 1, degraded: 0, error: 0, refused: 1, hits: 0, pii_masked: 0, collections: [], tables: [] }] },
   )
   assert.equal(withRefusals.by_actor[0].refused, 1)
 
   const withoutRefusals = buildToolCallSection(
     { rows: [], total: 0, capped: false },
-    { by_actor: [{ actor_username: "old", actor_kind: "service", calls: 1, ok: 1, degraded: 0, error: 0, collections: [], tables: [] }] },
+    { by_actor: [{ actor_username: "old", actor_kind: "service", calls: 1, ok: 1, degraded: 0, error: 0, hits: 0, pii_masked: 0, collections: [], tables: [] }] },
   )
   assert.equal(withoutRefusals.by_actor[0].refused, undefined)
 })
