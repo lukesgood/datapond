@@ -14,6 +14,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from app import security_audit
 from app.api.auth import require_user, require_permission
 from app import tool_call_log
 
@@ -75,6 +76,9 @@ class QueryResult(BaseModel):
     execution_time_ms: float
     row_count: int
     truncated: bool = False
+    # How many PII values the guardrail replaced in these rows. Zero means the scan
+    # ran and found nothing; the field is absent-by-default only for older clients.
+    pii_masked: int = 0
 
 
 class CatalogColumn(BaseModel):
@@ -190,6 +194,54 @@ def _catalog_schema_for_graph(max_tables: int = 60) -> dict:
     return out
 
 
+def mask_result_rows(rows, columns) -> tuple[list, int, bool]:
+    """Apply the PII guardrail to the cells a query is about to return.
+
+    Ingest, search, citations and the AI SQL prompt all ran through pii_ko; the one
+    path that handed raw cells straight to the caller was this one — `SELECT * FROM
+    customers` returned every resident registration number it held
+    (POSITIONING_FIT_AUDIT §2.4).
+
+    Returns (rows, masked_count, blocked). `off` skips the scan entirely, so a
+    deployment that has turned the guardrail off pays nothing for it. `block` reports
+    blocked=True and leaves the rows alone — the caller gets a refusal, not the data.
+    """
+    from app.guardrails import pii_ko
+    mode = pii_ko.get_mode()
+    if mode == "off" or not rows:
+        return rows, 0, False
+
+    masked_rows, count, blocked = [], 0, False
+    for row in rows:
+        out = list(row)
+        for i, cell in enumerate(out):
+            if not isinstance(cell, str) or not cell:
+                continue
+            findings = pii_ko.detect(cell)
+            if not findings:
+                continue
+            count += len(findings)
+            if mode == "block":
+                blocked = True
+            else:
+                out[i] = pii_ko.mask(cell, findings)
+        masked_rows.append(out)
+    return (rows if blocked else masked_rows), count, blocked
+
+
+def _history_is_optional(user: dict) -> bool:
+    """Whether this caller may decline to have its query recorded in query_history.
+
+    A person can: their history is a convenience feature, and they own it. A service
+    account cannot. `save_history=false` is a request field, so an agent could run a
+    statement and ask for it not to be recorded — which is the one caller whose trail
+    matters most. The tool call log records every execution regardless (that is the
+    audit trail), but query_history is what the Governance screen reads, and an agent
+    should not be able to empty it for itself.
+    """
+    return (user or {}).get("auth_method") != "service"
+
+
 def _may_write(user: dict) -> bool:
     from app.permissions import permissions_for
     granted = user.get("permissions")
@@ -231,6 +283,14 @@ async def _execute_query_impl(
     from app.sql_kind import statement_kind
     if statement_kind(effective_query, dialect=get_engine().rls_dialect) == "write":
         if not _may_write(user):
+            reason = ("'query:write' permission required — this statement changes data "
+                      "or schema.")
+            # require_permission's guard audits the permissions it checks; this one is
+            # checked here, inside the handler, on the statement's kind. Without this
+            # line a credential probing for what it can DROP left nothing behind.
+            await security_audit.record(
+                actor=user, permission="query:write", route="/api/queries/execute",
+                method="POST", outcome="denied", reason=reason)
             raise HTTPException(
                 status_code=403,
                 detail="This statement changes data or schema, which needs the "
@@ -308,8 +368,8 @@ async def _execute_query_impl(
         # Engine-specific error taxonomy (Trino codes vs Athena/pyathena messages).
         status, error_detail, http_code = engine.map_error(e)
 
-        # Save error to history if requested
-        if request.save_history:
+        # Save error to history if requested (a service account cannot decline)
+        if request.save_history or not _history_is_optional(user):
             try:
                 history = QueryHistory(
                     user_id=user_id,
@@ -332,8 +392,23 @@ async def _execute_query_impl(
 
     execution_time_ms = (time.time() - start_time) * 1000
 
-    # Save successful query to history
-    if request.save_history:
+    # Mask before anything else sees the cells — including the history write below,
+    # which stores only the statement, and the caller's response.
+    rows, pii_masked, pii_blocked = mask_result_rows(rows, columns)
+    if pii_blocked:
+        reason = (f"PII guardrail is in block mode and the result set carried "
+                  f"{pii_masked} value(s) it recognises.")
+        await security_audit.record(
+            actor=user, permission="query:run", route="/api/queries/execute",
+            method="POST", outcome="denied", reason=reason)
+        raise HTTPException(
+            status_code=403,
+            detail="This result set contains personal data and the deployment's PII "
+                   "guardrail is set to block. Narrow the columns you select, or ask "
+                   "an administrator about the guardrail mode.")
+
+    # Save successful query to history (a service account cannot decline)
+    if request.save_history or not _history_is_optional(user):
         try:
             history = QueryHistory(
                 user_id=user_id,
@@ -360,7 +435,8 @@ async def _execute_query_impl(
         rows=rows,
         execution_time_ms=round(execution_time_ms, 2),
         row_count=len(rows),
-        truncated=truncated
+        truncated=truncated,
+        pii_masked=pii_masked,
     )
 
 
@@ -377,15 +453,21 @@ async def execute_query(
     started = time.perf_counter()
     try:
         result = await _execute_query_impl(request, db, user)
-    except Exception:
+    except Exception as e:
+        # A 401/403 is a refusal, not a failure of the engine: the log now has a value
+        # for that (migration 0010), and reading "error" for both hid every denial
+        # among genuine outages.
+        refused = isinstance(e, HTTPException) and e.status_code in (401, 403)
         await tool_call_log.record(actor=user, tool="query.execute", resource_kind="tables",
                                    resource=tables, request_text=masked_sql,
-                                   outcome="error",
+                                   outcome="refused" if refused else "error",
                                    duration_ms=int((time.perf_counter() - started) * 1000))
         raise
     await tool_call_log.record(actor=user, tool="query.execute", resource_kind="tables",
                                resource=tables, request_text=masked_sql,
-                               hit_count=int(result.row_count or 0), outcome="ok",
+                               hit_count=int(result.row_count or 0),
+                               pii_masked=int(getattr(result, "pii_masked", 0) or 0),
+                               outcome="ok",
                                duration_ms=int((time.perf_counter() - started) * 1000))
     return result
 
