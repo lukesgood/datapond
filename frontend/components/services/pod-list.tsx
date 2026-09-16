@@ -54,7 +54,7 @@ export function PodList({
       case "Pending":
         return <Clock className="h-4 w-4 text-[var(--dp-warn-text)]" />
       default:
-        return <Clock className="h-4 w-4 text-gray-500" />
+        return <Clock className="h-4 w-4 text-muted-foreground" />
     }
   }
 

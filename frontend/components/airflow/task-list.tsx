@@ -45,9 +45,9 @@ export function TaskList({ tasks, onViewLogs }: TaskListProps) {
       case "upstream_failed":
         return <XCircle className="h-4 w-4 text-[var(--dp-warn-text)]" />
       case "skipped":
-        return <Activity className="h-4 w-4 text-gray-500" />
+        return <Activity className="h-4 w-4 text-muted-foreground" />
       default:
-        return <Clock className="h-4 w-4 text-gray-500" />
+        return <Clock className="h-4 w-4 text-muted-foreground" />
     }
   }
 

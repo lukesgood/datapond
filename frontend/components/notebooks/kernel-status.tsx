@@ -91,7 +91,7 @@ export function KernelStatus({ onRefresh }: KernelStatusProps) {
       case "starting":
         return <Circle className="h-3 w-3 text-blue-500 fill-blue-500 animate-pulse" />
       default:
-        return <Circle className="h-3 w-3 text-gray-400 fill-gray-400" />
+        return <Circle className="h-3 w-3 text-muted-foreground fill-muted-foreground" />
     }
   }
 
