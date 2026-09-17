@@ -14,6 +14,11 @@ _INSERT_COLUMNS = (
     "occurred_at", "actor_id", "actor_username", "actor_kind", "tool",
     "resource_kind", "resource", "request_hash", "request_masked", "hit_count",
     "citation_sources", "pii_masked", "outcome", "duration_ms", "client_address", "via",
+    # 0013. This tuple is the INSERT's contract: _Conn.execute only reads a write back
+    # as a row when the argument count matches, so a column added to tool_call_log._INSERT
+    # without a matching entry here turns every assertion about written rows into a
+    # silent "nothing was written" rather than a failure that names the cause.
+    "response_hash", "response_masked",
 )
 
 

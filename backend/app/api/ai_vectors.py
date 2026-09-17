@@ -1333,7 +1333,11 @@ async def _logged(tool: str, req_collection: str, masked_text: str, user: dict, 
         actor=user, tool=tool, resource_kind="collection", resource=[req_collection],
         request_text=masked_text, hit_count=len(hits or []),
         citation_sources=_sources(hits), pii_masked=int(result.get("pii_masked") or 0),
-        outcome=outcome, duration_ms=int((time.perf_counter() - started) * 1000))
+        outcome=outcome, duration_ms=int((time.perf_counter() - started) * 1000),
+        # Only ai.rag produces text of its own. ai.search returns the chunks, which
+        # hit_count and citation_sources already describe — storing them again would
+        # duplicate the collection into the audit log.
+        response_text=result.get("answer") if tool == "ai.rag" else None)
     return result
 
 
