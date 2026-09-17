@@ -267,7 +267,7 @@ export default function CatalogHelpPage() {
           <div className="space-y-2">
             <h3 className="font-semibold">How do I create a new table?</h3>
             <p className="text-sm text-muted-foreground">
-              Tables are created by connectors (ingestion → Glue/Iceberg) or via SQL (Athena/Trino, Spark). Use <code className="bg-muted px-1 py-0.5 rounded">CREATE TABLE</code> statements.
+              Tables are created by connectors (ingestion → Glue/Iceberg) or via SQL through the query engine your profile enables (Athena or Trino). Use <code className="bg-muted px-1 py-0.5 rounded">CREATE TABLE</code> statements.
               Example: <code className="bg-muted px-1 py-0.5 rounded">CREATE TABLE catalog.sales.orders (id INT, amount DOUBLE)</code>
             </p>
           </div>

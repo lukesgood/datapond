@@ -97,6 +97,10 @@ export default function ApiPage() {
           </CardTitle>
           <CardDescription>
             {loading ? "Loading…" : `${endpoints.length} endpoints an application can call, with the permission each requires.`}
+            {" "}This is the integration surface, not the whole API — the full reference,
+            including the operational and administrative routes, is at{" "}
+            <a href="/api/docs" target="_blank" rel="noreferrer"
+               className="font-medium text-primary hover:underline">/api/docs</a>.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">

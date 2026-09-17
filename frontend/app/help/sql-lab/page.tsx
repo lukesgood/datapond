@@ -346,14 +346,9 @@ FROM catalog.users.profiles;`}</code>
                 Data Catalog Guide
               </Badge>
             </Link>
-            <Link href="/docs/trino-sql">
+            <Link href="/docs/catalog-query">
               <Badge variant="outline" className="cursor-pointer hover:bg-background">
-                SQL Reference
-              </Badge>
-            </Link>
-            <Link href="/docs/optimization">
-              <Badge variant="outline" className="cursor-pointer hover:bg-background">
-                Query Optimization
+                Catalog &amp; Query
               </Badge>
             </Link>
           </div>

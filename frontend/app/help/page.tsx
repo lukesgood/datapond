@@ -32,10 +32,10 @@ type Guide = {
 const guides: Guide[] = [
   {
     title: "Knowledge & RAG",
-    description: "Build collections, test retrieval, and get cited answers",
+    description: "Build a collection, check what it retrieves, and get answers that cite their sources",
     icon: Sparkles,
-    href: "/knowledge",
-    topics: ["Collections", "Ingestion", "Semantic search", "Citations"],
+    href: "/help/knowledge",
+    topics: ["Collections", "Ingestion", "Semantic search", "Citations", "Refresh"],
   },
   {
     title: "Integrate an application or agent",
@@ -53,10 +53,10 @@ const guides: Guide[] = [
   },
   {
     title: "Governance",
-    description: "Control collection access, protect PII, and review audit and cost",
+    description: "Decide who reads what, what never leaves in the clear, and what the record shows",
     icon: ShieldCheck,
-    href: "/governance",
-    topics: ["Access", "PII", "Audit", "Cost"],
+    href: "/help/governance",
+    topics: ["Access", "PII", "Credentials", "Audit", "Spend"],
   },
   {
     title: "Sources",
@@ -176,6 +176,20 @@ function GuidesHub() {
                       <CardDescription>{guide.description}</CardDescription>
                     </CardHeader>
                     <CardContent className="flex flex-wrap gap-1.5">
+                      {/* `capability` was declared on every guide and then read by
+                          nothing. Cards stay visible when a module is off — a guide
+                          explains setup, which is exactly when you have not set it up
+                          yet — but saying so beats letting the card imply the module is
+                          running. Fail-closed: anything other than an explicit true
+                          reads as not enabled. */}
+                      {guide.capability && caps[guide.capability] !== true && (
+                        <Badge
+                          variant="outline"
+                          className="border-[var(--dp-warn)]/25 bg-[var(--dp-warn)]/10 text-xs text-[var(--dp-warn-text)]"
+                        >
+                          Not enabled here
+                        </Badge>
+                      )}
                       {guide.topics.map((topic) => <Badge key={topic} variant="secondary" className="text-xs">{topic}</Badge>)}
                     </CardContent>
                   </Card>
