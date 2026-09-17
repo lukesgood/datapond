@@ -1437,5 +1437,15 @@ async def _rag_impl(req: RagRequest, user: dict):
         return {"answer": "(LLM not configured/error) Returning search results only.", "citations": hits,
                 "has_ai": False, "pii_masked": pii_masked, "concepts": concepts_used}
 
-    return {"answer": answer, "citations": hits, "has_ai": True, "pii_masked": pii_masked,
-            "concepts": concepts_used}
+    # Output guard. The context handed to the model was masked, but this is the model's
+    # own text: it can restate or reassemble what it saw, and the retrieval path returns
+    # raw content under `block` by design (see the note above _retrieve). Guarding only
+    # the input leaves the last hop — the bytes the caller actually receives — unchecked.
+    a_text, a_find, a_block = _guard(answer)
+    if a_block:
+        return {"answer": "The generated answer contains personal data and the PII "
+                          "guardrail is set to block for this request.",
+                "citations": hits, "has_ai": True,
+                "pii_masked": pii_masked + len(a_find), "concepts": concepts_used}
+    return {"answer": a_text, "citations": hits, "has_ai": True,
+            "pii_masked": pii_masked + len(a_find), "concepts": concepts_used}
