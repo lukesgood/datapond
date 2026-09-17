@@ -411,3 +411,27 @@ def test_the_interval_is_a_positive_number_of_minutes():
     for request in knowledge_schedule_requests():
         assert isinstance(request["interval_minutes"], int)
         assert request["interval_minutes"] >= 60
+
+
+def test_the_schedule_request_carries_the_source_it_will_re_ingest():
+    """ScheduleRequest.source has no default. A schedule built without it fails
+    validation, and the activation step then arms nothing at all — which is exactly
+    what happened on the live deployment: four collections, four validation errors,
+    every refresh_enabled still false.
+    """
+    from app.sample_data import knowledge_ingest_requests, knowledge_schedule_requests
+
+    ingests = {r["collection"]: r["source"] for r in knowledge_ingest_requests()}
+    for request in knowledge_schedule_requests():
+        assert "source" in request, f"{request['collection']} schedules nothing to re-ingest"
+        assert request["source"] == ingests[request["collection"]], (
+            "the schedule must re-ingest the same source the first load used")
+
+
+def test_the_source_block_names_a_real_column():
+    from app.sample_data import knowledge_schedule_requests, table, table_names
+
+    for request in knowledge_schedule_requests():
+        source = request["source"]
+        assert source["table"] in table_names()
+        assert source["text_column"] in table(source["table"]).columns

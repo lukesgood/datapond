@@ -985,7 +985,7 @@ async def activate_sample_db(user: dict = Depends(require_user)):
     # fire. The re-embed scheduler is in-process (app/rag_scheduler.py), so this is
     # the schedule that genuinely recurs — and it only makes sense for a collection
     # that ingested, which is why it follows the loop above rather than joining it.
-    from app.api.ai_vectors import ScheduleRequest, schedule_ingest
+    from app.api.ai_vectors import ScheduleRequest, SourceIngest, schedule_ingest
     from app.sample_data import knowledge_schedule_requests
 
     outcome["refresh"] = []
@@ -998,7 +998,8 @@ async def activate_sample_db(user: dict = Depends(require_user)):
             try:
                 await schedule_ingest(
                     request["collection"],
-                    ScheduleRequest(interval_minutes=request["interval_minutes"]),
+                    ScheduleRequest(interval_minutes=request["interval_minutes"],
+                                    source=SourceIngest(**request["source"])),
                     user=user)
                 entry["interval_minutes"] = request["interval_minutes"]
             except Exception as e:

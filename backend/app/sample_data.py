@@ -753,7 +753,8 @@ def knowledge_schedule_requests() -> List[Dict[str, Any]]:
     this commits the deployment to embedding on every tick from now on.
     """
     return [{"collection": source.collection,
-             "interval_minutes": REFRESH_INTERVAL_MINUTES}
+             "interval_minutes": REFRESH_INTERVAL_MINUTES,
+             "source": _source_block(source)}
             for source in KNOWLEDGE_SOURCES]
 
 
@@ -783,18 +784,29 @@ def catalog_join_queries() -> List[JoinQuery]:
             for q in JOIN_QUERIES]
 
 
+def _source_block(source: KnowledgeSource) -> Dict[str, Any]:
+    """Where a collection's rows come from, in the shape both routes take.
+
+    Derived once because ScheduleRequest requires `source` with no default: the
+    re-embed scheduler has to know what to re-ingest, and a schedule request built
+    without it fails validation rather than arming anything. Writing the block twice
+    is how the schedule half came to omit it.
+    """
+    return {
+        "type": "iceberg",
+        "schema": CATALOG_SCHEMA,
+        "table": source.table,
+        "text_column": source.column,
+        "limit": 1000,
+    }
+
+
 def knowledge_ingest_requests() -> List[Dict[str, Any]]:
     """One ingest per collection, in the shape /ai/collections/{name}/ingest-source takes."""
     return [{
         "collection": source.collection,
         "description": source.description,
-        "source": {
-            "type": "iceberg",
-            "schema": CATALOG_SCHEMA,
-            "table": source.table,
-            "text_column": source.column,
-            "limit": 1000,
-        },
+        "source": _source_block(source),
     } for source in KNOWLEDGE_SOURCES]
 
 
