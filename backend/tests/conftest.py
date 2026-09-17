@@ -19,6 +19,7 @@ _INSERT_COLUMNS = (
     # without a matching entry here turns every assertion about written rows into a
     # silent "nothing was written" rather than a failure that names the cause.
     "response_hash", "response_masked",
+    "injection_flags",  # 0014
 )
 
 

@@ -48,6 +48,7 @@ from app.ai_budget import is_budget_refusal, refuse_over_budget
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
 from app.knowledge_access import may_read, may_write
 from app.runtime import component_secret
+from app.guardrails import injection
 from app import tool_call_log
 
 logger = logging.getLogger(__name__)
@@ -1337,7 +1338,12 @@ async def _logged(tool: str, req_collection: str, masked_text: str, user: dict, 
         # Only ai.rag produces text of its own. ai.search returns the chunks, which
         # hit_count and citation_sources already describe — storing them again would
         # duplicate the collection into the audit log.
-        response_text=result.get("answer") if tool == "ai.rag" else None)
+        response_text=result.get("answer") if tool == "ai.rag" else None,
+        # Advisory: retrieved content that talks like an instruction. Nothing is masked
+        # or withheld — see app/guardrails/injection.py — the count is how an operator
+        # finds out which collection started carrying it.
+        injection_flags=injection.count(
+            h.get("content") for h in (hits or []) if isinstance(h, dict)))
     return result
 
 

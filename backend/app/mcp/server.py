@@ -150,7 +150,7 @@ async def _call_tool(params: dict, user: dict) -> dict:
                 f"{action.label} failed: {e}", is_error=True)
         await _log_fallback(count(), action, clean, user, "ok", started)
     return protocol.tool_call_result(
-        json.dumps(payload, ensure_ascii=False, default=str))
+        json.dumps(payload, ensure_ascii=False, default=str), untrusted=True)
 
 
 @router.post("/mcp")

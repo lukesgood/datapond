@@ -110,7 +110,12 @@ def test_a_tool_runs_and_returns_its_payload_as_text(monkeypatch):
               "arguments": {"collection": "faq", "query": "hi"}})
     result = r.json()["result"]
     assert result["isError"] is False
-    assert json.loads(result["content"][0]["text"]) == {"results": [{"source": "a.md"}]}
+    # The envelope now labels executor payloads as data (protocol.UNTRUSTED_NOTICE):
+    # the JSON follows the notice rather than standing alone.
+    text = result["content"][0]["text"]
+    assert text.startswith(protocol.UNTRUSTED_NOTICE)
+    body = text[len(protocol.UNTRUSTED_NOTICE):].lstrip("\n")
+    assert json.loads(body) == {"results": [{"source": "a.md"}]}
 
 
 def test_bad_arguments_are_a_tool_error_not_a_protocol_error():

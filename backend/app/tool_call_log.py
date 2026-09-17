@@ -129,7 +129,7 @@ def build_row(*, actor: dict, tool: str, resource_kind: str, resource: List[str]
               citation_sources: Optional[List[str]] = None, pii_masked: int = 0,
               outcome: str = "ok", duration_ms: Optional[int] = None,
               client_address: Optional[str] = None, via: Optional[str] = None,
-              response_text: Optional[str] = None,
+              response_text: Optional[str] = None, injection_flags: int = 0,
               now: Optional[datetime] = None) -> dict:
     if tool not in TOOLS:
         raise ValueError(f"unknown tool {tool!r}")
@@ -164,6 +164,7 @@ def build_row(*, actor: dict, tool: str, resource_kind: str, resource: List[str]
         "response_hash": (hashlib.sha256(response.encode("utf-8")).hexdigest()
                           if response is not None else None),
         "response_masked": response[:_MASKED_LIMIT] if response is not None else None,
+        "injection_flags": int(injection_flags or 0),
     }
 
 
@@ -171,8 +172,9 @@ _INSERT = """
 INSERT INTO public.tool_call_log
     (occurred_at, actor_id, actor_username, actor_kind, tool, resource_kind, resource,
      request_hash, request_masked, hit_count, citation_sources, pii_masked, outcome,
-     duration_ms, client_address, via, response_hash, response_masked)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+     duration_ms, client_address, via, response_hash, response_masked, injection_flags)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+        $19)
 """
 
 
@@ -181,7 +183,7 @@ async def record(*, actor: dict, tool: str, resource_kind: str, resource: List[s
                  citation_sources: Optional[List[str]] = None, pii_masked: int = 0,
                  outcome: str = "ok", duration_ms: Optional[int] = None,
                  client_address: Optional[str] = None, via: Optional[str] = None,
-                 response_text: Optional[str] = None) -> None:
+                 response_text: Optional[str] = None, injection_flags: int = 0) -> None:
     """Write one row. Never raises into the caller — a failed audit write is logged."""
     try:
         row = build_row(actor=actor, tool=tool, resource_kind=resource_kind,
@@ -189,7 +191,7 @@ async def record(*, actor: dict, tool: str, resource_kind: str, resource: List[s
                         hit_count=hit_count, citation_sources=citation_sources,
                         pii_masked=pii_masked, outcome=outcome, duration_ms=duration_ms,
                         client_address=client_address, via=via,
-                        response_text=response_text)
+                        response_text=response_text, injection_flags=injection_flags)
         # Lazy import, same reason as security_audit: app.api.connectors imports
         # app.api.auth at module load and this module is imported by route modules.
         from app.api.connectors import get_db_pool
@@ -201,7 +203,7 @@ async def record(*, actor: dict, tool: str, resource_kind: str, resource: List[s
                 row["request_hash"], row["request_masked"], row["hit_count"],
                 row["citation_sources"], row["pii_masked"], row["outcome"],
                 row["duration_ms"], row["client_address"], row["via"],
-                row["response_hash"], row["response_masked"],
+                row["response_hash"], row["response_masked"], row["injection_flags"],
             )
         counter = _calls.get()
         if counter is not None:
