@@ -424,12 +424,15 @@ def column_backfill_statements() -> List[str]:
     return statements
 
 
-# PostgreSQL sends a statement's parameter count as an int16, so one statement can
-# carry 65535 bound values and no more. At the original scale the widest table was 300
-# rows of 7 columns — 2100 values, nowhere near it. Thirty thousand page events is
-# 210,000, and the insert fails outright rather than slowly. Deriving the chunk from
-# the table's own width means no table has to be thought about again.
-MAX_BIND_PARAMS = 60000
+# The Bind message carries its parameter count as a SIGNED int16, so the ceiling is
+# 32767 — not the 65535 an unsigned reading suggests. asyncpg refuses past it with
+# "the number of query arguments cannot exceed 32767", which is how the real limit
+# was learned: seeding died on `orders` at 6000 rows x 7 columns = 42,000.
+#
+# At the original scale the widest table was 300 rows of 7 columns, nowhere near
+# either number. Deriving the chunk from the table's own width means no table has to
+# be thought about again; the margin below leaves room for a table gaining a column.
+MAX_BIND_PARAMS = 30000
 
 
 def _rows_per_statement(column_count: int) -> int:

@@ -97,15 +97,22 @@ def test_the_insert_binds_values_rather_than_interpolating_them():
     assert len(args) == len(table("customers").rows) * len(table("customers").columns)
 
 
+# The driver's limit, not a guess at it. This test previously asserted `< 65535` —
+# an unsigned reading of the int16 that carries the Bind message's parameter count —
+# so it passed while seeding failed on the live deployment with "the number of query
+# arguments cannot exceed 32767". Asserting one's own assumption proves nothing.
+ASYNCPG_MAX_ARGS = 32767
+
+
 def test_no_statement_exceeds_the_bind_parameter_limit():
-    """PostgreSQL sends a statement's parameter count as an int16: 65535 values, and
-    the insert fails outright past it. page_events is 30,000 rows of 7 columns."""
+    """asyncpg refuses a statement carrying more than 32767 bound values outright."""
     from app.sample_data import MAX_BIND_PARAMS, insert_statements
 
-    assert MAX_BIND_PARAMS < 65535
+    assert MAX_BIND_PARAMS < ASYNCPG_MAX_ARGS
     for t in DATASET:
         for sql, args in insert_statements(t):
             assert len(args) <= MAX_BIND_PARAMS, f"{t.name}: {len(args)} bound values"
+            assert len(args) < ASYNCPG_MAX_ARGS, f"{t.name} would be refused by asyncpg"
 
 
 def test_every_row_is_covered_by_some_statement():
