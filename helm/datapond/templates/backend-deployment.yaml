@@ -135,6 +135,19 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: POSTGRES_USER
+        {{- if and (.Values.externalDatabase).appUser (.Values.externalDatabase).appPasswordSecretKey }}
+        # These must exist in THIS container and BEFORE DATABASE_URL below: kubelet
+        # expands $(VAR) only against variables already defined in the same container's
+        # env list. Defining them on the init container alone is what made the first
+        # cutover attempt authenticate as the literal user "$(APP_DB_USER)".
+        - name: APP_DB_USER
+          value: {{ .Values.externalDatabase.appUser | quote }}
+        - name: APP_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: {{ .Values.externalDatabase.appPasswordSecretKey | quote }}
+        {{- end }}
         - name: POSTGRES_PASSWORD
           valueFrom:
             secretKeyRef:
