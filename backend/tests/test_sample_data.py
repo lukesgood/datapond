@@ -97,6 +97,35 @@ def test_the_insert_binds_values_rather_than_interpolating_them():
     assert len(args) == len(table("customers").rows) * len(table("customers").columns)
 
 
+def test_no_statement_exceeds_the_bind_parameter_limit():
+    """PostgreSQL sends a statement's parameter count as an int16: 65535 values, and
+    the insert fails outright past it. page_events is 30,000 rows of 7 columns."""
+    from app.sample_data import MAX_BIND_PARAMS, insert_statements
+
+    assert MAX_BIND_PARAMS < 65535
+    for t in DATASET:
+        for sql, args in insert_statements(t):
+            assert len(args) <= MAX_BIND_PARAMS, f"{t.name}: {len(args)} bound values"
+
+
+def test_every_row_is_covered_by_some_statement():
+    """The single-statement form returns the first chunk only. A caller that seeds a
+    database with it would load part of the widest table and report success."""
+    from app.sample_data import insert_statements
+
+    for t in DATASET:
+        rows = sum(len(args) // max(1, len(t.columns))
+                   for _sql, args in insert_statements(t))
+        assert rows == len(t.rows), f"{t.name}: {rows} of {len(t.rows)} rows"
+
+
+def test_the_widest_table_actually_needs_more_than_one_statement():
+    """If this stops being true the chunking is untested by the two above."""
+    from app.sample_data import insert_statements
+
+    assert any(len(insert_statements(t)) > 1 for t in DATASET)
+
+
 def test_a_value_containing_a_quote_is_not_interpolated_into_the_sql():
     """Seed text is prose — Korean support tickets contain apostrophes."""
     sql, _args = insert_statement(table("ticket_messages"))

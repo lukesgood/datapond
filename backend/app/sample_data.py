@@ -95,7 +95,7 @@ CUSTOMERS = [{
     "tier": _pick(_TIER, "tier", i),
     "signup_date": (_EPOCH - timedelta(days=_n("signup", i) % 900)).date(),
     "is_active": _n("active", i) % 10 != 0,
-} for i in range(1, 41)]
+} for i in range(1, 1201)]
 
 _CATEGORY = ["hardware", "software", "service", "accessory"]
 _PRODUCT_NOUN = ["스토리지 노드", "분석 워크벤치", "임베딩 게이트웨이", "카탈로그 커넥터",
@@ -118,7 +118,7 @@ PRODUCTS = [{
         f"{_pick(['단일 노드', '소규모 클러스터', '대규모 클러스터'], 'scale', i)} 환경에서 "
         f"{_pick(['수집', '검색', '재순위화', '거버넌스 감사'], 'role', i)} 경로를 담당합니다. "
         f"교체 시 다운타임은 약 {_n('dt', i) % 20 + 5}분이며, 설정은 프로파일 값으로만 바뀝니다."),
-} for i in range(1, 25)]
+} for i in range(1, 301)]
 
 _ORDER_STATUS = ["delivered", "delivered", "delivered", "shipped", "pending", "cancelled"]
 _CHANNEL = ["web", "web", "mobile", "partner"]
@@ -131,7 +131,7 @@ ORDERS = [{
     "discount": round((_n("disc", i) % 6) * 2500, 2),
     "channel": _pick(_CHANNEL, "chan", i),
     "ordered_at": _when("order", i),
-} for i in range(1, 121)]
+} for i in range(1, 6001)]
 
 ORDER_ITEMS = [{
     "id": n,
@@ -154,9 +154,9 @@ PAGE_EVENTS = [{
     "event_type": _pick(_EVENT, "etype", i),
     "page": _pick(["/products", "/cart", "/checkout", "/search", "/account"], "page", i),
     "device": _pick(_DEVICE, "dev", i),
-    "session_id": f"s-{_n('sess', i) % 400:04d}",
+    "session_id": f"s-{_n('sess', i) % 6000:05d}",
     "occurred_at": _when("event", i),
-} for i in range(1, 301)]
+} for i in range(1, 30001)]
 
 
 # ── support ───────────────────────────────────────────────────────────────────
@@ -166,7 +166,7 @@ AGENTS = [{
     "name": _pick(_FAMILY, "afam", i) + _pick(_GIVEN, "agiv", i),
     "team": _pick(["tier1", "tier1", "tier2", "escalation"], "team", i),
     "hired_on": (_EPOCH - timedelta(days=_n("hire", i) % 1500)).date(),
-} for i in range(1, 7)]
+} for i in range(1, 41)]
 
 _TICKET_SUBJECT = ["배송 지연 문의", "결제 오류", "제품 설정 문의", "환불 요청",
                    "계정 접근 불가", "성능 저하 신고"]
@@ -184,7 +184,7 @@ SUPPORT_TICKETS = [{
     "status": _pick(_TICKET_STATUS, "tstatus", i),
     "priority": _pick(["low", "normal", "normal", "high", "urgent"], "prio", i),
     "opened_at": _when("ticket", i),
-} for i in range(1, 46)]
+} for i in range(1, 1501)]
 
 _MESSAGE_BODY = [
     "주문한 상품이 예정일보다 사흘 늦게 도착했습니다. 배송 상태가 계속 '발송됨'으로만 표시되어 "
@@ -216,6 +216,14 @@ WAREHOUSES = [
     {"id": 1, "code": "ICN", "city": "인천", "country": "KR", "capacity_units": 120000},
     {"id": 2, "code": "NRT", "city": "나리타", "country": "JP", "capacity_units": 64000},
     {"id": 3, "code": "SIN", "city": "싱가포르", "country": "SG", "capacity_units": 48000},
+    # `code` is UNIQUE and these are hand-written, so each one is spelled out rather
+    # than generated. Eight warehouses also widen `inventory`, which is products x
+    # warehouses and is the one table that multiplies.
+    {"id": 4, "code": "PUS", "city": "부산", "country": "KR", "capacity_units": 90000},
+    {"id": 5, "code": "HKG", "city": "홍콩", "country": "HK", "capacity_units": 52000},
+    {"id": 6, "code": "FRA", "city": "프랑크푸르트", "country": "DE", "capacity_units": 71000},
+    {"id": 7, "code": "LAX", "city": "로스앤젤레스", "country": "US", "capacity_units": 83000},
+    {"id": 8, "code": "SYD", "city": "시드니", "country": "AU", "capacity_units": 36000},
 ]
 
 _CARRIER = ["대한통운", "한진", "우체국", "DHL"]
@@ -279,8 +287,8 @@ CAMPAIGN_TOUCHES = [{
     "customer_id": CUSTOMERS[_n("tcust2", i) % len(CUSTOMERS)]["id"],
     "touched_at": _when("touch", i),
     "outcome": _pick(["delivered", "delivered", "opened", "clicked", "bounced"], "outc", i),
-    "session_id": f"s-{_n('tsess', i) % 400:04d}",
-} for i in range(1, 151)]
+    "session_id": f"s-{_n('tsess', i) % 6000:05d}",
+} for i in range(1, 8001)]
 
 
 # ── the dataset ───────────────────────────────────────────────────────────────
@@ -416,17 +424,23 @@ def column_backfill_statements() -> List[str]:
     return statements
 
 
-def insert_statement(t: Table) -> Tuple[str, List[Any]]:
-    """A single multi-row INSERT with bound parameters.
+# PostgreSQL sends a statement's parameter count as an int16, so one statement can
+# carry 65535 bound values and no more. At the original scale the widest table was 300
+# rows of 7 columns — 2100 values, nowhere near it. Thirty thousand page events is
+# 210,000, and the insert fails outright rather than slowly. Deriving the chunk from
+# the table's own width means no table has to be thought about again.
+MAX_BIND_PARAMS = 60000
 
-    Bound, not interpolated: the seed is prose, and Korean support tickets contain
-    apostrophes. Columns are named because a positional insert breaks the moment a
-    column is added in the middle.
-    """
+
+def _rows_per_statement(column_count: int) -> int:
+    return max(1, MAX_BIND_PARAMS // max(1, column_count))
+
+
+def _insert_for(t: Table, rows: List[Dict[str, Any]]) -> Tuple[str, List[Any]]:
     columns = list(t.columns)
     args: List[Any] = []
     tuples = []
-    for row in t.rows:
+    for row in rows:
         placeholders = []
         for column in columns:
             args.append(row[column])
@@ -435,6 +449,23 @@ def insert_statement(t: Table) -> Tuple[str, List[Any]]:
     sql = (f"INSERT INTO {t.name} ({', '.join(columns)}) VALUES\n"
            + ",\n".join(tuples) + "\nON CONFLICT DO NOTHING")
     return sql, args
+
+
+def insert_statements(t: Table) -> List[Tuple[str, List[Any]]]:
+    """The table's rows as one or more multi-row INSERTs, each within the bind limit.
+
+    Bound, not interpolated: the seed is prose, and Korean support tickets contain
+    apostrophes. Columns are named because a positional insert breaks the moment a
+    column is added in the middle.
+    """
+    size = _rows_per_statement(len(t.columns))
+    return [_insert_for(t, t.rows[i:i + size]) for i in range(0, len(t.rows), size)]
+
+
+def insert_statement(t: Table) -> Tuple[str, List[Any]]:
+    """The first (often only) statement for this table. Anything writing to a database
+    wants insert_statements(); this stays for the single-statement case."""
+    return insert_statements(t)[0]
 
 
 def sequence_reset_statements() -> List[str]:

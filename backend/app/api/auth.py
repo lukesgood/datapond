@@ -35,6 +35,7 @@ from app.permissions import ASSIGNABLE_ROLES, ROLE_LABELS, ROLE_PERMISSIONS, per
 from app.service_accounts import (
     effective_permissions, hash_key, key_matches, looks_like_api_key,
 )
+from app.timefmt import iso_utc
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
@@ -932,12 +933,24 @@ async def list_users(admin: dict = Depends(require_permission("user:manage"))):
     """Admin: list all users."""
     pool = await _get_pool()
     async with pool.acquire() as conn:
+        # last_activity_at comes from auth_audit_log, not from users.last_login_at:
+        # that column is declared in the schema and written by nothing, so surfacing
+        # it would put an always-empty "Last activity" on screen. The audit log is
+        # where sign-ins and the rest of the auth events actually land.
+        #
+        # Matched on user_id, falling back to user_email: older rows were written
+        # before user_id was carried on every event, and an account whose activity
+        # only exists under its email would otherwise read as never active.
         rows = await conn.fetch("""
-            SELECT id, username, email, display_name, role, is_active,
-                   require_password_change, created_at,
-                   COALESCE(attributes, '{}'::jsonb) AS attributes
-            FROM users
-            ORDER BY created_at ASC
+            SELECT u.id, u.username, u.email, u.display_name, u.role, u.is_active,
+                   u.require_password_change, u.created_at,
+                   COALESCE(u.attributes, '{}'::jsonb) AS attributes,
+                   (SELECT max(a.created_at) FROM auth_audit_log a
+                     WHERE a.user_id = u.id
+                        OR (a.user_id IS NULL AND a.user_email = u.email))
+                       AS last_activity_at
+            FROM users u
+            ORDER BY u.created_at ASC
         """)
 
     def _attrs(v):
@@ -958,7 +971,15 @@ async def list_users(admin: dict = Depends(require_permission("user:manage"))):
             "is_active": r["is_active"],
             "require_password_change": bool(r["require_password_change"]),
             "attributes": _attrs(r["attributes"]),
-            "created_at": r["created_at"].isoformat() + "Z" if r["created_at"] else None,
+            "created_at": iso_utc(r["created_at"]) if r["created_at"] else None,
+            # .get, not r["…"]: a deployment whose query predates this column — and
+            # every test double built from a plain dict — has no such key, and a
+            # KeyError here would 500 the whole user list over a decorative field.
+            # .get, not r["…"]: a deployment whose query predates this column — and
+            # every test double built from a plain dict — has no such key, and a
+            # KeyError here would 500 the whole user list over one field.
+            "last_activity_at": iso_utc(r.get("last_activity_at")
+                                        if hasattr(r, "get") else None),
         }
         for r in rows
     ]

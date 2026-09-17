@@ -497,6 +497,7 @@ interface UserRecord {
   // console can assign every role the API accepts (PATCH /auth/users/{id}).
   role: string; is_active: boolean
   require_password_change: boolean; created_at: string | null
+  last_activity_at: string | null
   attributes?: Record<string, string>
 }
 
@@ -745,6 +746,7 @@ function UserManagement() {
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Role</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Status</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground hidden md:table-cell">Joined</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground hidden lg:table-cell">Last activity</th>
                   <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground">Actions</th>
                 </tr>
               </thead>
@@ -810,6 +812,11 @@ function UserManagement() {
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground hidden md:table-cell">
                       {u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}
+                    </td>
+                    {/* Sourced from auth_audit_log, not users.last_login_at — that
+                        column is written by nothing, so it would always read "never". */}
+                    <td className="px-4 py-3 text-xs text-muted-foreground hidden lg:table-cell">
+                      {u.last_activity_at ? new Date(u.last_activity_at).toLocaleString() : "—"}
                     </td>
                     <td className="px-4 py-3">
                       {u.id !== currentUser?.id && (

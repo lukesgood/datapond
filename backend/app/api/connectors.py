@@ -34,6 +34,7 @@ from app.api.om_util import OPENMETADATA_URL, om_token as _om_token
 # D2: every route below that names an existing connection goes through this
 # gate before it does anything with it. See app/api/source_access.py.
 from app.api.source_access import CONNECTOR, require_access, visible_clause, caller_uuid
+from app.timefmt import iso_utc
 
 logger = logging.getLogger(__name__)
 
@@ -768,7 +769,7 @@ async def create_sample_db():
 
     from app.sample_data import (
         DATASET, KNOWLEDGE_SOURCES, column_backfill_statements, connector_action,
-        ddl_statement, insert_statement, sequence_reset_statements,
+        ddl_statement, insert_statements, sequence_reset_statements,
     )
 
     try:
@@ -811,8 +812,11 @@ async def create_sample_db():
             seeded = {}
             for t in DATASET:
                 before = await sample_conn.fetchval(f"SELECT COUNT(*) FROM {t.name}")
-                sql, args = insert_statement(t)
-                await sample_conn.execute(sql, *args)
+                # insert_statements, not insert_statement: the widest table no longer
+                # fits in one statement's 65535 bound values, and the single-statement
+                # form would have seeded its first chunk and silently dropped the rest.
+                for sql, args in insert_statements(t):
+                    await sample_conn.execute(sql, *args)
                 after = await sample_conn.fetchval(f"SELECT COUNT(*) FROM {t.name}")
                 seeded[t.name] = {"added": after - before, "total": after}
             # Rows carry explicit ids so the foreign keys could be checked before
@@ -1101,8 +1105,8 @@ async def list_connections(user: dict = Depends(require_user)):
                 "name": row['name'],
                 "connector_type": row['connector_type'],
                 "status": row['status'],
-                "created_at": row['created_at'].isoformat() + "Z",
-                "last_sync_at": row['last_sync_at'].isoformat() + "Z" if row['last_sync_at'] else None,
+                "created_at": iso_utc(row['created_at']),
+                "last_sync_at": iso_utc(row['last_sync_at']) if row['last_sync_at'] else None,
                 "schedule": row['schedule'],
                 "owner_id": str(row['owner_id']) if row['owner_id'] else None,
             })
@@ -1135,8 +1139,8 @@ async def get_connection(connection_id: str, user: dict = Depends(require_user))
             "name": row['name'],
             "connector_type": row['connector_type'],
             "status": row['status'],
-            "created_at": row['created_at'].isoformat() + "Z",
-            "last_sync_at": row['last_sync_at'].isoformat() + "Z" if row['last_sync_at'] else None,
+            "created_at": iso_utc(row['created_at']),
+            "last_sync_at": iso_utc(row['last_sync_at']) if row['last_sync_at'] else None,
             "schedule": row['schedule'],
             "owner_id": str(row['owner_id']) if row['owner_id'] else None,
         }
@@ -2312,7 +2316,7 @@ async def get_sync_status(connection_id: str, user: dict = Depends(require_user)
                 "source_table": row['source_table'],
                 "target_table": row['target_table'],
                 "sync_mode": row['sync_mode'],
-                "last_run_at": row['last_run_at'].isoformat() + "Z" if row['last_run_at'] else None,
+                "last_run_at": iso_utc(row['last_run_at']) if row['last_run_at'] else None,
                 "status": row['last_run_status'],
                 "rows_synced": row['rows_synced']
             })
@@ -2348,8 +2352,8 @@ async def get_sync_history(connection_id: str, limit: int = 20,
                 meta = _json.loads(meta)
             sessions.append({
                 "id": str(row['id']),
-                "started_at": row['started_at'].isoformat() + "Z" if row['started_at'] else None,
-                "completed_at": row['completed_at'].isoformat() + "Z" if row['completed_at'] else None,
+                "started_at": iso_utc(row['started_at']) if row['started_at'] else None,
+                "completed_at": iso_utc(row['completed_at']) if row['completed_at'] else None,
                 "status": row['status'],
                 "rows_processed": row['rows_processed'] or 0,
                 "rows_failed": row['rows_failed'] or 0,
@@ -2447,7 +2451,7 @@ async def get_quality_checks(connection_id: str, limit: int = 20,
         "checks": [
             {
                 "source_table": r["source_table"],
-                "checked_at": r["checked_at"].isoformat() + "Z",
+                "checked_at": iso_utc(r["checked_at"]),
                 "rows_current": r["rows_current"],
                 "rows_previous": r["rows_previous"],
                 "row_change_pct": r["row_change_pct"],
