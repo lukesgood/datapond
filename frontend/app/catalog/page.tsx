@@ -66,7 +66,10 @@ interface CollectionsResponse { collections?: CollectionOption[] }
 interface CatalogColumn { name: string; type: string }
 
 function CatalogPageInner() {
-  const [showGraph, setShowGraph] = useState(false)
+  // Open. The card held 29 observed relationships on the live deployment and showed
+  // a collapsed header with no hint of them, so the feature read as missing rather
+  // than as hidden — which is exactly how it was reported. It still collapses.
+  const [showGraph, setShowGraph] = useState(true)
   const [data, setData] = useState<CatalogData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
