@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
+import dynamic from "next/dynamic"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,7 +12,13 @@ import {
 import { Markdown } from "@/components/ui/markdown"
 import { DestructiveCard } from "@/components/chat/destructive-card"
 import { genericPreviewEntries } from "@/lib/preview-render"
-import { Bot, Loader2, PanelRightClose, Check, X, Play } from "lucide-react"
+import { Bot, Loader2, PanelRightClose, Check, X, Play, BarChart3 } from "lucide-react"
+
+// Same renderer the query page uses, loaded the same way: recharts does not
+// survive server rendering.
+const ChartRenderer = dynamic(
+  () => import("@/components/query/chart-renderer").then(m => ({ default: m.ChartRenderer })),
+  { ssr: false })
 
 type Turn = {
   role: "user" | "assistant"
@@ -334,7 +341,11 @@ function ActionResult({ action, onPropose, busy }: {
 }) {
   const r = action.result ?? {}
 
-  if (typeof r.sql === "string" && r.sql.trim()) {
+  // `sql` alone is a generated statement. query.run now returns the statement
+  // alongside its rows so a chart can be saved without a second model round
+  // trip — without this guard that result would render as the SQL card and the
+  // rows would never be shown.
+  if (typeof r.sql === "string" && r.sql.trim() && !Array.isArray(r.rows)) {
     return (
       <div className="rounded-lg border bg-muted/30 p-2.5 text-xs">
         {typeof r.explanation === "string" && r.explanation && (
@@ -362,10 +373,85 @@ function ActionResult({ action, onPropose, busy }: {
     )
   }
 
-  if (Array.isArray(r.columns) && Array.isArray(r.rows)) {
-    const cols = r.columns as string[]
-    const rows = r.rows as unknown[][]
+  if (action.id === "dashboard.save" && typeof r.id === "string" && r.id) {
     return (
+      <p className="text-xs">
+        <a href={`/dashboards/${String(r.id)}`}
+           className="font-medium text-foreground underline underline-offset-2">
+          {typeof r.name === "string" && r.name ? r.name : "Dashboard"}
+        </a>
+        <span className="text-muted-foreground"> saved</span>
+      </p>
+    )
+  }
+
+  if (Array.isArray(r.columns) && Array.isArray(r.rows)) {
+    return <TabularResult result={r} onPropose={onPropose} busy={busy} />
+  }
+
+  return (
+    <p className="text-xs text-muted-foreground">
+      {action.label}: {summarise(action.result)}
+    </p>
+  )
+}
+
+/** Rows, optionally drawn, and offered for saving.
+ *
+ *  Asked for a chart, the assistant could do three things and did none of them: the
+ *  tool was scoped to one page, the prompt never said it could, and a result rendered
+ *  as a table or as "done". The last of those lives here.
+ */
+function TabularResult({ result, onPropose, busy }: {
+  result: Record<string, unknown>
+  onPropose: (id: string, params: Record<string, unknown>) => void
+  busy: boolean
+}) {
+  const r = result
+  const cols = (r.columns as string[]) ?? []
+  const rows = (r.rows as unknown[][]) ?? []
+  const sql = typeof r.sql === "string" ? r.sql : ""
+  const [chartType, setChartType] = useState<"table" | "bar" | "line">("table")
+  const [name, setName] = useState("")
+
+  // The query page's convention, so a chart saved from here and one saved from there
+  // describe the same shape.
+  const data = rows.map(row => {
+    const obj: Record<string, unknown> = {}
+    cols.forEach((c, i) => { obj[c] = row[i] })
+    return obj
+  })
+  const xAxis = cols[0] ?? ""
+  const yAxis = cols[1] ?? cols[0] ?? ""
+  const canChart = cols.length >= 2 && rows.length > 0
+
+  if (chartType !== "table") {
+    return (
+      <div className="rounded-lg border p-2 text-xs">
+        <div className="mb-2 flex items-center gap-1.5">
+          <Button size="sm" variant="ghost" className="h-6 px-2 text-2xs"
+                  onClick={() => setChartType("table")}>Table</Button>
+          <span className="text-2xs text-muted-foreground">{xAxis} × {yAxis}</span>
+        </div>
+        <div className="h-52">
+          <ChartRenderer data={data} chartType={chartType} xAxis={xAxis} yAxis={yAxis} />
+        </div>
+        {sql && (
+          <div className="mt-2 flex items-center gap-1.5 border-t pt-2">
+            <Input value={name} onChange={e => setName(e.target.value)}
+                   placeholder="Dashboard name" className="h-7 text-xs" />
+            <Button size="sm" className="h-7 shrink-0 text-xs" disabled={busy || !name.trim()}
+                    onClick={() => onPropose("dashboard.save",
+                                             { name: name.trim(), sql, chart_type: chartType })}>
+              Save
+            </Button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
       <div className="rounded-lg border text-xs">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -390,15 +476,17 @@ function ActionResult({ action, onPropose, busy }: {
           {rows.length > 20 && " · showing the first 20"}
           {r.truncated === true && " · the result was truncated"}
         </p>
+        {canChart && (
+          <div className="flex items-center gap-1.5 border-t px-2 py-1">
+            <BarChart3 className="h-3 w-3 text-muted-foreground" />
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-2xs"
+                    onClick={() => setChartType("bar")}>Bar</Button>
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-2xs"
+                    onClick={() => setChartType("line")}>Line</Button>
+          </div>
+        )}
       </div>
     )
-  }
-
-  return (
-    <p className="text-xs text-muted-foreground">
-      {action.label}: {summarise(action.result)}
-    </p>
-  )
 }
 
 function summarise(result: unknown): string {
