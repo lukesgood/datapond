@@ -538,10 +538,22 @@ helm -n datapond upgrade datapond helm/datapond --reset-then-reuse-values \
   --set externalDatabase.appUser="" --set externalDatabase.appPasswordSecretKey=""
 ```
 
-**Not done on the live reference deployment.** It still connects as the owning role, so
-its audit tables are append-only by trigger, not WORM. The code-side prerequisite above
-is in place and verified against the live database; what remains is step 1's password,
-an operator action with a credential this repo never holds.
+**Done on the live reference deployment (2026-09-17, release rev 37).** The backend
+connects as `datapond_app`. Verified from inside the running container: reads answer
+across `security_audit_log`, `system_settings` and `ai_collections`; `UPDATE` is refused
+on all three audit tables; `/api/health` returns 200. The migration Job still runs as
+the owning credential, so schema changes keep working.
+
+The password was generated on the node, written straight into `datapond-secrets`, and
+never printed — rotating it means repeating steps 1 and 2, not recovering the old value.
+
+One trap cost a failed attempt, and it is worth knowing before touching this again.
+`$(APP_DB_USER)` in the URL is expanded by kubelet **only** against variables defined
+earlier in the *same container's* env list. The first attempt defined them on the
+wait-for-schema init container alone, so the backend authenticated as a user literally
+named `$(APP_DB_USER)` — which Aurora reports as a password failure, pointing at
+credentials rather than at templating. `backend/tests/test_helm_env_substitution.py`
+now asserts every `$(VAR)` any container references is resolvable by that container.
 
 ### Changing release values (not image tags)
 
