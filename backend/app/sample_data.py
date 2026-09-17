@@ -24,6 +24,7 @@ nothing behind it teaches whoever is looking that the product is lying to them.
 """
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
+import json as _json
 from hashlib import sha256
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -291,6 +292,88 @@ CAMPAIGN_TOUCHES = [{
 } for i in range(1, 8001)]
 
 
+# ── telemetry ─────────────────────────────────────────────────────────────────
+# Shapes the four commercial domains do not have: a time series, a semi-structured
+# payload, and a prose corpus long enough to retrieve against. Charts drawn from
+# `orders` are bar charts of categories; nothing here could draw a line over time,
+# and Knowledge had three short prose columns and nothing resembling a document.
+
+_SERVICE = ["backend", "frontend", "litellm", "postgres", "valkey"]
+_METRIC = ["cpu_percent", "memory_mb", "request_rate", "p95_latency_ms"]
+
+SERVICE_METRICS = [{
+    "id": i,
+    "service": _pick(_SERVICE, "svc", i),
+    "metric": _pick(_METRIC, "met", i),
+    # A walk rather than noise: a flat random series makes every line chart look the
+    # same and teaches nothing about the data.
+    "value": round(20 + (_n("mval", i) % 60) + (i % 240) * 0.05, 2),
+    "observed_at": _EPOCH + timedelta(minutes=(i % 2880) * 5),
+} for i in range(1, 12001)]
+
+_API_PATH = ["/api/ai/rag", "/api/ai/search", "/api/queries/execute",
+             "/api/catalog/schemas", "/api/connectors", "/api/auth/login"]
+_API_METHOD = ["GET", "GET", "GET", "POST", "POST"]
+
+API_EVENTS = [{
+    "id": i,
+    "customer_id": CUSTOMERS[_n("acust", i) % len(CUSTOMERS)]["id"],
+    "path": _pick(_API_PATH, "apath", i),
+    "method": _pick(_API_METHOD, "amethod", i),
+    "status_code": _pick([200, 200, 200, 200, 400, 403, 500], "acode", i),
+    "latency_ms": _n("alat", i) % 1800 + 12,
+    # The semi-structured column. json.dumps here, cast in the insert: asyncpg sends
+    # a str and Postgres will not coerce text into jsonb by itself.
+    "payload": _json.dumps({
+        "request_id": f"req-{_n('areq', i) % 10**8:08d}",
+        "client": _pick(["sdk-python", "sdk-node", "curl", "console"], "acli", i),
+        "tokens": {"prompt": _n("atp", i) % 900, "completion": _n("atc", i) % 400},
+        "flags": [f for f in ("cached", "reranked", "masked")
+                  if _n("aflag", i, f) % 3 == 0],
+    }, ensure_ascii=False),
+    "occurred_at": _when("api", i),
+} for i in range(1, 9001)]
+
+_ARTICLE_TOPIC = [
+    ("컬렉션 재임베딩이 지연될 때 확인할 것",
+     "재임베딩이 예정 시각에 돌지 않는 경우, 먼저 컬렉션의 refresh_enabled 와 "
+     "refresh_interval_minutes 를 확인합니다. 스케줄러는 인프로세스로 동작하며 복제본이 "
+     "여럿이어도 advisory lock 으로 한 번만 수행됩니다. 소스가 가리키는 스키마와 테이블이 "
+     "동기화 이후 이름이 바뀌었다면 재임베딩은 성공으로 기록되지만 아무 문서도 갱신되지 "
+     "않습니다. 마지막 수행 시각과 문서 수를 함께 보는 것이 가장 빠른 판별법입니다."),
+    ("외부 모델로 데이터가 나가지 않게 하는 방법",
+     "egress 정책을 local-only 로 두면 임베딩과 채팅 모두 외부 제공자를 차단합니다. "
+     "이 판정은 fail-closed 입니다 — 게이트웨이를 조회할 수 없어 제공자가 로컬임을 "
+     "증명하지 못하면 호출을 막습니다. 다만 이것은 애플리케이션 수준 통제이며 네트워크 "
+     "차단이 아니므로, 망 분리가 요구되는 환경에서는 별도의 네트워크 정책이 필요합니다."),
+    ("감사 로그가 지워지지 않도록 하는 구성",
+     "런타임이 감사 테이블을 수정하지 못하게 하려면 소유자가 아닌 별도 역할로 접속해야 "
+     "합니다. 마이그레이션이 만드는 역할은 DML 은 가지되 세 감사 테이블에 대한 UPDATE 와 "
+     "DELETE 가 회수되어 있습니다. 전환 후에는 접속 role 과 UPDATE 거부 여부를 함께 "
+     "확인해야 하며, 마이그레이션 작업은 스키마를 바꿔야 하므로 소유자 자격을 유지합니다."),
+    ("개인정보 마스킹 범위를 컬렉션별로 좁히는 법",
+     "배포 전체 기본값 위에 컬렉션과 호출자 단위로 더 엄격한 모드를 걸 수 있습니다. "
+     "완화는 불가능하며 언제나 가장 엄격한 값이 적용됩니다. 주민등록번호와 신용카드는 "
+     "체크섬까지 검증하므로 무작위 숫자열의 오탐이 적고, 자격증명은 이름이 붙은 대입 "
+     "형태이거나 구조적으로 명백한 경우에만 탐지합니다."),
+    ("검색 결과가 비어 있을 때의 점검 순서",
+     "먼저 컬렉션에 문서가 적재되었는지 확인하고, 그 다음 임베딩 차원이 저장된 벡터와 "
+     "일치하는지 봅니다. 모델을 바꾸면 차원이 달라질 수 있고, 차원이 어긋나면 적재는 "
+     "실패하지만 검색은 조용히 0건을 돌려줍니다. 재순위화 모델이 설정되어 있으나 응답하지 "
+     "않는 경우에는 유사도 순서로 대체되며 검색이 실패하지는 않습니다."),
+]
+
+KNOWLEDGE_ARTICLES = [{
+    "id": i,
+    "title": f"{_ARTICLE_TOPIC[(i - 1) % len(_ARTICLE_TOPIC)][0]} ({i})",
+    "category": _pick(["운영", "보안", "거버넌스", "검색"], "acat", i),
+    # Long-form prose. The three existing sources are a product blurb, a support
+    # message and a campaign brief; none of them is a document.
+    "body": _ARTICLE_TOPIC[(i - 1) % len(_ARTICLE_TOPIC)][1],
+    "published_on": (_EPOCH - timedelta(days=_n("apub", i) % 400)).date(),
+} for i in range(1, 61)]
+
+
 # ── the dataset ───────────────────────────────────────────────────────────────
 
 DATASET: List[Table] = [
@@ -367,6 +450,23 @@ DATASET: List[Table] = [
         "channel": "VARCHAR(30) NOT NULL", "started_on": "DATE",
         "budget": "NUMERIC(14,2)", "brief": "TEXT",
     }, CAMPAIGNS),
+    Table("service_metrics", "telemetry", {
+        "id": "BIGSERIAL PRIMARY KEY", "service": "VARCHAR(50) NOT NULL",
+        "metric": "VARCHAR(50) NOT NULL", "value": "DOUBLE PRECISION NOT NULL",
+        "observed_at": "TIMESTAMPTZ NOT NULL",
+    }, SERVICE_METRICS),
+    Table("api_events", "telemetry", {
+        "id": "BIGSERIAL PRIMARY KEY", "customer_id": "INTEGER",
+        "path": "VARCHAR(255) NOT NULL", "method": "VARCHAR(10) NOT NULL",
+        "status_code": "INTEGER NOT NULL", "latency_ms": "INTEGER NOT NULL",
+        "payload": "JSONB", "occurred_at": "TIMESTAMPTZ",
+    }, API_EVENTS, [ForeignKey("api_events", "customer_id", "customers")]),
+    Table("knowledge_articles", "telemetry", {
+        "id": "SERIAL PRIMARY KEY", "title": "VARCHAR(255) NOT NULL",
+        "category": "VARCHAR(50) NOT NULL", "body": "TEXT NOT NULL",
+        "published_on": "DATE",
+    }, KNOWLEDGE_ARTICLES),
+
     Table("campaign_touches", "marketing", {
         "id": "SERIAL PRIMARY KEY", "campaign_id": "INTEGER", "customer_id": "INTEGER",
         "touched_at": "TIMESTAMPTZ", "outcome": "VARCHAR(20)", "session_id": "VARCHAR(64)",
@@ -439,15 +539,30 @@ def _rows_per_statement(column_count: int) -> int:
     return max(1, MAX_BIND_PARAMS // max(1, column_count))
 
 
+def _cast_for(spec: str) -> str:
+    """The cast a placeholder needs, from the column's declared type.
+
+    asyncpg sends a Python str as text, and Postgres will not coerce text into jsonb
+    on its own — "column is of type jsonb but expression is of type text". Every
+    other jsonb write in this codebase spells the cast out ($5::jsonb); deriving it
+    from the declaration keeps the two from drifting when a column is added.
+    """
+    declared = spec.strip().upper()
+    if declared.startswith("JSONB"):
+        return "::jsonb"
+    return ""
+
+
 def _insert_for(t: Table, rows: List[Dict[str, Any]]) -> Tuple[str, List[Any]]:
     columns = list(t.columns)
+    casts = [_cast_for(t.columns[c]) for c in columns]
     args: List[Any] = []
     tuples = []
     for row in rows:
         placeholders = []
-        for column in columns:
+        for column, cast in zip(columns, casts):
             args.append(row[column])
-            placeholders.append(f"${len(args)}")
+            placeholders.append(f"${len(args)}{cast}")
         tuples.append("(" + ", ".join(placeholders) + ")")
     sql = (f"INSERT INTO {t.name} ({', '.join(columns)}) VALUES\n"
            + ",\n".join(tuples) + "\nON CONFLICT DO NOTHING")
@@ -547,6 +662,11 @@ JOIN_QUERIES: List[JoinQuery] = [
               "FROM orders o JOIN customers c ON o.customer_id = c.id\n"
               "GROUP BY c.tier ORDER BY orders DESC",
               "등급별 주문 건수는?"),
+    JoinQuery("api_traffic_by_tier", ("api_events", "customers"),
+              "SELECT c.tier, count(*) AS calls\n"
+              "FROM api_events e JOIN customers c ON e.customer_id = c.id\n"
+              "GROUP BY c.tier ORDER BY calls DESC",
+              "등급별로 API 를 얼마나 호출하나?"),
     JoinQuery("basket_size", ("order_items", "orders"),
               "SELECT o.channel, avg(oi.quantity) AS avg_qty\n"
               "FROM order_items oi JOIN orders o ON oi.order_id = o.id\n"
@@ -566,6 +686,9 @@ KNOWLEDGE_SOURCES: List[KnowledgeSource] = [
     KnowledgeSource("support-knowledge-base",
                     "고객 지원 대화 — 실제 문의와 처리 내용",
                     "ticket_messages", "body"),
+    KnowledgeSource("operations-runbook",
+                    "운영 문서 — 재임베딩, egress, 감사 보관, 마스킹 점검 절차",
+                    "knowledge_articles", "body"),
     KnowledgeSource("campaign-briefs",
                     "캠페인 기획 의도, 대상 세그먼트, 성공 지표",
                     "campaigns", "brief"),
@@ -604,10 +727,34 @@ def activation_steps() -> List[ActivationStep]:
                        "that makes a relationship edge solid rather than a guess "
                        "from column names.", requires="sync"),
         ActivationStep("knowledge", "Ingest the prose columns",
-                       "Creates the collections and embeds the three columns that "
-                       "hold prose, so Knowledge has a real source to show.",
+                       "Creates the collections and embeds the columns that hold "
+                       "prose, so Knowledge has a real source to show.",
                        requires="sync"),
+        ActivationStep("refresh", "Arm the re-embed schedule",
+                       "Sets each collection to re-embed on an interval. This is the "
+                       "one workload on this profile that recurs without being asked: "
+                       "the in-process scheduler runs due collections, so it needs no "
+                       "Airflow. Quality checks already run after every sync.",
+                       requires="knowledge"),
     ]
+
+
+# How often a seeded collection re-embeds. Long enough that a demo deployment is not
+# re-embedding constantly for data that changes only when someone re-seeds it, short
+# enough that the schedule visibly fires while someone is looking at it.
+REFRESH_INTERVAL_MINUTES = 360
+
+
+def knowledge_schedule_requests() -> List[Dict[str, Any]]:
+    """One schedule per collection, in the shape /ai/collections/{name}/schedule takes.
+
+    Separate from knowledge_ingest_requests() because arming a recurring spend is a
+    different decision from loading data once: the ingest can be re-run by hand, and
+    this commits the deployment to embedding on every tick from now on.
+    """
+    return [{"collection": source.collection,
+             "interval_minutes": REFRESH_INTERVAL_MINUTES}
+            for source in KNOWLEDGE_SOURCES]
 
 
 def _qualify(sql: str, tables) -> str:

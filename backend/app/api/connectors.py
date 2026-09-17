@@ -980,6 +980,31 @@ async def activate_sample_db(user: dict = Depends(require_user)):
             entry["error"] = str(e)[:200]
         outcome["knowledge"].append(entry)
 
+    # ── the one recurring workload this profile actually runs ─────────────────
+    # Airflow is off here, so a connector cron schedule would be stored and never
+    # fire. The re-embed scheduler is in-process (app/rag_scheduler.py), so this is
+    # the schedule that genuinely recurs — and it only makes sense for a collection
+    # that ingested, which is why it follows the loop above rather than joining it.
+    from app.api.ai_vectors import ScheduleRequest, schedule_ingest
+    from app.sample_data import knowledge_schedule_requests
+
+    outcome["refresh"] = []
+    ingested = {e["collection"] for e in outcome["knowledge"] if not e.get("error")}
+    for request in knowledge_schedule_requests():
+        entry = {"collection": request["collection"]}
+        if request["collection"] not in ingested:
+            entry["skipped"] = "ingest did not succeed"
+        else:
+            try:
+                await schedule_ingest(
+                    request["collection"],
+                    ScheduleRequest(interval_minutes=request["interval_minutes"]),
+                    user=user)
+                entry["interval_minutes"] = request["interval_minutes"]
+            except Exception as e:
+                entry["error"] = str(e)[:200]
+        outcome["refresh"].append(entry)
+
     return outcome
 
 

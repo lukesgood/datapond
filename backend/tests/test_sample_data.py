@@ -381,3 +381,33 @@ def test_repair_is_not_deletion():
     from app.sample_data import connector_action
 
     assert connector_action(exists=True, decryptable=False) != "recreate"
+
+
+# ── the workload that recurs ──────────────────────────────────────────────────
+# Airflow is off on the AWS single-node profile, so a connector cron schedule is
+# stored and never fires. The re-embed scheduler is in-process, which makes it the
+# only schedule on that profile that genuinely runs.
+
+def test_the_refresh_step_follows_the_ingest_it_depends_on():
+    from app.sample_data import activation_steps
+
+    steps = [s.key for s in activation_steps()]
+    assert "refresh" in steps
+    assert steps.index("knowledge") < steps.index("refresh"), (
+        "arming a re-embed for a collection that never ingested schedules nothing")
+
+
+def test_one_schedule_per_collection():
+    from app.sample_data import KNOWLEDGE_SOURCES, knowledge_schedule_requests
+
+    requests = knowledge_schedule_requests()
+    assert [r["collection"] for r in requests] == [s.collection for s in KNOWLEDGE_SOURCES]
+
+
+def test_the_interval_is_a_positive_number_of_minutes():
+    """A zero or missing interval arms a scheduler that re-embeds on every tick."""
+    from app.sample_data import knowledge_schedule_requests
+
+    for request in knowledge_schedule_requests():
+        assert isinstance(request["interval_minutes"], int)
+        assert request["interval_minutes"] >= 60
