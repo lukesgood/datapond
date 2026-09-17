@@ -14,6 +14,7 @@ LiteLLM admin API (authenticated with the master key):
   POST /v1/chat/completions        → used here for per-backend connection tests
   GET  /health/readiness           → gateway + DB liveness
 """
+import contextvars
 import os
 import json
 import time
@@ -56,9 +57,34 @@ PROVIDERS: dict[str, dict] = {
 #   "cloud-allowed"→ external providers (Bedrock/Anthropic/OpenAI/Gemini) permitted.
 # Set via AI_EGRESS_POLICY env (Helm: ai.egressPolicy). Default keeps backward compat.
 
-def egress_policy() -> str:
+# Set per request by whoever knows the scope — today the collection gate, which knows
+# the collection's sensitivity label. Same shape as pii_ko's mode scope, so no call site
+# has to thread a policy through: egress_policy() answers with the scope applied.
+_scoped_local_only: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "ai_egress_local_only", default=False)
+
+
+def env_egress_policy() -> str:
+    """What the deployment is configured to allow, ignoring any per-request scope."""
     p = os.getenv("AI_EGRESS_POLICY", "cloud-allowed").strip().lower().replace("_", "-")
     return "local-only" if p in ("local-only", "sovereign", "no-egress", "airgap") else "cloud-allowed"
+
+
+def require_local_only() -> None:
+    """Hold this request to local models, whatever the deployment allows.
+
+    One-way, like pii_ko.tighten: there is no matching release. A scope can forbid
+    egress the deployment would have permitted; it can never permit egress the
+    deployment forbids, which is checked by env_egress_policy() winning below.
+    """
+    _scoped_local_only.set(True)
+
+
+def egress_policy() -> str:
+    """The policy in force here: the stricter of the deployment default and the scope."""
+    if _scoped_local_only.get():
+        return "local-only"
+    return env_egress_policy()
 
 
 def is_external_provider(provider: str) -> bool:

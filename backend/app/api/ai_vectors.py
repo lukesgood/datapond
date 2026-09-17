@@ -45,7 +45,9 @@ from app.api.auth import require_user
 from app.api.auth import require_permission, require_permission_or_internal
 from app.ai_context import set_actor, actor_payload, current_actor
 from app.ai_budget import is_budget_refusal, refuse_over_budget
-from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
+from app.api.ai_backends import (egress_policy, is_external_provider,
+                                 provider_of_model, require_local_only)
+from app import sensitivity
 from app.knowledge_access import may_read, may_write
 from app.runtime import component_secret
 from app.guardrails import injection
@@ -725,7 +727,8 @@ async def _collection_id(
     exactly as before membership existed.
     """
     row = await c.fetchrow(
-        """SELECT col.id, col.owner_id, col.pii_mode, m.role AS member_role
+        """SELECT col.id, col.owner_id, col.pii_mode, col.sensitivity,
+                  m.role AS member_role
            FROM ai_collections col
            LEFT JOIN ai_collection_members m
              ON m.collection_id = col.id AND m.user_id = $2
@@ -745,7 +748,13 @@ async def _collection_id(
     # touches an existing collection goes through, and it only ever tightens — see
     # pii_ko.tighten.
     from app.guardrails import pii_ko
-    pii_ko.tighten(row.get("pii_mode"))
+    # The label says what the data is; app/sensitivity.py derives what that costs.
+    # Both consequences are applied here, after authorization and never before — a
+    # caller who may not read the collection must not learn how it is classified.
+    label = row.get("sensitivity")
+    pii_ko.tighten(row.get("pii_mode"), sensitivity.pii_floor(label))
+    if sensitivity.forces_local_only(label):
+        require_local_only()
     return row["id"]
 
 
