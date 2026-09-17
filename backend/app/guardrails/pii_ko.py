@@ -13,6 +13,11 @@ Mode — env PII_GUARDRAIL_MODE:
 
 Covered: 주민/외국인등록번호(체크섬), 휴대전화, 사업자등록번호, 신용카드(Luhn),
          여권번호, 이메일. (계좌·운전면허는 오탐이 많아 기본 제외 — 필요 시 확장.)
+
+Structured secrets (AWS keys, PEM private keys, tokens, DB connection strings) are
+detected by app.guardrails.secret_scan and merged in below, so they travel the same
+masking, blocking and per-scope tightening as PII. They are not PII; they leak through
+the same pipe, which is why one guardrail handles both.
 """
 import contextvars
 import os
@@ -20,6 +25,8 @@ import re
 import logging
 from contextlib import contextmanager
 from typing import Optional
+
+from . import secret_scan
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +87,9 @@ def detect(text: str) -> list[dict]:
             if validator and not validator(val):
                 continue
             spans.append({"type": label, "start": m.start(), "end": m.end(), "match": val})
+    # Credentials are found by a sibling module but resolved and masked here, so a
+    # secret and a PII match that overlap cannot both be applied to the same offsets.
+    spans.extend(secret_scan.detect(text))
     # Resolve overlaps: sort by start, then longer match first; drop overlapping.
     spans.sort(key=lambda s: (s["start"], -(s["end"] - s["start"])))
     out: list[dict] = []
