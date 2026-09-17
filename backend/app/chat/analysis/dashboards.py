@@ -43,9 +43,14 @@ async def save_dashboard(params: dict, user: dict) -> dict:
 
 
 ACTIONS = (
+    # Offered everywhere, for the reason app/chat/analysis/query.py already gives for
+    # the query actions: the panel is on every page, and scoping an action to /query
+    # left the assistant with no way to do this anywhere else. Asked for a chart on
+    # any other page, it had no tool at all and answered in prose about one. The
+    # permission and the `dashboards` capability are what decide who may save one.
     Action("dashboard.save", "Save dashboard",
            "Save a statement and its chart as a dashboard.",
-           ("/query",), "dashboard:write", ActionKind.CREATE, DashboardSave,
+           ("*",), "dashboard:write", ActionKind.CREATE, DashboardSave,
            capability="dashboards"),
 )
 

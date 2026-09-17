@@ -105,7 +105,12 @@ async def run_query(params: dict, user: dict) -> dict:
             db=db, user=user)
     finally:
         db.close()
-    return {"columns": result.columns, "rows": result.rows[:50],
+    # The statement travels with its result so the panel can offer to save it as a
+    # chart without asking the model to propose the save all over again. That second
+    # round trip is what raised a second approval card for one request — the
+    # duplicate confirmation people actually complained about.
+    return {"sql": params["sql"],
+            "columns": result.columns, "rows": result.rows[:50],
             "row_count": result.row_count, "truncated": result.truncated}
 
 
