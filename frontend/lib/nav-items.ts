@@ -26,16 +26,21 @@ export const NAV_SECTIONS: NavSection[] = [
     hint: "Ground and serve AI applications",
     items: [
       { title: "Knowledge", url: "/knowledge" },
-      // "API", not "Connect". The dashboard's workflow already owns that word for step
-      // 01 — connecting a data *source* — which is what it means everywhere else in a
-      // data platform, and the menu item for it is Sources. Two opposite ends of the
+      // Not "Connect". The dashboard's workflow already owns that word for step 01 —
+      // connecting a data *source* — which is what it means everywhere else in a data
+      // platform, and the menu item for it is Sources. Two opposite ends of the
       // pipeline cannot share a name. The URL stays /connect: /api is the backend
       // proxy prefix.
+      //
+      // "& MCP" because the page's first card is the MCP endpoint and the menu said
+      // nothing about it. For a product whose point is tools an agent can call, the
+      // agent-native entry point should not be something you find only by opening a
+      // page named after the other one.
       //
       // ai:generate, not knowledge:read. knowledge:read covers viewer,
       // business_analyst, data_engineer and auditor — none of whom write an
       // application against the retrieval API.
-      { title: "API", url: "/connect", permission: "ai:generate" },
+      { title: "API & MCP", url: "/connect", permission: "ai:generate" },
     ],
   },
   {

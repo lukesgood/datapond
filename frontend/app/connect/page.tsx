@@ -83,7 +83,8 @@ export default function ApiPage() {
         <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-primary">Build AI</p>
         <h1 className="mt-0.5 text-2xl font-semibold tracking-tight">API</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Call this deployment from your own application. Everything below is read from
+          Call this deployment from your own application: semantic search, cited answers,
+          and governed SQL, behind a service-account key. Everything below is read from
           the running server, so it stays true as the API changes.
         </p>
       </div>

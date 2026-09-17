@@ -37,7 +37,10 @@ test("no menu item takes a name a workflow step already uses", () => {
 test("the steps that do not branch point at the expected page", () => {
   const byTitle = new Map(coreWorkflowSteps(FULL).map((s) => [s.title, s.href]))
   assert.equal(navUrls.get(byTitle.get("Ground")!), "Knowledge")
-  assert.equal(navUrls.get(byTitle.get("Connect your agent")!), "API")
+  // "API & MCP" since the menu started naming the agent-native entry point too. The
+  // contract is that the workflow step and the menu lead to the same place; the label
+  // is allowed to change, and this assertion exists to notice when it does.
+  assert.equal(navUrls.get(byTitle.get("Connect your agent")!), "API & MCP")
   assert.equal(navUrls.get(byTitle.get("Govern")!), "Governance")
 })
 
