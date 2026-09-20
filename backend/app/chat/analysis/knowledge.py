@@ -320,12 +320,18 @@ async def remove_member_action(params: dict, user: dict) -> dict:
 
 
 ACTIONS = (
+    # Offered everywhere, for the reason app/chat/analysis/query.py already gives for
+    # the query actions and dashboards.py needed too: the panel is on every page, and
+    # scoping these to /knowledge left the assistant unable to answer "what do our
+    # documents say" anywhere else — while list_collections and diagnose_collection,
+    # in this same module, were already ("*",). Asking what a collection contains is
+    # the same question on any screen. Creating one is not, so it keeps its scope.
     Action("knowledge.search", "Search knowledge",
            "Retrieve passages from a knowledge collection.",
-           ("/knowledge",), "ai:generate", ActionKind.READ, KnowledgeQuery),
+           ("*",), "ai:generate", ActionKind.READ, KnowledgeQuery),
     Action("knowledge.answer_with_citations", "Answer with citations",
            "Answer a question from a collection, with sources.",
-           ("/knowledge",), "ai:generate", ActionKind.READ, KnowledgeQuery),
+           ("*",), "ai:generate", ActionKind.READ, KnowledgeQuery),
     Action("knowledge.create_collection", "Create collection",
            "Create an empty knowledge collection.",
            ("/knowledge",), "knowledge:write", ActionKind.CREATE, CollectionCreate),
