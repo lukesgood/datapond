@@ -18,6 +18,40 @@ _COLUMNS = """id, conversation_id, user_id, action_id, page, params, preview,
               executed_at, result, error, created_at"""
 
 
+def to_jsonable(value):
+    """A value json.dumps can take, with pydantic models kept as their fields.
+
+    Executors hand back whatever the route function they wrap returns, and fifteen of
+    the forty return something other than a dict literal — `{"health": ServiceHealth(…)}`
+    among them. json.dumps refused that, and because gate._execute wraps only the
+    executor call and not the store write, the failure reached the user as a refusal
+    with no answer: live, "서비스 상태 알려줘" chose the right tool, ran it, and rendered
+    nothing.
+
+    Models are dumped rather than stringified. `default=str` alone would stop the
+    exception and store "ServiceHealth(service='backend'…)", which chat_routes then
+    puts on screen — worse than the crash, because it looks like it worked.
+    """
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if hasattr(value, "model_dump"):
+        try:
+            return value.model_dump(mode="json")
+        except Exception:
+            return value.model_dump()
+    if isinstance(value, dict):
+        return {str(k): to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [to_jsonable(v) for v in value]
+    return value
+
+
+def _dumps(value) -> str:
+    """Serialise for a jsonb column. `default=str` is this codebase's convention for
+    the leftovers — datetimes and UUIDs — see app/audit_retention.py and app/mcp."""
+    return json.dumps(to_jsonable(value), default=str)
+
+
 def _row(record) -> Optional[dict]:
     if record is None:
         return None
@@ -52,8 +86,8 @@ class PostgresInvocationStore:
                     RETURNING {_COLUMNS}""",
                 fields.get("conversation_id"), fields.get("user_id"),
                 fields["action_id"], fields.get("page"),
-                json.dumps(fields.get("params") or {}),
-                json.dumps(fields["preview"]) if fields.get("preview") is not None else None,
+                _dumps(fields.get("params") or {}),
+                _dumps(fields["preview"]) if fields.get("preview") is not None else None,
                 fields.get("request_text"), fields.get("status"),
             )
         return _row(record)
@@ -82,7 +116,7 @@ class PostgresInvocationStore:
                     sets.append("approved_at = NOW()")
             elif key == "result":
                 sets.append(f"result = ${len(values) + 1}::jsonb")
-                values.append(json.dumps(value) if value is not None else None)
+                values.append(_dumps(value) if value is not None else None)
             elif key == "approved_by":
                 sets.append(f"approved_by = ${len(values) + 1}::uuid")
                 values.append(value)
