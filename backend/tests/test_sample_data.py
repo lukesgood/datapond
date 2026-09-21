@@ -459,6 +459,24 @@ def test_every_embedded_column_is_mostly_distinct():
             f"retrieval will return the same passage repeatedly")
 
 
+def test_passages_differ_from_their_opening_words():
+    """Whole-string uniqueness is not enough, and this test exists because the weaker
+    version passed while retrieval stayed broken.
+
+    Appending a ticket number to five shared bodies made every value unique by string
+    comparison; live, the first 80 of ~120 characters were still identical, 1000 chunks
+    had five distinct openings, and a search for 환불 returned the same passage five
+    times. What an embedding sees is the text, not its tail.
+    """
+    for collection, values in _ingested_columns():
+        if len(values) < 20:
+            continue
+        openings = {str(v)[:40] for v in values}
+        assert len(openings) >= 20, (
+            f"{collection}: {len(openings)} distinct openings across {len(values)} "
+            f"passages — the variation is decorative")
+
+
 def test_no_single_passage_dominates_a_collection():
     from collections import Counter
     for collection, values in _ingested_columns():

@@ -187,21 +187,75 @@ SUPPORT_TICKETS = [{
     "opened_at": _when("ticket", i),
 } for i in range(1, 1501)]
 
-_MESSAGE_BODY = [
-    "주문한 상품이 예정일보다 사흘 늦게 도착했습니다. 배송 상태가 계속 '발송됨'으로만 표시되어 "
-    "어디까지 진행됐는지 확인이 어렵습니다. 현재 위치를 알려주실 수 있을까요?",
-    "결제 시도 시 카드 승인이 반복해서 거절됩니다. 카드사에는 문제가 없다고 확인받았고, "
-    "다른 카드로도 동일한 증상이 재현됩니다. 주문 번호를 함께 남깁니다.",
-    "설정 화면에서 프로파일 값을 바꾼 뒤 서비스가 기동되지 않습니다. 되돌렸는데도 같은 상태이고, "
-    "로그에는 권한 관련 메시지만 반복됩니다. 확인 부탁드립니다.",
-    "확인해 주셔서 감사합니다. 안내해 주신 대로 재시도하니 정상 처리되었습니다. "
-    "같은 증상이 다시 나오면 이 티켓으로 회신드리겠습니다.",
-    "담당 팀에 전달했고, 원인은 캐시 계층의 권한 설정으로 확인되었습니다. "
-    "수정 배포는 오늘 중 적용되며, 적용 후 다시 안내드리겠습니다.",
+# Composed, not picked. Subject-keyed content was the right half — a refund ticket
+# must read about refunds — but choosing from a fixed list caps the corpus at as many
+# openings as the list is long: six subjects x two bodies gave 18 distinct first-40
+# characters across 3006 messages, and retrieval still returned near-identical
+# passages. The pieces below combine, the way products.description always did, so the
+# opening varies per message instead of per subject.
+_WHEN = ["어제 오후부터", "지난주 금요일에", "오늘 오전에", "이번 주 들어",
+         "주문 직후부터", "업데이트를 적용한 뒤"]
+
+_SYMPTOM_BY_SUBJECT = {
+    "배송 지연 문의": [
+        "주문한 상품이 예정일을 사흘 넘겨 도착했습니다",
+        "배송 상태가 '발송됨'에서 더 이상 바뀌지 않습니다",
+        "배송 예정일이 두 번 변경되었는데 안내를 받지 못했습니다",
+        "받는 주소를 수정했는데 이전 주소로 출고된 것 같습니다",
+    ],
+    "결제 오류": [
+        "결제 시도 시 카드 승인이 반복해서 거절됩니다",
+        "같은 금액이 두 번 청구된 것으로 보입니다",
+        "결제는 완료됐는데 주문 내역에 반영되지 않았습니다",
+        "할인 코드가 적용되지 않은 채로 결제가 끝났습니다",
+    ],
+    "제품 설정 문의": [
+        "프로파일 값을 바꾼 뒤 서비스가 기동되지 않습니다",
+        "초기 설치 후 어떤 값을 기본으로 두어야 하는지 문서에서 찾지 못했습니다",
+        "설정을 되돌렸는데도 이전 동작으로 돌아오지 않습니다",
+        "환경별로 설정이 달라야 하는지 판단이 서지 않습니다",
+    ],
+    "환불 요청": [
+        "환불을 요청드립니다. 반품 회수는 이미 완료된 것으로 확인됩니다",
+        "부분 환불이 가능한지 문의드립니다. 두 개 중 하나만 반품했습니다",
+        "환불 예정 금액이 결제 금액과 달라 계산 근거를 알고 싶습니다",
+        "환불이 승인됐다는 안내는 받았는데 입금이 확인되지 않습니다",
+    ],
+    "계정 접근 불가": [
+        "계정에 로그인할 수 없고 비밀번호 재설정 메일도 오지 않습니다",
+        "이중 인증 기기를 교체한 뒤로 인증 코드가 맞지 않습니다",
+        "로그인 시도가 계속 실패해 계정이 잠긴 것 같습니다",
+        "담당자가 퇴사해 관리자 계정에 접근할 수 없습니다",
+    ],
+    "성능 저하 신고": [
+        "조회 응답이 평소 2초에서 20초 이상으로 늘어났습니다",
+        "대량 조회 시 간헐적으로 시간 초과가 발생합니다",
+        "같은 질의인데 실행할 때마다 소요 시간이 크게 다릅니다",
+        "동시 사용자가 늘면 응답이 급격히 느려집니다",
+    ],
+}
+
+_CONTEXT = [
+    "다른 기기에서도 동일하게 재현됩니다.",
+    "같은 조건에서 지난달에는 문제가 없었습니다.",
+    "재현 조건을 좁히지 못해 로그를 함께 첨부합니다.",
+    "영향 범위가 어디까지인지 파악이 어렵습니다.",
+    "임시로 우회했지만 근본 원인은 알지 못합니다.",
 ]
 
-# Appended so two messages on different tickets never read identically. Short on
-# purpose: the body above carries the meaning, this carries the variation.
+_ACK = ["확인해 주셔서 감사합니다.", "문의 주신 내용 확인했습니다.",
+        "담당 팀에 전달했습니다.", "이력을 조회해 보았습니다.",
+        "말씀하신 증상을 재현해 보았습니다."]
+
+_RESOLUTION_BY_SUBJECT = {
+    "배송 지연 문의": "배송사에 추적을 요청했고 현재 위치와 재배송 일정을 확인해 회신드리겠습니다.",
+    "결제 오류": "결제 로그에서 승인 요청이 중복 전송된 이력을 확인했고, 중복 건은 취소 처리하겠습니다.",
+    "제품 설정 문의": "원인은 캐시 계층의 권한 설정으로 확인되었으며 수정 배포는 오늘 중 적용됩니다.",
+    "환불 요청": "환불은 회수 확인 후 영업일 기준 3~5일 내 결제 수단으로 환급되며, 부분 환불은 반품 수량 기준으로 계산됩니다. 배송비는 정책에 따라 차감될 수 있습니다.",
+    "계정 접근 불가": "계정 잠금을 해제하고 재설정 메일을 다시 발송했습니다. 수신함을 확인해 주세요.",
+    "성능 저하 신고": "해당 시간대의 질의 계획을 확인하고 있으며, 통계 갱신 후 응답 시간이 회복되는지 함께 보겠습니다.",
+}
+
 _MESSAGE_TAIL = [
     "회신은 등록된 이메일로 받고 싶습니다.",
     "담당자 배정 후 진행 상황을 공유해 주세요.",
@@ -222,9 +276,18 @@ TICKET_MESSAGES = [{
     # search then returned the same sentence five times for any query — retrieval
     # looked broken when the corpus was. products.description was always fine at 98%
     # unique because it composes its pieces from `i`; this now does the same.
-    "body": (_pick(_MESSAGE_BODY, "body", ticket["id"], k)
-             + f" (티켓 {ticket['id']}, {_pick(_TICKET_SUBJECT, 'subj', ticket['id'])} 건) "
-             + _pick(_MESSAGE_TAIL, "tail", ticket["id"], k)),
+    # Keyed on the ticket's own subject so the first clause already says what this is
+    # about, then varied per message. A refund ticket now reads about refunds; before,
+    # "환불" appeared only in a parenthetical appended to an unrelated body.
+    # Opening varies per message: when x symptom for a customer turn, acknowledgement
+    # x subject for an agent's. The subject still decides what it is about.
+    "body": ((f"{_pick(_WHEN, 'when', ticket['id'], k)} "
+              f"{_pick(_SYMPTOM_BY_SUBJECT[ticket['subject']], 'sym', ticket['id'], k)}. "
+              f"{_pick(_CONTEXT, 'ctx', ticket['id'], k)}")
+             if k == 0 else
+             (f"{_pick(_ACK, 'ack', ticket['id'], k)} "
+              f"{_RESOLUTION_BY_SUBJECT[ticket['subject']]}")
+             ) + f" (티켓 {ticket['id']}) " + _pick(_MESSAGE_TAIL, "tail", ticket["id"], k),
     "sent_at": ticket["opened_at"] + timedelta(hours=k * 3 + 1),
 } for n, (ticket, k) in enumerate(
     ((t, k) for t in SUPPORT_TICKETS for k in range(_n("msgs", t["id"]) % 3 + 1)), start=1)]
@@ -395,10 +458,14 @@ KNOWLEDGE_ARTICLES = [{
     "category": _pick(["운영", "보안", "거버넌스", "검색"], "acat", i),
     # Long-form prose. The three existing sources are a product blurb, a support
     # message and a campaign brief; none of them is a document.
-    "body": (_ARTICLE_TOPIC[(i - 1) % len(_ARTICLE_TOPIC)][1]
-             + f"\n\n적용 범위는 {_pick(_ARTICLE_SCOPE, 'scope', i)}이며, "
-             + f"{_pick(_ARTICLE_TRIGGER, 'trig', i)} 상황에서 우선 확인합니다. "
-             + f"점검 주기는 {_n('cycle', i) % 4 * 7 + 7}일입니다."),
+    # The frame goes first. Five topic paragraphs repeated verbatim left 60 articles
+    # with five distinct openings; leading with category x scope x trigger varies what
+    # an embedding sees from the first words.
+    "body": (f"[{_pick(['운영', '보안', '거버넌스', '검색'], 'acat', i)}] "
+             f"{_pick(_ARTICLE_SCOPE, 'scope', i)}에서 "
+             f"{_pick(_ARTICLE_TRIGGER, 'trig', i)} 확인하는 절차입니다. "
+             f"점검 주기는 {_n('cycle', i) % 4 * 7 + 7}일입니다.\n\n"
+             + _ARTICLE_TOPIC[(i - 1) % len(_ARTICLE_TOPIC)][1]),
     "published_on": (_EPOCH - timedelta(days=_n("apub", i) % 400)).date(),
 } for i in range(1, 61)]
 
