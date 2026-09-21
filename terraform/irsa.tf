@@ -39,8 +39,8 @@ data "aws_iam_policy_document" "litellm_bedrock" {
     # reranking was simply off in production with nothing surfacing it. Found by
     # probing the gateway directly — the log line was truncated and the pod's earlier
     # logs were gone.
-    actions   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream",
-                 "bedrock:Rerank"]
+    actions = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream",
+    "bedrock:Rerank"]
     resources = ["*"] # scope to inference-profile ARNs once finalized
   }
 }
