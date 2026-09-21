@@ -200,12 +200,31 @@ _MESSAGE_BODY = [
     "수정 배포는 오늘 중 적용되며, 적용 후 다시 안내드리겠습니다.",
 ]
 
+# Appended so two messages on different tickets never read identically. Short on
+# purpose: the body above carries the meaning, this carries the variation.
+_MESSAGE_TAIL = [
+    "회신은 등록된 이메일로 받고 싶습니다.",
+    "담당자 배정 후 진행 상황을 공유해 주세요.",
+    "동일 증상이 재현되면 로그를 첨부해 다시 올리겠습니다.",
+    "처리 완료까지 예상 소요 시간을 알려주시면 좋겠습니다.",
+    "우선순위 조정이 필요하면 알려주세요.",
+    "관련 주문 번호를 함께 확인 부탁드립니다.",
+    "동일 문의가 반복되지 않도록 원인을 기록해 두었습니다.",
+]
+
 TICKET_MESSAGES = [{
     "id": n,
     "ticket_id": ticket["id"],
     "sender": "customer" if k == 0 else _pick(["agent", "customer"], "sender", ticket["id"], k),
     # The support knowledge base embeds this column.
-    "body": _pick(_MESSAGE_BODY, "body", ticket["id"], k),
+    # Varied per message, not picked whole. Five bodies reused verbatim gave the
+    # support collection 1000 chunks of 5 distinct texts (0.5% unique), and vector
+    # search then returned the same sentence five times for any query — retrieval
+    # looked broken when the corpus was. products.description was always fine at 98%
+    # unique because it composes its pieces from `i`; this now does the same.
+    "body": (_pick(_MESSAGE_BODY, "body", ticket["id"], k)
+             + f" (티켓 {ticket['id']}, {_pick(_TICKET_SUBJECT, 'subj', ticket['id'])} 건) "
+             + _pick(_MESSAGE_TAIL, "tail", ticket["id"], k)),
     "sent_at": ticket["opened_at"] + timedelta(hours=k * 3 + 1),
 } for n, (ticket, k) in enumerate(
     ((t, k) for t in SUPPORT_TICKETS for k in range(_n("msgs", t["id"]) % 3 + 1)), start=1)]
@@ -363,13 +382,23 @@ _ARTICLE_TOPIC = [
      "않는 경우에는 유사도 순서로 대체되며 검색이 실패하지는 않습니다."),
 ]
 
+# Same reason as the ticket bodies: five articles repeated verbatim made 60 chunks
+# of 5 distinct texts, so every query into the runbook returned the same paragraph.
+_ARTICLE_SCOPE = ["단일 노드 배포", "다중 복제본 배포", "에어갭 환경",
+                  "외부 모델 사용 배포", "온프레미스 모델 배포"]
+_ARTICLE_TRIGGER = ["배포 직후", "스케줄 실패가 반복될 때", "모델을 교체한 뒤",
+                    "권한 변경 이후", "감사 지적을 받은 뒤"]
+
 KNOWLEDGE_ARTICLES = [{
     "id": i,
-    "title": f"{_ARTICLE_TOPIC[(i - 1) % len(_ARTICLE_TOPIC)][0]} ({i})",
+    "title": f"{_ARTICLE_TOPIC[(i - 1) % len(_ARTICLE_TOPIC)][0]} — {_pick(_ARTICLE_SCOPE, 'scope', i)}",
     "category": _pick(["운영", "보안", "거버넌스", "검색"], "acat", i),
     # Long-form prose. The three existing sources are a product blurb, a support
     # message and a campaign brief; none of them is a document.
-    "body": _ARTICLE_TOPIC[(i - 1) % len(_ARTICLE_TOPIC)][1],
+    "body": (_ARTICLE_TOPIC[(i - 1) % len(_ARTICLE_TOPIC)][1]
+             + f"\n\n적용 범위는 {_pick(_ARTICLE_SCOPE, 'scope', i)}이며, "
+             + f"{_pick(_ARTICLE_TRIGGER, 'trig', i)} 상황에서 우선 확인합니다. "
+             + f"점검 주기는 {_n('cycle', i) % 4 * 7 + 7}일입니다."),
     "published_on": (_EPOCH - timedelta(days=_n("apub", i) % 400)).date(),
 } for i in range(1, 61)]
 

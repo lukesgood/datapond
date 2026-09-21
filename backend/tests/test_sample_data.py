@@ -435,3 +435,35 @@ def test_the_source_block_names_a_real_column():
         source = request["source"]
         assert source["table"] in table_names()
         assert source["text_column"] in table(source["table"]).columns
+
+
+# ── the corpus has to be worth retrieving against ────────────────────────────────
+# Live: support-knowledge-base held 1000 chunks of 5 distinct texts. Vector search
+# returned the same sentence five times for any query, and the assistant answered
+# "I cannot find that" about content the collection did contain. Nothing failed —
+# every test above passed — because "the table has rows" says nothing about whether
+# those rows differ.
+
+def _ingested_columns():
+    from app.sample_data import KNOWLEDGE_SOURCES, table
+    return [(s.collection, [row[s.column] for row in table(s.table).rows])
+            for s in KNOWLEDGE_SOURCES]
+
+
+def test_every_embedded_column_is_mostly_distinct():
+    """Duplicates cluster in embedding space and crowd out the top k."""
+    for collection, values in _ingested_columns():
+        unique = len({str(v) for v in values})
+        assert unique / len(values) >= 0.8, (
+            f"{collection}: {unique} distinct of {len(values)} — "
+            f"retrieval will return the same passage repeatedly")
+
+
+def test_no_single_passage_dominates_a_collection():
+    from collections import Counter
+    for collection, values in _ingested_columns():
+        if len(values) < 10:
+            continue
+        most = Counter(str(v) for v in values).most_common(1)[0][1]
+        assert most / len(values) <= 0.05, (
+            f"{collection}: one passage is {most} of {len(values)} rows")

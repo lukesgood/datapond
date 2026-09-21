@@ -29,7 +29,13 @@ data "aws_iam_policy_document" "app" {
   }
   statement {
     sid       = "BedrockInvoke"
-    actions   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+    # Rerank is a separate action from InvokeModel, and its absence does not fail a
+    # request: retrieval catches the 403 and falls back to plain vector order, so
+    # reranking was simply off in production with nothing surfacing it. Found by
+    # probing the gateway directly — the log line was truncated and the pod's earlier
+    # logs were gone.
+    actions   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream",
+                 "bedrock:Rerank"]
     resources = ["*"] # scope to inference-profile ARNs once finalized
   }
   statement {
