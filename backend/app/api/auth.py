@@ -1010,6 +1010,16 @@ async def update_user(user_id: str, body: dict, admin: dict = Depends(require_pe
 
     values.append(uuid.UUID(user_id))
     async with pool.acquire() as conn:
+        # POST /service-accounts refuses role=admin; without this the user editor is
+        # the side door, and every key the account holds widens with its role.
+        if body.get("role") == "admin":
+            target = await conn.fetchrow(
+                "SELECT auth_method FROM users WHERE id = $1", uuid.UUID(user_id))
+            if target and str(target["auth_method"] or "").lower() == "service":
+                raise HTTPException(
+                    status_code=400,
+                    detail="A service account cannot hold the admin role. Grant the "
+                           "permissions it needs through its key's scopes instead.")
         await conn.execute(
             f"UPDATE users SET {', '.join(updates)} WHERE id = ${idx}",
             *values

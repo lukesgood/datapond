@@ -35,10 +35,6 @@ class RelationshipQuery(_Strict):
         default=None,
         description="Limit to relationships involving this table, written namespace.table. "
                     "Omit for every relationship the catalog knows.")
-    days: int = Field(
-        default=30,
-        description="Relationships are inferred from column naming, not query history — "
-                    "this value does not currently affect the result.")
 
 
 async def describe_table(params: dict, user: dict) -> dict:

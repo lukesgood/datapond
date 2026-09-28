@@ -538,6 +538,33 @@ def test_update_user_refuses_a_role_outside_assignable_roles(monkeypatch):
     assert conn.execute_calls == []
 
 
+def test_update_user_refuses_admin_for_a_service_account(monkeypatch):
+    """POST /service-accounts refuses role=admin; the user editor must not be the side
+    door. A service account's row is an ordinary `users` row, so without this check an
+    administrator could PATCH it to admin and every key it holds would widen with it."""
+    conn = _FakeConn(row={"auth_method": "service"})
+    _patch_pool(monkeypatch, conn)
+
+    with pytest.raises(HTTPException) as exc:
+        _run(auth.update_user(
+            OTHER_USER_ID, {"role": "admin"}, {"id": USER_ID, "role": "admin"},
+        ))
+    assert exc.value.status_code == 400
+    assert "service account" in exc.value.detail
+    assert conn.execute_calls == []
+
+
+def test_update_user_still_grants_admin_to_a_person(monkeypatch):
+    conn = _FakeConn(row={"auth_method": "local"})
+    _patch_pool(monkeypatch, conn)
+
+    result = _run(auth.update_user(
+        OTHER_USER_ID, {"role": "admin"}, {"id": USER_ID, "role": "admin"},
+    ))
+    assert result == {"message": "User updated"}
+    assert conn.execute_calls[0][1][0] == "admin"
+
+
 def test_update_user_rejects_empty_or_invalid_fields(monkeypatch):
     _patch_pool(monkeypatch, _FakeConn())
 

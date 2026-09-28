@@ -18,9 +18,23 @@
 | 감사 — 거부는 기록 없음 | MCP의 거부 다섯 경로가 `refused` 행을 남긴다 | 마이그레이션 0010, `app/mcp/server.py`, 커밋 `65f8d44` |
 | 비용 통제 — 강제 없음 | 호출자별 예산을 게이트웨이에 걸고, 초과 호출은 402로 거부·감사된다 | `app/ai_budget.py`, `app/api/ai_budgets.py`, 커밋 `bb6ab48` |
 
-여전히 열려 있는 것: `/queries/execute` 결과 행의 PII 미검사, 호출자·컬렉션별 PII 정책,
-`save_history=false`로 query_history를 건너뛸 수 있는 점(단 `tool_call_log`에는 남는다),
-DDL 거부가 `security_audit_log`에 남지 않는 점, append-only가 WORM은 아닌 점.
+2026-09-16 당시 열려 있던 다섯 항목도 이후 닫혔다 (2026-09-28 확인):
+
+| 당시 열린 항목 | 지금 | 근거 |
+|---|---|---|
+| `/queries/execute` 결과 행 PII 미검사 | `mask_result_rows`가 모드별로 마스킹·차단, 건수는 도구 호출 로그에 | 커밋 `2ca4525` |
+| DDL·쓰기 거부가 감사에 남지 않음 | 거부 전에 `security_audit_log` 행을 쓴다 | 커밋 `2ca4525` |
+| `save_history=false`로 query_history 회피 | 사람만 선택 가능, 서비스 계정은 항상 기록 | `backend/app/api/queries.py` `_history_is_optional` |
+| 호출자·컬렉션별 PII 정책 없음 | 호출자·컬렉션이 env 기본값보다 강하게 조일 수 있다 | 커밋 `81563c1`, `ea744a8` |
+| append-only ≠ WORM | 런타임 DB 역할이 감사 테이블을 UPDATE/DELETE하지 못한다(라이브 rev 37 확인). 스토리지 수준 WORM은 아니다 | 커밋 `a25f68c`, `3622eb0` |
+
+같은 날 닫은 작은 항목: `PATCH /api/auth/users/{id}`로 서비스 계정에 `admin`을 줄 수 있던 옆문을
+막았고, 아무 효과 없던 도구 파라미터 `catalog.explain_relationships.days`·`spend.summarize.days`를
+제거했다.
+
+여전히 열려 있는 것: MCP OAuth 리소스 서버 모드(게이트웨이 뒤에서 호출자가 한 서비스 계정으로
+뭉치는 문제), 청크 단위 호출자 필터, 서비스 계정 키 회전, API 키 호출 rate limit, 게이트웨이용
+OpenAPI 부분집합(`anyOf` 제거).
 
 ## 1. 결론
 

@@ -22,7 +22,7 @@ def _params_for(action_id: str) -> dict:
     return {
         "catalog.describe_table": {"namespace": "sales", "table": "orders"},
         "catalog.find_tables": {"query": "orders"},
-        "catalog.explain_relationships": {"table": None, "days": 30},
+        "catalog.explain_relationships": {"table": None},
         "query.generate_sql": {"question": "totals by region"},
         "query.explain_plan": {"sql": "SELECT 1"},
         "query.run": {"sql": "SELECT 1"},
@@ -49,7 +49,7 @@ def _params_for(action_id: str) -> dict:
         "governance.delete_rls_policy": {"policy_id": "rls-1"},
         "governance.delete_masking_policy": {"policy_id": "m-1"},
         "audit.activity_summary": {"days": 7},
-        "spend.summarize": {"days": 30},
+        "spend.summarize": {},
         "spend.diagnose_change": {"days": 7},
         "connectors.list_sources": {},
         "connectors.sync_history": {"connection_id": "c1", "limit": 5},

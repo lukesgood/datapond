@@ -13,13 +13,6 @@ from app.chat.actions import Action, ActionKind, _Strict
 from app.chat.analysis._resolve import _r
 
 
-class SpendQuery(_Strict):
-    days: int = Field(
-        default=30,
-        description="Not currently applied — the summary always aggregates all-time "
-                    "spend across every virtual key, regardless of this value.")
-
-
 class SpendWindow(_Strict):
     days: int = Field(
         default=7, ge=1, le=90,
@@ -160,7 +153,7 @@ async def diagnose_change(params: dict, user: dict) -> dict:
 ACTIONS = (
     Action("spend.summarize", "Summarise spend",
            "Model usage and cost, all-time across every virtual key.",
-           ("/ai", "/settings"), "spend:read", ActionKind.READ, SpendQuery),
+           ("/ai", "/settings"), "spend:read", ActionKind.READ, _Strict),
     Action("spend.diagnose_change", "Diagnose spend change",
            "Whether model spend changed against the previous period of the same "
            "length, and whether the cause was call volume or cost per call.",
