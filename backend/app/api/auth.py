@@ -349,6 +349,20 @@ async def require_user_or_internal(
     return await require_user(request, credentials)
 
 
+def is_delegated_credential(user: dict) -> bool:
+    """True for a credential handed to software rather than a person's own session.
+
+    Two kinds exist: a service-account API key, and an access token from the
+    customer's IdP (app/oauth_rs.py). Both carry a permission set narrower than the
+    account's role, and every guard that decides on role alone — admin routes, the
+    human-only assistant, setting a password — must refuse them, or the narrowing is
+    undone by the first route that forgets to look at it. A token of an OIDC *person*
+    counts: it may have been exchanged to an agent, and it carries scopes a session
+    does not.
+    """
+    return bool(user.get("oauth")) or str(user.get("auth_method") or "").lower() == "service"
+
+
 async def require_admin(user: dict = Depends(require_user)) -> dict:
     """Require admin role, and a person rather than a stored credential.
 
@@ -366,11 +380,11 @@ async def require_admin(user: dict = Depends(require_user)) -> dict:
     was written. Routes an automation legitimately needs are gated on a permission
     instead, where the key's scopes decide.
     """
-    if str(user.get("auth_method") or "").lower() == "service":
+    if is_delegated_credential(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=("This action needs a signed-in administrator; an API key cannot "
-                    "perform it."),
+            detail=("This action needs a signed-in administrator; an API key or an "
+                    "access token cannot perform it."),
         )
     if user.get("role") != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
@@ -511,7 +525,7 @@ async def require_human(user: dict = Depends(require_user)) -> dict:
     it through a model to pick an action adds nondeterminism and a second round of
     token spend, and leaves the audit trail unable to name an approver.
     """
-    if str(user.get("auth_method") or "").lower() == "service":
+    if is_delegated_credential(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=("The assistant is available to signed-in people only. "
@@ -632,6 +646,14 @@ async def login(request: LoginRequest, http_request: Request = None):
                    FROM users WHERE username=$1""",
                 request.username
             )
+
+        # Only a local or directory account signs in with a password. A service
+        # account is reached through its keys and an OIDC person through the IdP; a
+        # password on either row (set by /auth/setup, or left from before the account
+        # changed kind) would otherwise mint a session with the full role, none of the
+        # key's scopes, and no tie to the key's revocation.
+        if row and str(row["auth_method"]) not in ("local", "ldap"):
+            raise HTTPException(status_code=401, detail="Invalid username or password")
 
         # Local password check (works even when LDAP is on — keeps the local admin usable).
         local_ok = bool(row and row["is_active"] and row["password_hash"]
@@ -787,17 +809,32 @@ async def setup_password(request: SetupRequest, user: dict = Depends(require_per
 
 @router.post("/auth/change-password")
 async def change_password(body: dict, user: dict = Depends(require_user)):
-    """Change own password and clear require_password_change flag."""
+    """Change own password and clear require_password_change flag.
+
+    A person's own session only, on a local account. An API key or an IdP token that
+    could set a password could then sign in with it and hold a session carrying the
+    full role instead of the scopes it was issued with.
+    """
+    if is_delegated_credential(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="A password can only be changed from a signed-in session.")
     new_password = body.get("new_password", "")
     if len(new_password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     hashed = _hash_password(new_password)
     pool = await _get_pool()
     async with pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE users SET password_hash=$1, require_password_change=false WHERE id=$2",
+        result = await conn.execute(
+            "UPDATE users SET password_hash=$1, require_password_change=false "
+            "WHERE id=$2 AND auth_method = 'local'",
             hashed, uuid.UUID(user["id"])
         )
+    if str(result).endswith(" 0"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account signs in through a directory or identity provider; "
+                   "its password is managed there.")
     return {"message": "Password changed successfully"}
 
 

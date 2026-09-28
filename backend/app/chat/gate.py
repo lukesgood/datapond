@@ -204,11 +204,12 @@ async def approve(invocation_id: str, *, user: dict, store: InvocationStore,
     # should be quick; this is where the guarantee has to hold even if some future
     # endpoint forgets the dependency — an approval with no human behind it is the one
     # thing this whole module exists to prevent.
-    if str(user.get("auth_method") or "").lower() == "service":
+    from app.api.auth import is_delegated_credential
+    if is_delegated_credential(user):
         await _audit(store, "chat_action_refused", user,
                      action=invocation["action_id"], stage="approve",
                      reason="service_account_cannot_approve")
-        raise ActionRefused("A service account cannot approve an action.")
+        raise ActionRefused("An API key or access token cannot approve an action.")
     action = resolve(invocation["action_id"])
     await _authorize(action, user, store, stage="approve")
 
