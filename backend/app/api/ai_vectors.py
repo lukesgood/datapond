@@ -30,10 +30,11 @@ import os
 import re
 import json
 import asyncio
+import contextvars
 import logging
 import time
 import uuid
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 
 import asyncpg
 import httpx
@@ -52,6 +53,7 @@ from app.knowledge_access import may_read, may_write
 from app.runtime import component_secret
 from app.guardrails import injection
 from app import tool_call_log
+from app import chunk_access
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -827,7 +829,8 @@ async def ingest(name: str, req: IngestRequest, user: dict = Depends(require_use
 
 # ── Source ingestion (the AI data pipeline: lakehouse / object store → vectors) ──
 
-def _read_iceberg_docs(schema: str, table: str, text_column: str, limit: int) -> List[tuple]:
+def _read_iceberg_docs(schema: str, table: str, text_column: str, limit: int,
+                       label_column: Optional[str] = None) -> List[tuple]:
     """One document per row of <schema>.<table>.<text_column> — read via the active
     query engine (self-hosted Trino 'iceberg' catalog, or Amazon Athena/Glue on the
     AWS foundation profile). Engine selection mirrors app.api.query_engine.get_engine()
@@ -835,8 +838,9 @@ def _read_iceberg_docs(schema: str, table: str, text_column: str, limit: int) ->
     from app.api.query_engine import get_engine, AthenaEngine
     eng = get_engine()
     src = f"{eng.ai_table_prefix}.{schema}.{table}.{text_column}"
+    columns = f'"{text_column}"' + (f', "{label_column}"' if label_column else "")
     sql = (
-        f'SELECT "{text_column}" FROM {eng.ai_table_prefix}."{schema}"."{table}" '
+        f'SELECT {columns} FROM {eng.ai_table_prefix}."{schema}"."{table}" '
         f'WHERE "{text_column}" IS NOT NULL LIMIT {int(limit)}'
     )
     if isinstance(eng, AthenaEngine):
@@ -851,8 +855,15 @@ def _read_iceberg_docs(schema: str, table: str, text_column: str, limit: int) ->
         cur = conn.cursor()
         cur.execute(sql)
         rows = cur.fetchall()
-    return [(src, str(r[0]), {"schema": schema, "table": table, "row": i})
-            for i, r in enumerate(rows)]
+    docs = []
+    for i, r in enumerate(rows):
+        meta = {"schema": schema, "table": table, "row": i}
+        # A row with no label gets no key, so a chunk access rule hides it rather
+        # than filing it under an empty value.
+        if label_column and len(r) > 1 and r[1] is not None and str(r[1]) != "":
+            meta[label_column] = str(r[1])
+        docs.append((src, str(r[0]), meta))
+    return docs
 
 
 def _read_s3_docs(bucket: str, prefix: str, max_files: int) -> List[tuple]:
@@ -883,15 +894,28 @@ class SourceIngest(BaseModel):
     table: Optional[str] = None
     text_column: Optional[str] = None
     limit: int = 1000
+    # A column whose value labels each row's chunks, for a collection's chunk access
+    # rule (app/chunk_access.py). Stored under the column's own name.
+    label_column: Optional[str] = None
     # s3
     bucket: Optional[str] = None
     prefix: Optional[str] = None
     max_files: int = 200
     chunk_size: int = 1000
     chunk_overlap: int = 150
+    # Constant labels for every document of this source, e.g. {"department": "hr"}
+    # for an S3 prefix that only HR writes to.
+    labels: Optional[Dict[str, Any]] = None
 
     class Config:
         populate_by_name = True
+
+
+def _source_labels(src: "SourceIngest") -> dict:
+    try:
+        return chunk_access.validate_labels(src.labels)
+    except chunk_access.InvalidRule as e:
+        raise HTTPException(400, str(e))
 
 
 def _ident_ok(*vals) -> bool:
@@ -909,13 +933,18 @@ def _source_group(src: "SourceIngest") -> str:
 async def _refresh_from_source(pool, coll_id, src: "SourceIngest") -> dict:
     """Read a source (Iceberg column / S3 prefix) and re-embed it into coll_id with
     replace semantics. Shared by the ingest-source endpoint and the scheduler."""
+    labels = _source_labels(src)
     if src.type == "iceberg":
         if not (src.db_schema and src.table and src.text_column):
             raise HTTPException(400, "iceberg source needs schema, table, text_column.")
         if not _ident_ok(src.db_schema, src.table, src.text_column):
             raise HTTPException(400, "schema/table/text_column must be bare identifiers.")
+        if src.label_column and (not _ident_ok(src.label_column)
+                                 or src.label_column in chunk_access.RESERVED_METADATA_KEYS):
+            raise HTTPException(400, "label_column must be a bare identifier other than "
+                                     "schema, table, row, bucket or key.")
         docs = await asyncio.to_thread(_read_iceberg_docs, src.db_schema, src.table,
-                                       src.text_column, src.limit)
+                                       src.text_column, src.limit, src.label_column)
     elif src.type == "s3":
         if not src.bucket:
             raise HTTPException(400, "s3 source needs bucket (and optional prefix).")
@@ -935,6 +964,8 @@ async def _refresh_from_source(pool, coll_id, src: "SourceIngest") -> dict:
             await c.execute(
                 "DELETE FROM ai_chunks WHERE collection_id = $1 AND source_group IS NULL AND source LIKE $2",
                 coll_id, f"s3://{src.bucket}/{src.prefix or ''}%")
+    if labels:
+        docs = [(source, text, {**labels, **(meta or {})}) for source, text, meta in docs]
     res = await _ingest_documents(coll_id, docs, src.chunk_size, src.chunk_overlap,
                                   source_group=_source_group(src))
     return {"documents": len(docs), **res}
@@ -1099,6 +1130,29 @@ async def _rerank(query: str, hits: List[dict], k: int) -> List[dict]:
         return hits[:k]
 
 
+# How many of the nearest chunks a collection's chunk access rule kept from this
+# caller. Read by _logged into the tool call log, never returned to the caller: an
+# agent told "4 better passages exist that you may not see" has learned something
+# about documents it is not entitled to.
+_withheld: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar(
+    "chunks_withheld", default=None)
+
+_NEAREST = """SELECT source, chunk_index, content, metadata,
+                      1 - (embedding <=> $1::vector) AS score
+               FROM ai_chunks
+               WHERE collection_id = $2{extra}
+               ORDER BY embedding <=> $1::vector
+               LIMIT $3"""
+
+# Of the chunks the caller would have got without the rule, how many it did not.
+_WITHHELD = """SELECT count(*) FILTER (
+                   WHERE NOT coalesce((metadata ->> $4::text) = ANY($5::text[]), false))
+               FROM (SELECT metadata FROM ai_chunks
+                     WHERE collection_id = $2
+                     ORDER BY embedding <=> $1::vector
+                     LIMIT $3) nearest"""
+
+
 async def _retrieve(name: str, query: str, k: int, user: dict,
                     rerank: Optional[bool] = None):
     """Vector search top-k chunks, then re-apply the PII guardrail to the stored
@@ -1119,15 +1173,23 @@ async def _retrieve(name: str, query: str, k: int, user: dict,
     fetch_k = min(max(k * 4, k), 50) if use_rerank else max(1, min(k, 50))
     async with pool.acquire() as c:
         coll_id = await _collection_id(c, name, user)
-        rows = await c.fetch(
-            """SELECT source, chunk_index, content, metadata,
-                      1 - (embedding <=> $1::vector) AS score
-               FROM ai_chunks
-               WHERE collection_id = $2
-               ORDER BY embedding <=> $1::vector
-               LIMIT $3""",
-            _vec_literal(qvec), coll_id, fetch_k,
-        )
+        scope = await c.fetchrow(
+            """SELECT col.chunk_access, u.attributes
+               FROM ai_collections col LEFT JOIN users u ON u.id = $2
+               WHERE col.id = $1""",
+            coll_id, _uid(user))
+        rule = chunk_access.parse_stored(scope["chunk_access"] if scope else None)
+        vec = _vec_literal(qvec)
+        if rule is None:
+            rows = await c.fetch(_NEAREST.format(extra=""), vec, coll_id, fetch_k)
+        else:
+            values = chunk_access.caller_values(scope["attributes"] if scope else None,
+                                                rule.user_attribute)
+            rows = await c.fetch(
+                _NEAREST.format(extra="\n                 AND (metadata ->> $4::text) = ANY($5::text[])"),
+                vec, coll_id, fetch_k, rule.metadata_key, values) if values else []
+            _withheld.set(int(await c.fetchval(
+                _WITHHELD, vec, coll_id, fetch_k, rule.metadata_key, values) or 0))
     pii_masked = 0
     hits = []
     for r in rows:
@@ -1267,6 +1329,47 @@ async def delete_source(name: str, source: str, user: dict = Depends(require_use
     return {"success": True, "source": source, "removed": removed}
 
 
+class ChunkAccessBody(BaseModel):
+    metadata_key: str
+    user_attribute: str
+
+
+@router.put("/ai/collections/{name}/chunk-access",
+            dependencies=[Depends(require_permission("knowledge:write"))])
+async def set_chunk_access(name: str, body: ChunkAccessBody,
+                           user: dict = Depends(require_user)):
+    """Narrow retrieval in this collection to chunks whose `metadata[metadata_key]`
+    is one of the caller's `attributes[user_attribute]` values.
+
+    Chunks without the key, and callers without the attribute, see nothing — see
+    app/chunk_access.py. Owner, editor or admin only, like any change to the
+    collection.
+    """
+    try:
+        rule = chunk_access.validate(body.model_dump())
+    except chunk_access.InvalidRule as e:
+        raise HTTPException(400, str(e))
+    stored = {"metadata_key": rule.metadata_key, "user_attribute": rule.user_attribute}
+    pool = await get_db_pool()
+    async with pool.acquire() as c:
+        coll_id = await _collection_id(c, name, user, write=True)
+        await c.execute("UPDATE ai_collections SET chunk_access = $2::jsonb WHERE id = $1",
+                        coll_id, json.dumps(stored))
+    return {"collection": name, "chunk_access": stored}
+
+
+@router.delete("/ai/collections/{name}/chunk-access",
+               dependencies=[Depends(require_permission("knowledge:write"))])
+async def clear_chunk_access(name: str, user: dict = Depends(require_user)):
+    """Every caller who may read the collection sees every chunk again."""
+    pool = await get_db_pool()
+    async with pool.acquire() as c:
+        coll_id = await _collection_id(c, name, user, write=True)
+        await c.execute("UPDATE ai_collections SET chunk_access = $2 WHERE id = $1",
+                        coll_id, None)
+    return {"collection": name, "chunk_access": None}
+
+
 @router.get("/ai/collections/{name}/composition",
             dependencies=[Depends(require_permission("knowledge:read"))])
 async def collection_composition(name: str, user: dict = Depends(require_user)):
@@ -1329,6 +1432,7 @@ async def _logged(tool: str, req_collection: str, masked_text: str, user: dict, 
     """Run `impl()`, then record one tool_call_log row describing what it returned.
     Failures are recorded as `error` and re-raised; the log never changes the response."""
     started = time.perf_counter()
+    _withheld.set(None)
     try:
         result = await impl()
     except Exception:
@@ -1352,7 +1456,8 @@ async def _logged(tool: str, req_collection: str, masked_text: str, user: dict, 
         # or withheld — see app/guardrails/injection.py — the count is how an operator
         # finds out which collection started carrying it.
         injection_flags=injection.count(
-            h.get("content") for h in (hits or []) if isinstance(h, dict)))
+            h.get("content") for h in (hits or []) if isinstance(h, dict)),
+        chunks_withheld=int(_withheld.get() or 0))
     return result
 
 

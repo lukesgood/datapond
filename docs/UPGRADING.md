@@ -3,6 +3,36 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-09 — A collection can narrow retrieval to the chunks a caller may see
+
+A collection can now carry a chunk access rule:
+`PUT /api/ai/collections/{name}/chunk-access` with
+`{"metadata_key": "department", "user_attribute": "department"}` (owner, editor or
+admin). With a rule, search and RAG return only chunks whose `metadata[metadata_key]`
+is one of the caller's `users.attributes[user_attribute]` values — the attributes the
+table RLS engine already uses. `DELETE` on the same path removes the rule.
+
+**It fails closed.** A chunk without the key is hidden, and a caller without the
+attribute gets no results. Admins are held to it too, as `RLS_ADMIN_BYPASS=false` holds
+them to table policies. So label the chunks and set the attributes before turning a rule
+on, not after.
+
+Labels reach chunks at ingest: an Iceberg source takes `label_column` (its value is
+stored under the column's name), any source takes constant `labels`
+(`{"department": "hr"}` for an S3 prefix only HR writes to), and pasted documents carry
+their own `metadata`. Scheduled re-embeds keep both, because they are stored with the
+schedule. Chunks ingested before this change carry no labels; re-ingest the source.
+
+The caller is never told how many chunks were withheld. The tool call log is:
+`tool_call_log.chunks_withheld` counts, per call, how many of the nearest chunks the
+rule kept back. Migration 0017 adds that column and `ai_collections.chunk_access`; both
+are inert until a rule is set.
+
+**Known limit.** The filter runs inside the vector query, so a caller gets its top-k from
+what it may see. With the HNSW index a very selective rule can return fewer than k
+results, the same way the collection filter already can on a large, mixed table. There
+is no UI for the rule yet; it is API-only.
+
 ## 2026-09 — An OpenAPI document an agent gateway accepts
 
 `GET /api/tools/openapi.json` serves the four data tools (`search_knowledge`,

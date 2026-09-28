@@ -20,6 +20,7 @@ _INSERT_COLUMNS = (
     # silent "nothing was written" rather than a failure that names the cause.
     "response_hash", "response_masked",
     "injection_flags",  # 0014
+    "chunks_withheld",  # 0017
 )
 
 
