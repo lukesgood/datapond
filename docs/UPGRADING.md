@@ -3,6 +3,17 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-09 — An OpenAPI document an agent gateway accepts
+
+`GET /api/tools/openapi.json` serves the four data tools (`search_knowledge`,
+`answer_with_citations`, `generate_sql`, `run_sql`) as OpenAPI 3.0 with no
+`anyOf`/`oneOf`/`allOf`, no `$ref`, and no security schemes, which is what AgentCore
+Gateway requires of an OpenAPI target. It lists only the tools the requesting
+credential can call, so fetch it with the agent's own key. The server URL comes from
+`APP_BASE_URL`; if that is unset it falls back to the request's host, which behind a
+proxy may be the wrong scheme — set `APP_BASE_URL` before registering. The API page has
+a download button. Nothing changes for existing callers.
+
 ## 2026-09 — API keys have a request budget, and can be rotated
 
 **Every service-account key is now limited to 600 requests a minute** by default, per

@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 
 from app.user_labels import labels_async
@@ -574,6 +574,23 @@ async def api_surface():
 
     from app.api.api_surface import build_api_surface
     return {"endpoints": build_api_surface(main.app)}
+
+
+@router.get("/tools/openapi.json")
+async def tool_openapi(request: Request, user: dict = Depends(require_user)):
+    """The tools this credential can call, as OpenAPI an agent gateway accepts.
+
+    Fetch it with the agent's own key to get exactly that key's tools. See
+    app/tool_openapi.py.
+    """
+    import main
+
+    from app.permissions import permissions_for
+    from app.tool_openapi import build_tool_openapi
+    granted = user.get("permissions")
+    held = granted if granted is not None else permissions_for(user.get("role"))
+    base = (os.getenv("APP_BASE_URL") or "").strip() or str(request.base_url)
+    return build_tool_openapi(main.app, base, held)
 
 
 @router.get("/service-accounts/{account_id}/usage",

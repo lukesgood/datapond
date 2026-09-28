@@ -91,6 +91,8 @@ export default function ApiPage() {
 
       <McpCard origin={origin} />
 
+      <GatewayCard origin={origin} />
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -143,6 +145,59 @@ function McpCard({ origin }: { origin: string }) {
         </pre>
         <p className="text-2xs text-muted-foreground">
           Scopes, spend attribution and what a call refuses: <span className="font-mono">docs/MCP.md</span>.
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** An agent gateway (AgentCore Gateway and the like) registers REST tools from an
+ *  OpenAPI document, but refuses the anyOf the full spec is full of. This one is
+ *  generated for exactly that, and lists only the tools the fetching key can call. */
+function GatewayCard({ origin }: { origin: string }) {
+  const base = origin || "https://your-deployment"
+  const [busy, setBusy] = useState(false)
+  const curl = `curl -s ${base}/api/tools/openapi.json \
+  -H "Authorization: Bearer $DATAPOND_KEY" > datapond-tools.json`
+
+  const download = async () => {
+    setBusy(true)
+    try {
+      const res = await fetch("/api/tools/openapi.json")
+      if (!res.ok) return
+      const url = URL.createObjectURL(new Blob([await res.text()], { type: "application/json" }))
+      const a = document.createElement("a")
+      a.href = url
+      a.download = "datapond-tools.json"
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Terminal className="h-4 w-4 text-primary" />Behind an agent gateway
+        </CardTitle>
+        <CardDescription>
+          Optional. If your agents reach tools through a gateway such as AgentCore
+          Gateway, register this OpenAPI 3.0 document as its target: search, cited answers
+          and SQL as four tools, with no schema composition a gateway would refuse.
+          Fetch it with the agent&apos;s key to get only the tools that key can call, and
+          configure the same key as the gateway&apos;s outbound API-key credential.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <pre className="overflow-x-auto rounded border bg-muted/40 p-2 font-mono text-2xs leading-relaxed">
+{curl}
+        </pre>
+        <Button size="sm" variant="outline" className="h-8 text-xs" disabled={busy} onClick={download}>
+          Download for my account
+        </Button>
+        <p className="text-2xs text-muted-foreground">
+          Behind a gateway, every agent that shares a key is one caller to DataPond. Give
+          each agent its own service account to keep access, audit and spend per agent.
         </p>
       </CardContent>
     </Card>
