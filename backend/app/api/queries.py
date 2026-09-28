@@ -523,7 +523,8 @@ async def get_query_history(
         )
 
 
-@router.get("/catalog/schemas", response_model=CatalogTree)
+@router.get("/catalog/schemas", response_model=CatalogTree,
+            dependencies=[Depends(require_permission("catalog:read"))])
 async def get_catalog_schemas(columns: bool = False):
     """
     Get catalog tree structure — only catalogs registered in Polaris (governance gate).
@@ -601,7 +602,8 @@ async def get_catalog_schemas(columns: bool = False):
 _COL_IDENT = re.compile(r"^[A-Za-z0-9_]+$")
 
 
-@router.get("/catalog/columns", response_model=List[CatalogColumn])
+@router.get("/catalog/columns", response_model=List[CatalogColumn],
+            dependencies=[Depends(require_permission("catalog:read"))])
 async def get_table_columns(catalog: str, schema: str, table: str):
     """Lazily fetch ONE table's columns (loaded on table expand in the schema tree).
     A single-table information_schema query is one metadata read (fast) — unlike the
@@ -697,7 +699,8 @@ async def review_plan(request: QueryPlanRequest, user: dict = Depends(require_us
 # ontology PoC (docs/ONTOLOGY_FEASIBILITY_REPORT.md) found inferred relationships to
 # be unreliable in every domain tested; a join in query_history is not inferred.
 
-@router.get("/catalog/relationships")
+@router.get("/catalog/relationships",
+            dependencies=[Depends(require_permission("catalog:read"))])
 async def catalog_relationships(
     days: int = 30,
     include_ai: bool = False,

@@ -3,6 +3,7 @@
 HTTP + Trino). Keeps catalog.py / queries.py engine-agnostic."""
 import os
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,18 @@ class GlueCatalogReader:
         return {"columns": cols, "rows": rows}
 
 
+# Trino takes these names inside SQL text, so only a bare identifier gets there. A
+# namespace or table name is caller input — the catalog routes, and the MCP tool that
+# describes a table — and a quote in one of them was a UNION into any other table.
+_IDENT = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+def safe_identifier(value) -> str:
+    if not isinstance(value, str) or not _IDENT.match(value):
+        raise ValueError(f"Not a bare identifier: {value!r}")
+    return value
+
+
 class PolarisCatalogReader:
     """Existing Polaris HTTP listing + Trino detail reads, wrapped behind the
     CatalogReader interface so the endpoints stay backend-agnostic."""
@@ -76,6 +89,8 @@ class PolarisCatalogReader:
         return out
 
     def get_columns(self, namespace, table, catalog="iceberg"):
+        for name in (namespace, table, catalog):
+            safe_identifier(name)
         from app.api.trino_util import trino_conn
         cur = trino_conn(catalog=catalog, timeout=15).cursor()
         cur.execute(
@@ -84,7 +99,8 @@ class PolarisCatalogReader:
         return [{"name": r[0], "type": r[1], "nullable": (r[2].upper() == "YES")} for r in cur.fetchall()]
 
     def get_location(self, namespace, table, catalog="iceberg"):
-        import re
+        for name in (namespace, table, catalog):
+            safe_identifier(name)
         from app.api.trino_util import trino_conn
         try:
             cur = trino_conn(catalog=catalog, timeout=15).cursor()
@@ -96,6 +112,8 @@ class PolarisCatalogReader:
             return None
 
     def row_count(self, namespace, table, catalog="iceberg"):
+        for name in (namespace, table, catalog):
+            safe_identifier(name)
         from app.api.trino_util import trino_conn
         try:
             cur = trino_conn(catalog=catalog, timeout=15).cursor()
@@ -105,6 +123,8 @@ class PolarisCatalogReader:
             return None
 
     def preview(self, namespace, table, limit, catalog="iceberg"):
+        for name in (namespace, table, catalog):
+            safe_identifier(name)
         from app.api.trino_util import trino_conn
         cur = trino_conn(catalog=catalog, timeout=15).cursor()
         cur.execute(f"SELECT * FROM {catalog}.{namespace}.{table} LIMIT {min(limit, 500)}")
