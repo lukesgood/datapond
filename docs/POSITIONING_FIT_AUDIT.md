@@ -32,8 +32,9 @@
 막았고, 아무 효과 없던 도구 파라미터 `catalog.explain_relationships.days`·`spend.summarize.days`를
 제거했다.
 
-여전히 열려 있는 것: MCP OAuth 리소스 서버 모드(게이트웨이 뒤에서 호출자가 한 서비스 계정으로
-뭉치는 문제). 청크 단위 호출자 필터는 2026-09-28에 추가됐다(컬렉션별 속성 매칭 규칙, fail closed,
+여전히 열려 있던 MCP OAuth 리소스 서버 모드도 2026-09-28에 추가됐다(커뮤니티, 기존 사용자 매칭만,
+`datapond:` 스코프 필수 — `docs/MCP.md`). 게이트웨이가 사용자 토큰을 교환(`TOKEN_EXCHANGE`)해
+보내면 DataPond는 공유 키가 아니라 실제 사용자로 본다. 라이브 IdP로의 end-to-end 검증은 아직 없다. 청크 단위 호출자 필터는 2026-09-28에 추가됐다(컬렉션별 속성 매칭 규칙, fail closed,
 `tool_call_log.chunks_withheld`) — 따라서 §6에서 "컬렉션·행"으로 고친 문장은 이제 "컬렉션·청크·행"까지
 말할 수 있다. 단 UI는 아직 없다. 서비스 계정 키 회전, API 키 호출 rate limit, 게이트웨이용
 OpenAPI(`GET /api/tools/openapi.json` — 3.0, `anyOf` 없음, 호출 키가 부를 수 있는 도구만)는

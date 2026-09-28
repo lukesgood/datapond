@@ -35,10 +35,10 @@ _UNKNOWN_TOOL = "No such tool: {name}."
 async def resolve_principal(user: dict = Depends(require_user)) -> dict:
     """The caller, however they authenticated.
 
-    Today this is exactly the REST path: a `dp_sk_` service-account key or a person's
-    JWT, both resolved by require_user into the same dict. The OAuth follow-up replaces
-    this function's body — validating an external issuer's access token and mapping its
-    subject onto a DataPond principal — and nothing above it changes.
+    Exactly the REST path: a `dp_sk_` service-account key, a person's session JWT, or
+    — with resource-server mode on — an access token from the customer's IdP
+    (app/oauth_rs.py), all resolved by require_user into the same dict. OAuth landed
+    upstream of here, in get_current_user, so REST and MCP share one verifier.
     """
     return user
 

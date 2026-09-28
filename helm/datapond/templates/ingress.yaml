@@ -33,6 +33,16 @@ spec:
             port:
               number: {{ .Values.frontend.service.port }}
 
+      # RFC 9728 protected resource metadata, served by the backend (404 unless
+      # OAuth resource-server mode is on). Fixed at the host root by the spec.
+      - path: /.well-known/oauth-protected-resource
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Values.backend.name }}
+            port:
+              number: {{ .Values.backend.service.port }}
+
       # Backend API
       - path: /api
         pathType: Prefix

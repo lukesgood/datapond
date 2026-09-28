@@ -111,22 +111,34 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if auth.startswith("Bearer "):
             from app.api.auth import get_current_user
             from fastapi.security import HTTPAuthorizationCredentials
+            from app import oauth_rs
             try:
                 creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=auth[7:])
                 user = await get_current_user(creds)
+            except oauth_rs.InsufficientScope:
+                # A valid token for a known principal that grants nothing here. 403
+                # with the scopes to ask for, not 401: re-authenticating would not help.
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "The access token carries no DataPond scope."},
+                    headers={"WWW-Authenticate": oauth_rs.challenge(
+                        path, error="insufficient_scope")},
+                )
             except Exception:
                 user = None
         if user:
             # A key's request budget, checked before the route runs so a caller over
             # it costs nothing downstream. People are not held to it: a person's
             # traffic is bounded by the browser, an agent's by nothing.
-            if user.get("api_key_id"):
+            budget_key = user.get("api_key_id") or (
+                f"oauth:{user['id']}" if user.get("oauth") else None)
+            if budget_key:
                 from app.rate_limit import api_key_limiter
                 limiter = api_key_limiter()
-                wait = limiter.check(user["api_key_id"])
+                wait = limiter.check(budget_key)
                 if wait is not None:
                     logging.getLogger(__name__).warning("[auth] api key %s over %d/min, retry in %ds",
-                                   user["api_key_id"], limiter.per_minute, wait)
+                                   budget_key, limiter.per_minute, wait)
                     return JSONResponse(
                         status_code=429,
                         content={"detail": f"Rate limit exceeded for this API key "
@@ -151,13 +163,37 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return await call_next(request)
             finally:
                 tool_call_log._client_address.reset(token)
+        from app import oauth_rs
         return JSONResponse(
             status_code=401,
             content={"detail": "Not authenticated"},
-            headers={"WWW-Authenticate": "Bearer"},
+            # With resource-server mode on, the challenge says where the metadata is,
+            # which is how an MCP client discovers the authorization server (RFC 9728).
+            headers={"WWW-Authenticate": oauth_rs.challenge(path) if oauth_rs.enabled()
+                     else "Bearer"},
         )
 
 app.add_middleware(AuthMiddleware)
+
+
+# RFC 9728 protected resource metadata. Outside /api on purpose: the spec fixes the
+# well-known path at the host root, and the middleware only guards /api. The ingress
+# routes this prefix to the backend. 404 when resource-server mode is off, so a client
+# does not go looking for an authorization server this deployment does not trust.
+@app.get("/.well-known/oauth-protected-resource", include_in_schema=False)
+async def oauth_protected_resource():
+    from app import oauth_rs
+    if not oauth_rs.enabled():
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    return oauth_rs.protected_resource_metadata("")
+
+
+@app.get("/.well-known/oauth-protected-resource/api/mcp", include_in_schema=False)
+async def oauth_protected_resource_mcp():
+    from app import oauth_rs
+    if not oauth_rs.enabled():
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    return oauth_rs.protected_resource_metadata("/api/mcp")
 
 # ── Enterprise (/ee) features — present only in enterprise-edition images ──────
 # Community builds lack /app/ee entirely; the import fails and SSO stays off.

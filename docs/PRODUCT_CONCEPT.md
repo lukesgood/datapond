@@ -31,7 +31,7 @@ DataPond를 타깃으로 등록하면 되고(등록 절차는 how-to 문서), �
 
 | 게이트웨이가 하는 것 | DataPond가 하는 것 |
 |---|---|
-| 인바운드 OAuth/JWT, 에이전트 identity | 서비스 계정 키(직접 호출), 또는 게이트웨이가 넘긴 principal(token exchange, roadmap) |
+| 인바운드 OAuth/JWT, 에이전트 identity | 서비스 계정 키(직접 호출), 또는 고객 IdP access token(resource-server 모드, 게이트웨이 token exchange 포함 — 2026-09-28 구현) |
 | tool 단위 허용/거부 정책, rate limit | 그 tool이 **데이터의 어느 부분**을 돌려줄지: 컬렉션 멤버십, 행 필터, 컬럼 마스킹 |
 | 호출 단위 감사(principal, 정책, 지연) | 검색·답변 단위 감사: 어느 컬렉션, 무엇이 인용됐는지, 무엇이 마스킹됐는지 |
 | tool·그룹 단위 예산 알림 | 호출자 단위 spend 귀속과 예산 |
@@ -44,7 +44,7 @@ DataPond의 자리는 그 사이다.
 게이트웨이 뒤 등록의 한계는 알고 있어야 한다. AgentCore Gateway는 OpenAPI·MCP 타깃에 token
 passthrough를 지원하지 않으므로 API key로 등록하면 게이트웨이 뒤의 모든 에이전트가 서비스 계정
 하나로 보인다. 호출자 단위를 유지하려면 에이전트당 서비스 계정·타깃을 두거나(지금 가능), 외부 OIDC
-access token을 API bearer로 받는 resource-server 모드와 token exchange가 필요하다(roadmap). 이
+access token을 API bearer로 받는 resource-server 모드와 token exchange가 필요하다(resource-server 모드는 2026-09-28 구현, 교환은 IdP·게이트웨이가 수행). 이
 모드는 게이트웨이 때문이 아니라 MCP 2026-07-28의 OAuth 정렬 때문에 어차피 필요하다.
 
 ## 해결하는 문제

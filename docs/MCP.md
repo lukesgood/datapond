@@ -12,9 +12,27 @@ or the typed REST endpoints.
 **Authentication.** The service-account key you already use for REST:
 `Authorization: Bearer dp_sk_…`. A person's own session token works too, resolved the
 same way. Issue a key under Settings → Service accounts with the scopes the agent
-needs — `knowledge:read` and `ai:generate` cover search and cited answers. OAuth is not
-supported yet, so hosted clients that require it cannot connect; `resolve_principal` in
-`app/mcp/server.py` is where that would land.
+needs — `knowledge:read` and `ai:generate` cover search and cited answers.
+
+**OAuth (optional).** With `auth.oauthResourceServer.enabled`, the endpoint also accepts
+access tokens from your IdP (Okta custom authorization server, Entra ID, Cognito), which
+is what OAuth-only MCP clients and AgentCore Gateway's token exchange send. A 401 says
+where the protected resource metadata is (`/.well-known/oauth-protected-resource/api/mcp`,
+RFC 9728), which names your IdP as the authorization server. Three rules:
+
+- The token's audience must be this deployment (`https://<domain>` or
+  `https://<domain>/api/mcp`, or `audiences`); a Cognito token without `aud` is accepted
+  only for a client listed in `clientIds`.
+- The subject must match a DataPond user that already exists: a person who signed in
+  through SSO (or whose `external_id` an admin set — Entra deployments match on `oid`),
+  or a service account linked to the token's client with
+  `PUT /api/service-accounts/{id}/oauth-client`. Nothing is created from a token.
+- Permissions are the user's role narrowed by the token's `datapond:<permission>` scopes
+  (`datapond:knowledge:read`, `datapond:ai:generate`, …). A token with none gets
+  `403 insufficient_scope`, and a refused permission names the scope to request.
+
+The token is validated and never forwarded; model calls use DataPond's own gateway key.
+OAuth callers share the per-caller request budget of API keys.
 
 ## Point an agent at it
 

@@ -850,6 +850,19 @@ auth:
     adminGroup: ""        # IdP group whose members get role=admin
     defaultRole: "viewer"
 
+  # OAuth resource-server mode (community) — off by default. Accepts access tokens
+  # issued by your IdP on the API and MCP endpoint, for OAuth MCP clients and for
+  # agents behind a gateway that exchanges the user's token (AgentCore Gateway
+  # TOKEN_EXCHANGE). Only principals that already exist are matched; a token must
+  # carry `datapond:<permission>` scopes. See docs/MCP.md.
+  oauthResourceServer:
+    enabled: false
+    issuer: ""            # e.g. https://<tenant>.okta.com/oauth2/default
+    audiences: ""         # comma list; empty ⇒ https://<domain> and https://<domain>/api/mcp
+    clientIds: ""         # accepted when a token has no aud (Cognito access tokens)
+    subjectClaim: "sub"   # Entra ID: "oid"
+    scopePrefix: "datapond:"
+
   # Passkey / WebAuthn (passwordless login). Self-gates in the backend on
   # HTTPS + RP config — always safe to inject even when empty.
   webauthn:

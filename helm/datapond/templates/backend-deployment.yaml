@@ -469,6 +469,23 @@ spec:
         - name: LDAP_ADMIN_GROUP
           value: "{{ .Values.auth.ldap.adminGroup | default "" }}"
         {{- end }}
+        {{- with ((.Values.auth).oauthResourceServer) }}
+        {{- if .enabled }}
+        # OAuth resource-server mode: external IdP access tokens (app/oauth_rs.py)
+        - name: OAUTH_RS_ENABLED
+          value: "true"
+        - name: OAUTH_RS_ISSUER
+          value: {{ .issuer | default "" | quote }}
+        - name: OAUTH_RS_AUDIENCES
+          value: {{ .audiences | default "" | quote }}
+        - name: OAUTH_RS_CLIENT_IDS
+          value: {{ .clientIds | default "" | quote }}
+        - name: OAUTH_RS_SUBJECT_CLAIM
+          value: {{ .subjectClaim | default "sub" | quote }}
+        - name: OAUTH_RS_SCOPE_PREFIX
+          value: {{ .scopePrefix | default "datapond:" | quote }}
+        {{- end }}
+        {{- end }}
         {{- if (((.Values.auth).oidc).enabled) }}
         # OIDC SSO (Enterprise /ee feature)
         - name: OIDC_ENABLED

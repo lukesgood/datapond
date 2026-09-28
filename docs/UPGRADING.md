@@ -3,6 +3,27 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-09 — The API and MCP endpoint can accept your IdP's access tokens
+
+Off by default; nothing changes until `auth.oauthResourceServer.enabled` is set with an
+`issuer`. When on, `/api/*` and `/api/mcp` accept RS256/ES256 access tokens from that
+issuer alongside session tokens and `dp_sk_` keys, so OAuth-only MCP clients can connect
+and an agent behind AgentCore Gateway (outbound `TOKEN_EXCHANGE`) reaches DataPond as the
+user it acts for, not as one shared key. It is in the community edition.
+
+A token is accepted only if its audience is this deployment, its subject matches a user
+that already exists, and it carries `datapond:<permission>` scopes (role ∩ scopes; none
+→ `403 insufficient_scope`). Link an agent's OAuth client to a service account with
+`PUT /api/service-accounts/{id}/oauth-client`; set a person's `external_id` with
+`PATCH /api/auth/users/{id}` when the IdP's API subject differs from the SSO one (Entra
+`oid`). Details and IdP notes: `docs/MCP.md`.
+
+The ingress gains a `/.well-known/oauth-protected-resource` path to the backend (RFC
+9728 metadata; 404 while the mode is off), and 401 responses carry a
+`resource_metadata` challenge when it is on. `APP_BASE_URL` must be set for the default
+audiences and the metadata URL to be right. Okta org-authorization-server tokens cannot
+be validated; use a custom authorization server.
+
 ## 2026-09 — A collection can narrow retrieval to the chunks a caller may see
 
 A collection can now carry a chunk access rule:

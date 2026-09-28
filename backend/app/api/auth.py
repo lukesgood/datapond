@@ -245,6 +245,12 @@ async def get_current_user(
         return None
     if looks_like_api_key(credentials.credentials):
         return await _resolve_api_key(credentials.credentials)
+    # An access token from the customer's IdP (app/oauth_rs.py). Routed by its signing
+    # algorithm, so it is never tried against SECRET_KEY, nor a session token against
+    # the IdP's keys. May raise InsufficientScope, which the middleware answers.
+    from app import oauth_rs
+    if oauth_rs.enabled() and oauth_rs.looks_external(credentials.credentials):
+        return await oauth_rs.resolve(credentials.credentials)
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError:
@@ -410,7 +416,15 @@ async def _enforce_permission(permission: str, user: dict, request) -> dict:
             actor=user, permission=permission, route=route, method=method,
             outcome="denied", reason=reason, client_address=addr,
         )
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
+        headers = None
+        if user.get("oauth"):
+            # RFC 6750 / MCP: tell an OAuth client which scope to ask for, so it can
+            # step up instead of failing without a way forward.
+            from app import oauth_rs
+            headers = {"WWW-Authenticate": oauth_rs.challenge(
+                route, error="insufficient_scope", scopes=[oauth_rs.scope_for(permission)])}
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason,
+                            headers=headers)
     if security_audit.is_privileged(permission):
         await security_audit.record(
             actor=user, permission=permission, route=route, method=method,
@@ -1001,6 +1015,11 @@ async def update_user(user_id: str, body: dict, admin: dict = Depends(require_pe
         updates.append(f"display_name = ${idx}"); values.append(str(body["display_name"])); idx += 1
     if "email" in body:
         updates.append(f"email = ${idx}"); values.append(str(body["email"])); idx += 1
+    if "external_id" in body and (body["external_id"] is None or isinstance(body["external_id"], str)):
+        # The IdP subject an access token is matched on (app/oauth_rs.py). SSO stores
+        # the ID token's `sub`; an Entra API token is matched on `oid`, which differs,
+        # so an administrator can set it. Null unlinks.
+        updates.append(f"external_id = ${idx}"); values.append(body["external_id"] or None); idx += 1
     if "attributes" in body and isinstance(body["attributes"], dict):
         # RLS attributes (department / region / clearance / ...). Whole-object replace.
         updates.append(f"attributes = ${idx}::jsonb"); values.append(json.dumps(body["attributes"])); idx += 1

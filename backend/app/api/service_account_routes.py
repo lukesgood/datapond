@@ -278,6 +278,58 @@ async def revoke_api_key(key_id: str, admin: dict = Depends(require_admin)):
     return None
 
 
+class OAuthClientLink(BaseModel):
+    client_id: str = Field(..., min_length=1, max_length=512)
+
+
+@router.put("/service-accounts/{account_id}/oauth-client")
+async def link_oauth_client(account_id: str, body: OAuthClientLink,
+                            admin: dict = Depends(require_admin)):
+    """Let a client-credentials token from the IdP act as this service account.
+
+    The agent then authenticates with its own OAuth client instead of a DataPond key,
+    and keeps its own identity behind a gateway. One client, one account: a client id
+    already linked elsewhere is refused rather than silently moved.
+    """
+    from app import oauth_rs
+    if not oauth_rs.enabled():
+        raise HTTPException(status_code=400,
+                            detail="OAuth resource-server mode is not enabled on this deployment.")
+    issuer = oauth_rs.config().issuer
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            """UPDATE users SET external_id = $2, external_provider = $3
+                WHERE id = $1::uuid AND auth_method = 'service'
+                  AND NOT EXISTS (SELECT 1 FROM users o
+                                   WHERE o.external_id = $2 AND o.auth_method = 'service'
+                                     AND o.id <> $1::uuid)""",
+            account_id, body.client_id, issuer)
+    if result.endswith(" 0"):
+        raise HTTPException(status_code=409,
+                            detail="Service account not found, or that client id is "
+                                   "already linked to another account.")
+    await record_auth_event("user_updated", user_id=admin.get("id"), result="success",
+                            details={"service_account": account_id,
+                                     "oauth_client_linked": body.client_id})
+    return {"id": account_id, "client_id": body.client_id, "issuer": issuer}
+
+
+@router.delete("/service-accounts/{account_id}/oauth-client", status_code=204)
+async def unlink_oauth_client(account_id: str, admin: dict = Depends(require_admin)):
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            """UPDATE users SET external_id = NULL, external_provider = NULL
+                WHERE id = $1::uuid AND auth_method = 'service'""", account_id)
+    if result.endswith(" 0"):
+        raise HTTPException(status_code=404, detail="Service account not found")
+    await record_auth_event("user_updated", user_id=admin.get("id"), result="success",
+                            details={"service_account": account_id,
+                                     "oauth_client_linked": None})
+    return None
+
+
 @router.delete("/service-accounts/{account_id}", status_code=204)
 async def delete_service_account(account_id: str, admin: dict = Depends(require_admin)):
     """Delete the account; its keys go with it (ON DELETE CASCADE)."""
