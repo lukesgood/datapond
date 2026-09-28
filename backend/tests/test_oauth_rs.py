@@ -369,3 +369,56 @@ def test_an_admin_can_set_a_persons_external_id(monkeypatch):
     monkeypatch.setattr(auth, "_get_pool", _pool)
     asyncio.run(auth.update_user(USER_ID, {"external_id": "entra-oid"}, {"id": "a", "role": "admin"}))
     assert "external_id = $1" in conn.executed[0][0]
+
+
+# ── audit follow-ups (2026-09-29) ─────────────────────────────────────────────
+
+def test_a_person_s_token_from_a_linked_client_is_not_the_service_account(keys, cfg, monkeypatch):
+    """Anyone in the tenant can get a token from the agent's client. If their subject
+    matches no DataPond user, they are nobody here — not the agent."""
+    pem, _ = keys
+    _install(monkeypatch, keys, _Conn(by_client=SERVICE))
+    token = _token(pem, sub="someone-in-the-tenant", client_id="agent-client")
+    assert asyncio.run(oauth_rs.resolve(token)) is None
+
+
+@pytest.mark.parametrize("claims", [
+    {"sub": "agent-client@clients", "azp": "agent-client"},             # Auth0
+    {"sub": "sp-object-id", "azp": "agent-client", "idtyp": "app"},     # Entra, idtyp
+    {"sub": "sp-object-id", "oid": "sp-object-id", "azp": "agent-client",
+     "scp": None, "roles": ["datapond:knowledge:read"]},                # Entra, no scp
+    {"sub": None, "client_id": "agent-client"},                         # no subject
+], ids=["auth0", "entra-idtyp", "entra-app-only", "no-subject"])
+def test_client_credentials_shapes_still_reach_the_linked_service_account(keys, cfg, monkeypatch, claims):
+    pem, _ = keys
+    _install(monkeypatch, keys, _Conn(by_client=SERVICE))
+    token = _token(pem, **{"scope": "datapond:knowledge:read", **claims})
+    user = asyncio.run(oauth_rs.resolve(token))
+    assert user is not None and user["id"] == SVC_ID
+
+
+def test_an_issuer_configured_with_a_trailing_slash_verifies(keys, monkeypatch):
+    """Auth0 issuers end in '/', and the iss claim carries it."""
+    pem, jwks = keys
+    monkeypatch.setenv("OAUTH_RS_ENABLED", "true")
+    monkeypatch.setenv("OAUTH_RS_ISSUER", "https://tenant.auth0.com/")
+    monkeypatch.setenv("APP_BASE_URL", BASE)
+    monkeypatch.delenv("OAUTH_RS_AUDIENCES", raising=False)
+    cfg = oauth_rs.config()
+    claims = oauth_rs.verify(_token(pem, iss="https://tenant.auth0.com/"), jwks, cfg)
+    assert claims["sub"] == "user-sub"
+
+
+def test_a_token_that_never_expires_is_refused(keys, cfg):
+    pem, jwks = keys
+    with pytest.raises(oauth_rs.InvalidToken):
+        oauth_rs.verify(_token(pem, exp=None), jwks, cfg)
+
+
+def test_an_unknown_kid_cannot_force_a_refetch_on_every_request(cfg, monkeypatch):
+    """A forged kid is free to send; each one used to cost a round trip to the IdP."""
+    async def no_network(_cfg):
+        raise AssertionError("refetched inside the cooldown")
+    monkeypatch.setattr(oauth_rs, "_discover", no_network)
+    monkeypatch.setitem(oauth_rs._jwks_cache, cfg.issuer, ({"keys": []}, time.monotonic()))
+    assert asyncio.run(oauth_rs.fetch_jwks(cfg, force=True)) == {"keys": []}

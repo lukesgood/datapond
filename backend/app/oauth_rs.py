@@ -32,6 +32,9 @@ from jose.exceptions import JOSEError
 ALLOWED_ALGS = ("RS256", "ES256")
 _LEEWAY_SECONDS = 60
 _CACHE_TTL = 3600.0
+# A forced refetch (an unknown kid) waits this long after the last fetch. A kid is
+# free to forge, and without a floor every forged token cost a round trip to the IdP.
+_REFETCH_COOLDOWN = 60.0
 
 # Scopes named in a 401 challenge: what an agent needs to use the data tools at all.
 _CHALLENGE_PERMISSIONS = ("knowledge:read", "ai:generate")
@@ -121,8 +124,10 @@ async def _discover(cfg: Config) -> dict:
 
 async def fetch_jwks(cfg: Config, force: bool = False) -> dict:
     hit = _jwks_cache.get(cfg.issuer)
-    if hit and not force and time.monotonic() - hit[1] < _CACHE_TTL:
-        return hit[0]
+    if hit:
+        age = time.monotonic() - hit[1]
+        if age < (_REFETCH_COOLDOWN if force else _CACHE_TTL):
+            return hit[0]
     doc = await _discover(cfg)
     try:
         async with httpx.AsyncClient(timeout=10) as c:
@@ -145,6 +150,29 @@ def _client_of(claims: dict) -> Optional[str]:
     return None
 
 
+def is_client_token(claims: dict, subject) -> bool:
+    """Whether a token was issued to a client acting for itself (client credentials)
+    rather than to a person through that client.
+
+    Only such a token may reach the service account linked to its client. A person's
+    token from the same client names the person; if the person is not a DataPond user
+    they are nobody here, not the agent — otherwise anyone in the tenant who can get a
+    token from the agent's client would act, and be audited, as the agent.
+    """
+    client = _client_of(claims)
+    if not client:
+        return False
+    if not isinstance(subject, str) or not subject:
+        return True
+    if subject in (client, f"{client}@clients"):       # Okta, Cognito; Auth0
+        return True
+    if claims.get("idtyp") == "app":                   # Entra, optional claim
+        return True
+    # Entra app-only token: its subject is the service principal's object id, and it
+    # carries application roles instead of delegated `scp`.
+    return claims.get("oid") == subject and "scp" not in claims
+
+
 def verify(token: str, jwks: dict, cfg: Config) -> dict:
     """The token's claims, or InvalidToken. Pure: keys and config are arguments."""
     try:
@@ -158,10 +186,17 @@ def verify(token: str, jwks: dict, cfg: Config) -> dict:
         raise InvalidToken("unknown kid")
     try:
         claims = jose_jwt.decode(
-            token, key, algorithms=list(ALLOWED_ALGS), issuer=cfg.issuer,
-            options={"verify_aud": False, "leeway": _LEEWAY_SECONDS})
+            token, key, algorithms=list(ALLOWED_ALGS),
+            options={"verify_aud": False, "verify_iss": False, "require_exp": True,
+                     "leeway": _LEEWAY_SECONDS})
     except JOSEError as e:
         raise InvalidToken(str(e))
+    # Compared without a trailing slash on either side: the configured issuer is held
+    # without one (it is joined to discovery paths and stored on linked accounts), and
+    # some IdPs — Auth0 — put one in `iss`. An exact match refused every such token.
+    iss = claims.get("iss")
+    if not isinstance(iss, str) or iss.rstrip("/") != cfg.issuer:
+        raise InvalidToken("token issuer is not the configured issuer")
 
     if claims.get("token_use") == "id":
         raise InvalidToken("an ID token is not an access token")
@@ -248,7 +283,7 @@ async def resolve(token: str) -> Optional[dict]:
         async with pool.acquire(timeout=2) as conn:
             if isinstance(subject, str) and subject:
                 row = await conn.fetchrow(_BY_SUBJECT, subject, cfg.issuer)
-            if row is None and client:
+            if row is None and client and is_client_token(claims, subject):
                 # A client-credentials token names the agent, not a person. It may
                 # reach only a service account an administrator linked to that client.
                 row = await conn.fetchrow(_BY_CLIENT, client, cfg.issuer)
