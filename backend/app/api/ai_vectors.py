@@ -199,7 +199,7 @@ async def _assert_embed_egress_ok() -> None:
     )
 
 
-async def _embed(texts: List[str]) -> List[List[float]]:
+async def _embed(texts: List[str], tool: str = "ai.search") -> List[List[float]]:
     if not texts:
         return []
     await _assert_embed_egress_ok()
@@ -209,7 +209,7 @@ async def _embed(texts: List[str]) -> List[List[float]]:
                          json={"model": _embed_model(), "input": texts, **actor_payload("ai_embed")})
     if r.status_code >= 400:
         if is_budget_refusal(r.status_code, r.text):
-            raise await refuse_over_budget(actor=current_actor(), tool="ai.search",
+            raise await refuse_over_budget(actor=current_actor(), tool=tool,
                                            request_text="embedding", body=r.text)
         raise HTTPException(502, f"Embedding failed: {(r.text or '')[:200]}")
     data = r.json().get("data", [])
@@ -353,9 +353,31 @@ class RagRequest(BaseModel):
 
 @router.post("/ai/embed", dependencies=[Depends(require_permission("ai:generate"))])
 async def embed(req: EmbedRequest, user: dict = Depends(require_user)):
+    """Embed raw text. Guarded and logged like search and RAG: this route sends the
+    caller's text to the embedding model, which may be an external provider."""
     set_actor(user)
-    vecs = await _embed(req.input)
-    return {"model": _embed_model(), "dim": len(vecs[0]) if vecs else EMBED_DIM(), "embeddings": vecs}
+    guarded = [_guard(t) for t in req.input]
+    found = sum(len(f) for _, f, _ in guarded)
+    masked = tool_call_log.masked_for_log("\n".join(req.input))
+    started = time.perf_counter()
+
+    async def _log(outcome: str, hits: int = 0):
+        await tool_call_log.record(
+            actor=user, tool="ai.embed", resource_kind="none", resource=[],
+            request_text=masked, hit_count=hits, pii_masked=found, outcome=outcome,
+            duration_ms=int((time.perf_counter() - started) * 1000))
+
+    if any(blocked for _, _, blocked in guarded):
+        await _log("refused")
+        raise HTTPException(400, "Input blocked by the PII guardrail, which is set to block.")
+    try:
+        vecs = await _embed([text for text, _, _ in guarded], tool="ai.embed")
+    except Exception:
+        await _log("error")
+        raise
+    await _log("ok", len(vecs))
+    return {"model": _embed_model(), "dim": len(vecs[0]) if vecs else EMBED_DIM(),
+            "embeddings": vecs, "pii_masked": found}
 
 
 def _uid(user: dict):

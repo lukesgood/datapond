@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 # name in request_masked, so the log says "asked for something it could not have"
 # without inventing a tool. Matches the DB's tool pattern (0009).
 UNKNOWN_TOOL = "mcp.unknown_tool"
-TOOLS = ("ai.search", "ai.rag", "ai.sql", "query.execute", UNKNOWN_TOOL) + tuple(REGISTRY)
+TOOLS = ("ai.search", "ai.rag", "ai.sql", "ai.embed", "query.execute",
+         UNKNOWN_TOOL) + tuple(REGISTRY)
 RESOURCE_KINDS = ("collection", "tables", "none")
 # refused: turned away before it ran — unknown or unpermitted name, a write, bad
 # arguments, or an action this deployment does not run (migration 0010).
