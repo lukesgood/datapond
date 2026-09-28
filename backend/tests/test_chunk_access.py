@@ -96,6 +96,12 @@ class _Conn:
         self.fetches.append((sql, args))
         return self.withheld
 
+    async def execute(self, sql, *args):      # the iterative-scan setting
+        return "SELECT 1"
+
+    def transaction(self):
+        return self
+
     async def __aenter__(self):
         return self
 

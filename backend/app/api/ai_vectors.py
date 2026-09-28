@@ -1153,8 +1153,41 @@ _WITHHELD = """SELECT count(*) FILTER (
                      LIMIT $3) nearest"""
 
 
+async def _admit(name: str, user: dict):
+    """Resolve the collection and apply its rules to this request — access, its PII
+    mode, its local-only label — before the caller's text goes anywhere.
+
+    The order is the guarantee. Guarding and embedding the query first, as search and
+    RAG did, sent a local-only collection's query to an external embedding model,
+    masked a query a `pii_mode=block` collection should have refused, and charged a
+    caller with no access for an embedding before telling it 403. The connection is
+    released before returning: an embedding call is not a reason to hold one of the
+    pool's few connections.
+    """
+    pool = await get_db_pool()
+    async with pool.acquire() as c:
+        return await _collection_id(c, name, user)
+
+
+async def _iterative_scan(c) -> None:
+    """Let an HNSW search keep walking the graph until the filter has k matches.
+
+    Without it pgvector filters only the first `ef_search` candidates (40 by default),
+    so a chunk rule that admits a small slice of a large collection returned a few
+    results or none while matching chunks existed. `strict_order` keeps the ranking
+    exact. pgvector < 0.8 has no such setting; a savepoint keeps the refusal from
+    aborting the search, which then behaves as it did before.
+    """
+    try:
+        async with c.transaction():
+            await c.execute("SELECT set_config('hnsw.iterative_scan', 'strict_order', true)")
+    except Exception as e:
+        logger.warning(f"[ai_vectors] hnsw.iterative_scan unavailable ({e}); "
+                       "a chunk rule may return fewer than k results")
+
+
 async def _retrieve(name: str, query: str, k: int, user: dict,
-                    rerank: Optional[bool] = None):
+                    rerank: Optional[bool] = None, coll_id=None):
     """Vector search top-k chunks, then re-apply the PII guardrail to the stored
     content before it's returned. Defense-in-depth: chunk content is masked at
     ingest (_ingest_documents), but chunks ingested before masking existed, or via
@@ -1166,13 +1199,14 @@ async def _retrieve(name: str, query: str, k: int, user: dict,
     retrieval-side masking into the same `pii_masked` total as query-side masking.
     """
     from app.guardrails import pii_ko
+    if coll_id is None:
+        coll_id = await _admit(name, user)
     pool = await get_db_pool()
     qvec = (await _embed([query]))[0]
     # Over-fetch candidates when a reranker is configured, then rerank down to k.
     use_rerank = bool(_rerank_model()) and rerank is not False
     fetch_k = min(max(k * 4, k), 50) if use_rerank else max(1, min(k, 50))
     async with pool.acquire() as c:
-        coll_id = await _collection_id(c, name, user)
         scope = await c.fetchrow(
             """SELECT col.chunk_access, u.attributes
                FROM ai_collections col LEFT JOIN users u ON u.id = $2
@@ -1185,9 +1219,13 @@ async def _retrieve(name: str, query: str, k: int, user: dict,
         else:
             values = chunk_access.caller_values(scope["attributes"] if scope else None,
                                                 rule.user_attribute)
-            rows = await c.fetch(
-                _NEAREST.format(extra="\n                 AND (metadata ->> $4::text) = ANY($5::text[])"),
-                vec, coll_id, fetch_k, rule.metadata_key, values) if values else []
+            rows = []
+            if values:
+                async with c.transaction():      # set_config(..., true) is transaction-local
+                    await _iterative_scan(c)
+                    rows = await c.fetch(
+                        _NEAREST.format(extra="\n                 AND (metadata ->> $4::text) = ANY($5::text[])"),
+                        vec, coll_id, fetch_k, rule.metadata_key, values)
             _withheld.set(int(await c.fetchval(
                 _WITHHELD, vec, coll_id, fetch_k, rule.metadata_key, values) or 0))
     pii_masked = 0
@@ -1406,6 +1444,7 @@ async def collection_composition(name: str, user: dict = Depends(require_user)):
 
 async def _search_impl(req: SearchRequest, user: dict):
     set_actor(user)
+    coll_id = await _admit(req.collection, user)     # before the guard: see _admit
     q_text, q_find, q_block = _guard(req.query)
     if q_block:
         raise HTTPException(400, "Query blocked by the PII guardrail, which is set to block "
@@ -1417,7 +1456,8 @@ async def _search_impl(req: SearchRequest, user: dict):
     if req.expand_concepts:
         from app.api.ontology import expand_for_query
         q_text, concepts_used = await expand_for_query(q_text)
-    results, r_masked = await _retrieve(req.collection, q_text, req.k, user, req.rerank)
+    results, r_masked = await _retrieve(req.collection, q_text, req.k, user, req.rerank,
+                                        coll_id=coll_id)
     return {"collection": req.collection, "query": req.query,
             "pii_masked": len(q_find) + r_masked,
             "concepts": concepts_used,
@@ -1486,6 +1526,7 @@ async def _rag_impl(req: RagRequest, user: dict):
         emit("RagQuery", 1, "Count")  # core AI Data Foundation usage metric
     except Exception:
         pass
+    coll_id = await _admit(req.collection, user)     # before the guard: see _admit
     # PII guardrail on the question before it reaches retrieval/the LLM.
     q_text, q_find, q_block = _guard(req.question)
     if q_block:
@@ -1500,7 +1541,7 @@ async def _rag_impl(req: RagRequest, user: dict):
         from app.api.ontology import expand_for_query
         r_text, concepts_used = await expand_for_query(q_text)
     hits, r_masked = await _retrieve(req.collection, r_text, req.k, user,
-                                     getattr(req, 'rerank', None))
+                                     getattr(req, 'rerank', None), coll_id=coll_id)
     pii_masked = len(q_find) + r_masked
     if not hits:
         return {"answer": "No relevant documents found. (Collection is empty or has no related content.)",

@@ -44,6 +44,7 @@ def _rag(monkeypatch, answer, mode="mask"):
     import app.api.ai_vectors as v
     monkeypatch.setenv("PII_GUARDRAIL_MODE", mode)
     hits = [{"source": "doc1", "content": "context text", "id": "1", "score": 0.9}]
+    monkeypatch.setattr(v, "_admit", lambda *a, **k: _aval("coll-1"))
     monkeypatch.setattr(v, "_retrieve", lambda *a, **k: _aval((hits, 0)))
     monkeypatch.setattr(v, "_gateway", lambda: ("http://gw", ""))
     monkeypatch.setattr(v, "egress_policy", lambda: "cloud-allowed")
