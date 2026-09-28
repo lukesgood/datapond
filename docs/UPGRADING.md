@@ -3,6 +3,23 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-09 — API keys have a request budget, and can be rotated
+
+**Every service-account key is now limited to 600 requests a minute** by default, per
+backend replica (a token bucket, so short bursts up to the full minute are allowed). A
+call over the budget gets `429` with a `Retry-After` header before the route runs, and
+the backend logs a warning naming the key id. People signed in to the UI are not
+limited. Set `API_KEY_RATE_LIMIT_PER_MINUTE` on the backend to change it; `0` turns it
+off. If an existing integration runs batch jobs faster than this, raise the value before
+upgrading. It has no Helm value: add it through `backend.env` or your own overlay.
+
+**Keys can be rotated**: `POST /api/service-accounts/keys/{id}/rotate` (and the rotate
+button in Settings → Service accounts) issues a successor with the same name and
+scopes. The old key keeps working for `grace_hours` (default 24, at most 168, `0`
+revokes it at once) but never past its own expiry. The successor gets the old key's full
+lifetime. Migration 0016 adds the `api_key_rotated` audit event. Other backend replicas
+may accept a revoked key for up to 30 seconds (the key cache TTL), as with revocation.
+
 ## 2026-09 — An MCP endpoint, read-only, on the key you already have
 
 `POST /api/mcp` speaks MCP 2026-07-28 and exposes the 26 read actions as tools,

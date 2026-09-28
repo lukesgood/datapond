@@ -8,12 +8,13 @@ Only an administrator manages these. A credential that can mint further credenti
 is a credential that cannot be contained.
 """
 import logging
+from datetime import timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.api.auth import _get_pool, record_auth_event, require_admin
+from app.api.auth import _KEY_CACHE, _get_pool, record_auth_event, require_admin
 from app.permissions import ASSIGNABLE_ROLES, permissions_for
 from app.service_accounts import NEVER_FOR_SERVICE_ACCOUNTS, effective_permissions, generate_key
 
@@ -25,6 +26,13 @@ class ServiceAccountCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=64)
     role: str = "ai_engineer"
     description: Optional[str] = None
+
+
+class ApiKeyRotate(BaseModel):
+    # How long the old key keeps working, so the agent holding it can be updated
+    # first. 0 revokes it at once. A week at most: a rotation whose predecessor
+    # outlives it by months is two live keys, not a rotation.
+    grace_hours: int = Field(default=24, ge=0, le=168)
 
 
 class ApiKeyCreate(BaseModel):
@@ -181,6 +189,75 @@ async def create_api_key(account_id: str, body: ApiKeyCreate,
         "key_prefix": prefix,
         "expires_at": expires,
         "permissions": sorted(granted),
+        "warning": "Copy this key now — it is not stored and cannot be shown again.",
+    }
+
+
+@router.post("/service-accounts/keys/{key_id}/rotate", status_code=201)
+async def rotate_api_key(key_id: str, body: ApiKeyRotate = ApiKeyRotate(),
+                         admin: dict = Depends(require_admin)):
+    """Issue a successor with the same name and scopes; the old key gets a grace period.
+
+    Revoking and re-issuing breaks every agent holding the key at that moment. This
+    keeps both keys valid for `grace_hours` (never longer than the old key already
+    had), so the new one can be deployed before the old one stops. The successor
+    inherits the old key's lifetime, not its remaining time: a 90-day key rotated on
+    day 80 is replaced by a 90-day key.
+    """
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            old = await conn.fetchrow(
+                """SELECT k.id, k.user_id, k.name, k.key_hash, k.scopes, k.expires_at,
+                          k.created_at, u.role, NOW() AS now
+                     FROM api_keys k JOIN users u ON u.id = k.user_id
+                    WHERE k.id = $1::uuid AND k.status = 'active'
+                      AND (k.expires_at IS NULL OR k.expires_at > NOW())
+                      FOR UPDATE OF k""",
+                key_id)
+            if not old:
+                raise HTTPException(status_code=404, detail="Key not found or not active")
+            now = old["now"]
+            scopes = list(old["scopes"] or [])
+            expires = None
+            if old["expires_at"] is not None:
+                expires = now + (old["expires_at"] - old["created_at"])
+
+            key, prefix, digest = generate_key()
+            new = await conn.fetchrow(
+                """INSERT INTO api_keys (user_id, name, key_prefix, key_hash, scopes, expires_at)
+                   VALUES ($1::uuid, $2, $3, $4, $5, $6) RETURNING id""",
+                str(old["user_id"]), old["name"], prefix, digest, scopes, expires)
+
+            if body.grace_hours == 0:
+                old_until = now
+                await conn.execute(
+                    """UPDATE api_keys SET status = 'revoked', revoked_at = NOW(),
+                                           revoked_by = $2::uuid
+                        WHERE id = $1::uuid""",
+                    key_id, admin.get("id"))
+            else:
+                old_until = now + timedelta(hours=body.grace_hours)
+                if old["expires_at"] is not None:
+                    old_until = min(old_until, old["expires_at"])
+                await conn.execute(
+                    "UPDATE api_keys SET expires_at = $2 WHERE id = $1::uuid",
+                    key_id, old_until)
+
+    # This process's cached identity for the old key would otherwise outlive the
+    # change by up to the cache TTL. Other replicas still hold theirs for that long.
+    _KEY_CACHE.pop(old["key_hash"], None)
+
+    await record_auth_event("api_key_rotated", user_id=admin.get("id"), result="success",
+                            details={"old_key_id": key_id, "new_key_id": str(new["id"]),
+                                     "grace_hours": body.grace_hours})
+    return {
+        "key": key,
+        "key_prefix": prefix,
+        "expires_at": expires,
+        "replaces": key_id,
+        "old_key_expires_at": old_until,
+        "permissions": sorted(effective_permissions(old["role"], scopes)),
         "warning": "Copy this key now — it is not stored and cannot be shown again.",
     }
 

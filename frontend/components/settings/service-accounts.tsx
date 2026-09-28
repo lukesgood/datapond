@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
-import { Loader2, Bot, KeyRound, Trash2, Copy, Check } from "lucide-react"
+import { Loader2, Bot, KeyRound, Trash2, Copy, Check, RotateCw } from "lucide-react"
 import { useToast } from "@/lib/toast"
 import {
   DEFAULT_EXPIRY_DAYS, EXPIRY_OPTIONS, choosableScopes, defaultScopes, describeKey, keyRequestBody,
@@ -36,7 +36,7 @@ export function ServiceAccounts() {
   const [loading, setLoading] = useState(true)
   const [newName, setNewName] = useState("")
   const [newRole, setNewRole] = useState("ai_engineer")
-  const [issued, setIssued] = useState<{ key: string; account: string } | null>(null)
+  const [issued, setIssued] = useState<{ key: string; account: string; note?: string } | null>(null)
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
   const [issuing, setIssuing] = useState<Account | null>(null)   // which account's issue form is open
@@ -105,6 +105,31 @@ export function ServiceAccounts() {
     } finally { setBusy(false) }
   }
 
+  // The old key keeps working for a day so the agent holding it can be switched
+  // over first; revoking and re-issuing would break it the moment it happened.
+  const rotate = async (account: Account, key: ApiKey) => {
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/service-accounts/keys/${key.id}/rotate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grace_hours: 24 }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (res.ok) {
+        const until = d.old_key_expires_at ? new Date(d.old_key_expires_at).toLocaleString() : null
+        setIssued({
+          key: d.key, account: account.username,
+          note: until ? `Replaces ${key.key_prefix}…, which keeps working until ${until}.` : undefined,
+        })
+        setCopied(false)
+        await load()
+      } else {
+        toast(typeof d.detail === "string" ? d.detail : `Could not rotate key (HTTP ${res.status})`, "error")
+      }
+    } finally { setBusy(false) }
+  }
+
   const revoke = async (keyId: string) => {
     setBusy(true)
     try {
@@ -134,6 +159,7 @@ export function ServiceAccounts() {
             <p className="text-xs text-muted-foreground">
               Copy it now. It is stored only as a hash and cannot be shown again.
             </p>
+            {issued.note && <p className="text-xs text-muted-foreground">{issued.note}</p>}
             <div className="flex items-center gap-2">
               <code className="flex-1 truncate rounded border bg-muted px-2 py-1.5 font-mono text-xs">
                 {issued.key}
@@ -290,6 +316,17 @@ export function ServiceAccounts() {
                         {k.last_used_at
                           ? `used ${new Date(k.last_used_at).toLocaleDateString()}`
                           : "never used"}
+                        {k.status === "active" && (
+                          <button
+                            onClick={() => rotate(a, k)}
+                            disabled={busy}
+                            aria-label="Rotate key"
+                            title="Issue a replacement; this key keeps working for 24 hours"
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            <RotateCw className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         {k.status === "active" && (
                           <button
                             onClick={() => revoke(k.id)}

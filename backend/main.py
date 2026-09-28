@@ -117,6 +117,23 @@ class AuthMiddleware(BaseHTTPMiddleware):
             except Exception:
                 user = None
         if user:
+            # A key's request budget, checked before the route runs so a caller over
+            # it costs nothing downstream. People are not held to it: a person's
+            # traffic is bounded by the browser, an agent's by nothing.
+            if user.get("api_key_id"):
+                from app.rate_limit import api_key_limiter
+                limiter = api_key_limiter()
+                wait = limiter.check(user["api_key_id"])
+                if wait is not None:
+                    logging.getLogger(__name__).warning("[auth] api key %s over %d/min, retry in %ds",
+                                   user["api_key_id"], limiter.per_minute, wait)
+                    return JSONResponse(
+                        status_code=429,
+                        content={"detail": f"Rate limit exceeded for this API key "
+                                           f"({limiter.per_minute} requests/minute). "
+                                           f"Retry in {wait}s."},
+                        headers={"Retry-After": str(wait)},
+                    )
             request.state.user = user
             # One place, every route: a caller held to a stricter PII guardrail gets it
             # applied for the whole request. No reset token like the one below — each

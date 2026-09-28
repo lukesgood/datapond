@@ -189,3 +189,70 @@ def client_address(request, trust_proxy: Optional[bool] = None) -> Optional[str]
 
     client = getattr(request, "client", None)
     return getattr(client, "host", None) if client is not None else None
+
+
+class ApiKeyRateLimit:
+    """A request budget per service-account API key: a token bucket per key id.
+
+    Login throttling counts failures; this counts every call, because the risk is
+    the opposite one. A valid key in an agent's config, driven by a loop, calls as
+    fast as the network allows, and each call can reach pgvector and a paid model.
+    The per-caller spend budget stops the money eventually; this stops the load
+    now, and says how long to wait rather than failing downstream.
+
+    Keyed by the key's database id, never the presented string, so only a key that
+    already authenticated gets a bucket — an attacker sending random tokens cannot
+    grow this store. Idle buckets are dropped once they would be full again anyway.
+
+    Per process, like LoginThrottle: with two backend replicas a key can reach at
+    most twice the configured rate.
+    """
+
+    def __init__(self, clock: Callable[[], float], per_minute: Optional[int] = None):
+        self._clock = clock
+        self._rate = per_minute if per_minute is not None \
+            else _int_env("API_KEY_RATE_LIMIT_PER_MINUTE", 600)
+        self._lock = threading.Lock()
+        # key id -> (tokens left, moment they were counted)
+        self._buckets: Dict[str, Tuple[float, float]] = {}
+
+    @property
+    def per_minute(self) -> int:
+        return self._rate
+
+    def check(self, key_id: str) -> Optional[int]:
+        """Spend one request. Seconds to wait if the budget is empty, else None."""
+        if self._rate <= 0:
+            return None
+        now = self._clock()
+        refill = self._rate / 60.0
+        with self._lock:
+            self._evict(now)
+            tokens, at = self._buckets.get(key_id, (float(self._rate), now))
+            tokens = min(float(self._rate), tokens + (now - at) * refill)
+            if tokens < 1.0:
+                self._buckets[key_id] = (tokens, now)
+                return max(1, int((1.0 - tokens) / refill + 0.999))
+            self._buckets[key_id] = (tokens - 1.0, now)
+            return None
+
+    def _evict(self, now: float) -> None:
+        full_after = 60.0   # an empty bucket is full again within a minute
+        for key in [k for k, (_t, at) in self._buckets.items() if now - at > full_after]:
+            del self._buckets[key]
+
+    def size(self) -> int:
+        with self._lock:
+            return len(self._buckets)
+
+
+_api_key_limiter: Optional[ApiKeyRateLimit] = None
+
+
+def api_key_limiter() -> ApiKeyRateLimit:
+    """One limiter per process, built on first use (see ApiKeyRateLimit)."""
+    global _api_key_limiter
+    if _api_key_limiter is None:
+        import time as _time
+        _api_key_limiter = ApiKeyRateLimit(clock=_time.monotonic)
+    return _api_key_limiter
