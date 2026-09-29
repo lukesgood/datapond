@@ -625,14 +625,22 @@ class DatabaseURLConnector(BaseConnector):
                 latency_ms=(time.time() - start_time) * 1000
             )
 
+    # The database's own catalog, not the user's data. PostgreSQL reports
+    # information_schema as an ordinary schema with ordinary tables (sql_features,
+    # sql_sizing, …), so a sync of "all tables" copied them into the lakehouse — found
+    # when the sample finance database synced six tables instead of two.
+    _SYSTEM_SCHEMAS = {"information_schema", "pg_catalog", "pg_toast",
+                       "mysql", "performance_schema", "sys"}
+
     async def get_tables(self) -> List[str]:
-        """List all tables across all schemas"""
+        """List all tables across all user schemas"""
         try:
             engine = self._get_engine()
             inspector = inspect(engine)
             schemas = []
             try:
-                schemas = inspector.get_schema_names()
+                schemas = [s for s in inspector.get_schema_names()
+                           if s is None or s.lower() not in self._SYSTEM_SCHEMAS]
             except Exception:
                 schemas = [None]
 

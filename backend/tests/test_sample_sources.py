@@ -309,3 +309,24 @@ def test_an_unknown_kind_is_refused_before_anything_is_written(monkeypatch):
         _run(connectors.add_sample_sources(
             connectors.SampleSourcesRequest(kinds=["rest_api", "mongodb"])))
     assert e.value.status_code == 400 and called == []
+
+
+def test_a_database_url_source_lists_only_user_schemas(monkeypatch):
+    """PostgreSQL reports information_schema as a schema with tables. Listing it made
+    the finance sample sync sql_features and sql_sizing into the catalog."""
+    from app.connectors import database
+    from app.connectors.database import DatabaseURLConfig, DatabaseURLConnector
+
+    class _Inspector:
+        def get_schema_names(self):
+            return ["information_schema", "pg_catalog", "public", "INFORMATION_SCHEMA"]
+
+        def get_table_names(self, schema=None):
+            return {"public": ["invoices", "payments"]}.get(schema, ["sql_features"])
+
+    monkeypatch.setattr(database, "inspect", lambda engine: _Inspector())
+    connector = DatabaseURLConnector(DatabaseURLConfig(
+        name="f", connector_type=ConnectorType.DATABASE_URL,
+        database_url="postgresql://u:p@h/samplefinance"))
+    connector.engine = object()
+    assert _run(connector.get_tables()) == ["public.invoices", "public.payments"]
