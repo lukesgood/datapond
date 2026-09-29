@@ -421,6 +421,20 @@ async def chunk_presets():
         for name, (size, overlap) in CHUNK_PRESETS.items()]}
 
 
+def _stored_rule(raw) -> Optional[dict]:
+    """The collection's chunk rule as the console shows it, or None when it has none.
+    A stored rule that no longer parses is reported as `{"invalid": true}` rather than
+    None: retrieval denies everything for it, so the page must not say "no rule"."""
+    if raw is None or raw == {} or raw == "{}":
+        return None
+    rule = chunk_access.parse_stored(raw)
+    if rule is None:
+        return None
+    if rule == chunk_access._DENY_ALL:
+        return {"invalid": True}
+    return {"metadata_key": rule.metadata_key, "user_attribute": rule.user_attribute}
+
+
 @router.get("/ai/collections",
             dependencies=[Depends(require_permission("knowledge:read"))])
 async def list_collections(user: dict = Depends(require_user),
@@ -470,7 +484,7 @@ async def list_collections(user: dict = Depends(require_user),
         # for the rows this page returns.
         rows = await c.fetch(f"""
             SELECT col.name, col.embed_model, col.dim, col.description, col.created_at,
-                   col.owner_id,
+                   col.owner_id, col.chunk_access,
                    (SELECT COUNT(*) FROM ai_chunks ch WHERE ch.collection_id = col.id) AS chunks,
                    (SELECT COUNT(DISTINCT ch.source) FROM ai_chunks ch WHERE ch.collection_id = col.id) AS sources,
                    (SELECT MAX(ch.created_at) FROM ai_chunks ch WHERE ch.collection_id = col.id) AS last_ingested
@@ -484,6 +498,7 @@ async def list_collections(user: dict = Depends(require_user),
          "sources": r["sources"], "index": "HNSW · cosine",
          "last_ingested": r["last_ingested"].isoformat() if r["last_ingested"] else None,
          "owner_id": str(r["owner_id"]) if r["owner_id"] else None,
+         "chunk_access": _stored_rule(r["chunk_access"]),
          "created_at": r["created_at"].isoformat() if r["created_at"] else None}
         for r in rows
     ]}

@@ -2,6 +2,7 @@
 
 import { ShieldAlert } from "lucide-react"
 import { AiBackends, UsagePanel } from "@/components/settings/ai-backends"
+import { CallerBudgets } from "@/components/settings/caller-budgets"
 import { useHasPermission, usePermissions } from "@/lib/permissions"
 import { permissionState } from "@/lib/permission-state"
 import { PermissionUnknown } from "@/components/ui/permission-state"
@@ -40,10 +41,14 @@ export default function AiGatewayPage() {
           <PermissionUnknown onRetry={refetch} />
         </div>
       ) : isAdmin ? (
-        <AiBackends />
+        <>
+          <AiBackends />
+          <CallerBudgets canEdit />
+        </>
       ) : canSeeSpend ? (
         <>
           <UsagePanel />
+          <CallerBudgets canEdit={false} />
           <p className="text-xs text-muted-foreground">
             Model backends and virtual keys are managed by an administrator.
           </p>

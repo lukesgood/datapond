@@ -259,6 +259,44 @@ def test_setting_a_bad_rule_is_a_400(monkeypatch):
     assert conn.executed == []
 
 
+# ── showing the rule ──────────────────────────────────────────────────────────
+
+class _ListConn:
+    def __init__(self, stored):
+        self.stored = stored
+
+    async def fetchval(self, sql, *args):
+        return 1
+
+    async def fetch(self, sql, *args):
+        assert "col.chunk_access" in sql
+        import datetime
+        return [{"name": "c", "embed_model": "m", "dim": 3, "description": None,
+                 "created_at": datetime.datetime(2026, 1, 1), "owner_id": None,
+                 "chunk_access": self.stored, "chunks": 0, "sources": 0,
+                 "last_ingested": None}]
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+@pytest.mark.parametrize("stored,shown", [
+    (None, None),
+    ('{"metadata_key": "dept", "user_attribute": "department"}',
+     {"metadata_key": "dept", "user_attribute": "department"}),
+    ('{"metadata_key": "bad key", "user_attribute": "d"}', {"invalid": True}),
+])
+def test_the_collection_list_carries_the_rule(monkeypatch, stored, shown):
+    async def _pool():
+        return _Pool(_ListConn(stored))
+    monkeypatch.setattr(ai_vectors, "get_db_pool", _pool)
+    out = asyncio.run(ai_vectors.list_collections(user={**HR, "role": "admin"}))
+    assert out["collections"][0]["chunk_access"] == shown
+
+
 # ── labels at ingest ──────────────────────────────────────────────────────────
 
 def test_an_iceberg_label_column_lands_in_each_chunks_metadata(monkeypatch):

@@ -17,6 +17,8 @@ import { MySpend } from "@/components/ai/my-spend"
 import { CompositionPanel } from "@/components/knowledge/composition-panel"
 import { LineagePanel } from "@/components/knowledge/lineage-panel"
 import { MembersPanel } from "@/components/knowledge/members-panel"
+import { ChunkAccessPanel } from "@/components/knowledge/chunk-access-panel"
+import type { StoredChunkRule } from "@/lib/chunk-rule"
 import { UseFromAppPanel } from "@/components/knowledge/use-from-app-panel"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -32,6 +34,7 @@ interface Collection {
   name: string; embed_model: string; dim: number
   description: string | null; chunks: number; created_at: string | null
   owner_id: string | null
+  chunk_access?: StoredChunkRule
   sources?: number; index?: string | null; last_ingested?: string | null
 }
 
@@ -213,7 +216,8 @@ export default function KnowledgePage() {
         <div>
           {sel ? <Workspace key={sel} name={sel} onChange={load}
                             empty={(cols.find(c => c.name === sel)?.chunks ?? 0) === 0}
-                            ownerId={cols.find(c => c.name === sel)?.owner_id ?? null} />
+                            ownerId={cols.find(c => c.name === sel)?.owner_id ?? null}
+                            chunkAccess={cols.find(c => c.name === sel)?.chunk_access ?? null} />
             : <Card><CardContent>
                 <EmptyState
                   icon={Sparkles}
@@ -336,8 +340,11 @@ function CreateCollection({ onCreated }: { onCreated: () => void }) {
   )
 }
 
-function Workspace({ name, onChange, empty, ownerId }: { name: string; onChange: () => void; empty: boolean; ownerId: string | null }) {
+function Workspace({ name, onChange, empty, ownerId, chunkAccess }: { name: string; onChange: () => void; empty: boolean; ownerId: string | null; chunkAccess: StoredChunkRule }) {
   const ontologyOn = useCapability("ontology")
+  const viewer = getUser()
+  const { role, permissions } = usePermissions()
+  const canEditRule = !!viewer && mayWriteCollection({ owner_id: ownerId }, { id: viewer.id, role, permissions })
   return (
     <Card>
       <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2">
@@ -356,6 +363,7 @@ function Workspace({ name, onChange, empty, ownerId }: { name: string; onChange:
             <TabsTrigger value="ingest"><Upload className="h-3.5 w-3.5 mr-1" />Ingest</TabsTrigger>
             <TabsTrigger value="schedule"><Clock className="h-3.5 w-3.5 mr-1" />Schedule</TabsTrigger>
             <TabsTrigger value="members"><Users className="h-3.5 w-3.5 mr-1" />Members</TabsTrigger>
+            <TabsTrigger value="access"><ShieldCheck className="h-3.5 w-3.5 mr-1" />Chunk access</TabsTrigger>
             <TabsTrigger value="app"><Plug className="h-3.5 w-3.5 mr-1" />Use from app</TabsTrigger>
             {/* Only when the deployment has the capability. Without the flag every
                 concepts call 404s, so an always-present tab would greet everyone with
@@ -368,6 +376,7 @@ function Workspace({ name, onChange, empty, ownerId }: { name: string; onChange:
           <TabsContent value="ingest"><IngestPanel name={name} ownerId={ownerId} onChange={onChange} /></TabsContent>
           <TabsContent value="schedule"><SchedulePanel name={name} ownerId={ownerId} /></TabsContent>
           <TabsContent value="members"><MembersPanel name={name} ownerId={ownerId} /></TabsContent>
+          <TabsContent value="access"><ChunkAccessPanel name={name} initial={chunkAccess} canEdit={canEditRule} onChange={onChange} /></TabsContent>
           <TabsContent value="app" className="mt-4"><UseFromAppPanel name={name} /></TabsContent>
           {/* Deliberately in Knowledge rather than a page of its own: concepts change
               what Search returns, so the cause belongs next to the effect. */}
