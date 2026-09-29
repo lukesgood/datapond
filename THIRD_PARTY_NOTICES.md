@@ -15,7 +15,7 @@ not derivation). Their licenses govern those components, not DataPond's code.
 
 | Component | License | Where it applies |
 |---|---|---|
-| MinIO (`minio/minio`, `minio/mc`) | **AGPL-3.0** | Any profile with `minio.enabled`; Portable Core AWS, AWS single-node, and AWS hybrid profiles use native Amazon S3 and pull no MinIO image |
+| MinIO server (`pgsty/minio`, a community build of `minio/minio`) | **AGPL-3.0** | Any profile with `minio.enabled`; Portable Core AWS, AWS single-node, and AWS hybrid profiles use native Amazon S3 and pull no MinIO image |
 | Elasticsearch 8.x (via OpenMetadata) | **Elastic License 2.0 / SSPL** (source-available, not OSI open source) | Deployed only where `openmetadata.enabled` resolves to `true` — the base chart default is unset (off on a fresh install, preserved only if this namespace already runs it); `values-aws.yaml` sets no OpenMetadata flag either, so the same unset rule applies to it; disabled in Portable Core and AWS single-node profiles. Set `openmetadata.enabled: false` to remove it explicitly, including on a namespace that already runs it |
 | BusyBox (init containers) | GPL-2.0 | Unmodified standalone utility image (mere aggregation) |
 
@@ -49,7 +49,7 @@ that already runs it.
 | `vllm/vllm-openai:v0.24.0` | vLLM | Apache-2.0 |
 | `quay.io/jupyter/scipy-notebook:2026-07-06` (base of `datapond/jupyter`) | Jupyter Docker Stacks | BSD-3-Clause (bundles a broad BSD/PSF/Apache scientific-Python stack) |
 | `curlimages/curl:8.10.1` | curl | curl license (MIT/X-style) |
-| `minio/minio:RELEASE.2025-09-07T16-13-09Z`, `minio/mc:RELEASE.2025-08-13T08-35-41Z` | MinIO | AGPL-3.0 (see callout above) |
+| `pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372` | MinIO (community build) | AGPL-3.0 (see callout above) |
 | `docker.elastic.co/elasticsearch/elasticsearch:8.10.2` | Elasticsearch | ELv2 / SSPL (see callout above) |
 | `busybox:1.36.1` | BusyBox | GPL-2.0 (see callout above) |
 

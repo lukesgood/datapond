@@ -515,9 +515,14 @@ spark:
 # AWS profile uses native S3 (see values-aws.yaml).
 minio:
   enabled: false
+  # MinIO stopped publishing community images: minio/minio and minio/mc refuse
+  # anonymous pulls on Docker Hub and Quay (found 2026-09-29, when CI first installed
+  # Sovereign Core). pgsty/minio is a community build of the same source, drop-in for
+  # config and data. Pinned by digest as well as tag, because the image now comes
+  # from a third party: a moved tag must not change what runs.
   image:
-    repository: minio/minio
-    tag: "RELEASE.2025-09-07T16-13-09Z"
+    repository: pgsty/minio
+    tag: "RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372"
   auth:
     rootUser: datapond
     rootPassword: ""  # empty ⇒ Helm generates & preserves (see templates/secrets.yaml)

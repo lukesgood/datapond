@@ -14,8 +14,11 @@ spec:
     spec:
       restartPolicy: OnFailure
       containers:
-        - name: mc
-          image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+        # The backend image and boto3, not minio/mc: MinIO no longer publishes mc
+        # images anonymously, and this Job needs nothing the backend image lacks.
+        - name: bucket-init
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy | default "IfNotPresent" }}
           env:
             - name: S3_USER
               valueFrom: { secretKeyRef: { name: datapond-secrets, key: SEAWEEDFS_S3_USER } }
@@ -23,14 +26,26 @@ spec:
               valueFrom: { secretKeyRef: { name: datapond-secrets, key: SEAWEEDFS_S3_PASSWORD } }
             - name: BUCKET
               value: "{{ .Values.polaris.warehouseBucket | default "iceberg" }}"
-          command: ["/bin/sh", "-c"]
+          command: ["python", "-c"]
           args:
             - |
-              set -e
-              for i in $(seq 1 36); do
-                mc alias set local http://minio:9000 "$S3_USER" "$S3_PASS" && break
-                echo "waiting for minio... ($i)"; sleep 5
-              done
-              mc mb --ignore-existing "local/$BUCKET"
-              echo "bucket '$BUCKET' ready."
+              import os, time, boto3
+              from botocore.exceptions import ClientError, EndpointConnectionError
+              s3 = boto3.client("s3", endpoint_url="http://minio:9000", region_name="us-east-1",
+                                aws_access_key_id=os.environ["S3_USER"],
+                                aws_secret_access_key=os.environ["S3_PASS"])
+              bucket = os.environ["BUCKET"]
+              for i in range(36):
+                  try:
+                      s3.list_buckets(); break
+                  except (EndpointConnectionError, ClientError) as e:
+                      print(f"waiting for minio... ({i + 1}): {e}", flush=True); time.sleep(5)
+              else:
+                  raise SystemExit("minio did not answer")
+              try:
+                  s3.create_bucket(Bucket=bucket)
+              except ClientError as e:
+                  if e.response["Error"]["Code"] not in ("BucketAlreadyOwnedByYou", "BucketAlreadyExists"):
+                      raise
+              print(f"bucket '{bucket}' ready.")
 {{- end }}
