@@ -457,21 +457,26 @@ def _scan_pii_tables() -> Optional[List[PiiTableEntry]]:
         return None
 
     try:
+        # The default catalog's engine name — it was a literal "iceberg", which is
+        # wrong the moment TRINO_CATALOG or the registry's default says otherwise.
+        from app import catalog_registry
+        from app.api.catalog_backend import safe_identifier
+        pii_catalog = safe_identifier(catalog_registry.default_entry().engine_catalog)
         conn = trino_connect(
             host=TRINO_HOST,
             port=TRINO_PORT,
             user=TRINO_USER,
-            catalog="iceberg",
+            catalog=pii_catalog,
             schema="information_schema",
             http_scheme="http",
             request_timeout=10,
         )
         cursor = conn.cursor()
 
-        # Fetch all column names from iceberg information_schema
+        # Fetch all column names from the default catalog's information_schema
         cursor.execute(
             "SELECT table_schema, table_name, column_name "
-            "FROM iceberg.information_schema.columns "
+            f"FROM {pii_catalog}.information_schema.columns "
             "ORDER BY table_schema, table_name, ordinal_position"
         )
         rows: List[Any] = cursor.fetchall()
@@ -689,6 +694,40 @@ async def list_roles():
         return []
 
 
+def rls_catalog_tables():
+    """(catalog, namespace, table) for every table of every enabled catalog, each
+    stamped with its own catalog as SQL names it — the key RLS enforces on — plus an
+    error string when any catalog could not be listed.
+
+    The default catalog is stamped with the RLS engine's own default, so a two-part
+    policy key and this list can never disagree about what `sales.orders` means.
+    """
+    from app import catalog_registry
+    from app.api.catalog_backend import get_catalog_reader
+    from app.rls.engine import _default_catalog
+
+    tables, errors = [], []
+    for entry in catalog_registry.entries():
+        catalog = _default_catalog() if entry.is_default else entry.engine_catalog
+        try:
+            reader = get_catalog_reader(entry.name)
+            namespaces = reader.list_namespaces()
+        except Exception as e:
+            # Say so rather than reporting zero uncovered tables, which reads as "all
+            # clear" and is the most dangerous thing coverage could return.
+            errors.append(f"{entry.name}: {e}")
+            logger.warning("rls coverage: catalog %s unreadable: %s", entry.name, e)
+            continue
+        for namespace in namespaces:
+            try:
+                for table in reader.list_tables(namespace):
+                    tables.append((catalog, namespace, table))
+            except Exception as e:
+                logger.warning("rls coverage: namespace %s.%s unreadable: %s",
+                               entry.name, namespace, e)
+    return tables, ("; ".join(errors) or None)
+
+
 @router.get("/governance/rls/coverage",
             dependencies=[Depends(require_permission("governance:read"))])
 async def rls_coverage(user: Optional[dict] = Depends(_get_current_user)):
@@ -701,27 +740,10 @@ async def rls_coverage(user: Optional[dict] = Depends(_get_current_user)):
     """
     import os
 
-    from app.api.catalog_backend import get_catalog_reader
     from app.rls import loader as rls_loader
     from app.rls.coverage import coverage as _coverage
 
-    catalog = os.getenv("RLS_DEFAULT_CATALOG") or os.getenv("TRINO_CATALOG") or "iceberg"
-    tables = []
-    catalog_error = None
-    try:
-        reader = get_catalog_reader()
-        for namespace in reader.list_namespaces():
-            try:
-                for table in reader.list_tables(namespace):
-                    tables.append((catalog, namespace, table))
-            except Exception as e:
-                logger.warning("rls coverage: namespace %s unreadable: %s", namespace, e)
-    except Exception as e:
-        # Say so rather than reporting zero uncovered tables, which reads as "all
-        # clear" and is the most dangerous thing this endpoint could return.
-        catalog_error = str(e)
-        logger.warning("rls coverage: catalog unreadable: %s", e)
-
+    tables, catalog_error = rls_catalog_tables()
     out = _coverage(tables, await rls_loader.load_policies(), await rls_loader.load_masks())
     out["rls_enabled"] = os.getenv("RLS_ENABLED", "false").lower() in ("1", "true", "yes")
     out["default_deny"] = os.getenv("RLS_DEFAULT_DENY", "false").lower() in ("1", "true", "yes")

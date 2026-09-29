@@ -120,7 +120,14 @@ def _default_deny_enabled() -> bool:
 # `sales.orders`. Read at call time (like _default_deny_enabled) so config changes
 # and tests take effect without a re-import.
 def _default_catalog() -> str:
-    return os.getenv("RLS_DEFAULT_CATALOG") or os.getenv("TRINO_CATALOG") or "iceberg"
+    """The catalog a two-part name means. The registry's default once the database
+    has answered (app/catalog_registry.py, no IO here); env until then, unchanged."""
+    try:
+        from app.catalog_registry import cached_default_name
+        name = cached_default_name()
+    except Exception:
+        name = None
+    return name or os.getenv("RLS_DEFAULT_CATALOG") or os.getenv("TRINO_CATALOG") or "iceberg"
 
 
 def _default_schema() -> str:

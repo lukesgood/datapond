@@ -232,7 +232,7 @@ async def startup():
     # deployment state, not a bootstrap failure, and must never hold the pod back.
     async def _warn_rls_coverage():
         try:
-            from app.api.catalog_backend import get_catalog_reader
+            from app.api.governance import rls_catalog_tables
             from app.rls import loader as rls_loader
             from app.rls.coverage import coverage, rls_posture, startup_warning
 
@@ -240,10 +240,8 @@ async def startup():
             deny = os.getenv("RLS_DEFAULT_DENY", "false").lower() in ("1", "true", "yes")
             uncovered = 0
             if enabled and not deny:
-                cat = os.getenv("RLS_DEFAULT_CATALOG") or os.getenv("TRINO_CATALOG") or "iceberg"
-                reader = get_catalog_reader()
-                tables = [(cat, ns, t) for ns in reader.list_namespaces()
-                          for t in reader.list_tables(ns)]
+                # Every enabled catalog, each table under its own catalog.
+                tables, _error = rls_catalog_tables()
                 report = coverage(tables, await rls_loader.load_policies(),
                                   await rls_loader.load_masks())
                 uncovered = report["uncovered_count"]
