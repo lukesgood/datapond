@@ -8,10 +8,30 @@ from uuid import UUID
 
 
 class ChartConfig(BaseModel):
-    """Chart configuration for dashboard visualization"""
-    chartType: str = Field(..., description="Chart type: 'line', 'bar', 'area', 'pie', 'scatter'")
+    """Chart configuration for dashboard visualization.
+
+    `yAxis` is the original single measure and stays valid: a dashboard saved before
+    multi-series carries only that. `yAxes` wins when both are present.
+    """
+    chartType: str = Field(
+        ...,
+        description="Chart type: 'table', 'line', 'bar', 'area', 'pie', 'kpi', 'scatter', "
+                    "'histogram' or 'heatmap'",
+    )
     xAxis: Optional[str] = Field(None, description="X-axis column name")
     yAxis: Optional[str] = Field(None, description="Y-axis column name")
+    yAxes: Optional[List[str]] = Field(
+        None, max_length=5, description="Measures plotted together (up to 5)")
+    colorBy: Optional[str] = Field(
+        None, description="Category column: series per value, scatter colour, or heatmap rows")
+    stacked: Optional[bool] = Field(None, description="Stack bar/area series into a whole")
+    aggregate: Optional[str] = Field(
+        None, pattern="^(sum|avg|count|min|max)$",
+        description="How rows sharing an X value are combined")
+    horizontal: Optional[bool] = Field(
+        None, description="Bars only; unset lets long labels or many categories decide")
+    showGrid: Optional[bool] = Field(None, description="Draw the grid")
+    showLegend: Optional[bool] = Field(None, description="Draw the legend")
     colors: Optional[List[str]] = Field(None, description="Chart color palette")
     title: Optional[str] = Field(None, description="Chart title")
     options: Optional[Dict[str, Any]] = Field(None, description="Additional chart options")

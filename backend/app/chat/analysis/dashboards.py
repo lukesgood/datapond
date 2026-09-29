@@ -4,7 +4,7 @@ Declaration and implementation live together. `actions.py` owns the vocabulary â
 Action type, resolution, validation, the gate â€” and assembles what these modules
 declare.
 """
-from typing import Callable, Dict
+from typing import Callable, Dict, List, Optional
 
 from app.chat.actions import Action, ActionKind, _Strict
 from app.chat.analysis._resolve import _r
@@ -14,20 +14,43 @@ class DashboardSave(_Strict):
     name: str
     sql: str
     chart_type: str = "table"
+    # What the chart was drawn on. Optional: a caller that sends only `chart_type`
+    # still saves as before, and the dashboard page then picks its own axes.
+    x_axis: Optional[str] = None
+    y_axes: Optional[List[str]] = None
+    color_by: Optional[str] = None
+    aggregate: Optional[str] = None
+    stacked: Optional[bool] = None
 
 
 async def preview_dashboard_save(params: dict, user: dict) -> dict:
-    return {"name": params["name"], "chart_type": params.get("chart_type", "table"),
-            "sql": params["sql"]}
+    preview = {"name": params["name"], "chart_type": params.get("chart_type", "table"),
+               "sql": params["sql"]}
+    if params.get("x_axis"):
+        preview["x_axis"] = params["x_axis"]
+    if params.get("y_axes"):
+        preview["y_axes"] = ", ".join(params["y_axes"])
+    return preview
 
 
 def build_dashboard_create(params: dict):
     """The schema is `query_text` and a ChartConfig object, not `query` and a string."""
     from app.schemas.dashboard import ChartConfig, DashboardCreate
+    y_axes = params.get("y_axes") or None
     return DashboardCreate(
         name=params["name"],
         query_text=params["sql"],
-        chart_config=ChartConfig(chartType=params.get("chart_type") or "table"),
+        chart_config=ChartConfig(
+            chartType=params.get("chart_type") or "table",
+            xAxis=params.get("x_axis"),
+            # `yAxis` stays the first measure so anything reading the older field
+            # still finds one.
+            yAxis=y_axes[0] if y_axes else None,
+            yAxes=y_axes,
+            colorBy=params.get("color_by"),
+            aggregate=params.get("aggregate"),
+            stacked=params.get("stacked"),
+        ),
     )
 
 
