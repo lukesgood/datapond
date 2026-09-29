@@ -1,7 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import ReactFlow, { Background, Controls, type Edge, type Node } from "reactflow"
+import ReactFlow, {
+  Background, Controls, Handle, Position, type Edge, type Node, type NodeProps,
+} from "reactflow"
 import "reactflow/dist/style.css"
 import { Check, Copy, Loader2, Search, Share2 } from "lucide-react"
 import { Input } from "@/components/ui/input"
@@ -14,6 +16,25 @@ import {
 
 // How many neighbours are drawn around the selected table; the list shows them all.
 const DRAWN = 12
+
+// Edges run centre to centre as straight lines. reactflow's default node puts the
+// target handle on top and the source on the bottom, so an edge to a neighbour on the
+// left or right looped around its node and one below ran through the middle table.
+const HIDDEN_CENTRE: React.CSSProperties = {
+  top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+  opacity: 0, border: 0, width: 1, height: 1, minWidth: 0, minHeight: 0,
+}
+
+function TableNode({ data }: NodeProps<{ label: React.ReactNode }>) {
+  return (
+    <>
+      <Handle type="target" position={Position.Top} style={HIDDEN_CENTRE} isConnectable={false} />
+      {data.label}
+      <Handle type="source" position={Position.Bottom} style={HIDDEN_CENTRE} isConnectable={false} />
+    </>
+  )
+}
+const NODE_TYPES = { table: TableNode }
 
 /** Relationships between catalog tables, read from one table at a time.
  *
@@ -202,6 +223,7 @@ function Neighbourhood({ center, around, onPick }: {
   const { nodes: laid, hidden } = useMemo(() => egoLayout(center, around, DRAWN), [center, around])
   const nodes: Node[] = laid.map(n => ({
     id: n.id,
+    type: "table",
     position: n.position,
     data: { label: <span className="font-mono text-2xs">{n.id.split(".")[1]}</span> },
     style: {
@@ -216,6 +238,7 @@ function Neighbourhood({ center, around, onPick }: {
       id: `${center}-${n.other}`,
       source: center,
       target: n.other,
+      type: "straight",
       // Solid, thicker for more use = people ran it. Dashed = a guess.
       style: observed
         ? { strokeWidth: Math.min(1 + Math.log2(n.count + 1), 4) }
@@ -224,7 +247,8 @@ function Neighbourhood({ center, around, onPick }: {
   })
   return (
     <div className="h-[320px] rounded-md border">
-      <ReactFlow nodes={nodes} edges={edges} fitView proOptions={{ hideAttribution: true }}
+      <ReactFlow nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} fitView
+                 proOptions={{ hideAttribution: true }}
                  nodesDraggable={false}
                  onNodeClick={(_e, n) => { if (n.id !== center) onPick(n.id) }}>
         <Background gap={16} size={1} />

@@ -39,12 +39,15 @@ interface ChartRendererProps {
 // in the DOM, or one frozen at its first frame, which is what Analytics was showing:
 // axes, grid and legend correct, the series absent. Reproduced outside this app, with
 // no ResponsiveContainer, no margin, no CSS variables: animation on gives zero bars,
-// animation off gives three with the right geometry. Line and Area are unaffected.
+// animation off gives three with the right geometry. Line was hit too: on the live
+// Analytics page (2026-09-29) a 111-point daily series showed its dots and no line —
+// the stroke frozen at its first frame. So every series renders without animation.
 //
 // Turning it off is the fix rather than pinning a different recharts, because these
 // charts read better without the animation anyway and the dependency scan is a merge
 // gate — a version change here is a decision, not a workaround.
 const ANIMATE = false
+const MAX_DOTS = 40
 
 const DEFAULT_COLORS = [
   "var(--chart-1)",
@@ -108,14 +111,17 @@ export function ChartRenderer({
               boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
             }}
           />
-          {showLegend && <Legend />}
+          {showLegend && <Legend verticalAlign="top" height={28} />}
           <Line
             type="monotone"
             dataKey={yAxis}
             stroke={colors[0]}
             strokeWidth={2}
-            dot={{ fill: colors[0], r: 4 }}
+            // Markers on every point bury a long series; past a few dozen points the
+            // line carries the shape and the hover dot marks the value.
+            dot={data.length <= MAX_DOTS ? { fill: colors[0], r: 4 } : false}
             activeDot={{ r: 6 }}
+            isAnimationActive={ANIMATE}
           />
         </LineChart>
       </ResponsiveContainer>
@@ -151,7 +157,7 @@ export function ChartRenderer({
               boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
             }}
           />
-          {showLegend && <Legend />}
+          {showLegend && <Legend verticalAlign="top" height={28} />}
           <Bar dataKey={yAxis} fill={colors[0]} radius={[4, 4, 0, 0]} isAnimationActive={ANIMATE} />
         </BarChart>
       </ResponsiveContainer>
@@ -187,13 +193,14 @@ export function ChartRenderer({
               boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
             }}
           />
-          {showLegend && <Legend />}
+          {showLegend && <Legend verticalAlign="top" height={28} />}
           <Area
             type="monotone"
             dataKey={yAxis}
             stroke={colors[0]}
             fill={colors[0]}
             fillOpacity={0.2}
+            isAnimationActive={ANIMATE}
           />
         </AreaChart>
       </ResponsiveContainer>
@@ -229,7 +236,7 @@ export function ChartRenderer({
               boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
             }}
           />
-          {showLegend && <Legend />}
+          {showLegend && <Legend verticalAlign="top" height={28} />}
         </PieChart>
       </ResponsiveContainer>
     )
