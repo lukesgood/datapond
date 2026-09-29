@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useCallback, useEffect, Suspense } from "react"
+import { useState, useRef, useCallback, useEffect, useMemo, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -19,6 +19,7 @@ import { QueryHistorySidebar } from "@/components/query/query-history-sidebar"
 import { ChartSelector } from "@/components/query/chart-selector"
 import { ChartConfigPanel } from "@/components/query/chart-config-panel"
 import type { ChartType } from "@/components/query/chart-renderer"
+import { profileColumns, recommend, toChartRows } from "@/lib/chart-recommend"
 
 const SqlEditor = dynamic(() => import("@/components/query/sql-editor").then(m => ({ default: m.SqlEditor })), {
   ssr: false,
@@ -38,6 +39,8 @@ interface QueryResult {
   rows: unknown[][]
   execution_time_ms: number
   truncated?: boolean
+  // quantitative | temporal | boolean | text | other | unknown, one per column
+  column_types?: string[]
 }
 
 type QueryStatus = "idle" | "running" | "success" | "error"
@@ -77,6 +80,7 @@ function QueryPageInner() {
   const [copied, setCopied]                 = useState(false)
   const [error, setError]                   = useState<string | null>(null)
   const [chartType, setChartType]           = useState<ChartType>("table")
+  const resultShape                         = useRef<string>("")
   const [xAxis, setXAxis]                   = useState("")
   const [yAxis, setYAxis]                   = useState("")
   const [showGrid, setShowGrid]             = useState(true)
@@ -258,12 +262,18 @@ function QueryPageInner() {
       setExecutedQuery(query)
       setQueryStatus("success")
       addToQueryHistory(query)
-      // Reset chart axes whenever the new result set's columns no longer
-      // contain the currently-selected axis (e.g. a second query with
-      // different columns) — otherwise Recharts silently renders empty.
+      // A result of a new shape opens as the chart that fits it (a measure over time
+      // as a line, per category as bars, anything else as the table), on the axes
+      // that fit. The same shape again keeps whatever the person chose last.
       const cols: string[] = data.columns ?? []
-      setXAxis(prev => (prev && cols.includes(prev)) ? prev : (cols[0] ?? ""))
-      setYAxis(prev => (prev && cols.includes(prev)) ? prev : (cols[1] ?? ""))
+      const shape = cols.join("\u0000") + "|" + (data.column_types ?? []).join(",")
+      if (shape !== resultShape.current) {
+        resultShape.current = shape
+        const rec = recommend(profileColumns(cols, data.rows ?? [], data.column_types), (data.rows ?? []).length)
+        setChartType(rec.best)
+        setXAxis(rec.x)
+        setYAxis(rec.y)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error")
       setQueryStatus("error")
@@ -315,13 +325,16 @@ function QueryPageInner() {
     setRightPanel(prev => prev === panel ? null : panel)
   }
 
+  const profiles = useMemo(
+    () => results ? profileColumns(results.columns, results.rows ?? [], results.column_types) : [],
+    [results])
+  const chartFit = useMemo(
+    () => recommend(profiles, results?.rows?.length ?? 0, { x: xAxis, y: yAxis }),
+    [profiles, results, xAxis, yAxis])
+
   const getChartData = () => {
     if (!results?.rows?.length) return []
-    return results.rows.map(row => {
-      const obj: Record<string, unknown> = {}
-      results.columns.forEach((col, i) => { obj[col] = row[i] })
-      return obj
-    })
+    return toChartRows(results.columns, results.rows, profiles)
   }
 
   // Simple SQL formatter (basic prettify)
@@ -707,7 +720,8 @@ function QueryPageInner() {
               </div>
               {/* Chart selector — inline in results header */}
               {hasResults && (
-                <ChartSelector selectedType={chartType} onTypeChange={setChartType} />
+                <ChartSelector selectedType={chartType} onTypeChange={setChartType}
+                               availability={chartFit.availability} />
               )}
             </div>
 
@@ -762,8 +776,21 @@ function QueryPageInner() {
                       loading={false}
                     />
                   </div>
+                ) : !chartFit.availability[chartType].ok ? (
+                  // The axes changed under a chart that no longer fits them: say why
+                  // rather than draw an empty frame.
+                  <div className="h-full flex items-center justify-center p-6">
+                    <p className="text-sm text-muted-foreground max-w-md text-center">
+                      {chartFit.availability[chartType].reason}
+                    </p>
+                  </div>
                 ) : (
                   <div className="h-full overflow-auto p-4">
+                    {chartFit.availability[chartType].note && (
+                      <p className="mb-2 text-xs text-[var(--dp-warn-text)]">
+                        {chartFit.availability[chartType].note}
+                      </p>
+                    )}
                     <ChartRenderer
                       data={getChartData()}
                       chartType={chartType}
@@ -804,6 +831,7 @@ function QueryPageInner() {
             <div className="p-3">
               <ChartConfigPanel
                 columns={results!.columns}
+                xOptions={chartFit.xOptions} yOptions={chartFit.yOptions}
                 xAxis={xAxis} yAxis={yAxis}
                 onXAxisChange={setXAxis} onYAxisChange={setYAxis}
                 showGrid={showGrid} showLegend={showLegend}

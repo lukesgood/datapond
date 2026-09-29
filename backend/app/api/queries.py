@@ -79,6 +79,9 @@ class QueryResult(BaseModel):
     # How many PII values the guardrail replaced in these rows. Zero means the scan
     # ran and found nothing; the field is absent-by-default only for older clients.
     pii_masked: int = 0
+    # One per column: quantitative | temporal | boolean | text | other | unknown
+    # (app/api/query_engine.column_kind). What the console picks chart axes from.
+    column_types: List[str] = []
 
 
 class CatalogColumn(BaseModel):
@@ -430,6 +433,10 @@ async def _execute_query_impl(
     # for one) AND we actually hit the cap — otherwise the result set is complete.
     truncated = limit_auto_added and len(rows) >= MAX_ROWS
 
+    kinds = list(getattr(engine, "column_types", None) or [])
+    if len(kinds) != len(columns):
+        kinds = ["unknown"] * len(columns)
+
     return QueryResult(
         columns=columns,
         rows=rows,
@@ -437,6 +444,7 @@ async def _execute_query_impl(
         row_count=len(rows),
         truncated=truncated,
         pii_masked=pii_masked,
+        column_types=kinds,
     )
 
 

@@ -3,6 +3,35 @@ Isolates dialect, execution, and error-mapping so queries.py / ai_sql.py / rls s
 engine-agnostic. TrinoEngine wraps the existing self-hosted path; AthenaEngine uses
 pyathena (serverless, AWS-native)."""
 import os
+import re
+
+
+# What a chart can do with a column, from the type the engine reports. Coarse on
+# purpose: the console needs "can this be an axis, a measure, a time line", not the
+# engine's full type system. Trino and Athena (engine v3) report the same names.
+_QUANTITATIVE = re.compile(r"^(tinyint|smallint|integer|int|bigint|real|double|float|decimal)\b")
+_TEMPORAL = re.compile(r"^(date|time|timestamp|interval)\b")
+_TEXT = re.compile(r"^(varchar|char|string|json|uuid|ipaddress)\b")
+
+
+def column_kind(engine_type) -> str:
+    """quantitative | temporal | boolean | text | other | unknown."""
+    t = str(engine_type or "").strip().lower()
+    if not t:
+        return "unknown"
+    if _QUANTITATIVE.match(t):
+        return "quantitative"
+    if _TEMPORAL.match(t):
+        return "temporal"
+    if t == "boolean":
+        return "boolean"
+    if _TEXT.match(t):
+        return "text"
+    return "other"
+
+
+def _kinds(description) -> list:
+    return [column_kind(d[1] if len(d) > 1 else None) for d in (description or [])]
 
 
 def _clean_trino_msg(msg: str) -> str:
@@ -28,6 +57,9 @@ class TrinoEngine:
         cur.execute(sql)
         rows = cur.fetchall()
         cols = [d[0] for d in cur.description] if cur.description else []
+        # Read by the caller after execute(); the return shape stays (rows, cols) for
+        # every other caller of execute().
+        self.column_types = _kinds(cur.description)
         cur.close(); conn.close()
         return rows, cols
 
@@ -76,6 +108,7 @@ class AthenaEngine:
         cur.execute(sql)
         rows = cur.fetchall()
         cols = [d[0] for d in cur.description] if cur.description else []
+        self.column_types = _kinds(cur.description)
         # Cost-governance metric: bytes scanned is directly billable ($5/TB).
         # Read defensively — nothing here may affect the query result.
         try:

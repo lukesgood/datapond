@@ -13,6 +13,9 @@ import { Checkbox } from "@/components/ui/checkbox"
 
 interface ChartConfigPanelProps {
   columns: string[]
+  /** Columns that can sit on each axis; all columns when omitted. */
+  xOptions?: string[]
+  yOptions?: string[]
   xAxis: string
   yAxis: string
   onXAxisChange: (value: string) => void
@@ -25,6 +28,8 @@ interface ChartConfigPanelProps {
 
 export function ChartConfigPanel({
   columns,
+  xOptions,
+  yOptions,
   xAxis,
   yAxis,
   onXAxisChange,
@@ -55,7 +60,7 @@ export function ChartConfigPanel({
               <SelectValue placeholder="Select X-axis column" />
             </SelectTrigger>
             <SelectContent>
-              {columns.map((col) => (
+              {(xOptions ?? columns).map((col) => (
                 <SelectItem key={col} value={col}>
                   {col}
                 </SelectItem>
@@ -79,7 +84,7 @@ export function ChartConfigPanel({
               <SelectValue placeholder="Select Y-axis column" />
             </SelectTrigger>
             <SelectContent>
-              {columns.map((col) => (
+              {(yOptions ?? columns).map((col) => (
                 <SelectItem key={col} value={col}>
                   {col}
                 </SelectItem>
