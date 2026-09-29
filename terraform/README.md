@@ -60,8 +60,9 @@ For an existing local state, add `-migrate-state` after reviewing the target buc
 `vpc_id`, `subnet_id`, and `db_subnet_ids` may be omitted to use the selected/default
 VPC behavior. Aurora still requires two subnets in different Availability Zones, so
 inspect the discovered network and provide `db_subnet_ids` explicitly when that
-constraint is not met. Review `allowed_cidrs`; its permissive default is unsuitable for
-every environment. The plan example below pins database subnets for deterministic
+constraint is not met. `allowed_cidrs` has no default: set it to the
+ranges that may reach ports 80/443, or `["0.0.0.0/0"]` for a public endpoint (Let's Encrypt
+HTTP-01 renewal needs port 80 reachable). The plan example below pins database subnets for deterministic
 placement; they are not universally required inputs.
 
 ## Apply

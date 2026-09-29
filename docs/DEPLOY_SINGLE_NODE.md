@@ -132,9 +132,9 @@ with `aws ec2 describe-subnets --filters Name=vpc-id,Values=<vpc-id> --query
 VPC (`data.aws_vpc.selected` in `ec2.tf`), and the EC2 node's own security group is wired
 automatically as Aurora's DB-ingress source (the T2 integration fix — no separate
 `app_security_group_id` variable exists or is needed). `instance_type` defaults to
-`m6i.xlarge` (4 vCPU/16 GB); `allowed_cidrs` defaults to `["0.0.0.0/0"]` for port 80/443
-ingress — pass a customer CIDR allowlist here if the deployment shouldn't be open to the
-internet. `app_version` defaults to `2.3.0` (must match whatever tag CI pushes in step 3 —
+`m6i.xlarge` (4 vCPU/16 GB); `allowed_cidrs` is **required** — the ranges allowed
+to reach ports 80/443: a customer CIDR allowlist, or `["0.0.0.0/0"]` for a public endpoint
+(Let's Encrypt HTTP-01 renewal needs port 80 reachable). `app_version` defaults to `2.3.0` (must match whatever tag CI pushes in step 3 —
 it seeds the node's cloud-init with the image tag used for `ecr-refresh`/pull auth, and
 should match the Helm image tag the chart uses at install in step 5, though the chart
 itself already defaults the image tag to `appVersion`).

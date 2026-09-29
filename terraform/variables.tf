@@ -179,9 +179,15 @@ variable "domain" {
   default = "" # e.g. datapond.example.com — the app hostname. Required at deploy time.
 }
 
+# Who may reach ports 80/443. No default: an install that never thought about this
+# used to come up open to the whole internet. Say ["0.0.0.0/0"] when that is the intent
+# (a public endpoint, or Let's Encrypt HTTP-01 renewal on port 80), or a customer range.
 variable "allowed_cidrs" {
-  type    = list(string)
-  default = ["0.0.0.0/0"] # Restrict to a customer CIDR in production if desired.
+  type = list(string)
+  validation {
+    condition     = length(var.allowed_cidrs) > 0 && alltrue([for c in var.allowed_cidrs : can(cidrhost(c, 0))])
+    error_message = "allowed_cidrs must list at least one CIDR, e.g. [\"10.0.0.0/8\"] or [\"0.0.0.0/0\"] for a public endpoint."
+  }
 }
 
 variable "acme_email" {
