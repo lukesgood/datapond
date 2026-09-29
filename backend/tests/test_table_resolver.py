@@ -155,7 +155,7 @@ def test_catalog_index_is_cached_between_calls(monkeypatch):
 
     reader = _FakeReader({"sales": ["orders"]})
     calls = []
-    monkeypatch.setattr(table_resolver, "get_catalog_reader", lambda: (calls.append(1), reader)[1])
+    monkeypatch.setattr(table_resolver, "get_catalog_reader", lambda *a: (calls.append(1), reader)[1])
     monkeypatch.setattr(table_resolver.time, "monotonic", lambda: 1000.0)
     table_resolver.reset_catalog_index_cache()
 
@@ -170,7 +170,7 @@ def test_catalog_index_refreshes_after_the_ttl(monkeypatch):
 
     reader = _FakeReader({"sales": ["orders"]})
     calls = []
-    monkeypatch.setattr(table_resolver, "get_catalog_reader", lambda: (calls.append(1), reader)[1])
+    monkeypatch.setattr(table_resolver, "get_catalog_reader", lambda *a: (calls.append(1), reader)[1])
     clock = {"t": 1000.0}
     monkeypatch.setattr(table_resolver.time, "monotonic", lambda: clock["t"])
     table_resolver.reset_catalog_index_cache()
@@ -249,3 +249,99 @@ def test_qualifies_a_table_referenced_only_in_a_subquery():
     )
 
     assert "sales.orders" in out
+
+
+# ── several catalogs ──────────────────────────────────────────────────────────
+# A bare name found in a non-default catalog used to be rewritten to two parts, so it
+# executed against the session (default) catalog — and its RLS key named the default
+# catalog, so the other catalog's policy did not apply.
+
+def _multi(tables, default="iceberg"):
+    """CatalogIndex from {table: [(catalog, namespace), ...]}."""
+    from app.api.table_resolver import CatalogIndex as _CI
+    ns = sorted({(c, n) for pairs in tables.values() for c, n in pairs})
+    return _CI(
+        namespaces=tuple(n if c == default else f"{c}.{n}" for c, n in ns),
+        tables={t: tuple(n if c == default else (c, n) for c, n in pairs)
+                for t, pairs in tables.items()},
+        default_catalog=default,
+    )
+
+
+def test_a_table_in_the_default_catalog_stays_two_part():
+    loader = _Loader(_multi({"orders": [("iceberg", "sales")]}))
+    assert qualify_tables("SELECT * FROM orders", dialect="trino",
+                          load_index=loader) == "SELECT * FROM sales.orders"
+
+
+def test_a_table_in_another_catalog_is_qualified_with_that_catalog():
+    loader = _Loader(_multi({"entries": [("finance", "ledger")]}))
+    out = qualify_tables("SELECT * FROM entries", dialect="trino", load_index=loader)
+    assert out == "SELECT * FROM finance.ledger.entries"
+
+
+def test_a_name_in_two_catalogs_is_ambiguous_and_names_both_fully():
+    loader = _Loader(_multi({"orders": [("iceberg", "sales"), ("finance", "sales")]}))
+    with pytest.raises(TableResolutionError) as ei:
+        qualify_tables("SELECT * FROM orders", dialect="trino", load_index=loader)
+    msg = str(ei.value)
+    assert "iceberg.sales.orders" in msg and "finance.sales.orders" in msg
+
+
+def test_two_part_names_are_left_to_mean_the_default_catalog():
+    loader = _Loader(_multi({"entries": [("finance", "ledger")]}))
+    sql = "SELECT * FROM ledger.entries"
+    assert qualify_tables(sql, dialect="trino", load_index=loader) == sql
+    assert loader.calls == 0
+
+
+def test_the_index_spans_every_enabled_catalog(monkeypatch):
+    from app import catalog_registry as reg
+    from app.api import table_resolver
+    from app.catalog_registry import CatalogEntry
+
+    reg.set_entries([
+        CatalogEntry(name="iceberg", kind="polaris", engine_catalog="iceberg", is_default=True),
+        CatalogEntry(name="finance", kind="polaris", engine_catalog="finance"),
+        CatalogEntry(name="off", kind="polaris", engine_catalog="off", enabled=False),
+    ])
+    readers = {"iceberg": _FakeReader({"sales": ["orders"]}),
+               "finance": _FakeReader({"ledger": ["entries", "orders"]}),
+               "off": _FakeReader({"x": ["hidden"]})}
+    monkeypatch.setattr(table_resolver, "get_catalog_reader", lambda name=None: readers[name])
+    table_resolver.reset_catalog_index_cache()
+    try:
+        index = table_resolver.get_catalog_index()
+    finally:
+        reg.reset()
+        table_resolver.reset_catalog_index_cache()
+    assert index.default_catalog == "iceberg"
+    assert index.tables["entries"] == (("finance", "ledger"),)
+    assert set(index.tables["orders"]) == {"sales", ("finance", "ledger")}
+    assert "hidden" not in index.tables
+    assert "finance.ledger" in index.namespaces and "sales" in index.namespaces
+
+
+def test_one_unreadable_catalog_does_not_blind_the_others(monkeypatch):
+    from app import catalog_registry as reg
+    from app.api import table_resolver
+    from app.catalog_registry import CatalogEntry
+
+    reg.set_entries([
+        CatalogEntry(name="iceberg", kind="polaris", engine_catalog="iceberg", is_default=True),
+        CatalogEntry(name="finance", kind="polaris", engine_catalog="finance"),
+    ])
+
+    class _Down:
+        def list_namespaces(self):
+            raise RuntimeError("polaris down")
+
+    readers = {"iceberg": _FakeReader({"sales": ["orders"]}), "finance": _Down()}
+    monkeypatch.setattr(table_resolver, "get_catalog_reader", lambda name=None: readers[name])
+    table_resolver.reset_catalog_index_cache()
+    try:
+        index = table_resolver.get_catalog_index()
+    finally:
+        reg.reset()
+        table_resolver.reset_catalog_index_cache()
+    assert index.tables["orders"] == ("sales",)
