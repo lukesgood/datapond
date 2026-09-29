@@ -1206,21 +1206,39 @@ async def _admit(name: str, user: dict):
         return await _collection_id(c, name, user)
 
 
-async def _iterative_scan(c) -> None:
-    """Let an HNSW search keep walking the graph until the filter has k matches.
+# Whether this database has hnsw.iterative_scan (pgvector 0.8+). None until the first
+# filtered search finds out; remembered so an older pgvector is asked once per process,
+# not once per search.
+_ITERATIVE_SCAN: Optional[bool] = None
+# pgvector's ceiling for hnsw.ef_search.
+_EF_SEARCH_MAX = 1000
 
-    Without it pgvector filters only the first `ef_search` candidates (40 by default),
-    so a chunk rule that admits a small slice of a large collection returned a few
-    results or none while matching chunks existed. `strict_order` keeps the ranking
-    exact. pgvector < 0.8 has no such setting; a savepoint keeps the refusal from
-    aborting the search, which then behaves as it did before.
+
+async def _iterative_scan(c) -> None:
+    """Let a filtered HNSW search find k matches instead of filtering 40 candidates.
+
+    Without this pgvector filters only the first `ef_search` candidates (40 by
+    default), so a chunk rule that admits a small slice of a large collection returned
+    a few results or none while matching chunks existed.
+
+    pgvector 0.8+: `hnsw.iterative_scan = strict_order` keeps walking the graph until
+    the filter is satisfied, ranking exact. Older pgvector — Aurora PostgreSQL 15.10
+    offers only 0.7.4 — has no such setting; there the candidate list is widened to
+    pgvector's maximum instead, which recovers most of a small slice without the
+    guarantee. Both settings are transaction-local; the caller holds the transaction.
     """
-    try:
-        async with c.transaction():
-            await c.execute("SELECT set_config('hnsw.iterative_scan', 'strict_order', true)")
-    except Exception as e:
-        logger.warning(f"[ai_vectors] hnsw.iterative_scan unavailable ({e}); "
-                       "a chunk rule may return fewer than k results")
+    global _ITERATIVE_SCAN
+    if _ITERATIVE_SCAN is not False:
+        try:
+            async with c.transaction():      # a savepoint: a refusal must not abort the search
+                await c.execute("SELECT set_config('hnsw.iterative_scan', 'strict_order', true)")
+            _ITERATIVE_SCAN = True
+            return
+        except Exception as e:
+            _ITERATIVE_SCAN = False
+            logger.warning(f"[ai_vectors] hnsw.iterative_scan unavailable ({e}); "
+                           f"chunk-rule searches widen hnsw.ef_search to {_EF_SEARCH_MAX}")
+    await c.execute(f"SELECT set_config('hnsw.ef_search', '{_EF_SEARCH_MAX}', true)")
 
 
 async def _retrieve(name: str, query: str, k: int, user: dict,

@@ -155,3 +155,23 @@ def test_a_chunk_rule_turns_on_iterative_scan_for_its_search(monkeypatch):
     assert scan, "iterative scan was not requested"
     assert scan[0][2] >= 1                  # SET LOCAL-scoped: inside a transaction
     assert ("search", 1) in events or any(e == ("search", 2) for e in events)
+
+
+def test_without_iterative_scan_a_chunk_rule_widens_ef_search(monkeypatch):
+    """pgvector < 0.8 (Aurora PostgreSQL 15.10 offers only 0.7.4) has no iterative
+    scan. The filtered search then widens the candidate list to the maximum instead."""
+    events = []
+    conn = _Conn(events, rule={"metadata_key": "dept", "user_attribute": "department"},
+                 attributes={"department": "hr"})
+    original = conn.execute
+
+    async def execute(sql, *args):
+        if "iterative_scan" in sql:
+            raise RuntimeError('unrecognized configuration parameter "hnsw.iterative_scan"')
+        return await original(sql, *args)
+    conn.execute = execute
+    monkeypatch.setattr(ai_vectors, "_ITERATIVE_SCAN", None)
+    _install(monkeypatch, conn, events)
+    asyncio.run(ai_vectors._retrieve("c", "q", 5, USER))
+    widened = [sql for sql, _, tx in conn.executed if "ef_search" in sql]
+    assert widened and "1000" in widened[0]
