@@ -460,6 +460,9 @@ jobs:
           docker build -f frontend/Dockerfile -t datapond-frontend:ci frontend
           kind load docker-image datapond-backend:ci datapond-frontend:ci --name sovereign
 
+      # `helm install --wait` returns only after the post-install hooks — among them
+      # the Job that seeds LiteLLM with the local models — have succeeded, and those
+      # Jobs delete themselves on success, so there is nothing left to wait on after.
       - name: Install Sovereign Core
         run: |
           helm install datapond helm/datapond \
@@ -477,11 +480,6 @@ jobs:
             --set-string frontend.image.tag=ci \
             --set frontend.image.pullPolicy=Never \
             --wait --timeout 25m
-
-      - name: Storage and the model gateway were set up by their Jobs
-        run: |
-          kubectl -n datapond wait --for=condition=complete job/minio-bucket-init --timeout=5m
-          kubectl -n datapond wait --for=condition=complete job/litellm-ollama-init --timeout=10m
 
       - name: Nothing is allowed to leave the cluster
         run: |
@@ -513,9 +511,17 @@ jobs:
           ready = json.load(urllib.request.urlopen('http://localhost:8000/health/ready', timeout=10))
           assert ready['ready'] is True, ready
 
-          storage = call('GET', '/api/storage/overview')
-          print('storage', json.dumps(storage)[:300])
-          assert storage.get('buckets'), 'MinIO answered with no buckets: ' + json.dumps(storage)[:300]
+          # MinIO: a bucket, an object in, the same bytes out.
+          call('POST', '/api/storage/buckets/sovereign-ci')
+          req = urllib.request.Request('http://localhost:8000/api/storage/objects/sovereign-ci/probe.txt',
+              method='PUT', data=b'stored in minio',
+              headers={'Authorization': 'Bearer ' + T, 'Content-Type': 'text/plain'})
+          urllib.request.urlopen(req, timeout=30).read()
+          req = urllib.request.Request('http://localhost:8000/api/storage/objects/sovereign-ci/probe.txt',
+              headers={'Authorization': 'Bearer ' + T})
+          body = urllib.request.urlopen(req, timeout=30).read()
+          assert b'stored in minio' in body, body[:200]
+          print('minio round trip ok')
 
           e = call('POST', '/api/ai/embed', {'input': ['sovereign core check']})
           assert e['dim'] == 1024 and len(e['embeddings'][0]) == 1024, e['dim']
