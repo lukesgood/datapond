@@ -375,6 +375,25 @@ async def startup():
     # nothing after all eight had run against it.
 
 
+    # Data catalog registry (migration 0018): seed the env default into an empty table,
+    # read it, and keep reading it. Until this succeeds every reader uses the same env
+    # default it always did, so a failure here degrades to today's behaviour.
+    try:
+        from app.api.connectors import get_db_pool
+        from app import catalog_registry
+        _pool = await asyncio.wait_for(get_db_pool(), timeout=5)
+        try:
+            await catalog_registry.seed_from_env(_pool)
+        except Exception as e:
+            logger.warning(f"[startup] catalog registry seed skipped: {e}")
+        await catalog_registry.load(_pool, force=True)
+        app.state.catalog_registry_task = asyncio.create_task(
+            catalog_registry.run_refresher(_pool))
+        logger.info("[startup] catalog registry: %s",
+                    ", ".join(e.name for e in catalog_registry.entries()))
+    except Exception as e:
+        logger.warning(f"[startup] catalog registry not loaded (env default in use): {e}")
+
     # RAG freshness scheduler — periodic re-embedding of scheduled collections
     # (Airflow-free; multi-replica safe via pg advisory lock).
     try:
