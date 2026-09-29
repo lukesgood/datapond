@@ -11,7 +11,7 @@ import os
 import time
 from typing import Any, Awaitable, Optional
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 
 from app import tool_call_log
@@ -146,8 +146,15 @@ async def _call_tool(params: dict, user: dict) -> dict:
         except Exception as e:
             await _log_fallback(count(), action, clean, user, "error", started)
             logger.warning("[mcp] %s failed: %s", action.id, e)
+            # A route's 4xx detail is written for the caller: no access, over budget,
+            # PII blocked. Anything else stays in the log above — its text can carry a
+            # host, a DSN or a fragment of the data, and the reader is an agent.
+            if isinstance(e, HTTPException) and 400 <= e.status_code < 500:
+                reason = e.detail if isinstance(e.detail, str) else "refused"
+                return protocol.tool_call_result(
+                    f"{action.label} failed: {reason}", is_error=True)
             return protocol.tool_call_result(
-                f"{action.label} failed: {e}", is_error=True)
+                f"{action.label} failed. The error was logged on the server.", is_error=True)
         await _log_fallback(count(), action, clean, user, "ok", started)
     return protocol.tool_call_result(
         json.dumps(payload, ensure_ascii=False, default=str), untrusted=True)

@@ -177,14 +177,33 @@ def test_tools_list_ignores_client_supplied_capabilities(monkeypatch):
 
 
 def test_an_executor_that_raises_becomes_a_tool_error(monkeypatch):
+    """An unexpected exception's text stays in the server log. It can carry a host,
+    a DSN, or a fragment of the data being processed, and the reader is an agent."""
     async def _boom(params, user):
-        raise RuntimeError("upstream is down")
+        raise RuntimeError("could not connect to 10.0.3.7:5432 as datapond_app")
     monkeypatch.setitem(server.EXECUTORS, "knowledge.search", _boom)
     r = _rpc(TestClient(_app()), "tools/call",
              {"name": "knowledge_search",
               "arguments": {"collection": "faq", "query": "hi"}})
     result = r.json()["result"]
-    assert result["isError"] is True and "upstream is down" in result["content"][0]["text"]
+    text = result["content"][0]["text"]
+    assert result["isError"] is True and "failed" in text
+    assert "10.0.3.7" not in text and "datapond_app" not in text
+
+
+def test_a_refusal_the_route_meant_for_the_caller_is_passed_on(monkeypatch):
+    """A 4xx detail is written for the caller — no access, over budget, PII blocked —
+    and an agent that cannot see it cannot tell a refusal from an outage."""
+    from fastapi import HTTPException
+
+    async def _refuse(params, user):
+        raise HTTPException(403, "Not authorized for collection 'faq'.")
+    monkeypatch.setitem(server.EXECUTORS, "knowledge.search", _refuse)
+    r = _rpc(TestClient(_app()), "tools/call",
+             {"name": "knowledge_search",
+              "arguments": {"collection": "faq", "query": "hi"}})
+    text = r.json()["result"]["content"][0]["text"]
+    assert "Not authorized for collection 'faq'." in text
 
 
 def test_a_call_that_logged_nothing_gets_a_fallback_row(logged, monkeypatch):
