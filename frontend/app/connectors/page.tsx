@@ -26,6 +26,7 @@ import {
 import Link from "next/link"
 import { parseCron, nextRun } from "@/lib/schedule"
 import { CapabilityGate } from "@/lib/capabilities"
+import { describeCheck } from "@/lib/source-check"
 
 interface Connection {
   id: string
@@ -35,6 +36,8 @@ interface Connection {
   created_at: string
   last_sync_at: string | null
   schedule: string | null
+  last_checked_at?: string | null
+  last_check_message?: string | null
 }
 
 interface ConnStats {
@@ -512,7 +515,23 @@ function ConnectorsPageInner() {
                           <span className="capitalize">{conn.connector_type}</span>
                         </span>
                       </TableCell>
-                      <TableCell>{statusBadge(conn.status)}</TableCell>
+                      <TableCell>
+                        {/* Status is the last real contact with the source, not a live
+                            probe — so it carries its age, and the message on hover. */}
+                        {(() => {
+                          const check = describeCheck(conn.last_checked_at, checkedAt)
+                          return (
+                            <div className="flex flex-col items-start gap-0.5"
+                              title={conn.last_check_message ?? undefined}>
+                              {statusBadge(conn.status)}
+                              <span className={`text-2xs ${check.stale
+                                ? "text-[var(--dp-warn-text)]" : "text-muted-foreground"}`}>
+                                {check.text}
+                              </span>
+                            </div>
+                          )
+                        })()}
+                      </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {(() => {
                           // Surface staleness (>24h / never) inline so the platform "Stale Sources"

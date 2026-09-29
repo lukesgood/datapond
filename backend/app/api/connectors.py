@@ -18,7 +18,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from app.api.auth import require_permission, require_user
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
-from typing import List, Optional, Dict, Any, AsyncGenerator
+from typing import List, Optional, Dict, Any, AsyncGenerator, Tuple
 from datetime import datetime
 import uuid
 import asyncpg
@@ -872,12 +872,14 @@ async def create_sample_db():
                            "decrypted; re-encrypted with the current key")
         else:
             connection_id = str(row["id"])
+        # Created as "active" without a test; the check below is what makes that true.
+        check = await _check_connection(connection_id)
 
         return {
             "id": connection_id,
             "name": "Sample E-Commerce DB",
             "connector_type": "postgresql",
-            "status": "active",
+            "status": check["status"],
             "created_at": datetime.utcnow(),
             "connector_action": action,
             "tables": [t.name for t in DATASET],
@@ -1080,6 +1082,7 @@ async def _save_sample_connection(name: str, connector_type: ConnectorType,
                 VALUES ($1,$2,$3,$4,$5,$6,$6)
             """, connection_id, name, connector_type.value, encrypted, status, now)
             action = "created"
+    await _record_check(connection_id, ok, message)
     return {"id": connection_id, "action": action, "status": status,
             "test": {"success": ok, "message": message}}
 
@@ -1293,13 +1296,16 @@ async def create_connection(request: ConnectionCreateRequest,
 
         # Test connection before saving
         status = ConnectionStatus.ACTIVE.value
+        check_message = None
         try:
             connector = _create_connector(request.connector_type, request.config)
             result = await connector.test_connection()
+            check_message = result.message
             if not result.success:
                 status = "error"
-        except Exception:
+        except Exception as e:
             status = "error"
+            check_message = str(e)[:500]
 
         # Encrypt credentials
         encrypted_config = vault.encrypt_credentials(request.config)
@@ -1310,8 +1316,8 @@ async def create_connection(request: ConnectionCreateRequest,
             await conn.execute('''
                 INSERT INTO connector_connections
                 (id, name, connector_type, config_encrypted, status, created_at, updated_at,
-                 owner_id)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 owner_id, last_checked_at, last_check_message)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
             ''',
                 connection_id,
                 request.name,
@@ -1324,6 +1330,8 @@ async def create_connection(request: ConnectionCreateRequest,
                 # new connector is created unowned, and unowned means visible and
                 # editable by everyone — which is the state D2 exists to end.
                 caller_uuid(user),
+                # The test above is the first check; recorded with the row, not after it.
+                (check_message or "")[:500],
             )
 
         return ConnectionResponse(
@@ -1357,7 +1365,8 @@ async def list_connections(user: dict = Depends(require_user)):
         async with pool.acquire() as conn:
             rows = await conn.fetch(f'''
                 SELECT c.id, c.name, c.connector_type, c.status, c.created_at,
-                       c.last_sync_at, c.schedule, c.owner_id
+                       c.last_sync_at, c.schedule, c.owner_id,
+                       c.last_checked_at, c.last_check_message
                 FROM connector_connections c
                 {where}
                 ORDER BY c.created_at DESC
@@ -1374,6 +1383,7 @@ async def list_connections(user: dict = Depends(require_user)):
                 "last_sync_at": iso_utc(row['last_sync_at']) if row['last_sync_at'] else None,
                 "schedule": row['schedule'],
                 "owner_id": str(row['owner_id']) if row['owner_id'] else None,
+                **_check_fields(row),
             })
 
         return connections
@@ -1391,7 +1401,7 @@ async def get_connection(connection_id: str, user: dict = Depends(require_user))
         async with pool.acquire() as conn:
             row = await conn.fetchrow('''
                 SELECT id, name, connector_type, status, created_at, last_sync_at, schedule,
-                       owner_id
+                       owner_id, last_checked_at, last_check_message
                 FROM connector_connections
                 WHERE id = $1
             ''', uuid.UUID(connection_id))
@@ -1408,6 +1418,7 @@ async def get_connection(connection_id: str, user: dict = Depends(require_user))
             "last_sync_at": iso_utc(row['last_sync_at']) if row['last_sync_at'] else None,
             "schedule": row['schedule'],
             "owner_id": str(row['owner_id']) if row['owner_id'] else None,
+            **_check_fields(row),
         }
 
     except (HTTPException, ValueError) as e:
@@ -1492,7 +1503,10 @@ async def update_connection(connection_id: str, request: ConnectionUpdateRequest
                 WHERE id = $4
             ''', new_name, new_config, datetime.utcnow(), uuid.UUID(connection_id))
 
-        return {"message": "Connection updated successfully"}
+        # A changed config is a different connection. Test it now rather than leave
+        # the status the old credentials earned standing over the new ones.
+        check = await _check_connection(connection_id) if request.config is not None else None
+        return {"message": "Connection updated successfully", "check": check}
     except (HTTPException, ValueError) as e:
         if isinstance(e, ValueError):
             raise HTTPException(status_code=400, detail="Invalid connection ID")
@@ -1929,7 +1943,7 @@ async def sync_stream(connection_id: str, sync_mode: str = "full",
             yield sse("step", {"step": "discover", "message": "Discovering tables…", "status": "running"})
             await asyncio.sleep(0)
             mode = SyncMode(sync_mode) if sync_mode in [m.value for m in SyncMode] else SyncMode.FULL
-            all_tables = await connector.get_tables()
+            all_tables = await _discover_tables(connector, connection_id)
             if not all_tables:
                 yield sse("done", {"message": "No tables found", "rows_processed": 0, "tables": 0})
                 return
@@ -2110,6 +2124,8 @@ async def sync_stream(connection_id: str, sync_mode: str = "full",
                     datetime.utcnow(), uuid.UUID(connection_id)
                 )
 
+            await _record_sync_outcome(connector, connection_id,
+                                       [(ok, st.error_message) for _, _, ok, _, st in results])
             success_count = sum(1 for _, _, ok, _, _ in results if ok)
             failed_count  = len(results) - success_count
             duration_ms   = int((datetime.utcnow() - started_at).total_seconds() * 1000)
@@ -2439,7 +2455,7 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
 
         # When no source_table specified, sync all available tables
         if not request.source_table:
-            tables = await connector.get_tables()
+            tables = await _discover_tables(connector, connection_id)
             if not tables:
                 return {"job_id": None, "status": "success", "rows_processed": 0, "message": "No tables to sync"}
             total_rows = 0
@@ -2490,6 +2506,8 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
                     "UPDATE connector_connections SET last_sync_at = $1 WHERE id = $2",
                     datetime.utcnow(), uuid.UUID(connection_id)
                 )
+            await _record_sync_outcome(connector, connection_id,
+                                       [(ok, st.error_message) for _, _, ok, _, st in results])
             # Record session history + best-effort quality/lineage (same as /sync/stream)
             try:
                 await _persist_sync_session(pool, connection_id, job_id, started_at,
@@ -2544,6 +2562,8 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
                 "UPDATE connector_connections SET last_sync_at = $1 WHERE id = $2",
                 datetime.utcnow(), uuid.UUID(connection_id)
             )
+        await _record_sync_outcome(connector, connection_id,
+                                   [(status.status == SyncStatus.SUCCESS, status.error_message)])
         # Record session history + best-effort quality/lineage (same as /sync/stream)
         try:
             await _persist_sync_session(
@@ -2678,6 +2698,100 @@ def _create_connector(connector_type: ConnectorType, config: Dict[str, Any]):  #
         raise HTTPException(status_code=422, detail=f"Invalid connector config: {e.error_count()} field(s) missing or invalid")
 
 
+# ── what a source's status means ──────────────────────────────────────────────
+# `status` is the outcome of the last real contact with the source, and
+# `last_checked_at` says when that was. It used to be written once, from the test at
+# creation, and a source whose password changed stayed "active" through every failed
+# sync. Contact is anything that has to reach the source: a sync that reads it, an
+# explicit check, a config save, a credential that will not decrypt. Nothing polls:
+# a status is as fresh as its timestamp, and the UI shows the timestamp.
+
+def _check_fields(row) -> Dict[str, Any]:
+    return {
+        "last_checked_at": iso_utc(row["last_checked_at"]) if row["last_checked_at"] else None,
+        "last_check_message": row["last_check_message"],
+    }
+
+
+async def _record_check(connection_id: str, ok: bool, message: str) -> None:
+    """Write a check's outcome. Never raises: bookkeeping must not fail the sync or the
+    save that produced it. A paused source stays paused — pausing is a person's
+    decision, not a finding."""
+    try:
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE connector_connections SET "
+                "status = CASE WHEN status = 'paused' THEN status ELSE $2 END, "
+                "last_checked_at = now(), last_check_message = $3 WHERE id = $1",
+                uuid.UUID(str(connection_id)),
+                ConnectionStatus.ACTIVE.value if ok else ConnectionStatus.ERROR.value,
+                (message or "")[:500])
+    except Exception as e:
+        logger.warning(f"[connectors] could not record check for {connection_id}: {e}")
+
+
+async def _check_connection(connection_id: str) -> Dict[str, Any]:
+    """Test the stored config and record the result."""
+    try:
+        connector = await _get_connector_instance(connection_id)
+        result = await connector.test_connection()
+        ok, message = result.success, result.message
+    except HTTPException:
+        raise
+    except Exception as e:
+        ok, message = False, str(e)[:500]
+    await _record_check(connection_id, ok, message)
+    return {"success": ok, "message": message,
+            "status": ConnectionStatus.ACTIVE.value if ok else ConnectionStatus.ERROR.value}
+
+
+async def _discover_tables(connector, connection_id: str) -> List[str]:
+    """List the source's tables; a source that cannot be listed cannot be reached."""
+    try:
+        return await connector.get_tables()
+    except Exception as e:
+        await _record_check(connection_id, False, f"Could not list tables: {e}")
+        raise
+
+
+async def _record_sync_outcome(connector, connection_id: str,
+                               outcomes: List[Tuple[bool, Optional[str]]]) -> None:
+    """A sync that read any table reached the source. One that read none did not
+    necessarily fail to: the write side (catalog, object store) fails too, and calling
+    the source broken for it would send someone to fix the wrong thing. So a sync with
+    no success asks the source directly, and says which half failed."""
+    if not outcomes:
+        return
+    if any(ok for ok, _ in outcomes):
+        await _record_check(connection_id, True, "Read during sync")
+        return
+    first_error = next((e for _, e in outcomes if e), "sync failed")
+    try:
+        result = await connector.test_connection()
+        ok, message = result.success, result.message
+    except Exception as e:
+        ok, message = False, str(e)
+    if ok:
+        await _record_check(connection_id, True,
+                            f"Source reachable; last sync failed: {first_error}")
+    else:
+        await _record_check(connection_id, False, message)
+
+
+@router.post("/connectors/{connection_id}/check")
+async def check_connection(connection_id: str, user: dict = Depends(require_user)):
+    """Test the saved connection now and record the result as its status."""
+    await require_access(CONNECTOR, connection_id, user)
+    check = await _check_connection(connection_id)
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        checked_at = await conn.fetchval(
+            "SELECT last_checked_at FROM connector_connections WHERE id=$1",
+            uuid.UUID(connection_id))
+    return {**check, "last_checked_at": iso_utc(checked_at) if checked_at else None}
+
+
 async def _get_connector_instance(connection_id: str):
     """Get connector instance from saved connection"""
     pool = await get_db_pool()
@@ -2692,7 +2806,14 @@ async def _get_connector_instance(connection_id: str):
     if not row:
         raise HTTPException(status_code=404, detail="Connection not found")
 
-    config = vault.decrypt_credentials(row['config_encrypted'])
+    try:
+        config = vault.decrypt_credentials(row['config_encrypted'])
+    except Exception as e:
+        # Unreadable credentials mean nothing can reach the source, whatever the
+        # status column last said — the ENCRYPTION_KEY incident in app/sample_data.py.
+        await _record_check(connection_id, False,
+                            f"Stored credentials cannot be decrypted: {e}")
+        raise
 
     # ConnectorConfig base requires 'name' — inject from DB row if missing
     if 'name' not in config:

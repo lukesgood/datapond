@@ -16,13 +16,14 @@ import { SourceAccessPanel } from "@/components/connectors/access-panel"
 import {
   ChevronLeft, RefreshCw, Database, Rows3, Trash2,
   AlertTriangle, Pencil, X, Check, BarChart2, Calendar,
-  Clock, Zap, Search,
+  Clock, Zap, Search, PlugZap,
 } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import Link from "next/link"
 import { ConnectionForm } from "@/components/connectors/connection-form"
 import { getConnector } from "@/lib/connectors"
+import { describeCheck } from "@/lib/source-check"
 import { FREQ_OPTIONS, HOUR_OPTIONS, parseCron, cronToFreqHour, nextRun } from "@/lib/schedule"
 import { useCapability } from "@/lib/capabilities"
 
@@ -597,6 +598,7 @@ function ScheduleCard({
 interface Connector {
   id: string; name: string; connector_type: string
   status: string; created_at: string; last_sync_at: string | null
+  last_checked_at?: string | null; last_check_message?: string | null
 }
 
 export default function ConnectionDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -613,6 +615,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const [loading, setLoading]             = useState(true)
   const [error, setError]                 = useState<string | null>(null)
   const [syncing, setSyncing]             = useState(false)
+  const [checking, setChecking]           = useState(false)
   const [deleting, setDeleting]           = useState(false)
   // The sync-complete toast points at Catalog but auto-dismisses; keep a
   // persistent CTA so the ingest → explore journey isn't a dead end.
@@ -773,6 +776,24 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   }, [fetchConnector, fetchHistory, fetchQuality, fetchSchedule])
 
   // ── Sync Now (SSE → live session in history) ───────────────────────────────
+
+  // Tests the saved connection now and records the result as the status — the one
+  // way to refresh a status without running a sync.
+  const handleCheck = async () => {
+    setChecking(true)
+    try {
+      const res = await fetch(`/api/connectors/${id}/check`, { method: "POST" })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.detail ?? `Check failed (HTTP ${res.status})`)
+      toast(d.success ? "Source reachable" : `Source unreachable: ${d.message}`,
+            d.success ? "success" : "error")
+      await fetchConnector()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Check failed", "error")
+    } finally {
+      setChecking(false)
+    }
+  }
 
   const handleSyncNow = async () => {
     setSyncing(true)
@@ -1082,8 +1103,23 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           <h2 className="text-3xl font-bold tracking-tight">{connector.name}</h2>
           <div className="flex items-center gap-2 mt-1">
             <Badge variant="outline" className="capitalize">{connector.connector_type}</Badge>
-            <Badge variant={connector.status === "active" ? "default" : "secondary"}>{connector.status}</Badge>
+            <Badge variant={connector.status === "active" ? "default"
+              : connector.status === "error" ? "destructive" : "secondary"}>{connector.status}</Badge>
+            {(() => {
+              const check = describeCheck(connector.last_checked_at, Date.now())
+              return (
+                <span className={`text-xs ${check.stale ? "text-[var(--dp-warn-text)]" : "text-muted-foreground"}`}>
+                  {check.text}
+                </span>
+              )
+            })()}
           </div>
+          {connector.last_check_message && (
+            <p className={`mt-1 text-xs break-words ${connector.status === "error"
+              ? "text-destructive" : "text-muted-foreground"}`}>
+              {connector.last_check_message}
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
           {catalogEnabled && (
@@ -1091,6 +1127,10 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
               <Database className="h-4 w-4 mr-2" />Catalog
             </Button>
           )}
+          <Button variant="outline" onClick={handleCheck} disabled={checking}>
+            <PlugZap className={`h-4 w-4 mr-2 ${checking ? "animate-pulse" : ""}`} />
+            {checking ? "Checking…" : "Check connection"}
+          </Button>
           <Button variant="outline" onClick={startEdit} disabled={editing}>
             <Pencil className="h-4 w-4 mr-2" />Edit
           </Button>
