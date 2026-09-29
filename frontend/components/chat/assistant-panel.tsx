@@ -12,7 +12,10 @@ import {
 import { Markdown } from "@/components/ui/markdown"
 import { DestructiveCard } from "@/components/chat/destructive-card"
 import { genericPreviewEntries } from "@/lib/preview-render"
-import { Bot, Loader2, PanelRightClose, Check, X, Play, BarChart3 } from "lucide-react"
+import { Bot, Loader2, PanelRightClose, Check, X, Play } from "lucide-react"
+import { ChartSelector } from "@/components/query/chart-selector"
+import type { ChartType } from "@/components/query/chart-renderer"
+import { chartSpecFor, profileColumns, recommend, toChartRows } from "@/lib/chart-recommend"
 
 // Same renderer the query page uses, loaded the same way: recharts does not
 // survive server rendering.
@@ -411,38 +414,62 @@ function TabularResult({ result, onPropose, busy }: {
   const cols = (r.columns as string[]) ?? []
   const rows = (r.rows as unknown[][]) ?? []
   const sql = typeof r.sql === "string" ? r.sql : ""
-  const [chartType, setChartType] = useState<"table" | "bar" | "line">("table")
+  const [picked, setPicked] = useState<ChartType | null>(null)
   const [name, setName] = useState("")
 
-  // The query page's convention, so a chart saved from here and one saved from there
-  // describe the same shape.
-  const data = rows.map(row => {
-    const obj: Record<string, unknown> = {}
-    cols.forEach((c, i) => { obj[c] = row[i] })
-    return obj
-  })
-  const xAxis = cols[0] ?? ""
-  const yAxis = cols[1] ?? cols[0] ?? ""
-  const canChart = cols.length >= 2 && rows.length > 0
+  // The query page's recommender, so a chart drawn here and one drawn there agree on
+  // what fits the result and which columns go where. The engine's column kinds come
+  // with the result when the action returned them; otherwise roles are read from the
+  // values.
+  const kinds = Array.isArray(r.column_types) ? (r.column_types as string[]) : undefined
+  const profiles = profileColumns(cols, rows, kinds)
+  const rec = recommend(profiles, rows.length)
+  const data = toChartRows(cols, rows, profiles)
+  const chartType: ChartType = picked ?? rec.best
+  const canChart = Object.entries(rec.availability).some(([t, a]) => t !== "table" && a.ok)
+  // Picking a type moves the axes onto columns it can use, as on the query page.
+  const axes = rec.axesFor[chartType] ?? { x: rec.x, ys: rec.ys, colorBy: rec.colorBy }
+  const spec = chartSpecFor(chartType, recommend(profiles, rows.length, {
+    x: axes.x, ys: axes.ys, colorBy: axes.colorBy,
+  }))
+
+  const selector = canChart && (
+    <ChartSelector compact selectedType={chartType} onTypeChange={setPicked}
+                   availability={rec.availability} />
+  )
 
   if (chartType !== "table") {
     return (
       <div className="rounded-lg border p-2 text-xs">
-        <div className="mb-2 flex items-center gap-1.5">
-          <Button size="sm" variant="ghost" className="h-6 px-2 text-2xs"
-                  onClick={() => setChartType("table")}>Table</Button>
-          <span className="text-2xs text-muted-foreground">{xAxis} × {yAxis}</span>
+        <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          {selector}
+          {chartType !== "kpi" && (
+            <span className="text-2xs text-muted-foreground">
+              {spec.xAxis} × {spec.yAxes.join(", ")}{spec.colorBy ? ` by ${spec.colorBy}` : ""}
+            </span>
+          )}
         </div>
-        <div className="h-52">
-          <ChartRenderer data={data} chartType={chartType} xAxis={xAxis} yAxis={yAxis} />
+        <div className={chartType === "kpi" ? "" : "h-52"}>
+          <ChartRenderer data={data} chartType={chartType} xAxis={spec.xAxis}
+                         yAxis={spec.yAxis} yAxes={spec.yAxes} colorBy={spec.colorBy}
+                         stacked={spec.stacked} aggregate={spec.aggregate} />
         </div>
+        {rec.availability[chartType].note && (
+          <p className="mt-1 text-2xs text-muted-foreground">{rec.availability[chartType].note}</p>
+        )}
         {sql && (
           <div className="mt-2 flex items-center gap-1.5 border-t pt-2">
             <Input value={name} onChange={e => setName(e.target.value)}
                    placeholder="Dashboard name" className="h-7 text-xs" />
             <Button size="sm" className="h-7 shrink-0 text-xs" disabled={busy || !name.trim()}
-                    onClick={() => onPropose("dashboard.save",
-                                             { name: name.trim(), sql, chart_type: chartType })}>
+                    onClick={() => onPropose("dashboard.save", {
+                      name: name.trim(), sql, chart_type: chartType,
+                      x_axis: spec.xAxis || undefined,
+                      y_axes: spec.yAxes.length > 0 ? spec.yAxes : undefined,
+                      color_by: spec.colorBy,
+                      aggregate: spec.aggregate,
+                      stacked: spec.stacked,
+                    })}>
               Save
             </Button>
           </div>
@@ -476,15 +503,7 @@ function TabularResult({ result, onPropose, busy }: {
           {rows.length > 20 && " · showing the first 20"}
           {r.truncated === true && " · the result was truncated"}
         </p>
-        {canChart && (
-          <div className="flex items-center gap-1.5 border-t px-2 py-1">
-            <BarChart3 className="h-3 w-3 text-muted-foreground" />
-            <Button size="sm" variant="ghost" className="h-6 px-2 text-2xs"
-                    onClick={() => setChartType("bar")}>Bar</Button>
-            <Button size="sm" variant="ghost" className="h-6 px-2 text-2xs"
-                    onClick={() => setChartType("line")}>Line</Button>
-          </div>
-        )}
+        {selector && <div className="border-t px-2 py-1">{selector}</div>}
       </div>
     )
 }
