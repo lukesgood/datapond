@@ -353,9 +353,15 @@ def test_an_admin_can_set_a_persons_external_id(monkeypatch):
         async def fetchrow(self, *a):
             return None
 
+        async def fetchval(self, *a):
+            return None
+
         async def execute(self, sql, *args):
             self.executed.append((sql, args))
             return "UPDATE 1"
+
+        def transaction(self):
+            return self
 
         async def __aenter__(self):
             return self

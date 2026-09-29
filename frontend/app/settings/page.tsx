@@ -553,6 +553,7 @@ function UserManagement() {
   const [showProfile, setShowProfile] = useState(false)
   const [profileName, setProfileName] = useState("")
   const [ownPw, setOwnPw]             = useState("")
+  const [ownCurrentPw, setOwnCurrentPw] = useState("")
   const [showOwnPw, setShowOwnPw]     = useState(false)
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileMsg, setProfileMsg]   = useState<string | null>(null)
@@ -701,10 +702,10 @@ function UserManagement() {
       if (ownPw) {
         const r = await fetch("/api/auth/change-password", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ new_password: ownPw }),
+          body: JSON.stringify({ current_password: ownCurrentPw, new_password: ownPw }),
         })
         if (!r.ok) { const d = await r.json(); throw new Error(d.detail) }
-        setOwnPw("")
+        setOwnPw(""); setOwnCurrentPw("")
       }
       // Confirm via toast — the dialog closes here, so an inline success line
       // would never be seen. profileMsg is reserved for errors (dialog stays open).
@@ -724,7 +725,7 @@ function UserManagement() {
           </Button>
         )}
         <Button size="sm" variant="outline"
-          onClick={() => { setProfileName(currentUser?.display_name || ""); setOwnPw(""); setProfileMsg(null); setShowProfile(true) }}>
+          onClick={() => { setProfileName(currentUser?.display_name || ""); setOwnPw(""); setOwnCurrentPw(""); setProfileMsg(null); setShowProfile(true) }}>
           <KeyRound className="h-4 w-4 mr-1.5" />My Profile
         </Button>
         {isAdmin && (
@@ -987,6 +988,11 @@ function UserManagement() {
                   {showOwnPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
+              {ownPw && (
+                <Input type="password" value={ownCurrentPw} autoComplete="current-password"
+                  onChange={e => setOwnCurrentPw(e.target.value)} placeholder="Current password"
+                  aria-label="Current password" />
+              )}
             </div>
             {profileMsg && <ErrorBox msg={profileMsg} />}
           </div>

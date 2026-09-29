@@ -17,6 +17,7 @@ export default function AccountPage() {
   const user = useSyncExternalStore(subscribeToUser, readUser, serverUser)
   const webauthnEnabled = useCapabilityStrict("webauthn")
   const { toast } = useToast()
+  const [current, setCurrent] = useState("")
   const [pw, setPw] = useState("")
   const [confirm, setConfirm] = useState("")
   const [busy, setBusy] = useState(false)
@@ -25,20 +26,21 @@ export default function AccountPage() {
   // instead of only discovering it via a toast after a click.
   const tooShort = pw.length > 0 && pw.length < 6
   const mismatch = confirm.length > 0 && pw !== confirm
-  const canSubmit = pw.length >= 6 && pw === confirm
+  const canSubmit = current.length > 0 && pw.length >= 6 && pw === confirm
 
   const changePassword = async () => {
+    if (!current) { toast("Enter your current password", "error"); return }
     if (pw.length < 6) { toast("Password must be at least 6 characters", "error"); return }
     if (pw !== confirm) { toast("Passwords do not match", "error"); return }
     setBusy(true)
     try {
       const r = await fetch("/api/auth/change-password", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ new_password: pw }),
+        body: JSON.stringify({ current_password: current, new_password: pw }),
       })
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`)
       toast("Password changed", "success")
-      setPw(""); setConfirm("")
+      setCurrent(""); setPw(""); setConfirm("")
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed to change password", "error")
     }
@@ -73,6 +75,11 @@ export default function AccountPage() {
           <CardDescription>Set a new password for your own account.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 max-w-sm">
+          <div className="space-y-1.5">
+            <Label htmlFor="current-password" className="text-xs">Current password</Label>
+            <Input id="current-password" type="password" autoComplete="current-password" value={current}
+              onChange={e => setCurrent(e.target.value)} />
+          </div>
           <div className="space-y-1.5">
             <Label htmlFor="new-password" className="text-xs">New password</Label>
             <Input id="new-password" type="password" autoComplete="new-password" value={pw}

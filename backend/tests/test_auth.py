@@ -50,6 +50,17 @@ class _FakeConn:
         self.execute_calls.append((query, args, kwargs))
         return self.result
 
+    def transaction(self):
+        return _NoTx()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+
+class _NoTx:
     async def __aenter__(self):
         return self
 
@@ -412,12 +423,14 @@ def test_setup_password_forces_change_on_next_login(monkeypatch):
 
 
 def test_change_password_updates_hash_and_clears_reset_flag(monkeypatch):
-    conn = _FakeConn()
+    conn = _FakeConn(row=_user_row())
     _patch_pool(monkeypatch, conn)
     monkeypatch.setattr(auth, "_hash_password", lambda password: "changed-hash")
+    monkeypatch.setattr(auth, "_verify_password", lambda given, stored: given == "old")
 
     result = _run(auth.change_password(
-        {"new_password": "new-password"}, {"id": USER_ID, "role": "viewer"}
+        {"current_password": "old", "new_password": "new-password"},
+        {"id": USER_ID, "role": "viewer"}
     ))
 
     query, args, _ = conn.execute_calls[0]

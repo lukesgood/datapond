@@ -50,6 +50,10 @@ export default function LoginPage() {
   const [changingPw, setChangingPw]         = useState(false)
   const [changeError, setChangeError]       = useState<string | null>(null)
   const [pendingToken, setPendingToken]     = useState<string | null>(null)
+  // The server needs the current password for any change. After a password sign-in
+  // it is the one just typed; after a passkey sign-in the person has to enter it.
+  const [currentPw, setCurrentPw]           = useState("")
+  const [askCurrentPw, setAskCurrentPw]     = useState(false)
 
   useEffect(() => {
     // SSO return leg: /login?sso=1 arrives with the datapond_token cookie set by
@@ -126,6 +130,7 @@ export default function LoginPage() {
       if (user.require_password_change) {
         // Store token but require password change before entering app
         setPendingToken(localStorage.getItem("datapond_token"))
+        setCurrentPw(password)
         setShowChangePw(true)
         setLoading(false)
         return
@@ -179,6 +184,7 @@ export default function LoginPage() {
         // ...but honor a pending forced password change exactly like the password
         // path does: gate on the modal instead of entering the app.
         setPendingToken(data.access_token)
+        setAskCurrentPw(true)
         setShowChangePw(true)
         setPasskeyLoading(false)
         return
@@ -197,6 +203,7 @@ export default function LoginPage() {
 
   const handleChangePassword = async () => {
     setChangeError(null)
+    if (!currentPw) { setChangeError("Enter your current (temporary) password"); return }
     if (newPw.length < 6) { setChangeError("Password must be at least 6 characters"); return }
     if (newPw !== confirmPw) { setChangeError("Passwords do not match"); return }
     setChangingPw(true)
@@ -204,7 +211,7 @@ export default function LoginPage() {
       const res = await fetch("/api/auth/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${pendingToken}` },
-        body: JSON.stringify({ new_password: newPw }),
+        body: JSON.stringify({ current_password: currentPw, new_password: newPw }),
       })
       if (!res.ok) {
         throw new Error(await responseErrorMessage(res, "Password change failed"))
@@ -447,6 +454,19 @@ export default function LoginPage() {
             <div className="rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/5 px-4 py-3 text-sm text-[var(--dp-warn-text)]">
               This is your first login or you are using a temporary password. Please set a new password to continue accessing the platform.
             </div>
+
+            {askCurrentPw && (
+              <div className="space-y-2">
+                <Label htmlFor="current-password" className="text-sm font-medium">Current (temporary) password</Label>
+                <Input
+                  id="current-password"
+                  type="password"
+                  value={currentPw}
+                  onChange={e => { setCurrentPw(e.target.value); setChangeError(null) }}
+                  autoComplete="current-password"
+                />
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="new-password" className="text-sm font-medium">New Password</Label>

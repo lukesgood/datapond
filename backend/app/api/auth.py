@@ -822,19 +822,29 @@ async def change_password(body: dict, user: dict = Depends(require_user)):
     new_password = body.get("new_password", "")
     if len(new_password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
-    hashed = _hash_password(new_password)
     pool = await _get_pool()
     async with pool.acquire() as conn:
-        result = await conn.execute(
+        row = await conn.fetchrow(
+            "SELECT password_hash, auth_method FROM users WHERE id = $1",
+            uuid.UUID(user["id"]))
+        if not row or str(row["auth_method"]) != "local":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account signs in through a directory or identity provider; "
+                       "its password is managed there.")
+        # The current password, always — including the forced change after an admin
+        # reset, where the person has just typed it to sign in. Without it a stolen
+        # session token is enough to take the account for good.
+        current = body.get("current_password") or ""
+        if not (row["password_hash"] and current
+                and _verify_password(current, row["password_hash"])):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                                detail="The current password is not correct.")
+        await conn.execute(
             "UPDATE users SET password_hash=$1, require_password_change=false "
             "WHERE id=$2 AND auth_method = 'local'",
-            hashed, uuid.UUID(user["id"])
+            _hash_password(new_password), uuid.UUID(user["id"])
         )
-    if str(result).endswith(" 0"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account signs in through a directory or identity provider; "
-                   "its password is managed there.")
     return {"message": "Password changed successfully"}
 
 
@@ -1065,31 +1075,51 @@ async def update_user(user_id: str, body: dict, admin: dict = Depends(require_pe
         raise HTTPException(status_code=400, detail="Nothing to update")
 
     values.append(uuid.UUID(user_id))
+    sets_subject = "external_id" in body and (body["external_id"] is None
+                                              or isinstance(body["external_id"], str))
     async with pool.acquire() as conn:
-        # POST /service-accounts refuses role=admin; without this the user editor is
-        # the side door, and every key the account holds widens with its role.
-        if body.get("role") == "admin":
+        target = None
+        if body.get("role") == "admin" or sets_subject:
             target = await conn.fetchrow(
                 "SELECT auth_method FROM users WHERE id = $1", uuid.UUID(user_id))
-            if target and str(target["auth_method"] or "").lower() == "service":
+        is_service = bool(target) and str(target["auth_method"] or "").lower() == "service"
+        # POST /service-accounts refuses role=admin; without this the user editor is
+        # the side door, and every key the account holds widens with its role.
+        if body.get("role") == "admin" and is_service:
+            raise HTTPException(
+                status_code=400,
+                detail="A service account cannot hold the admin role. Grant the "
+                       "permissions it needs through its key's scopes instead.")
+        if sets_subject:
+            # The subject an IdP token resolves to (app/oauth_rs.py). A service
+            # account's is its OAuth client, set by the linking route, which checks one
+            # client per account; here that check would be skipped. And a subject two
+            # rows share resolves to whichever the database returns first.
+            if is_service:
                 raise HTTPException(
                     status_code=400,
-                    detail="A service account cannot hold the admin role. Grant the "
-                           "permissions it needs through its key's scopes instead.")
-        await conn.execute(
-            f"UPDATE users SET {', '.join(updates)} WHERE id = ${idx}",
-            *values
-        )
-        # Keep user_roles in sync with the minimal users.role so RLS resolution matches.
-        if "role" in body and body["role"] in ASSIGNABLE_ROLES:
-            try:
+                    detail="A service account's OAuth client is linked with PUT "
+                           "/api/service-accounts/{id}/oauth-client.")
+            if body["external_id"] and await conn.fetchval(
+                    "SELECT 1 FROM users WHERE external_id = $1 AND id <> $2",
+                    body["external_id"], uuid.UUID(user_id)):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Another account already has that IdP subject.")
+        # One transaction: users.role and user_roles are both read when RLS resolves a
+        # caller, so a role change must not land in one without the other. user_roles
+        # exists from the baseline migration, so a failure here is a real one.
+        async with conn.transaction():
+            await conn.execute(
+                f"UPDATE users SET {', '.join(updates)} WHERE id = ${idx}",
+                *values
+            )
+            if "role" in body and body["role"] in ASSIGNABLE_ROLES:
                 await conn.execute("DELETE FROM user_roles WHERE user_id = $1", uuid.UUID(user_id))
                 await conn.execute(
                     """INSERT INTO user_roles (user_id, role_id)
                        SELECT $1, id FROM roles WHERE name = $2 ON CONFLICT DO NOTHING""",
                     uuid.UUID(user_id), body["role"])
-            except Exception:
-                pass  # user_roles table may not exist yet (pre-migration)
     return {"message": "User updated"}
 
 

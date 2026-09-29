@@ -81,14 +81,35 @@ def test_a_delegated_credential_cannot_set_a_password(monkeypatch, principal):
     assert conn.execute_calls == []
 
 
-def test_a_session_may_only_set_a_password_on_a_local_account(monkeypatch):
-    conn = _Conn(result="UPDATE 0")   # the row is ldap / oidc / service
+@pytest.mark.parametrize("method", ["ldap", "oidc", "service"])
+def test_a_session_may_only_set_a_password_on_a_local_account(monkeypatch, method):
+    conn = _Conn(row={"password_hash": "h", "auth_method": method})
     _patch_pool(monkeypatch, conn)
+    monkeypatch.setattr(auth, "_verify_password", lambda *a: True)
     with pytest.raises(HTTPException) as exc:
-        _run(auth.change_password({"new_password": "long-enough"}, SESSION))
+        _run(auth.change_password(
+            {"current_password": "old", "new_password": "long-enough"}, SESSION))
     assert exc.value.status_code == 403
-    query, _ = conn.execute_calls[0]
-    assert "auth_method = 'local'" in query
+    assert conn.execute_calls == []
+
+
+def test_a_password_change_needs_the_current_password(monkeypatch):
+    """A stolen session token must not be enough to take the account for good."""
+    conn = _Conn(row={"password_hash": "h", "auth_method": "local"})
+    _patch_pool(monkeypatch, conn)
+    monkeypatch.setattr(auth, "_verify_password", lambda given, stored: given == "old")
+    for body in ({"new_password": "long-enough"},
+                 {"current_password": "wrong", "new_password": "long-enough"}):
+        with pytest.raises(HTTPException) as exc:
+            _run(auth.change_password(body, SESSION))
+        assert exc.value.status_code == 403
+    assert conn.execute_calls == []
+
+    monkeypatch.setattr(auth, "_hash_password", lambda p: "new-hash")
+    _run(auth.change_password({"current_password": "old", "new_password": "long-enough"},
+                              SESSION))
+    query, args = conn.execute_calls[0]
+    assert "require_password_change=false" in query and args[0] == "new-hash"
 
 
 # ── login ─────────────────────────────────────────────────────────────────────
