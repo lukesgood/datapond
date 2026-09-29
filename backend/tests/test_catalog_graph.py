@@ -131,7 +131,9 @@ def test_relationships_endpoint_builds_the_graph_from_successful_history(monkeyp
 
     assert captured["filters"] >= 2, "must filter by time window and by success"
     edge = res["edges"][0]
-    assert {edge["source"], edge["target"]} == {"sales.orders", "sales.customers"}
+    # Three-part: the relationship graph names the catalog. Two-part history means
+    # the default catalog — `iceberg` on a Trino deployment.
+    assert {edge["source"], edge["target"]} == {"iceberg.sales.orders", "iceberg.sales.customers"}
     assert edge["count"] == 2
     assert res["source"] == "query_history+catalog"
 
@@ -320,3 +322,59 @@ def test_an_edge_lists_every_key_pair_that_was_used():
     assert {(j["left_column"], j["right_column"]) for j in edge["joins"]} == {
         ("id", "cust_id"), ("id", "alt_id")
     }
+
+
+# ── three-part identity ───────────────────────────────────────────────────────
+# With several catalogs `sales.orders` names a different table in each. Node ids
+# carry the catalog; two-part history means the default catalog.
+
+def test_two_part_history_is_placed_in_the_default_catalog():
+    g = build_graph(["SELECT * FROM sales.orders o JOIN sales.customers c ON o.cust_id = c.id"],
+                    default_catalog="iceberg")
+    ids = {n["id"] for n in g["nodes"]}
+    assert ids == {"iceberg.sales.orders", "iceberg.sales.customers"}
+    assert {g["edges"][0]["source"], g["edges"][0]["target"]} == ids
+
+
+def test_the_same_table_name_in_two_catalogs_is_two_nodes():
+    g = build_graph(["SELECT * FROM sales.orders a JOIN finance.sales.orders b ON a.id = b.id"],
+                    default_catalog="iceberg")
+    ids = {n["id"] for n in g["nodes"]}
+    assert ids == {"iceberg.sales.orders", "finance.sales.orders"}
+    assert len(g["edges"]) == 1
+
+
+def test_three_part_candidates_join_on_the_bare_table_name():
+    schema = {
+        "finance.ledger.accounts": [{"name": "id", "type": "bigint"}],
+        "finance.ledger.entries": [{"name": "account_id", "type": "bigint"}],
+    }
+    g = build_graph([], default_catalog="iceberg", schema=schema)
+    e = g["edges"][0]
+    assert {e["source"], e["target"]} == set(schema)
+    assert "FROM finance.ledger." in e["join_sql"]
+
+
+def test_the_catalog_schema_for_the_graph_spans_every_catalog(monkeypatch):
+    import app.api.catalog_backend as cb
+    import app.api.queries as q
+    from app import catalog_registry as reg
+    from app.catalog_registry import CatalogEntry
+
+    class _R:
+        def __init__(self, tree): self.tree = tree
+        def list_namespaces(self): return list(self.tree)
+        def list_tables(self, ns): return self.tree[ns]
+        def get_columns(self, ns, t): return [{"name": "id", "type": "bigint"}]
+
+    readers = {"iceberg": _R({"sales": ["orders"]}), "finance": _R({"sales": ["orders"]})}
+    reg.set_entries([
+        CatalogEntry(name="iceberg", kind="polaris", engine_catalog="iceberg", is_default=True),
+        CatalogEntry(name="finance", kind="polaris", engine_catalog="finance"),
+    ])
+    monkeypatch.setattr(cb, "get_catalog_reader", lambda name=None: readers[reg.resolve(name).name])
+    try:
+        assert set(q._catalog_schema_for_graph()) == {"iceberg.sales.orders",
+                                                      "finance.sales.orders"}
+    finally:
+        reg.reset()

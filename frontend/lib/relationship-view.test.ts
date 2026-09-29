@@ -74,3 +74,13 @@ test("search matches schema or table, case-insensitively", () => {
   assert.deepEqual(searchTables(g, "sales.").length, 3)
   assert.deepEqual(searchTables(g, "").length, 0)
 })
+
+test("a node id reads as catalog, namespace and table in either shape", async () => {
+  const { splitTableId, tableHref } = await import("./relationship-view.ts")
+  assert.deepEqual(splitTableId("finance.ledger.entries"),
+                   { catalog: "finance", namespace: "ledger", table: "entries" })
+  assert.deepEqual(splitTableId("sales.orders"),
+                   { catalog: null, namespace: "sales", table: "orders" })
+  assert.equal(tableHref("finance.ledger.entries"), "/catalog/ledger/entries?catalog=finance")
+  assert.equal(tableHref("sales.orders"), "/catalog/sales/orders")
+})

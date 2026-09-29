@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import {
-  egoLayout, hubs, neighbours, searchTables,
+  egoLayout, hubs, neighbours, searchTables, splitTableId, tableHref,
   type Neighbour, type RelGraph,
 } from "@/lib/relationship-view"
 
@@ -158,16 +158,16 @@ export function RelationshipGraph({ days = 30 }: { days?: number }) {
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <div>
                   <p className="text-2xs uppercase tracking-wide text-muted-foreground">
-                    {current.split(".")[0]}
+                    {splitTableId(current).namespace}
                   </p>
-                  <p className="text-sm font-medium">{current.split(".")[1]}</p>
+                  <p className="text-sm font-medium">{splitTableId(current).table}</p>
                   <p className="text-xs text-muted-foreground">
                     {node && node.query_count > 0 ? `Used by ${node.query_count} queries` : "Not queried in this window"}
                     {" · "}{around.length} related
                     {hiddenCandidates > 0 && ` · ${hiddenCandidates} guesses hidden`}
                   </p>
                 </div>
-                <a href={`/catalog/${current.split(".")[0]}/${current.split(".")[1]}`}
+                <a href={tableHref(current)}
                    className="text-xs text-primary hover:underline">
                   Open table →
                 </a>
@@ -225,7 +225,7 @@ function Neighbourhood({ center, around, onPick }: {
     id: n.id,
     type: "table",
     position: n.position,
-    data: { label: <span className="font-mono text-2xs">{n.id.split(".")[1]}</span> },
+    data: { label: <span className="font-mono text-2xs">{splitTableId(n.id).table}</span> },
     style: {
       borderRadius: 6, padding: "4px 8px", cursor: n.id === center ? "default" : "pointer",
       background: "var(--card)", color: "var(--card-foreground)",

@@ -18,18 +18,25 @@ from sqlglot import exp
 logger = logging.getLogger(__name__)
 
 
-def _table_name(t: exp.Table) -> str:
-    parts = [p for p in (t.db, t.name) if p]
+def _table_name(t: exp.Table, default_catalog: Optional[str] = None) -> str:
+    """Lowercased qualified name. With `default_catalog`, a two-part name is placed in
+    it — two parts mean the default catalog — so the same table written two ways is
+    one node, and `sales.orders` in two catalogs is two."""
+    parts = [p for p in (t.catalog, t.db, t.name) if p]
+    if default_catalog and len(parts) == 2:
+        parts = [default_catalog] + parts
+    elif not default_catalog and len(parts) == 3:
+        parts = parts[1:]   # the historical two-part shape, for callers without one
     return ".".join(parts).lower()
 
 
-def _alias_map(stmt) -> dict:
+def _alias_map(stmt, default_catalog: Optional[str] = None) -> dict:
     """alias (and bare name) -> qualified table name, for resolving column prefixes."""
     out = {}
     for t in stmt.find_all(exp.Table):
         if not isinstance(t.this, exp.Identifier):
             continue
-        full = _table_name(t)
+        full = _table_name(t, default_catalog)
         if not full:
             continue
         if t.alias:
@@ -65,7 +72,8 @@ def _equalities(stmt) -> Iterable[exp.EQ]:
         yield from where.find_all(exp.EQ)
 
 
-def extract_joins(sql: str, dialect: str = "trino") -> List[dict]:
+def extract_joins(sql: str, dialect: str = "trino",
+                  default_catalog: Optional[str] = None) -> List[dict]:
     """Table-to-table equalities in `sql`.
 
     Each entry is ordered so that the same relationship written either way produces
@@ -82,7 +90,7 @@ def extract_joins(sql: str, dialect: str = "trino") -> List[dict]:
 
     seen, out = set(), []
     for stmt in statements:
-        aliases = _alias_map(stmt)
+        aliases = _alias_map(stmt, default_catalog)
         for eq in _equalities(stmt):
             left, right = eq.this, eq.expression
             if not (isinstance(left, exp.Column) and isinstance(right, exp.Column)):
@@ -105,7 +113,8 @@ def extract_joins(sql: str, dialect: str = "trino") -> List[dict]:
     return out
 
 
-def _tables_in(sql: str, dialect: str = "trino") -> List[str]:
+def _tables_in(sql: str, dialect: str = "trino",
+               default_catalog: Optional[str] = None) -> List[str]:
     try:
         statements = [s for s in sqlglot.parse(sql, read=dialect) if s is not None]
     except Exception:
@@ -118,7 +127,7 @@ def _tables_in(sql: str, dialect: str = "trino") -> List[str]:
                 continue
             if t.name.lower() in ctes:
                 continue
-            full = _table_name(t)
+            full = _table_name(t, default_catalog)
             if full and "." in full and full not in names:
                 names.append(full)
     return names
@@ -219,7 +228,8 @@ def candidate_joins(schema: Dict[str, List[dict]]) -> List[dict]:
     return out
 
 def build_graph(statements: Iterable[str], dialect: str = "trino",
-                schema: Optional[Dict[str, List[dict]]] = None) -> dict:
+                schema: Optional[Dict[str, List[dict]]] = None,
+                default_catalog: Optional[str] = None) -> dict:
     """Aggregate a history of statements into {nodes, edges}.
 
     Known and deliberate: a node can name a table that has since been dropped. History
@@ -231,15 +241,19 @@ def build_graph(statements: Iterable[str], dialect: str = "trino",
     Node `query_count` is how many statements touched the table; edge `count` is how
     many used that relationship. Both are usage evidence, so the diagram can weight
     the paths people actually take.
+
+    `default_catalog` makes every id three-part (catalog.namespace.table), placing
+    two-part history in the default catalog; `schema` keys must then be three-part
+    too. Without it ids keep the two-part shape.
     """
     nodes: dict = {}
     edges: dict = {}
 
     for sql in statements:
-        for name in _tables_in(sql, dialect):
+        for name in _tables_in(sql, dialect, default_catalog):
             nodes.setdefault(name, 0)
             nodes[name] += 1
-        for j in extract_joins(sql, dialect):
+        for j in extract_joins(sql, dialect, default_catalog):
             pair = (j["left_table"], j["right_table"])
             e = edges.setdefault(pair, {"count": 0, "joins": {}})
             e["count"] += 1

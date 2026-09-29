@@ -175,25 +175,30 @@ def _safe_origin(request) -> str:
 
 
 def _catalog_schema_for_graph(max_tables: int = 60) -> dict:
-    """{qualified table: [{name, type}]} for candidate-relationship inference.
+    """{catalog.namespace.table: [{name, type}]} for candidate-relationship inference,
+    across every enabled catalog, keyed by the catalog name SQL uses.
 
     Capped: the guess layer exists to make a small catalog legible on day one, and a
     hairball of hundreds of inferred edges would be worse than an empty diagram.
     """
     out = {}
-    try:
-        from app.api.catalog_backend import get_catalog_reader
-        reader = get_catalog_reader()
-        for ns in reader.list_namespaces():
-            for tbl in reader.list_tables(ns):
-                try:
-                    out[f"{ns}.{tbl}".lower()] = reader.get_columns(ns, tbl)
-                except Exception:
-                    continue
-                if len(out) >= max_tables:
-                    return out
-    except Exception as e:
-        logger.warning(f"[catalog] schema read for relationship candidates failed: {e}")
+    from app import catalog_registry
+    from app.api.catalog_backend import get_catalog_reader
+    for entry in catalog_registry.entries():
+        try:
+            reader = get_catalog_reader(entry.name)
+            for ns in reader.list_namespaces():
+                for tbl in reader.list_tables(ns):
+                    try:
+                        out[f"{entry.engine_catalog}.{ns}.{tbl}".lower()] = \
+                            reader.get_columns(ns, tbl)
+                    except Exception:
+                        continue
+                    if len(out) >= max_tables:
+                        return out
+        except Exception as e:
+            logger.warning(f"[catalog] schema read of {entry.name} for relationship "
+                           f"candidates failed: {e}")
     return out
 
 
@@ -761,8 +766,12 @@ async def catalog_relationships(
         rows = []
 
     schema = await asyncio.to_thread(_catalog_schema_for_graph)
+    # Node ids are catalog.namespace.table; two-part history means the default
+    # catalog, the one the engine's session resolves it against.
+    from app.rls.engine import _default_catalog
     graph = build_graph([r[0] for r in rows if r and r[0]],
-                        dialect=get_engine().rls_dialect, schema=schema)
+                        dialect=get_engine().rls_dialect, schema=schema,
+                        default_catalog=_default_catalog().lower())
     graph["source"] = "query_history+catalog"
     graph["window_days"] = days
     graph["statements_scanned"] = len(rows)

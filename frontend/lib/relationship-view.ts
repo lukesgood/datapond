@@ -102,3 +102,23 @@ export function searchTables(graph: RelGraph, q: string, limit = 20): RelNode[] 
   if (!needle) return []
   return graph.nodes.filter(n => n.id.toLowerCase().includes(needle)).slice(0, limit)
 }
+
+export type TableId = { catalog: string | null; namespace: string; table: string }
+
+/** Node ids are `catalog.namespace.table` since the catalog registry; older
+ *  responses (and a single-catalog history) may still say `namespace.table`. */
+export function splitTableId(id: string): TableId {
+  const parts = id.split(".")
+  if (parts.length >= 3) {
+    return { catalog: parts[0], namespace: parts[1], table: parts.slice(2).join(".") }
+  }
+  if (parts.length === 2) return { catalog: null, namespace: parts[0], table: parts[1] }
+  return { catalog: null, namespace: "", table: id }
+}
+
+/** The catalog detail page for a node id, naming the catalog when the id has one. */
+export function tableHref(id: string): string {
+  const { catalog, namespace, table } = splitTableId(id)
+  const path = `/catalog/${encodeURIComponent(namespace)}/${encodeURIComponent(table)}`
+  return catalog ? `${path}?catalog=${encodeURIComponent(catalog)}` : path
+}
