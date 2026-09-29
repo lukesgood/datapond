@@ -116,6 +116,7 @@ class CustomConfig(ConnectorConfig):
     """Configuration for the Custom Python connector"""
     code: str  # Python source; must define fetch_data() -> list[dict]
     requirements: List[str] = []  # optional extra pip packages (informational only)
+    table_name: Optional[str] = None  # catalog table name; "result" when unset
 
 
 @ConnectorRegistry.register(ConnectorType.CUSTOM)
@@ -221,8 +222,8 @@ class CustomConnector(BaseConnector):
             )
 
     async def get_tables(self) -> List[str]:
-        """Custom connectors expose a single virtual 'result' table."""
-        return ["result"]
+        """Custom connectors expose a single virtual table, "result" unless named."""
+        return [self.config.table_name or "result"]
 
     async def get_schema(self, table_name: str) -> TableSchema:
         """Infer schema by running fetch_data() and inspecting the first record."""

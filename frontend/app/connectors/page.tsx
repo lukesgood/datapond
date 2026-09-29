@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react"
 import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
-import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -16,12 +15,13 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ConnectorCard } from "@/components/connectors/connector-card"
+import { SampleSourcesPanel } from "@/components/connectors/sample-sources-panel"
 import { availableConnectors } from "@/lib/connectors"
 import {
   Plus, RefreshCw, Database, Search, MoreHorizontal,
   Trash2, HardDrive, Radio, Cloud, AlertCircle, Plug,
   Rows3, ShieldAlert, TrendingUp, TableProperties,
-  ArrowRight, ArrowDownToLine, Layers, BarChart2, Zap, Loader2,
+  ArrowRight, ArrowDownToLine, Layers, BarChart2, Zap,
 } from "lucide-react"
 import Link from "next/link"
 import { parseCron, nextRun } from "@/lib/schedule"
@@ -93,30 +93,8 @@ const SOURCE_TYPES = [
 function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated }: {
   onAddSource: () => void
   hideTitle?: boolean
-  onSampleCreated?: (id: string) => void
+  onSampleCreated?: () => void
 }) {
-  const [creating, setCreating] = useState(false)
-  const [sampleMsg, setSampleMsg] = useState<string | null>(null)
-  const router = useRouter()
-
-  const handleTrySample = async () => {
-    setCreating(true)
-    setSampleMsg(null)
-    try {
-      const res = await fetch("/api/connectors/sample-db", { method: "POST" })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d.detail ?? "Failed")
-      setSampleMsg(d.already_existed ? "Sample DB already exists — opening…" : "Sample DB created! Opening…")
-      setTimeout(() => {
-        if (onSampleCreated) onSampleCreated(d.id)
-        router.push(`/connectors/connections/${d.id}`)
-      }, 800)
-    } catch (e) {
-      setSampleMsg(e instanceof Error ? e.message : "Failed to create sample DB")
-      setCreating(false)
-    }
-  }
-
   return (
     <div className="px-8 py-10 space-y-8">
       {/* Title — hidden when used as collapsible panel */}
@@ -173,30 +151,8 @@ function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated }: {
 
       {/* CTA */}
       <div className="flex flex-col items-center gap-3">
-        {/* Primary: Try Sample DB */}
-        <button
-          onClick={handleTrySample}
-          disabled={creating}
-          className="flex items-center gap-2 px-6 py-3 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-60 min-w-56 justify-center"
-        >
-          {creating
-            ? <><Loader2 className="h-4 w-4 animate-spin" />Setting up…</>
-            : <><Database className="h-4 w-4" />Try with Sample DB</>}
-        </button>
-
-        {/* Sample DB description */}
-        {!creating && !sampleMsg && (
-          <p className="text-xs text-muted-foreground text-center max-w-xs">
-            Auto-creates an e-commerce PostgreSQL DB with customers, orders, products &amp; events — ready to sync in seconds.
-          </p>
-        )}
-
-        {/* Status message */}
-        {sampleMsg && (
-          <p className={`text-xs text-center ${sampleMsg.includes("Failed") ? "text-destructive" : "text-[var(--dp-good-text)]"}`}>
-            {sampleMsg}
-          </p>
-        )}
+        {/* Primary: one sample per connector kind */}
+        <SampleSourcesPanel onAdded={onSampleCreated} />
 
         {/* Divider */}
         <div className="flex items-center gap-3 w-full max-w-xs">
@@ -375,6 +331,15 @@ function ConnectorsPageInner() {
           </p>
         </div>
         <div className="flex gap-2">
+          {/* The sample picker lives in the onboarding panel, which a page that already
+              has sources keeps collapsed — this is the way to it from any state. */}
+          {connections.length > 0 && (
+            <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5"
+              onClick={() => { setActiveTab("connections"); setShowOnboarding(true) }}>
+              <Zap className="h-3.5 w-3.5" />
+              Sample sources
+            </Button>
+          )}
           <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5"
             onClick={fetchConnections} disabled={loading}>
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
@@ -474,7 +439,7 @@ function ConnectorsPageInner() {
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
                 <Zap className="h-3.5 w-3.5" />
-                {showOnboarding ? "Hide" : "How it works"}
+                {showOnboarding ? "Hide" : "How it works & samples"}
               </button>
             )}
           </div>
@@ -485,7 +450,7 @@ function ConnectorsPageInner() {
               <IngestionEmptyState onAddSource={() => {
                 setShowOnboarding(false)
                 setActiveTab("marketplace")
-              }} hideTitle />
+              }} onSampleCreated={fetchConnections} hideTitle />
             </div>
           )}
 
@@ -497,7 +462,7 @@ function ConnectorsPageInner() {
             <div className="rounded-xl border bg-card">
               <IngestionEmptyState onAddSource={() => {
                 setActiveTab("marketplace")
-              }} />
+              }} onSampleCreated={fetchConnections} />
             </div>
           )}
 

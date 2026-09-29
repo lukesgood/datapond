@@ -49,6 +49,7 @@ from app.api.webauthn import router as webauthn_router
 from app.api.audit_export import router as audit_export_router
 from app.api.tool_call_routes import router as tool_call_router
 from app.api.source_access import router as source_members_router
+from app.api.sample_api import router as sample_api_router
 from app.mcp.server import router as mcp_router
 from app.capabilities import compute_capabilities
 
@@ -87,6 +88,9 @@ AUTH_EXEMPT = {
     # Password reset is pre-auth by definition (you're locked out of your account).
     "/api/auth/forgot-password",
     "/api/auth/reset-password",
+    # The sample REST source's feed. The connector sends an X-Sample-Key header, not a
+    # DataPond token; the route checks that key itself (app/api/sample_api.py).
+    "/api/sample-api/fx-rates",
 }
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -491,6 +495,8 @@ app.include_router(tool_call_router, prefix="/api")
 app.include_router(source_members_router, prefix="/api")
 # Model Context Protocol: read-only tools over the action registry for external agents.
 app.include_router(mcp_router, prefix="/api")
+# The feed the sample REST connector calls — see app/api/sample_api.py.
+app.include_router(sample_api_router, prefix="/api")
 
 from app.service_registry import service_registry as _service_registry_pure
 
