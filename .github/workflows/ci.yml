@@ -429,6 +429,117 @@ jobs:
           kubectl -n datapond logs -l app=backend --tail=100 || true
           kubectl -n datapond logs -l app.kubernetes.io/component=migrate --tail=50 || true
 
+  sovereign-core-install:
+    name: Sovereign Core boots on a non-k3s cluster (MinIO + Ollama, no egress)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # values-sovereign-core.yaml is documented as a supported starter, and until this
+    # job nothing ever installed it: MinIO, its bucket-init Job, Ollama's model pull,
+    # and the Job that seeds LiteLLM with the local models were only ever rendered.
+    #
+    # kind, not k3s, on purpose: this is the non-k3s path docs/SOVEREIGN_CORE_PROFILE.md
+    # tells an operator to take — minio.clusterIP set to a free address in the
+    # cluster's own service CIDR (kind's is 10.96.0.0/12).
+    #
+    # Models are the only substitution. qwen2.5:0.5b stands in for the 7B chat model
+    # so the pull fits a runner; bge-m3 is the profile's own embedding model, because
+    # its 1024 dimensions are what ai_chunks stores and a smaller one would test a
+    # configuration nobody runs.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create a cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: sovereign
+          wait: 120s
+
+      - name: Build and load the images
+        run: |
+          docker build -f backend/Dockerfile --target enterprise -t datapond-backend:ci .
+          docker build -f frontend/Dockerfile -t datapond-frontend:ci frontend
+          kind load docker-image datapond-backend:ci datapond-frontend:ci --name sovereign
+
+      - name: Install Sovereign Core
+        run: |
+          helm install datapond helm/datapond \
+            --namespace datapond --create-namespace \
+            -f helm/datapond/values-sovereign-core.yaml \
+            --set minio.clusterIP=10.96.200.150 \
+            --set ingress.enabled=false \
+            --set backend.replicas=1 --set backend.autoscaling.enabled=false \
+            --set frontend.replicas=1 --set frontend.autoscaling.enabled=false \
+            --set-string ollama.defaultModel=qwen2.5:0.5b \
+            --set-string backend.image.repository=datapond-backend \
+            --set-string backend.image.tag=ci \
+            --set backend.image.pullPolicy=Never \
+            --set-string frontend.image.repository=datapond-frontend \
+            --set-string frontend.image.tag=ci \
+            --set frontend.image.pullPolicy=Never \
+            --wait --timeout 25m
+
+      - name: Storage and the model gateway were set up by their Jobs
+        run: |
+          kubectl -n datapond wait --for=condition=complete job/minio-bucket-init --timeout=5m
+          kubectl -n datapond wait --for=condition=complete job/litellm-ollama-init --timeout=10m
+
+      - name: Nothing is allowed to leave the cluster
+        run: |
+          POLICY=$(kubectl -n datapond exec deploy/backend -- printenv AI_EGRESS_POLICY)
+          echo "AI_EGRESS_POLICY=$POLICY"
+          [ "$POLICY" = "local-only" ] || { echo "FAIL: sovereign-core must be local-only"; exit 1; }
+
+      - name: Ingest, embed and retrieve through MinIO-backed core and local models
+        run: |
+          kubectl -n datapond exec deploy/backend -- python -c "
+          import asyncio, json, urllib.request
+          from app.api.auth import _create_token, _get_pool
+
+          async def token():
+              p = await _get_pool()
+              async with p.acquire() as c:
+                  r = await c.fetchrow(\"SELECT id,username,role FROM users WHERE role='admin' LIMIT 1\")
+              return _create_token(str(r['id']), r['username'], r['role'])
+
+          T = asyncio.run(token())
+
+          def call(method, path, body=None):
+              req = urllib.request.Request('http://localhost:8000' + path, method=method,
+                  data=json.dumps(body).encode() if body is not None else None,
+                  headers={'Authorization': 'Bearer ' + T, 'Content-Type': 'application/json'})
+              with urllib.request.urlopen(req, timeout=300) as r:
+                  return json.load(r)
+
+          ready = json.load(urllib.request.urlopen('http://localhost:8000/health/ready', timeout=10))
+          assert ready['ready'] is True, ready
+
+          storage = call('GET', '/api/storage/overview')
+          print('storage', json.dumps(storage)[:300])
+          assert storage.get('buckets'), 'MinIO answered with no buckets: ' + json.dumps(storage)[:300]
+
+          e = call('POST', '/api/ai/embed', {'input': ['sovereign core check']})
+          assert e['dim'] == 1024 and len(e['embeddings'][0]) == 1024, e['dim']
+
+          call('POST', '/api/ai/collections', {'name': 'sovereign_ci'})
+          call('POST', '/api/ai/collections/sovereign_ci/ingest', {'documents': [
+              {'source': 'refunds.md', 'text': 'Refunds are issued within fourteen days of a return.'},
+              {'source': 'shipping.md', 'text': 'Orders ship from the Busan warehouse every weekday.'}]})
+          hits = call('POST', '/api/ai/search',
+                      {'collection': 'sovereign_ci', 'query': 'how long do refunds take', 'k': 1})['results']
+          print('top hit', hits[0]['source'] if hits else None)
+          assert hits and hits[0]['source'] == 'refunds.md', hits
+          print('PASS: local embedding, pgvector retrieval, local-only egress')
+          "
+
+      - name: Show the cluster on failure
+        if: failure()
+        run: |
+          kubectl -n datapond get pods,jobs,pvc -o wide || true
+          kubectl -n datapond describe pods | tail -120 || true
+          kubectl -n datapond logs job/litellm-ollama-init --tail=80 || true
+          kubectl -n datapond logs statefulset/ollama -c pull-model --tail=40 || true
+          kubectl -n datapond logs deploy/backend --tail=120 || true
+
   helm-lint:
     name: Helm chart lint
     runs-on: ubuntu-latest
