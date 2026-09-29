@@ -683,7 +683,8 @@ def shape_composition(rows, refresh_source: Optional[dict]) -> dict:
     }
 
 
-def build_lineage(connections, jobs, collections) -> dict:
+def build_lineage(connections, jobs, collections,
+                  default_catalog: Optional[str] = None) -> dict:
     """connector → namespace.table → collection, from data the product already acts on.
 
     _invalidate_sink_collections() in app/api/connectors.py marks a collection stale
@@ -693,6 +694,11 @@ def build_lineage(connections, jobs, collections) -> dict:
 
     Only tables that actually feed a collection are drawn. A connector syncing fifty
     tables nothing consumes would bury the part of the graph that matters.
+
+    Connector syncs write to the default catalog, so a job's table is keyed
+    `ns.table`. A collection's source is keyed the same way when its catalog is the
+    default (or unnamed, as every row stored before catalogs existed), and
+    `catalog.ns.table` otherwise — which no sync matches, because none writes there.
     """
     def table_key(target: str, fallback: str) -> str:
         # Namespace from the target, not assumed to be `default`: a sync can write
@@ -709,7 +715,10 @@ def build_lineage(connections, jobs, collections) -> dict:
                            "label": c["name"]})
         src = c.get("refresh_source") or {}
         if src.get("type") == "iceberg" and src.get("schema") and src.get("table"):
-            key = f"{src['schema']}.{src['table']}"
+            cat = (src.get("catalog") or "").strip()
+            if cat and default_catalog and cat.lower() == default_catalog.lower():
+                cat = ""
+            key = f"{cat + '.' if cat else ''}{src['schema']}.{src['table']}"
             wanted.setdefault(key, []).append(c)
 
     by_conn = {c["id"]: c for c in connections}
@@ -867,17 +876,25 @@ async def ingest(name: str, req: IngestRequest, user: dict = Depends(require_use
 # ── Source ingestion (the AI data pipeline: lakehouse / object store → vectors) ──
 
 def _read_iceberg_docs(schema: str, table: str, text_column: str, limit: int,
-                       label_column: Optional[str] = None) -> List[tuple]:
-    """One document per row of <schema>.<table>.<text_column> — read via the active
-    query engine (self-hosted Trino 'iceberg' catalog, or Amazon Athena/Glue on the
-    AWS foundation profile). Engine selection mirrors app.api.query_engine.get_engine()
-    (QUERY_ENGINE=athena|trino), so this stays in lockstep with Query Lab / AI SQL."""
+                       label_column: Optional[str] = None,
+                       catalog: Optional[str] = None) -> List[tuple]:
+    """One document per row of <catalog>.<schema>.<table>.<text_column> — read via the
+    active query engine (self-hosted Trino, or Amazon Athena/Glue on the AWS foundation
+    profile). Engine selection mirrors app.api.query_engine.get_engine()
+    (QUERY_ENGINE=athena|trino), so this stays in lockstep with Query Lab / AI SQL.
+
+    The default catalog is read through the engine's own prefix, exactly as before;
+    any other registry catalog through its engine catalog name."""
+    from app import catalog_registry
+    from app.api.catalog_backend import safe_identifier
     from app.api.query_engine import get_engine, AthenaEngine
     eng = get_engine()
-    src = f"{eng.ai_table_prefix}.{schema}.{table}.{text_column}"
+    entry = catalog_registry.resolve(catalog)
+    prefix = eng.ai_table_prefix if entry.is_default else safe_identifier(entry.engine_catalog)
+    src = f"{prefix}.{schema}.{table}.{text_column}"
     columns = f'"{text_column}"' + (f', "{label_column}"' if label_column else "")
     sql = (
-        f'SELECT {columns} FROM {eng.ai_table_prefix}."{schema}"."{table}" '
+        f'SELECT {columns} FROM {prefix}."{schema}"."{table}" '
         f'WHERE "{text_column}" IS NOT NULL LIMIT {int(limit)}'
     )
     if isinstance(eng, AthenaEngine):
@@ -927,6 +944,9 @@ def _read_s3_docs(bucket: str, prefix: str, max_files: int) -> List[tuple]:
 class SourceIngest(BaseModel):
     type: str                                    # "iceberg" | "s3"
     # iceberg
+    # Registry catalog (app/catalog_registry.py) the table lives in; None is the
+    # default catalog, which is also what every schedule stored before this meant.
+    catalog: Optional[str] = None
     db_schema: Optional[str] = Field(None, alias="schema")
     table: Optional[str] = None
     text_column: Optional[str] = None
@@ -959,12 +979,35 @@ def _ident_ok(*vals) -> bool:
     return all(re.fullmatch(r"[A-Za-z0-9_]+", v or "") for v in vals)
 
 
+def _non_default_catalog(src: "SourceIngest") -> Optional[str]:
+    """The source's catalog when it is not the default, else None."""
+    from app import catalog_registry
+    if src.type != "iceberg" or catalog_registry.is_default(src.catalog):
+        return None
+    return src.catalog
+
+
 def _source_group(src: "SourceIngest") -> str:
     """Deterministic replace-scope key for a logical source (used to delete-then-insert
-    on re-embed). Distinct from per-document `source`, which stays for citations."""
+    on re-embed). Distinct from per-document `source`, which stays for citations.
+
+    The catalog is part of the key only when it is not the default: chunks already
+    stored under the two-part key must still be the ones a re-embed replaces."""
     if src.type == "iceberg":
-        return f"iceberg:{src.db_schema}.{src.table}.{src.text_column}"
+        cat = _non_default_catalog(src)
+        prefix = f"{cat}." if cat else ""
+        return f"iceberg:{prefix}{src.db_schema}.{src.table}.{src.text_column}"
     return f"s3:{src.bucket}/{src.prefix or ''}"
+
+
+def _stored_source(src: "SourceIngest") -> dict:
+    """refresh_source as stored: the catalog only when it is not the default, so the
+    connector sink and lineage (which read these rows) see exactly the shape they
+    always have for the default catalog."""
+    out = src.model_dump(by_alias=True, exclude_none=True)
+    if not _non_default_catalog(src):
+        out.pop("catalog", None)
+    return out
 
 
 async def _refresh_from_source(pool, coll_id, src: "SourceIngest") -> dict:
@@ -972,6 +1015,11 @@ async def _refresh_from_source(pool, coll_id, src: "SourceIngest") -> dict:
     replace semantics. Shared by the ingest-source endpoint and the scheduler."""
     labels = _source_labels(src)
     if src.type == "iceberg":
+        from app import catalog_registry
+        try:
+            catalog_registry.resolve(src.catalog)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
         if not (src.db_schema and src.table and src.text_column):
             raise HTTPException(400, "iceberg source needs schema, table, text_column.")
         if not _ident_ok(src.db_schema, src.table, src.text_column):
@@ -981,7 +1029,8 @@ async def _refresh_from_source(pool, coll_id, src: "SourceIngest") -> dict:
             raise HTTPException(400, "label_column must be a bare identifier other than "
                                      "schema, table, row, bucket or key.")
         docs = await asyncio.to_thread(_read_iceberg_docs, src.db_schema, src.table,
-                                       src.text_column, src.limit, src.label_column)
+                                       src.text_column, src.limit, src.label_column,
+                                       src.catalog)
     elif src.type == "s3":
         if not src.bucket:
             raise HTTPException(400, "s3 source needs bucket (and optional prefix).")
@@ -1096,7 +1145,13 @@ async def schedule_ingest(name: str, body: ScheduleRequest, user: dict = Depends
     pool = await get_db_pool()
     async with pool.acquire() as c:
         coll_id = await _collection_id(c, name, user, write=True)  # 404/403 gate
-        source_json = json.dumps(body.source.model_dump(by_alias=True, exclude_none=True))
+        if body.source.type == "iceberg":
+            from app import catalog_registry
+            try:
+                catalog_registry.resolve(body.source.catalog)
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+        source_json = json.dumps(_stored_source(body.source))
         await c.execute(
             """UPDATE ai_collections
                SET refresh_source = $2::jsonb, refresh_interval_minutes = $3, refresh_enabled = true
@@ -1357,7 +1412,9 @@ async def knowledge_lineage(user: dict = Depends(require_user)):
         j["connection_id"] = str(j["connection_id"])
     for c2 in connections:
         c2["id"] = str(c2["id"])
-    return build_lineage(connections, jobs, cols)
+    from app import catalog_registry
+    return build_lineage(connections, jobs, cols,
+                         default_catalog=catalog_registry.default_entry().name)
 
 
 @router.patch("/ai/collections/{name}",

@@ -2067,6 +2067,12 @@ async def _invalidate_sink_collections(pool, results: list) -> int:
         return 0
     namespaces = [ns for ns, _ in pairs]
     tables = [t for _, t in pairs]
+    # Syncs write to the default catalog. A source that names no catalog (every row
+    # stored before catalogs existed) or names the default matches; a collection over
+    # another catalog's table of the same name is not this sync's business.
+    from app import catalog_registry
+    d = catalog_registry.default_entry()
+    default_names = sorted({d.name.lower(), d.engine_catalog.lower()})
     try:
         async with pool.acquire() as c:
             # Exact per-pair match: unnest the two parallel arrays into (ns, tbl)
@@ -2076,9 +2082,11 @@ async def _invalidate_sink_collections(pool, results: list) -> int:
                       SET last_refreshed_at = NULL
                     WHERE refresh_enabled
                       AND refresh_source->>'type' = 'iceberg'
+                      AND (refresh_source->>'catalog' IS NULL
+                           OR lower(refresh_source->>'catalog') = ANY($3::text[]))
                       AND (refresh_source->>'schema', refresh_source->>'table')
                           IN (SELECT ns, tbl FROM unnest($1::text[], $2::text[]) AS t(ns, tbl))""",
-                namespaces, tables,
+                namespaces, tables, default_names,
             )
         n = int(str(res).split()[-1]) if str(res).startswith("UPDATE") else 0
         if n:

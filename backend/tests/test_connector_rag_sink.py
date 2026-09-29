@@ -45,7 +45,10 @@ def test_invalidate_matches_only_successful_tables(monkeypatch):
     assert "refresh_source->>'type' = 'iceberg'" in sql
     assert "unnest($1::text[], $2::text[])" in sql
     # parallel (namespaces, tables) arrays, sorted by pair, "broken" excluded
-    assert args == (["default", "default"], ["customers", "orders"])
+    assert args[:2] == (["default", "default"], ["customers", "orders"])
+    # …and only sources in the default catalog, the one syncs write to.
+    from app import catalog_registry
+    assert args[2] == [catalog_registry.default_entry().name.lower()]
 
 
 def test_namespace_derived_from_target(monkeypatch):
@@ -55,7 +58,7 @@ def test_namespace_derived_from_target(monkeypatch):
     # a single-table sync that overrode target into another namespace
     _run(c._invalidate_sink_collections(_Pool(conn), [_r("orders", True, ns="warehouse")]))
     sql, args = [(s, a) for s, a in conn.sink if s.strip().startswith("UPDATE")][0]
-    assert args == (["warehouse"], ["orders"])  # ns comes from target, not hardcoded
+    assert args[:2] == (["warehouse"], ["orders"])  # ns comes from target, not hardcoded
 
 
 def test_no_update_when_no_successful_tables(monkeypatch):
