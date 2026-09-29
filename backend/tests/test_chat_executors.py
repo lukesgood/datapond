@@ -38,7 +38,7 @@ def test_describe_table_reads_through_the_catalog_reader(monkeypatch):
         def get_columns(self, ns, table):
             return [{"name": "id", "type": "int"}, {"name": "amt", "type": "double"}]
 
-    monkeypatch.setattr(catalog, "get_catalog_reader", lambda: _Reader())
+    monkeypatch.setattr(catalog, "get_catalog_reader", lambda *a: _Reader())
     out = _run(executors.EXECUTORS["catalog.describe_table"](
         {"namespace": "sales", "table": "orders"}, USER))
     assert out["table"] == "sales.orders"
@@ -50,7 +50,7 @@ def test_describe_table_reports_a_missing_table_as_a_result_not_a_crash(monkeypa
         def get_columns(self, ns, table):
             raise RuntimeError("NoSuchTable")
 
-    monkeypatch.setattr(catalog, "get_catalog_reader", lambda: _Reader())
+    monkeypatch.setattr(catalog, "get_catalog_reader", lambda *a: _Reader())
     with pytest.raises(Exception):
         _run(executors.EXECUTORS["catalog.describe_table"](
             {"namespace": "sales", "table": "nope"}, USER))
@@ -63,7 +63,7 @@ def test_find_tables_matches_on_name_and_namespace(monkeypatch):
         def list_tables(self, ns):
             return {"sales": ["orders", "customers"], "ops": ["orders_archive"]}[ns]
 
-    monkeypatch.setattr(catalog, "get_catalog_reader", lambda: _Reader())
+    monkeypatch.setattr(catalog, "get_catalog_reader", lambda *a: _Reader())
     out = _run(executors.EXECUTORS["catalog.find_tables"]({"query": "order"}, USER))
     assert set(out["tables"]) == {"sales.orders", "ops.orders_archive"}
 
@@ -75,7 +75,7 @@ def test_find_tables_returns_nothing_rather_than_everything_for_no_match(monkeyp
         def list_tables(self, ns):
             return ["orders"]
 
-    monkeypatch.setattr(catalog, "get_catalog_reader", lambda: _Reader())
+    monkeypatch.setattr(catalog, "get_catalog_reader", lambda *a: _Reader())
     assert _run(executors.EXECUTORS["catalog.find_tables"](
         {"query": "zzzz"}, USER))["tables"] == []
 
@@ -130,7 +130,7 @@ CATALOG = {"planlab": ["customers", "orders", "shipments"],
 
 
 def _find(monkeypatch, query):
-    monkeypatch.setattr(catalog, "get_catalog_reader", lambda: _Catalog(CATALOG))
+    monkeypatch.setattr(catalog, "get_catalog_reader", lambda *a: _Catalog(CATALOG))
     return _run(executors.EXECUTORS["catalog.find_tables"]({"query": query}, USER))["tables"]
 
 

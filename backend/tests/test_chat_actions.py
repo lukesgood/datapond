@@ -60,8 +60,9 @@ def test_every_destructive_action_declares_the_target_field_the_gate_needs():
 
 def test_valid_parameters_pass_and_come_back_normalised():
     action = resolve("catalog.describe_table")
+    # Normalised: the optional catalog comes back as None — the default catalog.
     assert validate_params(action, {"namespace": "sales", "table": "orders"}) == {
-        "namespace": "sales", "table": "orders"}
+        "catalog": None, "namespace": "sales", "table": "orders"}
 
 
 def test_missing_required_parameters_are_refused():

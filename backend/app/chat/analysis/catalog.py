@@ -14,10 +14,15 @@ from app.chat.actions import Action, ActionKind, _Strict
 from app.chat.analysis._resolve import _r
 
 
+_CATALOG_DESCRIPTION = ("The data catalog the table is in, as catalog_find_tables names it "
+                        "(the first part of a three-part name). Omit for the default catalog.")
+
+
 class TableRef(_Strict):
     # `namespace`, not `schema`: the latter shadows a BaseModel attribute, which
     # quietly drops it from the generated JSON Schema's `required` list — and the
     # product's own API already calls these namespaces.
+    catalog: Optional[str] = Field(default=None, description=_CATALOG_DESCRIPTION)
     namespace: str = Field(
         description="The table's namespace (schema), as listed by catalog_find_tables.")
     table: str = Field(
@@ -35,13 +40,24 @@ class RelationshipQuery(_Strict):
         default=None,
         description="Limit to relationships involving this table, written namespace.table. "
                     "Omit for every relationship the catalog knows.")
+    catalog: Optional[str] = Field(default=None, description=_CATALOG_DESCRIPTION)
+
+
+def _qualified(entry, namespace: str, table: str) -> str:
+    """`ns.table` in the default catalog — the shape every single-catalog answer had —
+    and `catalog.ns.table` in any other, which is what SQL must say for it."""
+    base = f"{namespace}.{table}"
+    return base if entry.is_default else f"{entry.engine_catalog}.{base}"
 
 
 async def describe_table(params: dict, user: dict) -> dict:
-    reader = get_catalog_reader()
+    from app import catalog_registry
+    entry = catalog_registry.resolve(params.get("catalog"))
+    reader = get_catalog_reader(entry.name)
     columns = reader.get_columns(params["namespace"], params["table"])
     return {
-        "table": f"{params['namespace']}.{params['table']}",
+        "catalog": entry.engine_catalog,
+        "table": _qualified(entry, params["namespace"], params["table"]),
         "columns": [{"name": c.get("name"), "type": c.get("type")} for c in columns],
     }
 
@@ -68,18 +84,24 @@ async def find_tables(params: dict, user: dict) -> dict:
     if not tokens:
         return {"tables": [], "query": params["query"]}
 
-    reader = get_catalog_reader()
+    from app import catalog_registry
     scored = []
-    for namespace in reader.list_namespaces():
+    for entry in catalog_registry.entries():
         try:
-            tables = reader.list_tables(namespace)
+            reader = get_catalog_reader(entry.name)
+            namespaces = reader.list_namespaces()
         except Exception:
             continue
-        for table in tables:
-            qualified = f"{namespace}.{table}"
-            hits = sum(1 for t in tokens if t in qualified.lower())
-            if hits:
-                scored.append((hits, qualified))
+        for namespace in namespaces:
+            try:
+                tables = reader.list_tables(namespace)
+            except Exception:
+                continue
+            for table in tables:
+                qualified = _qualified(entry, namespace, table)
+                hits = sum(1 for t in tokens if t in qualified.lower())
+                if hits:
+                    scored.append((hits, qualified))
     scored.sort(key=lambda pair: (-pair[0], pair[1]))
     return {"tables": [name for _hits, name in scored], "query": params["query"]}
 
@@ -87,11 +109,17 @@ async def find_tables(params: dict, user: dict) -> dict:
 async def explain_relationships(params: dict, user: dict) -> dict:
     from app.api.catalog_graph import build_graph
     from app.api.queries import _catalog_schema_for_graph
+    from app import catalog_registry
+    from app.catalog_registry import TableRef as _Ref
     schema = _catalog_schema_for_graph()
-    graph = build_graph([], schema=schema)
+    default = catalog_registry.default_entry().engine_catalog.lower()
+    graph = build_graph([], schema=schema, default_catalog=default)
     edges = graph["edges"]
     if params.get("table"):
-        wanted = params["table"].lower()
+        # Ids are catalog.ns.table; a two-part table means the catalog asked for, or
+        # the default.
+        catalog = catalog_registry.resolve(params.get("catalog")).engine_catalog
+        wanted = _Ref.parse(params["table"], default=catalog).key()
         edges = [e for e in edges if wanted in (e["source"], e["target"])]
     return {"relationships": edges[:25]}
 

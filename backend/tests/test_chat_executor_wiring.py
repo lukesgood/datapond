@@ -171,9 +171,9 @@ def test_every_non_read_action_still_has_a_previewer():
 # a Depends object through by accident). Nor does it catch a default that is some
 # other kind of unsafe sentinel outside these two FastAPI classes.
 _EXPLICITLY_BOUND_PARAMS = {
-    "catalog.describe_table": set(),          # get_catalog_reader() — no params
-    "catalog.find_tables": set(),              # get_catalog_reader() — no params
-    "catalog.explain_relationships": {"statements", "schema"},   # dialect omitted, plain default
+    "catalog.describe_table": {"catalog"},     # get_catalog_reader(entry.name)
+    "catalog.find_tables": {"catalog"},        # get_catalog_reader(entry.name), per catalog
+    "catalog.explain_relationships": {"statements", "schema", "default_catalog"},  # dialect omitted
     "query.generate_sql": {"req", "user"},
     "query.explain_plan": {"io_text", "dist_text"},
     "query.run": {"request", "db", "user"},

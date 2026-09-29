@@ -91,7 +91,8 @@ def test_a_read_action_is_executed_without_approval():
     inv = _run(propose("catalog.describe_table", {"namespace": "sales", "table": "orders"},
                        user=ADMIN, page="/catalog", store=store, executor=_exec))
     assert inv["status"] == "executed"
-    assert executed == [{"namespace": "sales", "table": "orders"}]
+    # Normalised params: the optional catalog arrives as None (the default catalog).
+    assert executed == [{"catalog": None, "namespace": "sales", "table": "orders"}]
 
 
 def test_a_create_action_stops_at_proposed():

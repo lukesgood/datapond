@@ -18,6 +18,9 @@ class PolicyQuery(_Strict):
     table: Optional[str] = Field(
         default=None,
         description="Limit to policies on this table, written namespace.table. Omit for every policy.")
+    catalog: Optional[str] = Field(
+        default=None,
+        description="Limit to policies in this data catalog. Omit for every catalog.")
 
 
 async def explain_policy(params: dict, user: dict) -> dict:
@@ -39,16 +42,25 @@ async def explain_policy(params: dict, user: dict) -> dict:
     from app.rls import loader as rls_loader
     policies = await rls_loader.load_policies()
     masks = await rls_loader.load_masks()
+    if params.get("catalog"):
+        from app import catalog_registry
+        entry = catalog_registry.resolve(params["catalog"])
+        names = {entry.name.lower(), entry.engine_catalog.lower()}
+        policies = [p for p in policies if str(p.catalog).lower() in names]
+        masks = [m for m in masks if str(m.catalog).lower() in names]
     if params.get("table"):
         wanted = params["table"].lower()
-        policies = [p for p in policies if wanted in f"{p.schema}.{p.table}".lower()]
-        masks = [m for m in masks if wanted in f"{m.schema}.{m.table}".lower()]
+        # Matched against the full name, so `sales.orders` still finds it in any
+        # catalog and `finance.sales.orders` only in one.
+        policies = [p for p in policies
+                    if wanted in f"{p.catalog}.{p.schema}.{p.table}".lower()]
+        masks = [m for m in masks if wanted in f"{m.catalog}.{m.schema}.{m.table}".lower()]
     return {
-        "row_filters": [{"id": p.id, "table": f"{p.schema}.{p.table}",
+        "row_filters": [{"id": p.id, "catalog": p.catalog, "table": f"{p.schema}.{p.table}",
                          "filter": p.filter_expression, "roles": sorted(p.role_map)}
                         for p in policies[:10]],
-        "column_masks": [{"id": m.id, "table": f"{m.schema}.{m.table}", "column": m.column,
-                          "type": m.masking_type} for m in masks[:10]],
+        "column_masks": [{"id": m.id, "catalog": m.catalog, "table": f"{m.schema}.{m.table}",
+                          "column": m.column, "type": m.masking_type} for m in masks[:10]],
     }
 
 
