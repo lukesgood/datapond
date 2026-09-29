@@ -18,7 +18,8 @@ _MAX_LIMIT = 200
 
 _LIST_COLUMNS = ("id, occurred_at, actor_id::text AS actor_id, actor_username, actor_kind, "
                  "tool, resource_kind, resource, request_hash, request_masked, hit_count, "
-                 "citation_sources, pii_masked, outcome, duration_ms, client_address, via")
+                 "citation_sources, pii_masked, outcome, duration_ms, client_address, via, "
+                 "chunks_withheld, injection_flags")
 
 _SUMMARY_SQL = """
 WITH base AS (

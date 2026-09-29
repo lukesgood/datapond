@@ -134,3 +134,11 @@ def test_viewer_without_audit_read_is_refused_on_every_route(monkeypatch):
 
     r = client.get("/api/audit/tool-calls/export")
     assert r.status_code == 403 and "audit:read" in r.json()["detail"]
+
+
+def test_the_listing_carries_what_a_chunk_rule_withheld_and_injection_flags():
+    """Both are recorded on every retrieval row (migrations 0014, 0017) and are what an
+    auditor looks for: how much a chunk rule kept from this caller, and whether the
+    returned content talked like an instruction. The listing left them out."""
+    assert "chunks_withheld" in tool_call_routes._LIST_COLUMNS
+    assert "injection_flags" in tool_call_routes._LIST_COLUMNS
