@@ -19,7 +19,8 @@ import { QueryHistorySidebar } from "@/components/query/query-history-sidebar"
 import { ChartSelector } from "@/components/query/chart-selector"
 import { ChartConfigPanel } from "@/components/query/chart-config-panel"
 import type { ChartType } from "@/components/query/chart-renderer"
-import { profileColumns, recommend, toChartRows } from "@/lib/chart-recommend"
+import { chartSpecFor, profileColumns, recommend, toChartRows } from "@/lib/chart-recommend"
+import type { Aggregate } from "@/lib/chart-data"
 
 const SqlEditor = dynamic(() => import("@/components/query/sql-editor").then(m => ({ default: m.SqlEditor })), {
   ssr: false,
@@ -82,7 +83,11 @@ function QueryPageInner() {
   const [chartType, setChartType]           = useState<ChartType>("table")
   const resultShape                         = useRef<string>("")
   const [xAxis, setXAxis]                   = useState("")
-  const [yAxis, setYAxis]                   = useState("")
+  const [yAxes, setYAxes]                   = useState<string[]>([])
+  // null leaves the split automatic; "" turns it off.
+  const [colorBy, setColorBy]               = useState<string | null>(null)
+  const [aggregate, setAggregate]           = useState<Aggregate>("sum")
+  const [stacked, setStacked]               = useState(false)
   const [showGrid, setShowGrid]             = useState(true)
   const [showLegend, setShowLegend]         = useState(true)
   const [saveDashboardOpen, setSaveDashboardOpen] = useState(false)
@@ -272,7 +277,10 @@ function QueryPageInner() {
         const rec = recommend(profileColumns(cols, data.rows ?? [], data.column_types), (data.rows ?? []).length)
         setChartType(rec.best)
         setXAxis(rec.x)
-        setYAxis(rec.y)
+        setYAxes(rec.ys)
+        setColorBy(null)
+        setAggregate("sum")
+        setStacked(false)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error")
@@ -329,8 +337,22 @@ function QueryPageInner() {
     () => results ? profileColumns(results.columns, results.rows ?? [], results.column_types) : [],
     [results])
   const chartFit = useMemo(
-    () => recommend(profiles, results?.rows?.length ?? 0, { x: xAxis, y: yAxis }),
-    [profiles, results, xAxis, yAxis])
+    () => recommend(profiles, results?.rows?.length ?? 0,
+      { x: xAxis, ys: yAxes, colorBy, aggregate, stacked }),
+    [profiles, results, xAxis, yAxes, colorBy, aggregate, stacked])
+  // Picking a type also moves the axes onto columns it can use (a scatter wants two
+  // measures), so it is reachable from a chart drawn on other axes.
+  const pickChartType = (type: ChartType) => {
+    const axes = chartFit.axesFor[type]
+    if (axes && type !== "table") {
+      setXAxis(axes.x)
+      setYAxes(axes.ys)
+      setColorBy(axes.colorBy)
+    }
+    setChartType(type)
+  }
+  // What is drawn, and what a saved dashboard stores: one spec for both.
+  const spec = chartSpecFor(chartType, chartFit)
 
   const getChartData = () => {
     if (!results?.rows?.length) return []
@@ -720,7 +742,7 @@ function QueryPageInner() {
               </div>
               {/* Chart selector — inline in results header */}
               {hasResults && (
-                <ChartSelector selectedType={chartType} onTypeChange={setChartType}
+                <ChartSelector selectedType={chartType} onTypeChange={pickChartType}
                                availability={chartFit.availability} />
               )}
             </div>
@@ -794,8 +816,12 @@ function QueryPageInner() {
                     <ChartRenderer
                       data={getChartData()}
                       chartType={chartType}
-                      xAxis={xAxis}
-                      yAxis={yAxis}
+                      xAxis={spec.xAxis}
+                      yAxis={spec.yAxis}
+                      yAxes={spec.yAxes}
+                      colorBy={spec.colorBy}
+                      stacked={spec.stacked}
+                      aggregate={spec.aggregate}
                       chartConfig={{ showGrid, showLegend }}
                     />
                   </div>
@@ -832,8 +858,14 @@ function QueryPageInner() {
               <ChartConfigPanel
                 columns={results!.columns}
                 xOptions={chartFit.xOptions} yOptions={chartFit.yOptions}
-                xAxis={xAxis} yAxis={yAxis}
-                onXAxisChange={setXAxis} onYAxisChange={setYAxis}
+                chartType={chartType}
+                colorOptions={chartFit.colorOptions}
+                xAxis={chartFit.x} yAxes={chartFit.ys} colorBy={chartFit.colorBy}
+                onXAxisChange={setXAxis} onYAxesChange={setYAxes} onColorByChange={setColorBy}
+                stacked={chartFit.stacked} stackedFit={chartFit.stackedFit}
+                onStackedChange={setStacked}
+                aggregate={aggregate} aggregates={chartFit.aggregates}
+                onAggregateChange={setAggregate}
                 showGrid={showGrid} showLegend={showLegend}
                 onShowGridChange={setShowGrid} onShowLegendChange={setShowLegend}
               />
@@ -869,7 +901,7 @@ function QueryPageInner() {
         open={saveDashboardOpen}
         onOpenChange={setSaveDashboardOpen}
         queryText={query}
-        chartConfig={{ chartType, xAxis, yAxis, showGrid, showLegend }}
+        chartConfig={{ ...spec, showGrid, showLegend }}
         onSuccess={() => toast("Dashboard saved!", "success")}
       />
     </div>

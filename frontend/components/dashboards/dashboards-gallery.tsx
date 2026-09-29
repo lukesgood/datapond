@@ -11,10 +11,12 @@ import { Skeleton } from "@/components/ui/skeleton"
 import {
   BarChart3, Eye, Clock, Search, Globe, Lock,
   LineChart, PieChart, TrendingUp, AreaChart, Table, Plus, RefreshCw, AlertTriangle,
+  Gauge, ChartScatter, ChartColumn, Grid3x3,
 } from "lucide-react"
 import { dashboardApi, queryApi, Dashboard, type ChartConfig } from "@/lib/api"
 import { formatDistanceToNow } from "date-fns"
 import { ChartRenderer } from "@/components/query/chart-renderer"
+import { profileColumns, toChartRows } from "@/lib/chart-recommend"
 import { AnalyticsTabs } from "@/components/query/analytics-tabs"
 
 type PreviewRow = Record<string, unknown>
@@ -38,11 +40,8 @@ export function DashboardsGallery() {
           const result = await queryApi.execute(d.query_text, false)
           const rows = result.rows ?? []
           const cols = result.columns ?? []
-          const data = rows.map((row: unknown[]) => {
-            const obj: PreviewRow = {}
-            cols.forEach((col: string, i: number) => { obj[col] = row[i] })
-            return obj
-          })
+          // Measures as numbers: the engine returns decimals as strings.
+          const data = toChartRows(cols, rows, profileColumns(cols, rows, result.column_types))
           return { id: d.id, data, error: undefined as string | undefined }
         } catch (e) {
           // Fail closed: keep the query error so the preview can show a
@@ -89,6 +88,10 @@ export function DashboardsGallery() {
       case "area":  return <AreaChart  className="h-4 w-4 text-[var(--chart-4)]" />
       case "pie":   return <PieChart   className="h-4 w-4 text-[var(--chart-5)]" />
       case "table": return <Table      className="h-4 w-4 text-muted-foreground" />
+      case "kpi":       return <Gauge        className="h-4 w-4 text-[var(--chart-1)]" />
+      case "scatter":   return <ChartScatter className="h-4 w-4 text-[var(--chart-2)]" />
+      case "histogram": return <ChartColumn  className="h-4 w-4 text-[var(--chart-3)]" />
+      case "heatmap":   return <Grid3x3      className="h-4 w-4 text-[var(--chart-1)]" />
       default:      return <TrendingUp className="h-4 w-4 text-primary" />
     }
   }
@@ -275,6 +278,11 @@ export function DashboardsGallery() {
                             chartType={chartType as ChartConfig["chartType"]}
                             xAxis={dashboard.chart_config.xAxis || ""}
                             yAxis={dashboard.chart_config.yAxis || ""}
+                            yAxes={dashboard.chart_config.yAxes}
+                            colorBy={dashboard.chart_config.colorBy}
+                            stacked={dashboard.chart_config.stacked}
+                            aggregate={dashboard.chart_config.aggregate}
+                            horizontal={dashboard.chart_config.horizontal}
                             chartConfig={{
                               colors: dashboard.chart_config.colors,
                               showGrid: false,

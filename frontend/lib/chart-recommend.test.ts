@@ -68,11 +68,12 @@ test("a result with no measure stays a table, and says why charts are off", () =
   assert.match(r.availability.bar.reason ?? "", /numeric/i)
 })
 
-test("one row is a table, not a one-bar chart", () => {
+test("one row is KPI tiles, not a one-bar chart", () => {
   const p = profileColumns(["total"], [[42]], ["quantitative"])
   const r = recommend(p, 1)
-  assert.equal(r.best, "table")
+  assert.equal(r.best, "kpi")
   assert.equal(r.availability.bar.ok, false)
+  assert.equal(r.availability.table.ok, true)
 })
 
 test("a line needs time or numbers on X", () => {
@@ -109,7 +110,9 @@ test("a repeated X is allowed but flagged", () => {
   const p = profileColumns(["city", "n"], rows, ["text", "quantitative"])
   const a = assess("bar", p[0], p[1], 3)
   assert.equal(a.ok, true)
-  assert.match(a.note ?? "", /GROUP BY/)
+  assert.match(a.note ?? "", /summed/)
+  const avg = assess("bar", p[0], p[1], 3, { aggregate: "avg" })
+  assert.match(avg.note ?? "", /averaged/)
 })
 
 test("the table is always available", () => {
