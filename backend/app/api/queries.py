@@ -103,6 +103,9 @@ class Catalog(BaseModel):
     name: str
     schemas: List[CatalogSchema]
     catalog_type: str = "managed"
+    # The catalog two-part names mean. A client that must name one catalog (the
+    # Knowledge picker, an inserted query) starts from this, not from a literal name.
+    is_default: bool = False
 
 
 class CatalogTree(BaseModel):
@@ -549,7 +552,7 @@ async def get_catalog_schemas(columns: bool = False):
     Cached in Valkey (TTL 60s, keyed by the columns flag).
     """
     # v4: one node per registry catalog (v3 held a single node for the default).
-    cache_key = f"catalog:schemas:v4:{'full' if columns else 'tree'}"
+    cache_key = f"catalog:schemas:v5:{'full' if columns else 'tree'}"
     # Try Valkey cache first
     try:
         import redis, json as _json
@@ -599,7 +602,7 @@ async def get_catalog_schemas(columns: bool = False):
                     tables_list.append(CatalogTable(name=tbl, columns=cols))
                 schemas_list.append(CatalogSchema(name=ns, tables=tables_list))
             catalog_nodes.append(Catalog(name=entry.engine_catalog, catalog_type="managed",
-                                         schemas=schemas_list))
+                                         schemas=schemas_list, is_default=entry.is_default))
         if errors and len(errors) == len(registry_entries):
             raise errors[0]
 

@@ -317,10 +317,12 @@ function QueryPageInner() {
     }
   }, [query, toast])
 
-  const handleTableSelect = (catalog: string, schema: string, table: string) => {
-    // 2-part name resolves under each engine's default catalog (Athena
-    // AwsDataCatalog / Trino iceberg) — avoids a wrong hardcoded catalog prefix.
-    setQuery(`SELECT *\nFROM ${schema}.${table}\nLIMIT 100;`)
+  const handleTableSelect = (catalog: string, schema: string, table: string, isDefault = true) => {
+    // Two parts resolve under the default catalog (Athena AwsDataCatalog / Trino
+    // iceberg); a table in any other catalog has to be named with its catalog, or the
+    // query would read the default catalog's table of the same name.
+    const name = isDefault ? `${schema}.${table}` : `${catalog}.${schema}.${table}`
+    setQuery(`SELECT *\nFROM ${name}\nLIMIT 100;`)
   }
 
   const handleQuerySelect = (selectedQuery: string) => {

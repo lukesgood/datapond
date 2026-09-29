@@ -53,7 +53,7 @@ interface CollectionsResponse { collections?: Collection[]; total?: number }
 interface AiStatusResponse { egress_policy?: string }
 interface CatalogColumn { name: string; type: string }
 interface CatalogResponse {
-  catalogs?: Array<{ name: string; schemas?: Array<{ name: string; tables?: Array<{ name: string }> }> }>
+  catalogs?: Array<{ name: string; is_default?: boolean; schemas?: Array<{ name: string; tables?: Array<{ name: string }> }> }>
 }
 
 export default function KnowledgePage() {
@@ -665,6 +665,9 @@ function IngestPanel({ name, ownerId, onChange }: { name: string; ownerId: strin
   const [sched, setSched] = useState("@daily"); const [schedBusy, setSchedBusy] = useState(false)
   // Lakehouse picker: iceberg catalog tree (schemas→tables) + columns of the chosen table.
   const [tree, setTree] = useState<{ schema: string; tables: string[] }[]>([])
+  // The catalog the picked table lives in, as the server named it. It was the literal
+  // "iceberg", which is not a catalog at all on Athena deployments (AwsDataCatalog).
+  const [catalogName, setCatalogName] = useState("")
   const [cols, setCols] = useState<CatalogColumn[]>([])
   const sourceType = catalogEnabled ? stype : "s3"
 
@@ -672,7 +675,8 @@ function IngestPanel({ name, ownerId, onChange }: { name: string; ownerId: strin
     if (!catalogEnabled) return
     fetch("/api/catalog/schemas").then(r => r.json() as Promise<CatalogResponse>).then(d => {
       const catalogs = d.catalogs ?? []
-      const activeCatalog = catalogs.find(catalog => catalog.name === "iceberg") ?? catalogs[0]
+      const activeCatalog = catalogs.find(catalog => catalog.is_default) ?? catalogs[0]
+      setCatalogName(activeCatalog?.name ?? "")
       const schemas = (activeCatalog?.schemas ?? []).map(item => ({ schema: item.name, tables: (item.tables ?? []).map(table => table.name) }))
       setTree(schemas)
     }).catch(() => {})
@@ -685,7 +689,8 @@ function IngestPanel({ name, ownerId, onChange }: { name: string; ownerId: strin
     // list — and the auto-selected text_column that feeds the ingest request — naming
     // a column the selected table does not have.
     let cancelled = false
-    const qs = new URLSearchParams({ catalog: "iceberg", schema, table })
+    const qs = new URLSearchParams({ schema, table })
+    if (catalogName) qs.set("catalog", catalogName)
     fetch(`/api/catalog/columns?${qs}`).then(r => r.json() as Promise<CatalogColumn[]>)
       .then((payload) => {
         if (cancelled) return
@@ -695,9 +700,9 @@ function IngestPanel({ name, ownerId, onChange }: { name: string; ownerId: strin
       })
       .catch(() => { if (!cancelled) setCols([]) })
     return () => { cancelled = true }
-  }, [schema, sourceType, table])
+  }, [schema, sourceType, table, catalogName])
   const sourceBody = () => sourceType === "iceberg"
-    ? { type: "iceberg", schema, table, text_column: col }
+    ? { type: "iceberg", schema, table, text_column: col, ...(catalogName ? { catalog: catalogName } : {}) }
     : { type: "s3", bucket, prefix }
 
   const ingestText = async () => {

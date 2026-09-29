@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 interface Column { name: string; type: string }
 interface Table  { name: string; columns: Column[] | null }
 interface Schema { name: string; tables: Table[] }
-interface Catalog { name: string; catalog_type?: string; schemas: Schema[] }
+interface Catalog { name: string; catalog_type?: string; is_default?: boolean; schemas: Schema[] }
 
 const CATALOG_TYPE_BADGE: Record<string, { label: string; cls: string }> = {
   managed:  { label: "M", cls: "text-[var(--dp-good-text)] bg-[var(--dp-good)]/10" },
@@ -21,7 +21,9 @@ const CATALOG_TYPE_BADGE: Record<string, { label: string; cls: string }> = {
 }
 
 interface Props {
-  onTableSelect: (catalog: string, schema: string, table: string) => void
+  /** `isDefault` false means the table lives in another catalog and must be named
+   *  with three parts; a two-part name would resolve against the default. */
+  onTableSelect: (catalog: string, schema: string, table: string, isDefault?: boolean) => void
 }
 
 // System schemas to hide by default
@@ -294,7 +296,7 @@ export function SchemaTree({ onTableSelect }: Props) {
                               <button
                                 className="flex-1 flex items-center gap-1.5 py-1 text-xs
                                            text-left min-w-0"
-                                onClick={() => onTableSelect(cat.name, schema.name, table.name)}
+                                onClick={() => onTableSelect(cat.name, schema.name, table.name, cat.is_default !== false)}
                                 title={`${cat.name}.${schema.name}.${table.name}`}
                               >
                                 <Table2 className="h-3 w-3 shrink-0 text-muted-foreground" />

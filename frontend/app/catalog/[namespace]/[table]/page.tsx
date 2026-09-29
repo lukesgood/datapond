@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useSearchParams } from "next/navigation"
 import { CapabilityGate } from "@/lib/capabilities"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -58,6 +58,10 @@ function TableDetailPageInner() {
   const router = useRouter()
   const namespace = params.namespace as string
   const tableName = params.table as string
+  // Which catalog the table is in, when it is not the default (table cards and the
+  // relationship view link with ?catalog=). Without it the default is read.
+  const catalogParam = useSearchParams().get("catalog")
+  const catalogQs = catalogParam ? `catalog=${encodeURIComponent(catalogParam)}` : ""
 
   const [tableDetail, setTableDetail] = useState<TableDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -72,7 +76,7 @@ function TableDetailPageInner() {
       try {
         setLoading(true)
         setError(null)
-        const res = await fetch(`/api/catalog/tables/${namespace}/${tableName}`)
+        const res = await fetch(`/api/catalog/tables/${namespace}/${tableName}${catalogQs ? `?${catalogQs}` : ""}`)
         if (!res.ok) throw new Error(`Failed to fetch table: ${res.statusText}`)
         setTableDetail(await res.json())
       } catch (err) {
@@ -82,14 +86,14 @@ function TableDetailPageInner() {
       }
     }
     fetchTableDetail()
-  }, [namespace, tableName])
+  }, [namespace, tableName, catalogQs])
 
   const loadPreview = async () => {
     if (preview) return
     setPreviewLoading(true)
     setPreviewError(null)
     try {
-      const res = await fetch(`/api/catalog/tables/${namespace}/${tableName}/preview?limit=100`)
+      const res = await fetch(`/api/catalog/tables/${namespace}/${tableName}/preview?limit=100${catalogQs ? `&${catalogQs}` : ""}`)
       if (!res.ok) throw new Error(`Preview request failed (HTTP ${res.status})`)
       setPreview(await res.json())
     } catch (requestError) {
