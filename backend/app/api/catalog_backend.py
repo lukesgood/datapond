@@ -1,6 +1,9 @@
-"""Catalog-read backend abstraction. Selected by ICEBERG_CATALOG_BACKEND
-(glue = AWS Glue via the shared pyiceberg catalog; polaris = existing Polaris
-HTTP + Trino). Keeps catalog.py / queries.py engine-agnostic."""
+"""Catalog-read backend abstraction, one reader per registry entry
+(app/catalog_registry.py): glue = AWS Glue via pyiceberg; polaris = Polaris HTTP
+listing + Trino detail reads. Keeps catalog.py / queries.py engine-agnostic.
+
+A reader reads exactly one catalog. The Polaris reader used to merge every Polaris
+catalog into one list, which made a namespace of catalog B look like one of A."""
 import os
 import logging
 import re
@@ -13,18 +16,33 @@ def get_catalog():  # thin indirection so tests can monkeypatch the import site
     return _gc()
 
 
+def _default_entry():
+    from app.catalog_registry import default_entry
+    return default_entry()
+
+
 class GlueCatalogReader:
-    """Reads catalog metadata straight from the shared pyiceberg GlueCatalog —
-    list / load_table / schema / scan / snapshot. No Trino, no separate boto3 client."""
+    """Reads catalog metadata straight from pyiceberg's GlueCatalog — list /
+    load_table / schema / scan / snapshot. No Trino, no separate boto3 client.
+    The default entry reads the shared catalog; another entry reads its own."""
+
+    def __init__(self, entry=None):
+        self.entry = entry or _default_entry()
+
+    def _catalog(self):
+        if self.entry.is_default:
+            return get_catalog()
+        from app.connectors.iceberg_catalog import get_catalog_for
+        return get_catalog_for(self.entry)
 
     def list_namespaces(self):
-        return [".".join(ns) for ns in get_catalog().list_namespaces()]
+        return [".".join(ns) for ns in self._catalog().list_namespaces()]
 
     def list_tables(self, namespace):
-        return [t[-1] for t in get_catalog().list_tables(namespace)]
+        return [t[-1] for t in self._catalog().list_tables(namespace)]
 
     def _load(self, namespace, table):
-        return get_catalog().load_table(f"{namespace}.{table}")
+        return self._catalog().load_table(f"{namespace}.{table}")
 
     def get_columns(self, namespace, table):
         return [
@@ -65,30 +83,24 @@ def safe_identifier(value) -> str:
 
 
 class PolarisCatalogReader:
-    """Existing Polaris HTTP listing + Trino detail reads, wrapped behind the
-    CatalogReader interface so the endpoints stay backend-agnostic."""
+    """Polaris HTTP listing of one Polaris catalog (the entry's `warehouse`) + Trino
+    detail reads against the entry's engine catalog."""
+
+    def __init__(self, entry=None):
+        self.entry = entry or _default_entry()
+        self.polaris_catalog = (self.entry.config or {}).get("warehouse") or self.entry.name
+        self.engine_catalog = safe_identifier(self.entry.engine_catalog)
 
     def list_namespaces(self):
-        from app.api.polaris_client import list_catalogs, list_namespaces
-        out = []
-        for pcat in list_catalogs():
-            try:
-                out.extend(list_namespaces(pcat["name"]))
-            except Exception:
-                continue
-        return out
+        from app.api import polaris_client
+        return list(polaris_client.list_namespaces(self.polaris_catalog))
 
     def list_tables(self, namespace):
-        from app.api.polaris_client import list_catalogs, list_tables
-        out = []
-        for pcat in list_catalogs():
-            try:
-                out.extend(list_tables(pcat["name"], namespace))
-            except Exception:
-                continue
-        return out
+        from app.api import polaris_client
+        return list(polaris_client.list_tables(self.polaris_catalog, namespace))
 
-    def get_columns(self, namespace, table, catalog="iceberg"):
+    def get_columns(self, namespace, table, catalog=None):
+        catalog = catalog or self.engine_catalog
         for name in (namespace, table, catalog):
             safe_identifier(name)
         from app.api.trino_util import trino_conn
@@ -98,7 +110,8 @@ class PolarisCatalogReader:
             f"WHERE table_schema='{namespace}' AND table_name='{table}' ORDER BY ordinal_position")
         return [{"name": r[0], "type": r[1], "nullable": (r[2].upper() == "YES")} for r in cur.fetchall()]
 
-    def get_location(self, namespace, table, catalog="iceberg"):
+    def get_location(self, namespace, table, catalog=None):
+        catalog = catalog or self.engine_catalog
         for name in (namespace, table, catalog):
             safe_identifier(name)
         from app.api.trino_util import trino_conn
@@ -111,7 +124,8 @@ class PolarisCatalogReader:
         except Exception:
             return None
 
-    def row_count(self, namespace, table, catalog="iceberg"):
+    def row_count(self, namespace, table, catalog=None):
+        catalog = catalog or self.engine_catalog
         for name in (namespace, table, catalog):
             safe_identifier(name)
         from app.api.trino_util import trino_conn
@@ -122,7 +136,8 @@ class PolarisCatalogReader:
         except Exception:
             return None
 
-    def preview(self, namespace, table, limit, catalog="iceberg"):
+    def preview(self, namespace, table, limit, catalog=None):
+        catalog = catalog or self.engine_catalog
         for name in (namespace, table, catalog):
             safe_identifier(name)
         from app.api.trino_util import trino_conn
@@ -133,6 +148,14 @@ class PolarisCatalogReader:
         return {"columns": cols, "rows": [list(r) for r in rows_raw]}
 
 
-def get_catalog_reader():
-    backend = os.getenv("ICEBERG_CATALOG_BACKEND", "polaris").strip().lower()
-    return GlueCatalogReader() if backend == "glue" else PolarisCatalogReader()
+def get_catalog_reader(catalog=None):
+    """The reader for registry entry `catalog` (name or engine catalog name; None is
+    the default). Raises ValueError (UnknownCatalog) for a catalog the registry does
+    not have enabled — routes turn that into a 400."""
+    from app.catalog_registry import resolve
+    entry = resolve(catalog)
+    if entry.kind == "glue":
+        return GlueCatalogReader(entry)
+    if entry.kind == "polaris":
+        return PolarisCatalogReader(entry)
+    raise ValueError(f"catalog '{entry.name}' ({entry.kind}) has no reader yet")

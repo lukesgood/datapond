@@ -13,6 +13,9 @@ from app.runtime import component_secret
 
 _catalog = None
 _lock = threading.Lock()
+# Non-default registry entries, by name (app/catalog_registry.py). The default entry
+# is the singleton above — writes and the default reader share it.
+_by_entry: dict = {}
 
 
 def get_catalog():
@@ -27,16 +30,38 @@ def get_catalog():
     return _catalog
 
 
-def _build_glue_catalog():
+def _build_glue_catalog(config: dict = None):
     """AWS Glue Data Catalog (서버리스). Glue/S3 모두 기본 자격증명 체인
-    (노드 instance profile / IRSA) 사용 — _s3_fileio_props가 AWS에서 정적키를 생략."""
+    (노드 instance profile / IRSA) 사용 — _s3_fileio_props가 AWS에서 정적키를 생략.
+    `config` is a registry entry's; without one this is the env default."""
     from pyiceberg.catalog.glue import GlueCatalog
+    config = config or {}
     props = {
-        "warehouse":  os.getenv("GLUE_WAREHOUSE", ""),
-        "glue.region": os.getenv("S3_REGION", "us-east-1"),
+        "warehouse":  config.get("warehouse", os.getenv("GLUE_WAREHOUSE", "")),
+        "glue.region": config.get("region") or os.getenv("S3_REGION", "us-east-1"),
         **_s3_fileio_props(),
     }
+    if config.get("catalog_id"):
+        props["glue.id"] = str(config["catalog_id"])
     return GlueCatalog(name="datapond", **props)
+
+
+def get_catalog_for(entry):
+    """The pyiceberg catalog a registry entry reads. The default entry is the shared
+    singleton; another Glue entry gets its own, built from its config (catalog id,
+    warehouse, region) — never the default catalog under another name.
+
+    Cross-account role assumption and Iceberg REST entries arrive with P2
+    (docs/superpowers/specs/2026-09-29-multi-catalog-design.md)."""
+    if entry.is_default:
+        return get_catalog()
+    if entry.kind != "glue":
+        raise ValueError(f"catalog '{entry.name}' ({entry.kind}) has no pyiceberg reader yet")
+    with _lock:
+        cat = _by_entry.get(entry.name)
+        if cat is None:
+            cat = _by_entry[entry.name] = _build_glue_catalog(entry.config)
+    return cat
 
 
 def _build_polaris_catalog():
@@ -90,3 +115,4 @@ def reset_catalog():
     global _catalog
     with _lock:
         _catalog = None
+        _by_entry.clear()
