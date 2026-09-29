@@ -10,6 +10,7 @@ Supports HTTP/HTTPS endpoints with multiple auth schemes:
 Data extraction uses dot-notation JSONPath (e.g. "data.items").
 """
 
+import asyncio
 import base64
 import logging
 import time
@@ -42,6 +43,7 @@ class RestConfig(ConnectorConfig):
     data_path: Optional[str] = None  # dot-notation path to array, e.g. "data.items"
     headers: Dict[str, str] = {}  # extra static headers
     timeout: int = 30  # request timeout in seconds
+    table_name: Optional[str] = None  # catalog table name; "root" when unset
 
 
 def _extract_path(data: Any, path: Optional[str]) -> Any:
@@ -146,7 +148,7 @@ class RestConnector(BaseConnector):
         """Test by issuing a GET to base_url and checking for a 2xx response."""
         start = time.time()
         try:
-            self._get()  # GET base_url
+            await asyncio.to_thread(self._get)  # GET base_url
             latency_ms = (time.time() - start) * 1000
             return ConnectionTestResult(
                 success=True,
@@ -170,17 +172,17 @@ class RestConnector(BaseConnector):
 
     async def get_tables(self) -> List[str]:
         """
-        REST APIs don't have a canonical 'table' concept.
-        Returns a placeholder representing the root endpoint.
+        REST APIs don't have a canonical 'table' concept: one endpoint is one table,
+        named by config, or "root" when the connection does not name it.
         """
-        return ["root"]
+        return [self.config.table_name or "root"]
 
     async def get_schema(self, table_name: str) -> TableSchema:
         """
         Infer schema by fetching data and inspecting the first record.
         """
         try:
-            data = self._get()
+            data = await asyncio.to_thread(self._get)
             records = _extract_path(data, self.config.data_path)
             if not isinstance(records, list) or not records:
                 return TableSchema(table_name=table_name, columns=[])
@@ -203,7 +205,9 @@ class RestConnector(BaseConnector):
     ) -> List[Dict[str, Any]]:
         """Fetch data from base_url and extract via data_path."""
         try:
-            data = self._get(params=filters or {})
+            # Off the event loop: _get is a blocking client, and an endpoint served by
+            # this same backend (the sample feed) would otherwise wait on itself.
+            data = await asyncio.to_thread(self._get, params=filters or {})
             records = _extract_path(data, self.config.data_path)
 
             if records is None:
@@ -266,7 +270,6 @@ class RestConnector(BaseConnector):
         would duplicate every row — the only safe modes are upsert (dedupe by
         key_columns) or overwrite. `rows_processed` is the real row count written.
         """
-        import asyncio
         from datetime import datetime
 
         import pandas as pd

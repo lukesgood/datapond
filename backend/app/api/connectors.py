@@ -1009,6 +1009,245 @@ async def activate_sample_db(user: dict = Depends(require_user)):
     return outcome
 
 
+# ── sample sources of every other connector kind ──────────────────────────────
+# The e-commerce database above shows one connector type. These add the rest that can
+# run inside the deployment — object storage files, a REST feed, custom Python and a
+# database reached by URL — each joining back into the e-commerce tables. The data is
+# in app/sample_sources.py; these routes only write it and register the connectors.
+
+class SampleSourcesRequest(BaseModel):
+    # None means every kind. The PostgreSQL sample is a kind like the others, so one
+    # call can build the whole set on an empty install.
+    kinds: Optional[List[str]] = None
+
+
+def _sample_pg_params() -> Dict[str, Any]:
+    return {
+        "host": os.getenv("POSTGRES_HOST", "postgres"),
+        "port": 5432,
+        "user": os.getenv("POSTGRES_USER", "datapond"),
+        "password": component_secret("POSTGRES_PASSWORD", "dev_password",
+                                     component="postgres"),
+    }
+
+
+async def _sample_connection_ids() -> Dict[str, str]:
+    from app.sample_sources import SAMPLE_SOURCES
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id, name FROM connector_connections WHERE name = ANY($1::text[])",
+            [s.name for s in SAMPLE_SOURCES])
+    return {r["name"]: str(r["id"]) for r in rows}
+
+
+async def _save_sample_connection(name: str, connector_type: ConnectorType,
+                                  config: Dict[str, Any]) -> Dict[str, Any]:
+    """Create the sample connector, or rewrite an existing one's config in place.
+
+    Rewritten every time rather than kept: every value here is derived from the
+    deployment (bucket, the REST key from the JWT secret, database credentials), so
+    whatever changed since the last run — a rotated secret, a re-keyed vault — is
+    repaired by running it again. In place, because sync history and schedules point
+    at the row's id.
+
+    Tested before it is saved, like /connectors/create, so the list shows a sample
+    that cannot connect as an error rather than as active.
+    """
+    try:
+        result = await _create_connector(connector_type, dict(config)).test_connection()
+        ok, message = result.success, result.message
+    except Exception as e:
+        ok, message = False, str(e)[:300]
+    status = ConnectionStatus.ACTIVE.value if ok else "error"
+    encrypted = vault.encrypt_credentials(config)
+    now = datetime.utcnow()
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        existing = await conn.fetchval(
+            "SELECT id FROM connector_connections WHERE name=$1", name)
+        if existing:
+            await conn.execute(
+                "UPDATE connector_connections SET config_encrypted=$2, status=$3, "
+                "updated_at=$4 WHERE id=$1", existing, encrypted, status, now)
+            connection_id, action = str(existing), "updated"
+        else:
+            # Unowned, like the e-commerce sample: a demo everyone on the install can see.
+            connection_id = str(uuid.uuid4())
+            await conn.execute("""
+                INSERT INTO connector_connections
+                (id, name, connector_type, config_encrypted, status, created_at, updated_at)
+                VALUES ($1,$2,$3,$4,$5,$6,$6)
+            """, connection_id, name, connector_type.value, encrypted, status, now)
+            action = "created"
+    return {"id": connection_id, "action": action, "status": status,
+            "test": {"success": ok, "message": message}}
+
+
+def _sample_bucket() -> Optional[str]:
+    """The bucket the object-storage sample writes to: one the deployment already owns.
+
+    SAMPLE_BUCKET wins; otherwise the first bucket the Storage page reports on (the
+    warehouse bucket on AWS). On an S3-compatible endpoint with no configured bucket,
+    a dedicated one is created — that endpoint belongs to the install.
+    """
+    from app.api.storage import S3_ENDPOINT, _configured_buckets, get_s3_client
+    explicit = os.getenv("SAMPLE_BUCKET", "").strip()
+    if explicit:
+        return explicit
+    owned = _configured_buckets()
+    if owned:
+        return owned[0]
+    if not S3_ENDPOINT:
+        return None
+    s3 = get_s3_client()
+    try:
+        s3.head_bucket(Bucket="datapond-samples")
+    except Exception:
+        s3.create_bucket(Bucket="datapond-samples")
+    return "datapond-samples"
+
+
+def _upload_sample_objects(bucket: str) -> List[str]:
+    from app.api.storage import get_s3_client
+    from app.sample_sources import object_files
+    s3 = get_s3_client()
+    keys = []
+    for key, body, content_type in object_files():
+        s3.put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type)
+        keys.append(key)
+    return keys
+
+
+async def _add_object_storage_sample(source) -> Dict[str, Any]:
+    from app.api.storage import S3_ACCESS_KEY, S3_REGION, S3_SECRET_KEY, _s3_config
+    from app.sample_sources import DOCS_PREFIX, OBJECT_PREFIX, s3_config
+    bucket = await asyncio.to_thread(_sample_bucket)
+    if not bucket:
+        return {"status": "skipped",
+                "detail": "No bucket configured. Set SAMPLE_BUCKET or STORAGE_BUCKETS."}
+    keys = await asyncio.to_thread(_upload_sample_objects, bucket)
+    # The same endpoint and keys the Storage page uses; native S3 gets neither and
+    # falls back to the pod's role.
+    config = s3_config(bucket, S3_REGION, _s3_config().get("endpoint_url", ""),
+                       S3_ACCESS_KEY, S3_SECRET_KEY)
+    saved = await _save_sample_connection(source.name, ConnectorType.S3, config)
+    return {**saved, "bucket": bucket, "prefix": OBJECT_PREFIX, "objects": len(keys),
+            # The policy documents are for Knowledge, not for a sync: the S3 connector
+            # would read a docs folder as a table.
+            "knowledge_source": {"type": "s3", "bucket": bucket, "prefix": DOCS_PREFIX}}
+
+
+async def _add_rest_sample(source) -> Dict[str, Any]:
+    from app.api.sample_api import sample_api_base_url, sample_api_key
+    from app.sample_sources import rest_config
+    config = rest_config(sample_api_base_url(), sample_api_key())
+    return await _save_sample_connection(source.name, ConnectorType.REST_API, config)
+
+
+async def _add_custom_sample(source) -> Dict[str, Any]:
+    from app.sample_sources import custom_config
+    return await _save_sample_connection(source.name, ConnectorType.CUSTOM, custom_config())
+
+
+async def _add_finance_sample(source) -> Dict[str, Any]:
+    from app.sample_data import ddl_statement, insert_statements
+    from app.sample_sources import (
+        FINANCE_DATABASE, FINANCE_DATASET, database_url, finance_sequence_reset_statements,
+    )
+    pg = _sample_pg_params()
+    sys_conn = await asyncpg.connect(database="postgres", **pg)
+    try:
+        if not await sys_conn.fetchval(
+                "SELECT 1 FROM pg_database WHERE datname=$1", FINANCE_DATABASE):
+            await sys_conn.execute(f"CREATE DATABASE {FINANCE_DATABASE}")
+    finally:
+        await sys_conn.close()
+    conn = await asyncpg.connect(database=FINANCE_DATABASE, **pg)
+    seeded = {}
+    try:
+        for t in FINANCE_DATASET:
+            await conn.execute(ddl_statement(t))
+        for t in FINANCE_DATASET:
+            for sql, args in insert_statements(t):
+                await conn.execute(sql, *args)
+            seeded[t.name] = await conn.fetchval(f"SELECT COUNT(*) FROM {t.name}")
+        for statement in finance_sequence_reset_statements():
+            await conn.execute(statement)
+    finally:
+        await conn.close()
+    config = {"database_url": database_url(pg["host"], pg["port"], pg["user"], pg["password"])}
+    saved = await _save_sample_connection(source.name, ConnectorType.DATABASE_URL, config)
+    return {**saved, "database": FINANCE_DATABASE, "seeded": seeded}
+
+
+async def _add_postgres_sample(source) -> Dict[str, Any]:
+    created = await create_sample_db()
+    return {"id": created["id"], "action": created["connector_action"],
+            "status": created["status"], "seeded": created["seeded"]}
+
+
+_SAMPLE_BUILDERS = {
+    "postgresql": _add_postgres_sample,
+    "object_storage": _add_object_storage_sample,
+    "rest_api": _add_rest_sample,
+    "custom_python": _add_custom_sample,
+    "database_url": _add_finance_sample,
+}
+
+
+@router.get("/connectors/sample-sources")
+async def list_sample_sources():
+    """The sample kinds this install can add, and which are already there."""
+    from app.sample_sources import SAMPLE_SOURCES, join_examples
+    existing = await _sample_connection_ids()
+    return {
+        "sources": [{
+            "kind": s.kind, "name": s.name, "connector_type": s.connector_type,
+            "description": s.description, "tables": list(s.tables),
+            "connection_id": existing.get(s.name),
+        } for s in SAMPLE_SOURCES],
+        "join_examples": join_examples(),
+    }
+
+
+@router.post("/connectors/sample-sources",
+             dependencies=[Depends(require_permission("connector:write"))])
+async def add_sample_sources(request: Optional[SampleSourcesRequest] = None):
+    """Seed and register sample sources, one per connector kind.
+
+    Idempotent: a second run rewrites each sample's data and config in place. Each kind
+    reports its own outcome — a deployment without a bucket still gets the REST,
+    custom and database samples, and says why the object-storage one was skipped
+    rather than failing the whole request.
+
+    Adding a source does not sync it. Sync is what writes the catalog, and it is the
+    step a person evaluating the product should watch happen.
+    """
+    from app.sample_sources import SAMPLE_SOURCES, kinds as all_kinds
+    wanted = (request.kinds if request and request.kinds else None) or all_kinds()
+    unknown = sorted(set(wanted) - set(all_kinds()))
+    if unknown:
+        raise HTTPException(status_code=400,
+                            detail=f"Unknown sample kind(s): {', '.join(unknown)}. "
+                                   f"Known: {', '.join(all_kinds())}.")
+    results = []
+    for source in SAMPLE_SOURCES:
+        if source.kind not in wanted:
+            continue
+        entry: Dict[str, Any] = {"kind": source.kind, "name": source.name,
+                                 "connector_type": source.connector_type}
+        try:
+            entry.update(await _SAMPLE_BUILDERS[source.kind](source))
+        except HTTPException as e:
+            entry.update({"status": "failed", "detail": str(e.detail)[:300]})
+        except Exception as e:
+            logger.exception("[sample-sources] %s failed", source.kind)
+            entry.update({"status": "failed", "detail": str(e)[:300]})
+        results.append(entry)
+    return {"results": results}
+
+
 @router.delete("/connectors/{connection_id}/draft", dependencies=[Depends(require_permission("connector:write"))])
 async def discard_draft_connection(connection_id: str, user: dict = Depends(require_user)):
     """Discard a connection created during setup wizard (no sync history).
