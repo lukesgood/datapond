@@ -4,6 +4,8 @@ export interface QueryResult {
   columns: string[]
   rows: unknown[][]
   execution_time_ms: number
+  /** Engine-reported kind per column: quantitative | temporal | text | boolean | unknown. */
+  column_types?: string[]
 }
 
 export interface QueryHistoryItem {
@@ -27,9 +29,16 @@ export interface QueryHistoryListResponse {
 }
 
 export interface ChartConfig {
-  chartType: 'table' | 'line' | 'bar' | 'area' | 'pie'
+  chartType: 'table' | 'line' | 'bar' | 'area' | 'pie' | 'kpi' | 'scatter' | 'histogram' | 'heatmap'
   xAxis?: string
+  /** One measure. Older dashboards store only this; `yAxes` wins when both are present. */
   yAxis?: string
+  yAxes?: string[]
+  /** A category: series per value (line/area/bar), colour (scatter) or second axis (heatmap). */
+  colorBy?: string
+  stacked?: boolean
+  aggregate?: 'sum' | 'avg' | 'count' | 'min' | 'max'
+  horizontal?: boolean
   colors?: string[]
   showGrid?: boolean
   showLegend?: boolean

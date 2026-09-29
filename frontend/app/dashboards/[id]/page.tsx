@@ -33,6 +33,7 @@ import {
 } from "lucide-react"
 import { dashboardApi, queryApi, Dashboard, type QueryResult } from "@/lib/api"
 import { ChartRenderer } from "@/components/query/chart-renderer"
+import { profileColumns, resolveYs, toChartRows } from "@/lib/chart-recommend"
 import { QueryResults } from "@/components/query/query-results"
 import { useToast } from "@/lib/toast"
 import { useConfirm } from "@/lib/confirm"
@@ -169,13 +170,9 @@ export default function DashboardViewPage() {
   const getChartData = () => {
     if (!queryResult || !queryResult.rows || queryResult.rows.length === 0) return []
 
-    return queryResult.rows.map((row) => {
-      const obj: Record<string, unknown> = {}
-      queryResult.columns.forEach((col, idx) => {
-        obj[col] = row[idx]
-      })
-      return obj
-    })
+    // Measures as numbers: the engine returns decimals as strings.
+    return toChartRows(queryResult.columns, queryResult.rows,
+      profileColumns(queryResult.columns, queryResult.rows, queryResult.column_types))
   }
 
   if (loading) {
@@ -359,16 +356,21 @@ export default function DashboardViewPage() {
           <CardTitle className="text-base">
             {dashboard.chart_config.chartType === "table"
               ? "Data Table"
+              : dashboard.chart_config.chartType === "kpi" ? "Key figures"
               : `${dashboard.chart_config.chartType.charAt(0).toUpperCase() + dashboard.chart_config.chartType.slice(1)} Chart`}
           </CardTitle>
           {/* Chart care: name the axis mapping and row count so the render is legible at a glance. */}
           {!execError && queryResult && (
             <p className="text-xs text-muted-foreground">
-              {dashboard.chart_config.chartType !== "table" && dashboard.chart_config.xAxis && dashboard.chart_config.yAxis && (
+              {dashboard.chart_config.chartType !== "table" && dashboard.chart_config.chartType !== "kpi"
+                && dashboard.chart_config.xAxis && resolveYs(dashboard.chart_config).length > 0 && (
                 <>
                   <span className="text-foreground/70">X</span> {dashboard.chart_config.xAxis}
                   {"  ·  "}
-                  <span className="text-foreground/70">Y</span> {dashboard.chart_config.yAxis}
+                  <span className="text-foreground/70">Y</span> {resolveYs(dashboard.chart_config).join(", ")}
+                  {dashboard.chart_config.colorBy && (
+                    <>{"  ·  "}<span className="text-foreground/70">By</span> {dashboard.chart_config.colorBy}</>
+                  )}
                   {"  ·  "}
                 </>
               )}
@@ -423,6 +425,11 @@ export default function DashboardViewPage() {
                   chartType={dashboard.chart_config.chartType}
                   xAxis={dashboard.chart_config.xAxis || ""}
                   yAxis={dashboard.chart_config.yAxis || ""}
+                  yAxes={dashboard.chart_config.yAxes}
+                  colorBy={dashboard.chart_config.colorBy}
+                  stacked={dashboard.chart_config.stacked}
+                  aggregate={dashboard.chart_config.aggregate}
+                  horizontal={dashboard.chart_config.horizontal}
                   chartConfig={{
                     colors: dashboard.chart_config.colors,
                     showGrid: dashboard.chart_config.showGrid,
