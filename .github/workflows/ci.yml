@@ -491,9 +491,11 @@ jobs:
         run: |
           kubectl -n datapond exec deploy/backend -- python -c "
           import asyncio, json, urllib.request
-          from app.api.auth import _create_token, _get_pool
+          from app.api.auth import _create_token, _ensure_admin_exists, _get_pool
 
           async def token():
+              # The first admin is created on first sign-in; nobody has signed in yet.
+              await _ensure_admin_exists()
               p = await _get_pool()
               async with p.acquire() as c:
                   r = await c.fetchrow(\"SELECT id,username,role FROM users WHERE role='admin' LIMIT 1\")
