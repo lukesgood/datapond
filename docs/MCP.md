@@ -69,7 +69,8 @@ not columns), and `spend.summarize`'s `days` (the summary is always all-time).
 
 Every call writes one row to `tool_call_log` with `via='mcp'`, visible under
 `GET /api/audit/tool-calls` and in Governance → Reports → Agent tool calls. A refused
-call — unknown tool, unauthorized tool, or write action — writes no row. Calls that read
+call — unknown tool, unauthorized tool, or write action — writes a row with
+`outcome='refused'` (an unknown name is logged as `mcp.unknown_tool`). Calls that read
 a collection carry the collection, the hit count, the cited sources and the number of
 PII matches masked; the rest carry the tool, the caller and the outcome. An action whose
 REST route already writes a row keeps that richer one; the MCP dispatcher does not add a
@@ -78,6 +79,8 @@ duplicate.
 ## Limits
 
 - Read-only, and no write action will be added without the approval gate the console has.
-- No per-key rate limit yet; an agent loop can call as fast as it likes.
-- No enforced per-caller budget on this path — spend is attributed and reported, not capped.
+- Each key or OAuth caller has a request rate limit (`API_KEY_RATE_LIMIT_PER_MINUTE`,
+  default 600, per replica); over it, the call gets 429 with `Retry-After`.
+- A per-caller spend budget, when set, is enforced on the model calls behind these tools:
+  over it, the call gets 402 and a refused audit row.
 - `prompts` and `resources` are not implemented. Tools only.

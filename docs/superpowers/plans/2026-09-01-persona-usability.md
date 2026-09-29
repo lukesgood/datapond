@@ -6,7 +6,7 @@
 **Goal:** make the six non-admin personas the product declares actually usable by the
 people who hold those roles.
 
-**Spec:** `docs/PERSONA_WORKFLOW_AUDIT.md` (2026-08-25) and
+**Spec:** `docs/archive/PERSONA_WORKFLOW_AUDIT.md` (2026-08-25) and
 `docs/UTILIZATION_PERSONA_ASSESSMENT.md` §4 (2026-08-31). Both are read as the source
 of findings; §"Where the audit stands today" below records which of those findings are
 already closed, verified against the code on **2026-09-01**, not assumed.
@@ -384,7 +384,7 @@ before it found fifteen; each task being individually sound is not evidence abou
 batch.
 
 Then re-check this plan's own status table against the code and update
-`docs/PERSONA_WORKFLOW_AUDIT.md` §5 with what is closed — an audit whose findings are
+`docs/archive/PERSONA_WORKFLOW_AUDIT.md` §5 with what is closed — an audit whose findings are
 fixed but still written as open is a document that costs its next reader an afternoon.
 
 ### What the finish pass actually found

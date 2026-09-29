@@ -13,8 +13,9 @@
 > 읽을 수 있는지, 무엇이 인용되고 무엇이 마스킹됐는지, 얼마까지 쓸 수 있는지를 데이터 계층에서
 > 통제한다. AWS 위에서 바로 운영하고, 개방 계약 위에 있어 잠기지 않는다.**
 
-기본 경로는 **에이전트나 앱이 DataPond를 직접 호출하는 것**이다. 오늘은 REST/OpenAPI + 서비스 계정
-키, 다음 슬라이스는 MCP 서버(아직 shipped 아님). 조직에 에이전트 게이트웨이가 있으면 그 뒤에 타깃으로
+기본 경로는 **에이전트나 앱이 DataPond를 직접 호출하는 것**이다. REST/OpenAPI와 read 전용 MCP
+서버(`POST /api/mcp`)를 서비스 계정 키 또는 고객 IdP 토큰(OAuth 리소스 서버 모드, 기본 off)으로
+부른다. 조직에 에이전트 게이트웨이가 있으면 그 뒤에 타깃으로
 등록할 수도 있다. AWS는 가장 구체적인 레퍼런스 배포이지만 제품의 경계는 아니다.
 
 ## 게이트웨이가 있어도 없어도
@@ -68,7 +69,7 @@ DataPond는 이 **호출자 단위 거버넌스가 붙은 데이터 도구 면**
 
 리드 메시지는 게이트웨이가 멈추는 지점 아래의 세 가지다.
 
-1. **어떤 호출자가 어떤 컬렉션·행을 읽을 수 있는가** (컬렉션 안의 청크·문서 단위 필터는 roadmap)
+1. **어떤 호출자가 어떤 컬렉션·청크·행을 읽을 수 있는가** (청크 규칙은 API로만 설정, UI는 아직 없음)
 2. **무엇이 인용됐고 무엇이 마스킹됐는가**
 3. **호출자별로 얼마까지 쓸 수 있는가** (보조 메시지. 토큰 지출의 큰 몫은 코딩 에이전트에 있고,
    데이터 도구 호출의 spend는 그 일부다)
@@ -93,9 +94,9 @@ DataPond는 이 **호출자 단위 거버넌스가 붙은 데이터 도구 면**
 
 ### 2. 도구로서의 인용 RAG와 governed SQL
 
-- 오늘: REST/OpenAPI. 다음 슬라이스: MCP 2026-07-28(stateless HTTP, OAuth/OIDC 정렬) read 전용
-  서버를 기존 액션 레지스트리 위에 얹는다. 에이전트가 직접 붙는 경로이며, 조직에 게이트웨이가
-  있으면 같은 서버를 타깃으로 등록한다.
+- REST/OpenAPI와 MCP 2026-07-28(stateless HTTP) read 전용 서버(26개 read 액션). 에이전트가 직접
+  붙는 경로이며, 조직에 게이트웨이가 있으면 `GET /api/tools/openapi.json`(anyOf 없는 3.0)이나 MCP
+  엔드포인트를 타깃으로 등록한다.
 - `/api/ai/search`, `/api/ai/rag`: pgvector HNSW 검색, 선택적 rerank, `[n]` 인용, 실패 시 hit만 반환
 - `/api/ai/sql` + `/api/queries/execute`: 자연어 → SQL 생성, 테이블 해석·RLS·마스킹·LIMIT를 거친 실행
 - `/api/api-surface`와 `/connect` 페이지: 실행 중인 라우트에서 생성된 엔드포인트 목록과 curl 예시
@@ -128,7 +129,7 @@ S3 Tables, Lake Formation, AOSS, DataZone, Marketplace는 만들지 않으며 ro
 
 ```mermaid
 flowchart TB
-    AGENT[AI agents · apps] -- REST today · MCP next<br/>service account key --> TOOLS
+    AGENT[AI agents · apps] -- REST · MCP<br/>service account key or IdP token --> TOOLS
     AGENT -. if the org runs one .-> GW[Agent gateway · optional<br/>AgentCore · Obot · Runlayer]
     GW -. target .-> TOOLS
 
@@ -201,11 +202,12 @@ AWS Summit Seoul 2026의 규제 환경 에이전트 세션은 책임 소재와 �
 
 - 컬렉션 보안은 PostgreSQL native RLS가 아니라 application-level owner/admin/member ACL이다.
 - 테이블 RLS/마스킹은 SQL rewrite이며 `/queries/execute` 경로에 적용된다. `/ai/sql`은 생성만 한다.
-- 감사는 권한 결정과 도구 호출 두 축이다. 둘 다 append-only이며 WORM은 아니다.
-- 예산은 조회·알림이며 강제가 아니다.
+- 감사는 권한 결정과 도구 호출 두 축이다. 런타임 DB 역할은 두 테이블을 UPDATE/DELETE하지 못하지만,
+  스토리지 수준 WORM은 아니다.
+- 호출자별 예산은 강제된다(초과 시 402 + 감사 행). 전달 보장된 예산 알림은 아직 없다.
 - UI capability gate는 UX 경계이며 API authorization을 대체하지 않는다.
 - 게이트웨이 뒤 등록 시 호출자 단위가 약해지는 한계는 "게이트웨이가 있어도 없어도" 절에 있다.
-  컬렉션 안의 청크·문서 단위 호출자 필터는 roadmap이다.
+  청크 단위 호출자 필터는 컬렉션별 메타데이터 ↔ 사용자 속성 매칭 규칙이며 fail closed다.
 
 ## 출구 전략
 

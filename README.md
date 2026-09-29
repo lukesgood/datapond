@@ -2,7 +2,7 @@
 
 > **Give agents and applications governed access to your documents and tables. Cited RAG and governed SQL as tools, governed at the data layer: which caller may read which collection or row; what was cited and what was masked; how much each caller may spend.**
 
-DataPond is an open-core data tool server for teams whose AI agents and applications need to reach company data. Agents call it **directly** with a service-account key, and if your organization runs an agent gateway (Amazon Bedrock AgentCore Gateway, Obot, Runlayer) DataPond can be registered behind it as a target. Either way it does the part gateways do not: ingestion and freshness, chunking and embeddings, pgvector retrieval with optional reranking, cited answers, governed SQL, per-caller collection and row access, PII masking on the data itself, audit, and per-caller model spend. Infrastructure stays behind open contracts. Retrieval-level audit of successful calls and enforced per-caller budgets are listed under roadmap below, not claimed as shipped.
+DataPond is an open-core data tool server for teams whose AI agents and applications need to reach company data. Agents call it **directly** with a service-account key, and if your organization runs an agent gateway (Amazon Bedrock AgentCore Gateway, Obot, Runlayer) DataPond can be registered behind it as a target. Either way it does the part gateways do not: ingestion and freshness, chunking and embeddings, pgvector retrieval with optional reranking, cited answers, governed SQL, per-caller collection and row access, PII masking on the data itself, audit, and per-caller model spend. Infrastructure stays behind open contracts. Every search, cited answer, SQL call and embedding writes a tool-call audit row, and per-caller budgets are enforced (an over-budget call is refused with 402 and audited).
 
 The tool surface is **REST/OpenAPI with service-account keys**, and a read-only MCP server at `POST /api/mcp` exposes the same 26 read actions as tools for agents that discover tools rather than being wired to them by hand. DataPond does not build gateway features (agent registry, SSO/SCIM sync, tool-level policy engines). **AWS is the current reference deployment, not the product boundary.** Run on native S3, Aurora PostgreSQL/pgvector, Glue/Athena, and Bedrock, or on PostgreSQL, S3-compatible storage, and local/cloud models through LiteLLM.
 
@@ -142,6 +142,11 @@ Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider r
 - Community authentication plus Enterprise OIDC SSO
 - Append-only tool call log: who called search, cited answers, SQL generation or query execution, against which collection or tables, with hit count, cited sources and PII masked; NDJSON export and compliance-report section
 - Read-only MCP server at POST /api/mcp (2026-07-28 stateless HTTP): the 26 read actions as tools, scoped by the calling key, one audit row per call
+- OAuth resource-server mode: the API and MCP endpoint accept the customer's IdP access tokens for existing users and linked service accounts, narrowed by `datapond:` scopes (off by default)
+- Tool-facing OpenAPI for gateway registration at `GET /api/tools/openapi.json` (3.0, no `anyOf`, only the tools the calling key may use)
+- Chunk-level caller filters: a collection can restrict retrieval to chunks whose metadata matches the caller's attributes (fails closed; withheld counts are audited)
+- Enforced per-caller budgets held as LiteLLM customer budgets; over-budget calls get 402 and an audit row
+- Key rotation with a grace period, and a per-key/per-token request rate limit (429 with Retry-After)
 
 ### Optional
 
@@ -156,10 +161,8 @@ Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider r
 
 ### Roadmap or hardening
 
-- Resource-server mode for external OIDC access tokens, required by OAuth-based MCP clients and by token exchange behind a gateway (API-key registration behind a gateway today collapses all agents into one service account)
-- Tool-facing OpenAPI subset (no `anyOf`, explicit operationIds) for gateway target registration; today the generated `/openapi.json` is not accepted by AgentCore Gateway as-is
-- Chunk/document-level caller filters inside a collection
-- Enforced per-caller budgets (today: LiteLLM virtual-key budgets and reporting only)
+- Live end-to-end acceptance of OAuth resource-server mode against a real IdP (shipped, off by default, not yet exercised live)
+- Console UI for chunk-access rules, per-caller budgets, and linking an OAuth client to a service account (API only today)
 - Keys bound directly to collections or tables (today: collection membership and RLS by service-account identity)
 - Production default-deny RLS and WORM audit under a separate database role
 - EKS infrastructure module and HA reference topology
