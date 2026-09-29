@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import {
-  egoLayout, hubs, neighbours, searchTables, splitTableId, tableHref,
+  displayId, egoLayout, hubs, neighbours, searchTables, soleCatalog, splitTableId, tableHref,
   type Neighbour, type RelGraph,
 } from "@/lib/relationship-view"
 
@@ -70,6 +70,8 @@ export function RelationshipGraph({ days = 30 }: { days?: number }) {
   useEffect(() => { void load() }, [load])
 
   const top = useMemo(() => (graph ? hubs(graph, 10) : []), [graph])
+  // One catalog: leave its name off every label (ids stay three-part underneath).
+  const sole = useMemo(() => (graph ? soleCatalog(graph) : null), [graph])
   // Open on the most-connected table rather than an empty canvas.
   const current = selected ?? top[0]?.id ?? null
   const around = useMemo(
@@ -136,7 +138,7 @@ export function RelationshipGraph({ days = 30 }: { days?: number }) {
               {matches.length === 0
                 ? <p className="px-1 text-muted-foreground">No table matches.</p>
                 : <TableList items={matches.map(m => ({ id: m.id, hint: `${m.query_count} queries` }))}
-                             current={current} onPick={id => { setSelected(id); setQuery("") }} />}
+                             current={current} sole={sole} onPick={id => { setSelected(id); setQuery("") }} />}
             </>
           ) : (
             <>
@@ -147,7 +149,7 @@ export function RelationshipGraph({ days = 30 }: { days?: number }) {
                             id: h.id,
                             hint: h.observed > 0 ? `${h.observed} joins` : `${h.candidates} guesses`,
                           }))}
-                         current={current} onPick={setSelected} />
+                         current={current} sole={sole} onPick={setSelected} />
             </>
           )}
         </aside>
@@ -181,7 +183,7 @@ export function RelationshipGraph({ days = 30 }: { days?: number }) {
               ) : (
                 <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
                   <Neighbourhood center={current} around={around} onPick={setSelected} />
-                  <NeighbourList around={around} onPick={setSelected} />
+                  <NeighbourList around={around} sole={sole} onPick={setSelected} />
                 </div>
               )}
             </>
@@ -192,9 +194,10 @@ export function RelationshipGraph({ days = 30 }: { days?: number }) {
   )
 }
 
-function TableList({ items, current, onPick }: {
+function TableList({ items, current, sole, onPick }: {
   items: { id: string; hint: string }[]
   current: string | null
+  sole: string | null
   onPick: (id: string) => void
 }) {
   return (
@@ -204,7 +207,7 @@ function TableList({ items, current, onPick }: {
           <button type="button" onClick={() => onPick(it.id)}
                   aria-current={it.id === current}
                   className={`flex w-full items-baseline justify-between gap-2 rounded px-1.5 py-1 text-left hover:bg-muted ${it.id === current ? "bg-muted font-medium" : ""}`}>
-            <span className="truncate font-mono text-2xs">{it.id}</span>
+            <span className="truncate font-mono text-2xs" title={it.id}>{displayId(it.id, sole)}</span>
             <span className="shrink-0 text-2xs text-muted-foreground">{it.hint}</span>
           </button>
         </li>
@@ -261,15 +264,17 @@ function Neighbourhood({ center, around, onPick }: {
   )
 }
 
-function NeighbourList({ around, onPick }: { around: Neighbour[]; onPick: (id: string) => void }) {
+function NeighbourList({ around, sole, onPick }: {
+  around: Neighbour[]; sole: string | null; onPick: (id: string) => void
+}) {
   return (
     <ul className="max-h-[320px] space-y-2 overflow-y-auto pr-1 text-xs">
-      {around.map(n => <NeighbourRow key={n.other} n={n} onPick={onPick} />)}
+      {around.map(n => <NeighbourRow key={n.other} n={n} sole={sole} onPick={onPick} />)}
     </ul>
   )
 }
 
-function NeighbourRow({ n, onPick }: { n: Neighbour; onPick: (id: string) => void }) {
+function NeighbourRow({ n, sole, onPick }: { n: Neighbour; sole: string | null; onPick: (id: string) => void }) {
   const [copied, setCopied] = useState(false)
   const observed = n.evidence === "observed"
   const copy = async () => {
@@ -285,13 +290,13 @@ function NeighbourRow({ n, onPick }: { n: Neighbour; onPick: (id: string) => voi
       <div className="flex items-baseline justify-between gap-2">
         <button type="button" onClick={() => onPick(n.other)}
                 className="truncate text-left font-mono text-2xs text-primary hover:underline">
-          {n.other}
+          {displayId(n.other, sole)}
         </button>
         <span className={`shrink-0 text-2xs ${observed ? "text-foreground" : "italic text-muted-foreground"}`}>
           {observed ? `run ${n.count}×` : "guess"}
         </span>
       </div>
-      {n.on && <p className="mt-0.5 break-all font-mono text-2xs text-muted-foreground">{n.on}</p>}
+      {n.on && <p className="mt-0.5 break-all font-mono text-2xs text-muted-foreground">{displayId(n.on, sole)}</p>}
       {!observed && n.reason && <p className="mt-0.5 text-2xs italic text-muted-foreground">{n.reason} — unverified</p>}
       {n.joinSql && (
         <div className="mt-1 flex gap-3">

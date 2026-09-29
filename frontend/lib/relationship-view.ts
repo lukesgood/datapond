@@ -122,3 +122,22 @@ export function tableHref(id: string): string {
   const path = `/catalog/${encodeURIComponent(namespace)}/${encodeURIComponent(table)}`
   return catalog ? `${path}?catalog=${encodeURIComponent(catalog)}` : path
 }
+
+/** The catalog every table in the graph belongs to, or null when there are several
+ *  (or the ids are two-part). With one catalog its name on every label is noise: a
+ *  single-catalog deployment read "awsdatacatalog.default.orders" everywhere. */
+export function soleCatalog(graph: RelGraph): string | null {
+  const catalogs = new Set(graph.nodes.map(n => splitTableId(n.id).catalog))
+  if (catalogs.size !== 1) return null
+  const [only] = [...catalogs]
+  return only ?? null
+}
+
+/** `text` (an id, or a join condition built from ids) without the sole catalog. */
+export function displayId(text: string, sole: string | null): string {
+  if (!sole) return text
+  // Only where an id starts — a namespace that happens to share the catalog's name
+  // ("sales.sales.orders") keeps its own segment.
+  const escaped = sole.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  return text.replace(new RegExp(`(^|[\\s=(])${escaped}\\.`, "g"), "$1")
+}

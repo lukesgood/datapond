@@ -84,3 +84,27 @@ test("a node id reads as catalog, namespace and table in either shape", async ()
   assert.equal(tableHref("finance.ledger.entries"), "/catalog/ledger/entries?catalog=finance")
   assert.equal(tableHref("sales.orders"), "/catalog/sales/orders")
 })
+
+test("with one catalog, names drop it; with several, they keep it", async () => {
+  const { soleCatalog, displayId } = await import("./relationship-view.ts")
+  const one: RelGraph = { nodes: [
+    { id: "awsdatacatalog.default.orders", query_count: 1, columns: [] },
+    { id: "awsdatacatalog.default.customers", query_count: 1, columns: [] }], edges: [] }
+  const sole = soleCatalog(one)
+  assert.equal(sole, "awsdatacatalog")
+  assert.equal(displayId("awsdatacatalog.default.orders", sole), "default.orders")
+  assert.equal(displayId("awsdatacatalog.default.orders.id = awsdatacatalog.default.customers.id", sole),
+               "default.orders.id = default.customers.id")
+
+  const two: RelGraph = { nodes: [
+    { id: "finance.ledger.entries", query_count: 1, columns: [] },
+    { id: "sales.default.orders", query_count: 1, columns: [] }], edges: [] }
+  assert.equal(soleCatalog(two), null)
+  assert.equal(displayId("finance.ledger.entries", soleCatalog(two)), "finance.ledger.entries")
+  assert.equal(soleCatalog({ nodes: [{ id: "sales.orders", query_count: 0, columns: [] }], edges: [] }), null)
+})
+
+test("only a leading catalog is dropped, not a namespace that shares its name", async () => {
+  const { displayId } = await import("./relationship-view.ts")
+  assert.equal(displayId("sales.sales.orders", "sales"), "sales.orders")
+})
