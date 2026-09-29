@@ -63,12 +63,18 @@ Model configuration), not Ollama.
 
 ## What is verified
 
-`maturity: supported-starter` is the same evidence class as the AWS starter, minus live
-acceptance: the profile is rendered, linted and flag-pinned in CI
-(`backend/tests/test_helm_sovereign_core.py`, `test_helm_addon_defaults.py`,
-`test_capability_support_tiers.py`). It has not been installed on a live self-hosted
-cluster in this evidence chain — that acceptance run is the open item tracked in
-CLAUDE.md's incomplete-items list.
+`maturity: supported-starter` is the same evidence class as the AWS starter. The profile
+is rendered, linted and flag-pinned in CI (`backend/tests/test_helm_sovereign_core.py`,
+`test_helm_addon_defaults.py`, `test_capability_support_tiers.py`), and since 2026-09-29
+every CI run also **installs it from nothing** on a kind cluster (the
+`sovereign-core-install` job in `.github/workflows/ci.yml`): the non-k3s overrides below,
+MinIO, Ollama's model pull, the LiteLLM seeding Job, `AI_EGRESS_POLICY=local-only`, a
+MinIO bucket/object round trip, and embed → ingest → search with `bge-m3`. Only the chat
+model is smaller in CI (`qwen2.5:0.5b`). What is still open is a long-running install on
+a real self-hosted cluster (upgrades, restarts, data volume over time).
+
+The MinIO server image is `pgsty/minio`, a community build of the MinIO source pinned by
+tag and digest: MinIO no longer publishes `minio/minio` or `minio/mc` for anonymous pull.
 
 ## Install
 

@@ -38,8 +38,8 @@ The **Portable Core** path — ingest, embed, retrieve, rerank, cited answers, p
 access control, PII handling, audit and spend — on the two starters that run it:
 the **AWS Single-Node Reference** / `values-foundation.yaml`, and the self-hosted
 **Sovereign Core** (`values-sovereign-core.yaml`: in-cluster MinIO and Ollama;
-rendered, linted and flag-pinned in CI; a live install acceptance on a self-hosted
-cluster is the open item tracked in CLAUDE.md).
+installed from nothing on every CI run — MinIO, Ollama, local-only egress, and an
+embed → ingest → search round trip; a long-running self-hosted acceptance remains open).
 
 The optional OSS add-ons (Trino, Airflow, Spark, Polaris, RisingWave, OpenMetadata,
 Jupyter, MLflow) are configuration around upstream projects. We will help with how the
