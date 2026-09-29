@@ -2,12 +2,26 @@
 Base connector classes and interfaces for DataPond data connectors.
 """
 
+import re
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from pydantic import BaseModel, Field
 import uuid
+
+
+def target_namespace(target_table: Optional[str], default: str = "default") -> str:
+    """The namespace a sync writes into, from its configured target
+    ("catalog.namespace.table" or "namespace.table"); `default` when it names none.
+
+    Read the same way the RAG sink and the lineage graph read it
+    (app/api/connectors.py), so the table a sync writes is the table they match.
+    Normalised like the writer normalises a table name."""
+    parts = [p for p in str(target_table or "").split(".") if p]
+    if len(parts) < 2:
+        return default
+    return re.sub(r"[^a-zA-Z0-9_]", "_", parts[-2]).lower()
 
 
 class ConnectorType(str, Enum):

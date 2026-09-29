@@ -22,6 +22,7 @@ from botocore.exceptions import ClientError, NoCredentialsError
 import pandas as pd
 
 from .base import (
+    target_namespace,
     BaseConnector,
     ConnectorConfig,
     ConnectorType,
@@ -488,6 +489,7 @@ class S3Connector(BaseConnector):
                 write_dataframe_to_iceberg,
                 df,
                 tbl_name,
+                schema=target_namespace(target_table),
                 mode=write_mode,
                 on_step=on_step,
                 partition_spec=partition_spec,

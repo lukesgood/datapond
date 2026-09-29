@@ -26,7 +26,7 @@ class _RecordingWriter:
     def __init__(self):
         self.calls = []
 
-    def __call__(self, df, table_name, mode="overwrite", on_step=None,
+    def __call__(self, df, table_name, schema="default", mode="overwrite", on_step=None,
                  partition_spec=None, join_cols=None):
         self.calls.append({"rows": len(df), "table": table_name, "mode": mode,
                            "join_cols": join_cols})

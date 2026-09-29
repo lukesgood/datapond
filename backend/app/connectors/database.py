@@ -23,6 +23,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import pandas as pd
 
 from .base import (
+    target_namespace,
     BaseConnector,
     ConnectorConfig,
     ConnectorType,
@@ -81,7 +82,8 @@ def _mask_pii_in_chunk(chunk, pii_columns) -> int:
 
 def _read_write_chunked(engine, query, source_table, write_mode, incremental_column,
                         on_step=None, partition_spec=None, key_columns=None,
-                        pii_columns=None, chunk_size=INGEST_CHUNK_SIZE, params=None):
+                        pii_columns=None, chunk_size=INGEST_CHUNK_SIZE, params=None,
+                        namespace="default"):
     """Stream a source query in chunks → write to Iceberg, bounding memory to one chunk.
 
     Uses a server-side cursor (execution_options(stream_results=True)) so the DB driver
@@ -108,13 +110,13 @@ def _read_write_chunked(engine, query, source_table, write_mode, incremental_col
             # PII 마스킹 — 원천 데이터가 raw로 레이크하우스에 적재되기 전 차단(주권/규제).
             masked += _mask_pii_in_chunk(chunk, pii_columns)
             if upsert:
-                write_dataframe_to_iceberg(chunk, source_table, mode="upsert",
+                write_dataframe_to_iceberg(chunk, source_table, schema=namespace, mode="upsert",
                                            join_cols=key_columns,
                                            on_step=on_step if first else None,
                                            partition_spec=partition_spec)
             else:
                 mode = write_mode if first else "append"
-                write_dataframe_to_iceberg(chunk, source_table, mode=mode,
+                write_dataframe_to_iceberg(chunk, source_table, schema=namespace, mode=mode,
                                            on_step=on_step if first else None,
                                            partition_spec=partition_spec)
             first = False
@@ -129,7 +131,7 @@ def _read_write_chunked(engine, query, source_table, write_mode, incremental_col
     if first and write_mode == "overwrite":
         empty_sql = f"SELECT * FROM ({query}) AS _src LIMIT 0"
         empty = pd.read_sql(text(empty_sql) if params else empty_sql, engine, params=params)
-        write_dataframe_to_iceberg(empty, source_table, mode="overwrite",
+        write_dataframe_to_iceberg(empty, source_table, schema=namespace, mode="overwrite",
                                    on_step=on_step, partition_spec=partition_spec)
     if masked and on_step:
         on_step("pii_mask", f"PII 마스킹: {masked} cell(s)", {"masked": masked})
@@ -311,9 +313,12 @@ class PostgreSQLConnector(BaseConnector):
                 pass
 
             write_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
+            # The job's configured namespace — never assumed to be `default`.
+            namespace = target_namespace(target_table)
             rows_processed, max_value = await asyncio.to_thread(
                 _read_write_chunked, engine, query, source_table, write_mode,
-                incremental_column, on_step, partition_spec, key_columns, pii_columns)
+                incremental_column, on_step, partition_spec, key_columns, pii_columns,
+                namespace=namespace)
             logger.info(f"[pg_connector] Synced {rows_processed} rows from {src_schema}.{source_table} (chunked)")
 
             return SyncJobStatus(
@@ -327,7 +332,7 @@ class PostgreSQLConnector(BaseConnector):
                     "source_table": source_table,
                     "target_table": target_table,
                     "sync_mode": sync_mode.value,
-                    "iceberg_table": f"iceberg.default.{source_table}",
+                    "iceberg_table": f"iceberg.{namespace}.{source_table}",
                     "max_value": max_value,
                 }
             )
@@ -501,9 +506,12 @@ class MySQLConnector(BaseConnector):
                 query += f" WHERE `{incremental_column}` > '{last_value}'"
 
             write_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
+            # The job's configured namespace — never assumed to be `default`.
+            namespace = target_namespace(target_table)
             rows_processed, max_value = await asyncio.to_thread(
                 _read_write_chunked, engine, query, source_table, write_mode,
-                incremental_column, on_step, partition_spec, key_columns, pii_columns)
+                incremental_column, on_step, partition_spec, key_columns, pii_columns,
+                namespace=namespace)
             logger.info(f"[mysql_connector] Synced {rows_processed} rows from {source_table} (chunked)")
 
             return SyncJobStatus(
@@ -517,7 +525,7 @@ class MySQLConnector(BaseConnector):
                     "source_table": source_table,
                     "target_table": target_table,
                     "sync_mode": sync_mode.value,
-                    "iceberg_table": f"iceberg.default.{source_table}",
+                    "iceberg_table": f"iceberg.{namespace}.{source_table}",
                     "max_value": max_value,
                 }
             )
@@ -758,10 +766,12 @@ class DatabaseURLConnector(BaseConnector):
             # Stream the source in chunks (bounded memory), mask PII before write, and
             # upsert on key_columns when configured — shared helper mirrors PG/MySQL sync.
             write_mode = "append" if sync_mode == SyncMode.INCREMENTAL else "overwrite"
+            # The job's configured namespace — never assumed to be `default`.
+            namespace = target_namespace(target_table)
             rows_processed, max_value = await asyncio.to_thread(
                 _read_write_chunked, engine, query, tbl_name, write_mode,
                 incremental_column, on_step, partition_spec, key_columns, pii_columns,
-                params=params)
+                params=params, namespace=namespace)
             logger.info(f"[dburl_connector] Synced {rows_processed} rows from {source_table} (chunked)")
 
             return SyncJobStatus(
@@ -775,7 +785,7 @@ class DatabaseURLConnector(BaseConnector):
                     "source_table": source_table,
                     "target_table": target_table,
                     "sync_mode": sync_mode.value,
-                    "iceberg_table": f"iceberg.default.{tbl_name}",
+                    "iceberg_table": f"iceberg.{namespace}.{tbl_name}",
                     "max_value": max_value,
                 },
             )

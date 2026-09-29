@@ -40,7 +40,7 @@ class _RecordingWriter:
     def __init__(self):
         self.calls = []
 
-    def __call__(self, df, table_name, mode="overwrite", on_step=None,
+    def __call__(self, df, table_name, schema="default", mode="overwrite", on_step=None,
                  partition_spec=None, join_cols=None):
         self.calls.append({"rows": len(df), "table": table_name, "mode": mode,
                            "join_cols": join_cols})
@@ -114,7 +114,8 @@ def test_dburl_incremental_parameterizes_and_forwards_columns(monkeypatch):
 
     def fake_rwc(engine, query, source_table, write_mode, incremental_column,
                  on_step=None, partition_spec=None, key_columns=None,
-                 pii_columns=None, chunk_size=database.INGEST_CHUNK_SIZE, params=None):
+                 pii_columns=None, chunk_size=database.INGEST_CHUNK_SIZE, params=None,
+                 namespace="default"):
         captured.update(query=query, source_table=source_table, write_mode=write_mode,
                         incremental_column=incremental_column, key_columns=key_columns,
                         pii_columns=pii_columns, params=params)
@@ -144,7 +145,8 @@ def test_dburl_full_mode_overwrites_no_params(monkeypatch):
 
     def fake_rwc(engine, query, source_table, write_mode, incremental_column,
                  on_step=None, partition_spec=None, key_columns=None,
-                 pii_columns=None, chunk_size=database.INGEST_CHUNK_SIZE, params=None):
+                 pii_columns=None, chunk_size=database.INGEST_CHUNK_SIZE, params=None,
+                 namespace="default"):
         captured.update(write_mode=write_mode, params=params, query=query)
         return 3, None
 

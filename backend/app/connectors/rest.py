@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from .base import (
+    target_namespace,
     BaseConnector,
     ConnectorConfig,
     ConnectorRegistry,
@@ -306,6 +307,7 @@ class RestConnector(BaseConnector):
             write_mode = "upsert" if upsert else "overwrite"
             rows_processed = await asyncio.to_thread(
                 write_dataframe_to_iceberg, df, tbl_name,
+                schema=target_namespace(target_table),
                 mode=write_mode, on_step=on_step, partition_spec=partition_spec,
                 join_cols=key_columns if upsert else None,
             )
