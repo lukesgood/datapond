@@ -60,7 +60,7 @@ def test_get_table_details_uses_reader(monkeypatch):
         def get_columns(self, ns, t): return [{"name": "id", "type": "long", "nullable": False}]
         def get_location(self, ns, t): return "s3://b/t"
         def row_count(self, ns, t): return 7
-    monkeypatch.setattr(cat, "get_catalog_reader", lambda: _R())
+    monkeypatch.setattr(cat, "get_catalog_reader", lambda *a: _R())
     res = asyncio.run(cat.get_table_details("sales", "orders"))
     assert res.columns[0].name == "id"
     assert res.location == "s3://b/t"

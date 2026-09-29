@@ -543,7 +543,8 @@ async def get_catalog_schemas(columns: bool = False):
     /catalog/columns. Pass ?columns=true to force the (slow) eager scan.
     Cached in Valkey (TTL 60s, keyed by the columns flag).
     """
-    cache_key = f"catalog:schemas:v3:{'full' if columns else 'tree'}"
+    # v4: one node per registry catalog (v3 held a single node for the default).
+    cache_key = f"catalog:schemas:v4:{'full' if columns else 'tree'}"
     # Try Valkey cache first
     try:
         import redis, json as _json
@@ -560,29 +561,44 @@ async def get_catalog_schemas(columns: bool = False):
         _redis = None
 
     try:
+        from app import catalog_registry
         from app.api.catalog_backend import get_catalog_reader
-        reader = get_catalog_reader()
 
-        schemas_list = []
-        for ns in reader.list_namespaces():
+        # One tree node per enabled catalog, named as the engine names it — the
+        # Analytics tree inserts this name into SQL.
+        catalog_nodes, errors = [], []
+        registry_entries = catalog_registry.entries()
+        for entry in registry_entries:
             try:
-                table_names = reader.list_tables(ns)
-            except Exception:
-                table_names = []
-            tables_list = []
-            for tbl in table_names:
-                cols = None
-                if columns:
-                    # Opt-in eager column load (per-table). Lazy /catalog/columns is the default.
-                    try:
-                        cols = [CatalogColumn(name=c["name"], type=c["type"])
-                                for c in reader.get_columns(ns, tbl)]
-                    except Exception:
-                        cols = None
-                tables_list.append(CatalogTable(name=tbl, columns=cols))
-            schemas_list.append(CatalogSchema(name=ns, tables=tables_list))
+                reader = get_catalog_reader(entry.name)
+                namespaces = reader.list_namespaces()
+            except Exception as e:
+                errors.append(e)
+                continue
+            schemas_list = []
+            for ns in namespaces:
+                try:
+                    table_names = reader.list_tables(ns)
+                except Exception:
+                    table_names = []
+                tables_list = []
+                for tbl in table_names:
+                    cols = None
+                    if columns:
+                        # Opt-in eager column load (per-table). Lazy /catalog/columns is the default.
+                        try:
+                            cols = [CatalogColumn(name=c["name"], type=c["type"])
+                                    for c in reader.get_columns(ns, tbl)]
+                        except Exception:
+                            cols = None
+                    tables_list.append(CatalogTable(name=tbl, columns=cols))
+                schemas_list.append(CatalogSchema(name=ns, tables=tables_list))
+            catalog_nodes.append(Catalog(name=entry.engine_catalog, catalog_type="managed",
+                                         schemas=schemas_list))
+        if errors and len(errors) == len(registry_entries):
+            raise errors[0]
 
-        result = CatalogTree(catalogs=[Catalog(name=get_engine().default_catalog, catalog_type="managed", schemas=schemas_list)])
+        result = CatalogTree(catalogs=catalog_nodes)
 
         # Cache result
         try:
@@ -619,7 +635,14 @@ async def get_table_columns(catalog: str, schema: str, table: str):
     for v in (catalog, schema, table):
         if not _COL_IDENT.match(v or ""):
             raise HTTPException(status_code=400, detail="catalog/schema/table must be bare identifiers.")
-    ck = f"catalog:cols:v1:{catalog}.{schema}.{table}"
+    # The catalog is honoured, not just validated: another catalog's table of the same
+    # name used to answer with the default catalog's columns.
+    from app import catalog_registry
+    try:
+        entry = catalog_registry.resolve(catalog)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    ck = f"catalog:cols:v2:{entry.name}.{schema}.{table}"
     try:
         import redis, json as _json
         # Prefer REDIS_URL — VALKEY_PORT is K8s-injected as tcp://<ip>:6379 and breaks int().
@@ -636,7 +659,7 @@ async def get_table_columns(catalog: str, schema: str, table: str):
     try:
         from app.api.catalog_backend import get_catalog_reader
         cols = [CatalogColumn(name=c["name"], type=c["type"])
-                for c in get_catalog_reader().get_columns(schema, table)]
+                for c in get_catalog_reader(entry.name).get_columns(schema, table)]
         try:
             if _r:
                 import json as _json

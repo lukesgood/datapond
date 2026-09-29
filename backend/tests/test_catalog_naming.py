@@ -14,11 +14,9 @@ def test_tables_are_labelled_with_the_engines_catalog(monkeypatch):
         def list_namespaces(self): return ["planlab"]
         def list_tables(self, ns): return ["orders"]
 
-    class _Eng:
-        default_catalog = "AwsDataCatalog"
-
-    monkeypatch.setattr(catalog, "get_catalog_reader", lambda: _Reader())
-    monkeypatch.setattr(catalog, "get_engine", lambda: _Eng())
+    # The engine decides the name; the registry's env default derives it from there.
+    monkeypatch.setenv("QUERY_ENGINE", "athena")
+    monkeypatch.setattr(catalog, "get_catalog_reader", lambda *a: _Reader())
 
     res = asyncio.run(catalog.list_all_tables())
 
@@ -32,10 +30,8 @@ def test_trino_deployments_still_read_iceberg(monkeypatch):
         def list_namespaces(self): return ["sales"]
         def list_tables(self, ns): return ["orders"]
 
-    class _Eng:
-        default_catalog = "iceberg"
-
-    monkeypatch.setattr(catalog, "get_catalog_reader", lambda: _Reader())
-    monkeypatch.setattr(catalog, "get_engine", lambda: _Eng())
+    monkeypatch.setenv("QUERY_ENGINE", "trino")
+    monkeypatch.delenv("TRINO_CATALOG", raising=False)
+    monkeypatch.setattr(catalog, "get_catalog_reader", lambda *a: _Reader())
 
     assert asyncio.run(catalog.list_all_tables()).tables[0].catalog == "iceberg"

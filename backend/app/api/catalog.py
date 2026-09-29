@@ -10,10 +10,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app import catalog_registry
 from app.api.auth import require_permission, require_user
 from app.api.catalog_backend import get_catalog_reader, safe_identifier
 from app.api.queries import execute_query
-from app.api.query_engine import get_engine
 from app.database.connection import get_db
 from app.schemas.query import QueryExecuteRequest
 
@@ -31,6 +31,17 @@ def _bare(namespace: str, table: str) -> None:
     except ValueError:
         raise HTTPException(status_code=400,
                             detail="namespace and table must be bare identifiers.")
+
+
+def _entry(catalog: Optional[str]):
+    """The registry entry a route was asked about; an unknown one is the caller's
+    error, never a silent fall back to the default."""
+    try:
+        return catalog_registry.resolve(catalog)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,6 +78,7 @@ class TableColumn(BaseModel):
 class TableDetails(BaseModel):
     name: str
     namespace: str
+    catalog: Optional[str] = None
     table_type: str = "iceberg"
     location: Optional[str] = None
     columns: List[TableColumn] = []
@@ -82,12 +94,39 @@ class CatalogTree(BaseModel):
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
+def _readers():
+    """(entry, reader) for every enabled catalog. With one catalog this is exactly the
+    one reader the routes used before; a catalog that has no reader is skipped."""
+    out = []
+    for entry in catalog_registry.entries():
+        try:
+            out.append((entry, get_catalog_reader(entry.name)))
+        except Exception as e:
+            logger.warning("catalog %s has no reader: %s", entry.name, e)
+    return out
+
+
+def _label(entry) -> str:
+    """The catalog name to show and to write into SQL: the engine's name for it —
+    AwsDataCatalog on Athena, iceberg on Trino. Printing any other name for the
+    default printed a name the engine would reject."""
+    return entry.engine_catalog
+
+
 @router.get("/catalog/namespaces", response_model=NamespacesResponse)
 async def list_all_namespaces():
-    """List namespaces from the active catalog backend (Glue or Polaris)."""
+    """List namespaces of every enabled catalog, each labelled with its catalog."""
     try:
-        names = get_catalog_reader().list_namespaces()
-        return NamespacesResponse(namespaces=[NamespaceInfo(name=n) for n in names])
+        out, errors, readers = [], [], _readers()
+        for entry, reader in readers:
+            try:
+                out.extend(NamespaceInfo(name=n, catalog=_label(entry))
+                           for n in reader.list_namespaces())
+            except Exception as e:
+                errors.append(e)
+        if errors and len(errors) == len(readers):
+            raise errors[0]
+        return NamespacesResponse(namespaces=out)
     except Exception as e:
         logger.error(f"catalog namespaces error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -95,19 +134,23 @@ async def list_all_namespaces():
 
 @router.get("/catalog/tables", response_model=TablesResponse)
 async def list_all_tables():
-    """List all tables from the active catalog backend (Glue or Polaris)."""
+    """List all tables of every enabled catalog, each labelled with its catalog."""
     try:
-        reader = get_catalog_reader()
-        # The engine decides the catalog name — AwsDataCatalog on Athena, iceberg on
-        # Trino. Hardcoding it printed a name the engine would reject.
-        default_catalog = get_engine().default_catalog
-        tables = []
-        for ns in reader.list_namespaces():
+        tables, errors, readers = [], [], _readers()
+        for entry, reader in readers:
             try:
-                for tbl in reader.list_tables(ns):
-                    tables.append(TableInfo(name=tbl, namespace=ns, catalog=default_catalog))
-            except Exception:
+                namespaces = reader.list_namespaces()
+            except Exception as e:
+                errors.append(e)
                 continue
+            for ns in namespaces:
+                try:
+                    for tbl in reader.list_tables(ns):
+                        tables.append(TableInfo(name=tbl, namespace=ns, catalog=_label(entry)))
+                except Exception:
+                    continue
+        if errors and len(errors) == len(readers):
+            raise errors[0]
         return TablesResponse(tables=tables)
     except Exception as e:
         logger.error(f"catalog tables error: {e}")
@@ -116,10 +159,12 @@ async def list_all_tables():
 
 @router.get("/catalog/tables/{namespace}/{table}", response_model=TableDetails)
 async def get_table_details(namespace: str, table: str, catalog: Optional[str] = None):
-    """Get table schema, location, and row count from the active catalog backend."""
+    """Get table schema, location, and row count from the catalog asked for (default
+    when omitted)."""
     _bare(namespace, table)
+    entry = _entry(catalog)
     try:
-        reader = get_catalog_reader()
+        reader = get_catalog_reader(entry.name)
         columns = [TableColumn(**c) for c in reader.get_columns(namespace, table)]
         if not columns:
             raise HTTPException(status_code=404, detail=f"Table {namespace}.{table} not found")
@@ -128,6 +173,7 @@ async def get_table_details(namespace: str, table: str, catalog: Optional[str] =
         return TableDetails(
             name=table,
             namespace=namespace,
+            catalog=_label(entry),
             table_type="iceberg",
             location=location,
             columns=columns,
@@ -158,9 +204,14 @@ async def preview_table(namespace: str, table: str, catalog: Optional[str] = Non
     path returned, so they describe the masked values the caller may see.
     """
     _bare(namespace, table)
+    entry = _entry(catalog)
     limit = max(1, min(int(limit), PREVIEW_MAX_ROWS))
+    # Two parts for the default catalog — the engine's session catalog — exactly as
+    # before; three for any other, or the preview would read the default's table.
+    target = (f"{namespace}.{table}" if entry.is_default
+              else f"{safe_identifier(entry.engine_catalog)}.{namespace}.{table}")
     request = QueryExecuteRequest(
-        query=f"SELECT * FROM {namespace}.{table} LIMIT {limit}",
+        query=f"SELECT * FROM {target} LIMIT {limit}",
         save_history=False, origin="ui")
     result = await execute_query(request, db, user)
     try:
@@ -213,9 +264,10 @@ async def preview_table(namespace: str, table: str, catalog: Optional[str] = Non
 @router.get("/catalog/health")
 async def catalog_health():
     try:
-        # Reachability check against the active catalog backend (Glue or Polaris).
+        # Reachability check against the default catalog; the list names every one.
         get_catalog_reader().list_namespaces()
-        return {"status": "healthy", "catalogs": [get_engine().default_catalog]}
+        return {"status": "healthy",
+                "catalogs": [_label(e) for e in catalog_registry.entries()]}
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
 
