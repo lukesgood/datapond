@@ -46,7 +46,9 @@ variable "db_engine_version" {
   # with "Cannot find version 15.4"), so this is a var, not a literal. pgvector needs >= 15.3;
   # Serverless v2 needs >= 13.6. Check availability: aws rds describe-db-engine-versions
   # --engine aurora-postgresql --query 'DBEngineVersions[].EngineVersion'.
-  default = "15.10"
+  # 15.19 since 2026-09-29: pgvector 0.8 (hnsw.iterative_scan, which chunk-level caller
+  # filters rely on) ships with Aurora PostgreSQL 15.12+; 15.10 offered only 0.7.4.
+  default = "15.19"
 }
 
 # ── Backup / DR (P0-5) ──────────────────────────────────────────────────────

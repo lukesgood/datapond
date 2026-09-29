@@ -131,8 +131,9 @@ curl -s "${H[@]}" -X DELETE $DP/api/service-accounts/$SALES_ID
 
 ## Known limits to mention if asked
 
-- On Aurora PostgreSQL 15.10 (pgvector 0.7.4) a chunk rule over a very large collection
-  widens the HNSW candidate list rather than iterating it, so a caller entitled to a tiny
-  slice can still get fewer than k results. pgvector 0.8 (Aurora 15.12+) removes this.
+- A chunk rule relies on pgvector 0.8's iterative HNSW scan to fill k results from a small
+  slice of a large collection. The live reference runs Aurora 15.19 / pgvector 0.8.2; on an
+  older pgvector (Aurora < 15.12) DataPond falls back to a wider candidate list, which can
+  still return fewer than k.
 - OAuth resource-server mode (agents presenting the customer's IdP tokens instead of
   keys) is shipped but off by default and not yet exercised against a live IdP.
