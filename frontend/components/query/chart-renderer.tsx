@@ -63,11 +63,11 @@ const ANIMATE = false
 const MAX_DOTS = 40
 
 const DEFAULT_COLORS = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
+  "var(--series-1)",
+  "var(--series-2)",
+  "var(--series-3)",
+  "var(--series-4)",
+  "var(--series-5)",
 ]
 const GRID_STROKE = "var(--border)"
 const AXIS_STROKE = "var(--muted-foreground)"
@@ -319,7 +319,7 @@ function Heatmap({ shaped }: { shaped: Extract<Shaped, { kind: "heatmap" }> }) {
                   style={{
                     background: v === null
                       ? "var(--muted)"
-                      : `color-mix(in oklab, var(--chart-1) ${Math.round(12 + t * 88)}%, var(--card))`,
+                      : `color-mix(in oklab, var(--series-1) ${Math.round(12 + t * 88)}%, var(--card))`,
                     color: t > 0.55 ? "#fff" : "var(--foreground)",
                   }}
                 >
@@ -333,7 +333,7 @@ function Heatmap({ shaped }: { shaped: Extract<Shaped, { kind: "heatmap" }> }) {
       <div className="mt-2 flex items-center gap-2 text-2xs text-muted-foreground">
         <span className="tabular-nums">{formatValue(min)}</span>
         <span className="h-2 w-24 rounded-sm"
-              style={{ background: "linear-gradient(to right, color-mix(in oklab, var(--chart-1) 12%, var(--card)), var(--chart-1))" }} />
+              style={{ background: "linear-gradient(to right, color-mix(in oklab, var(--series-1) 12%, var(--card)), var(--series-1))" }} />
         <span className="tabular-nums">{formatValue(max)}</span>
         <span>{valueLabel}</span>
       </div>

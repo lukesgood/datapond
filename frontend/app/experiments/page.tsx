@@ -190,7 +190,7 @@ function MetricsChartOrTable({ metrics }: { metrics: Metric[] }) {
       .sort(([a], [b]) => Number(a) - Number(b))
       .map(([step, vals]) => ({ step: Number(step), ...vals }))
 
-    const COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"]
+    const COLORS = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)", "var(--series-5)"]
 
     return (
       <div className="space-y-3">

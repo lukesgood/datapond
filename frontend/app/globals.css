@@ -79,6 +79,18 @@
   --chart-3: #22c3d6;
   --chart-4: #8b5cf6;
   --chart-5: #f59e0b;
+  /* Series colours for data marks only (lines, bars, slices, points), in this fixed
+     order. Separate from --chart-*, which the console also uses as text and badge
+     colours. --chart-2 and --chart-4 (indigo, violet) were ΔE 6.3 apart for full
+     colour vision and 0.8 under protanopia: two series read as one. These pass the
+     dataviz validator (validate_palette.js) on adjacent pairs, and on all pairs clear
+     the normal-vision floor (19.3); all-pairs CVD is 6.9, legal with the labels and
+     table view every chart keeps. */
+  --series-1: #0894ac;
+  --series-2: #c98500;
+  --series-3: #d55181;
+  --series-4: #5b4bc4;
+  --series-5: #008300;
   --radius: 0.7rem;
   /* sidebar = the sunken floor; active nav lifts to a surface */
   --sidebar: #e6eef0;
@@ -138,6 +150,12 @@
   --chart-3: #67e8f9;
   --chart-4: #a78bfa;
   --chart-5: #fbbf24;
+  /* Same hues stepped for the dark surface (#0e1c21); validated separately. */
+  --series-1: #0fa0b8;
+  --series-2: #c98500;
+  --series-3: #d55181;
+  --series-4: #9085e9;
+  --series-5: #008300;
   --sidebar: #0a171b;
   --sidebar-foreground: #b8cbd1;
   --sidebar-primary: #22c3d6;
