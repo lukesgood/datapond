@@ -66,24 +66,40 @@ _schema_cache: dict = {"text": None, "ts": 0.0}
 
 
 def _fetch_schema_context() -> str:
-    """List tables + columns from the active catalog backend (Glue or Polaris)."""
+    """List tables + columns of every enabled catalog, each under the catalog name SQL
+    must use for it (the engine's prefix for the default, the registry's engine
+    catalog for the rest). Capped at 50 tables in all."""
     try:
+        from app import catalog_registry
         from app.api.query_engine import get_engine
         from app.api.catalog_backend import get_catalog_reader
         eng = get_engine()
-        reader = get_catalog_reader()
-        lines = [f"Available tables (catalog: {eng.ai_table_prefix}):"]
-        for ns in reader.list_namespaces():
-            for tbl in reader.list_tables(ns):
-                try:
-                    cols = reader.get_columns(ns, tbl)
-                except Exception:
-                    cols = []
-                col_str = ", ".join(f"{c['name']} ({c['type']})" for c in cols[:20])
-                lines.append(f"  {eng.ai_table_prefix}.{ns}.{tbl}: {col_str}")
-                if len(lines) > 50:  # cap prompt size: 50 tables
-                    return "\n".join(lines)
-        if len(lines) == 1:
+        lines, tables, failed = [], 0, []
+        registry_entries = catalog_registry.entries()
+        for entry in registry_entries:
+            prefix = eng.ai_table_prefix if entry.is_default else entry.engine_catalog
+            try:
+                reader = get_catalog_reader(entry.name)
+                namespaces = reader.list_namespaces()
+            except Exception as e:
+                logger.warning(f"[ai_sql] catalog {entry.name} unreadable: {e}")
+                failed.append(e)
+                continue
+            lines.append(f"Available tables (catalog: {prefix}):")
+            for ns in namespaces:
+                for tbl in reader.list_tables(ns):
+                    try:
+                        cols = reader.get_columns(ns, tbl)
+                    except Exception:
+                        cols = []
+                    col_str = ", ".join(f"{c['name']} ({c['type']})" for c in cols[:20])
+                    lines.append(f"  {prefix}.{ns}.{tbl}: {col_str}")
+                    tables += 1
+                    if tables >= 50:  # cap prompt size: 50 tables
+                        return "\n".join(lines)
+        if failed and len(failed) == len(registry_entries):
+            raise failed[0]
+        if not tables:
             return "No tables found in the catalog."
         return "\n".join(lines)
     except Exception as e:
