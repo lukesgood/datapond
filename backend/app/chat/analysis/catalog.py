@@ -50,9 +50,17 @@ def _qualified(entry, namespace: str, table: str) -> str:
     return base if entry.is_default else f"{entry.engine_catalog}.{base}"
 
 
+async def _access(user: dict):
+    """The caller's catalog view (app/catalog_access.py). These tools are the MCP
+    server's too, so an agent's key sees exactly the catalogs its account may use."""
+    from app import catalog_access
+    return await catalog_access.for_caller(user)
+
+
 async def describe_table(params: dict, user: dict) -> dict:
-    from app import catalog_registry
-    entry = catalog_registry.resolve(params.get("catalog"))
+    # A catalog this caller may not use raises the unknown-catalog error, word for
+    # word — a tool call must not confirm that a hidden catalog exists.
+    entry = (await _access(user)).resolve(params.get("catalog"))
     reader = get_catalog_reader(entry.name)
     columns = reader.get_columns(params["namespace"], params["table"])
     return {
@@ -84,9 +92,8 @@ async def find_tables(params: dict, user: dict) -> dict:
     if not tokens:
         return {"tables": [], "query": params["query"]}
 
-    from app import catalog_registry
     scored = []
-    for entry in catalog_registry.entries():
+    for entry in (await _access(user)).entries():
         try:
             reader = get_catalog_reader(entry.name)
             namespaces = reader.list_namespaces()
@@ -111,14 +118,16 @@ async def explain_relationships(params: dict, user: dict) -> dict:
     from app.api.queries import _catalog_schema_for_graph
     from app import catalog_registry
     from app.catalog_registry import TableRef as _Ref
+    from app.api.queries import _visible_graph
+    access = await _access(user)
     schema = _catalog_schema_for_graph()
     default = catalog_registry.default_entry().engine_catalog.lower()
-    graph = build_graph([], schema=schema, default_catalog=default)
+    graph = _visible_graph(build_graph([], schema=schema, default_catalog=default), access)
     edges = graph["edges"]
     if params.get("table"):
         # Ids are catalog.ns.table; a two-part table means the catalog asked for, or
         # the default.
-        catalog = catalog_registry.resolve(params.get("catalog")).engine_catalog
+        catalog = access.resolve(params.get("catalog")).engine_catalog
         wanted = _Ref.parse(params["table"], default=catalog).key()
         edges = [e for e in edges if wanted in (e["source"], e["target"])]
     return {"relationships": edges[:25]}
