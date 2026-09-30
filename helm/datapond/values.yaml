@@ -130,6 +130,15 @@ backend:
   ragScheduler:
     enabled: true
     tickSeconds: 300
+  # Periodic source connection checks: every source not checked within intervalMinutes
+  # gets a connection test, so its status on the Sources page is never older than that.
+  # This contacts customer databases, buckets and APIs on a schedule — turn it off, or
+  # lengthen the interval, where that is not wanted. Paused sources are never checked.
+  connectorChecks:
+    enabled: true
+    intervalMinutes: 60
+    tickSeconds: 300
+    timeoutSeconds: 30
   # Infrastructure → Events. Kubernetes Events expire after an hour and are reachable
   # only through pods that still exist; this keeps a durable record of what changed and
   # what died. Retention has a floor of one day, not an off switch.

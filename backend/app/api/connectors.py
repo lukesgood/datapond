@@ -2731,16 +2731,42 @@ async def _record_check(connection_id: str, ok: bool, message: str) -> None:
         logger.warning(f"[connectors] could not record check for {connection_id}: {e}")
 
 
+def _check_timeout_seconds() -> float:
+    try:
+        return max(1.0, float(os.getenv("CONNECTOR_CHECK_TIMEOUT_SECONDS", "30")))
+    except ValueError:
+        return 30.0
+
+
+async def _test_isolated(connector) -> Tuple[bool, str]:
+    """Run a connector's test on its own thread and event loop, under a deadline.
+
+    Several drivers block (psycopg2 behind SQLAlchemy, boto3), and on the request loop
+    one slow source stalls every other request — tolerable when a person clicked a
+    button, not when a scheduler does it every hour for every source. A source that does
+    not answer in time is a failed check: it is what a sync would find, too.
+    """
+    timeout = _check_timeout_seconds()
+    try:
+        result = await asyncio.wait_for(
+            asyncio.to_thread(lambda: asyncio.run(connector.test_connection())), timeout)
+        return result.success, result.message
+    except asyncio.TimeoutError:
+        return False, f"No answer within {timeout:.0f}s"
+    except Exception as e:
+        return False, str(e)[:500]
+
+
 async def _check_connection(connection_id: str) -> Dict[str, Any]:
     """Test the stored config and record the result."""
     try:
         connector = await _get_connector_instance(connection_id)
-        result = await connector.test_connection()
-        ok, message = result.success, result.message
     except HTTPException:
         raise
     except Exception as e:
-        ok, message = False, str(e)[:500]
+        connector, ok, message = None, False, str(e)[:500]
+    if connector is not None:
+        ok, message = await _test_isolated(connector)
     await _record_check(connection_id, ok, message)
     return {"success": ok, "message": message,
             "status": ConnectionStatus.ACTIVE.value if ok else ConnectionStatus.ERROR.value}

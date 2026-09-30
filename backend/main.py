@@ -421,6 +421,17 @@ async def startup():
     except Exception as e:
         logger.warning(f"[startup] system event collector not started: {e}")
 
+    # Periodic source connection checks — keeps each source's status no older than
+    # the interval (app/connector_checks.py). Same leader-by-advisory-lock shape.
+    try:
+        if os.getenv("CONNECTOR_CHECK_ENABLED", "true").lower() in ("1", "true", "yes"):
+            from app.api.connectors import get_db_pool
+            from app.connector_checks import run_checks
+            app.state.connector_checks_task = asyncio.create_task(run_checks(await get_db_pool()))
+            logger.info("[startup] connector checks started")
+    except Exception as e:
+        logger.warning(f"[startup] connector checks not started: {e}")
+
     # Audit retention (B4) — prunes security_audit_log/auth_audit_log through B3's
     # sanctioned prune_*_audit_log() functions on its own loop and its own advisory
     # lock key; see app/audit_retention.py's module docstring for why it is not

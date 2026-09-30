@@ -252,6 +252,17 @@ spec:
         # chart creates it with and the Role permits writing.
         - name: TRINO_ACL_CONFIGMAP
           value: {{ .Values.trino.rls.configMapName | default "trino-access-control" | quote }}
+        # Periodic source connection checks (app/connector_checks.py). They contact
+        # customer systems on a schedule, so there is an off switch; `dig` for the
+        # bool-false case, as above.
+        - name: CONNECTOR_CHECK_ENABLED
+          value: {{ dig "enabled" true (.Values.backend.connectorChecks | default dict) | quote }}
+        - name: CONNECTOR_CHECK_INTERVAL_MINUTES
+          value: {{ dig "intervalMinutes" 60 (.Values.backend.connectorChecks | default dict) | quote }}
+        - name: CONNECTOR_CHECK_TICK_SECONDS
+          value: {{ dig "tickSeconds" 300 (.Values.backend.connectorChecks | default dict) | quote }}
+        - name: CONNECTOR_CHECK_TIMEOUT_SECONDS
+          value: {{ dig "timeoutSeconds" 30 (.Values.backend.connectorChecks | default dict) | quote }}
         # Audit table retention (security_audit_log / auth_audit_log — B4). `dig` for
         # the bool-false case, same reasoning as SYSTEM_EVENTS_ENABLED above.
         - name: AUDIT_RETENTION_ENABLED
