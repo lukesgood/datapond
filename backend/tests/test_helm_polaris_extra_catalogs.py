@@ -130,3 +130,23 @@ def test_an_existing_catalog_gets_the_storage_config_on_upgrade():
     sc = body["storageConfigInfo"]
     assert body["currentEntityVersion"] == 3
     assert sc["pathStyleAccess"] is True and sc["stsUnavailable"] is True
+
+
+def test_an_extra_catalog_on_minio_names_its_endpoint_and_path_style():
+    """The default iceberg.properties set s3.endpoint and path-style for MinIO; an extra
+    catalog did not, so Trino could not check a new table's location in it. Both are
+    opt-in per catalog, since an AWS-backed REST catalog needs neither."""
+    import json as _json
+    cat = {"name": "catb", "uri": "http://polaris.datapond.svc.cluster.local:8181/api/catalog",
+           "warehouse": "catb"}
+    plain = render_json("trino.extraCatalogs=" + _json.dumps([cat]))
+    assert "s3.path-style-access" not in plain.split("catb.properties")[1].split(".properties")[0]
+    on_minio = render_json("trino.extraCatalogs=" + _json.dumps(
+        [{**cat, "s3Endpoint": "http://minio:9000", "s3PathStyleAccess": True}]))
+    block = on_minio.split("catb.properties")[1]
+    assert "s3.endpoint=http://minio:9000" in block and "s3.path-style-access=true" in block
+    bad = subprocess.run(
+        ["helm", "template", "datapond", str(CHART), "-f", str(CHART / "values-onprem.yaml"),
+         "--set-json", "trino.extraCatalogs=" + _json.dumps([{**cat, "s3Endpoint": "http://u:p@minio:9000"}])],
+        capture_output=True, text=True)
+    assert bad.returncode != 0 and "s3Endpoint" in bad.stderr

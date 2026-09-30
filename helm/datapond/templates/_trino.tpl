@@ -41,6 +41,12 @@ for the Polaris client secret.
 {{- if contains "@" (regexReplaceAll "^[a-z]+://([^/]*).*$" $uri "${1}") -}}
 {{- fail (printf "trino.extraCatalogs[%s]: uri must not carry credentials" $name) -}}
 {{- end -}}
+{{- if $c.s3Endpoint -}}
+{{- $ep := toString $c.s3Endpoint -}}
+{{- if not (regexMatch "^https?://[^/@\\s]+(/|$)" $ep) -}}
+{{- fail (printf "trino.extraCatalogs[%s]: s3Endpoint must be an http(s) URL without credentials, got %q" $name $ep) -}}
+{{- end -}}
+{{- end -}}
 {{- if and $c.credentialSecret $c.tokenSecret -}}
 {{- fail (printf "trino.extraCatalogs[%s]: set credentialSecret or tokenSecret, not both" $name) -}}
 {{- end -}}
@@ -105,6 +111,14 @@ for the Polaris client secret.
   iceberg.rest-catalog.vended-credentials-enabled=true
   {{- end }}
   fs.native-s3.enabled=true
+  {{- /* An S3-compatible store (MinIO) needs its endpoint and path-style addressing;
+         AWS S3 (S3 Tables, Glue) needs neither, so both are opt-in per catalog. */}}
+  {{- if $c.s3Endpoint }}
+  s3.endpoint={{ $c.s3Endpoint }}
+  {{- end }}
+  {{- if $c.s3PathStyleAccess }}
+  s3.path-style-access=true
+  {{- end }}
   s3.region={{ $c.s3Region | default ($root.Values.storage.region | default "us-east-1") }}
 {{- end }}
 {{- end -}}

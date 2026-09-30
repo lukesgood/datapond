@@ -58,6 +58,9 @@ trino:
       # from values, the secret from the chart's own Secret.
       credentialSecret: {name: datapond-secrets, key: POLARIS_CLIENT_SECRET, clientId: polaris-client}
       scope: PRINCIPAL_ROLE:ALL
+      # Same MinIO as the default catalog, so the same endpoint and path-style access.
+      s3Endpoint: http://minio:9000
+      s3PathStyleAccess: true
 
 # Only what a query needs; the backend must find Polaris and Trino in one replica so a
 # catalog registered through the API is visible to the process that answers next.
