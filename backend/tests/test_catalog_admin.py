@@ -30,6 +30,9 @@ class _DB:
         self.settings = {}
         self.rls, self.masks = [], []
         self.audit = []
+        self.grants = []              # (catalog, kind, principal)
+        self.users = {}               # id -> {username, email, auth_method}
+        self.grants_table = True      # False: a database before migration 0021
 
     def add(self, name, kind="polaris", engine=None, config=None, default=False,
             enabled=True, secret_ref=None):
@@ -40,6 +43,10 @@ class _DB:
     def check(self):
         assert sum(1 for r in self.catalogs.values() if r["is_default"]) <= 1, \
             "unique index data_catalogs_one_default violated"
+
+
+class _UndefinedTable(Exception):
+    sqlstate = "42P01"
 
 
 class _Tx:
@@ -64,6 +71,20 @@ class _Conn:
         return False
 
     async def fetch(self, sql, *args):
+        if "FROM catalog_grants" in sql:
+            if not self.db.grants_table:
+                raise _UndefinedTable('relation "catalog_grants" does not exist')
+            out = []
+            for cat, kind, principal in sorted(self.db.grants):
+                if cat != args[0]:
+                    continue
+                u = self.db.users.get(principal, {}) if kind == "user" else {}
+                out.append({"principal_kind": kind, "principal": principal,
+                            "created_at": None, "username": u.get("username"),
+                            "email": u.get("email"), "auth_method": u.get("auth_method")})
+            return out
+        if "FROM users" in sql:
+            return [{"id": i} for i in args[0] if i in self.db.users]
         if "FROM data_catalogs" in sql:
             rows = sorted(self.db.catalogs.values(),
                           key=lambda r: (not r["is_default"], r["name"]))
@@ -74,6 +95,8 @@ class _Conn:
         raise AssertionError(sql)
 
     async def fetchrow(self, sql, *args):
+        if "SELECT name FROM data_catalogs WHERE name" in sql:
+            return {"name": args[0]} if args[0] in self.db.catalogs else None
         if "rls_policies" in sql:
             names = set(args[0])
             return {"rls": sum(1 for c in self.db.rls if c.lower() in names),
@@ -101,6 +124,12 @@ class _Conn:
                                      enabled=enabled)
         elif "DELETE FROM data_catalogs" in sql:
             db.catalogs.pop(args[0], None)
+            db.grants = [g for g in db.grants if g[0] != args[0]]   # ON DELETE CASCADE
+        elif "DELETE FROM catalog_grants" in sql:
+            db.grants = [g for g in db.grants if g[0] != args[0]]
+        elif "INSERT INTO catalog_grants" in sql:
+            assert args[0] in db.catalogs, "catalog_grants.catalog_name FK"
+            db.grants.append((args[0], args[1], args[2]))
         elif "INSERT INTO system_settings" in sql:
             db.settings[args[0]] = args[1]
         elif "DELETE FROM system_settings" in sql:
@@ -450,3 +479,104 @@ def test_system_settings_listing_skips_catalog_secrets(monkeypatch):
     monkeypatch.setattr(ss, "get_db_pool", _gp)
     out = asyncio.run(ss.get_system_settings())
     assert out == {"settings": {"ai.provider": "litellm"}}
+
+
+# ── grants (multi-catalog P3) ─────────────────────────────────────────────────
+
+ALICE_ID = "11111111-1111-1111-1111-111111111111"
+BOT_ID = "44444444-4444-4444-4444-444444444444"
+
+
+@pytest.fixture
+def people(db):
+    db.users[ALICE_ID] = {"username": "alice", "email": "a@x", "auth_method": "local"}
+    db.users[BOT_ID] = {"username": "bot", "email": "b@x", "auth_method": "service"}
+    db.add("lake", kind="iceberg_rest", config=REST["config"])
+    return db
+
+
+def test_a_catalog_nobody_was_granted_is_open(people):
+    r = _client().get("/api/catalogs/lake/grants")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"catalog": "lake", "restricted": False, "grants": []}
+
+
+def test_put_replaces_the_grants_and_audits_the_difference(people):
+    from app import catalog_access
+    catalog_access.set_grants({})
+    r = _client().put("/api/catalogs/lake/grants", json={"grants": [
+        {"kind": "user", "principal": ALICE_ID},
+        {"kind": "user", "principal": BOT_ID.upper()},
+        {"kind": "role", "principal": "auditor"},
+        {"kind": "role", "principal": "auditor"}]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["restricted"] is True
+    got = {(g["kind"], g["principal"]) for g in body["grants"]}
+    assert got == {("user", ALICE_ID), ("user", BOT_ID), ("role", "auditor")}
+    bot = next(g for g in body["grants"] if g["principal"] == BOT_ID)
+    assert bot["service_account"] is True and bot["username"] == "bot"
+    assert people.audit[-1]["event"] == "catalog_grants_changed"
+    assert people.audit[-1]["details"]["restricted"] is True
+    assert len(people.audit[-1]["details"]["added"]) == 3
+    # The grants cache was dropped, so the next caller reads the new list.
+    assert catalog_access._state["grants"] is None
+
+    r = _client().put("/api/catalogs/lake/grants", json={"grants": [
+        {"kind": "role", "principal": "auditor"}]})
+    assert {(g["kind"], g["principal"]) for g in r.json()["grants"]} == {("role", "auditor")}
+    assert sorted(people.audit[-1]["details"]["removed"]) == [
+        f"user:{ALICE_ID}", f"user:{BOT_ID}"]
+
+
+def test_an_empty_list_reopens_the_catalog(people):
+    people.grants.append(("lake", "role", "auditor"))
+    r = _client().put("/api/catalogs/lake/grants", json={"grants": []})
+    assert r.json()["restricted"] is False and people.grants == []
+
+
+@pytest.mark.parametrize("grant,fragment", [
+    ({"kind": "role", "principal": "superuser"}, "not a role"),
+    ({"kind": "user", "principal": "alice"}, "not one"),
+    ({"kind": "user", "principal": "99999999-9999-9999-9999-999999999999"}, "No user"),
+])
+def test_unknown_principals_are_refused(people, grant, fragment):
+    r = _client().put("/api/catalogs/lake/grants", json={"grants": [grant]})
+    assert r.status_code == 400 and fragment in r.json()["detail"]
+    assert people.grants == []
+
+
+def test_a_bad_kind_is_refused(people):
+    r = _client().put("/api/catalogs/lake/grants",
+                      json={"grants": [{"kind": "group", "principal": "x"}]})
+    assert r.status_code == 422
+
+
+def test_grants_of_an_unknown_catalog_are_404(people):
+    assert _client().get("/api/catalogs/nope/grants").status_code == 404
+    assert _client().put("/api/catalogs/nope/grants", json={"grants": []}).status_code == 404
+
+
+@pytest.mark.parametrize("principal", [
+    {"id": ADMIN["id"], "username": "bot", "role": "admin", "auth_method": "service"},
+    {"id": ADMIN["id"], "username": "agent", "role": "admin", "oauth": True},
+    {"id": ADMIN["id"], "username": "v", "role": "viewer"},
+])
+def test_only_a_signed_in_admin_reads_or_changes_grants(people, principal):
+    c = _client(principal)
+    assert c.get("/api/catalogs/lake/grants").status_code == 403
+    assert c.put("/api/catalogs/lake/grants", json={"grants": []}).status_code == 403
+
+
+def test_before_migration_0021_grants_read_as_none_and_cannot_be_written(people):
+    people.grants_table = False
+    assert _client().get("/api/catalogs/lake/grants").json()["restricted"] is False
+    r = _client().put("/api/catalogs/lake/grants",
+                      json={"grants": [{"kind": "role", "principal": "auditor"}]})
+    assert r.status_code == 409 and "0021" in r.json()["detail"]
+
+
+def test_deleting_a_catalog_deletes_its_grants(people):
+    people.grants.append(("lake", "role", "auditor"))
+    assert _client().delete("/api/catalogs/lake").status_code == 200
+    assert people.grants == []
