@@ -73,7 +73,13 @@ import pytest as _pytest
 
 @_pytest.fixture(autouse=True)
 def _no_catalog_grants():
-    from app import catalog_access
+    # tests/acceptance runs against a deployed target with only pytest and httpx
+    # installed — there is no `app` to import, and nothing local to reset.
+    try:
+        from app import catalog_access
+    except ImportError:
+        yield
+        return
     catalog_access.set_grants({})
     yield
     catalog_access.reset()
