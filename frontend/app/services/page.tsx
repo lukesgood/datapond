@@ -20,6 +20,9 @@ import { InfraTabs } from "@/components/infra/infra-tabs"
 import { SystemPanel } from "@/components/infra/system-panel"
 import { EventsPanel } from "@/components/infra/events-panel"
 import { useCapabilities, type Capabilities } from "@/lib/capabilities"
+import {
+  healthCounts, healthDetail, healthDotClass, parseCatalogHealth, type CatalogHealth,
+} from "@/lib/catalog-health"
 
 interface Service {
   name: string
@@ -82,6 +85,27 @@ function ServicesPanel() {
     const interval = window.setInterval(() => void fetchServices(), 30000)
     return () => { window.clearTimeout(initial); window.clearInterval(interval) }
   }, [fetchServices])
+
+  // Data catalogs: one status per enabled catalog the caller may use. Only where the
+  // catalog capability is on; a failed read hides the group rather than the page.
+  const catalogsOn = caps.catalog === true
+  const [catalogHealth, setCatalogHealth] = useState<CatalogHealth[]>([])
+  const fetchCatalogHealth = useCallback(async () => {
+    if (!catalogsOn) return
+    try {
+      const r = await fetch("/api/catalogs/health")
+      setCatalogHealth(r.ok ? parseCatalogHealth(await r.json()) : [])
+    } catch {
+      setCatalogHealth([])
+    }
+  }, [catalogsOn])
+
+  useEffect(() => {
+    if (!catalogsOn) return
+    const initial = window.setTimeout(() => void fetchCatalogHealth(), 0)
+    const interval = window.setInterval(() => void fetchCatalogHealth(), 30000)
+    return () => { window.clearTimeout(initial); window.clearInterval(interval) }
+  }, [catalogsOn, fetchCatalogHealth])
 
   // Fallback descriptions only — the backend now supplies `description`.
   const serviceDescriptions: Record<string, string> = {
@@ -180,7 +204,13 @@ function ServicesPanel() {
       <div className="flex items-center gap-1.5 border-b px-3 h-11 shrink-0 bg-background">
         <InfraTabs active="services" />
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={fetchServices} disabled={loading}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs gap-1.5"
+            onClick={() => { void fetchServices(); void fetchCatalogHealth() }}
+            disabled={loading}
+          >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             <span className="hidden md:inline">Refresh</span>
           </Button>
@@ -396,6 +426,40 @@ function ServicesPanel() {
               </Card>
             ))}
           </div>
+          )}
+
+          {catalogsOn && catalogHealth.length > 0 && (
+            <section aria-labelledby="data-catalogs-heading" className="space-y-2 pt-2">
+              <div className="flex items-baseline gap-2">
+                <h2 id="data-catalogs-heading" className="text-sm font-semibold">Data catalogs</h2>
+                <span className="text-xs text-muted-foreground">
+                  {healthCounts(catalogHealth).reachable} of {catalogHealth.length} reachable · checked at most once a minute
+                </span>
+              </div>
+              <ul className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {catalogHealth.map((c) => (
+                  <li key={c.name} className="flex items-start gap-2.5 rounded-md border dp-surface px-3 py-2">
+                    <span
+                      className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${healthDotClass(c)}`}
+                      role="img"
+                      aria-label={c.status === "reachable" ? "Reachable" : "Error"}
+                    />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 text-sm font-medium">
+                        <span className="truncate">{c.name}</span>
+                        {c.is_default && <span className="text-xs font-normal text-muted-foreground">default</span>}
+                      </div>
+                      <p
+                        className={`text-xs break-words ${c.status === "reachable" ? "text-muted-foreground" : "text-[var(--dp-bad)]"}`}
+                        title={healthDetail(c)}
+                      >
+                        {healthDetail(c)}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
         </>
         )}

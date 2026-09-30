@@ -27,7 +27,9 @@ import asyncio
 import json
 import logging
 import re
+import time
 import uuid
+from datetime import datetime, timezone
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -355,6 +357,27 @@ async def delete_catalog(name: str, admin: dict = Depends(require_admin)):
     return {"deleted": name}
 
 
+async def probe(entry, timeout: float) -> dict:
+    """List `entry`'s namespaces within `timeout` seconds, on a worker thread. Never
+    raises: {ok, namespaces, error, latency_ms}, the error sanitised (no credential,
+    no URL userinfo). The Test button and the Services health both use this."""
+    from app.api import catalog_backend
+    secret = catalog_registry.secret_for(entry)
+    started = time.monotonic()
+    try:
+        reader = catalog_backend.reader_for_entry(entry)
+        namespaces = list(await asyncio.wait_for(asyncio.to_thread(reader.list_namespaces),
+                                                 timeout=timeout))
+        ok, error = True, None
+    except asyncio.TimeoutError:
+        namespaces, ok, error = [], False, f"No answer within {timeout}s."
+    except Exception as e:
+        namespaces, ok = [], False
+        error = catalog_backend.sanitize_error(e, [secret])
+    return {"ok": ok, "namespaces": namespaces, "error": error,
+            "latency_ms": int((time.monotonic() - started) * 1000)}
+
+
 @router.post("/catalogs/{name}/test")
 async def test_catalog(name: str, admin: dict = Depends(require_admin)):
     """Try to list the catalog's namespaces within TEST_TIMEOUT_SECONDS. A disabled
@@ -369,20 +392,56 @@ async def test_catalog(name: str, admin: dict = Depends(require_admin)):
         _bad(f"No catalog named '{name}'.", 404)
     # A remembered failure would answer for the catalog without trying it again.
     catalog_backend.reset_rest_cache(entry.name)
-    secret = catalog_registry.secret_for(entry)
-    try:
-        reader = catalog_backend.reader_for_entry(entry)
-        namespaces = await asyncio.wait_for(asyncio.to_thread(reader.list_namespaces),
-                                            timeout=TEST_TIMEOUT_SECONDS)
-    except asyncio.TimeoutError:
-        return {"ok": False, "namespaces": [], "namespace_count": 0,
-                "error": f"No answer within {TEST_TIMEOUT_SECONDS}s."}
-    except Exception as e:
-        return {"ok": False, "namespaces": [], "namespace_count": 0,
-                "error": catalog_backend.sanitize_error(e, [secret])}
-    namespaces = list(namespaces)
-    return {"ok": True, "namespaces": namespaces[:20], "namespace_count": len(namespaces),
-            "error": None}
+    res = await probe(entry, TEST_TIMEOUT_SECONDS)
+    return {"ok": res["ok"], "namespaces": res["namespaces"][:20],
+            "namespace_count": len(res["namespaces"]), "error": res["error"],
+            "latency_ms": res["latency_ms"]}
+
+
+# ── health: one status per enabled catalog, for the Services page ─────────────
+#
+# The Test button's probe with a shorter deadline, every catalog at once, cached per
+# replica for HEALTH_TTL_SECONDS so the page's 30 s poll does not probe every catalog
+# on every open tab. A remembered REST failure (catalog_backend) is reported as the
+# error it is rather than retried — the Test button is the way to force a retry.
+
+HEALTH_TIMEOUT_SECONDS = 5
+HEALTH_TTL_SECONDS = 60
+_health: dict = {}          # entry fingerprint -> (monotonic time, result)
+
+
+def reset_health_cache() -> None:
+    _health.clear()
+
+
+def _health_key(entry) -> str:
+    return json.dumps([entry.name, entry.kind, entry.engine_catalog, entry.config or {},
+                       entry.secret_ref], sort_keys=True, default=str)
+
+
+async def _health_of(entry) -> dict:
+    key = _health_key(entry)
+    hit = _health.get(key)
+    if hit and time.monotonic() - hit[0] < HEALTH_TTL_SECONDS:
+        return hit[1]
+    res = await probe(entry, HEALTH_TIMEOUT_SECONDS)
+    out = {"status": "reachable" if res["ok"] else "error", "error": res["error"],
+           "latency_ms": res["latency_ms"] if res["ok"] else None,
+           "checked_at": datetime.now(timezone.utc).isoformat()}
+    _health[key] = (time.monotonic(), out)
+    return out
+
+
+@router.get("/catalogs/health", dependencies=[Depends(require_permission("catalog:read"))])
+async def catalogs_health(user: dict = Depends(require_user)):
+    """Reachable or error (sanitised), and latency, for each enabled catalog the
+    caller may use. One slow or failing catalog never holds up the others."""
+    access = await catalog_access.for_caller(user)
+    entries = access.entries()
+    results = await asyncio.gather(*(_health_of(e) for e in entries))
+    return {"catalogs": [{"name": e.name, "kind": e.kind, "is_default": e.is_default, **r}
+                         for e, r in zip(entries, results)],
+            "ttl_seconds": HEALTH_TTL_SECONDS}
 
 
 # ── grants: who may use a catalog (multi-catalog P3, app/catalog_access.py) ────
