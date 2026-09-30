@@ -24,8 +24,8 @@ import httpx
 import sqlglot
 from sqlglot import exp
 
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from typing import Optional
 
 from app.guardrails import pii_ko
@@ -170,6 +170,30 @@ def _schema_for_caller(schema_ctx: str, access) -> str:
             name = m.group("catalog").strip()
             keep = access.allows_sql_catalog(name) and (
                 name.lower() != prefix or access.allows_sql_catalog(None))
+        elif keep and line.startswith("  "):
+            kept_tables += 1
+        if keep:
+            out.append(line)
+    if sections and not kept_tables:
+        return "No tables found in the catalog."
+    return "\n".join(out)
+
+
+def _schema_for_catalog(schema_ctx: str, entry, prefix: str) -> str:
+    """The context with only `entry`'s section — the `catalog` a caller asked the SQL
+    to be written over. The default catalog's section is named by the engine's table
+    prefix; any other by its engine catalog name."""
+    wanted = {entry.name.lower(), entry.engine_catalog.lower()}
+    if entry.is_default:
+        wanted.add(prefix.lower())
+    else:
+        wanted.discard(prefix.lower())
+    out, keep, sections, kept_tables = [], True, 0, 0
+    for line in (schema_ctx or "").split("\n"):
+        m = _SECTION.match(line.strip())
+        if m:
+            sections += 1
+            keep = m.group("catalog").strip().lower() in wanted
         elif keep and line.startswith("  "):
             kept_tables += 1
         if keep:
@@ -406,6 +430,10 @@ def _active_provider_is_external() -> Optional[bool]:
 class AskRequest(BaseModel):
     question: str
     context: Optional[str] = None
+    catalog: Optional[str] = Field(
+        default=None,
+        description="Write SQL only over tables in this data catalog. Omit for every "
+                    "catalog the caller may use.")
 
 
 class AskResponse(BaseModel):
@@ -444,9 +472,20 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
             pii_masked=pii_count,
         )
 
-    schema_ctx = await asyncio.to_thread(_get_schema_context)
     access = await catalog_access.for_caller(user)
+    entry = None
+    if req.catalog:
+        # A hidden catalog is an unknown one: the same 404 and message.
+        from app import catalog_registry
+        try:
+            entry = access.resolve(req.catalog)
+        except catalog_registry.UnknownCatalog as e:
+            raise HTTPException(404, str(e))
+    schema_ctx = await asyncio.to_thread(_get_schema_context)
     schema_ctx = _schema_for_caller(schema_ctx, access)
+    if entry is not None:
+        from app.api.query_engine import get_engine
+        schema_ctx = _schema_for_catalog(schema_ctx, entry, get_engine().ai_table_prefix)
 
     def _validate(candidate: str):
         # EXPLAIN against a catalog the caller may not use would tell it what exists

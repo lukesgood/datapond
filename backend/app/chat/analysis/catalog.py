@@ -33,6 +33,9 @@ class TableSearch(_Strict):
     query: str = Field(
         description="Words to match against table and namespace names, for example "
                     "'orders customer'. Column names are not searched.")
+    catalog: Optional[str] = Field(
+        default=None,
+        description="Search only this data catalog. Omit to search every catalog.")
 
 
 class RelationshipQuery(_Strict):
@@ -88,12 +91,17 @@ async def find_tables(params: dict, user: dict) -> dict:
     Still returns nothing when nothing matches: an empty result the user can refine
     beats a list of everything.
     """
+    access = await _access(user)
+    # A named catalog is resolved first, so a hidden or unknown one is the same error
+    # whatever the query words are.
+    entries = ([access.resolve(params["catalog"])] if params.get("catalog")
+               else access.entries())
     tokens = {t for t in _TOKEN.findall(params["query"].lower()) if len(t) >= _MIN_TOKEN}
     if not tokens:
         return {"tables": [], "query": params["query"]}
 
     scored = []
-    for entry in (await _access(user)).entries():
+    for entry in entries:
         try:
             reader = get_catalog_reader(entry.name)
             namespaces = reader.list_namespaces()

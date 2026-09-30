@@ -5,7 +5,7 @@ Action type, resolution, validation, the gate — and assembles what these modul
 declare.
 """
 import logging
-from typing import Callable, Dict
+from typing import Callable, Dict, Optional
 
 from pydantic import Field
 
@@ -24,11 +24,16 @@ class SqlText(_Strict):
 class NaturalQuestion(_Strict):
     question: str = Field(
         description="What you want to know, in plain language. The answer is SQL, which is not run.")
+    catalog: Optional[str] = Field(
+        default=None,
+        description="Write SQL only over tables in this data catalog. Omit for every "
+                    "catalog you may use.")
 
 
 async def generate_sql(params: dict, user: dict) -> dict:
     from app.api.ai_sql import AskRequest, generate_sql as _generate
-    result = await _generate(AskRequest(question=params["question"]), user=user)
+    result = await _generate(AskRequest(question=params["question"],
+                                        catalog=params.get("catalog")), user=user)
     return {"sql": result.sql, "explanation": result.explanation,
             "validated": result.validated, "needs_input": result.needs_input}
 

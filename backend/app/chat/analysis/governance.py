@@ -40,11 +40,15 @@ async def explain_policy(params: dict, user: dict) -> dict:
     fits well inside that budget for the common case; a `table` filter narrows it
     further when there are more than that."""
     from app.rls import loader as rls_loader
-    policies = await rls_loader.load_policies()
-    masks = await rls_loader.load_masks()
-    if params.get("catalog"):
-        from app import catalog_registry
-        entry = catalog_registry.resolve(params["catalog"])
+    from app import catalog_access
+    access = await catalog_access.for_caller(user)
+    # A hidden catalog is an unknown one (app/catalog_access.py): named, it is the
+    # unknown-catalog error; unnamed, its policies are not listed.
+    entry = access.resolve(params["catalog"]) if params.get("catalog") else None
+    policies = [p for p in await rls_loader.load_policies()
+                if access.allows_sql_catalog(p.catalog)]
+    masks = [m for m in await rls_loader.load_masks() if access.allows_sql_catalog(m.catalog)]
+    if entry is not None:
         names = {entry.name.lower(), entry.engine_catalog.lower()}
         policies = [p for p in policies if str(p.catalog).lower() in names]
         masks = [m for m in masks if str(m.catalog).lower() in names]
@@ -64,9 +68,45 @@ async def explain_policy(params: dict, user: dict) -> dict:
     }
 
 
+class CoverageQuery(_Strict):
+    catalog: Optional[str] = Field(
+        default=None,
+        description="Limit to tables in this data catalog. Omit for every catalog.")
+
+
+_COVERAGE_LISTS = ("covered", "uncovered", "orphaned_policies",
+                   "would_block_under_default_deny")
+
+
+def _coverage_for(out: dict, keep) -> dict:
+    """The coverage report with only the `catalog.ns.table` keys `keep` accepts, and
+    its counts recomputed from what is left."""
+    out = dict(out)
+    for key in _COVERAGE_LISTS:
+        if isinstance(out.get(key), list):
+            out[key] = [k for k in out[key] if keep(str(k).split(".", 1)[0])]
+    if isinstance(out.get("covered"), list) and isinstance(out.get("uncovered"), list):
+        out["covered_count"] = len(out["covered"])
+        out["uncovered_count"] = len(out["uncovered"])
+        out["total"] = out["covered_count"] + out["uncovered_count"]
+    return out
+
+
 async def policy_coverage(params: dict, user: dict) -> dict:
+    """RLS coverage, for the catalogs this caller may use — a hidden catalog is an
+    unknown one here as in every catalog tool. The Governance page's own route
+    (`/governance/rls/coverage`) is unchanged."""
     from app.api.governance import rls_coverage
-    return {"coverage": await rls_coverage(user=user)}
+    from app import catalog_access
+    access = await catalog_access.for_caller(user)
+    entry = access.resolve(params["catalog"]) if params.get("catalog") else None
+    out = await rls_coverage(user=user)
+    if entry is not None:
+        names = {entry.name.lower(), entry.engine_catalog.lower()}
+        out = _coverage_for(out, lambda cat: cat.lower() in names)
+    elif access.hidden_sql_names():
+        out = _coverage_for(out, access.allows_sql_catalog)
+    return {"coverage": out}
 
 
 async def summary_stats(params: dict, user: dict) -> dict:
@@ -677,7 +717,7 @@ ACTIONS = (
            ("/governance",), "governance:read", ActionKind.READ, PolicyQuery),
     Action("governance.policy_coverage", "Policy coverage",
            "Which tables have a row-level policy and which have none.",
-           ("*",), "governance:read", ActionKind.READ, _Strict),
+           ("*",), "governance:read", ActionKind.READ, CoverageQuery),
     Action("governance.summary_stats", "Governance summary",
            "Counts of policies, masked columns and covered tables.",
            ("*",), "governance:read", ActionKind.READ, _Strict),
