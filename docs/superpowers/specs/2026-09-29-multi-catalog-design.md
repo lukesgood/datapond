@@ -71,6 +71,26 @@ configured target.
 | **P3 access and tools** | Per-caller catalog grants (listing filter + table-reference check on the query path); `catalog` on MCP/REST tool parameters; audit rows carry the catalog | ~1 week |
 | **P4 proof** | CI installs two Polaris catalogs plus one of another kind; measured S3 Tables, Unity Catalog, cross-account Glue | ~0.5 week |
 
+**P2 status (2026-09-30).** Shipped: `IcebergRestReader` (`app/api/catalog_backend.py`)
+for kind `iceberg_rest` and for non-default `glue` entries with `config.via_rest`
+(Glue's REST endpoint, warehouse = account id; the default Glue entry stays on the Glue
+API); tables keyed by the namespace asked for (§5); every HTTP call bounded (5 s
+connect / 10 s read), a failed catalog remembered for 30 s and skipped in listings;
+config a per-kind whitelist; the credential write-only, vault-encrypted in
+`system_settings` (`catalog_secret.<name>`). Admin API `/api/catalogs` (list with
+`catalog:read`; create/patch/delete/test with a signed-in admin; one default, the
+default neither disabled nor deleted, a catalog named by an RLS/mask policy not
+deleted or renamed; audit rows via migration 0020). Settings → Data catalogs, and the
+list read-only on the Catalog page. Trino `trino.extraCatalogs` renders one REST
+catalog file per entry with Secret-backed credentials.
+Deferred: Glue cross-account **assume-role** (a `via_rest` entry uses the backend's own
+AWS credentials, so the other account must grant them — e.g. through a resource link or
+catalog policy); **per-catalog health in Services** (the Test button is the check
+today); Helm does not yet render Trino catalogs *from the registry* — `extraCatalogs`
+is kept in step by hand. Only mock-tested: the REST reader against live Polaris,
+Unity, Snowflake Open Catalog and S3 Tables, and Trino reading a SigV4/OAuth2 REST
+catalog.
+
 ## 4. Compatibility
 
 - One catalog configured: every response keeps its shape plus a `catalog` field; SQL
