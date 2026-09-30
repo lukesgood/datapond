@@ -7,7 +7,7 @@ Each entry here renders `<name>.properties` into the trino-catalog ConfigMap; `n
 must equal the registry entry's engine catalog.
 
 Credentials never appear in values: `credentialSecret` (OAuth2 client credential,
-`id:secret`) or `tokenSecret` (bearer token) name a Kubernetes Secret key, injected as
+`id:secret`, or only the secret when `credentialSecret.clientId` names the id) or `tokenSecret` (bearer token) name a Kubernetes Secret key, injected as
 an env var and referenced as ${ENV:...} — the pattern iceberg.properties already uses
 for the Polaris client secret.
 */}}
@@ -43,6 +43,9 @@ for the Polaris client secret.
 {{- end -}}
 {{- if and $c.credentialSecret $c.tokenSecret -}}
 {{- fail (printf "trino.extraCatalogs[%s]: set credentialSecret or tokenSecret, not both" $name) -}}
+{{- end -}}
+{{- if and $c.credentialSecret $c.credentialSecret.clientId (not (regexMatch "^[A-Za-z0-9_.-]{1,128}$" (toString $c.credentialSecret.clientId))) -}}
+{{- fail (printf "trino.extraCatalogs[%s]: credentialSecret.clientId must be a plain client id (no ':')" $name) -}}
 {{- end -}}
 {{- range $s := (list $c.credentialSecret $c.tokenSecret) -}}
 {{- if and $s (not (and $s.name $s.key)) -}}
@@ -90,7 +93,7 @@ for the Polaris client secret.
   {{- else if or $c.credentialSecret $c.tokenSecret }}
   iceberg.rest-catalog.security=OAUTH2
   {{- if $c.credentialSecret }}
-  iceberg.rest-catalog.oauth2.credential=${ENV:TRINO_CATALOG_{{ upper $c.name }}_CREDENTIAL}
+  iceberg.rest-catalog.oauth2.credential={{ if $c.credentialSecret.clientId }}{{ $c.credentialSecret.clientId }}:{{ end }}${ENV:TRINO_CATALOG_{{ upper $c.name }}_CREDENTIAL}
   {{- else }}
   iceberg.rest-catalog.oauth2.token=${ENV:TRINO_CATALOG_{{ upper $c.name }}_TOKEN}
   {{- end }}

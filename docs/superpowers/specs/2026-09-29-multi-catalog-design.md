@@ -83,9 +83,15 @@ default neither disabled nor deleted, a catalog named by an RLS/mask policy not
 deleted or renamed; audit rows via migration 0020). Settings → Data catalogs, and the
 list read-only on the Catalog page. Trino `trino.extraCatalogs` renders one REST
 catalog file per entry with Secret-backed credentials.
-Deferred: Glue cross-account **assume-role** (a `via_rest` entry uses the backend's own
-AWS credentials, so the other account must grant them — e.g. through a resource link or
-catalog policy); **per-catalog health in Services** (the Test button is the check
+Glue cross-account **assume-role** shipped after: config `role_arn` (+ `external_id`) on a
+non-default `glue` entry (GlueCatalog and `via_rest`); STS session `datapond-catalog-<name>`,
+3600 s, cached and refreshed 5 min early (`app/aws_assume_role.py`); the node role needs
+`sts:AssumeRole` on that role (commented example in `terraform/iam.tf`, not applied). Mock-tested
+only; never run against a real second account. **P4 CI:** job `multi-catalog-install` installs
+two Polaris catalogs (`polaris.extraCatalogNames`, `trino.extraCatalogs`, overlay
+`helm/datapond/ci/values-multicatalog.yaml`) and checks tree, resolver ambiguity, 3-part
+queries and the Test route (`.github/scripts/multicatalog_check.py`); it has not yet run.
+Deferred: **per-catalog health in Services** (the Test button is the check
 today); Helm does not yet render Trino catalogs *from the registry* — `extraCatalogs`
 is kept in step by hand. Only mock-tested: the REST reader against live Polaris,
 Unity, Snowflake Open Catalog and S3 Tables, and Trino reading a SigV4/OAuth2 REST

@@ -548,6 +548,83 @@ jobs:
           kubectl -n datapond logs statefulset/ollama -c pull-model --tail=40 || true
           kubectl -n datapond logs deploy/backend --tail=120 || true
 
+  multi-catalog-install:
+    name: Two Polaris catalogs listed, kept apart and queried (kind, Trino)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    # Multi-catalog (docs/superpowers/specs/2026-09-29-multi-catalog-design.md, P4) was
+    # only ever mock-tested: the registry, the per-catalog readers, the resolver's
+    # cross-catalog ambiguity error and Trino's extra catalog files. This installs the
+    # chart with Polaris, MinIO and Trino and TWO Polaris catalogs — `iceberg` (default)
+    # and `catb`, created by the catalog-init Job (polaris.extraCatalogNames) and made
+    # queryable by trino.extraCatalogs — then registers `catb` through POST /api/catalogs
+    # and checks the answers end to end (.github/scripts/multicatalog_check.py).
+    # The model is the deterministic stand-in of the ephemeral profile; nothing here
+    # needs a model or a cloud account.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create a cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: multicatalog
+          wait: 120s
+
+      - name: Build and load the images
+        run: |
+          docker build -f backend/Dockerfile --target enterprise -t datapond-backend:ci .
+          docker build -f frontend/Dockerfile -t datapond-frontend:ci frontend
+          kind load docker-image datapond-backend:ci datapond-frontend:ci --name multicatalog
+
+      # `--wait` returns after the post-install hooks, including the Polaris catalog-init
+      # Job that creates both catalogs and their `raw` namespace.
+      - name: Install with two Polaris catalogs
+        run: |
+          helm install datapond helm/datapond \
+            --namespace datapond --create-namespace \
+            -f helm/datapond/values-ephemeral.yaml \
+            -f helm/datapond/ci/values-multicatalog.yaml \
+            --set-string backend.image.repository=datapond-backend \
+            --set-string backend.image.tag=ci \
+            --set backend.image.pullPolicy=Never \
+            --set-string frontend.image.repository=datapond-frontend \
+            --set-string frontend.image.tag=ci \
+            --set frontend.image.pullPolicy=Never \
+            --wait --timeout 20m
+
+      - name: Both catalogs exist in Polaris
+        run: |
+          kubectl -n datapond exec deploy/backend -- python -c "
+          import json, os, urllib.parse, urllib.request
+          base = os.environ['POLARIS_URI'].rsplit('/api/catalog', 1)[0]
+          tok = json.load(urllib.request.urlopen(urllib.request.Request(
+              base + '/api/catalog/v1/oauth/tokens', method='POST',
+              data=urllib.parse.urlencode({'grant_type': 'client_credentials',
+                  'client_id': os.environ['POLARIS_CLIENT_ID'],
+                  'client_secret': os.environ['POLARIS_CLIENT_SECRET'],
+                  'scope': 'PRINCIPAL_ROLE:ALL'}).encode()), timeout=20))['access_token']
+          cats = json.load(urllib.request.urlopen(urllib.request.Request(
+              base + '/api/management/v1/catalogs',
+              headers={'Authorization': 'Bearer ' + tok}), timeout=20))
+          names = sorted(c['name'] for c in cats['catalogs'])
+          print('polaris catalogs:', names)
+          assert {'iceberg', 'catb'} <= set(names), names
+          "
+
+      - name: Register, create, list, resolve, query, test
+        run: kubectl -n datapond exec -i deploy/backend -- python - < .github/scripts/multicatalog_check.py
+
+      - name: Show the cluster on failure
+        if: failure()
+        run: |
+          kubectl -n datapond get pods,jobs,pvc -o wide || true
+          kubectl -n datapond describe pods | tail -150 || true
+          kubectl -n datapond logs job/polaris-catalog-init --tail=80 || true
+          kubectl -n datapond logs deploy/polaris --tail=80 || true
+          kubectl -n datapond logs deploy/trino --tail=120 || true
+          kubectl -n datapond get configmap trino-catalog -o yaml | grep -v -i "secret" || true
+          kubectl -n datapond logs deploy/backend --tail=150 || true
+
   helm-lint:
     name: Helm chart lint
     runs-on: ubuntu-latest
@@ -562,6 +639,9 @@ jobs:
             f="helm/datapond/$v.yaml"
             [ -f "$f" ] && { echo "== render $v =="; helm template datapond helm/datapond --values "$f" >/dev/null; }
           done
+          echo "== render the multi-catalog CI overlay =="
+          helm template datapond helm/datapond -f helm/datapond/values-ephemeral.yaml \
+            -f helm/datapond/ci/values-multicatalog.yaml >/dev/null
       - name: FEATURE flags reflect component toggles
         run: |
           # The flag a profile emits must match whether that profile renders the

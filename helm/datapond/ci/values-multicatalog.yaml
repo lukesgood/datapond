@@ -1,0 +1,65 @@
+# CI overlay: the ephemeral install plus MinIO, Polaris and Trino, with TWO Polaris
+# catalogs. Applied after values-ephemeral.yaml:
+#
+#   helm install ... -f values-ephemeral.yaml -f ci/values-multicatalog.yaml
+#
+# It exists for one job (multi-catalog-install in .github/workflows/ci.yml): to prove,
+# on a cluster nobody configured, that DataPond lists, governs and queries more than one
+# catalog. Everything else stays off, as in values-ephemeral.yaml.
+#
+# `iceberg` is the default catalog (the chart's own); `catb` is created by the
+# polaris-catalog-init Job (polaris.extraCatalogNames), registered with DataPond through
+# POST /api/catalogs, and made queryable by trino.extraCatalogs — its name is the Trino
+# catalog and the registry entry's engine_catalog.
+
+# The Polaris init Job and the MinIO-backed warehouse need an S3 API; the fixed
+# ClusterIP is what the chart's CoreDNS override answers virtual-host bucket names with
+# (a free address in kind's service CIDR, 10.96.0.0/12).
+storage:
+  provider: s3
+  endpoint: "minio:9000"
+  region: "us-east-1"
+
+minio:
+  enabled: true
+  clusterIP: 10.96.200.150
+  persistence:
+    enabled: true
+    size: 2Gi
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 768Mi }
+
+polaris:
+  enabled: true
+  replicas: 1
+  resources:
+    requests: { cpu: 200m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  initNamespaces: [raw]
+  extraCatalogNames: [catb]
+
+trino:
+  enabled: true
+  replicas: 1
+  # jvm.config caps the heap at 2G; the container needs headroom above it.
+  resources:
+    requests: { cpu: 500m, memory: 2560Mi }
+    limits: { cpu: "2", memory: 3584Mi }
+  persistence:
+    enabled: true
+    size: 2Gi
+  extraCatalogs:
+    - name: catb
+      type: rest
+      uri: http://polaris.datapond.svc.cluster.local:8181/api/catalog
+      warehouse: catb
+      # The same Polaris client the default `iceberg` catalog authenticates as: the id
+      # from values, the secret from the chart's own Secret.
+      credentialSecret: {name: datapond-secrets, key: POLARIS_CLIENT_SECRET, clientId: polaris-client}
+      scope: PRINCIPAL_ROLE:ALL
+
+# Only what a query needs; the backend must find Polaris and Trino in one replica so a
+# catalog registered through the API is visible to the process that answers next.
+networkPolicy:
+  enabled: false

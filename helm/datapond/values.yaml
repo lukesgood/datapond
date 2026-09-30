@@ -697,6 +697,12 @@ polaris:
   storage:
     type: s3
     defaultBaseLocation: s3://iceberg/warehouse
+  # Further Polaris catalogs the catalog-init Job creates next to `catalogName`, each
+  # with the same namespaces and grants and its own base location
+  # s3://<warehouseBucket>/catalogs/<name>. Names are lowercase identifiers; add the
+  # matching trino.extraCatalogs entry (credentialSecret.clientId lets it reuse the
+  # Polaris client secret) so Trino can query them. Empty renders the Job unchanged.
+  extraCatalogNames: []
 
 # RisingWave (Real-time Streaming SQL)
 risingwave:

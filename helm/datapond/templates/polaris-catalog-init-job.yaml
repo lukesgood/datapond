@@ -103,6 +103,48 @@ spec:
           curl -sf "$PURL/api/management/v1/catalogs/$CATALOG/catalog-roles/catalog_admin/grants" \
             -H "$AUTH" | grep -q "CATALOG_MANAGE_CONTENT" \
             || { echo "ERROR: CATALOG_MANAGE_CONTENT grant missing on catalog_admin"; exit 1; }
+          {{- if .Values.polaris.extraCatalogNames }}
+
+          # Additional catalogs (polaris.extraCatalogNames): same shape as the first.
+          init_extra() {
+            N="$1"; LOC="s3://{{ .Values.polaris.warehouseBucket | default "iceberg" }}/catalogs/$N"
+            echo "Creating catalog '$N' (idempotent)..."
+            code=$(curl -s -o /tmp/o -w "%{http_code}" -X POST "$PURL/api/management/v1/catalogs" \
+              -H "$AUTH" -H "Content-Type: application/json" -d "{
+                \"catalog\":{\"name\":\"$N\",\"type\":\"INTERNAL\",
+                \"properties\":{\"default-base-location\":\"$LOC\"},
+                \"storageConfigInfo\":{\"storageType\":\"S3\",\"allowedLocations\":[\"$LOC\"],
+                \"roleArn\":\"arn:aws:iam::000000000000:role/polaris\"}}}")
+            echo "  catalog $N -> $code"; [ "$code" = "201" ] || [ "$code" = "409" ] || { cat /tmp/o; exit 1; }
+            curl -s -o /dev/null -w "  grant $N -> %{http_code}\n" -X PUT \
+              "$PURL/api/management/v1/catalogs/$N/catalog-roles/catalog_admin/grants" \
+              -H "$AUTH" -H "Content-Type: application/json" \
+              -d '{"grant":{"type":"catalog","privilege":"CATALOG_MANAGE_CONTENT"}}' || true
+            curl -s -o /dev/null -w "  assign $N -> %{http_code}\n" -X PUT \
+              "$PURL/api/management/v1/principal-roles/service_admin/catalog-roles/$N" \
+              -H "$AUTH" -H "Content-Type: application/json" \
+              -d '{"catalogRole":{"name":"catalog_admin"}}' || true
+            for NS in $NAMESPACES; do
+              nc=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+                "$PURL/api/catalog/v1/$N/namespaces" \
+                -H "$AUTH" -H "Content-Type: application/json" -d "{\"namespace\":[\"$NS\"]}")
+              echo "  namespace $N/$NS -> $nc"
+              [ "$nc" = "200" ] || [ "$nc" = "409" ] || { echo "ERROR: namespace $N/$NS failed ($nc)"; exit 1; }
+            done
+            curl -sf "$PURL/api/management/v1/catalogs/$N/catalog-roles/catalog_admin/grants" \
+              -H "$AUTH" | grep -q "CATALOG_MANAGE_CONTENT" \
+              || { echo "ERROR: CATALOG_MANAGE_CONTENT grant missing on $N"; exit 1; }
+          }
+          {{- range $n := .Values.polaris.extraCatalogNames }}
+          {{- if not (regexMatch "^[a-z][a-z0-9_]{0,63}$" (toString $n)) }}
+          {{- fail (printf "polaris.extraCatalogNames: %q must be a lowercase identifier" (toString $n)) }}
+          {{- end }}
+          {{- if eq (toString $n) ($.Values.polaris.catalogName | default "iceberg") }}
+          {{- fail (printf "polaris.extraCatalogNames: %q is already the primary catalog" (toString $n)) }}
+          {{- end }}
+          init_extra "{{ $n }}"
+          {{- end }}
+          {{- end }}
           echo "Polaris catalog init complete."
         resources:
           requests:
