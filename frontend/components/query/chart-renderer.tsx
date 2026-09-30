@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useRef, useState } from "react"
 import {
   LineChart,
   Line,
@@ -19,7 +20,9 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts"
-import { shapeChart, type Aggregate, type ChartType, type Shaped } from "@/lib/chart-data"
+import {
+  heatmapCellWidth, heatmapForeground, heatmapMixPercent, shapeChart, type Aggregate, type ChartType, type Shaped,
+} from "@/lib/chart-data"
 import { resolveYs } from "@/lib/chart-recommend"
 
 export type { ChartType }
@@ -240,20 +243,28 @@ export function ChartRenderer({
   }
 
   if (shaped.kind === "histogram") {
-    const { bins, column } = shaped
+    const { bins, column, note } = shaped
     return (
-      <ResponsiveContainer width="100%" height={400}>
-        <BarChart data={bins} margin={margin} barCategoryGap={1}>
-          {grid}
-          <XAxis dataKey="label" stroke={AXIS_STROKE} fontSize={11} tickLine={false} axisLine={false}
-                 interval="preserveStartEnd" minTickGap={24}
-                 label={axisLabel(column, { position: "insideBottom", offset: -16 })} />
-          <YAxis stroke={AXIS_STROKE} fontSize={12} tickLine={false} axisLine={false} allowDecimals={false}
-                 label={axisLabel("rows", { angle: -90, position: "insideLeft", style: { textAnchor: "middle" } })} />
-          <Tooltip contentStyle={TOOLTIP_STYLE} />
-          <Bar dataKey="count" name="rows" fill={color(0)} radius={[2, 2, 0, 0]} isAnimationActive={ANIMATE} />
-        </BarChart>
-      </ResponsiveContainer>
+      <div>
+        {note && <p className="mb-1 text-xs text-muted-foreground">{note}</p>}
+        <ResponsiveContainer width="100%" height={400}>
+          <BarChart data={bins} margin={margin} barCategoryGap={1}>
+            {grid}
+            <XAxis dataKey="label" stroke={AXIS_STROKE} fontSize={11} tickLine={false} axisLine={false}
+                   interval="preserveStartEnd" minTickGap={24}
+                   label={axisLabel(column, { position: "insideBottom", offset: -16 })} />
+            <YAxis stroke={AXIS_STROKE} fontSize={12} tickLine={false} axisLine={false} allowDecimals={false}
+                   label={axisLabel("rows", { angle: -90, position: "insideLeft", style: { textAnchor: "middle" } })} />
+            <Tooltip contentStyle={TOOLTIP_STYLE} />
+            <Bar dataKey="count" name="rows" fill={color(0)} radius={[2, 2, 0, 0]} isAnimationActive={ANIMATE}>
+              {bins.map((b, i) => (
+                <Cell key={i} fill={color(0)} fillOpacity={b.overflow ? 0.45 : 1}
+                      stroke={b.overflow ? color(0) : undefined} strokeDasharray={b.overflow ? "3 2" : undefined} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
     )
   }
 
@@ -289,53 +300,86 @@ export function ChartRenderer({
   )
 }
 
+const HEATMAP_LABEL_WIDTH = 104
+
+/** True while the `dark` class is on <html>; text contrast depends on the theme. */
+function useDarkTheme(): boolean {
+  const [dark, setDark] = useState(false)
+  useEffect(() => {
+    const root = document.documentElement
+    const read = () => setDark(root.classList.contains("dark"))
+    read()
+    const obs = new MutationObserver(read)
+    obs.observe(root, { attributes: true, attributeFilter: ["class"] })
+    return () => obs.disconnect()
+  }, [])
+  return dark
+}
+
 /** Two categories and a measure as a grid of cells: one hue, light to dark, so the
  *  eye reads magnitude and nothing else. A plain grid rather than a library — it is
- *  a table with a background. */
+ *  a table with a background. Cells share the container's width (36–120px each). */
 function Heatmap({ shaped }: { shaped: Extract<Shaped, { kind: "heatmap" }> }) {
   const { xs, ys, cells, min, max, valueLabel, xKey, yKey } = shaped
+  const ref = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(0)
+  const dark = useDarkTheme()
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    setWidth(el.clientWidth)
+    const obs = new ResizeObserver(entries => setWidth(Math.floor(entries[0].contentRect.width)))
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
   const span = max - min
-  const showNumbers = xs.length <= 10 && ys.length <= 16
+  const cell = heatmapCellWidth(width, HEATMAP_LABEL_WIDTH, xs.length)
+  const cellHeight = Math.min(56, Math.max(32, Math.round(cell * 0.5)))
+  const showNumbers = cell >= 44
+  const gridWidth = HEATMAP_LABEL_WIDTH + cell * xs.length
   return (
-    <div className="overflow-auto" role="img"
+    <div ref={ref} className="w-full overflow-auto" role="img"
          aria-label={`Heatmap of ${valueLabel} by ${xKey} and ${yKey}`}>
-      <div className="inline-grid gap-px text-2xs"
-           style={{ gridTemplateColumns: `minmax(72px, auto) repeat(${xs.length}, minmax(28px, 1fr))` }}>
-        <div className="p-1 text-muted-foreground">{yKey} \ {xKey}</div>
-        {xs.map(x => (
-          <div key={x} className="truncate p-1 text-center text-muted-foreground" title={x}>{x}</div>
-        ))}
-        {ys.map((y, r) => (
-          <div key={y} className="contents">
-            <div className="truncate p-1 pr-2 text-right text-muted-foreground" title={y}>{y}</div>
-            {xs.map((x, c) => {
-              const v = cells[r][c]
-              const t = v === null ? 0 : span === 0 ? 0.6 : (v - min) / span
-              return (
-                <div
-                  key={x}
-                  title={`${yKey}: ${y} · ${xKey}: ${x} · ${valueLabel}: ${v === null ? "no data" : formatValue(v)}`}
-                  className="flex h-8 items-center justify-center tabular-nums"
-                  style={{
-                    background: v === null
-                      ? "var(--muted)"
-                      : `color-mix(in oklab, var(--series-1) ${Math.round(12 + t * 88)}%, var(--card))`,
-                    color: t > 0.55 ? "#fff" : "var(--foreground)",
-                  }}
-                >
-                  {showNumbers && v !== null ? formatValue(v) : ""}
-                </div>
-              )
-            })}
-          </div>
-        ))}
-      </div>
-      <div className="mt-2 flex items-center gap-2 text-2xs text-muted-foreground">
-        <span className="tabular-nums">{formatValue(min)}</span>
-        <span className="h-2 w-24 rounded-sm"
-              style={{ background: "linear-gradient(to right, color-mix(in oklab, var(--series-1) 12%, var(--card)), var(--series-1))" }} />
-        <span className="tabular-nums">{formatValue(max)}</span>
-        <span>{valueLabel}</span>
+      <div style={{ width: gridWidth }}>
+        <div className="grid gap-px text-xs"
+             style={{ gridTemplateColumns: `${HEATMAP_LABEL_WIDTH}px repeat(${xs.length}, ${cell}px)` }}>
+          <div className="truncate p-1 text-muted-foreground" title={`${yKey} \\ ${xKey}`}>{yKey} \ {xKey}</div>
+          {xs.map(x => (
+            <div key={x} className="truncate p-1 text-center text-muted-foreground" title={x}>{x}</div>
+          ))}
+          {ys.map((y, r) => (
+            <div key={y} className="contents">
+              <div className="flex items-center justify-end truncate p-1 pr-2 text-right text-muted-foreground" title={y}>{y}</div>
+              {xs.map((x, c) => {
+                const v = cells[r][c]
+                const t = v === null ? 0 : span === 0 ? 0.6 : (v - min) / span
+                return (
+                  <div
+                    key={x}
+                    title={`${yKey}: ${y} · ${xKey}: ${x} · ${valueLabel}: ${v === null ? "no data" : formatValue(v)}`}
+                    className="flex items-center justify-center overflow-hidden text-xs tabular-nums"
+                    style={{
+                      height: cellHeight,
+                      background: v === null
+                        ? "var(--muted)"
+                        : `color-mix(in oklab, var(--series-1) ${heatmapMixPercent(t)}%, var(--card))`,
+                      color: v === null ? "var(--muted-foreground)" : `var(--${heatmapForeground(t, dark).token})`,
+                    }}
+                  >
+                    {showNumbers && v !== null ? formatValue(v) : ""}
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="tabular-nums">{formatValue(min)}</span>
+          <span className="h-2 flex-1 rounded-sm"
+                style={{ background: `linear-gradient(to right, color-mix(in oklab, var(--series-1) ${heatmapMixPercent(0)}%, var(--card)), var(--series-1))` }} />
+          <span className="tabular-nums">{formatValue(max)}</span>
+          <span className="truncate">{valueLabel}</span>
+        </div>
       </div>
     </div>
   )

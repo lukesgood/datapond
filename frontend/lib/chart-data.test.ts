@@ -4,7 +4,10 @@
  */
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { foldCategories, histogramBins, shapeChart, sturgesBins, xKindOf } from "./chart-data.ts"
+import {
+  foldCategories, formatCompact, heatmapCellWidth, heatmapForeground, histogramBins,
+  histogramPlan, shapeChart, sturgesBins, xKindOf,
+} from "./chart-data.ts"
 import { resolveYs } from "./chart-recommend.ts"
 
 type Row = Record<string, unknown>
@@ -192,4 +195,89 @@ test("a dashboard saved before multi-series (chartType, xAxis, yAxis) still shap
 
 test("no rows shapes as empty rather than throwing", () => {
   assert.equal(shapeChart({ type: "line", x: "a", ys: ["b"] }, []).kind, "empty")
+})
+
+// 496 ordinary order totals and 4 outliers roughly ten times larger.
+const skewed: number[] = [
+  ...Array.from({ length: 496 }, (_, i) => 20 + (i % 100)),
+  ...Array.from({ length: 4 }, (_, i) => 1500 + i * 100),
+]
+
+test("compact labels: K, M, B, and plain numbers below a thousand", () => {
+  assert.equal(formatCompact(45_000), "45K")
+  assert.equal(formatCompact(1_234), "1.2K")
+  assert.equal(formatCompact(1_200_000), "1.2M")
+  assert.equal(formatCompact(3_000_000_000), "3B")
+  assert.equal(formatCompact(12), "12")
+  assert.equal(formatCompact(0.25), "0.25")
+  assert.equal(formatCompact(-45_000), "-45K")
+})
+
+test("non-skewed data keeps equal-width Sturges bins and no overflow", () => {
+  const values = Array.from({ length: 100 }, (_, i) => i)
+  const plan = histogramPlan(values)
+  assert.equal(plan.overflow, null)
+  assert.equal(plan.bins.length, 8)
+  assert.deepEqual(plan.bins, histogramBins(values))
+  assert.ok(plan.bins.every(b => !b.overflow))
+})
+
+test("heavy skew puts the values above p99 in a marked final bin", () => {
+  const plan = histogramPlan(skewed)
+  assert.ok(plan.overflow, "skew is detected")
+  const last = plan.bins[plan.bins.length - 1]
+  assert.equal(last.overflow, true)
+  assert.equal(last.count, plan.overflow!.count)
+  assert.ok(plan.overflow!.count >= 1 && plan.overflow!.count <= 4)
+  assert.equal(last.label, `≥ ${formatCompact(plan.overflow!.from)}`)
+  assert.equal(plan.bins.reduce((s, b) => s + b.count, 0), skewed.length)
+  // the body is no longer one bar: no ordinary bin holds nearly everything
+  const body = plan.bins.slice(0, -1)
+  assert.ok(body.length >= 5 && body.length <= 30)
+  assert.ok(Math.max(...body.map(b => b.count)) < skewed.length * 0.5)
+  assert.match(plan.note!, new RegExp(`${plan.overflow!.count} values above p99 grouped into the last bar`))
+})
+
+test("a single value above p99 is singular in the note", () => {
+  const values = [...Array.from({ length: 99 }, (_, i) => i % 10 + 1), 10_000]
+  const plan = histogramPlan(values)
+  assert.ok(plan.overflow)
+  assert.match(plan.note!, /^1 value above p99/)
+})
+
+test("zero IQR with outliers still bins the body and flags the overflow", () => {
+  const values = [...Array(480).fill(0), ...Array.from({ length: 20 }, (_, i) => 100 + i)]
+  const plan = histogramPlan(values)
+  assert.ok(plan.overflow)
+  assert.equal(plan.bins.reduce((s, b) => s + b.count, 0), values.length)
+})
+
+test("shapeChart's histogram carries the note and the overflow bin", () => {
+  const s = shapeChart({ type: "histogram", x: "", ys: ["total_amount"] },
+                       skewed.map(total_amount => ({ total_amount })))
+  assert.equal(s.kind, "histogram")
+  if (s.kind !== "histogram") throw new Error("unreachable")
+  assert.ok(s.note)
+  assert.equal(s.bins[s.bins.length - 1].overflow, true)
+})
+
+test("heatmap cells fill the container between 36 and 120px", () => {
+  assert.equal(heatmapCellWidth(800, 96, 4), 120)   // wide container: capped
+  assert.equal(heatmapCellWidth(500, 96, 4), 101)   // fills the remainder
+  assert.equal(heatmapCellWidth(200, 96, 4), 36)    // narrow: floor, the grid scrolls
+  assert.equal(heatmapCellWidth(0, 96, 4), 36)      // not measured yet
+  assert.equal(heatmapCellWidth(800, 96, 0), 36)
+})
+
+test("cell text contrasts with both light and dark cells in both themes", () => {
+  for (const dark of [false, true]) {
+    const low = heatmapForeground(0, dark)
+    const high = heatmapForeground(1, dark)
+    assert.ok(low.contrast >= 4.5, `low cell ${dark}: ${low.contrast}`)
+    assert.ok(high.contrast >= 3.5, `high cell ${dark}: ${high.contrast}`)
+  }
+  // light theme: pale cells take the foreground token, never the card token
+  assert.equal(heatmapForeground(0, false).token, "foreground")
+  // dark theme: the background is dark, so text is the (light) foreground token too
+  assert.equal(heatmapForeground(0, true).token, "foreground")
 })
