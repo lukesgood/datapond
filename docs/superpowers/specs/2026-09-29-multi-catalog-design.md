@@ -97,6 +97,34 @@ is kept in step by hand. Only mock-tested: the REST reader against live Polaris,
 Unity, Snowflake Open Catalog and S3 Tables, and Trino reading a SigV4/OAuth2 REST
 catalog.
 
+**P3 status (2026-09-30) — per-caller catalog access.** Shipped: `catalog_grants`
+(migration 0021: catalog, `user`|`role`, principal; cascades with the catalog) and the
+rule in `app/catalog_access.py`. A catalog with no grants is open to every caller that
+passes today's checks; one with a grant is for the granted users (service accounts
+included) and roles plus signed-in admins — a key or IdP token on an admin account is
+not exempt. A hidden catalog is indistinguishable from an unknown one. Enforced at:
+listings (`/catalog/namespaces`, `/tables`, `/schemas` — also the Knowledge picker —
+`/health`, `/relationships`, `GET /api/catalogs`), detail (`/catalog/tables/{ns}/{t}`,
+`/preview`, `/catalog/columns` answer 404 with the unknown-catalog message; an unknown
+catalog there is now 404 too, was 400), the resolver (bare names match only the
+caller's catalogs; candidates and namespaces in errors are filtered), the query path
+(`/queries/execute` after resolution and before RLS, `/queries/plan`, the assistant's
+preview: a statement naming a hidden catalog is 403 with a `catalog:use` security
+audit row and a `refused` tool-call row, without naming it), the AI SQL prompt (and
+EXPLAIN validation), the chat/MCP catalog tools, and Knowledge ingest-source/schedule
+(404). Grants cached 30 s per replica, invalidated on change; a failed read hides
+every catalog from non-admins; a missing table (before 0021) means open. Admin API
+`GET/PUT /api/catalogs/{name}/grants` (signed-in admin; PUT replaces the list; audit
+`catalog_grants_changed`); Settings → Data catalogs → Access.
+Deferred: `catalog` on the MCP/REST tool parameters beyond those that already take it,
+and the catalog on audit rows (the rest of P3); a schedule is checked when saved, not
+again when the in-process scheduler runs it, so a later revoke does not stop an
+existing schedule; the Governance RLS-coverage view and PII scan (admin/auditor
+surfaces) still list every catalog; Trino's own `system` catalog (e.g.
+`system.jdbc.tables`, which lists every catalog's tables) is not a registry catalog and
+is left to the engine's access control. Only unit-tested: no live database or engine
+run of the grants path.
+
 ## 4. Compatibility
 
 - One catalog configured: every response keeps its shape plus a `catalog` field; SQL

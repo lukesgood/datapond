@@ -345,3 +345,50 @@ def test_one_unreadable_catalog_does_not_blind_the_others(monkeypatch):
         reg.reset()
         table_resolver.reset_catalog_index_cache()
     assert index.tables["orders"] == ("sales",)
+
+
+# ── a caller's catalogs (multi-catalog P3, app/catalog_access.py) ─────────────
+# The index is global; the caller's view is applied at lookup. A table in a catalog
+# the caller may not use must not be matched, nor named as a candidate or namespace —
+# otherwise "ambiguous: iceberg.sales.x, secret.hr.x" tells the caller what exists.
+
+def _two_catalog_index():
+    return CatalogIndex(
+        namespaces=("sales", "secret.hr"),
+        tables={"orders": ("sales",), "salaries": (("secret", "hr"),),
+                "people": ("sales", ("secret", "hr"))},
+        default_catalog="iceberg")
+
+
+def _no_secret(catalog):
+    return (catalog or "").lower() != "secret"
+
+
+def test_a_bare_name_only_in_a_hidden_catalog_is_not_found_and_not_named():
+    with pytest.raises(TableResolutionError) as exc:
+        qualify_tables("SELECT * FROM salaries", dialect="trino",
+                       load_index=lambda: _two_catalog_index(), catalog_allowed=_no_secret)
+    msg = str(exc.value)
+    assert "was not found" in msg
+    assert "secret" not in msg and "hr" not in msg
+
+
+def test_a_name_in_a_visible_and_a_hidden_catalog_resolves_to_the_visible_one():
+    out = qualify_tables("SELECT * FROM people", dialect="trino",
+                         load_index=lambda: _two_catalog_index(), catalog_allowed=_no_secret)
+    assert out == "SELECT * FROM sales.people"
+
+
+def test_without_a_caller_view_the_ambiguity_is_reported_as_before():
+    with pytest.raises(TableResolutionError) as exc:
+        qualify_tables("SELECT * FROM people", dialect="trino",
+                       load_index=lambda: _two_catalog_index())
+    assert "secret.hr.people" in str(exc.value)
+
+
+def test_a_hidden_default_catalog_hides_its_bare_names_too():
+    with pytest.raises(TableResolutionError) as exc:
+        qualify_tables("SELECT * FROM orders", dialect="trino",
+                       load_index=lambda: _two_catalog_index(),
+                       catalog_allowed=lambda c: (c or "").lower() != "iceberg")
+    assert "Available namespaces: secret.hr." in str(exc.value)

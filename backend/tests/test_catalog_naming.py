@@ -18,7 +18,7 @@ def test_tables_are_labelled_with_the_engines_catalog(monkeypatch):
     monkeypatch.setenv("QUERY_ENGINE", "athena")
     monkeypatch.setattr(catalog, "get_catalog_reader", lambda *a: _Reader())
 
-    res = asyncio.run(catalog.list_all_tables())
+    res = asyncio.run(catalog.list_all_tables(user={"id": "11111111-1111-1111-1111-111111111111", "role": "viewer"}))
 
     assert res.tables[0].catalog == "AwsDataCatalog"
 
@@ -34,4 +34,4 @@ def test_trino_deployments_still_read_iceberg(monkeypatch):
     monkeypatch.delenv("TRINO_CATALOG", raising=False)
     monkeypatch.setattr(catalog, "get_catalog_reader", lambda *a: _Reader())
 
-    assert asyncio.run(catalog.list_all_tables()).tables[0].catalog == "iceberg"
+    assert asyncio.run(catalog.list_all_tables(user={"id": "11111111-1111-1111-1111-111111111111", "role": "viewer"})).tables[0].catalog == "iceberg"

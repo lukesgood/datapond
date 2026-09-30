@@ -19,18 +19,22 @@ to point the deployment at another catalog.
 
 Every change writes an auth audit row (never the secret) and refreshes the registry,
 so this replica sees it at once and the others within the registry refresh interval.
+
+`/catalogs/{name}/grants` (P3) says who may use a catalog — see app/catalog_access.py.
+Reading and replacing grants needs a signed-in administrator too.
 """
 import asyncio
 import json
 import logging
 import re
-from typing import Optional
+import uuid
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from app import catalog_registry
-from app.api.auth import require_admin, require_permission
+from app import catalog_access, catalog_registry
+from app.api.auth import require_admin, require_permission, require_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -207,19 +211,24 @@ async def _refresh(pool, name: str) -> None:
     iceberg_catalog.forget_entry(name)
     await catalog_registry.load(pool, force=True)
     table_resolver.reset_catalog_index_cache()
+    catalog_access.invalidate()          # a deleted catalog's grants went with it
 
 
 # ── routes ───────────────────────────────────────────────────────────────────
 
 @router.get("/catalogs", dependencies=[Depends(require_permission("catalog:read"))])
-async def list_catalogs():
-    """Every registry entry, enabled or not, without its credential. `source` is `env`
-    when the registry has no rows yet and the entry shown is derived from env."""
+async def list_catalogs(user: dict = Depends(require_user)):
+    """Every registry entry this caller may use, enabled or not, without its
+    credential — a signed-in admin sees all of them (app/catalog_access.py). `source`
+    is `env` when the registry has no rows yet and the entry shown is derived from env."""
     pool = await _pool()
     await catalog_registry.load(pool, force=True)
+    access = await catalog_access.for_caller(user)
     source = "registry" if catalog_registry.cached_default_name() is not None else "env"
     return {"source": source,
-            "catalogs": [_entry_public(e) for e in catalog_registry.entries(include_disabled=True)]}
+            "catalogs": [_entry_public(e)
+                         for e in catalog_registry.entries(include_disabled=True)
+                         if access.allows(e)]}
 
 
 @router.post("/catalogs", status_code=201)
@@ -374,3 +383,149 @@ async def test_catalog(name: str, admin: dict = Depends(require_admin)):
     namespaces = list(namespaces)
     return {"ok": True, "namespaces": namespaces[:20], "namespace_count": len(namespaces),
             "error": None}
+
+
+# ── grants: who may use a catalog (multi-catalog P3, app/catalog_access.py) ────
+#
+# No grants: the catalog is open to every caller that passes today's checks. One grant
+# or more: only the granted users (a service account is a user) and roles, plus
+# signed-in admins. PUT replaces the whole list — the console edits it as one — and an
+# empty list reopens the catalog.
+
+GRANTS_MAX = 500
+
+
+class GrantIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["user", "role"]
+    principal: str
+
+
+class GrantsPut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    grants: List[GrantIn] = Field(default_factory=list)
+
+
+_CATALOG_EXISTS = "SELECT name FROM data_catalogs WHERE name = $1"
+_GRANTS = """SELECT g.principal_kind, g.principal, g.created_at,
+                    u.username, u.email, u.auth_method::text AS auth_method
+               FROM catalog_grants g
+               LEFT JOIN users u
+                 ON g.principal_kind = 'user' AND u.id::text = g.principal
+              WHERE g.catalog_name = $1
+              ORDER BY g.principal_kind, g.principal"""
+_USERS_EXIST = "SELECT id::text AS id FROM users WHERE id = ANY($1::uuid[])"
+_GRANTS_DELETE = "DELETE FROM catalog_grants WHERE catalog_name = $1"
+_GRANT_INSERT = """INSERT INTO catalog_grants
+                     (catalog_name, principal_kind, principal, created_by)
+                   VALUES ($1, $2, $3, $4)"""
+
+
+def _grant_public(r) -> dict:
+    out = {"kind": r["principal_kind"], "principal": r["principal"]}
+    if r["principal_kind"] == "user":
+        # A grant can outlive its user row; a missing row shows as no name rather than
+        # hiding the grant.
+        out["username"] = r["username"]
+        out["email"] = r["email"]
+        out["service_account"] = (r["auth_method"] == "service") if r["auth_method"] else None
+    created = r["created_at"]
+    out["created_at"] = created.isoformat() if hasattr(created, "isoformat") else created
+    return out
+
+
+def _missing_table(exc: BaseException) -> bool:
+    return (getattr(exc, "sqlstate", None) == "42P01"
+            or type(exc).__name__ == "UndefinedTableError")
+
+
+async def _catalog_or_404(conn, name: str) -> None:
+    if not await conn.fetchrow(_CATALOG_EXISTS, name):
+        _bad(f"No catalog named '{name}'.", 404)
+
+
+async def _read_grants(conn, name: str) -> list:
+    return [_grant_public(r) for r in await conn.fetch(_GRANTS, name)]
+
+
+def _check_grants(body: GrantsPut) -> list:
+    """(kind, principal) pairs, deduplicated, in the order given — or 400."""
+    from app.permissions import ASSIGNABLE_ROLES
+    if len(body.grants) > GRANTS_MAX:
+        _bad(f"At most {GRANTS_MAX} grants per catalog.")
+    seen, out = set(), []
+    for g in body.grants:
+        principal = (g.principal or "").strip()
+        if g.kind == "role":
+            if principal not in ASSIGNABLE_ROLES:
+                _bad(f"'{principal[:64]}' is not a role; roles are "
+                     f"{', '.join(ASSIGNABLE_ROLES)}.")
+        else:
+            try:
+                principal = str(uuid.UUID(principal))
+            except ValueError:
+                _bad(f"A user grant names the user by id; '{principal[:64]}' is not one.")
+        if (g.kind, principal) not in seen:
+            seen.add((g.kind, principal))
+            out.append((g.kind, principal))
+    return out
+
+
+@router.get("/catalogs/{name}/grants")
+async def get_catalog_grants(name: str, admin: dict = Depends(require_admin)):
+    """Who may use the catalog. `restricted` is false when nobody was granted — the
+    catalog is then open to everyone with catalog access."""
+    pool = await _pool()
+    async with pool.acquire() as conn:
+        await _catalog_or_404(conn, name)
+        try:
+            grants = await _read_grants(conn, name)
+        except Exception as e:
+            if not _missing_table(e):
+                raise
+            grants = []                      # before migration 0021: nobody granted
+    return {"catalog": name, "restricted": bool(grants), "grants": grants}
+
+
+@router.put("/catalogs/{name}/grants")
+async def put_catalog_grants(name: str, body: GrantsPut,
+                             admin: dict = Depends(require_admin)):
+    """Replace the catalog's grants with `grants`. Users must exist and roles be
+    assignable; an empty list reopens the catalog to everyone with catalog access."""
+    wanted = _check_grants(body)
+    pool = await _pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await _catalog_or_404(conn, name)
+            user_ids = [p for k, p in wanted if k == "user"]
+            if user_ids:
+                found = {r["id"] for r in await conn.fetch(_USERS_EXIST, user_ids)}
+                missing = [u for u in user_ids if u not in found]
+                if missing:
+                    _bad(f"No user with id {', '.join(missing[:5])}.")
+            try:
+                before = await _read_grants(conn, name)
+            except Exception as e:
+                if _missing_table(e):
+                    _bad("Catalog grants need database migration 0021; run the "
+                         "migration job and retry.", 409)
+                raise
+            await conn.execute(_GRANTS_DELETE, name)
+            created_by = uuid.UUID(admin["id"]) if admin.get("id") else None
+            for kind, principal in wanted:
+                await conn.execute(_GRANT_INSERT, name, kind, principal, created_by)
+            after = await _read_grants(conn, name)
+    await _audit_grants(pool, admin, name, before, after)
+    # This replica at once; the others within the grants cache TTL.
+    catalog_access.invalidate()
+    return {"catalog": name, "restricted": bool(after), "grants": after}
+
+
+async def _audit_grants(pool, admin: dict, name: str, before: list, after: list) -> None:
+    def keys(rows):
+        return sorted(f"{g['kind']}:{g['principal']}" for g in rows)
+    old, new = keys(before), keys(after)
+    await _audit(pool, admin, "catalog_grants_changed", name,
+                 {"added": sorted(set(new) - set(old)),
+                  "removed": sorted(set(old) - set(new)),
+                  "restricted": bool(new)})

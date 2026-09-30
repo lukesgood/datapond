@@ -34,7 +34,7 @@ from app.api.auth import require_permission, require_user
 from app.ai_context import set_actor, actor_payload
 from app.ai_budget import budget_error, is_budget_refusal
 from app.runtime import component_secret
-from app import tool_call_log
+from app import catalog_access, tool_call_log
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +145,38 @@ def _get_schema_context() -> str:
     if not text.startswith("Schema unavailable"):
         _schema_cache["text"], _schema_cache["ts"] = text, now
     return text
+
+
+_SECTION = re.compile(r"^Available tables \(catalog: (?P<catalog>[^)]+)\):$")
+
+
+def _schema_for_caller(schema_ctx: str, access) -> str:
+    """The cached context with only the catalogs this caller may use.
+
+    The context is built and cached once for every catalog; a catalog the caller may
+    not use (app/catalog_access.py) must not reach its prompt — the model would write
+    SQL against it, and the fallback template would list its tables. Sections start
+    with "Available tables (catalog: X):"; the default catalog's X is the engine's
+    table prefix. Text before the first section (an "unavailable" notice) is kept."""
+    if access.exempt or not access.hidden_sql_names():
+        return schema_ctx
+    from app.api.query_engine import get_engine
+    prefix = get_engine().ai_table_prefix.lower()
+    out, keep, sections, kept_tables = [], True, 0, 0
+    for line in (schema_ctx or "").split("\n"):
+        m = _SECTION.match(line.strip())
+        if m:
+            sections += 1
+            name = m.group("catalog").strip()
+            keep = access.allows_sql_catalog(name) and (
+                name.lower() != prefix or access.allows_sql_catalog(None))
+        elif keep and line.startswith("  "):
+            kept_tables += 1
+        if keep:
+            out.append(line)
+    if sections and not kept_tables:
+        return "No tables found in the catalog."
+    return "\n".join(out)
 
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
@@ -413,6 +445,17 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
         )
 
     schema_ctx = await asyncio.to_thread(_get_schema_context)
+    access = await catalog_access.for_caller(user)
+    schema_ctx = _schema_for_caller(schema_ctx, access)
+
+    def _validate(candidate: str):
+        # EXPLAIN against a catalog the caller may not use would tell it what exists
+        # there; the statement is simply not valid for this caller.
+        from app.api.query_engine import get_engine
+        if catalog_access.statement_uses_hidden(access, candidate, get_engine().rls_dialect):
+            return False, ("The statement references a data catalog you may not use. "
+                           "Use only tables from the schema above.")
+        return validate_sql(candidate)
 
     # ── Nothing to generate against ──────────────────────────────────────────
     # With an empty catalog the model can only ask what the tables are, and that
@@ -481,7 +524,7 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
             # table and column in it. One repair round: the engine's own error is
             # the most useful correction signal the model can get.
             if sql and _validation_enabled():
-                ok, verr = await asyncio.to_thread(validate_sql, sql)
+                ok, verr = await asyncio.to_thread(_validate, sql)
                 validated = ok
                 if not ok:
                     repair = messages + [
@@ -496,7 +539,7 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
                         data2 = _parse_response(raw2)
                         sql2 = data2["sql"].strip()
                         if sql2:
-                            ok2, verr2 = await asyncio.to_thread(validate_sql, sql2)
+                            ok2, verr2 = await asyncio.to_thread(_validate, sql2)
                             if ok2:
                                 sql, explanation, validated, verr = (
                                     sql2, data2.get("explanation", explanation), True, None)

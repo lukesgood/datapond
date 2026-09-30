@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import catalog_registry
+from app import catalog_access, catalog_registry
 from app.api.auth import require_permission, require_user
 from app.api.catalog_backend import get_catalog_reader, safe_identifier
 from app.api.queries import execute_query
@@ -33,13 +33,17 @@ def _bare(namespace: str, table: str) -> None:
                             detail="namespace and table must be bare identifiers.")
 
 
-def _entry(catalog: Optional[str]):
+def _entry(catalog: Optional[str], access):
     """The registry entry a route was asked about; an unknown one is the caller's
-    error, never a silent fall back to the default."""
+    error, never a silent fall back to the default.
+
+    404, and the same 404 for a catalog this caller may not use (app/catalog_access.py)
+    as for one that does not exist: a detail route must not confirm that a hidden
+    catalog is there. The "known catalogs" list names only the caller's."""
     try:
-        return catalog_registry.resolve(catalog)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return access.resolve(catalog)
+    except catalog_registry.UnknownCatalog as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 logger = logging.getLogger(__name__)
@@ -94,11 +98,12 @@ class CatalogTree(BaseModel):
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
-def _readers():
-    """(entry, reader) for every enabled catalog. With one catalog this is exactly the
-    one reader the routes used before; a catalog that has no reader is skipped."""
+def _readers(access):
+    """(entry, reader) for every enabled catalog this caller may use. With one catalog
+    this is exactly the one reader the routes used before; a catalog that has no
+    reader is skipped."""
     out = []
-    for entry in catalog_registry.entries():
+    for entry in access.entries():
         try:
             out.append((entry, get_catalog_reader(entry.name)))
         except Exception as e:
@@ -114,10 +119,12 @@ def _label(entry) -> str:
 
 
 @router.get("/catalog/namespaces", response_model=NamespacesResponse)
-async def list_all_namespaces():
-    """List namespaces of every enabled catalog, each labelled with its catalog."""
+async def list_all_namespaces(user: dict = Depends(require_user)):
+    """List namespaces of every enabled catalog the caller may use, each labelled with
+    its catalog."""
+    access = await catalog_access.for_caller(user)
     try:
-        out, errors, readers = [], [], _readers()
+        out, errors, readers = [], [], _readers(access)
         for entry, reader in readers:
             try:
                 out.extend(NamespaceInfo(name=n, catalog=_label(entry))
@@ -133,10 +140,12 @@ async def list_all_namespaces():
 
 
 @router.get("/catalog/tables", response_model=TablesResponse)
-async def list_all_tables():
-    """List all tables of every enabled catalog, each labelled with its catalog."""
+async def list_all_tables(user: dict = Depends(require_user)):
+    """List all tables of every enabled catalog the caller may use, each labelled with
+    its catalog."""
+    access = await catalog_access.for_caller(user)
     try:
-        tables, errors, readers = [], [], _readers()
+        tables, errors, readers = [], [], _readers(access)
         for entry, reader in readers:
             try:
                 namespaces = reader.list_namespaces()
@@ -158,11 +167,12 @@ async def list_all_tables():
 
 
 @router.get("/catalog/tables/{namespace}/{table}", response_model=TableDetails)
-async def get_table_details(namespace: str, table: str, catalog: Optional[str] = None):
+async def get_table_details(namespace: str, table: str, catalog: Optional[str] = None,
+                            user: dict = Depends(require_user)):
     """Get table schema, location, and row count from the catalog asked for (default
     when omitted)."""
     _bare(namespace, table)
-    entry = _entry(catalog)
+    entry = _entry(catalog, await catalog_access.for_caller(user))
     try:
         reader = get_catalog_reader(entry.name)
         columns = [TableColumn(**c) for c in reader.get_columns(namespace, table)]
@@ -204,7 +214,7 @@ async def preview_table(namespace: str, table: str, catalog: Optional[str] = Non
     path returned, so they describe the masked values the caller may see.
     """
     _bare(namespace, table)
-    entry = _entry(catalog)
+    entry = _entry(catalog, await catalog_access.for_caller(user))
     limit = max(1, min(int(limit), PREVIEW_MAX_ROWS))
     # Two parts for the default catalog — the engine's session catalog — exactly as
     # before; three for any other, or the preview would read the default's table.
@@ -262,12 +272,14 @@ async def preview_table(namespace: str, table: str, catalog: Optional[str] = Non
 
 
 @router.get("/catalog/health")
-async def catalog_health():
+async def catalog_health(user: dict = Depends(require_user)):
+    access = await catalog_access.for_caller(user)
     try:
-        # Reachability check against the default catalog; the list names every one.
+        # Reachability check against the default catalog; the list names every one
+        # this caller may use.
         get_catalog_reader().list_namespaces()
         return {"status": "healthy",
-                "catalogs": [_label(e) for e in catalog_registry.entries()]}
+                "catalogs": [_label(e) for e in access.entries()]}
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
 

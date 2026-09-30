@@ -1,6 +1,8 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
+  OPEN_ACCESS, accessSummary, addGrant, grantCandidates, grantKey, grantLabel, grantsChanged,
+  grantsPayload, removeGrant, type CatalogGrant,
   configOf, deleteBlocked, disableBlocked, emptyForm, formFromCatalog, locationOf,
   testSummary, toCreatePayload, toPatchPayload, uriProblem, validateForm,
   type DataCatalog,
@@ -132,4 +134,61 @@ test("location line per kind", () => {
   assert.equal(locationOf({ ...REST, kind: "glue", config: {} }), "this account")
   assert.equal(locationOf({ ...REST, kind: "polaris", config: { warehouse: "iceberg" } }),
     "warehouse iceberg")
+})
+
+// ── access (catalog grants) ──────────────────────────────────────────────────
+
+const ALICE = "11111111-1111-1111-1111-111111111111"
+const BOT = "44444444-4444-4444-4444-444444444444"
+
+test("no grants reads as open; grants read as restricted plus admins", () => {
+  assert.equal(accessSummary([]), OPEN_ACCESS)
+  assert.equal(accessSummary([{ kind: "user", principal: ALICE }]),
+    "Restricted to 1 user, plus admins")
+  assert.equal(accessSummary([{ kind: "user", principal: ALICE }, { kind: "user", principal: BOT },
+    { kind: "role", principal: "auditor" }]), "Restricted to 2 users and 1 role, plus admins")
+})
+
+test("adding a grant twice keeps one; user ids compare case-insensitively", () => {
+  let list: CatalogGrant[] = []
+  list = addGrant(list, { kind: "user", principal: ALICE })
+  list = addGrant(list, { kind: "user", principal: ALICE.toUpperCase() })
+  list = addGrant(list, { kind: "role", principal: "auditor" })
+  list = addGrant(list, { kind: "role", principal: "  " })
+  assert.equal(list.length, 2)
+  assert.deepEqual(removeGrant(list, grantKey({ kind: "role", principal: "auditor" })),
+    [{ kind: "user", principal: ALICE }])
+})
+
+test("the payload carries kind and principal only; saving replaces the list", () => {
+  const list: CatalogGrant[] = [{ kind: "user", principal: BOT, username: "bot", service_account: true }]
+  assert.deepEqual(grantsPayload(list), { grants: [{ kind: "user", principal: BOT }] })
+  assert.deepEqual(grantsPayload([]), { grants: [] })
+})
+
+test("changed ignores order", () => {
+  const a: CatalogGrant[] = [{ kind: "user", principal: ALICE }, { kind: "role", principal: "auditor" }]
+  assert.equal(grantsChanged(a, [...a].reverse()), false)
+  assert.equal(grantsChanged(a, a.slice(1)), true)
+})
+
+test("labels say what the principal is", () => {
+  assert.equal(grantLabel({ kind: "role", principal: "auditor" }), "Role: auditor")
+  assert.equal(grantLabel({ kind: "user", principal: BOT, username: "bot", service_account: true }),
+    "Service account: bot")
+  assert.equal(grantLabel({ kind: "user", principal: ALICE },
+    [{ id: ALICE, label: "Alice", service_account: false }]), "User: Alice")
+  assert.equal(grantLabel({ kind: "user", principal: ALICE }), `User: ${ALICE}`)
+})
+
+test("candidates merge service accounts and users, once each, minus those granted", () => {
+  const c = grantCandidates(
+    [{ id: BOT, username: "bot", display_name: "Nightly bot" }],
+    [{ id: ALICE, username: "alice" }, { id: BOT, username: "bot" },
+     { id: "55555555-5555-5555-5555-555555555555", username: "carol" }],
+    [{ kind: "user", principal: "55555555-5555-5555-5555-555555555555" }])
+  assert.deepEqual(c, [
+    { id: ALICE, label: "alice", service_account: false },
+    { id: BOT, label: "Nightly bot", service_account: true },
+  ])
 })

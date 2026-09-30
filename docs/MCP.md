@@ -83,4 +83,7 @@ duplicate.
   default 600, per replica); over it, the call gets 429 with `Retry-After`.
 - A per-caller spend budget, when set, is enforced on the model calls behind these tools:
   over it, the call gets 402 and a refused audit row.
+- Catalog grants (Settings → Data catalogs → Access) apply to these tools too: a key sees and
+  queries only the catalogs its account may use — a key on an admin account included — and a
+  hidden catalog answers exactly as an unknown one.
 - `prompts` and `resources` are not implemented. Tools only.

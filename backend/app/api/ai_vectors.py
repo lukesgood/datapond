@@ -1057,6 +1057,21 @@ async def _refresh_from_source(pool, coll_id, src: "SourceIngest") -> dict:
     return {"documents": len(docs), **res}
 
 
+async def _require_source_catalog(user: dict, src: "SourceIngest") -> None:
+    """404 for an iceberg source in a catalog this caller may not use — the same 404
+    and message as a catalog that does not exist (app/catalog_access.py), so the
+    ingest routes cannot be used to probe for a hidden catalog, or to read one into a
+    collection the caller can search."""
+    if src.type != "iceberg":
+        return
+    from app import catalog_access, catalog_registry
+    access = await catalog_access.for_caller(user)
+    try:
+        access.resolve(src.catalog)
+    except catalog_registry.UnknownCatalog as e:
+        raise HTTPException(404, str(e))
+
+
 @router.post("/ai/collections/{name}/ingest-source")
 async def ingest_source(name: str, req: SourceIngest,
                         user: dict = Depends(require_permission_or_internal("knowledge:write")),
@@ -1093,6 +1108,7 @@ async def ingest_source(name: str, req: SourceIngest,
     pool = await get_db_pool()
     async with pool.acquire() as c:
         coll_id = await _collection_id(c, name, user, write=True)
+    await _require_source_catalog(user, req)
     res = await _refresh_from_source(pool, coll_id, req)
     return {"success": True, **res}
 
@@ -1145,12 +1161,7 @@ async def schedule_ingest(name: str, body: ScheduleRequest, user: dict = Depends
     pool = await get_db_pool()
     async with pool.acquire() as c:
         coll_id = await _collection_id(c, name, user, write=True)  # 404/403 gate
-        if body.source.type == "iceberg":
-            from app import catalog_registry
-            try:
-                catalog_registry.resolve(body.source.catalog)
-            except ValueError as e:
-                raise HTTPException(400, str(e))
+        await _require_source_catalog(user, body.source)
         source_json = json.dumps(_stored_source(body.source))
         await c.execute(
             """UPDATE ai_collections

@@ -183,7 +183,7 @@ def test_the_preview_explains_the_same_sql_the_execution_will_run(monkeypatch):
     seen = []
 
     monkeypatch.setattr(query, "qualify_for_preview",
-                        lambda sql: (True, "sales.orders_qualified", None))
+                        lambda sql, access=None: (True, "sales.orders_qualified", None))
 
     def fake_explain(sql, mode):
         seen.append(sql)
@@ -204,7 +204,7 @@ def test_a_preview_that_cannot_resolve_the_tables_says_so_rather_than_guessing(m
     validated: false with the reason instead of quietly explaining SQL that will be
     rewritten into something else."""
     monkeypatch.setattr(query, "qualify_for_preview",
-                        lambda sql: (False, sql, "no table named 'orders'"))
+                        lambda sql, access=None: (False, sql, "no table named 'orders'"))
 
     def must_not_explain(sql, mode):
         raise AssertionError("explained SQL that could not be resolved")

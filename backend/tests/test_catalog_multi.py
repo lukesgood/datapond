@@ -16,6 +16,8 @@ from app import catalog_registry as reg
 from app.api.queries import QueryResult
 from app.catalog_registry import CatalogEntry
 
+VIEWER = {"id": "11111111-1111-1111-1111-111111111111", "role": "viewer"}
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -67,34 +69,35 @@ def two_catalogs(monkeypatch):
 
 
 def test_tables_come_from_every_catalog_labelled_with_their_own():
-    res = _run(catalog.list_all_tables())
+    res = _run(catalog.list_all_tables(user=VIEWER))
     got = {(t.catalog, t.namespace, t.name) for t in res.tables}
     assert got == {("iceberg", "sales", "orders"), ("finance", "ledger", "entries")}
 
 
 def test_namespaces_carry_their_catalog():
-    res = _run(catalog.list_all_namespaces())
+    res = _run(catalog.list_all_namespaces(user=VIEWER))
     assert {(n.catalog, n.name) for n in res.namespaces} == {
         ("iceberg", "sales"), ("finance", "ledger")}
 
 
 def test_table_details_read_the_catalog_asked_for():
-    res = _run(catalog.get_table_details("ledger", "entries", catalog="finance"))
+    res = _run(catalog.get_table_details("ledger", "entries", catalog="finance", user=VIEWER))
     assert res.columns[0].name == "finance_col"
     assert res.catalog == "finance"
     assert res.location == "s3://finance/ledger/entries"
 
 
 def test_table_details_default_to_the_default_catalog():
-    res = _run(catalog.get_table_details("sales", "orders"))
+    res = _run(catalog.get_table_details("sales", "orders", user=VIEWER))
     assert res.columns[0].name == "iceberg_col"
     assert res.catalog == "iceberg"
 
 
-def test_an_unknown_catalog_is_a_400_not_a_default():
+def test_an_unknown_catalog_is_a_404_not_a_default():
+    # 404, the answer a catalog this caller may not use also gets (catalog grants, P3).
     with pytest.raises(HTTPException) as exc:
-        _run(catalog.get_table_details("sales", "orders", catalog="nope"))
-    assert exc.value.status_code == 400
+        _run(catalog.get_table_details("sales", "orders", catalog="nope", user=VIEWER))
+    assert exc.value.status_code == 404
 
 
 def _preview(monkeypatch, **kw):
@@ -126,11 +129,11 @@ def test_a_preview_of_an_unknown_catalog_is_refused(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         _run(catalog.preview_table("sales", "orders", catalog="nope", limit=10,
                                    db=None, user={"id": "u"}))
-    assert exc.value.status_code == 400
+    assert exc.value.status_code == 404
 
 
 def test_the_schema_tree_has_one_node_per_catalog():
-    tree = _run(queries.get_catalog_schemas())
+    tree = _run(queries.get_catalog_schemas(user=VIEWER))
     names = [c.name for c in tree.catalogs]
     assert names == ["iceberg", "finance"]
     fin = tree.catalogs[1]
@@ -138,11 +141,11 @@ def test_the_schema_tree_has_one_node_per_catalog():
 
 
 def test_columns_are_read_from_their_catalog():
-    cols = _run(queries.get_table_columns("finance", "ledger", "entries"))
+    cols = _run(queries.get_table_columns("finance", "ledger", "entries", user=VIEWER))
     assert cols[0].name == "finance_col"
 
 
 def test_columns_of_an_unknown_catalog_are_refused():
     with pytest.raises(HTTPException) as exc:
-        _run(queries.get_table_columns("nope", "ledger", "entries"))
-    assert exc.value.status_code == 400
+        _run(queries.get_table_columns("nope", "ledger", "entries", user=VIEWER))
+    assert exc.value.status_code == 404

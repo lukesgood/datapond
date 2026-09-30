@@ -87,6 +87,90 @@ def test_an_unknown_catalog_is_refused_before_anything_is_read():
     assert exc.value.status_code == 400
 
 
+# ── catalog grants (multi-catalog P3) ─────────────────────────────────────────
+# Reading a hidden catalog's column into a collection the caller can search would read
+# the catalog by another door; the ingest routes answer it as an unknown catalog.
+
+ALICE = {"id": "11111111-1111-1111-1111-111111111111", "role": "ai_engineer"}
+BOB = {"id": "22222222-2222-2222-2222-222222222222", "role": "ai_engineer"}
+
+
+class _KConn:
+    def __init__(self):
+        self.executed = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def execute(self, sql, *args):
+        self.executed.append(sql)
+
+
+class _KPool:
+    def __init__(self):
+        self.conn = _KConn()
+
+    def acquire(self, timeout=None):
+        return self.conn
+
+
+@pytest.fixture
+def ingest_world(monkeypatch):
+    from app import catalog_access
+    catalog_access.set_grants({"finance": [("user", BOB["id"])]})
+    pool, refreshed = _KPool(), []
+
+    async def _get_pool():
+        return pool
+
+    async def _coll(c, name, user, write=False):
+        return "cid"
+
+    async def _refresh(p, coll_id, src):
+        refreshed.append(src.catalog)
+        return {"documents": 0}
+    monkeypatch.setattr(v, "get_db_pool", _get_pool)
+    monkeypatch.setattr(v, "_collection_id", _coll)
+    monkeypatch.setattr(v, "_refresh_from_source", _refresh)
+    monkeypatch.setattr(v, "set_actor", lambda user: None)
+    return pool, refreshed
+
+
+def test_ingest_source_from_a_hidden_catalog_is_404_like_an_unknown_one(ingest_world):
+    _, refreshed = ingest_world
+    with pytest.raises(HTTPException) as hidden:
+        asyncio.run(v.ingest_source("docs", _src(catalog="finance"), ALICE))
+    with pytest.raises(HTTPException) as unknown:
+        asyncio.run(v.ingest_source("docs", _src(catalog="nope"), ALICE))
+    assert hidden.value.status_code == unknown.value.status_code == 404
+    assert hidden.value.detail == "Unknown catalog 'finance'. Known catalogs: iceberg."
+    assert refreshed == []
+    asyncio.run(v.ingest_source("docs", _src(catalog="finance"), BOB))
+    assert refreshed == ["finance"]
+
+
+def test_a_schedule_on_a_hidden_catalog_is_404_and_not_stored(ingest_world):
+    pool, _ = ingest_world
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(v.schedule_ingest(
+            "docs", v.ScheduleRequest(source=_src(catalog="finance")), ALICE))
+    assert exc.value.status_code == 404
+    assert pool.conn.executed == []
+    asyncio.run(v.schedule_ingest(
+        "docs", v.ScheduleRequest(source=_src(catalog="finance")), BOB))
+    assert any("refresh_source" in sql for sql in pool.conn.executed)
+
+
+def test_the_internal_automation_principal_reads_any_catalog(ingest_world):
+    _, refreshed = ingest_world
+    internal = {"id": None, "username": "system", "role": "admin", "internal": True}
+    asyncio.run(v.ingest_source("docs", _src(catalog="finance"), internal))
+    assert refreshed == ["finance"]
+
+
 # ── lineage ──────────────────────────────────────────────────────────────────
 
 def _conn():
