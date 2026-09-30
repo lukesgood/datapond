@@ -61,3 +61,19 @@ def _patch_pool(monkeypatch, pool):
         return pool
     import app.api.connectors as connectors
     monkeypatch.setattr(connectors, "get_db_pool", _get_db_pool)
+
+
+# ── catalog grants (app/catalog_access.py) ───────────────────────────────────
+# Grants are read from the database for every non-admin caller. A unit test has no
+# database, and "cannot read grants" fails closed — so every test starts with grants
+# read and empty (every catalog open), which is what a deployment that never granted
+# anything sees. Tests about grants install their own.
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _no_catalog_grants():
+    from app import catalog_access
+    catalog_access.set_grants({})
+    yield
+    catalog_access.reset()
