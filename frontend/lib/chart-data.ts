@@ -94,27 +94,142 @@ function numbersOf(rows: Row[], field: string): number[] {
   return rows.map(r => asNumber(r[field])).filter((n): n is number => n !== null)
 }
 
-export interface Bin { label: string; from: number; to: number; count: number }
+export interface Bin {
+  label: string; from: number; to: number; count: number
+  /** The final bar that gathers everything above p99 of a heavily skewed column. */
+  overflow?: boolean
+}
+
+/** Compact number for axis and bin labels: 1.2K, 45K, 1.2M, 3B. */
+export function formatCompact(n: number): string {
+  const abs = Math.abs(n)
+  const trim = (x: number) => x.toFixed(1).replace(/\.0$/, "")
+  if (abs >= 1e9) return `${trim(n / 1e9)}B`
+  if (abs >= 1e6) return `${trim(n / 1e6)}M`
+  if (abs >= 1e3) return `${trim(n / 1e3)}K`
+  return fmt(n)
+}
 
 /** Equal-width bins over the values, Sturges' count unless one is given. The last bin
  *  includes the maximum. */
 export function histogramBins(values: number[], count?: number): Bin[] {
   if (values.length === 0) return []
-  const lo = Math.min(...values)
-  const hi = Math.max(...values)
+  let lo = values[0], hi = values[0]
+  for (const v of values) { if (v < lo) lo = v; if (v > hi) hi = v }
   if (lo === hi) return [{ label: fmt(lo), from: lo, to: hi, count: values.length }]
   const k = count ?? sturgesBins(values.length)
   const width = (hi - lo) / k
   const bins: Bin[] = Array.from({ length: k }, (_, i) => {
     const from = lo + i * width
     const to = i === k - 1 ? hi : lo + (i + 1) * width
-    return { label: `${fmt(from)}–${fmt(to)}`, from, to, count: 0 }
+    return { label: `${formatCompact(from)}–${formatCompact(to)}`, from, to, count: 0 }
   })
   for (const v of values) {
     const idx = Math.min(k - 1, Math.floor((v - lo) / width))
     bins[idx].count += 1
   }
   return bins
+}
+
+// Skewed columns bin their body within 5–30 bars (Freedman–Diaconis).
+const SKEW_MIN_BINS = 5
+const SKEW_MAX_BINS = 30
+const SKEW_IQR_FACTOR = 10
+
+/** Linear-interpolated quantile of an ascending array. */
+function quantile(sorted: number[], q: number): number {
+  const pos = (sorted.length - 1) * q
+  const i = Math.floor(pos)
+  const frac = pos - i
+  return i + 1 < sorted.length ? sorted[i] + frac * (sorted[i + 1] - sorted[i]) : sorted[i]
+}
+
+export interface HistogramPlan {
+  bins: Bin[]
+  overflow: { count: number; from: number } | null
+  /** Shown above the chart when the last bar is an overflow bar. */
+  note?: string
+}
+
+/** Bins for a histogram. When a few values are far above the rest (max > Q3 + 10×IQR)
+ *  equal-width bins would put nearly everything in the first bar, so the range
+ *  [min, p99] is binned (Freedman–Diaconis, Sturges when the IQR is zero) and the
+ *  values above p99 share a final, marked bar. Other data bins as `histogramBins`. */
+export function histogramPlan(values: number[]): HistogramPlan {
+  const plain: HistogramPlan = { bins: histogramBins(values), overflow: null }
+  if (values.length < 2) return plain
+  const sorted = [...values].sort((a, b) => a - b)
+  const max = sorted[sorted.length - 1]
+  const q1 = quantile(sorted, 0.25)
+  const q3 = quantile(sorted, 0.75)
+  const iqr = q3 - q1
+  const p99 = quantile(sorted, 0.99)
+  if (!(max > q3 + SKEW_IQR_FACTOR * iqr) || !(max > p99) || p99 <= sorted[0]) return plain
+
+  const body = sorted.filter(v => v <= p99)
+  const above = sorted.length - body.length
+  if (above === 0) return plain
+  const bodyIqr = quantile(body, 0.75) - quantile(body, 0.25)
+  let k: number
+  if (bodyIqr > 0) {
+    const width = (2 * bodyIqr) / Math.cbrt(body.length)
+    k = Math.ceil((p99 - body[0]) / width)
+  } else {
+    k = Math.ceil(Math.log2(body.length)) + 1
+  }
+  k = Math.min(SKEW_MAX_BINS, Math.max(SKEW_MIN_BINS, k))
+  const bins = histogramBins(body, k)
+  bins.push({ label: `≥ ${formatCompact(p99)}`, from: p99, to: max, count: above, overflow: true })
+  return {
+    bins, overflow: { count: above, from: p99 },
+    note: `${above} ${above === 1 ? "value" : "values"} above p99 grouped into the last bar`,
+  }
+}
+
+const HEATMAP_MIN_CELL = 36
+const HEATMAP_MAX_CELL = 120
+
+/** Width of a heatmap cell: the container less the label column, shared by the
+ *  columns, between 36 and 120px. Below the floor the grid scrolls. */
+export function heatmapCellWidth(container: number, labelWidth: number, columns: number): number {
+  if (columns <= 0 || !(container > 0)) return HEATMAP_MIN_CELL
+  const w = Math.floor((container - labelWidth) / columns)
+  return Math.min(HEATMAP_MAX_CELL, Math.max(HEATMAP_MIN_CELL, w))
+}
+
+/** Share of --series-1 in a cell at intensity t (0..1), the rest being the card. */
+export function heatmapMixPercent(t: number): number {
+  return Math.round(12 + Math.min(1, Math.max(0, t)) * 88)
+}
+
+// The chart palette and text tokens per theme (app/globals.css), for contrast maths.
+const HEATMAP_TOKENS = {
+  light: { series: "#0894ac", card: "#ffffff", foreground: "#0e1c22" },
+  dark: { series: "#0fa0b8", card: "#0e1c21", foreground: "#e7f1f3" },
+}
+
+function rgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+function luminance([r, g, b]: [number, number, number]): number {
+  const lin = (c: number) => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4 }
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+}
+function contrastRatio(a: number, b: number): number {
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+}
+
+/** Which text token reads best on a cell of intensity t: `foreground` or `card`
+ *  (the theme's opposite extreme), by WCAG contrast against the mixed background. */
+export function heatmapForeground(t: number, dark: boolean): { token: "foreground" | "card"; contrast: number } {
+  const tk = dark ? HEATMAP_TOKENS.dark : HEATMAP_TOKENS.light
+  const p = heatmapMixPercent(t) / 100
+  const s = rgb(tk.series), c = rgb(tk.card)
+  const bg = luminance([0, 1, 2].map(i => s[i] * p + c[i] * (1 - p)) as [number, number, number])
+  const fg = contrastRatio(bg, luminance(rgb(tk.foreground)))
+  const inv = contrastRatio(bg, luminance(rgb(tk.card)))
+  return fg >= inv ? { token: "foreground", contrast: fg } : { token: "card", contrast: inv }
 }
 
 function fmt(n: number): string {
@@ -147,7 +262,7 @@ export type Shaped =
       kind: "scatter"; xKey: string; yKey: string
       groups: { name: string; points: { x: number; y: number }[] }[]
     }
-  | { kind: "histogram"; column: string; bins: Bin[] }
+  | { kind: "histogram"; column: string; bins: Bin[]; note?: string }
   | {
       kind: "heatmap"; xKey: string; yKey: string; valueLabel: string
       xs: string[]; ys: string[]; cells: (number | null)[][]; min: number; max: number
@@ -190,7 +305,8 @@ export function shapeChart(spec: ChartSpec, data: Row[]): Shaped {
   const y = spec.ys[0]
   if (type === "histogram") {
     if (!y) return { kind: "empty", reason: "Pick a numeric column." }
-    return { kind: "histogram", column: y, bins: histogramBins(numbersOf(data, y)) }
+    const plan = histogramPlan(numbersOf(data, y))
+    return { kind: "histogram", column: y, bins: plan.bins, note: plan.note }
   }
 
   if (type === "scatter") {
