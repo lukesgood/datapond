@@ -29,8 +29,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from app import catalog_registry
-from app.api.auth import require_admin, require_permission
+from app import catalog_access, catalog_registry
+from app.api.auth import require_admin, require_permission, require_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -212,14 +212,18 @@ async def _refresh(pool, name: str) -> None:
 # ── routes ───────────────────────────────────────────────────────────────────
 
 @router.get("/catalogs", dependencies=[Depends(require_permission("catalog:read"))])
-async def list_catalogs():
-    """Every registry entry, enabled or not, without its credential. `source` is `env`
-    when the registry has no rows yet and the entry shown is derived from env."""
+async def list_catalogs(user: dict = Depends(require_user)):
+    """Every registry entry this caller may use, enabled or not, without its
+    credential — a signed-in admin sees all of them (app/catalog_access.py). `source`
+    is `env` when the registry has no rows yet and the entry shown is derived from env."""
     pool = await _pool()
     await catalog_registry.load(pool, force=True)
+    access = await catalog_access.for_caller(user)
     source = "registry" if catalog_registry.cached_default_name() is not None else "env"
     return {"source": source,
-            "catalogs": [_entry_public(e) for e in catalog_registry.entries(include_disabled=True)]}
+            "catalogs": [_entry_public(e)
+                         for e in catalog_registry.entries(include_disabled=True)
+                         if access.allows(e)]}
 
 
 @router.post("/catalogs", status_code=201)

@@ -566,7 +566,7 @@ async def get_query_history(
 
 @router.get("/catalog/schemas", response_model=CatalogTree,
             dependencies=[Depends(require_permission("catalog:read"))])
-async def get_catalog_schemas(columns: bool = False):
+async def get_catalog_schemas(columns: bool = False, user: dict = Depends(require_user)):
     """
     Get catalog tree structure — only catalogs registered in Polaris (governance gate).
     Catalog/namespace/table listing comes from Polaris (fast). Column metadata is
@@ -576,6 +576,10 @@ async def get_catalog_schemas(columns: bool = False):
     /catalog/columns. Pass ?columns=true to force the (slow) eager scan.
     Cached in Valkey (TTL 60s, keyed by the columns flag).
     """
+    # The tree is built and cached for every catalog; each caller is then shown only
+    # the catalogs it may use (app/catalog_access.py) — the Knowledge ingest picker
+    # reads this route too.
+    access = await catalog_access.for_caller(user)
     # v4: one node per registry catalog (v3 held a single node for the default).
     cache_key = f"catalog:schemas:v5:{'full' if columns else 'tree'}"
     # Try Valkey cache first
@@ -589,7 +593,7 @@ async def get_catalog_schemas(columns: bool = False):
                                    decode_responses=True, socket_timeout=1))
         cached = _redis.get(cache_key)
         if cached:
-            return CatalogTree(**_json.loads(cached))
+            return _visible_tree(CatalogTree(**_json.loads(cached)), access)
     except Exception:
         _redis = None
 
@@ -640,7 +644,7 @@ async def get_catalog_schemas(columns: bool = False):
         except Exception:
             pass
 
-        return result
+        return _visible_tree(result, access)
 
     except HTTPException:
         raise
@@ -656,12 +660,20 @@ async def get_catalog_schemas(columns: bool = False):
         raise HTTPException(status_code=500, detail=f"Failed to fetch catalog: {str(e)}")
 
 
+def _visible_tree(tree: "CatalogTree", access) -> "CatalogTree":
+    """The tree with only the catalog nodes this caller may use. Nodes are named by the
+    engine's name for the catalog, which is what allows_sql_catalog takes."""
+    return CatalogTree(catalogs=[c for c in tree.catalogs
+                                 if access.allows_sql_catalog(c.name)])
+
+
 _COL_IDENT = re.compile(r"^[A-Za-z0-9_]+$")
 
 
 @router.get("/catalog/columns", response_model=List[CatalogColumn],
             dependencies=[Depends(require_permission("catalog:read"))])
-async def get_table_columns(catalog: str, schema: str, table: str):
+async def get_table_columns(catalog: str, schema: str, table: str,
+                            user: dict = Depends(require_user)):
     """Lazily fetch ONE table's columns (loaded on table expand in the schema tree).
     A single-table information_schema query is one metadata read (fast) — unlike the
     eager full-tree scan that made /catalog/schemas time out. Cached 5 min."""
@@ -669,12 +681,14 @@ async def get_table_columns(catalog: str, schema: str, table: str):
         if not _COL_IDENT.match(v or ""):
             raise HTTPException(status_code=400, detail="catalog/schema/table must be bare identifiers.")
     # The catalog is honoured, not just validated: another catalog's table of the same
-    # name used to answer with the default catalog's columns.
+    # name used to answer with the default catalog's columns. A catalog this caller may
+    # not use is the same 404 as one that does not exist.
     from app import catalog_registry
+    access = await catalog_access.for_caller(user)
     try:
-        entry = catalog_registry.resolve(catalog)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        entry = access.resolve(catalog)
+    except catalog_registry.UnknownCatalog as e:
+        raise HTTPException(status_code=404, detail=str(e))
     ck = f"catalog:cols:v2:{entry.name}.{schema}.{table}"
     try:
         import redis, json as _json
@@ -770,6 +784,17 @@ async def review_plan(request: QueryPlanRequest, user: dict = Depends(require_us
 # ontology PoC (docs/ONTOLOGY_FEASIBILITY_REPORT.md) found inferred relationships to
 # be unreliable in every domain tested; a join in query_history is not inferred.
 
+def _visible_graph(graph: dict, access) -> dict:
+    """Drop the nodes of catalogs this caller may not use, and every edge touching one.
+    Ids are catalog.namespace.table."""
+    def ok(node_id: str) -> bool:
+        return access.allows_sql_catalog(str(node_id).split(".", 1)[0])
+    graph["nodes"] = [n for n in graph.get("nodes", []) if ok(n["id"])]
+    graph["edges"] = [e for e in graph.get("edges", [])
+                      if ok(e["source"]) and ok(e["target"])]
+    return graph
+
+
 @router.get("/catalog/relationships",
             dependencies=[Depends(require_permission("catalog:read"))])
 async def catalog_relationships(
@@ -807,6 +832,7 @@ async def catalog_relationships(
     graph = build_graph([r[0] for r in rows if r and r[0]],
                         dialect=get_engine().rls_dialect, schema=schema,
                         default_catalog=_default_catalog().lower())
+    graph = _visible_graph(graph, await catalog_access.for_caller(user))
     graph["source"] = "query_history+catalog"
     graph["window_days"] = days
     graph["statements_scanned"] = len(rows)
