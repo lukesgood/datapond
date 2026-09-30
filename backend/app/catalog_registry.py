@@ -37,6 +37,124 @@ class UnknownCatalog(ValueError):
     """A catalog name that is not an enabled registry entry."""
 
 
+# ── config: what each kind may carry ─────────────────────────────────────────
+#
+# `config` is non-secret and returned to every reader of GET /api/catalogs, so the keys
+# are a whitelist per kind: anything not named here — a `credential`, a `token`, a
+# `header.Authorization` — is refused rather than stored where it would be shown.
+# Credentials go through `secret` (stored encrypted, see SECRET_PREFIX).
+
+CONFIG_KEYS = {
+    "glue": {"region": str, "catalog_id": str, "warehouse": str, "via_rest": bool},
+    "iceberg_rest": {"uri": str, "warehouse": str, "sigv4": bool, "signing_name": str,
+                     "signing_region": str, "scope": str, "prefix": str},
+    "polaris": {"warehouse": str, "uri": str},
+}
+
+_REGION = re.compile(r"^[a-z]{2}(-[a-z]+)+-\d$")
+_ACCOUNT = re.compile(r"^\d{12}$")
+_SIGNING_NAME = re.compile(r"^[a-z0-9-]{1,64}$")
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+# Plain http only reaches a catalog inside the cluster (or on the developer's machine):
+# a bearer token or client secret sent over http anywhere else is a leaked one.
+_IN_CLUSTER_SUFFIXES = (".svc", ".svc.cluster.local")
+
+
+def check_uri(uri: str) -> str:
+    """An https URL, or http to an in-cluster service / localhost. Never one that
+    carries credentials — the URL is config, and config is shown."""
+    from urllib.parse import urlsplit
+    try:
+        parts = urlsplit(uri)
+        host = (parts.hostname or "").lower()
+    except ValueError:
+        raise ValueError(f"uri is not a URL: {uri!r}")
+    if parts.username or parts.password or "@" in parts.netloc:
+        raise ValueError("uri must not carry credentials; put them in the secret.")
+    if not host:
+        raise ValueError(f"uri has no host: {uri!r}")
+    if parts.scheme == "https":
+        return uri
+    if parts.scheme == "http" and (host == "localhost" or host.endswith(_IN_CLUSTER_SUFFIXES)):
+        return uri
+    raise ValueError("uri must be https (http only for *.svc, *.svc.cluster.local or "
+                     "localhost).")
+
+
+def validate_config(kind: str, config: Optional[dict]) -> dict:
+    """The config as given, or ValueError naming what is wrong with it."""
+    if kind not in CONFIG_KEYS:
+        raise ValueError(f"kind must be one of {', '.join(KINDS)}.")
+    config = dict(config or {})
+    allowed = CONFIG_KEYS[kind]
+    for key, value in config.items():
+        if key not in allowed:
+            raise ValueError(f"config key '{key}' is not allowed for {kind}; allowed: "
+                             f"{', '.join(sorted(allowed))}. Credentials go in the secret.")
+        want = allowed[key]
+        if not isinstance(value, want):
+            raise ValueError(f"config '{key}' must be a "
+                             f"{'boolean' if want is bool else 'string'}.")
+        if want is str and (len(value) > 512 or _CONTROL.search(value)):
+            raise ValueError(f"config '{key}' must be at most 512 printable characters.")
+    if config.get("region") and not _REGION.match(config["region"]):
+        raise ValueError(f"region is not an AWS region: {config['region']!r}")
+    if config.get("signing_region") and not _REGION.match(config["signing_region"]):
+        raise ValueError(f"signing_region is not an AWS region: {config['signing_region']!r}")
+    if config.get("catalog_id") and not _ACCOUNT.match(config["catalog_id"]):
+        raise ValueError("catalog_id must be a 12-digit AWS account id.")
+    if config.get("signing_name") and not _SIGNING_NAME.match(config["signing_name"]):
+        raise ValueError("signing_name must be an AWS service name such as glue or s3tables.")
+    if config.get("uri"):
+        check_uri(config["uri"])
+    if kind == "iceberg_rest":
+        if not config.get("uri"):
+            raise ValueError("iceberg_rest needs a uri.")
+        if config.get("sigv4") and not (config.get("signing_name")
+                                        and config.get("signing_region")):
+            raise ValueError("sigv4 needs signing_name and signing_region.")
+    if kind == "glue" and config.get("via_rest"):
+        if not (config.get("region") and config.get("catalog_id")):
+            raise ValueError("glue via_rest needs region and catalog_id (the account id "
+                             "whose catalog is read).")
+    return config
+
+
+# ── secrets ──────────────────────────────────────────────────────────────────
+#
+# A catalog's credential is a system_settings row, encrypted with the same vault as
+# connector credentials and AI keys; `secret_ref` names the row. load() reads the
+# ciphertext alongside the registry, so a reader built on a request thread never does
+# IO for it, and plaintext exists only while a catalog client is being built.
+
+SECRET_PREFIX = "catalog_secret."
+_secrets: dict = {}
+
+
+def secret_ref_for(name: str) -> str:
+    return f"{SECRET_PREFIX}{name}"
+
+
+def set_secret_ciphertext(ref: str, ciphertext: Optional[str]) -> None:
+    if ciphertext:
+        _secrets[ref] = ciphertext
+    else:
+        _secrets.pop(ref, None)
+
+
+def secret_for(entry: "CatalogEntry") -> Optional[str]:
+    """The entry's credential in plaintext, or None. Never logged."""
+    ref = getattr(entry, "secret_ref", None)
+    if not ref or ref not in _secrets:
+        return None
+    try:
+        from app.connectors.vault import CredentialVault
+        return CredentialVault().decrypt_credentials(_secrets[ref]).get("v") or None
+    except Exception:
+        logger.warning("[catalogs] secret for %s cannot be decrypted", entry.name)
+        return None
+
+
 @dataclass(frozen=True)
 class CatalogEntry:
     name: str
@@ -119,6 +237,7 @@ def reset() -> None:
     """Forget what the database said; the env default stands in again."""
     _state["entries"] = None
     _state["at"] = 0.0
+    _secrets.clear()
 
 
 def set_entries(entries: List[CatalogEntry]) -> None:
@@ -186,6 +305,9 @@ _SELECT = """SELECT name, kind, engine_catalog, config, secret_ref, is_default, 
               ORDER BY is_default DESC, name"""
 
 
+_SECRETS = "SELECT key, value FROM system_settings WHERE key = ANY($1::text[])"
+
+
 def _row_to_entry(r) -> CatalogEntry:
     cfg = r["config"]
     if isinstance(cfg, str):
@@ -210,7 +332,18 @@ async def load(pool, *, force: bool = False, timeout: float = 5.0) -> List[Catal
             async with pool.acquire() as c:
                 return await c.fetch(_SELECT)
         rows = await asyncio.wait_for(_fetch(), timeout=timeout)
-        set_entries([_row_to_entry(r) for r in rows])
+        loaded = [_row_to_entry(r) for r in rows]
+        refs = [e.secret_ref for e in loaded if e.secret_ref]
+        if refs:
+            try:
+                async def _fetch_secrets():
+                    async with pool.acquire() as c:
+                        return await c.fetch(_SECRETS, refs)
+                for r in await asyncio.wait_for(_fetch_secrets(), timeout=timeout):
+                    set_secret_ciphertext(r["key"], r["value"])
+            except Exception as e:
+                logger.warning("[catalogs] catalog secrets not read, keeping last: %s", e)
+        set_entries(loaded)
     except Exception as e:
         logger.warning("[catalogs] registry read failed, keeping %s: %s",
                        "last rows" if _state["entries"] else "env default", e)
