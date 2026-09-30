@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TableCard } from "@/components/catalog/table-card"
+import { DataCatalogs } from "@/components/settings/data-catalogs"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Loader2, Sparkles, Clock } from "lucide-react"
@@ -70,6 +71,7 @@ function CatalogPageInner() {
   // a collapsed header with no hint of them, so the feature read as missing rather
   // than as hidden — which is exactly how it was reported. It still collapses.
   const [showGraph, setShowGraph] = useState(true)
+  const [showCatalogs, setShowCatalogs] = useState(false)
   const [data, setData] = useState<CatalogData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -276,6 +278,29 @@ function CatalogPageInner() {
           </CardContent>
         )}
       </Card>
+
+      {/* Which catalogs are read — edited by admins in Settings → Data catalogs */}
+      <div>
+        <div className="flex items-center gap-3 text-xs">
+          <button
+            type="button"
+            aria-expanded={showCatalogs}
+            className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
+            onClick={() => setShowCatalogs(v => !v)}
+          >
+            {showCatalogs ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            Data catalogs
+          </button>
+          {role === "admin" && (
+            <NextLink href="/settings" className="text-primary hover:underline">Manage in Settings</NextLink>
+          )}
+        </div>
+        {showCatalogs && (
+          <div className="mt-2">
+            <DataCatalogs canEdit={false} />
+          </div>
+        )}
+      </div>
 
       {/* Search and Filters */}
       <div className="flex flex-col gap-4 sm:flex-row">

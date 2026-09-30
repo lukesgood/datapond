@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ServiceAccounts } from "@/components/settings/service-accounts"
+import { DataCatalogs } from "@/components/settings/data-catalogs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import {
@@ -237,6 +238,7 @@ export default function SettingsPage() {
             <TabsTrigger value="security"  className="text-xs">Security</TabsTrigger>
             <TabsTrigger value="system"    className="text-xs">System</TabsTrigger>
             <TabsTrigger value="service"   className="text-xs">Service accounts</TabsTrigger>
+            <TabsTrigger value="catalogs"  className="text-xs">Data catalogs</TabsTrigger>
           </TabsList>
 
           {/* ── Overview ── */}
@@ -383,6 +385,10 @@ export default function SettingsPage() {
           {/* ── System ── */}
           <TabsContent value="service" className="mt-5">
             <ServiceAccounts />
+          </TabsContent>
+
+          <TabsContent value="catalogs" className="mt-5">
+            <DataCatalogs canEdit={isAdmin} />
           </TabsContent>
 
           <TabsContent value="system" className="mt-5 space-y-5">
