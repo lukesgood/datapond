@@ -185,7 +185,17 @@ def _full(location: Location, default: Optional[str], table: str) -> str:
     return f"{default}.{location}.{table}" if default else f"{location}.{table}"
 
 
-def qualify_tables(sql: str, *, dialect: str, load_index: Callable[[], CatalogIndex]) -> str:
+def _location_catalog(location: Location, default: Optional[str]) -> Optional[str]:
+    return location[0] if isinstance(location, tuple) else default
+
+
+def _namespace_catalog(namespace: str, default: Optional[str]) -> Optional[str]:
+    """Index namespaces are "ns" in the default catalog and "catalog.ns" elsewhere."""
+    return namespace.split(".", 1)[0] if "." in namespace else default
+
+
+def qualify_tables(sql: str, *, dialect: str, load_index: Callable[[], CatalogIndex],
+                   catalog_allowed: Optional[Callable[[Optional[str]], bool]] = None) -> str:
     """Rewrite bare table names to `<namespace>.<table>` — or
     `<catalog>.<namespace>.<table>` when the table lives outside the default catalog.
 
@@ -195,6 +205,12 @@ def qualify_tables(sql: str, *, dialect: str, load_index: Callable[[], CatalogIn
 
     Raises TableResolutionError when a bare name matches zero or more than one
     namespace, with a message naming the alternatives.
+
+    `catalog_allowed` (app/catalog_access.py) takes the engine name of a catalog and
+    says whether this caller may use it. The index is global and cached; the caller's
+    view is applied here, at lookup: a table in a catalog the caller may not use is
+    neither matched nor named as a candidate or an available namespace — a bare name
+    that exists only there is "not found".
     """
     try:
         statements = [s for s in sqlglot.parse(sql, read=dialect) if s is not None]
@@ -208,16 +224,20 @@ def qualify_tables(sql: str, *, dialect: str, load_index: Callable[[], CatalogIn
 
     index = load_index()
     default = getattr(index, "default_catalog", None)
+    allowed = catalog_allowed or (lambda _catalog: True)
+    visible_namespaces = [ns for ns in index.namespaces
+                          if allowed(_namespace_catalog(ns, default))]
     for _stmt, tbl in pending:
         name = tbl.name.lower()
-        matches = index.tables.get(name, ())
+        matches = [m for m in index.tables.get(name, ())
+                   if allowed(_location_catalog(m, default))]
         if len(matches) == 1:
             catalog, ns = _split(matches[0], default)
             tbl.set("db", exp.to_identifier(ns))
             if catalog is not None:
                 tbl.set("catalog", exp.to_identifier(catalog))
         elif not matches:
-            available = ", ".join(index.namespaces) or "(none)"
+            available = ", ".join(visible_namespaces) or "(none)"
             raise TableResolutionError(
                 f"Table '{tbl.name}' was not found in the catalog. "
                 f"Available namespaces: {available}. "

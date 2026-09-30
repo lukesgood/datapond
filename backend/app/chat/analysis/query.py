@@ -33,7 +33,16 @@ async def generate_sql(params: dict, user: dict) -> dict:
             "validated": result.validated, "needs_input": result.needs_input}
 
 
-def qualify_for_preview(sql: str):
+HIDDEN_CATALOG = ("This statement references a data catalog you may not use. Ask an "
+                  "administrator for access to it.")
+
+
+async def _catalog_view(user: dict):
+    from app import catalog_access
+    return await catalog_access.for_caller(user)
+
+
+def qualify_for_preview(sql: str, access=None):
     """(ok, sql, error) — the statement as `execute_query` will actually run it.
 
     `run_query` below goes through execute_query, which rewrites bare table names
@@ -46,13 +55,23 @@ def qualify_for_preview(sql: str):
     Failure is reported, not raised: execute_query answers a bad resolution with a 400,
     but this is the content of an approval card and there is no request to fail. Saying
     "could not resolve" is the honest version of the same refusal.
+
+    `access` is the caller's catalog view (app/catalog_access.py): bare names resolve
+    only in catalogs it allows, and a statement naming any other is refused here as
+    execute_query would refuse it — the preview must not describe a hidden table.
     """
+    from app import catalog_access
     from app.api.query_engine import get_engine
     from app.api.table_resolver import (TableResolutionError, get_catalog_index,
                                         qualify_tables)
+    access = access or catalog_access.CatalogAccess()   # no view given: nothing allowed
     try:
-        return True, qualify_tables(sql, dialect=get_engine().rls_dialect,
-                                    load_index=get_catalog_index), None
+        dialect = get_engine().rls_dialect
+        out = qualify_tables(sql, dialect=dialect, load_index=get_catalog_index,
+                             catalog_allowed=access.allows_sql_catalog)
+        if catalog_access.statement_uses_hidden(access, out, dialect):
+            return False, sql, HIDDEN_CATALOG
+        return True, out, None
     except TableResolutionError as e:
         return False, sql, str(e)
     except Exception as e:                      # catalog unreachable, engine unknown
@@ -62,7 +81,8 @@ def qualify_for_preview(sql: str):
 
 async def explain_plan(params: dict, user: dict) -> dict:
     from app.api.plan_review import review
-    resolved, sql, resolution_error = qualify_for_preview(params["sql"])
+    resolved, sql, resolution_error = qualify_for_preview(
+        params["sql"], await _catalog_view(user))
     if not resolved:
         return {"validated": False, "error": resolution_error,
                 "accessed": [], "problems": []}
@@ -76,7 +96,8 @@ async def explain_plan(params: dict, user: dict) -> dict:
 
 async def preview_query_run(params: dict, user: dict) -> dict:
     """What this statement will read, before the user approves running it."""
-    resolved, sql, resolution_error = qualify_for_preview(params["sql"])
+    resolved, sql, resolution_error = qualify_for_preview(
+        params["sql"], await _catalog_view(user))
     if not resolved:
         return {"validated": False, "error": resolution_error, "reads": []}
     ok, error, io_text = explain_statement(sql, "TYPE IO, FORMAT JSON")

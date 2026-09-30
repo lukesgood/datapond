@@ -14,7 +14,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from app import security_audit
+from app import catalog_access, security_audit
 from app.api.auth import require_user, require_permission
 from app import tool_call_log
 
@@ -260,6 +260,20 @@ def _may_write(user: dict) -> bool:
     return "query:write" in held
 
 
+async def _refuse_hidden_catalog(user: dict, route: str):
+    """Audit, then 403 — for a statement that names a catalog the caller may not use
+    (app/catalog_access.py). Neither the audit reason nor the refusal names the catalog:
+    the caller may not know it exists."""
+    await security_audit.record(
+        actor=user, permission="catalog:use", route=route, method="POST",
+        outcome="denied",
+        reason="The statement references a data catalog this caller may not use.")
+    raise HTTPException(
+        status_code=403,
+        detail="This statement references a data catalog you may not use. Ask an "
+               "administrator for access to it.")
+
+
 async def _execute_query_impl(
     request: QueryExecuteRequest,
     db: Session = Depends(get_db),
@@ -314,6 +328,9 @@ async def _execute_query_impl(
         raise HTTPException(status_code=401, detail="Invalid user identity")
 
     engine = get_engine()
+    # Which catalogs this caller may use (app/catalog_access.py). The resolver matches
+    # bare names only in those, and the statement is refused below if it names another.
+    access = await catalog_access.for_caller(user)
 
     # ── Resolve unqualified table names against the catalog ───────────────────
     # Must run BEFORE enforce(): RLS keys policies on the fully qualified name, so
@@ -323,7 +340,8 @@ async def _execute_query_impl(
     # qualified query reads no catalog and is left byte-for-byte unchanged.
     try:
         effective_query = qualify_tables(
-            effective_query, dialect=engine.rls_dialect, load_index=get_catalog_index
+            effective_query, dialect=engine.rls_dialect, load_index=get_catalog_index,
+            catalog_allowed=access.allows_sql_catalog,
         )
     except TableResolutionError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -334,6 +352,13 @@ async def _execute_query_impl(
             detail="Could not resolve table names against the catalog. "
                    "Qualify tables as <namespace>.<table> and retry.",
         )
+
+    # ── Catalog grants: every table the statement names, after resolution ─────
+    # Three parts name their catalog; two or one mean the default. A hidden catalog
+    # is refused before RLS and before the engine — and the refusal does not say which
+    # catalog, since the caller may not know it exists.
+    if catalog_access.statement_uses_hidden(access, effective_query, engine.rls_dialect):
+        await _refuse_hidden_catalog(user, "/api/queries/execute")
 
     # ── RLS enforcement (Layer 1) — gated by RLS_ENABLED ──────────────────────
     trino_user = TRINO_USER
@@ -698,8 +723,10 @@ async def review_plan(request: QueryPlanRequest, user: dict = Depends(require_us
         raise HTTPException(status_code=400, detail="SQL cannot be empty")
 
     engine = get_engine()
+    access = await catalog_access.for_caller(user)
     try:
-        sql = qualify_tables(sql, dialect=engine.rls_dialect, load_index=get_catalog_index)
+        sql = qualify_tables(sql, dialect=engine.rls_dialect, load_index=get_catalog_index,
+                             catalog_allowed=access.allows_sql_catalog)
     except TableResolutionError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
@@ -716,6 +743,11 @@ async def review_plan(request: QueryPlanRequest, user: dict = Depends(require_us
             detail="Could not resolve table names against the catalog. "
                    "Qualify tables as <namespace>.<table> and retry.",
         )
+
+    # EXPLAIN names the tables and columns a statement reads — a description of a
+    # hidden catalog is as much a leak as its rows.
+    if catalog_access.statement_uses_hidden(access, sql, engine.rls_dialect):
+        await _refuse_hidden_catalog(user, "/api/queries/plan")
 
     ok, err, io_text = await asyncio.to_thread(explain_statement, sql, "TYPE IO, FORMAT JSON")
     if not ok:
