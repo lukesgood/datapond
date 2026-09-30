@@ -78,3 +78,17 @@ configured target.
   two parts as before (the default catalog is the engine's session catalog).
 - Stored `refresh_source` / sink rows without a catalog mean the default catalog.
 - Relationship node ids become three-part; the frontend reads both shapes.
+
+## 5. Measured before P2 (2026-09-30, account 588738574974, us-east-1, pyiceberg 0.11.1)
+
+| Path | Result | Consequence for P2 |
+|---|---|---|
+| Glue through its Iceberg REST endpoint (`https://glue.<region>.amazonaws.com/iceberg`, warehouse = account id, SigV4 signing name `glue`) | Works: namespaces, 23 tables, schema, snapshot summary; 2.3 s cold | One `IcebergRestReader` serves Glue too; other accounts' catalogs use the same reader with a different warehouse (account id) and credentials |
+| S3 Tables through Iceberg REST (`https://s3tables.<region>.amazonaws.com/iceberg`, warehouse = table-bucket ARN, signing name `s3tables`) | Works: create namespace/table, append, list, load, scan | Readable with the same reader |
+| Athena querying that S3 Tables table (`"s3tablescatalog/<bucket>".ns.t`) | `CATALOG_NOT_FOUND` | Querying S3 Tables from Athena needs the account's S3 Tables ↔ AWS analytics (Lake Formation) integration — an install prerequisite, not something DataPond turns on |
+| Glue resource link (same account) via REST and via `GlueCatalog` | Both list and load through the link | Supported; **the REST endpoint returns table identifiers under the target namespace**, so a reader must key results by the namespace it asked for |
+| Athena query through the resource link | Works (`SELECT count(*) FROM probe_rl_default.orders` = 6000) | Cross-account shares surface as ordinary namespaces of the local catalog |
+
+A link and its target list the same tables, so a bare table name present in both is
+ambiguous by design; the resolver's existing ambiguity error is the right answer.
+All probe resources (table bucket, resource-link database) were deleted afterwards.
