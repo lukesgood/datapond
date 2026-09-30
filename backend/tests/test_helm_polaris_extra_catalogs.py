@@ -106,3 +106,27 @@ def test_catalogs_on_minio_use_its_endpoint_path_style():
                           .replace("$CATALOG", "c").replace("$N", "n"))
         sc = body["catalog"]["storageConfigInfo"]
         assert sc["pathStyleAccess"] is True and sc["endpoint"].startswith("http://minio")
+        assert sc["stsUnavailable"] is True
+
+
+def test_minio_turns_credential_subscoping_on_and_native_s3_keeps_it_off():
+    """pathStyleAccess is read only on Polaris' credential path, which the skip flag
+    bypasses; with it on, the server's FileIO got table properties alone and addressed
+    MinIO virtual-host style. S3-compatible storage turns the flag off (and marks the
+    store as having no STS); native S3 keeps today's behaviour."""
+    on_minio = render()
+    assert '"SKIP_CREDENTIAL_SUBSCOPING_INDIRECTION"=false' in on_minio
+    native = render("storage.endpoint=")
+    assert '"SKIP_CREDENTIAL_SUBSCOPING_INDIRECTION"=true' in native
+
+
+def test_an_existing_catalog_gets_the_storage_config_on_upgrade():
+    import json
+    job = init_job(render("polaris.extraCatalogNames={catb}"))
+    assert '[ "$code" = "409" ] && sync_storage "$CATALOG" "$BASELOC"' in job
+    assert '[ "$code" = "409" ] && sync_storage "$N" "$LOC"' in job
+    raw = re.search(r'-d "(\{\\"currentEntityVersion\\".*?\}\})"\)', job, re.S).group(1)
+    body = json.loads(raw.replace('\\"', '"').replace("$V", "3").replace("$1", "s3://x"))
+    sc = body["storageConfigInfo"]
+    assert body["currentEntityVersion"] == 3
+    assert sc["pathStyleAccess"] is True and sc["stsUnavailable"] is True

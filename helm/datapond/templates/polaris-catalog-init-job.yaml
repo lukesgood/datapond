@@ -67,6 +67,22 @@ spec:
             sleep 3
           done
           AUTH="Authorization: Bearer $TOKEN"
+          {{- if .Values.storage.endpoint }}
+
+          # A catalog created before path-style access was set keeps its stored config,
+          # and with subscoping on (polaris-deployment.yaml) it would ask MinIO for STS.
+          # Bring an existing catalog's storage config up to date: $1 name, $2 location.
+          sync_storage() {
+            V=$(curl -s "$PURL/api/management/v1/catalogs/$1" -H "$AUTH" \
+                | sed -n 's/.*"entityVersion"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p')
+            [ -n "$V" ] || { echo "ERROR: cannot read catalog $1"; exit 1; }
+            set -- "$2" "$1"
+            uc=$(curl -s -o /tmp/u -w "%{http_code}" -X PUT "$PURL/api/management/v1/catalogs/$2" \
+              -H "$AUTH" -H "Content-Type: application/json" \
+              -d "{\"currentEntityVersion\":$V,\"storageConfigInfo\":{{ include "datapond.polarisStorageUpdate" . }}}")
+            echo "  storage config $2 -> $uc"; [ "$uc" = "200" ] || { cat /tmp/u; exit 1; }
+          }
+          {{- end }}
 
           echo "Creating catalog '$CATALOG' (idempotent)..."
           code=$(curl -s -o /tmp/o -w "%{http_code}" -X POST "$PURL/api/management/v1/catalogs" \
@@ -76,6 +92,9 @@ spec:
               \"storageConfigInfo\":{\"storageType\":\"S3\",\"allowedLocations\":[\"$BASELOC\"],
               \"roleArn\":\"arn:aws:iam::000000000000:role/polaris\"{{ include "datapond.polarisS3Compat" . }}}}}")
           echo "  catalog -> $code"; [ "$code" = "201" ] || [ "$code" = "409" ] || { cat /tmp/o; exit 1; }
+          {{- if .Values.storage.endpoint }}
+          [ "$code" = "409" ] && sync_storage "$CATALOG" "$BASELOC"
+          {{- end }}
 
           # Grant + role-assign are best-effort (Polaris returns 500 on duplicate grants),
           # so we don't fail on them here — instead we VERIFY the end state below.
@@ -116,6 +135,9 @@ spec:
                 \"storageConfigInfo\":{\"storageType\":\"S3\",\"allowedLocations\":[\"$LOC\"],
                 \"roleArn\":\"arn:aws:iam::000000000000:role/polaris\"{{ include "datapond.polarisS3Compat" . }}}}}")
             echo "  catalog $N -> $code"; [ "$code" = "201" ] || [ "$code" = "409" ] || { cat /tmp/o; exit 1; }
+            {{- if .Values.storage.endpoint }}
+            [ "$code" = "409" ] && sync_storage "$N" "$LOC"
+            {{- end }}
             curl -s -o /dev/null -w "  grant $N -> %{http_code}\n" -X PUT \
               "$PURL/api/management/v1/catalogs/$N/catalog-roles/catalog_admin/grants" \
               -H "$AUTH" -H "Content-Type: application/json" \
