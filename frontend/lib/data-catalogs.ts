@@ -30,6 +30,8 @@ export interface CatalogForm {
   region: string
   catalog_id: string
   via_rest: boolean
+  role_arn: string
+  external_id: string
   // glue / iceberg_rest / polaris
   warehouse: string
   // iceberg_rest
@@ -46,12 +48,12 @@ export interface CatalogForm {
   enabled: boolean
 }
 
-type ConfigField = "region" | "catalog_id" | "via_rest" | "warehouse" | "uri" | "sigv4" |
+type ConfigField = "region" | "catalog_id" | "via_rest" | "role_arn" | "external_id" | "warehouse" | "uri" | "sigv4" |
   "signing_name" | "signing_region" | "scope" | "prefix"
 
 /** The config keys each kind carries — the backend's whitelist. */
 export const KIND_FIELDS: Record<CatalogKind, ConfigField[]> = {
-  glue: ["region", "catalog_id", "warehouse", "via_rest"],
+  glue: ["region", "catalog_id", "warehouse", "via_rest", "role_arn", "external_id"],
   iceberg_rest: ["uri", "warehouse", "sigv4", "signing_name", "signing_region", "scope", "prefix"],
   polaris: ["warehouse"],
 }
@@ -60,7 +62,7 @@ const BOOL_FIELDS = new Set<ConfigField>(["via_rest", "sigv4"])
 
 export function emptyForm(kind: CatalogKind = "iceberg_rest"): CatalogForm {
   return {
-    name: "", kind, engine_catalog: "", region: "", catalog_id: "", via_rest: false,
+    name: "", kind, engine_catalog: "", region: "", catalog_id: "", via_rest: false, role_arn: "", external_id: "",
     warehouse: "", uri: "", sigv4: false, signing_name: "", signing_region: "", scope: "",
     prefix: "", secret: "", clearSecret: false, is_default: false, enabled: true,
   }
@@ -83,6 +85,8 @@ export function formFromCatalog(c: DataCatalog): CatalogForm {
 const IDENT = /^[A-Za-z0-9_]{1,64}$/
 const REGION = /^[a-z]{2}(-[a-z]+)+-\d$/
 const ACCOUNT = /^\d{12}$/
+const ROLE_ARN = /^arn:aws(-[a-z]+)*:iam::\d{12}:role\/[\w+=,.@/-]{1,128}$/
+const EXTERNAL_ID = /^[\w+=,.@:/-]{2,1224}$/
 const SIGNING_NAME = /^[a-z0-9-]{1,64}$/
 
 /** null when the uri is acceptable, else why not. https, or http to *.svc,
@@ -110,6 +114,11 @@ export function validateForm(f: CatalogForm, opts: { creating: boolean }): FormE
   if (f.kind === "glue") {
     if (f.region && !REGION.test(f.region)) e.region = "Not an AWS region (e.g. ap-northeast-2)."
     if (f.catalog_id && !ACCOUNT.test(f.catalog_id)) e.catalog_id = "A 12-digit AWS account id."
+    if (f.role_arn && !ROLE_ARN.test(f.role_arn.trim()))
+      e.role_arn = "Like arn:aws:iam::123456789012:role/name."
+    if (f.external_id && !f.role_arn.trim()) e.external_id = "Needs a role ARN."
+    else if (f.external_id && !EXTERNAL_ID.test(f.external_id.trim()))
+      e.external_id = "2-1224 letters, digits or _+=,.@:/-"
     if (f.via_rest) {
       if (!f.region) e.region = "Needed to read through Glue's REST endpoint."
       if (!f.catalog_id) e.catalog_id = "Needed to read through Glue's REST endpoint."

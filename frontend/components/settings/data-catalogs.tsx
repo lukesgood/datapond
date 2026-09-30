@@ -317,8 +317,12 @@ function CatalogDialog({ original, onClose, onSaved }: {
               </div>
               {fields.has("warehouse") && text("warehouse", "Warehouse", "s3://bucket/warehouse")}
               {box("via_rest", "Read through Glue's Iceberg REST endpoint (another account's catalog)")}
+              {text("role_arn", "Role to assume (cross-account)", "arn:aws:iam::123456789012:role/catalog-read",
+                    "Optional. The node role must be allowed sts:AssumeRole on it.")}
+              {f.role_arn.trim() && text("external_id", "External id", undefined,
+                "Optional; only if the role's trust policy requires it.")}
               <p className="text-2xs text-muted-foreground">
-                Glue uses the backend&apos;s AWS credentials; it takes no secret.
+                Glue uses the backend&apos;s AWS credentials (or the assumed role); it takes no secret.
               </p>
             </>
           )}
