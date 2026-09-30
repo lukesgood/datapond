@@ -125,6 +125,31 @@ surfaces) still list every catalog; Trino's own `system` catalog (e.g.
 is left to the engine's access control. Only unit-tested: no live database or engine
 run of the grants path.
 
+**P2/P3 follow-up status (2026-09-30).** Closed from the deferred lists above:
+- *Scheduled re-embeds re-check access.* `app/rag_scheduler.py` runs a schedule as its
+  collection's owner, read from `users` on every run; a collection with no active owner
+  (none, deleted or disabled) may read only a catalog with no grants. A refused run reads
+  nothing, sets `last_refresh_status` to `skipped: …` and writes a `catalog:use` denial
+  (route `rag_scheduler:<collection>`, method `SCHEDULE`) naming the catalog.
+- *Audit rows carry the catalog.* `query.execute` tool-call rows record
+  `catalog.namespace.table` (the default catalog's name for two-part refs), taken from the
+  statement as the resolver left it, refusals included; `request_masked` is unchanged.
+  A `catalog:use` denial's audit reason names the hidden catalog (or the metadata command /
+  unregistered catalog that tripped the check); the 403 still does not.
+- *`catalog` on tool parameters.* `catalog_find_tables`, `governance_policy_coverage` and
+  `query_generate_sql` (chat and MCP) and `generate_sql` in `/api/tools/openapi.json` take
+  an optional `catalog`, beside the tools that already did. `governance_explain_policy` and
+  `governance_policy_coverage` resolve it through `catalog_access` (hidden = unknown) and
+  leave hidden catalogs' policies/tables out when none is named; the Governance page's own
+  routes are unchanged. `run_sql` takes no `catalog`: a statement names its catalogs.
+- *Per-catalog health in Services.* `GET /api/catalogs/health` (`catalog:read`, filtered by
+  grants): the Test button's probe, 5 s deadline, concurrent on worker threads, cached 60 s
+  per replica, errors sanitised; a "Data catalogs" group on Services.
+
+Still open, by decision: Trino catalog files are **not** rendered from the registry — Helm
+`trino.extraCatalogs` is kept in step with `data_catalogs` by hand. Only unit-tested: the
+scheduler re-check and the health probe against live catalogs.
+
 ## 4. Compatibility
 
 - One catalog configured: every response keeps its shape plus a `catalog` field; SQL
