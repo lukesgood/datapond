@@ -8,18 +8,22 @@
 # re-running it against an already-bootstrapped realm exits non-zero. So this Job
 # pre-checks the schema and short-circuits when the realm is already provisioned,
 # letting Helm upgrade cleanly across deploys.
+#
+# An ordinary Job named per revision (like backend-migrate-<rev>), not a hook. It was
+# pre-install/pre-upgrade, and a pre-install hook runs before the release's ordinary
+# resources exist — this Job reads datapond-secrets and connects to the in-cluster
+# Postgres, both ordinary resources of the same release — so every fresh install with
+# Polaris on waited in CreateContainerConfigError until Helm timed out. Upgrades never
+# showed it. Polaris itself waits for the schema (polaris-deployment.yaml), not for
+# this Job, so creating them together is safe.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ .Values.polaris.name }}-bootstrap
+  name: {{ .Values.polaris.name }}-bootstrap-{{ .Release.Revision }}
   namespace: {{ .Values.namespace }}
   labels:
     app: {{ .Values.polaris.name }}
     component: catalog-bootstrap
-  annotations:
-    "helm.sh/hook": pre-install,pre-upgrade
-    "helm.sh/hook-weight": "-5"
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 600
