@@ -246,6 +246,8 @@ def rest_properties(entry, secret):
             "rest.signing-region": region,
             "s3.region": region,
         })
+        from app.aws_assume_role import rest_credential_props
+        props.update(rest_credential_props(entry))   # cross-account role, if configured
     else:
         props["uri"] = cfg["uri"]
         for key in ("warehouse", "scope", "prefix"):
@@ -287,7 +289,11 @@ def get_rest_catalog(entry):
     re-raised without another network attempt."""
     from app import catalog_registry
     secret = catalog_registry.secret_for(entry)
-    props = rest_properties(entry, secret)
+    from app.aws_assume_role import AssumeRoleError
+    try:
+        props = rest_properties(entry, secret)
+    except AssumeRoleError as e:
+        raise CatalogUnavailable(str(e)) from None
     fp = _fingerprint(props)
     now = time.monotonic()
     with _rest_lock:

@@ -45,7 +45,8 @@ class UnknownCatalog(ValueError):
 # Credentials go through `secret` (stored encrypted, see SECRET_PREFIX).
 
 CONFIG_KEYS = {
-    "glue": {"region": str, "catalog_id": str, "warehouse": str, "via_rest": bool},
+    "glue": {"region": str, "catalog_id": str, "warehouse": str, "via_rest": bool,
+             "role_arn": str, "external_id": str},
     "iceberg_rest": {"uri": str, "warehouse": str, "sigv4": bool, "signing_name": str,
                      "signing_region": str, "scope": str, "prefix": str},
     "polaris": {"warehouse": str, "uri": str},
@@ -113,6 +114,11 @@ def validate_config(kind: str, config: Optional[dict]) -> dict:
         if config.get("sigv4") and not (config.get("signing_name")
                                         and config.get("signing_region")):
             raise ValueError("sigv4 needs signing_name and signing_region.")
+    if config.get("external_id") and not config.get("role_arn"):
+        raise ValueError("external_id needs a role_arn.")
+    if config.get("role_arn"):
+        from app.aws_assume_role import validate_role
+        validate_role(config["role_arn"], config.get("external_id"))
     if kind == "glue" and config.get("via_rest"):
         if not (config.get("region") and config.get("catalog_id")):
             raise ValueError("glue via_rest needs region and catalog_id (the account id "

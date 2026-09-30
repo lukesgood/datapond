@@ -30,7 +30,7 @@ def get_catalog():
     return _catalog
 
 
-def _build_glue_catalog(config: dict = None):
+def _build_glue_catalog(config: dict = None, entry=None):
     """AWS Glue Data Catalog (서버리스). Glue/S3 모두 기본 자격증명 체인
     (노드 instance profile / IRSA) 사용 — _s3_fileio_props가 AWS에서 정적키를 생략.
     `config` is a registry entry's; without one this is the env default."""
@@ -43,6 +43,9 @@ def _build_glue_catalog(config: dict = None):
     }
     if config.get("catalog_id"):
         props["glue.id"] = str(config["catalog_id"])
+    if entry is not None:
+        from app.aws_assume_role import glue_credential_props
+        props.update(glue_credential_props(entry))   # cross-account role, if configured
     return GlueCatalog(name="datapond", **props)
 
 
@@ -51,8 +54,7 @@ def get_catalog_for(entry):
     singleton; another Glue entry gets its own, built from its config (catalog id,
     warehouse, region) — never the default catalog under another name.
 
-    Cross-account role assumption and Iceberg REST entries arrive with P2
-    (docs/superpowers/specs/2026-09-29-multi-catalog-design.md)."""
+    A `role_arn` in the config assumes that role (STS, cached, app/aws_assume_role.py)."""
     if entry.is_default:
         return get_catalog()
     if entry.kind != "glue":
@@ -60,11 +62,15 @@ def get_catalog_for(entry):
     import json
     # Keyed with the config too: another replica's admin edit reaches this one through
     # the registry refresh, and must not keep the catalog built from the old config.
-    fp = json.dumps(entry.config or {}, sort_keys=True)
+    # Assumed-role credentials rotate: the session token is part of the key, so a
+    # refreshed one rebuilds the catalog before the old one expires.
+    from app.aws_assume_role import glue_credential_props
+    creds = glue_credential_props(entry)
+    fp = json.dumps(entry.config or {}, sort_keys=True) + creds.get("glue.session-token", "")
     with _lock:
         hit = _by_entry.get(entry.name)
         if hit is None or hit[0] != fp:
-            hit = _by_entry[entry.name] = (fp, _build_glue_catalog(entry.config))
+            hit = _by_entry[entry.name] = (fp, _build_glue_catalog(entry.config, entry))
     return hit[1]
 
 

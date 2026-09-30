@@ -126,6 +126,18 @@ data "aws_iam_policy_document" "app" {
       values   = ["DataPond"]
     }
   }
+
+  # Cross-account Glue catalogs (Settings > Data catalogs, config `role_arn`): the node
+  # role assumes a role the OTHER account owns. Not enabled here; add one ARN per
+  # customer role (never "*") and apply only when a catalog is registered with it. The
+  # customer role's trust policy must name this node role (and its ExternalId, if set).
+  #
+  # statement {
+  #   sid       = "AssumeCustomerCatalogRoles"
+  #   effect    = "Allow"
+  #   actions   = ["sts:AssumeRole"]
+  #   resources = ["arn:aws:iam::<customer-account-id>:role/<catalog-read-role>"]
+  # }
 }
 
 resource "aws_iam_role_policy" "app" {
