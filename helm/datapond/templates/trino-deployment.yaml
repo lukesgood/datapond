@@ -1,4 +1,5 @@
 {{- if include "datapond.addonOn" (dict "root" $ "component" "trino") }}
+{{- include "datapond.trinoExtraCatalogs.validate" . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,6 +22,11 @@ spec:
       labels:
         app: {{ .Values.trino.name }}
         version: {{ .Values.trino.image.tag }}
+      {{- if .Values.trino.extraCatalogs }}
+      annotations:
+        # Trino reads catalog files at startup only; a changed extra catalog restarts it.
+        checksum/catalogs: {{ include "datapond.trinoExtraCatalogs.files" . | sha256sum | quote }}
+      {{- end }}
     spec:
       serviceAccountName: {{ .Values.trino.serviceAccountName | default "datapond-trino" }}
       containers:
@@ -59,6 +65,9 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: POLARIS_CLIENT_SECRET
+        {{- end }}
+        {{- if .Values.trino.extraCatalogs }}
+        {{- include "datapond.trinoExtraCatalogs.env" . | trim | nindent 8 }}
         {{- end }}
         volumeMounts:
         - name: trino-config
@@ -205,6 +214,9 @@ data:
     connection-url=jdbc:postgresql://postgres:5432/datapond
     connection-user={{ .Values.postgres.auth.username }}
     connection-password=${ENV:POSTGRES_PASSWORD}
+  {{- end }}
+  {{- if .Values.trino.extraCatalogs }}
+  {{- include "datapond.trinoExtraCatalogs.files" . | trim | nindent 2 }}
   {{- end }}
 {{- end }}
 {{- if .Values.trino.rls.enabled }}

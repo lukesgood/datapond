@@ -603,6 +603,26 @@ trino:
     configMapName: trino-access-control
     refreshPeriod: 30s
 
+  # Additional Iceberg REST catalogs Trino can query, one <name>.properties each next
+  # to iceberg.properties. `name` is the Trino catalog name and must equal the
+  # engine_catalog of the DataPond registry entry (Settings → Data catalogs): the
+  # registry lists and governs a catalog, this makes it queryable. Credentials come
+  # from a Kubernetes Secret, never from values:
+  #   - name: partner                       # lowercase identifier
+  #     type: rest                          # only Iceberg REST
+  #     uri: https://glue.ap-northeast-2.amazonaws.com/iceberg
+  #     warehouse: "123456789012"           # catalog name / account id / table-bucket ARN
+  #     sigv4: {enabled: true, signingName: glue}   # Glue or S3 Tables, node credentials
+  #     s3Region: ap-northeast-2            # default: storage.region
+  #   - name: unity
+  #     type: rest
+  #     uri: https://<workspace>/api/2.1/unity-catalog/iceberg-rest
+  #     warehouse: main
+  #     tokenSecret: {name: unity-catalog, key: token}            # bearer token
+  #     # or credentialSecret: {name: ..., key: ...}  OAuth2 client "id:secret"
+  #     # scope: PRINCIPAL_ROLE:ALL   prefix: ...   vendedCredentials: true
+  extraCatalogs: []
+
 # Monitoring
 monitoring:
   enabled: true

@@ -117,6 +117,32 @@ product:
 
 The backend publishes this as non-secret capability metadata. It is informational only. Actual component flags determine features.
 
+## Additional data catalogs
+
+Admins register further catalogs in **Settings → Data catalogs** (`/api/catalogs`):
+another account's Glue catalog (read through Glue's Iceberg REST endpoint), an Iceberg
+REST catalog such as S3 Tables, Unity Catalog, Snowflake Open Catalog or another
+Polaris, or another catalog of the in-cluster Polaris. DataPond then lists, resolves
+and governs its tables. Every profile starts with one entry, seeded from its settings,
+and behaves exactly as before until another is added.
+
+A registry entry is **queryable** only when the query engine knows its engine catalog
+name. DataPond does not create engine catalogs:
+
+- **Trino profiles:** list the catalog in `trino.extraCatalogs` (see `values.yaml`); the
+  chart renders `<name>.properties` next to `iceberg.properties`, with credentials from a
+  Kubernetes Secret (`credentialSecret` / `tokenSecret`), never from values. `name` must
+  equal the entry's engine catalog.
+- **Athena (AWS reference):** the default `AwsDataCatalog`, including Lake Formation
+  resource links to other accounts' databases, which appear as ordinary namespaces.
+- **S3 Tables:** the Iceberg REST path (SigV4, signing name `s3tables`) was measured
+  with pyiceberg (spec `docs/superpowers/specs/2026-09-29-multi-catalog-design.md` §5);
+  a DataPond install reading one has not been accepted live yet. Athena and other AWS
+  engines query S3 Tables only after the account's S3 Tables ↔ AWS analytics
+  integration is enabled — an install prerequisite, not something DataPond turns on.
+- The Trino `extraCatalogs` rendering is covered by chart tests; a Trino reading a
+  SigV4 or OAuth2 REST catalog through it has not been exercised live yet.
+
 ## Compatibility rules
 
 - Existing values filenames and release commands remain valid.
