@@ -240,13 +240,32 @@ def referenced_catalogs(sql: str, dialect: str) -> Optional[Set[str]]:
 
 
 def statement_uses_hidden(access: CatalogAccess, sql: str, dialect: str) -> bool:
-    """True when the statement names a catalog this caller may not use. A caller with
-    nothing hidden pays no parse; one with something hidden is refused a statement
-    that cannot be parsed, since what it reads cannot be known."""
+    """True when the statement names a catalog this caller may not use, or could read
+    one's metadata. A caller with nothing hidden pays no parse. For one with something
+    hidden, three more shapes are refused, because each can list a hidden catalog's
+    tables without naming a table the parser sees:
+
+    - a statement that cannot be parsed (what it reads cannot be known);
+    - a metadata command the parser keeps as opaque text (SHOW TABLES/SCHEMAS/CREATE,
+      USE, and the like — sqlglot returns them as Command/Use with no table nodes);
+    - a catalog no registry entry answers to, `system` included: Trino's
+      system.jdbc.tables and system.metadata.* list every catalog's tables.
+    """
     hidden = access.hidden_sql_names()
     if not hidden:
         return False
+    import sqlglot
+    from sqlglot import exp
+    try:
+        statements = [s for s in sqlglot.parse(sql, read=dialect) if s is not None]
+    except Exception:
+        return True
+    if any(isinstance(s, (exp.Command, exp.Use)) for s in statements):
+        return True
     cats = referenced_catalogs(sql, dialect)
     if cats is None:
         return True
-    return bool(cats & hidden)
+    known = set()
+    for e in catalog_registry.entries(include_disabled=True):
+        known |= {e.name.lower(), e.engine_catalog.lower()}
+    return bool(cats & hidden) or bool(cats - known)

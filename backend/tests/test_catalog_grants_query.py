@@ -193,3 +193,32 @@ def test_the_chat_preview_of_a_hidden_catalog_is_refused_without_explaining(worl
     assert out["validated"] is False and "may not use" in out["error"]
     out = _run(chat_query.explain_plan({"sql": "SELECT * FROM entries"}, ALICE))
     assert out["validated"] is False and "finance" not in out["error"]
+
+
+# ── metadata paths around a hidden catalog (review, 2026-09-30) ──────────────
+# A caller with a hidden catalog could still read its table names through statements
+# that name no table the parser sees (SHOW …), or through a catalog the registry does
+# not govern — Trino's `system` catalog lists every catalog's tables (system.jdbc.tables).
+
+@pytest.mark.parametrize("sql", [
+    "SHOW TABLES FROM finance.gl",
+    "SHOW SCHEMAS FROM finance",
+    "SHOW CREATE TABLE finance.gl.entries",
+    "SELECT table_name FROM system.jdbc.tables",
+    "SELECT * FROM system.metadata.table_comments",
+    "SELECT * FROM somewhere_unregistered.x.y",
+])
+def test_metadata_paths_are_refused_while_a_catalog_is_hidden(world, sql):
+    engine, audited = world
+    with pytest.raises(HTTPException) as exc:
+        _run(q._execute_query_impl(_Req(sql), db=None, user=ALICE))
+    assert exc.value.status_code == 403
+    assert engine.ran == []
+    assert audited and audited[0]["permission"] == "catalog:use"
+
+
+def test_the_same_statements_run_for_a_caller_with_nothing_hidden(world):
+    engine, _ = world
+    _run(q._execute_query_impl(_Req("SELECT table_name FROM system.jdbc.tables"),
+                               db=None, user=ADMIN))
+    assert engine.ran
