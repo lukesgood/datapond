@@ -224,6 +224,101 @@ export function disableBlocked(c: DataCatalog): string | null {
   return c.is_default ? "The default catalog cannot be disabled." : null
 }
 
+// ── Access: who may use a catalog (GET/PUT /api/catalogs/{name}/grants) ─────────
+// No grants: open to everyone with catalog access. One or more: only the granted
+// users and roles, plus signed-in admins (backend app/catalog_access.py).
+
+export type GrantKind = "user" | "role"
+
+export interface CatalogGrant {
+  kind: GrantKind
+  /** A user's id, or a role name. */
+  principal: string
+  username?: string | null
+  email?: string | null
+  service_account?: boolean | null
+}
+
+/** Someone a grant can name, for the picker: a user or service account by id. */
+export interface GrantCandidate {
+  id: string
+  label: string
+  service_account: boolean
+}
+
+export const OPEN_ACCESS = "Open to everyone with catalog access"
+export const RESTRICT_NOTE =
+  "Granting anyone restricts this catalog to the listed callers plus admins."
+
+export function grantKey(g: Pick<CatalogGrant, "kind" | "principal">): string {
+  return `${g.kind}:${g.kind === "user" ? g.principal.toLowerCase() : g.principal}`
+}
+
+/** The list with `g` added, unless it is already there. */
+export function addGrant(list: CatalogGrant[], g: CatalogGrant): CatalogGrant[] {
+  const principal = g.principal.trim()
+  if (!principal) return list
+  const next = { ...g, principal }
+  return list.some(x => grantKey(x) === grantKey(next)) ? list : [...list, next]
+}
+
+export function removeGrant(list: CatalogGrant[], key: string): CatalogGrant[] {
+  return list.filter(g => grantKey(g) !== key)
+}
+
+export function grantsPayload(list: CatalogGrant[]): { grants: { kind: GrantKind; principal: string }[] } {
+  return { grants: list.map(g => ({ kind: g.kind, principal: g.principal })) }
+}
+
+/** Whether the draft differs from what the server holds (order does not matter). */
+export function grantsChanged(saved: CatalogGrant[], draft: CatalogGrant[]): boolean {
+  const a = saved.map(grantKey).sort(), b = draft.map(grantKey).sort()
+  return a.length !== b.length || a.some((k, i) => k !== b[i])
+}
+
+/** How a grant reads in the list. A user the server could not name keeps its id. */
+export function grantLabel(g: CatalogGrant, candidates: GrantCandidate[] = []): string {
+  if (g.kind === "role") return `Role: ${g.principal}`
+  const known = candidates.find(c => c.id.toLowerCase() === g.principal.toLowerCase())
+  const name = g.username || known?.label || g.principal
+  const service = g.service_account ?? known?.service_account ?? false
+  return service ? `Service account: ${name}` : `User: ${name}`
+}
+
+export function accessSummary(list: CatalogGrant[]): string {
+  if (list.length === 0) return OPEN_ACCESS
+  const users = list.filter(g => g.kind === "user").length
+  const roles = list.length - users
+  const parts = [
+    users ? `${users} user${users === 1 ? "" : "s"}` : null,
+    roles ? `${roles} role${roles === 1 ? "" : "s"}` : null,
+  ].filter(Boolean)
+  return `Restricted to ${parts.join(" and ")}, plus admins`
+}
+
+/** Picker entries from GET /api/service-accounts ({accounts}) and GET /api/auth/users
+ *  (a list; service accounts are users too, so an id seen twice keeps its service-
+ *  account label). Already-granted ids are left out. */
+export function grantCandidates(
+  accounts: { id: string; username?: string; display_name?: string | null }[],
+  users: { id: string; username?: string | null; display_name?: string | null; email?: string | null }[],
+  granted: CatalogGrant[] = [],
+): GrantCandidate[] {
+  const taken = new Set(granted.filter(g => g.kind === "user").map(g => g.principal.toLowerCase()))
+  const out: GrantCandidate[] = []
+  const seen = new Set<string>()
+  const push = (id: string, label: string, service: boolean) => {
+    const k = id.toLowerCase()
+    if (!id || seen.has(k) || taken.has(k)) return
+    seen.add(k)
+    out.push({ id, label, service_account: service })
+  }
+  for (const a of accounts) push(a.id, a.display_name || a.username || a.id, true)
+  for (const u of users) push(u.id, u.display_name || u.username || u.email || u.id, false)
+  return out.sort((x, y) => Number(x.service_account) - Number(y.service_account)
+    || x.label.localeCompare(y.label))
+}
+
 /** A one-line description of where the catalog is, for the list. */
 export function locationOf(c: DataCatalog): string {
   const cfg = c.config ?? {}

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { AlertCircle, CheckCircle2, KeyRound, Library, Loader2, Plus } from "lucide-react"
+import { AlertCircle, CheckCircle2, KeyRound, Library, Loader2, Lock, Plus, X } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -11,10 +11,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/lib/toast"
 import { useConfirm } from "@/lib/confirm"
+import { usePermissions } from "@/lib/permissions"
 import {
-  KIND_FIELDS, KIND_LABEL, KINDS, deleteBlocked, disableBlocked, emptyForm, formFromCatalog,
-  locationOf, testSummary, toCreatePayload, toPatchPayload, validateForm,
-  type CatalogForm, type CatalogKind, type DataCatalog, type FormErrors, type TestResult,
+  KIND_FIELDS, KIND_LABEL, KINDS, OPEN_ACCESS, RESTRICT_NOTE, accessSummary, addGrant,
+  deleteBlocked, disableBlocked, emptyForm, formFromCatalog, grantCandidates, grantKey,
+  grantLabel, grantsChanged, grantsPayload, locationOf, removeGrant, testSummary,
+  toCreatePayload, toPatchPayload, validateForm,
+  type CatalogForm, type CatalogGrant, type CatalogKind, type DataCatalog, type FormErrors,
+  type GrantCandidate, type TestResult,
 } from "@/lib/data-catalogs"
 
 async function call(url: string, init?: RequestInit) {
@@ -46,18 +50,35 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
   const [tests, setTests] = useState<Record<string, TestResult | "running">>({})
   const [rowErr, setRowErr] = useState<Record<string, string>>({})
   const [editing, setEditing] = useState<DataCatalog | "new" | null>(null)
+  // Who may use each catalog — admins only (the grants routes need a signed-in admin).
+  const [grants, setGrants] = useState<Record<string, CatalogGrant[] | "error">>({})
+  const [access, setAccess] = useState<DataCatalog | null>(null)
+
+  const loadGrants = useCallback(async (names: string[]) => {
+    const pairs = await Promise.all(names.map(async n => {
+      try {
+        const d = await call(`/api/catalogs/${encodeURIComponent(n)}/grants`)
+        return [n, (d.grants ?? []) as CatalogGrant[]] as const
+      } catch {
+        return [n, "error" as const] as const
+      }
+    }))
+    setGrants(Object.fromEntries(pairs))
+  }, [])
 
   const load = useCallback(async () => {
     setErr(null)
     try {
       const d = await call("/api/catalogs")
       setRows(d.catalogs ?? []); setSource(d.source ?? "registry")
+      if (canEdit && d.source !== "env")
+        void loadGrants((d.catalogs ?? []).map((c: DataCatalog) => c.name))
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not load catalogs")
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [canEdit, loadGrants])
 
   useEffect(() => { void load() }, [load])
 
@@ -166,6 +187,18 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
                       )}
                     </div>
                     {locationOf(c) && <p className="truncate text-muted-foreground" title={locationOf(c)}>{locationOf(c)}</p>}
+                    {canEdit && source !== "env" && (
+                      <p className="flex items-center gap-1.5 text-muted-foreground">
+                        <Lock className="h-3 w-3 shrink-0" />
+                        <span>Access: {grants[c.name] === undefined ? "…"
+                          : grants[c.name] === "error" ? "could not be read"
+                          : accessSummary(grants[c.name] as CatalogGrant[])}</span>
+                        {/* Only once the current list is known: saving replaces it. */}
+                        {Array.isArray(grants[c.name]) && (
+                          <button className="text-primary" onClick={() => setAccess(c)}>Manage</button>
+                        )}
+                      </p>
+                    )}
                     {t === "running" && (
                       <p className="flex items-center gap-1.5 text-muted-foreground">
                         <Loader2 className="h-3 w-3 animate-spin" />Testing…</p>
@@ -193,6 +226,18 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
           original={editing === "new" ? null : editing}
           onClose={() => setEditing(null)}
           onSaved={async (msg) => { setEditing(null); toast(msg, "success"); await load() }}
+        />
+      )}
+      {canEdit && access && (
+        <AccessDialog
+          catalog={access}
+          initial={Array.isArray(grants[access.name]) ? grants[access.name] as CatalogGrant[] : []}
+          onClose={() => setAccess(null)}
+          onSaved={(saved) => {
+            setGrants(prev => ({ ...prev, [access.name]: saved }))
+            setAccess(null)
+            toast(`Access to ${access.name} saved`, "success")
+          }}
         />
       )}
     </Card>
@@ -340,6 +385,129 @@ function CatalogDialog({ original, onClose, onSaved }: {
           <Button size="sm" onClick={() => void save()} disabled={saving}>
             {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
             {creating ? "Add" : "Save"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Who may use one catalog. Saving replaces the whole list (PUT …/grants). */
+function AccessDialog({ catalog, initial, onClose, onSaved }: {
+  catalog: DataCatalog
+  initial: CatalogGrant[]
+  onClose: () => void
+  onSaved: (saved: CatalogGrant[]) => void
+}) {
+  const { assignableRoles } = usePermissions()
+  const [draft, setDraft] = useState<CatalogGrant[]>(initial)
+  const [people, setPeople] = useState<GrantCandidate[]>([])
+  const [pickUser, setPickUser] = useState("")
+  const [pickRole, setPickRole] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [saveErr, setSaveErr] = useState<string | null>(null)
+
+  // Best-effort, like the budget picker: without these lists the picker is empty and
+  // existing grants still show and can be removed.
+  useEffect(() => {
+    void (async () => {
+      let accounts: { id: string; username?: string; display_name?: string | null }[] = []
+      let users: { id: string; username?: string | null; display_name?: string | null }[] = []
+      try {
+        const r = await fetch("/api/service-accounts")
+        if (r.ok) accounts = (await r.json()).accounts ?? []
+      } catch { /* picker stays partial */ }
+      try {
+        const r = await fetch("/api/auth/users")
+        if (r.ok) users = await r.json()
+      } catch { /* picker stays partial */ }
+      setPeople(grantCandidates(accounts, users))
+    })()
+  }, [])
+
+  const draftKeys = new Set(draft.map(grantKey))
+  const userOptions = people.filter(p => !draftKeys.has(grantKey({ kind: "user", principal: p.id })))
+  const roleOptions = assignableRoles.map(r => r.name)
+    .filter(n => !draftKeys.has(grantKey({ kind: "role", principal: n })))
+
+  const addUser = () => {
+    const p = people.find(x => x.id === pickUser)
+    if (!p) return
+    setDraft(d => addGrant(d, { kind: "user", principal: p.id, username: p.label,
+      service_account: p.service_account }))
+    setPickUser("")
+  }
+  const addRole = () => {
+    if (!pickRole) return
+    setDraft(d => addGrant(d, { kind: "role", principal: pickRole }))
+    setPickRole("")
+  }
+
+  const save = async () => {
+    if (!grantsChanged(initial, draft)) { onClose(); return }
+    setSaving(true); setSaveErr(null)
+    try {
+      const d = await call(`/api/catalogs/${encodeURIComponent(catalog.name)}/grants`,
+        json("PUT", grantsPayload(draft)))
+      onSaved(d.grants ?? [])
+    } catch (e) {
+      setSaveErr(e instanceof Error ? e.message : "Could not save")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={o => { if (!o) onClose() }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Access to {catalog.name}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-1 text-xs">
+          <p className="text-muted-foreground">{RESTRICT_NOTE}</p>
+          {draft.length === 0 ? (
+            <p className="rounded-md border border-dashed px-3 py-2 text-muted-foreground">{OPEN_ACCESS}</p>
+          ) : (
+            <ul className="divide-y rounded-md border">
+              {draft.map(g => (
+                <li key={grantKey(g)} className="flex items-center gap-2 px-3 py-1.5">
+                  <span className="truncate" title={g.principal}>{grantLabel(g, people)}</span>
+                  <button className="ml-auto text-muted-foreground hover:text-destructive"
+                          aria-label={`Remove ${grantLabel(g, people)}`}
+                          onClick={() => setDraft(d => removeGrant(d, grantKey(g)))}>
+                    <X className="h-3.5 w-3.5" /></button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="grid grid-cols-[1fr_auto] gap-2">
+            <select aria-label="User or service account" value={pickUser}
+                    className="h-8 w-full rounded-md border bg-background px-2 text-xs"
+                    onChange={e => setPickUser(e.target.value)}>
+              <option value="">Add a user or service account…</option>
+              {userOptions.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.service_account ? `${p.label} (service account)` : p.label}</option>
+              ))}
+            </select>
+            <Button size="sm" variant="outline" disabled={!pickUser} onClick={addUser}>Add</Button>
+            <select aria-label="Role" value={pickRole}
+                    className="h-8 w-full rounded-md border bg-background px-2 text-xs"
+                    onChange={e => setPickRole(e.target.value)}>
+              <option value="">Add a role…</option>
+              {roleOptions.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <Button size="sm" variant="outline" disabled={!pickRole} onClick={addRole}>Add</Button>
+          </div>
+          <p className="text-2xs text-muted-foreground">{accessSummary(draft)}.</p>
+          {saveErr && (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-destructive">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{saveErr}</div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" onClick={() => void save()} disabled={saving}>
+            {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}Save</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
