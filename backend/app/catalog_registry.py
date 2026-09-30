@@ -334,15 +334,19 @@ async def load(pool, *, force: bool = False, timeout: float = 5.0) -> List[Catal
         rows = await asyncio.wait_for(_fetch(), timeout=timeout)
         loaded = [_row_to_entry(r) for r in rows]
         refs = [e.secret_ref for e in loaded if e.secret_ref]
-        if refs:
-            try:
+        try:
+            fetched = {}
+            if refs:
                 async def _fetch_secrets():
                     async with pool.acquire() as c:
                         return await c.fetch(_SECRETS, refs)
-                for r in await asyncio.wait_for(_fetch_secrets(), timeout=timeout):
-                    set_secret_ciphertext(r["key"], r["value"])
-            except Exception as e:
-                logger.warning("[catalogs] catalog secrets not read, keeping last: %s", e)
+                fetched = {r["key"]: r["value"]
+                           for r in await asyncio.wait_for(_fetch_secrets(), timeout=timeout)}
+            # Replaced, not merged: a cleared or deleted secret must stop being used.
+            _secrets.clear()
+            _secrets.update({k: v for k, v in fetched.items() if v})
+        except Exception as e:
+            logger.warning("[catalogs] catalog secrets not read, keeping last: %s", e)
         set_entries(loaded)
     except Exception as e:
         logger.warning("[catalogs] registry read failed, keeping %s: %s",

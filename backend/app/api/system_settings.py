@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from app.api.auth import require_admin, require_permission
 from app.api.connectors import get_db_pool
+from app.catalog_registry import SECRET_PREFIX as CATALOG_SECRET_PREFIX
 from app.connectors.vault import CredentialVault
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,10 @@ async def get_system_settings():
     result: dict[str, Any] = {}
     for row in rows:
         k, v = row["key"], row["value"]
+        if k.startswith(CATALOG_SECRET_PREFIX):
+            # Data catalog credentials (app/api/catalog_admin.py) live in this table
+            # but are not settings: write-only, never listed, not even as ciphertext.
+            continue
         if k in SENSITIVE_KEYS:
             try:
                 decrypted = vault.decrypt_credentials(v)

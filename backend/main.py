@@ -18,6 +18,7 @@ from app.cloud_info import cloud_info
 _log = logging.getLogger(__name__)
 from app.api.queries import router as queries_router
 from app.api.catalog import router as catalog_router
+from app.api.catalog_admin import router as catalog_admin_router
 from app.api.connectors import router as connectors_router
 from app.api.services import router as services_router, workload_pods
 from app.api.system_events_routes import router as system_events_router
@@ -459,6 +460,9 @@ app.include_router(queries_router, prefix="/api",
                    dependencies=[Depends(require_capability("query", "SQL Lab"))])
 app.include_router(catalog_router, prefix="/api",
                    dependencies=[Depends(require_capability("catalog", "Catalog"))])
+# The registry is core: Knowledge and the resolver read it with every add-on off, so
+# its admin routes are not behind the Catalog capability. They gate themselves.
+app.include_router(catalog_admin_router, prefix="/api")
 app.include_router(
     connectors_router,
     prefix="/api",

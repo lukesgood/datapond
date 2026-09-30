@@ -1,0 +1,376 @@
+"""Data catalogs: the admin side of the registry (app/catalog_registry.py).
+
+P1 made each catalog a `data_catalogs` row; adding one meant writing SQL. These routes
+are that SQL with its rules held in one place:
+
+- a catalog's name and engine catalog are what SQL calls it, so neither may collide,
+  case-insensitively, with another entry's — `resolve()` would pick one silently;
+- exactly one entry is the default (two-part names mean it): making one the default
+  clears the other in the same transaction, and the default cannot be disabled or
+  removed — choose another default first;
+- a catalog that a row-level or masking policy names cannot be removed, or have its
+  engine name changed, out from under the policy;
+- config is a whitelist per kind (validate_config) and never carries a credential; the
+  credential is the write-only `secret`, stored encrypted in system_settings.
+
+Listing needs `catalog:read`. Changes need a signed-in administrator — `require_admin`
+refuses API keys and IdP access tokens, because a stored credential must not be able
+to point the deployment at another catalog.
+
+Every change writes an auth audit row (never the secret) and refreshes the registry,
+so this replica sees it at once and the others within the registry refresh interval.
+"""
+import asyncio
+import json
+import logging
+import re
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
+
+from app import catalog_registry
+from app.api.auth import require_admin, require_permission
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+TEST_TIMEOUT_SECONDS = 10
+_NAME = re.compile(r"^[A-Za-z0-9_]{1,64}$")
+_SECRET_MAX = 4096
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+async def _pool():
+    from app.api.connectors import get_db_pool
+    return await get_db_pool()
+
+
+# ── models ───────────────────────────────────────────────────────────────────
+
+class CatalogCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    kind: str
+    engine_catalog: Optional[str] = None
+    config: dict = Field(default_factory=dict)
+    secret: Optional[str] = None
+    is_default: bool = False
+    enabled: bool = True
+
+
+class CatalogPatch(BaseModel):
+    """Every field optional; `secret: null` clears the credential, an absent `secret`
+    leaves it. The kind cannot change — a config is only meaningful for its kind."""
+    model_config = ConfigDict(extra="forbid")
+    engine_catalog: Optional[str] = None
+    config: Optional[dict] = None
+    secret: Optional[str] = None
+    is_default: Optional[bool] = None
+    enabled: Optional[bool] = None
+
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+def _public(row) -> dict:
+    cfg = row["config"]
+    if isinstance(cfg, str):
+        cfg = json.loads(cfg or "{}")
+    return {"name": row["name"], "kind": row["kind"], "engine_catalog": row["engine_catalog"],
+            "config": dict(cfg or {}), "is_default": bool(row["is_default"]),
+            "enabled": bool(row["enabled"]), "has_secret": bool(row["secret_ref"])}
+
+
+def _entry_public(e) -> dict:
+    from app.api.catalog_backend import uses_rest
+    return {"name": e.name, "kind": e.kind, "engine_catalog": e.engine_catalog,
+            "config": dict(e.config or {}), "is_default": e.is_default,
+            "enabled": e.enabled, "has_secret": bool(e.secret_ref),
+            "reader": "iceberg_rest" if uses_rest(e) else e.kind}
+
+
+def _bad(detail: str, status: int = 400):
+    raise HTTPException(status_code=status, detail=detail)
+
+
+def _check_ident(field: str, value: str) -> str:
+    if not isinstance(value, str) or not _NAME.match(value):
+        _bad(f"{field} must be a bare identifier (letters, digits, _), at most 64 characters.")
+    return value
+
+
+def _check_config(kind: str, config: dict, *, default: bool) -> dict:
+    try:
+        config = catalog_registry.validate_config(kind, config)
+    except ValueError as e:
+        _bad(str(e))
+    if kind == "glue" and default and config.get("via_rest"):
+        _bad("The default Glue catalog is read through the Glue API (writes share it); "
+             "via_rest is for additional Glue catalogs.")
+    return config
+
+
+def _check_secret(kind: str, secret: str) -> str:
+    if kind != "iceberg_rest":
+        _bad(f"A {kind} catalog takes no secret: Glue uses the node's AWS credentials and "
+             "Polaris the deployment's Polaris client.")
+    if not secret or len(secret) > _SECRET_MAX or _CONTROL.search(secret):
+        _bad(f"secret must be 1–{_SECRET_MAX} printable characters.")
+    return secret
+
+
+def _check_clash(rows, name: str, engine: str, *, own: Optional[str] = None) -> None:
+    """Neither the name nor the engine catalog may equal another entry's name or engine
+    catalog, case-insensitively: resolve() accepts either, so a clash is two entries
+    one SQL name could mean."""
+    wanted = {name.lower(), engine.lower()}
+    for r in rows:
+        if r["name"] == own:
+            continue
+        if wanted & {r["name"].lower(), r["engine_catalog"].lower()}:
+            _bad(f"'{r['name']}' (engine catalog '{r['engine_catalog']}') already uses "
+                 "that name; SQL could not tell the two apart.", 409)
+
+
+_POLICY_REFS = """SELECT
+    (SELECT count(*) FROM rls_policies WHERE lower(catalog_name) = ANY($1::text[])) AS rls,
+    (SELECT count(*) FROM column_masking_policies
+      WHERE lower(catalog_name) = ANY($1::text[])) AS masks"""
+
+
+async def _check_policy_refs(conn, rows, row, action: str) -> None:
+    """409 when a policy names this catalog. Policies store the engine's name for it;
+    the registry name is counted too. A name another entry also answers to is left out
+    — that policy is the other entry's."""
+    others = set()
+    for r in rows:
+        if r["name"] != row["name"]:
+            others |= {r["name"].lower(), r["engine_catalog"].lower()}
+    names = sorted({row["name"].lower(), row["engine_catalog"].lower()} - others)
+    if not names:
+        return
+    got = await conn.fetchrow(_POLICY_REFS, names)
+    rls, masks = int(got["rls"] or 0), int(got["masks"] or 0)
+    if rls or masks:
+        _bad(f"Cannot {action} catalog '{row['name']}': {rls} row-level and {masks} masking "
+             f"polic{'y' if rls + masks == 1 else 'ies'} name it. Delete or re-target "
+             "them first.", 409)
+
+
+_ROWS = """SELECT name, kind, engine_catalog, config, secret_ref, is_default, enabled
+             FROM data_catalogs ORDER BY is_default DESC, name FOR UPDATE"""
+_CLEAR_DEFAULT = "UPDATE data_catalogs SET is_default = false WHERE is_default AND name <> $1"
+_INSERT = """INSERT INTO data_catalogs
+               (name, kind, engine_catalog, config, secret_ref, is_default, enabled)
+             VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)"""
+_UPDATE = """UPDATE data_catalogs
+                SET engine_catalog = $2, config = $3::jsonb, secret_ref = $4,
+                    is_default = $5, enabled = $6
+              WHERE name = $1"""
+_DELETE = "DELETE FROM data_catalogs WHERE name = $1"
+_PUT_SECRET = """INSERT INTO system_settings (key, value, updated_at)
+                 VALUES ($1, $2, NOW())
+                 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()"""
+_DROP_SECRET = "DELETE FROM system_settings WHERE key = $1"
+
+
+async def _put_secret(conn, name: str, secret: str) -> str:
+    from app.connectors.vault import CredentialVault
+    ref = catalog_registry.secret_ref_for(name)
+    await conn.execute(_PUT_SECRET, ref, CredentialVault().encrypt_credentials({"v": secret}))
+    return ref
+
+
+async def _audit(pool, admin: dict, event: str, name: str, details: dict) -> None:
+    """One auth_audit_log row per change, after the change committed. Best-effort, like
+    every audit writer here: a failed audit insert must not undo an admin's change.
+    `details` never carries the secret — only whether it was set or cleared."""
+    import uuid
+    try:
+        async with pool.acquire() as c:
+            await c.execute(
+                """INSERT INTO auth_audit_log
+                     (event_type, user_id, user_email, resource, action, result, details)
+                   VALUES ($1,$2,$3,$4,'manage_catalog','success',$5)""",
+                event, uuid.UUID(admin["id"]) if admin.get("id") else None,
+                admin.get("username"), name, json.dumps(details))
+    except Exception as e:
+        logger.warning("[catalogs] audit of %s %s skipped: %s", event, name, e)
+
+
+async def _refresh(pool, name: str) -> None:
+    """Make the change visible now: reread the registry, drop catalogs built from the
+    old config and the table index built from the old catalogs."""
+    from app.api import catalog_backend, table_resolver
+    from app.connectors import iceberg_catalog
+    catalog_backend.reset_rest_cache(name)
+    iceberg_catalog.forget_entry(name)
+    await catalog_registry.load(pool, force=True)
+    table_resolver.reset_catalog_index_cache()
+
+
+# ── routes ───────────────────────────────────────────────────────────────────
+
+@router.get("/catalogs", dependencies=[Depends(require_permission("catalog:read"))])
+async def list_catalogs():
+    """Every registry entry, enabled or not, without its credential. `source` is `env`
+    when the registry has no rows yet and the entry shown is derived from env."""
+    pool = await _pool()
+    await catalog_registry.load(pool, force=True)
+    source = "registry" if catalog_registry.cached_default_name() is not None else "env"
+    return {"source": source,
+            "catalogs": [_entry_public(e) for e in catalog_registry.entries(include_disabled=True)]}
+
+
+@router.post("/catalogs", status_code=201)
+async def create_catalog(body: CatalogCreate, admin: dict = Depends(require_admin)):
+    name = _check_ident("name", body.name)
+    if body.kind not in catalog_registry.KINDS:
+        _bad(f"kind must be one of {', '.join(catalog_registry.KINDS)}.")
+    engine = _check_ident("engine_catalog", body.engine_catalog or name)
+    config = _check_config(body.kind, body.config, default=body.is_default)
+    if body.secret is not None:
+        _check_secret(body.kind, body.secret)
+    if body.is_default and not body.enabled:
+        _bad("The default catalog must be enabled.", 409)
+
+    pool = await _pool()
+    # An empty table means "the env default". Seed it first, or the entry added here
+    # would become the only row — and so the default — by accident.
+    try:
+        await catalog_registry.seed_from_env(pool)
+    except Exception as e:
+        logger.warning("[catalogs] seed before create skipped: %s", e)
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            rows = await conn.fetch(_ROWS)
+            _check_clash(rows, name, engine)
+            if body.is_default:
+                await conn.execute(_CLEAR_DEFAULT, name)
+            ref = await _put_secret(conn, name, body.secret) if body.secret else None
+            await conn.execute(_INSERT, name, body.kind, engine, json.dumps(config), ref,
+                               body.is_default, body.enabled)
+    await _audit(pool, admin, "catalog_created", name,
+                 {"kind": body.kind, "engine_catalog": engine, "config": config,
+                  "is_default": body.is_default, "enabled": body.enabled,
+                  "secret": "set" if body.secret else "none"})
+    await _refresh(pool, name)
+    return {"name": name, "kind": body.kind, "engine_catalog": engine, "config": config,
+            "is_default": body.is_default, "enabled": body.enabled,
+            "has_secret": bool(ref)}
+
+
+@router.patch("/catalogs/{name}")
+async def update_catalog(name: str, body: CatalogPatch, admin: dict = Depends(require_admin)):
+    sent = body.model_fields_set
+    pool = await _pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            rows = await conn.fetch(_ROWS)
+            row = next((r for r in rows if r["name"] == name), None)
+            if row is None:
+                _bad(f"No catalog named '{name}'.", 404)
+            current = _public(row)
+            engine = current["engine_catalog"]
+            if "engine_catalog" in sent and body.engine_catalog is not None \
+                    and body.engine_catalog != engine:
+                engine = _check_ident("engine_catalog", body.engine_catalog)
+                _check_clash(rows, name, engine, own=name)
+                await _check_policy_refs(conn, rows, row, "rename the engine catalog of")
+            is_default = current["is_default"]
+            if "is_default" in sent and body.is_default is not None:
+                if current["is_default"] and not body.is_default:
+                    _bad("A catalog stops being the default only when another becomes it.",
+                         409)
+                is_default = body.is_default
+            enabled = current["enabled"]
+            if "enabled" in sent and body.enabled is not None:
+                enabled = body.enabled
+            if is_default and not enabled:
+                _bad("The default catalog cannot be disabled; make another catalog the "
+                     "default first." if current["is_default"]
+                     else "Enable the catalog before making it the default.", 409)
+            config = current["config"]
+            if "config" in sent and body.config is not None:
+                config = _check_config(row["kind"], body.config, default=is_default)
+            elif is_default and not current["is_default"]:
+                _check_config(row["kind"], config, default=True)
+            ref, secret_change = row["secret_ref"], None
+            if "secret" in sent:
+                if body.secret is None:
+                    if ref:
+                        await conn.execute(_DROP_SECRET, ref)
+                    ref, secret_change = None, "cleared"
+                else:
+                    _check_secret(row["kind"], body.secret)
+                    ref, secret_change = await _put_secret(conn, name, body.secret), "set"
+            if is_default and not current["is_default"]:
+                await conn.execute(_CLEAR_DEFAULT, name)
+            await conn.execute(_UPDATE, name, engine, json.dumps(config), ref,
+                               is_default, enabled)
+    changed = [f for f, old, new in (("engine_catalog", current["engine_catalog"], engine),
+                                     ("config", current["config"], config),
+                                     ("is_default", current["is_default"], is_default),
+                                     ("enabled", current["enabled"], enabled))
+               if old != new]
+    details = {"changed": changed}
+    if "config" in changed:
+        details["config"] = config
+    if secret_change:
+        details["secret"] = secret_change
+    await _audit(pool, admin, "catalog_updated", name, details)
+    await _refresh(pool, name)
+    return {"name": name, "kind": row["kind"], "engine_catalog": engine, "config": config,
+            "is_default": is_default, "enabled": enabled, "has_secret": bool(ref)}
+
+
+@router.delete("/catalogs/{name}")
+async def delete_catalog(name: str, admin: dict = Depends(require_admin)):
+    pool = await _pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            rows = await conn.fetch(_ROWS)
+            row = next((r for r in rows if r["name"] == name), None)
+            if row is None:
+                _bad(f"No catalog named '{name}'.", 404)
+            if row["is_default"]:
+                _bad("The default catalog cannot be deleted; make another catalog the "
+                     "default first.", 409)
+            await _check_policy_refs(conn, rows, row, "delete")
+            await conn.execute(_DELETE, name)
+            if row["secret_ref"]:
+                await conn.execute(_DROP_SECRET, row["secret_ref"])
+    await _audit(pool, admin, "catalog_deleted", name,
+                 {"kind": row["kind"], "engine_catalog": row["engine_catalog"]})
+    await _refresh(pool, name)
+    return {"deleted": name}
+
+
+@router.post("/catalogs/{name}/test")
+async def test_catalog(name: str, admin: dict = Depends(require_admin)):
+    """Try to list the catalog's namespaces within TEST_TIMEOUT_SECONDS. A disabled
+    entry can be tested — that is how an admin checks it before enabling it. The
+    error is sanitised: no credential, no URL userinfo."""
+    from app.api import catalog_backend
+    pool = await _pool()
+    await catalog_registry.load(pool, force=True)
+    entry = next((e for e in catalog_registry.entries(include_disabled=True)
+                  if e.name == name), None)
+    if entry is None:
+        _bad(f"No catalog named '{name}'.", 404)
+    # A remembered failure would answer for the catalog without trying it again.
+    catalog_backend.reset_rest_cache(entry.name)
+    secret = catalog_registry.secret_for(entry)
+    try:
+        reader = catalog_backend.reader_for_entry(entry)
+        namespaces = await asyncio.wait_for(asyncio.to_thread(reader.list_namespaces),
+                                            timeout=TEST_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        return {"ok": False, "namespaces": [], "namespace_count": 0,
+                "error": f"No answer within {TEST_TIMEOUT_SECONDS}s."}
+    except Exception as e:
+        return {"ok": False, "namespaces": [], "namespace_count": 0,
+                "error": catalog_backend.sanitize_error(e, [secret])}
+    namespaces = list(namespaces)
+    return {"ok": True, "namespaces": namespaces[:20], "namespace_count": len(namespaces),
+            "error": None}

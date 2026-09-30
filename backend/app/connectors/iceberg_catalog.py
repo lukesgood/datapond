@@ -57,11 +57,15 @@ def get_catalog_for(entry):
         return get_catalog()
     if entry.kind != "glue":
         raise ValueError(f"catalog '{entry.name}' ({entry.kind}) has no pyiceberg reader yet")
+    import json
+    # Keyed with the config too: another replica's admin edit reaches this one through
+    # the registry refresh, and must not keep the catalog built from the old config.
+    fp = json.dumps(entry.config or {}, sort_keys=True)
     with _lock:
-        cat = _by_entry.get(entry.name)
-        if cat is None:
-            cat = _by_entry[entry.name] = _build_glue_catalog(entry.config)
-    return cat
+        hit = _by_entry.get(entry.name)
+        if hit is None or hit[0] != fp:
+            hit = _by_entry[entry.name] = (fp, _build_glue_catalog(entry.config))
+    return hit[1]
 
 
 def _build_polaris_catalog():
@@ -108,6 +112,12 @@ def _s3_endpoint() -> str:
     if not ep:
         return ""
     return ep if ep.startswith("http") else f"http://{ep}"
+
+
+def forget_entry(name: str) -> None:
+    """Drop one non-default entry's catalog, after an admin changed or removed it."""
+    with _lock:
+        _by_entry.pop(name, None)
 
 
 def reset_catalog():
