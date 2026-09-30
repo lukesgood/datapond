@@ -269,3 +269,30 @@ def statement_uses_hidden(access: CatalogAccess, sql: str, dialect: str) -> bool
     for e in catalog_registry.entries(include_disabled=True):
         known |= {e.name.lower(), e.engine_catalog.lower()}
     return bool(cats & hidden) or bool(cats - known)
+
+
+def hidden_reason(access: CatalogAccess, sql: str, dialect: str) -> str:
+    """Why `statement_uses_hidden` refused this statement, naming the catalog — for
+    the security audit row only, which auditors read. Never put it in a response: the
+    caller may not know the catalog exists."""
+    import sqlglot
+    from sqlglot import exp
+    try:
+        statements = [s for s in sqlglot.parse(sql, read=dialect) if s is not None]
+    except Exception:
+        return "a statement that could not be parsed"
+    if any(isinstance(s, (exp.Command, exp.Use)) for s in statements):
+        return "a metadata command while a catalog is hidden"
+    cats = referenced_catalogs(sql, dialect)
+    if cats is None:
+        return "a statement that could not be parsed"
+    hidden = access.hidden_sql_names()
+    known = set()
+    for e in catalog_registry.entries(include_disabled=True):
+        known |= {e.name.lower(), e.engine_catalog.lower()}
+    parts = []
+    if cats & hidden:
+        parts.append("hidden catalog " + ", ".join(sorted(cats & hidden)))
+    if cats - known:
+        parts.append("catalog outside the registry " + ", ".join(sorted(cats - known)))
+    return "; ".join(parts)

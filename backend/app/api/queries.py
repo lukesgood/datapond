@@ -53,6 +53,20 @@ from app.api.table_resolver import (
 
 router = APIRouter()
 
+# The statement as table resolution left it, for the tool call row execute_query
+# writes: `FROM orders` is recorded as the catalog.namespace.table it ran against.
+# A holder list per request rather than a return value, so a refusal raised after
+# resolution (a hidden catalog, RLS) still leaves the resolved names behind.
+import contextvars
+_resolved_holder: contextvars.ContextVar[Optional[list]] = \
+    contextvars.ContextVar("query_resolved_sql", default=None)
+
+
+def _note_resolved(sql: str) -> None:
+    holder = _resolved_holder.get()
+    if holder is not None:
+        holder.append(sql)
+
 # Configuration
 TRINO_HOST = os.getenv("TRINO_HOST", "trino.datapond.svc.cluster.local")
 # Handle K8s injected env vars like "tcp://10.43.87.193:8080"
@@ -260,14 +274,18 @@ def _may_write(user: dict) -> bool:
     return "query:write" in held
 
 
-async def _refuse_hidden_catalog(user: dict, route: str):
+async def _refuse_hidden_catalog(user: dict, route: str, access=None, sql: str = "",
+                                 dialect: str = "trino"):
     """Audit, then 403 — for a statement that names a catalog the caller may not use
-    (app/catalog_access.py). Neither the audit reason nor the refusal names the catalog:
-    the caller may not know it exists."""
+    (app/catalog_access.py). The refusal does not name the catalog: the caller may not
+    know it exists. The audit reason does — auditors read it, the caller never does."""
+    what = (catalog_access.hidden_reason(access, sql, dialect)
+            if access is not None else "")
     await security_audit.record(
         actor=user, permission="catalog:use", route=route, method="POST",
         outcome="denied",
-        reason="The statement references a data catalog this caller may not use.")
+        reason="The statement references a data catalog this caller may not use"
+               + (f": {what}." if what else "."))
     raise HTTPException(
         status_code=403,
         detail="This statement references a data catalog you may not use. Ask an "
@@ -357,8 +375,10 @@ async def _execute_query_impl(
     # Three parts name their catalog; two or one mean the default. A hidden catalog
     # is refused before RLS and before the engine — and the refusal does not say which
     # catalog, since the caller may not know it exists.
+    _note_resolved(effective_query)
     if catalog_access.statement_uses_hidden(access, effective_query, engine.rls_dialect):
-        await _refuse_hidden_catalog(user, "/api/queries/execute")
+        await _refuse_hidden_catalog(user, "/api/queries/execute", access,
+                                     effective_query, engine.rls_dialect)
 
     # ── RLS enforcement (Layer 1) — gated by RLS_ENABLED ──────────────────────
     trino_user = TRINO_USER
@@ -490,11 +510,18 @@ async def execute_query(
 ):
     """Run a SQL query through table resolution, RLS and masking, and log the call."""
     masked_sql = tool_call_log.masked_for_log(request.query or "")
-    tables = tool_call_log.table_names(request.query or "")
     started = time.perf_counter()
+    resolved: list = []
+    token = _resolved_holder.set(resolved)
+
+    def _tables() -> list:
+        # What resolution produced when it got that far; else the statement as sent.
+        return tool_call_log.table_names(resolved[-1] if resolved else (request.query or ""))
     try:
         result = await _execute_query_impl(request, db, user)
     except Exception as e:
+        tables = _tables()
+        _resolved_holder.reset(token)
         # A 401/403 is a refusal, not a failure of the engine: the log now has a value
         # for that (migration 0010), and reading "error" for both hid every denial
         # among genuine outages.
@@ -504,6 +531,8 @@ async def execute_query(
                                    outcome="refused" if refused else "error",
                                    duration_ms=int((time.perf_counter() - started) * 1000))
         raise
+    tables = _tables()
+    _resolved_holder.reset(token)
     await tool_call_log.record(actor=user, tool="query.execute", resource_kind="tables",
                                resource=tables, request_text=masked_sql,
                                hit_count=int(result.row_count or 0),
@@ -761,7 +790,8 @@ async def review_plan(request: QueryPlanRequest, user: dict = Depends(require_us
     # EXPLAIN names the tables and columns a statement reads — a description of a
     # hidden catalog is as much a leak as its rows.
     if catalog_access.statement_uses_hidden(access, sql, engine.rls_dialect):
-        await _refuse_hidden_catalog(user, "/api/queries/plan")
+        await _refuse_hidden_catalog(user, "/api/queries/plan", access, sql,
+                                     engine.rls_dialect)
 
     ok, err, io_text = await asyncio.to_thread(explain_statement, sql, "TYPE IO, FORMAT JSON")
     if not ok:

@@ -92,10 +92,35 @@ def test_via_context_defaults_to_api_and_restores():
     assert tcl.current_via() == "api"
 
 
-def test_table_names_from_sql():
+@pytest.fixture
+def registry():
+    from app import catalog_registry as reg
+    from app.catalog_registry import CatalogEntry
+    reg.set_entries([
+        CatalogEntry(name="iceberg", kind="polaris", engine_catalog="iceberg", is_default=True),
+        CatalogEntry(name="finance", kind="polaris", engine_catalog="finance"),
+    ])
+    yield
+    reg.reset()
+
+
+def test_table_names_from_sql_name_the_default_catalog_for_two_parts(registry):
     assert tcl.table_names("SELECT a.x FROM sales.orders a JOIN dim.customer c ON a.c = c.id") \
-        == ["dim.customer", "sales.orders"]
+        == ["iceberg.dim.customer", "iceberg.sales.orders"]
     assert tcl.table_names("this is not sql (") == []
+
+
+def test_table_names_tell_catalogs_apart(registry):
+    assert tcl.table_names(
+        "SELECT * FROM sales.orders o JOIN finance.sales.orders f ON o.id = f.id") \
+        == ["finance.sales.orders", "iceberg.sales.orders"]
+
+
+def test_table_names_leave_a_bare_name_bare_and_skip_ctes(registry):
+    # A bare name's namespace is the resolver's call; the route records the resolved
+    # statement (see test_tool_call_log_routes_query). A CTE is not a table.
+    assert tcl.table_names("WITH t AS (SELECT 1 AS x) SELECT * FROM t, orders") \
+        == ["orders"]
 
 
 @pytest.mark.parametrize("mode", ["block", "off"])

@@ -110,18 +110,33 @@ def masked_for_log(text: str) -> str:
 
 
 def table_names(sql: str) -> List[str]:
-    """Distinct dotted table names as written in `sql`, sorted; [] if unparseable."""
+    """Distinct `catalog.namespace.table` names the statement reads, sorted; [] if
+    unparseable. A two-part name is in the default catalog (app/catalog_registry.py),
+    so an auditor can tell `iceberg.sales.orders` from `finance.sales.orders`. A bare
+    name is left bare — which namespace it means is the table resolver's call, and
+    /queries/execute records the resolved statement for that reason. CTE names are
+    not tables."""
     try:
         import sqlglot
         from sqlglot import exp
         tree = sqlglot.parse_one(sql)
     except Exception:
         return []
+    ctes = {c.alias.lower() for c in tree.find_all(exp.CTE) if c.alias}
+    default = None
     names = set()
     for t in tree.find_all(exp.Table):
-        parts = [p for p in (t.catalog, t.db, t.name) if p]
-        if parts:
-            names.add(".".join(parts))
+        if not t.name:
+            continue
+        if not t.db and not t.catalog and t.name.lower() in ctes:
+            continue
+        catalog = t.catalog
+        if t.db and not catalog:
+            if default is None:
+                from app import catalog_registry
+                default = catalog_registry.default_entry().name
+            catalog = default
+        names.add(".".join(p for p in (catalog, t.db, t.name) if p))
     return sorted(names)
 
 

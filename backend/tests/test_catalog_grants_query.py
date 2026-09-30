@@ -91,7 +91,21 @@ def test_a_three_part_name_in_a_hidden_catalog_is_refused_and_audited(world):
     assert engine.ran == []
     assert [(a["permission"], a["outcome"], a["route"]) for a in audited] == [
         ("catalog:use", "denied", "/api/queries/execute")]
-    assert "finance" not in audited[0]["reason"]
+    # The caller is not told which catalog; the auditor, reading the reason, is.
+    assert "finance" in audited[0]["reason"]
+
+
+@pytest.mark.parametrize("sql, named", [
+    ("SELECT * FROM finance.gl.entries", "finance"),
+    ("SHOW TABLES FROM finance.gl", "metadata command"),
+    ("SELECT table_name FROM system.jdbc.tables", "system"),
+])
+def test_the_audit_reason_says_what_was_refused(world, sql, named):
+    _engine, audited = world
+    with pytest.raises(HTTPException) as exc:
+        _run(q._execute_query_impl(_Req(sql), db=None, user=ALICE))
+    assert "finance" not in exc.value.detail and "system" not in exc.value.detail
+    assert named in audited[0]["reason"]
 
 
 def test_a_hidden_catalog_inside_a_subquery_is_refused(world):

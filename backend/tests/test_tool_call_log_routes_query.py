@@ -21,6 +21,44 @@ def _app():
     return app
 
 
+import pytest
+from fastapi import HTTPException
+
+
+@pytest.fixture(autouse=True)
+def registry():
+    from app import catalog_registry as reg
+    from app.catalog_registry import CatalogEntry
+    reg.set_entries([
+        CatalogEntry(name="iceberg", kind="polaris", engine_catalog="iceberg", is_default=True),
+        CatalogEntry(name="finance", kind="polaris", engine_catalog="finance"),
+    ])
+    yield
+    reg.reset()
+
+
+def test_the_row_names_the_tables_the_resolved_statement_reads(monkeypatch):
+    """A bare name is recorded as the table it resolved to, catalog included — also
+    when the statement is then refused — and request_text stays what was sent."""
+    calls = []
+
+    async def _record(**kw):
+        calls.append(kw)
+    monkeypatch.setattr(tool_call_log, "record", _record)
+
+    async def _impl(request, db, user):
+        queries._note_resolved("SELECT * FROM sales.orders JOIN finance.gl.entries e ON 1=1")
+        raise HTTPException(403, "no")
+    monkeypatch.setattr(queries, "_execute_query_impl", _impl)
+    r = TestClient(_app()).post("/api/queries/execute",
+                                json={"query": "SELECT * FROM orders JOIN finance.gl.entries e ON 1=1"})
+    assert r.status_code == 403
+    c = calls[0]
+    assert c["resource"] == ["finance.gl.entries", "iceberg.sales.orders"]
+    assert c["outcome"] == "refused"
+    assert c["request_text"] == "SELECT * FROM orders JOIN finance.gl.entries e ON 1=1"
+
+
 def test_execute_records_tables_and_row_count(monkeypatch):
     calls = []
 
@@ -39,7 +77,7 @@ def test_execute_records_tables_and_row_count(monkeypatch):
     assert r.status_code == 200
     c = calls[0]
     assert c["tool"] == "query.execute" and c["resource_kind"] == "tables"
-    assert c["resource"] == ["sales.orders"] and c["hit_count"] == 2
+    assert c["resource"] == ["iceberg.sales.orders"] and c["hit_count"] == 2
     assert c["outcome"] == "ok"
 
 
