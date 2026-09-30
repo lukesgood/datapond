@@ -21,7 +21,7 @@ spec:
     metadata:
       labels:
         app: {{ .Values.trino.name }}
-        version: {{ .Values.trino.image.tag }}
+        version: {{ .Values.trino.image.tag | quote }}
       {{- if .Values.trino.extraCatalogs }}
       annotations:
         # Trino reads catalog files at startup only; a changed extra catalog restarts it.
