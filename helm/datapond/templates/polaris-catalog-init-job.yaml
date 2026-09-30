@@ -74,7 +74,7 @@ spec:
               \"catalog\":{\"name\":\"$CATALOG\",\"type\":\"INTERNAL\",
               \"properties\":{\"default-base-location\":\"$BASELOC\"},
               \"storageConfigInfo\":{\"storageType\":\"S3\",\"allowedLocations\":[\"$BASELOC\"],
-              \"roleArn\":\"arn:aws:iam::000000000000:role/polaris\"}}}")
+              \"roleArn\":\"arn:aws:iam::000000000000:role/polaris\"{{ include "datapond.polarisS3Compat" . }}}}}")
           echo "  catalog -> $code"; [ "$code" = "201" ] || [ "$code" = "409" ] || { cat /tmp/o; exit 1; }
 
           # Grant + role-assign are best-effort (Polaris returns 500 on duplicate grants),
@@ -114,7 +114,7 @@ spec:
                 \"catalog\":{\"name\":\"$N\",\"type\":\"INTERNAL\",
                 \"properties\":{\"default-base-location\":\"$LOC\"},
                 \"storageConfigInfo\":{\"storageType\":\"S3\",\"allowedLocations\":[\"$LOC\"],
-                \"roleArn\":\"arn:aws:iam::000000000000:role/polaris\"}}}")
+                \"roleArn\":\"arn:aws:iam::000000000000:role/polaris\"{{ include "datapond.polarisS3Compat" . }}}}}")
             echo "  catalog $N -> $code"; [ "$code" = "201" ] || [ "$code" = "409" ] || { cat /tmp/o; exit 1; }
             curl -s -o /dev/null -w "  grant $N -> %{http_code}\n" -X PUT \
               "$PURL/api/management/v1/catalogs/$N/catalog-roles/catalog_admin/grants" \

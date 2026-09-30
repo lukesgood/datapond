@@ -90,3 +90,19 @@ def test_ci_overlay_renders_both_catalogs():
     assert 'init_extra "catb"' in init_job(out)
     assert "catb.properties: |" in out and "iceberg.properties: |" in out
     assert "replicas: 1" in out
+
+
+def test_catalogs_on_minio_use_its_endpoint_path_style():
+    """Polaris' FileIO would address MinIO as iceberg.minio (virtual host), which only
+    k3s's CoreDNS override resolves; the two-catalog CI install on kind failed every
+    commit with UnknownHostException. Both catalog payloads now name the endpoint and
+    ask for path-style access, and each payload is still valid JSON."""
+    import json
+    job = init_job(render("polaris.extraCatalogNames={catb}"))
+    payloads = re.findall(r'-d "(\{\s*\\"catalog\\".*?\}\}\})"', job, re.S)
+    assert len(payloads) == 2, payloads
+    for raw in payloads:
+        body = json.loads(raw.replace('\\"', '"').replace("$BASELOC", "s3://x").replace("$LOC", "s3://x")
+                          .replace("$CATALOG", "c").replace("$N", "n"))
+        sc = body["catalog"]["storageConfigInfo"]
+        assert sc["pathStyleAccess"] is True and sc["endpoint"].startswith("http://minio")
