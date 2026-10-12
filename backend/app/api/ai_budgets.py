@@ -41,7 +41,8 @@ async def forget_caller(user_id: str) -> bool:
 
     Best effort: the account is gone from DataPond whether or not the gateway answers,
     so a gateway that is down must not keep a credential alive. False means the row
-    may still be there; the operator can see it under Settings → Budgets.
+    may still be there; the operator can see it under Settings → Budgets. A 404 is
+    the state we want — the gateway has no such customer — and is True.
     """
     url, key = _gateway()
     try:
@@ -51,10 +52,39 @@ async def forget_caller(user_id: str) -> bool:
     except Exception as e:
         logger.warning("[ai_budgets] could not remove gateway customer %s: %s", user_id, e)
         return False
+    if r.status_code == 404:
+        return True
     if r.status_code >= 400:
         logger.warning("[ai_budgets] gateway kept customer %s (HTTP %s)", user_id, r.status_code)
         return False
     return True
+
+
+# Accounts DataPond deleted, by id, from its own audit log: the sweep below touches
+# nothing at the gateway that DataPond did not itself remove.
+_RECENTLY_DELETED_SQL = (
+    "SELECT DISTINCT details->>'service_account' AS id FROM auth_audit_log "
+    "WHERE event_type = 'user_deleted' AND details ? 'service_account' "
+    "AND created_at > now() - make_interval(days => $1)"
+)
+
+
+async def forget_deleted_callers(conn, *, days: int = 7) -> int:
+    """Re-send the gateway delete for every account removed in the last `days` days.
+
+    The gateway writes spend asynchronously and creates the customer row as a side
+    effect, so the delete sent at account deletion can be undone seconds later by the
+    account's own last call. Run from the audit retention tick on its connection,
+    under its single-leader lock; a row that is already gone answers 404 and counts as
+    done. Returns how many are now gone.
+    """
+    rows = await conn.fetch(_RECENTLY_DELETED_SQL, days)
+    gone = 0
+    for row in rows:
+        user_id = row["id"]
+        if user_id and await forget_caller(str(user_id)):
+            gone += 1
+    return gone
 
 
 @router.get("/settings/ai/budgets", dependencies=[Depends(require_permission("spend:read"))])

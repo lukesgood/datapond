@@ -118,6 +118,10 @@ class _FakeConn:
         self._calls.append((sql, args))
         return "OK"
 
+    async def fetch(self, sql, *args):
+        self._calls.append((sql, args))
+        return []
+
     async def __aenter__(self):
         return self
 
@@ -265,7 +269,27 @@ def test_tick_prunes_and_releases_the_lock_when_it_gets_one(monkeypatch):
     calls = []
     pool = _LockPool(calls, [("prune_security_audit_log", 1), ("prune_auth_audit_log", 2), ("prune_tool_call_log", 0)])
     result = _run(tick(pool))
-    assert result == {"security_audit_log": 1, "auth_audit_log": 2, "tool_call_log": 0}
+    assert {k: result[k] for k in ("security_audit_log", "auth_audit_log", "tool_call_log")} == \
+        {"security_audit_log": 1, "auth_audit_log": 2, "tool_call_log": 0}
+    assert pool.conn.unlocked is True
+
+
+def test_tick_also_sweeps_gateway_customers_of_recently_deleted_accounts(monkeypatch):
+    """The gateway re-creates a deleted caller's customer row from its asynchronous
+    spend write (see tests/test_service_account_delete_clears_budget.py). The hourly
+    tick re-sends those deletes; the sweep's own failure never fails the prune."""
+    from app.api import ai_budgets
+    seen = []
+
+    async def _sweep(conn, *, days):
+        seen.append((conn, days))
+        return 2
+    monkeypatch.setattr(ai_budgets, "forget_deleted_callers", _sweep)
+    calls = []
+    pool = _LockPool(calls, [("prune_security_audit_log", 1), ("prune_auth_audit_log", 2), ("prune_tool_call_log", 0)])
+    result = _run(tick(pool))
+    assert seen == [(pool.conn, 7)]        # the tick's own connection, under its lock
+    assert result["gateway_customers"] == 2
     assert pool.conn.unlocked is True
 
 

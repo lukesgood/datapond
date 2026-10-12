@@ -140,7 +140,17 @@ async def tick(pool) -> dict:
             return {}
         try:
             now = utcnow()
-            return await prune(c, retention_cutoff(now, retention_days()))
+            removed = await prune(c, retention_cutoff(now, retention_days()))
+            # Same cadence, same single leader: the model gateway's customer rows
+            # for accounts deleted this week (see ai_budgets.forget_deleted_callers).
+            # Its failure is logged, never the prune's.
+            try:
+                from app.api.ai_budgets import forget_deleted_callers
+                removed["gateway_customers"] = await forget_deleted_callers(c, days=7)
+            except Exception as e:
+                logger.warning("gateway customer sweep failed: %s", e)
+                removed["gateway_customers"] = 0
+            return removed
         finally:
             await c.execute("SELECT pg_advisory_unlock($1)", LOCK_KEY)
 

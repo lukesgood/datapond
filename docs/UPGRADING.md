@@ -16,8 +16,12 @@ Two other things changed underneath. The gateway has a second wording for the sa
 cap ("Budget has been exceeded! EndUser=…", type `budget_exceeded`) that was not
 recognised and surfaced as `502 Embedding failed`; it is now a 402 too. And deleting
 a service account removes its customer row (spend and cap) from the gateway, so the
-list under Settings → Budgets stops showing callers that no longer exist. Rows left
-behind by accounts deleted before this change stay until removed at the gateway.
+list under Settings → Budgets stops showing callers that no longer exist. The gateway
+can re-create that row from the account's last calls (its spend write is
+asynchronous), so the audit retention tick re-sends the delete for accounts removed
+in the previous seven days; with `AUDIT_RETENTION_ENABLED=false` only the delete-time
+attempt runs. Rows left behind by accounts deleted before this change stay until
+removed at the gateway.
 
 ## 2026-09 — The API and MCP endpoint can accept your IdP's access tokens
 
