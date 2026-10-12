@@ -339,6 +339,9 @@ async def delete_service_account(account_id: str, admin: dict = Depends(require_
             "DELETE FROM users WHERE id = $1::uuid AND auth_method = 'service'", account_id)
     if result.endswith("0"):
         raise HTTPException(status_code=404, detail="Service account not found")
+    # The gateway's customer row (spend, cap) is keyed by this id; it goes too.
+    from app.api.ai_budgets import forget_caller
+    await forget_caller(account_id)
     await record_auth_event("user_deleted", user_id=admin.get("id"),
                             result="success", details={"service_account": account_id})
     return None

@@ -3,6 +3,22 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-10 — An over-budget `/ai/rag` call answers 402, like every other tool
+
+A caller past its model spend cap used to get HTTP 200 from `/ai/rag` with the answer
+"(Model spend budget reached for this caller) Returning search results only." and the
+retrieved chunks. It now gets `402` with the gateway's spend and cap figures, the same
+as `/ai/search`, `/ai/embed` and `/ai/sql`. An agent that treated a 200 as an answer
+will now see the refusal; one `refused` row is written to the tool call log (no
+`error` row on top of it).
+
+Two other things changed underneath. The gateway has a second wording for the same
+cap ("Budget has been exceeded! EndUser=…", type `budget_exceeded`) that was not
+recognised and surfaced as `502 Embedding failed`; it is now a 402 too. And deleting
+a service account removes its customer row (spend and cap) from the gateway, so the
+list under Settings → Budgets stops showing callers that no longer exist. Rows left
+behind by accounts deleted before this change stay until removed at the gateway.
+
 ## 2026-09 — The API and MCP endpoint can accept your IdP's access tokens
 
 Off by default; nothing changes until `auth.oauthResourceServer.enabled` is set with an

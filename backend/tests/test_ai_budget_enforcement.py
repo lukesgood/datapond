@@ -19,11 +19,16 @@ def _run(coro):
 OVER = ('{"error":{"message":"ExceededBudget: End User=svc-bot over budget. '
         'Spend=0.9, Budget=0.5","type":"auth_error","code":401}}')
 BAD_KEY = '{"error":{"message":"Authentication Error, Invalid proxy server token","type":"auth_error","code":401}}'
+# The proxy's other wording for the same cap, from its end-user budget check — seen live
+# on 2026-09-30 against the CI acceptance account. Different text, different type, same meaning.
+END_USER_OVER = ('{"error":{"message":"Budget has been exceeded! EndUser=204f1cfc Current cost: '
+                 '0.01561128, Max budget: 1e-07","type":"budget_exceeded","param":null,"code":"400"}}')
 
 
 @pytest.mark.parametrize("status,body,expected", [
     (401, OVER, True),
     (400, "user over budget", True),
+    (400, END_USER_OVER, True),  # second wording, "budget_exceeded" type
     (401, BAD_KEY, False),      # same status and type — only the message separates them
     (500, "upstream exploded", False),
     (200, OVER, False),         # a success is not a refusal whatever it says

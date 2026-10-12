@@ -22,8 +22,10 @@ from app import tool_call_log
 
 logger = logging.getLogger(__name__)
 
-# The gateway's message: "ExceededBudget: End User=<id> over budget. Spend=..., Budget=..."
-_MARKERS = ("exceededbudget", "over budget")
+# The gateway has two wordings for the same cap, from two code paths:
+#   "ExceededBudget: End User=<id> over budget. Spend=..., Budget=..."   (auth_error, 401)
+#   "Budget has been exceeded! EndUser=<id> Current cost: ..., Max budget: ..." (budget_exceeded, 400)
+_MARKERS = ("exceededbudget", "over budget", "budget has been exceeded", "budget_exceeded")
 
 
 def is_budget_refusal(status_code: int, body: Optional[str]) -> bool:
@@ -52,8 +54,9 @@ async def refuse_over_budget(*, actor: dict, tool: str, request_text: str,
                              body: Optional[str]) -> HTTPException:
     """Record the refusal, then hand back the 402 for the caller to raise.
 
-    Returns rather than raises so the call site keeps its own control flow — the RAG
-    path degrades to search results instead of failing the request, and still audits.
+    Returns rather than raises so the call site keeps its own control flow; every
+    call site today raises it (search, rag, embed, sql), so the caller sees 402 and the
+    audit log one `refused` row — `_logged` does not add an `error` row for a 402.
     """
     await tool_call_log.record(
         actor=actor or {}, tool=tool, resource_kind="none", resource=[],

@@ -1598,6 +1598,14 @@ async def _logged(tool: str, req_collection: str, masked_text: str, user: dict, 
     _withheld.set(None)
     try:
         result = await impl()
+    except HTTPException as e:
+        if e.status_code == 402:
+            raise   # a spend refusal: refuse_over_budget wrote its `refused` row already
+        await tool_call_log.record(
+            actor=user, tool=tool, resource_kind="collection", resource=[req_collection],
+            request_text=masked_text, hit_count=0, outcome="error",
+            duration_ms=int((time.perf_counter() - started) * 1000))
+        raise
     except Exception:
         await tool_call_log.record(
             actor=user, tool=tool, resource_kind="collection", resource=[req_collection],
@@ -1708,18 +1716,18 @@ async def _rag_impl(req: RagRequest, user: dict):
                                                 {"role": "user", "content": user_msg}],
                                    **actor_payload("ai_rag")})
         if r.status_code >= 400:
-            # A spend cap is not an outage: say which it was, and audit the refusal.
+            # A spend cap is not an outage, and not an answer either: 402, like
+            # /ai/search, so an agent reading the status sees the refusal. The
+            # refusal is audited; _logged does not add an error row on top.
             if is_budget_refusal(r.status_code, r.text):
-                await refuse_over_budget(actor=current_actor(), tool="ai.rag",
-                                         request_text=user_msg, body=r.text)
-                return {"answer": "(Model spend budget reached for this caller) "
-                                  "Returning search results only.",
-                        "citations": hits, "has_ai": False, "pii_masked": pii_masked,
-                        "concepts": concepts_used}
+                raise await refuse_over_budget(actor=current_actor(), tool="ai.rag",
+                                               request_text=user_msg, body=r.text)
             return {"answer": f"(LLM call failed: {r.status_code}) Returning search results only.",
                     "citations": hits, "has_ai": False, "pii_masked": pii_masked,
                     "concepts": concepts_used}
         answer = r.json()["choices"][0]["message"]["content"].strip()
+    except HTTPException:
+        raise   # the spend refusal above — not a gateway error to degrade over
     except Exception as e:
         logger.warning(f"[ai_vectors] rag chat failed: {e}")
         return {"answer": "(LLM not configured/error) Returning search results only.", "citations": hits,

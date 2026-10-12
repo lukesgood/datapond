@@ -36,6 +36,27 @@ def _customer(row: dict) -> dict:
     }
 
 
+async def forget_caller(user_id: str) -> bool:
+    """Remove a caller's customer row — cap and all — when its account is deleted.
+
+    Best effort: the account is gone from DataPond whether or not the gateway answers,
+    so a gateway that is down must not keep a credential alive. False means the row
+    may still be there; the operator can see it under Settings → Budgets.
+    """
+    url, key = _gateway()
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.post(f"{url}/customer/delete", headers=_headers(key),
+                             json={"user_ids": [user_id]})
+    except Exception as e:
+        logger.warning("[ai_budgets] could not remove gateway customer %s: %s", user_id, e)
+        return False
+    if r.status_code >= 400:
+        logger.warning("[ai_budgets] gateway kept customer %s (HTTP %s)", user_id, r.status_code)
+        return False
+    return True
+
+
 @router.get("/settings/ai/budgets", dependencies=[Depends(require_permission("spend:read"))])
 async def list_budgets():
     """Every caller the gateway knows, with its cap and what it has spent against it.
