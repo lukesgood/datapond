@@ -12,7 +12,7 @@
  */
 import {
   AGGREGATE_VERB, MAX_BARS, MAX_HEATMAP, MAX_KPI, MAX_SCATTER_GROUPS,
-  MAX_SERIES, MAX_SLICES, MIN_HISTOGRAM_ROWS, asNumber, ISO_DATE, sturgesBins,
+  MAX_SERIES, MAX_SLICES, MIN_HISTOGRAM_ROWS, asNumber, ISO_DATE,
   type Aggregate, type ChartType,
 } from "./chart-data.ts"
 
@@ -171,7 +171,9 @@ export function assess(type: ChartType, x: ColumnProfile | undefined,
     if (rowCount < MIN_HISTOGRAM_ROWS) {
       return { ok: false, reason: `A histogram needs at least ${MIN_HISTOGRAM_ROWS} values to bin; this has ${rowCount}.` }
     }
-    return { ok: true, note: `${rowCount} values of ${ys[0].name} in ${sturgesBins(rowCount)} equal-width bins.` }
+    // The bin count is the plan's to state (chart-data histogramPlan): skewed data is
+    // binned to p99 by Freedman–Diaconis, not by Sturges of the row count.
+    return { ok: true, note: `${rowCount} values of ${ys[0].name}.` }
   }
 
   if (type === "scatter") {

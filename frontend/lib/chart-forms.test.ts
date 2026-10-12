@@ -160,7 +160,7 @@ test("one measure over many rows is a histogram, needing at least 20", () => {
   const rows = (n: number) => Array.from({ length: n }, (_, i) => [i])
   const r = recommend(profileColumns(["amount"], rows(20), [Q]), 20)
   assert.equal(r.best, "histogram")
-  assert.match(r.availability.histogram.note ?? "", /20 values.*bins/)
+  assert.match(r.availability.histogram.note ?? "", /^20 values of amount\.$/)
   const few = recommend(profileColumns(["amount"], rows(19), [Q]), 19)
   assert.equal(few.availability.histogram.ok, false)
   assert.match(few.availability.histogram.reason ?? "", /20/)

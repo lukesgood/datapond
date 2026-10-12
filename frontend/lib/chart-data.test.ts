@@ -242,7 +242,7 @@ test("a single value above p99 is singular in the note", () => {
   const values = [...Array.from({ length: 99 }, (_, i) => i % 10 + 1), 10_000]
   const plan = histogramPlan(values)
   assert.ok(plan.overflow)
-  assert.match(plan.note!, /^1 value above p99/)
+  assert.match(plan.note!, /; 1 value above p99/)
 })
 
 test("zero IQR with outliers still bins the body and flags the overflow", () => {
@@ -280,4 +280,15 @@ test("cell text contrasts with both light and dark cells in both themes", () => 
   assert.equal(heatmapForeground(0, false).token, "foreground")
   // dark theme: the background is dark, so text is the (light) foreground token too
   assert.equal(heatmapForeground(0, true).token, "foreground")
+})
+
+test("the plan's note states the number of bins actually drawn", () => {
+  // Seen live on 2026-10-13: the picker said "7 equal-width bins" (Sturges of the row
+  // count) above a skewed column that was drawn as 21 bins plus the overflow bar.
+  const plain = histogramPlan(Array.from({ length: 100 }, (_, i) => i))
+  assert.equal(plain.note, "8 equal-width bins.")
+  const plan = histogramPlan(skewed)
+  const body = plan.bins.length - 1
+  assert.equal(plan.note,
+    `${body} equal-width bins up to p99; ${plan.overflow!.count} values above p99 grouped into the last bar.`)
 })
