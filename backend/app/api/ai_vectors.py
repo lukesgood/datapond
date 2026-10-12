@@ -1308,7 +1308,7 @@ async def _iterative_scan(c) -> None:
 
 
 async def _retrieve(name: str, query: str, k: int, user: dict,
-                    rerank: Optional[bool] = None, coll_id=None):
+                    rerank: Optional[bool] = None, coll_id=None, tool: str = "ai.search"):
     """Vector search top-k chunks, then re-apply the PII guardrail to the stored
     content before it's returned. Defense-in-depth: chunk content is masked at
     ingest (_ingest_documents), but chunks ingested before masking existed, or via
@@ -1318,12 +1318,14 @@ async def _retrieve(name: str, query: str, k: int, user: dict,
     masked (pii_ko.apply returns raw+blocked in block mode, so we mask explicitly
     rather than leak). Returns (hits, pii_masked_count) so callers can fold
     retrieval-side masking into the same `pii_masked` total as query-side masking.
+    `tool` names the caller's tool (ai.search or ai.rag) on a refused embedding's
+    audit row.
     """
     from app.guardrails import pii_ko
     if coll_id is None:
         coll_id = await _admit(name, user)
     pool = await get_db_pool()
-    qvec = (await _embed([query]))[0]
+    qvec = (await _embed([query], tool=tool))[0]
     # Over-fetch candidates when a reranker is configured, then rerank down to k.
     use_rerank = bool(_rerank_model()) and rerank is not False
     fetch_k = min(max(k * 4, k), 50) if use_rerank else max(1, min(k, 50))
@@ -1672,7 +1674,8 @@ async def _rag_impl(req: RagRequest, user: dict):
         from app.api.ontology import expand_for_query
         r_text, concepts_used = await expand_for_query(q_text)
     hits, r_masked = await _retrieve(req.collection, r_text, req.k, user,
-                                     getattr(req, 'rerank', None), coll_id=coll_id)
+                                     getattr(req, 'rerank', None), coll_id=coll_id,
+                                     tool="ai.rag")
     pii_masked = len(q_find) + r_masked
     if not hits:
         return {"answer": "No relevant documents found. (Collection is empty or has no related content.)",
