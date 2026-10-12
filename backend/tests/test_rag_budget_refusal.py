@@ -61,7 +61,7 @@ def refused_generation(monkeypatch):
     async def _admit(name, user):
         return 7
 
-    async def _retrieve(collection, text, k, user, rerank, coll_id=None):
+    async def _retrieve(collection, text, k, user, rerank, coll_id=None, tool="ai.search"):
         return [{"content": "Salaries are reviewed in March.", "source": "handbook",
                  "score": 0.9}], 0
     monkeypatch.setattr(ai_vectors, "_admit", _admit)
@@ -90,3 +90,38 @@ def test_a_budget_refusal_is_audited_once_not_as_refused_and_error(rows):
         _run(ai_vectors._logged("ai.rag", "handbook", "q", USER, impl))
     assert e.value.status_code == 402
     assert [r["outcome"] for r in rows] == ["refused"]
+
+
+class _EmbedRefusingClient(_Client):
+    """The gateway refusing at the first step a RAG call takes: the question's embedding."""
+    async def post(self, url, **kw):
+        assert url.endswith("/v1/embeddings"), url
+        return _Resp(400, OVER)
+
+
+@pytest.fixture
+def refused_embedding(monkeypatch):
+    async def _admit(name, user):
+        return 7
+
+    class _Pool:
+        def acquire(self):
+            raise AssertionError("the refusal comes before any database work")
+
+    async def _pool():
+        return _Pool()
+    monkeypatch.setattr(ai_vectors, "_admit", _admit)
+    monkeypatch.setattr(ai_vectors, "get_db_pool", _pool)
+    monkeypatch.setattr(ai_vectors, "_gateway", lambda: ("http://gw", "k"))
+    monkeypatch.setattr(ai_vectors, "egress_policy", lambda: "open")
+    monkeypatch.setattr(ai_vectors.httpx, "AsyncClient", _EmbedRefusingClient)
+
+
+def test_a_rag_call_refused_at_the_embedding_step_is_audited_as_ai_rag(refused_embedding, rows):
+    """The row names the tool the caller used, not the step the gateway refused at:
+    `_retrieve` embeds the question for both /ai/search and /ai/rag."""
+    req = ai_vectors.RagRequest(collection="handbook", question="What is the Q4 quota?")
+    with pytest.raises(HTTPException) as e:
+        _run(ai_vectors._rag_impl(req, USER))
+    assert e.value.status_code == 402
+    assert [(r["tool"], r["outcome"]) for r in rows] == [("ai.rag", "refused")]

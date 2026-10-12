@@ -121,7 +121,7 @@ def _install(monkeypatch, conn):
     async def _pool():
         return _Pool(conn)
 
-    async def _embed(texts):
+    async def _embed(texts, tool="ai.search"):
         return [[0.0] * 4 for _ in texts]
     monkeypatch.setattr(ai_vectors, "get_db_pool", _pool)
     monkeypatch.setattr(ai_vectors, "_embed", _embed)

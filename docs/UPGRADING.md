@@ -10,7 +10,8 @@ A caller past its model spend cap used to get HTTP 200 from `/ai/rag` with the a
 retrieved chunks. It now gets `402` with the gateway's spend and cap figures, the same
 as `/ai/search`, `/ai/embed` and `/ai/sql`. An agent that treated a 200 as an answer
 will now see the refusal; one `refused` row is written to the tool call log (no
-`error` row on top of it).
+`error` row on top of it), and that row says `ai.rag` whether the gateway refused
+the question's embedding or the generation.
 
 Two other things changed underneath. The gateway has a second wording for the same
 cap ("Budget has been exceeded! EndUser=…", type `budget_exceeded`) that was not

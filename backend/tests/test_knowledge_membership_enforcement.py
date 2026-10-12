@@ -112,7 +112,7 @@ def _install(monkeypatch, owner_id, member_role=None):
     conn = _CollConn(owner_id, member_role)
     monkeypatch.setattr(ai_vectors, "get_db_pool", lambda: _aval(_Pool(conn)))
     monkeypatch.setattr(ai_vectors, "ensure_vector_schema", lambda pool: _aval(None))
-    monkeypatch.setattr(ai_vectors, "_embed", lambda texts: _aval([[0.0] * 4 for _ in texts]))
+    monkeypatch.setattr(ai_vectors, "_embed", lambda texts, **kw: _aval([[0.0] * 4 for _ in texts]))
     return conn
 
 

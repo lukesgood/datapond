@@ -86,7 +86,7 @@ def _install(monkeypatch, conn, events):
     async def _pool():
         return _Pool()
 
-    async def _embed(texts):
+    async def _embed(texts, tool="ai.search"):
         # What the embedding call would see: the policy and guardrail in force.
         events.append(("embed", egress_policy(), pii_ko.get_mode(), texts[0]))
         return [[0.0] * 4 for _ in texts]
