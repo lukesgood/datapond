@@ -1,0 +1,11 @@
+# Findings the scan reports that do not apply here. Each entry says why and when to
+# look again; an entry without a reason is a finding, not an exception.
+
+# python-jose through 3.5.0 (no fixed release as of 2026-10-12): algorithm confusion
+# via a DER-encoded public key used as an HMAC secret. Exploitable only when a verifier
+# does not restrict `algorithms`. Both of ours do: app/api/auth.py decodes session
+# tokens with algorithms=[HS256] against a random secret (no public key exists for
+# it), and app/oauth_rs.py decodes IdP tokens with RS256/ES256 only and rejects any
+# other header alg before touching the key. Re-check when python-jose ships a fix, or
+# replace it with PyJWT.
+CVE-2026-85394
