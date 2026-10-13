@@ -127,3 +127,11 @@ test("chart rows turn numeric strings of a measure into numbers", () => {
   const out = toChartRows(["d", "v"], [["2026-09-01", "1.5"], ["2026-09-02", "2"]], p)
   assert.deepEqual(out, [{ d: "2026-09-01", v: 1.5 }, { d: "2026-09-02", v: 2 }])
 })
+
+test("a histogram's availability note does not promise a bin count it does not compute", () => {
+  const rows = Array.from({ length: 60 }, (_, i) => [i + 1, 10 ** (i / 12)])
+  const p = profileColumns(["id", "amount"], rows, ["quantitative", "quantitative"])
+  const a = assess("histogram", undefined, p[1], rows.length)
+  assert.equal(a.ok, true)
+  assert.equal(a.note, "60 values of amount.")
+})

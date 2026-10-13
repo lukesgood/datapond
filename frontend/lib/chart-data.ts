@@ -147,7 +147,7 @@ function quantile(sorted: number[], q: number): number {
 export interface HistogramPlan {
   bins: Bin[]
   overflow: { count: number; from: number } | null
-  /** Shown above the chart when the last bar is an overflow bar. */
+  /** Shown above the chart: the bins drawn, and the overflow bar when there is one. */
   note?: string
 }
 
@@ -156,7 +156,10 @@ export interface HistogramPlan {
  *  [min, p99] is binned (Freedman–Diaconis, Sturges when the IQR is zero) and the
  *  values above p99 share a final, marked bar. Other data bins as `histogramBins`. */
 export function histogramPlan(values: number[]): HistogramPlan {
-  const plain: HistogramPlan = { bins: histogramBins(values), overflow: null }
+  const plainBins = histogramBins(values)
+  const plain: HistogramPlan = {
+    bins: plainBins, overflow: null, note: `${plainBins.length} equal-width ${plainBins.length === 1 ? "bin" : "bins"}.`,
+  }
   if (values.length < 2) return plain
   const sorted = [...values].sort((a, b) => a - b)
   const max = sorted[sorted.length - 1]
@@ -182,7 +185,8 @@ export function histogramPlan(values: number[]): HistogramPlan {
   bins.push({ label: `≥ ${formatCompact(p99)}`, from: p99, to: max, count: above, overflow: true })
   return {
     bins, overflow: { count: above, from: p99 },
-    note: `${above} ${above === 1 ? "value" : "values"} above p99 grouped into the last bar`,
+    note: `${k} equal-width bins up to p99; ${above} ${above === 1 ? "value" : "values"} above p99 `
+      + "grouped into the last bar.",
   }
 }
 
