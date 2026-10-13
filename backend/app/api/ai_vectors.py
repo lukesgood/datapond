@@ -1204,7 +1204,7 @@ async def delete_schedule(name: str, user: dict = Depends(require_user)):
 
 def _rerank_model() -> str:
     """Optional cross-encoder rerank model registered in LiteLLM (e.g.
-    bedrock/amazon.rerank-v1:0, cohere rerank). Empty = vector order only."""
+    rerank → bedrock/cohere.rerank-v3-5:0). Empty = vector order only."""
     return os.getenv("AI_RERANK_MODEL", "").strip()
 
 
@@ -1220,7 +1220,8 @@ async def _rerank(query: str, hits: List[dict], k: int) -> List[dict]:
             r = await c.post(f"{url}/v1/rerank", headers=_headers(key),
                              json={"model": model, "query": query,
                                    "documents": [h["content"] for h in hits],
-                                   "top_n": k, **actor_payload("ai_rerank")})
+                                   "top_n": min(k, len(hits)),
+                                   **actor_payload("ai_rerank")})
         if r.status_code >= 400:
             logger.warning(f"[ai_vectors] rerank {r.status_code}: {(r.text or '')[:120]}")
             return hits[:k]

@@ -13,7 +13,7 @@
 | # | 경로 | 현재 상태 | 판정 |
 |---|---|---|---|
 | R1 | Bedrock 생성 모델 `default`/`chat` (`values-prod-single.yaml`, `values-foundation.yaml`, `docs/AWS_BEDROCK_SETUP.md`) | `bedrock/us.anthropic.claude-*` 교차 리전 추론 프로필 | **이탈.** `us.` 프로필은 us-east-1·us-east-2·us-west-2로 라우팅 |
-| R2 | Bedrock 임베딩 `embed`, 리랭크 `rerank` | 리전 모델 ID + `aws_region_name` | 리전 내. 단 `amazon.rerank-v1:0`은 us-east-1에 없어 지금도 벡터 순서로 폴백 중(cohere.rerank-v3-5만 존재) |
+| R2 | Bedrock 임베딩 `embed`, 리랭크 `rerank` | 리전 모델 ID + `aws_region_name` | 리전 내. 리랭크는 2026-10-13 `cohere.rerank-v3-5:0`으로 교체(W7) |
 | R3 | S3·Aurora·Glue/Athena·DLM 스냅샷·Secrets | 단일 리전, 복제·교차 리전 복사 없음 | 리전 내 |
 | R4 | 노드 IAM `BedrockInvoke` (`terraform/iam.tf`) | `resources = ["*"]`, 리전 조건 없음 | 차단 장치 없음 |
 | R5 | 백엔드 egress 정책 (`AI_EGRESS_POLICY`, `app/api/ai_backends.py`) | `local-only` / `cloud-allowed` 두 모드 | 리전 개념 없음. `cloud-allowed`는 AWS 밖 제공자도 허용 |
@@ -55,5 +55,5 @@
 - W4. 호출별 감사 기록(`tool_call_log`)에 처리 리전 기록 — "이 호출이 서울에서 처리됨"을 건별로 증빙.
 - W5. `values-prod-single.yaml`·`values-foundation.yaml`·`docs/AWS_BEDROCK_SETUP.md`의 `us.` 프로필을 리전 설정에 따른 ID로 교체. 서울 기준 `anthropic.claude-sonnet-5`/`anthropic.claude-opus-5`.
 - W6. `docs/DATA_RESIDENCY.md`: 데이터를 담는 서비스별 리전 구속, 글로벌 서비스 목록, 검증 명령, 제품 책임과 고객 책임(처리방침·DPA·업종 규제)의 분리.
-- W7. 부수 수정: 라이브 `rerank` 모델명이 가리키는 `amazon.rerank-v1:0`은 us-east-1에 없음 — `cohere.rerank-v3-5:0`으로 교체하거나 비활성 명시.
+- ~~W7. 부수 수정: 라이브 `rerank` 모델명이 가리키는 `amazon.rerank-v1:0`은 us-east-1에 없음.~~ **완료 2026-10-13**: `cohere.rerank-v3-5:0`으로 교체, 문서 수보다 큰 `top_n` 요청 버그도 함께 수정(`docs/UPGRADING.md`).
 - W8. RFI-260916 내부참조의 요건 항목과 교차 확인(전환 드릴 기록, 실제 IdP 검증 등과 함께).
