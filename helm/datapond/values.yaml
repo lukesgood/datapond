@@ -937,7 +937,7 @@ ai:
   embedModel: "embed"
   embedDim: 1024
   # Optional RAG reranker — a LiteLLM model_name registered for /v1/rerank
-  # (e.g. bedrock/cohere.rerank-v3-5:0). Empty = vector order only.
+  # (e.g. rerank, registered as bedrock/arn:aws:bedrock:<region>::foundation-model/cohere.rerank-v3-5:0). Empty = vector order only.
   # When set, retrieval over-fetches candidates then reranks down to k for relevance.
   rerankModel: ""
 
