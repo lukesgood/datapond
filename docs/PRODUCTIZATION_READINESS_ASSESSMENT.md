@@ -362,7 +362,7 @@ schema 변경이 startup의 `CREATE TABLE IF NOT EXISTS`, `ALTER TABLE`, best-ef
 
 ### 5.1 인증·세션
 
-- frontend가 bearer token을 localStorage 및 JavaScript-readable cookie에 저장한다.
+- ~~frontend가 bearer token을 localStorage 및 JavaScript-readable cookie에 저장한다.~~ 2026-10 해소: 세션은 HttpOnly·SameSite=Lax 쿠키이며 프론트엔드는 토큰을 보관하지 않는다 (`docs/UPGRADING.md`).
 - CORS가 wildcard와 credentials 조합이다.
 - 비밀번호 최소 길이가 6자다.
 - JWT user recheck가 DB 장애 시 기존 claim을 신뢰하는 fail-open 정책이다.

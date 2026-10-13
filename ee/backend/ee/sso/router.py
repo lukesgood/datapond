@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-COOKIE_MAX_AGE = 24 * 3600
 STATE_COOKIE = "oidc_state"
 STATE_COOKIE_PATH = "/api/auth/oidc"
 STATE_COOKIE_MAX_AGE = 600
@@ -146,7 +145,7 @@ async def oidc_callback(request: Request, code: str = "", state: str = "", error
     if row is None or not row["is_active"]:
         return _fail("account_conflict", f"username={username}")
 
-    from app.api.auth import _create_token, record_auth_event
+    from app.api.auth import _create_token, record_auth_event, set_session_cookie
     token = _create_token(str(row["id"]), row["username"], row["role"])
     # Best-effort audit so SSO logins land in the unified audit stream.
     await record_auth_event(
@@ -158,7 +157,8 @@ async def oidc_callback(request: Request, code: str = "", state: str = "", error
         details={"username": row["username"], "method": "oidc"},
     )
     resp = RedirectResponse("/login?sso=1", status_code=302)
-    resp.set_cookie("datapond_token", token, max_age=COOKIE_MAX_AGE,
-                    secure=_cookie_secure(), samesite="lax", path="/")
+    # The same HttpOnly session cookie a password sign-in sets; the login page asks
+    # /auth/me who signed in rather than reading it.
+    set_session_cookie(resp, token, request)
     resp.delete_cookie(STATE_COOKIE, path=STATE_COOKIE_PATH)
     return resp

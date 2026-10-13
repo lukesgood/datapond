@@ -164,3 +164,35 @@ def test_redis_client_prefers_redis_url_over_k8s_valkey_port(monkeypatch):
                         lambda **kw: (seen.__setitem__("port", kw.get("port")), _FakeRedis())[1])
     assert w._redis_client() is not None
     assert seen["port"] == 6379
+
+
+def test_a_passkey_sign_in_sets_the_session_cookie(monkeypatch):
+    """The console signs in with a passkey the same way as with a password: the JWT
+    comes back in the body and as the HttpOnly session cookie (app/api/auth.py)."""
+    import base64
+    import types
+    from fastapi import Response
+    w = _fresh(monkeypatch, {"WEBAUTHN_RP_ID": "localhost", "WEBAUTHN_ORIGIN": "http://localhost:3000"})
+    nonce = w._new_nonce()
+    w._challenge_store(nonce, base64.b64encode(b"x" * 32).decode())
+    row = {"cid": "c", "public_key": b"pk", "sign_count": 0,
+           "uid": "00000000-0000-0000-0000-000000000001", "username": "alice",
+           "role": "admin", "is_active": True, "require_password_change": False}
+
+    class _Conn(_FakeConn):
+        async def execute(self, *a, **k):
+            return "UPDATE 1"
+
+    class _Pool:
+        def acquire(self):
+            return _Conn(row)
+    monkeypatch.setattr(w, "_get_pool", _make_async(_Pool()))
+    monkeypatch.setattr("webauthn.verify_authentication_response",
+                        lambda **kw: types.SimpleNamespace(new_sign_count=1))
+    monkeypatch.setattr(w, "record_auth_event", _make_async(None))
+    resp = Response()
+    body = _run(w.authenticate_complete(
+        w.AuthCompleteReq(nonce=nonce, credential={"id": "AAAA", "rawId": "AAAA"}), None, resp))
+    cookie = resp.headers["set-cookie"]
+    assert cookie.startswith(f"datapond_token={body['access_token']};")
+    assert "httponly" in cookie.lower()

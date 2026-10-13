@@ -76,9 +76,13 @@ def test_upsert_conflict_with_local_account_returns_none(monkeypatch):
 
 
 class _Req:
-    """Minimal stand-in for fastapi.Request — only .cookies is read by the router."""
-    def __init__(self, cookies=None):
+    """Minimal stand-in for fastapi.Request: the router reads .cookies, and the session
+    cookie it sets on success looks at .headers / .url.scheme to decide on Secure."""
+    def __init__(self, cookies=None, headers=None, scheme="https"):
+        from types import SimpleNamespace
         self.cookies = cookies or {}
+        self.headers = headers or {}
+        self.url = SimpleNamespace(scheme=scheme)
 
 
 def test_callback_state_store_failure_redirects_not_500(monkeypatch):
@@ -160,3 +164,30 @@ def test_login_sets_state_cookie_matching_authorize_url(monkeypatch):
     set_cookie = resp.headers.get("set-cookie", "")
     assert "oidc_state=XYZ" in set_cookie
     assert "HttpOnly" in set_cookie
+
+
+def test_a_completed_sso_sign_in_sets_the_session_cookie_httponly(monkeypatch):
+    """The callback hands the browser the same HttpOnly session cookie as a password
+    sign-in (app/api/auth.set_session_cookie); the login page then asks /auth/me
+    who that is instead of reading the cookie itself."""
+    from ee.sso import router as r
+    import app.api.auth as auth
+    monkeypatch.setattr(r, "oidc_enabled", lambda: True)
+    monkeypatch.setattr(r, "state_pop", _amake({"verifier": "v", "nonce": "n"}))
+    monkeypatch.setattr(r, "exchange_code", _amake({"id_token": "idt"}))
+    monkeypatch.setattr(r, "verify_id_token", _amake({"sub": "s1", "preferred_username": "alice"}))
+    monkeypatch.setattr(r, "_upsert_oidc_user", _amake(
+        {"id": "00000000-0000-0000-0000-000000000001", "username": "alice", "role": "viewer",
+         "is_active": True}))
+    monkeypatch.setattr(auth, "record_auth_event", _amake(None))
+    resp = _run(r.oidc_callback(_Req({"oidc_state": "s"}), code="c", state="s"))
+    assert resp.status_code == 302 and resp.headers["location"] == "/login?sso=1"
+    cookie = resp.headers["set-cookie"].lower()
+    assert "datapond_token=" in cookie
+    assert "httponly" in cookie, cookie
+
+
+def _amake(ret):
+    async def _f(*a, **k):
+        return ret
+    return _f

@@ -27,13 +27,12 @@ export interface AuthUser {
   require_password_change?: boolean
 }
 
-const TOKEN_KEY = "datapond_token"
+// The session itself is an HttpOnly cookie (`datapond_token`) that the backend sets on
+// sign-in and the browser sends by itself; nothing on the page can read it. Only the
+// (non-secret) user is kept here, for display. LEGACY_TOKEN_KEY is where builds before
+// 2026-10 kept the JWT; it is only ever removed.
+const LEGACY_TOKEN_KEY = "datapond_token"
 const USER_KEY  = "datapond_user"
-
-export function getToken(): string | null {
-  if (typeof window === "undefined") return null
-  return localStorage.getItem(TOKEN_KEY)
-}
 
 export function getUser(): AuthUser | null {
   if (typeof window === "undefined") return null
@@ -102,23 +101,23 @@ function notifyUserChanged() {
   userListeners.forEach(fn => fn())
 }
 
-export function saveAuth(token: string, user: AuthUser) {
-  localStorage.setItem(TOKEN_KEY, token)
+/** Remember who signed in. The session cookie was set by the response that carried
+ *  `user`; this only records the person for the sidebar and the login page. */
+export function saveAuth(user: AuthUser) {
   localStorage.setItem(USER_KEY, JSON.stringify(user))
-  // Also save to cookie for middleware auth check
-  document.cookie = `datapond_token=${token}; path=/; max-age=${24 * 3600}; SameSite=Lax`
   notifyUserChanged()
 }
 
+/** Forget the signed-in user. The HttpOnly cookie is the backend's to clear
+ *  (POST /api/auth/logout does); a stale one only ever answers 401. */
 export function clearAuth() {
-  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(LEGACY_TOKEN_KEY)
   localStorage.removeItem(USER_KEY)
-  document.cookie = "datapond_token=; path=/; max-age=0"
   notifyUserChanged()
 }
 
 export function isAuthenticated(): boolean {
-  return !!getToken()
+  return readUser() !== null
 }
 
 function errorField(value: unknown): string | null {
@@ -196,7 +195,7 @@ export async function login(username: string, password: string): Promise<AuthUse
       throw new Error("invalid authentication response")
     }
     const user = data.user as AuthUser
-    saveAuth(data.access_token, user)
+    saveAuth(user)
     return user
   } catch {
     throw new Error("Sign-in succeeded, but the server returned an invalid response. Please try again.")
@@ -208,15 +207,11 @@ export async function logout() {
   clearAuth()
 }
 
-export function authHeaders(): Record<string, string> {
-  const token = getToken()
-  if (token) return { Authorization: `Bearer ${token}` }
-  return {}
-}
-
 /**
- * Install a global fetch interceptor that auto-attaches the Bearer token
- * to all /api/ requests. Call once from a client component on mount.
+ * Install a global fetch interceptor that turns a 401 from the API into the
+ * "session expired" event. The session cookie travels on its own (same-origin
+ * fetch sends cookies by default), so nothing is added to the request.
+ * Call once from a client component on mount.
  */
 export function installAuthInterceptor() {
   if (typeof window === "undefined") return
@@ -226,24 +221,6 @@ export function installAuthInterceptor() {
   const original = window.fetch.bind(window)
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
-    if (url.includes("/api/") && !url.includes("/api/auth/login")) {
-      const token = getToken()
-      if (token) {
-        init = { ...(init ?? {}) }
-        const existing: Record<string, string> = {}
-        if (init.headers) {
-          if (init.headers instanceof Headers) {
-            init.headers.forEach((v, k) => { existing[k] = v })
-          } else if (Array.isArray(init.headers)) {
-            init.headers.forEach(([k, v]) => { existing[k] = v })
-          } else {
-            Object.assign(existing, init.headers)
-          }
-        }
-        existing["Authorization"] = `Bearer ${token}`
-        init.headers = existing
-      }
-    }
     const res = await original(input, init)
     // Session expired on 401 — only if the response explicitly says "Not authenticated"
     // (avoid false positives from upstream service auth failures like Polaris OAuth)
@@ -255,12 +232,7 @@ export function installAuthInterceptor() {
           window.dispatchEvent(new Event("datapond:session-expired"))
         }
       } catch {
-        // If we can't parse the body, check if token is actually expired
-        const token = getToken()
-        if (!token) {
-          clearAuth()
-          window.dispatchEvent(new Event("datapond:session-expired"))
-        }
+        // Not a JSON body: an upstream's 401, not ours.
       }
     }
     return res

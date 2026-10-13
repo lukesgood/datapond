@@ -10,7 +10,7 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, test } from "node:test"
 
-import { clearAuth, readUser, saveAuth, serverUser, subscribeToUser, type AuthUser } from "./auth.ts"
+import { clearAuth, installAuthInterceptor, isAuthenticated, readUser, saveAuth, serverUser, subscribeToUser, type AuthUser } from "./auth.ts"
 
 const USER_KEY = "datapond_user"
 
@@ -98,7 +98,7 @@ test("signing in and out tells subscribers in this tab", () => {
   let calls = 0
   const stop = subscribeToUser(() => { calls++ })
 
-  saveAuth("tok", ALICE)
+  saveAuth(ALICE)
   assert.equal(calls, 1)
   assert.deepEqual(readUser(), ALICE)
 
@@ -107,6 +107,55 @@ test("signing in and out tells subscribers in this tab", () => {
   assert.equal(readUser(), null)
 
   stop()
-  saveAuth("tok", ALICE)
+  saveAuth(ALICE)
   assert.equal(calls, 2, "unsubscribe did not take effect")
+})
+
+// ── The session lives in an HttpOnly cookie the backend sets; the browser keeps
+//    only the (non-secret) user for display ─────────────────────────────────────
+
+test("signing in stores the user and nothing else: no token in storage, no cookie written", () => {
+  const storage = fakeStorage()
+  install(storage)
+  saveAuth(ALICE)
+  assert.deepEqual(Object.keys(storage._store), [USER_KEY])
+  assert.equal((g.document as { cookie: string }).cookie, "")
+})
+
+test("signing out also drops a token an older build left in storage", () => {
+  const storage = fakeStorage({ datapond_token: "old-jwt", [USER_KEY]: JSON.stringify(ALICE) })
+  install(storage)
+  clearAuth()
+  assert.deepEqual(storage._store, {})
+})
+
+test("isAuthenticated follows the stored user", () => {
+  install(fakeStorage())
+  assert.equal(isAuthenticated(), false)
+  saveAuth(ALICE)
+  assert.equal(isAuthenticated(), true)
+})
+
+test("the fetch interceptor sends API calls with the cookie, never an Authorization header", async () => {
+  install(fakeStorage({ datapond_token: "old-jwt", [USER_KEY]: JSON.stringify(ALICE) }))
+  const seen: RequestInit[] = []
+  const fakeWindow = {
+    fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(init ?? {})
+      return new Response("{}", { status: 200 })
+    },
+    addEventListener() {}, removeEventListener() {}, dispatchEvent() { return true },
+  }
+  const savedWindow = g.window
+  g.window = fakeWindow
+  try {
+    installAuthInterceptor()
+    await (fakeWindow.fetch as typeof fetch)("/api/ai/collections", { method: "GET" })
+    assert.equal(seen.length, 1)
+    const headers = seen[0].headers as Record<string, string> | undefined
+    assert.equal(headers?.Authorization, undefined)
+    assert.notEqual(seen[0].credentials, "omit")
+  } finally {
+    g.window = savedWindow
+  }
 })

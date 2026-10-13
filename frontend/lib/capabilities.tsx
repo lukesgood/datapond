@@ -1,7 +1,6 @@
 "use client"
 import { createContext, useContext, useEffect, useState } from "react"
 import Link from "next/link"
-import { getToken } from "@/lib/auth"
 import { getProductProfile } from "@/lib/product-profile"
 
 export type Capabilities = Record<string, boolean | string> & {
@@ -31,12 +30,9 @@ export function CapabilitiesProvider({ children }: { children: React.ReactNode }
   const [caps, setCaps] = useState<Capabilities>({})
   useEffect(() => {
     // /api/capabilities answers an anonymous caller with only the two flags the login
-    // page needs, and the full map to someone signed in. The auth interceptor
-    // (lib/auth.ts installAuthInterceptor) already attaches the token to /api/ calls,
-    // and AuthInterceptor mounts ahead of this provider in the root layout, so this
-    // header is belt-and-braces: it keeps the full map from depending on mount order.
-    const token = getToken()
-    fetch("/api/capabilities", token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
+    // page needs, and the full map to someone signed in. The session cookie travels
+    // with the request on its own.
+    fetch("/api/capabilities")
       .then((r) => (r.ok ? r.json() : {}))
       .then((c) => setCaps({ ...(c || {}), _loaded: true }))
       .catch(() => setCaps({ _loaded: true }))  // loaded, everything default-off-gated pages closed

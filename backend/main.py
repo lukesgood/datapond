@@ -113,12 +113,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # instead of a real 500 (this masked a missing-table error as an auth failure).
         auth = request.headers.get("Authorization", "")
         user = None
+        creds = None
         if auth.startswith("Bearer "):
-            from app.api.auth import get_current_user
             from fastapi.security import HTTPAuthorizationCredentials
+            creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=auth[7:])
+        else:
+            # The console: its session is an HttpOnly cookie, honoured on a
+            # state-changing method only from this origin (app/api/auth.py).
+            from app.api.auth import session_cookie_credentials
+            creds = session_cookie_credentials(request)
+        if creds is not None:
+            from app.api.auth import get_current_user
             from app import oauth_rs
             try:
-                creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=auth[7:])
                 user = await get_current_user(creds)
             except oauth_rs.InsufficientScope:
                 # A valid token for a known principal that grants nothing here. 403
