@@ -623,14 +623,18 @@ async def _caller_is_signed_in(request: Request) -> bool:
     is that it never fails, and a session that expired mid-visit must still be able
     to render the login page it is about to be bounced to.
     """
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer ") or not auth[7:].strip():
-        return False
     from fastapi.security import HTTPAuthorizationCredentials
 
     from app.api import auth as auth_module
-    try:
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer ") and auth[7:].strip():
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=auth[7:])
+    else:
+        # The console: its session is the HttpOnly cookie (app/api/auth.py).
+        creds = auth_module.session_cookie_credentials(request)
+    if creds is None:
+        return False
+    try:
         return bool(await auth_module.get_current_user(creds))
     except Exception:
         return False

@@ -84,3 +84,20 @@ def test_a_malformed_authorization_header_is_not_a_token(client):
         r = client.get("/api/capabilities", headers={"Authorization": header})
         assert r.status_code == 200, header
         assert set(r.json()) == PUBLIC_KEYS, header
+
+
+def test_a_caller_signed_in_by_the_session_cookie_gets_the_full_map(client, monkeypatch):
+    """The console sends no Authorization header any more (its session is the HttpOnly
+    cookie), and this endpoint is outside AuthMiddleware: it has to read the cookie
+    itself, or every page's navigation falls back to the anonymous map. Seen live
+    right after the 2026-10-13 deploy: the sidebar lost Sources/Catalog/Analytics."""
+    import app.api.auth as auth
+
+    async def _accept(creds, request=None):
+        assert creds is not None and creds.credentials == "cookie-jwt"
+        return {"id": "u1", "username": "someone", "role": "admin"}
+
+    monkeypatch.setattr(auth, "get_current_user", _accept)
+    body = client.get("/api/capabilities", cookies={"datapond_token": "cookie-jwt"}).json()
+    for key in PRIVATE_KEYS:
+        assert key in body
