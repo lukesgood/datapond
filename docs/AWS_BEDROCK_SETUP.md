@@ -252,17 +252,32 @@ curl -X POST http://localhost:8000/api/settings/ai/backends \
 
 ## Optional: Reranking
 
-Bedrock offers Amazon Rerank v1:0 for improving RAG result relevance.
+Bedrock offers rerank models that improve RAG result relevance. In us-east-1 the
+on-demand one is Cohere Rerank 3.5 (`cohere.rerank-v3-5:0`); `amazon.rerank-v1:0` is
+not offered there. Availability differs by region — Seoul (ap-northeast-2) has no
+rerank model today — so check before pinning one:
+
+```bash
+aws bedrock list-foundation-models --region <region> \
+  --query 'modelSummaries[?contains(modelId,`rerank`)].modelId'
+```
 
 ### Enable Reranking
 
-Set environment variable (Helm values or pod env):
+Register the model in LiteLLM and point the backend at its `model_name`
+(`values-prod-single.yaml` does both):
 ```yaml
 litellm:
-  env:
-    AI_RERANK_MODEL: "bedrock/amazon.rerank-v1:0"
-    AI_RERANK_REGION: "us-east-1"  # optional, defaults to us-east-1
+  config:
+    model_list:
+      - model_name: "rerank"
+        litellm_params: { model: "bedrock/cohere.rerank-v3-5:0", aws_region_name: "us-east-1" }
+ai:
+  rerankModel: "rerank"   # sets AI_RERANK_MODEL on the backend
 ```
+
+A rerank failure is never fatal: the backend logs `[ai_vectors] rerank …` and keeps
+vector order. That log line is the only symptom, so check it after changing the model.
 
 ### How It Works
 

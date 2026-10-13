@@ -359,7 +359,7 @@ spec:
         - name: AI_EMBED_DIM
           value: "{{ .Values.ai.embedDim | default 1024 }}"
         {{- with .Values.ai.rerankModel }}
-        # Optional RAG reranker (LiteLLM model_name, e.g. bedrock/amazon.rerank-v1:0).
+        # Optional RAG reranker (LiteLLM model_name, e.g. rerank).
         # Empty = vector-similarity order only.
         - name: AI_RERANK_MODEL
           value: {{ . | quote }}

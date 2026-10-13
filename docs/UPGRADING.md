@@ -3,6 +3,18 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-10 — Reranking works on the AWS Single-Node Reference (it never did)
+
+`values-prod-single.yaml` registered `rerank` as `bedrock/amazon.rerank-v1:0`, a model
+Bedrock does not offer in us-east-1, so every rerank call failed and search and RAG
+silently kept vector order. It is now `bedrock/cohere.rerank-v3-5:0`. Separately, the
+backend asked the rerank model for more results than it had sent documents whenever a
+search returned fewer than `k` hits, which Bedrock also refuses; it now asks for at most
+as many as it sent. Expect result order to change for searches that return more than
+one hit: results now carry a `rerank_score`. Each rerank is a billed Bedrock call
+attributed to the caller. A deployment that set its own `rerank` model is unaffected by
+the model change. To keep vector order, set `ai.rerankModel: ""`.
+
 ## 2026-10 — A spend cap is checked before the model call; a cap of 0 means no calls
 
 The gateway judges "spend > cap" on spend it has already written, writes spend
