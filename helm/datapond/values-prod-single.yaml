@@ -113,15 +113,18 @@ litellm:
       - model_name: "chat"
         litellm_params: { model: "bedrock/us.anthropic.claude-sonnet-5", aws_region_name: "us-east-1" }
       # RAG reranker (Bedrock Rerank via LiteLLM /v1/rerank). Cohere Rerank 3.5 is the
-      # rerank model Bedrock offers on demand in us-east-1; amazon.rerank-v1:0, which
-      # this pointed at until 2026-10-13, does not exist there, so every rerank failed
-      # and retrieval silently kept vector order. Check `aws bedrock
-      # list-foundation-models --region <region>` before changing region: Seoul
-      # (ap-northeast-2) offers no rerank model today. A failing rerank is never fatal —
-      # the backend's _rerank() (backend/app/api/ai_vectors.py) logs a warning and
-      # keeps vector-similarity order.
+      # rerank model Bedrock offers on demand in us-east-1 (amazon.rerank-v1:0 is not
+      # offered there). Two things are load-bearing:
+      #   - The model is a full foundation-model ARN. LiteLLM passes it to Bedrock's
+      #     Rerank API as modelArn unchanged; a bare model ID is refused as invalid.
+      #   - Cohere is an AWS Marketplace model: the account needs a one-time
+      #     subscription (Bedrock console → Model catalog → Cohere Rerank 3.5), or
+      #     every call is refused with "Model access is denied … aws-marketplace".
+      # Seoul (ap-northeast-2) offers no rerank model today. A failing rerank is never
+      # fatal — the backend's _rerank() (backend/app/api/ai_vectors.py) logs
+      # "[ai_vectors] rerank …" and keeps vector-similarity order.
       - model_name: "rerank"
-        litellm_params: { model: "bedrock/cohere.rerank-v3-5:0", aws_region_name: "us-east-1" }
+        litellm_params: { model: "bedrock/arn:aws:bedrock:us-east-1::foundation-model/cohere.rerank-v3-5:0", aws_region_name: "us-east-1" }
   # Chat failover — if Haiku(default) throttles/errors, retry on Sonnet(chat) and
   # vice versa, so a single Bedrock model isn't a SPOF for RAG / AI-SQL. (embed has
   # a single Titan model, so no fallback.)

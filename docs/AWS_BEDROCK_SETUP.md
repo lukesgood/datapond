@@ -271,10 +271,20 @@ litellm:
   config:
     model_list:
       - model_name: "rerank"
-        litellm_params: { model: "bedrock/cohere.rerank-v3-5:0", aws_region_name: "us-east-1" }
+        litellm_params: { model: "bedrock/arn:aws:bedrock:us-east-1::foundation-model/cohere.rerank-v3-5:0", aws_region_name: "us-east-1" }
 ai:
   rerankModel: "rerank"   # sets AI_RERANK_MODEL on the backend
 ```
+
+Two requirements that are easy to miss:
+
+- **Use the full foundation-model ARN.** LiteLLM passes the model string to Bedrock's
+  Rerank API as `modelArn` unchanged, so a bare ID such as `bedrock/cohere.rerank-v3-5:0`
+  is refused as an invalid ARN.
+- **Subscribe once to Cohere Rerank 3.5 in AWS Marketplace** (Bedrock console → Model
+  catalog). Cohere is a third-party model: the first call tries to subscribe the
+  account automatically, and without `aws-marketplace:Subscribe` on the calling role it
+  fails and every later call is refused with "Model access is denied".
 
 A rerank failure is never fatal: the backend logs `[ai_vectors] rerank …` and keeps
 vector order. That log line is the only symptom, so check it after changing the model.
