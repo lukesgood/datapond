@@ -9,7 +9,7 @@ import secrets
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, Response
 from pydantic import BaseModel
 
 from app.api.auth import require_user, _get_pool, _create_token, get_current_user, record_auth_event
@@ -193,7 +193,8 @@ class AuthCompleteReq(BaseModel):
 
 
 @router.post("/authenticate/complete")
-async def authenticate_complete(req: AuthCompleteReq, request: Request = None):
+async def authenticate_complete(req: AuthCompleteReq, request: Request = None,
+                                response: Response = None):
     _require_enabled()
     from webauthn import verify_authentication_response
     from webauthn.helpers import base64url_to_bytes
@@ -230,6 +231,9 @@ async def authenticate_complete(req: AuthCompleteReq, request: Request = None):
         await conn.execute("UPDATE webauthn_credentials SET sign_count=$1, last_used_at=NOW() WHERE id=$2",
                            v.new_sign_count, row["cid"])
     token = _create_token(str(row["uid"]), row["username"], row["role"])
+    if response is not None:
+        from app.api.auth import set_session_cookie
+        set_session_cookie(response, token, request)   # the console's HttpOnly session
     # Best-effort audit so passkey logins land in the unified audit stream.
     await record_auth_event(
         "login_success",

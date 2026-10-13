@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react"
-import { getToken } from "@/lib/auth"
+import { readUser } from "@/lib/auth"
 
 /** One role the caller could be given, as served by GET /api/me/permissions'
  *  `assignable_roles` — a name, a one-line human label, and the permissions that
@@ -63,7 +63,7 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
     // Nothing to reset: the initial state is already this, and the effect runs once
     // on mount. Writing it back was a synchronous setState inside an effect that
     // could only ever set what was already there.
-    if (!getToken()) return
+    if (!readUser()) return
     fetch("/api/me/permissions")
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(d => {

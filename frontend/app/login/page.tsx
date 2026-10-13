@@ -49,28 +49,23 @@ export default function LoginPage() {
   const [showNewPw, setShowNewPw]           = useState(false)
   const [changingPw, setChangingPw]         = useState(false)
   const [changeError, setChangeError]       = useState<string | null>(null)
-  const [pendingToken, setPendingToken]     = useState<string | null>(null)
   // The server needs the current password for any change. After a password sign-in
   // it is the one just typed; after a passkey sign-in the person has to enter it.
   const [currentPw, setCurrentPw]           = useState("")
   const [askCurrentPw, setAskCurrentPw]     = useState(false)
 
   useEffect(() => {
-    // SSO return leg: /login?sso=1 arrives with the datapond_token cookie set by
-    // the backend callback. Promote it into localStorage (saveAuth) and enter.
+    // SSO return leg: /login?sso=1 arrives with the session cookie set by the backend
+    // callback. Ask who that is, remember them, and enter.
     const params = new URLSearchParams(window.location.search)
     if (params.get("sso") === "1") {
-      const m = document.cookie.match(/(?:^|;\s*)datapond_token=([^;]+)/)
-      const ssoToken = m?.[1]
-      if (ssoToken) {
-        // Validate async. On success we navigate to /dashboard; on failure we must
-        // fall through to the normal login setup (capabilities, network listeners,
-        // focus) below so the form is fully functional — do NOT early-return here.
-        fetch("/api/auth/me", { headers: { Authorization: `Bearer ${ssoToken}` } })
-          .then(r => { if (!r.ok) throw new Error("sso session invalid"); return r.json() })
-          .then(me => { saveAuth(ssoToken, me); window.location.replace("/dashboard") })
-          .catch(() => { clearAuth(); setError("SSO sign-in failed. Please try again.") })
-      }
+      // Validate async. On success we navigate to /dashboard; on failure we must
+      // fall through to the normal login setup (capabilities, network listeners,
+      // focus) below so the form is fully functional — do NOT early-return here.
+      fetch("/api/auth/me")
+        .then(r => { if (!r.ok) throw new Error("sso session invalid"); return r.json() })
+        .then(me => { saveAuth(me); window.location.replace("/dashboard") })
+        .catch(() => { clearAuth(); setError("SSO sign-in failed. Please try again.") })
     }
     // Password reset just completed → confirm success above the form.
     if (params.get("reset") === "1") {
@@ -88,17 +83,14 @@ export default function LoginPage() {
         setWebauthnEnabled(Boolean(caps?.webauthn))
       }).catch(() => {})
 
-    // Auth state lives in BOTH localStorage (no expiry) and the cookie (24h,
-    // checked by proxy.ts). If only the cookie has expired, blindly bouncing to
-    // /dashboard loops forever: proxy → /login → here → /dashboard → proxy …
-    // So validate the session server-side first; valid → repair the cookie and
-    // go, invalid → clear the stale localStorage state and stay on login.
+    // The remembered user (localStorage, no expiry) and the session cookie (24h,
+    // checked by proxy.ts) can disagree. If only the cookie has expired, blindly
+    // bouncing to /dashboard loops forever: proxy → /login → here → /dashboard → proxy …
+    // So ask the server first; valid → go, invalid → forget the stale user and stay.
     if (isAuthenticated()) {
-      const token = localStorage.getItem("datapond_token")
-      fetch("/api/auth/me", { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      fetch("/api/auth/me")
         .then(r => {
           if (!r.ok) throw new Error("session invalid")
-          if (token) document.cookie = `datapond_token=${token}; path=/; max-age=${24 * 3600}; SameSite=Lax`
           window.location.replace("/dashboard")
         })
         .catch(() => {
@@ -128,8 +120,8 @@ export default function LoginPage() {
     try {
       const user = await login(username, password)
       if (user.require_password_change) {
-        // Store token but require password change before entering app
-        setPendingToken(localStorage.getItem("datapond_token"))
+        // Signed in (the session cookie is set) but held at the modal until the
+        // password changes; the change request needs nothing but that cookie.
         setCurrentPw(password)
         setShowChangePw(true)
         setLoading(false)
@@ -178,12 +170,11 @@ export default function LoginPage() {
       if (typeof data.access_token !== "string" || !data.user) {
         throw new Error("Passkey sign-in succeeded, but the server returned an invalid response.")
       }
-      // Same success path as password login: persist the token/user first...
-      saveAuth(data.access_token, data.user)
+      // Same success path as password login: remember the user first...
+      saveAuth(data.user)
       if (data.user?.require_password_change) {
         // ...but honor a pending forced password change exactly like the password
         // path does: gate on the modal instead of entering the app.
-        setPendingToken(data.access_token)
         setAskCurrentPw(true)
         setShowChangePw(true)
         setPasskeyLoading(false)
@@ -210,7 +201,7 @@ export default function LoginPage() {
     try {
       const res = await fetch("/api/auth/change-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${pendingToken}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ current_password: currentPw, new_password: newPw }),
       })
       if (!res.ok) {

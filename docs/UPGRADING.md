@@ -3,6 +3,29 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-10 — The console's session is an HttpOnly cookie, not localStorage
+
+Signing in through the console used to put the JWT in the browser's `localStorage`
+(and a cookie JavaScript could read) and send it as a Bearer header itself; anything
+that ran on the page could read the session. `POST /api/auth/login`, the passkey
+sign-in and the SSO callback now set `datapond_token` as an HttpOnly, SameSite=Lax
+cookie, the browser sends it on its own, and the API reads it when no Authorization
+header is present. `POST /api/auth/logout` clears it. The login body still carries
+`access_token` for scripts (`scripts/validate-deployment.sh` is unchanged), and
+service-account keys and IdP tokens keep travelling in the header, unaffected.
+
+Two things to know. The cookie is marked Secure only when the request came in over
+https (directly or with `X-Forwarded-Proto: https` from the ingress), so a plain-http
+development server keeps working. And a cookie-borne identity on a state-changing
+request (anything but GET/HEAD/OPTIONS) is accepted only when the request's Origin or
+Referer is this host; a request without either is treated as signed out. A browser
+sends Origin on every such request, so people see no difference; a script that
+somehow carried the cookie instead of the header would.
+
+People signed in before the upgrade are signed in still: their old cookie has the
+same name and is read the same way until it expires. The token an older build left in
+`localStorage` is removed the next time they sign out or their session expires.
+
 ## 2026-10 — An over-budget `/ai/rag` call answers 402, like every other tool
 
 A caller past its model spend cap used to get HTTP 200 from `/ai/rag` with the answer

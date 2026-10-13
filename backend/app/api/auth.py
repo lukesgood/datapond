@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import asyncpg
-from fastapi import APIRouter, HTTPException, Depends, status, Request
+from fastapi import APIRouter, HTTPException, Depends, status, Request, Response
 
 from app.rate_limit import LoginThrottle, client_address
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -84,6 +84,64 @@ def _verify_password(password: str, hashed: str) -> bool:
         return False
 
 security = HTTPBearer(auto_error=False)
+
+# ── The browser session cookie ────────────────────────────────────────────────
+#
+# A person signing in through the console gets the JWT as an HttpOnly cookie, so
+# nothing that runs on the page can read it; the browser sends it by itself and
+# `get_current_user` reads it when no Authorization header is present. A key or
+# an IdP token always travels in the header. The cookie name is also what the Next
+# proxy (frontend/proxy.ts) and the log-stream WebSocket look for.
+SESSION_COOKIE = "datapond_token"
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _request_is_https(request: Optional[Request]) -> bool:
+    if request is None:
+        return False
+    forwarded = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    return forwarded == "https" or request.url.scheme == "https"
+
+
+def set_session_cookie(response: Response, token: str, request: Optional[Request] = None) -> None:
+    """Secure only when the request arrived over https (directly or through the
+    ingress): a browser on a plain-http development server would otherwise drop it."""
+    response.set_cookie(SESSION_COOKIE, token, max_age=TOKEN_EXPIRE_HOURS * 3600,
+                        httponly=True, secure=_request_is_https(request), samesite="lax", path="/")
+
+
+def clear_session_cookie(response: Response) -> None:
+    response.delete_cookie(SESSION_COOKIE, path="/")
+
+
+def _same_origin(request: Request) -> bool:
+    """The request's Origin (or Referer, which older browsers send instead) names this
+    host. A browser sends Origin on every state-changing request; its absence is not a
+    browser and gets no cookie-borne identity."""
+    from urllib.parse import urlparse
+    source = request.headers.get("origin") or request.headers.get("referer")
+    if not source:
+        return False
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "")
+    host = host.split(",")[0].strip().lower()
+    try:
+        return bool(host) and urlparse(source).netloc.lower() == host
+    except ValueError:
+        return False
+
+
+def session_cookie_credentials(request: Optional[Request]) -> Optional[HTTPAuthorizationCredentials]:
+    """The session cookie as Bearer credentials, or None. A cookie rides on cross-site
+    requests too, so on a state-changing method it counts only from this origin
+    (SameSite=Lax is the browser's half of the same rule)."""
+    if request is None:
+        return None
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token or looks_like_api_key(token):
+        return None
+    if request.method.upper() not in _SAFE_METHODS and not _same_origin(request):
+        return None
+    return HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 
 # ── DB pool (shared with connectors) ──────────────────────────────────────────
 
@@ -233,14 +291,18 @@ async def _recheck_user(uid: str, claims: dict) -> Optional[dict]:
 
 
 async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    request: Request = None,
 ) -> Optional[dict]:
     """Extract current user from Bearer token. Returns None if not authenticated.
 
     One header carries either credential: a `dp_sk_` prefix marks a service-account
     API key, anything else is treated as a JWT. Clients do not have to know which
-    scheme this deployment wants.
+    scheme this deployment wants. Without a header, the browser's session cookie
+    stands in (see `session_cookie_credentials`).
     """
+    if not credentials:
+        credentials = session_cookie_credentials(request)
     if not credentials:
         return None
     if looks_like_api_key(credentials.credentials):
@@ -615,8 +677,9 @@ def login_throttle() -> "LoginThrottle":
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @router.post("/auth/login", response_model=TokenResponse)
-async def login(request: LoginRequest, http_request: Request = None):
-    """Authenticate and return JWT token."""
+async def login(request: LoginRequest, http_request: Request = None, response: Response = None):
+    """Authenticate: the JWT goes back in the body (for scripts) and as the HttpOnly
+    session cookie (for the browser)."""
     # Before anything else, and in particular before the bcrypt verify below. An
     # unthrottled login is not only a guessing oracle: each attempt costs a
     # deliberately expensive hash, so answering them at all is how a single-node
@@ -696,6 +759,8 @@ async def login(request: LoginRequest, http_request: Request = None):
 
     login_throttle().record_success(request.username, address)
     token = _create_token(str(row["id"]), row["username"], row["role"])
+    if response is not None:
+        set_session_cookie(response, token, http_request)
     await record_auth_event(
         "login_success",
         user_id=row["id"],
@@ -849,8 +914,11 @@ async def change_password(body: dict, user: dict = Depends(require_user)):
 
 
 @router.post("/auth/logout")
-async def logout(http_request: Request = None):
-    """Logout (client deletes token)."""
+async def logout(http_request: Request = None, response: Response = None):
+    """Logout: clears the session cookie; a client holding the token in its own
+    hands drops it."""
+    if response is not None:
+        clear_session_cookie(response)
     # Best-effort audit. Logout stays unauthenticated (client just drops the token),
     # so identity is read opportunistically from the request state populated by the
     # auth middleware — a missing identity simply yields no audit row.
