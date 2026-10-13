@@ -146,4 +146,6 @@ async def set_budget(user_id: str, body: BudgetPut):
     if r.status_code >= 400:
         # The body can echo part of the master key on an auth failure — status only.
         raise HTTPException(502, f"Gateway refused the budget change (HTTP {r.status_code})")
+    from app import ai_budget
+    ai_budget.forget_cached(user_id)   # the next call asks the gateway again
     return {"user_id": user_id, "max_budget": body.max_budget}

@@ -3,6 +3,19 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-10 — A spend cap is checked before the model call; a cap of 0 means no calls
+
+The gateway judges "spend > cap" on spend it has already written, writes spend
+asynchronously and caches the customer row, so a caller capped a moment ago, or capped
+at 0 before its first call, could get one more answer (seen live on 2026-10-13). Every
+search, rag, embed and SQL-generation call now asks the gateway for the caller's spend
+and cap first (one lookup per caller per 15 seconds; forgotten at once when the cap is
+changed through Settings → Budgets on the same backend replica) and answers the same
+402 with a `refused` row when spend >= cap. Two consequences: a cap of 0 refuses the
+very next call, and a caller is refused when it *reaches* its cap, not one call after.
+A gateway that cannot be asked does not block the call; the gateway's own check still
+applies to it.
+
 ## 2026-10 — The console's session is an HttpOnly cookie, not localStorage
 
 Signing in through the console used to put the JWT in the browser's `localStorage`
