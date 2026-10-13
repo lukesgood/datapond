@@ -31,8 +31,8 @@ from typing import Optional
 from app.guardrails import pii_ko
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
 from app.api.auth import require_permission, require_user
-from app.ai_context import set_actor, actor_payload
-from app.ai_budget import budget_error, is_budget_refusal
+from app.ai_context import set_actor, actor_payload, current_actor
+from app.ai_budget import assert_within_cap, budget_error, is_budget_refusal
 from app.runtime import component_secret
 from app import catalog_access, tool_call_log
 
@@ -247,6 +247,12 @@ def _call_litellm(system: str, messages: list) -> str:
         resp.raise_for_status()
     data = resp.json()
     return data["choices"][0]["message"]["content"].strip()
+
+
+async def generate_text_with_cap(*, actor: dict, request_text: str, system: str, messages: list) -> str:
+    """`_call_litellm` off the event loop, after the cap check (app/ai_budget)."""
+    await assert_within_cap(actor=actor, tool="ai.sql", request_text=request_text)
+    return await asyncio.to_thread(_call_litellm, system, messages)
 
 
 def _validation_enabled() -> bool:
@@ -534,7 +540,8 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
     if cfg["litellm_url"]:
         provider = f"litellm:{cfg['litellm_model']}"
         try:
-            raw = await asyncio.to_thread(_call_litellm, system, messages)
+            raw = await generate_text_with_cap(actor=current_actor(), request_text=req.question,
+                                               system=system, messages=messages)
         except Exception as e:
             # Only a transport/backend failure reaches the template fallback below.
             logger.warning(f"[ai_sql] gateway unavailable or no active backend: {e}")
@@ -574,7 +581,8 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
                             "and columns from the schema above."},
                     ]
                     try:
-                        raw2 = await asyncio.to_thread(_call_litellm, system, repair)
+                        raw2 = await generate_text_with_cap(actor=current_actor(), request_text=req.question,
+                                                            system=system, messages=repair)
                         data2 = _parse_response(raw2)
                         sql2 = data2["sql"].strip()
                         if sql2:

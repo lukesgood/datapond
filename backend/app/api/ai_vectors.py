@@ -45,7 +45,7 @@ from app.api.connectors import get_db_pool
 from app.api.auth import require_user
 from app.api.auth import require_permission, require_permission_or_internal
 from app.ai_context import set_actor, actor_payload, current_actor
-from app.ai_budget import is_budget_refusal, refuse_over_budget
+from app.ai_budget import assert_within_cap, is_budget_refusal, refuse_over_budget
 from app.api.ai_backends import (egress_policy, is_external_provider,
                                  provider_of_model, require_local_only)
 from app import sensitivity
@@ -202,6 +202,9 @@ async def _assert_embed_egress_ok() -> None:
 async def _embed(texts: List[str], tool: str = "ai.search") -> List[List[float]]:
     if not texts:
         return []
+    # Every search, rag and embed call passes here first: a caller at its cap is
+    # refused before anything is sent (see app/ai_budget.assert_within_cap).
+    await assert_within_cap(actor=current_actor(), tool=tool, request_text="embedding")
     await _assert_embed_egress_ok()
     url, key = _gateway()
     async with httpx.AsyncClient(timeout=120) as c:

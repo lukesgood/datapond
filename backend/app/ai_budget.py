@@ -12,13 +12,24 @@ an over-budget call with an *auth* error — "type": "auth_error", code 401 — 
 agent cannot tell apart from a bad key, and which our call sites wrapped again as 502
 "Embedding failed". Here it becomes 402 with the gateway's own numbers, and one
 `refused` row in the tool call log, so the refusal is both actionable and audited.
+
+And one check of our own, before the call (`assert_within_cap`). The gateway judges
+"spend > cap" on spend it has already written, writes spend asynchronously and caches
+the customer row, so a caller capped a moment ago, or capped at 0 before its first
+call, gets one more answer (seen live 2026-10-13). DataPond asks the gateway for the
+caller's spend and cap first — cached a few seconds, forgotten when an operator
+changes the cap — and refuses when spend >= cap. A cap of 0 is therefore "no calls",
+at once. The gateway's check stays as the backstop for what this one cannot see.
 """
 import logging
-from typing import Optional
+import time
+from typing import Dict, Optional, Tuple
 
+import httpx
 from fastapi import HTTPException
 
 from app import tool_call_log
+from app.api.ai_backends import _gateway, _headers
 
 logger = logging.getLogger(__name__)
 
@@ -64,3 +75,67 @@ async def refuse_over_budget(*, actor: dict, tool: str, request_text: str,
         outcome="refused")
     logger.warning("[ai_budget] refused: %s over its model spend budget", (actor or {}).get("username"))
     return budget_error(body)
+
+
+# ── The check before the call ─────────────────────────────────────────────────
+
+CACHE_TTL_SECONDS = 15.0
+# caller id → (expires_at, max_budget or None, spend). An entry is also kept for a
+# caller the gateway does not know (no cap, no spend), so each caller costs one lookup
+# per TTL, not one per call.
+_cache: Dict[str, Tuple[float, Optional[float], float]] = {}
+
+
+def forget_cached(user_id: Optional[str] = None) -> None:
+    """Drop one caller's cached figures (an operator changed its cap), or all of them."""
+    if user_id is None:
+        _cache.clear()
+    else:
+        _cache.pop(user_id, None)
+
+
+async def _figures(user_id: str) -> Optional[Tuple[Optional[float], float]]:
+    """(max_budget, spend) for a caller, from the gateway; None when it cannot say."""
+    now = time.monotonic()
+    hit = _cache.get(user_id)
+    if hit and hit[0] > now:
+        return hit[1], hit[2]
+    try:
+        url, key = _gateway()
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get(f"{url}/customer/info", headers=_headers(key),
+                            params={"end_user_id": user_id})
+    except Exception as e:
+        logger.warning("[ai_budget] cap check skipped, gateway unreachable: %s", str(e)[:120])
+        return None
+    if r.status_code == 404:
+        figures: Tuple[Optional[float], float] = (None, 0.0)
+    elif r.status_code >= 400:
+        logger.warning("[ai_budget] cap check skipped, gateway answered HTTP %s", r.status_code)
+        return None
+    else:
+        row = r.json()
+        budget = row.get("litellm_budget_table") or {}
+        cap = row.get("max_budget", budget.get("max_budget"))
+        figures = (float(cap) if cap is not None else None, float(row.get("spend") or 0.0))
+    _cache[user_id] = (now + CACHE_TTL_SECONDS, figures[0], figures[1])
+    return figures
+
+
+async def assert_within_cap(*, actor: dict, tool: str, request_text: str) -> None:
+    """Raise the 402 (and write the `refused` row) when the caller has spent its cap.
+
+    Nothing to check without a caller id, and nothing refused when the gateway cannot
+    be asked: the model call that follows will meet the gateway's own check anyway.
+    """
+    user_id = (actor or {}).get("id")
+    if not user_id:
+        return
+    figures = await _figures(str(user_id))
+    if figures is None:
+        return
+    cap, spend = figures
+    if cap is not None and spend >= cap:
+        raise await refuse_over_budget(
+            actor=actor, tool=tool, request_text=request_text,
+            body=f"Spend={spend:g}, Budget={cap:g} (checked before the call).")
