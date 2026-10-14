@@ -49,10 +49,12 @@ def _account_username(name: str) -> str:
 @router.get("/service-accounts")
 async def list_service_accounts(admin: dict = Depends(require_admin)):
     """Service accounts with their keys. Key material is never returned."""
+    from app import oauth_rs
     pool = await _get_pool()
     async with pool.acquire() as conn:
         accounts = await conn.fetch(
-            """SELECT id, username, display_name, role, is_active, created_at
+            """SELECT id, username, display_name, role, is_active, created_at,
+                      external_id, external_provider
                  FROM users WHERE auth_method = 'service' ORDER BY created_at DESC""")
         keys = await conn.fetch(
             """SELECT id, user_id, name, key_prefix, status, scopes,
@@ -74,7 +76,13 @@ async def list_service_accounts(admin: dict = Depends(require_admin)):
         "is_active": a["is_active"], "created_at": a["created_at"],
         "permissions": sorted(effective_permissions(a["role"], [])),
         "keys": by_user.get(str(a["id"]), []),
+        # The issuer it was linked under: a link made under an earlier issuer no
+        # longer matches any token, and the console says so.
+        "oauth_client": ({"client_id": a["external_id"], "issuer": a["external_provider"]}
+                         if a["external_id"] else None),
     } for a in accounts],
+        "oauth": {"enabled": oauth_rs.enabled(),
+                  "issuer": oauth_rs.config().issuer if oauth_rs.enabled() else None},
         "assignable_roles": [r for r in ASSIGNABLE_ROLES if r != "admin"],
         "grantable_permissions": sorted(
             set().union(*(permissions_for(r) for r in ASSIGNABLE_ROLES))
