@@ -219,6 +219,36 @@ test("a heatmap needs a second category", () => {
   assert.match(a.reason ?? "", /second category/)
 })
 
+const dowHour = (hourValue: (h: number) => number, hourName = "hour") => {
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+  const rows: unknown[][] = []
+  for (const d of days) for (let h = 0; h < 24; h++) rows.push([d, hourValue(h), h + 1])
+  return { rows, p: profileColumns(["dow", hourName, "orders"], rows, ["text", Q, Q]) }
+}
+
+test("an integer hour column is an axis, so day × hour × count is a heatmap", () => {
+  const { rows, p } = dowHour(h => h)
+  assert.equal(p[1].role, "category")
+  const r = recommend(p, rows.length)
+  assert.equal(r.best, "heatmap")
+  assert.deepEqual(new Set([r.x, r.colorBy]), new Set(["dow", "hour"]))
+})
+
+test("a time-part suffix counts too: order_hour is an axis", () => {
+  assert.equal(dowHour(h => h, "order_hour").p[1].role, "category")
+})
+
+test("an hour column holding fractions is still a measure", () => {
+  assert.equal(dowHour(h => h + 0.5, "avg_hour").p[1].role, "measure")
+  assert.equal(dowHour(h => h + 0.5).p[1].role, "measure")
+})
+
+test("other integer columns stay measures, and year is not treated as a time part", () => {
+  const rows = [[2024, 3], [2025, 5], [2026, 8]]
+  const p = profileColumns(["year", "orders"], rows, [Q, Q])
+  assert.deepEqual(p.map(c => c.role), ["measure", "measure"])
+})
+
 test("the pie keeps its strict rules alongside the new forms", () => {
   const p = profileColumns(["region", "revenue"], [["Seoul", 10], ["Busan", 7]], ["text", Q])
   assert.equal(recommend(p, 2).availability.pie.ok, true)
