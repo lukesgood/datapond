@@ -82,6 +82,10 @@ export function resolveYs(cfg: { yAxes?: string[] | null; yAxis?: string | null 
 }
 
 const ID_NAME = /(^id$|_id$|^id_|uuid)/i
+// A whole-number hour or weekday is a position on an axis, not an amount: summing
+// hours means nothing, and a day × hour heatmap needs it as a category. Year is left
+// out so a yearly trend still plots as a measure over time.
+const TIME_PART_NAME = /(^|_)(hour|minute|dow|weekday|day_of_week|day|month|quarter)$/i
 
 function mostly(values: unknown[], test: (v: unknown) => boolean): boolean {
   if (values.length === 0) return false
@@ -104,7 +108,9 @@ export function profileColumns(columns: string[], rows: unknown[][],
 
     let role: ColumnRole
     if (kind === "quantitative") {
-      role = ID_NAME.test(name) ? "identifier" : "measure"
+      role = ID_NAME.test(name) ? "identifier"
+        : TIME_PART_NAME.test(name) && numbers.length > 0 && numbers.every(Number.isInteger)
+          ? "category" : "measure"
     } else if (kind === "temporal") {
       role = "time"
     } else if (kind === "boolean") {
