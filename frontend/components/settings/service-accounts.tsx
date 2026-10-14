@@ -8,11 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
-import { Loader2, Bot, KeyRound, Trash2, Copy, Check, RotateCw } from "lucide-react"
+import { Loader2, Bot, KeyRound, Trash2, Copy, Check, RotateCw, Link2 } from "lucide-react"
 import { useToast } from "@/lib/toast"
 import {
   DEFAULT_EXPIRY_DAYS, EXPIRY_OPTIONS, choosableScopes, defaultScopes, describeKey, keyRequestBody,
 } from "@/lib/service-account-keys"
+import { type OAuthClient, type OAuthMode, oauthLinkView } from "@/lib/service-account-oauth"
 
 type ApiKey = {
   id: string; name: string; key_prefix: string; status: string
@@ -21,8 +22,12 @@ type ApiKey = {
 type Account = {
   id: string; username: string; display_name: string; role: string
   permissions: string[]; keys: ApiKey[]
+  oauth_client?: OAuthClient | null
 }
-type Payload = { accounts: Account[]; assignable_roles: string[]; grantable_permissions: string[] }
+type Payload = {
+  accounts: Account[]; assignable_roles: string[]; grantable_permissions: string[]
+  oauth?: OAuthMode
+}
 type AccountCollection = { name: string; access: "owner" | "reader" | "editor" | "global"; chunks: number }
 
 /** Service accounts give an app or agent an identity of its own.
@@ -296,6 +301,7 @@ export function ServiceAccounts() {
                   </div>
                 </div>
               )}
+              <OAuthClientRow account={a} mode={data?.oauth} onChange={load} />
               {a.keys.length === 0 ? (
                 <p className="text-xs text-muted-foreground">No keys issued.</p>
               ) : (
@@ -350,6 +356,79 @@ export function ServiceAccounts() {
   )
 }
 
+
+/** Link the agent's own IdP client to this account, so it can call with a
+ *  client-credentials token instead of a DataPond key. */
+function OAuthClientRow({ account, mode, onChange }: {
+  account: Account; mode: OAuthMode | undefined; onChange: () => Promise<void>
+}) {
+  const view = oauthLinkView(mode, account.oauth_client)
+  const [clientId, setClientId] = useState("")
+  const [saving, setSaving] = useState(false)
+  const { toast } = useToast()
+
+  const send = async (method: "PUT" | "DELETE") => {
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/service-accounts/${account.id}/oauth-client`, {
+        method,
+        headers: method === "PUT" ? { "Content-Type": "application/json" } : undefined,
+        body: method === "PUT" ? JSON.stringify({ client_id: clientId.trim() }) : undefined,
+      })
+      if (res.ok) {
+        setClientId("")
+        await onChange()
+      } else {
+        const d = await res.json().catch(() => ({}))
+        toast(typeof d.detail === "string" ? d.detail : `Could not update the OAuth client (HTTP ${res.status})`, "error")
+      }
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="space-y-1.5 rounded-md border px-3 py-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="flex items-center gap-1.5 font-medium">
+          <Link2 className="h-3.5 w-3.5 text-muted-foreground" /> OAuth client
+        </span>
+        {view.clientId && <code className="font-mono">{view.clientId}</code>}
+        {view.state === "linked" && <Badge variant="secondary" className="text-2xs">linked</Badge>}
+        {view.state === "stale" && <Badge variant="outline" className="text-2xs text-[var(--dp-warn-text)]">stale</Badge>}
+        {view.state === "unlinked" && <span className="text-muted-foreground">not linked</span>}
+        {view.canUnlink && (
+          <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={saving}
+                  onClick={() => send("DELETE")}>
+            Unlink
+          </Button>
+        )}
+      </div>
+      {view.state === "linked" && mode?.issuer && (
+        <p className="text-muted-foreground">
+          Client-credentials tokens from <code className="font-mono">{mode.issuer}</code> for this client act as this account.
+        </p>
+      )}
+      {view.note && (
+        <p className={view.state === "stale" ? "text-[var(--dp-warn-text)]" : "text-muted-foreground"}>{view.note}</p>
+      )}
+      {view.canLink && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            value={clientId}
+            onChange={e => setClientId(e.target.value)}
+            placeholder="IdP client id (e.g. Entra application id)"
+            aria-label={`OAuth client id for ${account.username}`}
+            maxLength={512}
+            className="h-8 max-w-xs text-xs"
+          />
+          <Button size="sm" variant="outline" className="h-8 text-xs"
+                  disabled={saving || !clientId.trim()} onClick={() => send("PUT")}>
+            Link
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function AccountSpend({ accountId }: { accountId: string }) {
   const [s, setS] = useState<{ spend: number; requests: number } | null>(null)
