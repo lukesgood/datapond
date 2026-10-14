@@ -13,7 +13,7 @@
 | # | 경로 | 현재 상태 | 판정 |
 |---|---|---|---|
 | R1 | Bedrock 생성 모델 `default`/`chat` (`values-prod-single.yaml`, `values-foundation.yaml`, `docs/AWS_BEDROCK_SETUP.md`) | `bedrock/us.anthropic.claude-*` 교차 리전 추론 프로필 | **이탈.** `us.` 프로필은 us-east-1·us-east-2·us-west-2로 라우팅 |
-| R2 | Bedrock 임베딩 `embed`, 리랭크 `rerank` | 리전 모델 ID + `aws_region_name` | 리전 내. 리랭크는 2026-10-13 `cohere.rerank-v3-5:0`으로 교체(W7). Marketplace 구독은 보류(W7a) |
+| R2 | Bedrock 임베딩 `embed`, 리랭크 `rerank` | 리전 모델 ID + `aws_region_name` | 리전 내. 리랭크는 2026-10-13 `cohere.rerank-v3-5:0`으로 교체(W7). Marketplace 구독은 보류(W7a), 라이브 리랭크는 2026-10-14 비활성화. 대안 W7b·W7c |
 | R3 | S3·Aurora·Glue/Athena·DLM 스냅샷·Secrets | 단일 리전, 복제·교차 리전 복사 없음 | 리전 내 |
 | R4 | 노드 IAM `BedrockInvoke` (`terraform/iam.tf`) | `resources = ["*"]`, 리전 조건 없음 | 차단 장치 없음 |
 | R5 | 백엔드 egress 정책 (`AI_EGRESS_POLICY`, `app/api/ai_backends.py`) | `local-only` / `cloud-allowed` 두 모드 | 리전 개념 없음. `cloud-allowed`는 AWS 밖 제공자도 허용 |
@@ -57,9 +57,12 @@
 - W6. `docs/DATA_RESIDENCY.md`: 데이터를 담는 서비스별 리전 구속, 글로벌 서비스 목록, 검증 명령, 제품 책임과 고객 책임(처리방침·DPA·업종 규제)의 분리.
 - ~~W7. 부수 수정: 라이브 `rerank` 모델명이 가리키는 `amazon.rerank-v1:0`은 us-east-1에 없음.~~ **설정 완료 2026-10-13**: `cohere.rerank-v3-5:0`(전체 ARN)으로 교체, 문서 수보다 큰 `top_n` 요청 버그 수정. 구독은 W7a로 분리.
 - W7a. **Cohere Rerank 3.5 Marketplace 구독 — 보류 (2026-10-14 결정).**
-  - 현재: 라이브(helm rev 73)는 리랭크를 전체 ARN으로 등록했지만 구독이 없어 모든 호출이 403 "Model access is denied". 검색·RAG는 벡터 순서로 정상 동작(리랭크는 라이브에서 한 번도 동작한 적 없음).
+  - 현재: **라이브 리랭크 비활성화 (helm rev 74, 2026-10-14)** — `ai.rerankModel: ""`로 백엔드가 리랭크를 호출하지 않는다. LiteLLM에는 `rerank`(Cohere 전체 ARN) 항목이 남아 있다. 검색·RAG는 벡터 순서로 동작하며, 리랭크는 라이브에서 한 번도 동작한 적 없으므로 품질 변화는 없다. 비활성화 전(rev 73)에는 구독이 없어 모든 호출이 403 "Model access is denied"였다.
   - 보류 이유: 데모 컬렉션에서는 효과가 거의 없고, 구독은 Cohere 약관·가격 동의라 소유자 결정 사항. 서울 리전에는 리랭크 모델이 없어(D1) 리전 결정과 함께 판단하는 편이 맞다.
-  - 재검토 시점: 실제 고객 데이터로 검색 품질을 평가할 때. 요청별 `rerank: false/true`로 켠 경우와 끈 경우를 비교해 결정.
-  - 보류 중 부작용: 검색마다 후보를 4배(최대 50) 가져오고 실패하는 리랭크 호출을 한 번 더 하며, 백엔드 로그에 `[ai_vectors] rerank 400` 경고가 남는다. 줄이려면 라이브 릴리스 값 `ai.rerankModel: ""`로 끈다(재배포 아님, helm 값 변경).
-  - 진행 시: us-east-1 Bedrock 콘솔 → Model catalog → Cohere Rerank 3.5 구독(소유자). 그 뒤 in-pod 프로브로 검색 결과에 `rerank_score`가 붙는지 확인. 노드 역할에 aws-marketplace 권한을 주는 방식은 권한 확대라 비권장.
+  - 재검토 시점: 실제 고객 데이터로 검색 품질을 평가할 때(W7d). 대안 W7b·W7c와 함께 비교한다. 서버에 리랭크 모델이 설정되어 있지 않으면 요청의 `rerank: true`로는 켜지지 않으므로, 비교할 때는 평가 환경에 모델을 설정한다.
+  - 보류 중 부작용: ~~검색마다 후보 4배 조회, 실패하는 리랭크 호출, `[ai_vectors] rerank 400` 경고~~ — rev 74 비활성화로 해소.
+  - 진행 시: us-east-1 Bedrock 콘솔 → Model catalog → Cohere Rerank 3.5 구독(소유자). 라이브 릴리스 값을 `ai.rerankModel: "rerank"`로 되돌린다(`--reset-then-reuse-values`, model_list 변경 불필요). 그 뒤 in-pod 프로브로 검색 결과에 `rerank_score`가 붙는지 확인. 노드 역할에 aws-marketplace 권한을 주는 방식은 권한 확대라 비권장.
+- W7b. **하이브리드 검색 (리랭크 대안 1순위).** PostgreSQL 키워드 검색과 pgvector 검색 결과를 순위 융합(RRF)으로 합친다. 외부 모델이 없어 데이터가 DB 밖으로 나가지 않고 추가 비용이 거의 없다. 제품코드·조항 번호 같은 정확한 식별자 질문을 보완한다. 한국어는 기본 텍스트 검색 파서로 부족하므로 `pg_trgm`(Aurora 지원) 또는 형태소 분석기를 검토한다. 백엔드와 DB 마이그레이션 작업이며, 리전 결정(D1)과 무관하다.
+- W7c. **클러스터 내 로컬 리랭커.** 다국어 cross-encoder(예: `bge-reranker-v2-m3`, 한국어 지원)를 TEI 또는 Infinity로 클러스터 안에 띄우고 LiteLLM `rerank`로 등록한다. 백엔드 코드 변경 없이 helm 값만 바꾼다. m6i.xlarge CPU에서는 요청당 수백 ms 지연과 메모리 1–2 GB 추가가 예상된다. 리전 안에서 처리되고 Sovereign Core에도 같은 구성으로 쓸 수 있다. 리전 결정(D1)과 무관하다.
+- W7d. **검색 품질 평가.** 실제 고객 데이터로 질문·정답 쌍 20–30개를 만들고 "벡터만", W7b, W7c(필요하면 W7a)를 상위 5개 안에 정답이 들어가는 비율로 비교해 채택을 결정한다. 그 전까지는 라이브 리랭크를 꺼 둔 상태를 유지한다. 참고 대안: 기존 생성 모델로 후보 순위를 매기는 방식은 검색마다 생성 호출이 하나 더 나가 비용·지연이 크므로 후순위.
 - W8. RFI-260916 내부참조의 요건 항목과 교차 확인(전환 드릴 기록, 실제 IdP 검증 등과 함께).
