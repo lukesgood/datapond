@@ -3,7 +3,7 @@
 DataPond speaks the Model Context Protocol at `POST /api/mcp`, so an agent can discover
 its tools instead of being wired to them by hand.
 
-**Read-only.** The 26 read actions are exposed; nothing that writes is reachable, by
+**Read-only.** The 29 read actions are exposed; nothing that writes is reachable, by
 three separate refusals. Changing configuration or data still goes through the console
 or the typed REST endpoints.
 
@@ -49,6 +49,14 @@ everyone, since capabilities come from the server's own environment, never from 
 request. A tool you may not use is indistinguishable from one that does not exist —
 that is deliberate, so a call cannot be used to enumerate your scopes or this
 deployment's components.
+
+**Metric tools.** `metric_list` and `metric_describe` (`catalog:read`) and `metric_query`
+(`query:run`) are the three governed-metric actions. They need the `query` capability and
+are absent on the Portable Core. `metric_query` takes `metric`, `by`, `period`, `grain`
+and `where`, compiles the SQL deterministically from an approved definition, executes it
+through the same RLS and masking path as `/queries/execute`, and returns the rows with a
+citation (metric, version, approver, the compiled SQL, `rls_applied`, `pii_masked`).
+Definitions are authored and approved in the console, never over MCP.
 
 ## What it costs
 

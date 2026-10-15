@@ -155,9 +155,20 @@ revokes it at once) but never past its own expiry. The successor gets the old ke
 lifetime. Migration 0016 adds the `api_key_rotated` audit event. Other backend replicas
 may accept a revoked key for up to 30 seconds (the key cache TTL), as with revocation.
 
+## 2026-10 — SQL semantic layer (migration 0023)
+
+Migration `0023_semantic_metrics` adds `semantic_metrics`, `semantic_metric_versions` and
+`semantic_joins`. The version table is append-only by trigger, the same strength as the
+audit tables: it stops the application's normal code paths, not the owning database role,
+which can disable a trigger. It is not tamper-proof. The MCP surface grows from 26 to 29
+read actions (`metric_list`, `metric_describe`, `metric_query`), available only where the
+`query` capability is on. No setting is required; no metric exists until an administrator
+approves one under Metrics in the console. `/ai/sql` responses gain `metrics_provided` and
+`suggested_metric`.
+
 ## 2026-09 — An MCP endpoint, read-only, on the key you already have
 
-`POST /api/mcp` speaks MCP 2026-07-28 and exposes the 26 read actions as tools,
+`POST /api/mcp` speaks MCP 2026-07-28 and exposes the read actions as tools (26 at the time; 29 since the semantic layer below),
 authenticated with a service-account key. Nothing that writes is reachable. Each call
 writes one `tool_call_log` row with `via='mcp'`; migration 0009 widens that table's
 `tool` constraint so a row can name the action it logged. No configuration is required

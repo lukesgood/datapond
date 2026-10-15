@@ -137,6 +137,7 @@ compile_metric(version, by, period, grain, where, dialect, now) -> CompiledQuery
 - Every column is checked against the table schema from the existing catalog index. An
   unknown column refuses the save.
 - The author cannot name a catalog or table they cannot see.
+- Refused on save: two dimensions reaching the same table through different joins (one alias per target table), and a dimension named like the metric.
 - Dimension `join`s must reference an approved row in `semantic_joins` whose `from_table`
   is the base table.
 
@@ -149,7 +150,7 @@ compile_metric(version, by, period, grain, where, dialect, now) -> CompiledQuery
 - A joined dimension adds `LEFT JOIN` with the copied condition. Many-to-one, so the
   aggregate is not inflated.
 - `period`: `last_month`, `this_month`, `last_quarter`, `this_quarter`, `last_year`,
-  `this_year`, `last_n_days:N`, or `{from, to}` ISO dates. Resolved to date literals from
+  `this_year`, `last_n_days:N`, or a range `YYYY-MM-DD..YYYY-MM-DD` (the end date is inclusive). Resolved to date literals from
   `now` in the configured time zone (default `Asia/Seoul`). Required when the version has
   a `time_column`; refused if longer than `max_period_days`.
 - `grain`: one of the version's `grains`; adds `DATE_TRUNC(grain, time_column)` as a
@@ -168,11 +169,11 @@ bypasses governance. The response carries:
 {"columns": [...], "rows": [...],
  "citation": {"metric": "revenue", "version": 3, "approved_by": "admin",
               "approved_at": "...", "sql": "SELECT ...",
-              "rls_applied": true, "masked_columns": ["..."]}}
+              "rls_applied": true, "pii_masked": 0}}
 ```
 
 `sql` is the compiled statement before RLS rewriting, so a person can re-run it.
-`rls_applied` tells the reader that the same definition can give different numbers to
+`rls_applied` is true when any RLS policy or mask applied to the statement; `pii_masked` counts values masked. `rls_applied` tells the reader that the same definition can give different numbers to
 different callers.
 
 ## 3. Tools, API, audit
@@ -192,14 +193,16 @@ All three carry `capability="query"`; absent on the Portable Core.
 user did not write can read the wrong table. For a metric, the table and expression were
 approved by an admin, so the wrong-table risk is gone. Cost is bounded by the mandatory
 period and `max_period_days` plus the existing per-key rate limit. Residual risk: an
-unpartitioned table is scanned in full even with a period. The approval screen warns when
-the base table has no partition information; the admin decides. A bytes-scanned cap is
+unpartitioned table is scanned in full even with a period. Partition information is reported as `"unknown"` for every current reader, so the approval
+screen always warns about a possible full scan; the admin decides. A bytes-scanned cap is
 out of v1.
 
 ### REST (`/api/semantic/...`; console only, not MCP)
 
 - `GET` list/describe as above.
-- Create metric, create version, preview a draft: `governance:write`.
+- Create metric, create version, preview a draft: `governance:write` and a signed-in person (service-account keys and IdP tokens are refused).
+- `POST /semantic/metrics/{name}/query` (`query:run`) is the console/SQL Lab route for `metric.query`.
+- A non-current version (approved or not) is reachable only by its author or a signed-in admin.
 - Approve version, retire metric: `require_admin`. Service-account keys and IdP tokens
   never pass it, so **agents cannot change definitions**.
 - Joins: list candidates (history + naming), approve (`require_admin`, runs the
@@ -228,6 +231,7 @@ out of v1.
   20: metrics whose label or synonym appears in the question first, then by name. Plus
   one rule: "If the question asks for one of these metrics, use its expression and
   filters exactly."
+- Metric context is bounded by a 2 s timeout and never blocks `/ai/sql`; on failure the prompt simply has no definitions. `metrics_provided` is set only when a model call happened (the no-AI and empty-catalog paths provide none).
 - `AskResponse` gains:
   - `metrics_provided: list[str]` — e.g. `["revenue@v3"]`, the definitions **put in the
     prompt**. No claim that the model used them.
@@ -271,7 +275,7 @@ out of v1.
 | Definition invalid on save | 422 with per-field reasons |
 | Join target not unique | 422 with a duplicate count |
 | Refused at execution (RLS, hidden table) | the existing `_execute_query_impl` response |
-| Engine error or timeout | existing 502/504, plus a hint that the definition may need re-validation |
+| Engine error or timeout | the engine's own status is kept (400/403/504), plus a hint that the definition may need re-validation; 401/403 are returned unchanged |
 
 ### Tests
 
