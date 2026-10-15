@@ -39,3 +39,15 @@
 | 18 | API 이벤트 중 상태 코드가 500 이상인 요청은 몇 건인가요? | `SELECT count(*) FROM api_events WHERE status_code>=500` | ✓✓✓ | yes |  |
 | 19 | 창고 코드별 총 재고 수량(on_hand)을 알려주세요. | `SELECT w.code, sum(i.on_hand) FROM inventory i JOIN warehouses w ON w.id=i.warehouse_id GROUP BY w.code` | ✓✓✓ | yes |  |
 | 20 | 2026년 5월 주문의 평균 할인액은 얼마인가요? | `SELECT avg(discount) FROM orders WHERE year(ordered_at)=2026 AND month(ordered_at)=5` | ✓✓✓ | yes |  |
+
+---
+
+# After-measurement (post-deploy, live 2.3.0-5d79ca9)
+
+
+## Reading (controller notes)
+- (b) metric path: the only misses are Q4's three attempts, and those are format-only — the month grain returns a timestamp, while the reference returns a month number. On content, all 18 covered questions are right on all 3 attempts. Q13 (top-N ranking) and Q14 (two-hop join with a filter on a joined table) are out of v1 scope.
+- (a) the gain comes from Q9: the `stock_qty` definition settled the ambiguity, and the wrong answer was not repeated. That is what definitions as context are for.
+- `suggested_metric` uses verbatim label/synonym matching, which is stricter than the questions' wording. Examples: "주문은 총 몇 건" vs "주문 건수", and "청구서의 금액 합계" vs "청구서 금액 합계". It also matches a word without understanding scope ("매출" in Q14 suggests `revenue`). Follow-up: token-level matching, plus a note that the suggestion is a hint.
+- `tools/list` on live shows 28 of the 29 READ tools. The one hidden is `pipelines.recent_runs`, whose `pipelines` capability is off on the AWS single-node profile. This is per-deployment capability gating, as designed.
+- During measurement the backend pod restarted once (exit 137). Five in-pod measurement scripts were running at once, so the measurement load caused it, not product traffic. It recovered without intervention.
