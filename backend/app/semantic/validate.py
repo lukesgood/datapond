@@ -94,6 +94,10 @@ def checked_stored(field: str, text: str, dialect: str) -> exp.Expression:
         if field == "measure" and not isinstance(tree, AGGREGATES):
             raise DefinitionError(field, "Must be one aggregate.")
         _check_nodes(field, tree, MEASURE_NODES if field == "measure" else FILTER_NODES, None)
+        if field == "measure" and sum(1 for n in tree.walk() if isinstance(n, AGGREGATES)) != 1:
+            raise DefinitionError(field, "Nested aggregates are not allowed.")
+        if field != "measure" and not isinstance(tree, _PREDICATE):
+            raise DefinitionError(field, "Must be a condition.")
     except DefinitionError as e:
         raise ValueError(f"Stored {field} is not a valid definition: {e}") from None
     return tree

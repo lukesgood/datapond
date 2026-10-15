@@ -23,4 +23,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     # Not dropped: a version is what an audit row's `metric:<name>@v<N>` points at.
     # Dropping the tables would leave every such citation unresolvable.
+    # The widened tool_call_log resource_kind CHECK is also left in place, not narrowed
+    # back to 0008's three values: tool_call_log is append-only, so once a metric.query
+    # row with resource_kind 'metric' exists, a narrower CHECK could never be validated
+    # and those rows could not be corrected. Code from before 0023 never writes 'metric'.
     pass

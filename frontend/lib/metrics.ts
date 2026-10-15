@@ -111,3 +111,10 @@ export function joinCandidatePayload(edge: RelationshipEdge, catalogs: CatalogEn
     source: edge.evidence === "observed" ? "history" : "naming",
   }
 }
+
+/** Dimensions copied from the version being edited that reach another table but are not
+ *  matched to an approved join id: the join list has not loaded, failed to load, or no
+ *  longer holds that join. Saved as they are, they would be sent as base-table columns. */
+export function unresolvedJoinDims(dims: { name: string; join_id: number | null; joinRef?: unknown }[]): string[] {
+  return dims.filter(d => d.joinRef && d.join_id === null).map(d => d.name)
+}

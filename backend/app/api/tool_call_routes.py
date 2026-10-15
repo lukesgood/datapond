@@ -43,7 +43,8 @@ counts AS (
 names AS (
     SELECT b.actor_id, b.actor_username, b.actor_kind,
            array_agg(DISTINCT r) FILTER (WHERE b.resource_kind = 'collection') AS collections,
-           array_agg(DISTINCT r) FILTER (WHERE b.resource_kind = 'tables')     AS tables
+           array_agg(DISTINCT r) FILTER (WHERE b.resource_kind = 'tables')     AS tables,
+           array_agg(DISTINCT r) FILTER (WHERE b.resource_kind = 'metric')     AS metrics
       FROM base b
       CROSS JOIN LATERAL unnest(b.resource) AS r
      GROUP BY b.actor_id, b.actor_username, b.actor_kind
@@ -52,6 +53,7 @@ SELECT c.actor_id::text AS actor_id, c.actor_username, c.actor_kind,
        c.calls, c.ok, c.degraded, c.error, c.refused,
        coalesce(n.collections, '{}') AS collections,
        coalesce(n.tables, '{}')      AS tables,
+       coalesce(n.metrics, '{}')     AS metrics,
        c.hits, c.pii_masked
   FROM counts c
   LEFT JOIN names n ON n.actor_id IS NOT DISTINCT FROM c.actor_id
@@ -125,6 +127,7 @@ async def summarize_tool_calls(
         d = dict(r)
         d["collections"] = list(d.get("collections") or [])
         d["tables"] = list(d.get("tables") or [])
+        d["metrics"] = list(d.get("metrics") or [])
         by_actor.append(d)
     return {"since": since_ts.isoformat(), "until": until_ts.isoformat(), "by_actor": by_actor}
 
