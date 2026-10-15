@@ -15,18 +15,6 @@ from app.chat.actions import Action, ActionKind, _Strict
 from app.chat.analysis._resolve import _r
 
 
-class _LazyService:
-    """`app.semantic.service` resolved on first use. Importing it at module load closes a
-    cycle: service -> tool_call_log -> app.chat.actions (REGISTRY) -> this module."""
-
-    def __getattr__(self, name: str):
-        import importlib
-        return getattr(importlib.import_module("app.semantic.service"), name)
-
-
-service = _LazyService()
-
-
 class MetricList(_Strict):
     catalog: Optional[str] = Field(
         default=None, description="Only metrics over this data catalog. Omit for all you may use.")
@@ -55,15 +43,22 @@ class MetricQuery(_Strict):
                     "in takes a list; between takes [low, high].")
 
 
+# app.semantic.service is imported inside each executor, as query.py does for its
+# routes: at module load it would close a cycle (service -> tool_call_log ->
+# app.chat.actions REGISTRY -> this module).
+
 async def list_metrics(params: dict, user: dict) -> dict:
+    from app.semantic import service
     return {"metrics": await service.list_visible(user, params.get("catalog"))}
 
 
 async def describe_metric(params: dict, user: dict) -> dict:
+    from app.semantic import service
     return await service.describe_visible(user, params["metric"])
 
 
 async def query_metric(params: dict, user: dict) -> dict:
+    from app.semantic import service
     return await service.run_metric_query(
         user, metric=params["metric"], by=params.get("by") or [],
         period=params.get("period"), grain=params.get("grain"),

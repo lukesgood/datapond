@@ -31,14 +31,32 @@ def test_query_params_reject_unknown_fields():
 def test_query_executor_passes_everything_through(monkeypatch):
     import asyncio
     from app.chat.analysis import metrics
+    from app.semantic import service
     seen = {}
 
     async def fake(user, **kw):
         seen.update(kw)
         return {"ok": True}
-    monkeypatch.setattr(metrics.service, "run_metric_query", fake)
+    monkeypatch.setattr(service, "run_metric_query", fake)
     asyncio.run(metrics.query_metric({"metric": "revenue", "by": ["channel"],
                                       "period": "last_month", "grain": None, "where": None},
                                      {"id": "u"}))
     assert seen == {"metric": "revenue", "by": ["channel"], "period": "last_month",
                     "grain": None, "where": []}
+
+
+def test_list_and_describe_executors_reach_the_service(monkeypatch):
+    import asyncio
+    from app.chat.analysis import metrics
+    from app.semantic import service
+
+    async def listed(user, catalog=None):
+        return [{"name": "revenue", "catalog": catalog}]
+
+    async def described(user, name):
+        return {"name": name}
+    monkeypatch.setattr(service, "list_visible", listed)
+    monkeypatch.setattr(service, "describe_visible", described)
+    assert asyncio.run(metrics.list_metrics({"catalog": "glue"}, {})) == {
+        "metrics": [{"name": "revenue", "catalog": "glue"}]}
+    assert asyncio.run(metrics.describe_metric({"metric": "revenue"}, {})) == {"name": "revenue"}

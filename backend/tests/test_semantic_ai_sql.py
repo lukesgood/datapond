@@ -11,17 +11,17 @@ from app.catalog_registry import CatalogEntry
 from app.semantic.context import metric_lines, suggest
 
 M = [{"name": "revenue", "label": "매출", "synonyms": ["매출액", "sales"], "version": 3,
-      "measure": "SUM(amount)", "filters": "status = 'paid'", "base_table": "sales.orders",
+      "measure": "SUM(amount)", "filters": "status = 'paid'", "base_table": "iceberg.sales.orders",
       "time_column": "ordered_at", "dimensions": ["channel", "region"]},
      {"name": "orders", "label": "주문 수", "synonyms": [], "version": 1,
-      "measure": "COUNT(*)", "filters": None, "base_table": "sales.orders",
+      "measure": "COUNT(*)", "filters": None, "base_table": "iceberg.sales.orders",
       "time_column": "ordered_at", "dimensions": ["channel"]}]
 
 
 def test_block_lists_definitions_and_the_rule():
     block, ids = metric_lines(M, "지난달 매출")
     assert "Approved metric definitions" in block
-    assert "revenue (매출; 매출액, sales): SUM(amount) FROM sales.orders WHERE status = 'paid'" in block
+    assert "revenue (매출; 매출액, sales): SUM(amount) FROM iceberg.sales.orders WHERE status = 'paid'" in block
     assert "use its expression and filters exactly" in block
     assert ids == ["revenue@v3", "orders@v1"]
 
@@ -197,8 +197,21 @@ class _Dim:
 class _Ver:
     def __init__(self, version):
         self.version, self.measure, self.filters = version, "SUM(amount)", None
-        self.base_table, self.time_column = "sales.orders", "ordered_at"
+        self.catalog, self.base_table, self.time_column = "glue", "sales.orders", "ordered_at"
         self.dimensions = [_Dim("channel")]
+
+
+class _Entry:
+    engine_catalog = "AwsDataCatalog"
+
+
+class _Access:
+    def allows(self, name):
+        return True
+
+    def resolve(self, name=None):
+        assert name == "glue"
+        return _Entry()
 
 
 def _fake_semantic(monkeypatch, visible, metrics, versions):
@@ -215,6 +228,10 @@ def _fake_semantic(monkeypatch, visible, metrics, versions):
 
     async def get_version(p, metric_id, name, version):
         return versions.get(name)
+
+    async def for_caller(user):
+        return _Access()
+    monkeypatch.setattr(catalog_access, "for_caller", for_caller)
     monkeypatch.setattr(service, "list_visible", list_visible)
     monkeypatch.setattr(service, "_pool", pool)
     monkeypatch.setattr(store, "list_metrics", list_metrics)
@@ -237,6 +254,17 @@ def test_for_caller_excludes_invisible_and_skips_missing_versions(monkeypatch):
     assert out[0]["version"] == 2 and out[0]["synonyms"] == [] and out[0]["dimensions"] == ["channel"]
 
 
+def test_for_caller_names_the_base_table_fully_qualified(monkeypatch):
+    """The prompt's rules require catalog.schema.table; the stored two-part name gets the
+    engine catalog of the metric's registry catalog, as this caller resolves it."""
+    from app.semantic import context as mc
+    _fake_semantic(monkeypatch, visible=[{"name": "revenue"}], metrics=[_row("revenue")],
+                   versions={"revenue": _Ver(2)})
+    (m,) = asyncio.run(mc.for_caller(ENG, None))
+    assert m["base_table"] == "AwsDataCatalog.sales.orders"
+    assert "FROM AwsDataCatalog.sales.orders" in metric_lines([m], "x")[0]
+
+
 def test_for_caller_short_circuits_when_nothing_is_visible(monkeypatch):
     from app.semantic import context as mc, service
 
@@ -245,3 +273,4 @@ def test_for_caller_short_circuits_when_nothing_is_visible(monkeypatch):
     _fake_semantic(monkeypatch, visible=[], metrics=[_row("revenue")], versions={})
     monkeypatch.setattr(service, "_pool", no_pool)
     assert asyncio.run(mc.for_caller(ENG, None)) == []
+

@@ -42,11 +42,15 @@ def suggest(metrics: List[dict], question: str) -> Optional[dict]:
 
 
 async def for_caller(user: dict, catalog: Optional[str] = None) -> List[dict]:
-    """Approved metrics this caller may see, with their current version's fields."""
+    """Approved metrics this caller may see, with their current version's fields.
+    base_table is catalog.schema.table in the engine's naming, as the prompt's rules and
+    schema context name every other table."""
+    from app import catalog_access
     from app.semantic import service, store
     visible = {m["name"] for m in await service.list_visible(user, catalog)}
     if not visible:
         return []
+    access = await catalog_access.for_caller(user)
     pool = await service._pool()
     out = []
     for m in await store.list_metrics(pool):
@@ -57,6 +61,7 @@ async def for_caller(user: dict, catalog: Optional[str] = None) -> List[dict]:
             continue
         out.append({"name": m["name"], "label": m["label"], "synonyms": list(m["synonyms"] or []),
                     "version": v.version, "measure": v.measure, "filters": v.filters,
-                    "base_table": v.base_table, "time_column": v.time_column,
+                    "base_table": f"{access.resolve(v.catalog).engine_catalog}.{v.base_table}",
+                    "time_column": v.time_column,
                     "dimensions": [d.name for d in v.dimensions]})
     return out
