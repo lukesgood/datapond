@@ -1,4 +1,5 @@
 import asyncio
+import pytest
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -274,3 +275,45 @@ def test_for_caller_short_circuits_when_nothing_is_visible(monkeypatch):
     monkeypatch.setattr(service, "_pool", no_pool)
     assert asyncio.run(mc.for_caller(ENG, None)) == []
 
+
+
+# Labels from the 2026-10-15 live after-measurement; the questions are its Q1, Q2, Q9-Q11, Q19.
+LIVE = [{"name": n, "label": lab, "synonyms": syn, "version": 1, "dimensions": []} for n, lab, syn in [
+    ("order_count", "주문 수", ["주문 건수"]),
+    ("revenue", "매출", ["매출액", "총 매출액"]),
+    ("customer_count", "고객 수", []),
+    ("stock_qty", "재고 수량", ["재고 수량 합계"]),
+    ("invoice_amount", "청구서 금액", ["청구서 금액 합계"]),
+    ("invoice_count", "청구서 건수", []),
+    ("on_hand_qty", "총 재고 수량(on_hand)", ["창고별 재고"]),
+]]
+
+
+@pytest.mark.parametrize("question,name", [
+    ("2026년 7월 주문은 총 몇 건인가요?", "order_count"),
+    ("2026년 7월 취소된 주문을 제외한 총 매출액은 얼마인가요?", "revenue"),
+    ("활성 상품 기준으로 카테고리별 재고 수량 합계를 알려주세요.", "stock_qty"),
+    ("2026년 7월에 발행된 청구서의 금액 합계는 얼마인가요?", "invoice_amount"),
+    ("창고 코드별 총 재고 수량(on_hand)을 알려주세요.", "on_hand_qty"),
+    ("How many 주문 last month?", "order_count"),
+    ("국가별 고객 수를 알려주세요.", "customer_count"),
+    ("고객수는?", "customer_count"),
+])
+def test_words_match_across_particles_and_spacing(question, name):
+    assert suggest(LIVE, question)["name"] == name
+
+
+def test_either_invoice_metric_answers_a_question_naming_both():
+    assert suggest(LIVE, "청구서 상태별 건수와 금액 합계를 보여주세요.")["name"] in (
+        "invoice_amount", "invoice_count")
+
+
+@pytest.mark.parametrize("question", [
+    "고객 이탈률",
+    "상품 재고",               # "수량" missing: every word of a term must appear
+    "몇 건인가요?",            # a count cue alone names no metric
+    "주문 금액 평균",          # "주문" alone does not make "주문 수"
+    "주문 수량 합계",          # "수" inside "수량" is not a count
+])
+def test_partial_or_cue_only_questions_suggest_nothing(question):
+    assert suggest(LIVE, question) is None
