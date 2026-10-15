@@ -52,8 +52,9 @@ deployment's components.
 
 **Metric tools.** `metric_list` and `metric_describe` (`catalog:read`) and `metric_query`
 (`query:run`) are the three governed-metric actions. They need the `query` capability and
-are absent on the Portable Core. `metric_query` takes `metric`, `by`, `period`, `grain`
-and `where`, compiles the SQL deterministically from an approved definition, executes it
+are absent on the Portable Core. `metric_query` takes `metric`, `by`, `period`, `grain`,
+`where`, `order_by` and `limit` (1–1000; with `order_by`, a top-N whose ties are broken by
+the remaining dimensions, so it returns the same rows every time), compiles the SQL deterministically from an approved definition, executes it
 through the same RLS and masking path as `/queries/execute`, and returns the rows with a
 citation (metric, version, approver, the compiled SQL, `rls_applied`, `pii_masked`).
 `rls_applied` is true when any row policy or column mask rewrote the statement, so a mask
