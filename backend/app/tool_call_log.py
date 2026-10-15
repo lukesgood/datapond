@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 UNKNOWN_TOOL = "mcp.unknown_tool"
 TOOLS = ("ai.search", "ai.rag", "ai.sql", "ai.embed", "query.execute",
          UNKNOWN_TOOL) + tuple(REGISTRY)
-RESOURCE_KINDS = ("collection", "tables", "none")
+RESOURCE_KINDS = ("collection", "tables", "none", "metric")   # metric: 0023
 # refused: turned away before it ran — unknown or unpermitted name, a write, bad
 # arguments, or an action this deployment does not run (migration 0010).
 OUTCOMES = ("ok", "degraded", "error", "refused")

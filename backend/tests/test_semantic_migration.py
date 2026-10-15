@@ -48,3 +48,12 @@ def test_no_foreign_key_to_users():
 
 def test_migration_rules_do_not_flag_it():
     assert review_migration("0023_semantic_metrics", _sql(), PY.read_text()) == []
+
+
+def test_tool_call_log_accepts_metric_rows():
+    """metric.query rows carry resource_kind 'metric'; 0008's CHECK allowed only three
+    values, so 0023 widens it the way 0010 widened the outcome CHECK."""
+    sql = _sql()
+    assert "pg_get_constraintdef(oid) ILIKE '%resource_kind%'" in sql
+    assert "CHECK (resource_kind IN ('collection', 'tables', 'none', 'metric'))" in sql
+    assert "NOT VALID" in sql

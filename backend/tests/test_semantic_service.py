@@ -53,6 +53,7 @@ def env(monkeypatch):
         return _Access(state["allowed"])
 
     async def record(**kw):
+        service.tool_call_log.build_row(**kw)    # a value the log rejects fails the test
         state["audit"].append(kw)
 
     async def execute(sql, user):

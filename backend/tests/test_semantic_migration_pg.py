@@ -9,15 +9,21 @@ import pytest
 
 DSN = os.environ.get("DATAPOND_TEST_PG_DSN")
 pytestmark = pytest.mark.skipif(not DSN, reason="DATAPOND_TEST_PG_DSN not set")
-SQL = (Path(__file__).resolve().parents[1] / "migrations" / "versions"
-       / "0023_semantic_metrics.sql").read_text()
+VERSIONS = Path(__file__).resolve().parents[1] / "migrations" / "versions"
+SQL = (VERSIONS / "0023_semantic_metrics.sql").read_text()
+# 0008's CREATE TABLE, with its inline CHECKs exactly as deployed; the trigger and prune
+# function after it need 0005 and are not what this test is about.
+TOOL_CALL_LOG = (VERSIONS / "0008_tool_call_log.sql").read_text().split("CREATE INDEX")[0]
 
 
 async def _fresh():
     import asyncpg
     conn = await asyncpg.connect(DSN)
     await conn.execute("DROP TABLE IF EXISTS public.semantic_metric_versions, "
-                       "public.semantic_joins, public.semantic_metrics CASCADE")
+                       "public.semantic_joins, public.semantic_metrics, "
+                       "public.tool_call_log CASCADE")
+    await conn.execute("CREATE TABLE IF NOT EXISTS public.users (id uuid PRIMARY KEY)")
+    await conn.execute(TOOL_CALL_LOG)
     await conn.execute(SQL)
     await conn.execute(SQL)                      # idempotent
     mid = await conn.fetchval(
@@ -84,5 +90,21 @@ def test_bad_metric_name_is_refused_by_the_database():
         conn, _ = await _fresh()
         with pytest.raises(asyncpg.exceptions.CheckViolationError):
             await conn.execute("INSERT INTO semantic_metrics (name, label) VALUES ('Bad-Name', 'x')")
+        await conn.close()
+    _run(go())
+
+
+_TCL_ROW = ("INSERT INTO tool_call_log (actor_kind, tool, resource_kind, request_hash, outcome) "
+            "VALUES ('human', 'ai.sql', $1, 'h', 'ok')")
+
+
+def test_tool_call_log_takes_a_metric_row_and_still_refuses_others():
+    import asyncpg
+
+    async def go():
+        conn, _ = await _fresh()
+        await conn.execute(_TCL_ROW, "metric")
+        with pytest.raises(asyncpg.exceptions.CheckViolationError):
+            await conn.execute(_TCL_ROW, "bogus")
         await conn.close()
     _run(go())

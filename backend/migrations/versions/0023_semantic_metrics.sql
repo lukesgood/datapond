@@ -80,3 +80,27 @@ DROP TRIGGER IF EXISTS semantic_metric_versions_append_only ON public.semantic_m
 CREATE TRIGGER semantic_metric_versions_append_only
     BEFORE UPDATE OR DELETE ON public.semantic_metric_versions
     FOR EACH ROW EXECUTE FUNCTION public.reject_metric_version_mutation();
+
+-- A metric.query audit row names the metric it computed: resource_kind 'metric'. 0008
+-- declared the resource_kind CHECK inline, so it is located by definition rather than by
+-- a guessed name, as 0010 located the outcome constraint.
+DO $$
+DECLARE
+    old_name text;
+BEGIN
+    SELECT conname INTO old_name
+      FROM pg_constraint
+     WHERE conrelid = 'public.tool_call_log'::regclass
+       AND contype = 'c'
+       AND pg_get_constraintdef(oid) ILIKE '%resource_kind%';
+    IF old_name IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE public.tool_call_log DROP CONSTRAINT %I', old_name);
+    END IF;
+END $$;
+
+-- NOT VALID, as in 0010: a strict superset of the predicate it replaces, so no existing
+-- row can violate it; future inserts are still checked.
+ALTER TABLE public.tool_call_log
+    ADD CONSTRAINT tool_call_log_resource_kind_check
+    CHECK (resource_kind IN ('collection', 'tables', 'none', 'metric'))
+    NOT VALID;
