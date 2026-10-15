@@ -57,3 +57,11 @@ def test_tool_call_log_accepts_metric_rows():
     assert "pg_get_constraintdef(oid) ILIKE '%resource_kind%'" in sql
     assert "CHECK (resource_kind IN ('collection', 'tables', 'none', 'metric'))" in sql
     assert "NOT VALID" in sql
+
+
+def test_downgrade_leaves_the_widened_resource_kind_check():
+    """tool_call_log is append-only, so once a 'metric' row exists a narrowed CHECK
+    could neither be validated nor be made true. The downgrade says so and does not try."""
+    down = PY.read_text().split("def downgrade", 1)[1]
+    assert "resource_kind" in down
+    assert "ADD CONSTRAINT" not in down and "run_sql" not in down
