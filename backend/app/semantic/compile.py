@@ -104,6 +104,9 @@ def compile_metric(v: MetricVersion, *, engine_catalog: str, dialect: str, today
         raise MetricInputError("'by' is a list of dimension names.", {"dimensions": dims})
     if grain is not None and not isinstance(grain, str):
         raise MetricInputError("grain is one of the metric's grains.", {"grains": list(v.grains)})
+    if not isinstance(where or (), (list, tuple)):
+        raise MetricInputError("'where' is a list of {dimension, op, value}.",
+                               {"op": list(OPS), "dimensions": dims})
     for term in where or ():
         if (not isinstance(term, dict) or set(term) != {"dimension", "op", "value"}
                 or not isinstance(term["dimension"], str) or not isinstance(term["op"], str)):

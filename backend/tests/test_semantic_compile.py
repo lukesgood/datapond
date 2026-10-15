@@ -221,3 +221,10 @@ def test_bad_limit_is_an_input_error(limit):
     with pytest.raises(MetricInputError) as e:
         _c(by=["channel"], limit=limit)
     assert e.value.allowed.get("limit") == [1, 1000]
+
+
+@pytest.mark.parametrize("where", [5, {"dimension": "channel", "op": "=", "value": "web"}, "x"])
+def test_non_list_where_is_an_input_error(where):
+    with pytest.raises(MetricInputError) as e:
+        _c(where=where)
+    assert "op" in e.value.allowed

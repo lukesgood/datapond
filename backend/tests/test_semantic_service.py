@@ -235,3 +235,14 @@ def test_bad_limit_is_a_400_refusal_naming_the_range(env):
         _run(service.run_metric_query(ANA, metric="revenue", period="last_month", limit=0))
     assert e.value.status_code == 400 and "1000" in e.value.detail
     assert env["audit"][0]["outcome"] == "refused" and env["executed"] == []
+
+
+@pytest.mark.parametrize("kw", [{"where": 5}, {"where": {"dimension": "channel"}},
+                                {"where": "channel"}, {"by": 5}, {"order_by": 5}])
+def test_non_list_inputs_are_a_400_refusal_not_a_500(env, kw):
+    """The MCP/REST schemas allow Any; a scalar or object where a list belongs is the
+    caller's error, audited as refused, never a TypeError."""
+    with pytest.raises(HTTPException) as e:
+        _run(service.run_metric_query(ANA, metric="revenue", period="last_month", **kw))
+    assert e.value.status_code == 400
+    assert env["audit"][0]["outcome"] == "refused" and env["executed"] == []
