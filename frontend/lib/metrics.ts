@@ -62,3 +62,32 @@ export function approvalWarning(partitionInfo: string): string | null {
   return partitionInfo === "partitioned" ? null
     : "Partitioning of the base table is unknown: a query may be a full scan within its period, billed by bytes scanned."
 }
+
+export type RelationshipEdge = {
+  source: string; target: string; evidence: string; count: number
+  joins?: { left_column: string; right_column: string }[]
+}
+export type CatalogEntry = { name: string; engine_catalog: string }
+
+/** The body of POST /semantic/joins for a relationship edge, or null when it cannot be one.
+ *
+ *  Edge ids are `engine_catalog.schema.table`; the join registry keys on the registry name,
+ *  so the engine name is mapped through GET /catalogs (raw value when unmapped). Naming
+ *  candidates come in alphabetical order, not many-to-one direction, so `reversed` swaps
+ *  the sides and the column pair; the server's uniqueness check says which way is valid.
+ */
+export function joinCandidatePayload(edge: RelationshipEdge, catalogs: CatalogEntry[], reversed = false) {
+  const pair = edge.joins?.[0]
+  if (!pair) return null
+  const [fromId, toId] = reversed ? [edge.target, edge.source] : [edge.source, edge.target]
+  const [fromCat, ...from] = fromId.split(".")
+  const [toCat, ...to] = toId.split(".")
+  if (!from.length || !to.length || fromCat.toLowerCase() !== toCat.toLowerCase()) return null
+  const entry = catalogs.find(c => c.engine_catalog.toLowerCase() === fromCat.toLowerCase())
+  return {
+    catalog: entry?.name ?? fromCat,
+    from_table: from.join("."), to_table: to.join("."),
+    on_columns: [reversed ? [pair.right_column, pair.left_column] : [pair.left_column, pair.right_column]],
+    source: edge.evidence === "observed" ? "history" : "naming",
+  }
+}

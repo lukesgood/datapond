@@ -49,6 +49,9 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { title: "Sources", url: "/connectors", capability: "connectors", permission: "connector:read" },
       { title: "Catalog", url: "/catalog", capability: "catalog" },
+      // Not /catalog/metrics: /catalog/[namespace] would shadow a namespace named
+      // "metrics". Needs the query capability — a metric is computed by the engine.
+      { title: "Metrics", url: "/metrics", capability: "query", permission: "catalog:read" },
       { title: "Analytics", url: "/query", capability: "query", permission: "query:run" },
     ],
   },
