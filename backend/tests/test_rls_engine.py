@@ -252,3 +252,77 @@ def test_qualify_reads_env_at_call_time(monkeypatch):
     assert ".one." in rls_engine._qualify(_table("SELECT * FROM orders"))
     monkeypatch.setenv("RLS_DEFAULT_SCHEMA", "two")
     assert ".two." in rls_engine._qualify(_table("SELECT * FROM orders"))
+
+
+# ── mask-only tables (column mask, no row policy) ───────────────────────────
+
+def _region_mask(roles=None, table="customers"):
+    return MaskPolicy(
+        id="m-region", catalog="awsdatacatalog", schema="sales", table=table,
+        column="region", masking_type="full",
+        role_map=roles if roles is not None else {"business_analyst": False},
+    )
+
+
+@pytest.mark.parametrize("dialect", ["trino", "athena"])
+def test_mask_only_table_masks_column(dialect, monkeypatch):
+    monkeypatch.delenv("RLS_DEFAULT_DENY", raising=False)
+    r = enforce("SELECT region FROM AwsDataCatalog.sales.customers", analyst(),
+                [], [_region_mask()], dialect=dialect)
+    assert r.applied_mask_ids == ["m-region"]
+    assert r.applied_policy_ids == []
+    assert "'***' AS region" in r.sql
+    assert "WHERE" not in r.sql
+
+
+def test_mask_only_table_unmasked_for_exempt_role(monkeypatch):
+    monkeypatch.delenv("RLS_DEFAULT_DENY", raising=False)
+    r = enforce("SELECT region FROM AwsDataCatalog.sales.customers", analyst(),
+                [], [_region_mask({"business_analyst": True})], dialect="athena")
+    assert r.applied_mask_ids == []
+    assert "***" not in r.sql
+
+
+def test_mask_only_table_allowed_and_masked_under_default_deny(monkeypatch):
+    monkeypatch.setenv("RLS_DEFAULT_DENY", "true")
+    r = enforce("SELECT region FROM AwsDataCatalog.sales.customers", analyst(),
+                [], [_region_mask()], dialect="athena")
+    assert r.applied_mask_ids == ["m-region"]
+    assert "'***' AS region" in r.sql
+
+
+def test_table_with_neither_still_blocks_under_default_deny(monkeypatch):
+    monkeypatch.setenv("RLS_DEFAULT_DENY", "true")
+    with pytest.raises(RlsDenied):
+        enforce("SELECT * FROM awsdatacatalog.sales.other", analyst(),
+                [], [_region_mask()], dialect="athena")
+
+
+def test_sensitive_block_blocks_mask_only_table(monkeypatch):
+    monkeypatch.delenv("RLS_DEFAULT_DENY", raising=False)
+    with pytest.raises(RlsDenied) as e:
+        enforce("SELECT region FROM awsdatacatalog.sales.customers", analyst(),
+                [], [_region_mask()], sensitive_block=True, dialect="athena")
+    assert "direct read" in str(e.value)
+
+
+def test_join_of_policy_table_and_mask_only_table_applies_both(monkeypatch):
+    monkeypatch.delenv("RLS_DEFAULT_DENY", raising=False)
+    r = enforce(
+        "SELECT o.id, c.region FROM iceberg.sales.orders o "
+        "JOIN awsdatacatalog.sales.customers c ON o.cid = c.id",
+        analyst(), [orders_region_policy()], [_region_mask()])
+    assert r.applied_policy_ids == ["p-orders-region"]
+    assert r.applied_mask_ids == ["m-region"]
+    assert "'***' AS region" in r.sql
+    assert "region = 'us-east'" in r.sql
+
+
+def test_table_with_only_disabled_mask_blocks_under_default_deny(monkeypatch):
+    # A disabled mask does not make a table governed: it is "no policy" again.
+    monkeypatch.setenv("RLS_DEFAULT_DENY", "true")
+    m = _region_mask()
+    m.enabled = False
+    with pytest.raises(RlsDenied):
+        enforce("SELECT region FROM awsdatacatalog.sales.customers", analyst(),
+                [], [m], dialect="athena")

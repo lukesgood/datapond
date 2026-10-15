@@ -294,12 +294,14 @@ def enforce(
                 seen_tables.append(key)
 
             tbl_policies = pol_by_table.get(key, [])
+            tbl_masks = [m for m in mask_by_table.get(key, []) if m.enabled]
 
             # default_deny (opt-in, RLS_DEFAULT_DENY — off by default): a referenced
             # table with no policy is blocked only when explicitly enabled. Off ⇒
             # skip the table (no filter, pass-through) so RLS_ENABLED is safe to
-            # flip on a policy-empty database.
-            if not tbl_policies:
+            # flip on a policy-empty database. A table bearing only column masks is
+            # governed (it is not "no policy"), so it falls through to the mask path.
+            if not tbl_policies and not tbl_masks:
                 if user.is_admin and _admin_bypass_enabled():
                     continue
                 if _default_deny_enabled():
@@ -310,7 +312,7 @@ def enforce(
                     )
                 continue
 
-            # DuckDB/direct-read guard: policy-bearing table = sensitive -> block
+            # DuckDB/direct-read guard: policy- or mask-bearing table = sensitive -> block
             if sensitive_block:
                 raise RlsDenied(
                     f"Sensitive table '{key}' — direct read (DuckDB/S3) blocked. "
@@ -322,7 +324,6 @@ def enforce(
             filt = combined_filter(eff, user)
 
             # build masked projection
-            tbl_masks = [m for m in mask_by_table.get(key, []) if m.enabled]
             eff_masks = [m for m in tbl_masks if _mask_applies(m, user)]
 
             if filt is None and not eff_masks:

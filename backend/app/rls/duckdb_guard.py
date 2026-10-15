@@ -22,23 +22,25 @@ from typing import Dict, List, Optional, Sequence
 import sqlglot
 from sqlglot import exp
 
-from .engine import RlsPolicy, _policy_key, _qualify
+from .engine import MaskPolicy, RlsPolicy, _policy_key, _qualify
 
 
-def sensitive_tables(policies: Sequence[RlsPolicy]) -> List[str]:
-    """Canonical 'catalog.schema.table' keys that have ≥1 policy (= sensitive)."""
-    return sorted({_policy_key(p) for p in policies if p.enabled})
+def sensitive_tables(policies: Sequence[RlsPolicy], masks: Sequence[MaskPolicy] = ()) -> List[str]:
+    """Canonical 'catalog.schema.table' keys that have ≥1 enabled row policy or
+    column mask (= sensitive; a direct read would leak the raw/masked column)."""
+    return sorted({_policy_key(p) for p in (*policies, *masks) if p.enabled})
 
 
-def check_direct_read(sql: str, policies: Sequence[RlsPolicy]) -> Dict:
+def check_direct_read(sql: str, policies: Sequence[RlsPolicy],
+                      masks: Sequence[MaskPolicy] = ()) -> Dict:
     """
-    Decide whether a DuckDB/direct-read query touches a sensitive (policy-bearing)
+    Decide whether a DuckDB/direct-read query touches a sensitive (policy- or mask-bearing)
     table. Unlike the Trino path, direct reads have NO default_deny — only sensitive
     tables are blocked; everything else stays explorable.
     Returns {"blocked": bool, "table": str|None, "reason": str|None}.
     Unparseable SQL fails closed (blocked) since we cannot prove it avoids sensitive tables.
     """
-    sset = set(sensitive_tables(policies))
+    sset = set(sensitive_tables(policies, masks))
     if not sset:
         return {"blocked": False, "table": None, "reason": None}
     try:

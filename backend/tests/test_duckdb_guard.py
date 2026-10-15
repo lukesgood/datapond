@@ -54,3 +54,31 @@ def test_deny_prefixes_uses_location_map_when_present():
 def test_deny_prefixes_falls_back_to_convention():
     assert seaweedfs_deny_prefixes(["iceberg.sales.orders"]) == ["iceberg/sales/orders"]
     assert default_warehouse_prefix("iceberg.sales.orders") == "iceberg/sales/orders"
+
+
+def _mask(enabled=True):
+    from app.rls.engine import MaskPolicy
+    return MaskPolicy(id="m1", catalog="iceberg", schema="sales", table="customers",
+                      column="region", masking_type="full", enabled=enabled,
+                      role_map={"business_analyst": False})
+
+
+def test_mask_only_table_is_sensitive():
+    assert sensitive_tables([_orders()], masks=[_mask()]) == [
+        "iceberg.sales.customers", "iceberg.sales.orders"]
+    assert sensitive_tables([], masks=[_mask()]) == ["iceberg.sales.customers"]
+
+
+def test_disabled_mask_not_sensitive():
+    assert sensitive_tables([], masks=[_mask(enabled=False)]) == []
+
+
+def test_direct_read_of_mask_only_table_refused():
+    r = check_direct_read("SELECT region FROM iceberg.sales.customers", [], masks=[_mask()])
+    assert r["blocked"] is True
+    assert r["table"] == "iceberg.sales.customers"
+
+
+def test_direct_read_of_unrelated_table_allowed_with_masks():
+    r = check_direct_read("SELECT * FROM iceberg.sales.other", [], masks=[_mask()])
+    assert r["blocked"] is False
