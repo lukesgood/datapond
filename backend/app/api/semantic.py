@@ -336,6 +336,11 @@ async def create_version(name: str, body: VersionBody,
     v = await store.get_version(pool, meta["id"], name, shown) if shown else None
     if v is None or not (await catalog_access.for_caller(user)).allows(v.catalog):
         raise HTTPException(404, f"Unknown metric {name!r}.")
+    # The spec gates authoring on governance:write and is silent on whose metric; a new
+    # version changes what an approver is asked to approve, so it is the owner's act or
+    # a signed-in admin's, not any author's.
+    if not (_is_admin(user) or (meta.get("owner_id") and meta["owner_id"] == str(user.get("id")))):
+        raise HTTPException(403, f"Only the owner of {name!r} or an administrator can add a version.")
     fields = await _checked_version(user, body, name)
     n = await store.insert_version(pool, metric_id=meta["id"], fields=fields,
                                    created_by=user.get("id"), created_by_name=user.get("username"),

@@ -41,7 +41,8 @@ class FakeStore:
     async def create_metric(self, pool, *, name, label, description, synonyms, owner_id, owner_name):
         mid = len(self.metrics) + 1
         self.metrics[name] = {"id": mid, "name": name, "label": label, "description": description,
-                              "synonyms": synonyms, "owner_name": owner_name, "status": "draft",
+                              "synonyms": synonyms, "owner_id": owner_id,
+                              "owner_name": owner_name, "status": "draft",
                               "current_version": None, "updated_at": None}
         return mid
 
@@ -390,6 +391,27 @@ def test_new_version_on_a_metric_the_caller_cannot_see_is_the_missing_404(client
     r = client.post("/api/semantic/metrics/revenue/versions", json=V2)
     assert r.status_code == 404 and r.json()["detail"] == "Unknown metric 'revenue'."
     assert sorted(client.fs.versions[1]) == [1, 2]
+
+
+ENGINEER = {"id": "00000000-0000-0000-0000-000000000005", "username": "eng",
+            "role": "data_engineer"}
+
+
+def test_only_the_owner_or_an_admin_writes_a_new_version(client, monkeypatch):
+    """No role but admin holds governance:write today; if one is granted it, holding the
+    permission lets that person author their own metrics, not rewrite someone else's."""
+    from app import permissions
+    monkeypatch.setitem(permissions.ROLE_PERMISSIONS, "data_engineer",
+                        permissions.ROLE_PERMISSIONS["data_engineer"] | {"governance:write"})
+    client.post("/api/semantic/metrics", json=BODY)                 # owned by root (admin)
+    client.state["user"] = ENGINEER
+    r = client.post("/api/semantic/metrics/revenue/versions", json=V2)
+    assert r.status_code == 403 and sorted(client.fs.versions[1]) == [1]
+    assert client.post("/api/semantic/metrics",
+                       json=dict(BODY, name="orders")).status_code == 201
+    assert client.post("/api/semantic/metrics/orders/versions", json=V2).status_code == 201
+    client.state["user"] = ADMIN
+    assert client.post("/api/semantic/metrics/orders/versions", json=V2).status_code == 201
 
 
 def test_a_taken_name_409_does_not_echo_the_existing_definition(client, monkeypatch):
