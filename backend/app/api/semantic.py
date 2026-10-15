@@ -17,7 +17,7 @@ from app import catalog_access, catalog_registry, security_audit
 from app.api.auth import require_admin, require_permission, require_user
 from app.semantic import service, store
 from app.semantic.compile import compile_metric
-from app.semantic.model import DefinitionError, MetricInputError
+from app.semantic.model import DefinitionError
 from app.semantic.validate import check_name, validate_filters, validate_grains, validate_measure
 
 logger = logging.getLogger(__name__)
@@ -187,7 +187,9 @@ async def _checked_version(user: dict, body: VersionBody, metric_name: str) -> d
 
 
 async def _target_unique(user: dict, entry, to_table: str, columns: List[str]):
-    """(unique, duplicate_groups) — run as the approving admin through the governed path."""
+    """(unique, duplicate_groups) — run as the approving admin through the governed path,
+    so it sees only the rows that admin's RLS allows. `columns` are the catalog's own
+    spelling (quoted identifiers are case-sensitive on some engines)."""
     from sqlglot import exp
     from app.api.query_engine import get_engine
     schema, name = to_table.split(".", 1)
@@ -198,7 +200,7 @@ async def _target_unique(user: dict, entry, to_table: str, columns: List[str]):
              .group_by(*[k.copy() for k in keys]).having("COUNT(*) > 1"))
     sql = exp.select("COUNT(*)").from_(inner.subquery("d")).sql(
         dialect=get_engine().rls_dialect, identify=True)
-    result = await service._execute(sql, user)
+    result = await service._execute(sql, user, origin="internal")
     dupes = int(result["rows"][0][0]) if result["rows"] else 0
     return dupes == 0, dupes
 
@@ -233,6 +235,17 @@ async def list_metrics(user: dict = Depends(require_user)):
     return {"metrics": out, "viewer": {"can_author": author, "can_approve": admin}}
 
 
+def _example_sql(name: str, v, entry) -> Optional[str]:
+    from app.api.query_engine import get_engine
+    try:
+        return compile_metric(v, engine_catalog=entry.engine_catalog,
+                              dialect=get_engine().rls_dialect, today=service.today_local(),
+                              period="last_month" if v.time_column else None).sql
+    except Exception as e:
+        logger.info("[semantic] example SQL for %s v%s failed: %s", name, v.version, e)
+        return None
+
+
 @router.get("/semantic/metrics/{name}", dependencies=[Depends(require_permission("catalog:read"))])
 async def describe_metric(name: str, user: dict = Depends(require_user)):
     pool = await _pool()
@@ -245,7 +258,8 @@ async def describe_metric(name: str, user: dict = Depends(require_user)):
     access = await catalog_access.for_caller(user)
     if v is None or not access.allows(v.catalog):
         raise HTTPException(404, f"Unknown metric {name!r}.")
-    if meta["status"] != "approved" and not (_can_author(user) or _is_admin(user)):
+    insider = _can_author(user) or _is_admin(user)
+    if meta["status"] != "approved" and not insider:
         raise HTTPException(404, f"Unknown metric {name!r}.")
     entry = access.resolve(v.catalog)
     broken_reason = None
@@ -262,18 +276,21 @@ async def describe_metric(name: str, user: dict = Depends(require_user)):
                     raise DefinitionError("dimensions", f"Unknown column {c!r} on the base table.")
         except DefinitionError as e:
             broken_reason = str(e)
-    example = None
-    try:
-        from app.api.query_engine import get_engine
-        example = compile_metric(v, engine_catalog=entry.engine_catalog,
-                                 dialect=get_engine().rls_dialect, today=service.today_local(),
-                                 period="last_month" if v.time_column else None).sql
-    except (MetricInputError, Exception) as e:
-        logger.info("[semantic] example SQL for %s failed: %s", name, e)
+    # The newest version, if no one has approved it yet: what "Approve vN" would approve,
+    # shown with its own SQL. Drafts and their notes are for authors and approvers only.
+    pending = None
+    if insider and versions and not versions[0]["approved_at"]:
+        p = await store.get_version(pool, meta["id"], name, versions[0]["version"])
+        if p is not None and access.allows(p.catalog):
+            pending = {"version": p.version, "catalog": p.catalog, "base_table": p.base_table,
+                       "measure": p.measure, "filters": p.filters,
+                       "example_sql": _example_sql(name, p, access.resolve(p.catalog))}
+    if not insider:
+        versions = [x for x in versions if x["approved_at"]]
     return {"metric": dict(service._public(meta, v), status=meta["status"],
                            owner_name=meta["owner_name"], current_version=meta["current_version"]),
-            "versions": versions, "broken": broken_reason is not None,
-            "broken_reason": broken_reason, "example_sql": example,
+            "versions": versions, "pending": pending, "broken": broken_reason is not None,
+            "broken_reason": broken_reason, "example_sql": _example_sql(name, v, entry),
             "partition_info": "unknown", "recent_queries": await _recent_queries(name)}
 
 
@@ -350,8 +367,16 @@ async def approve(name: str, version: int, admin: dict = Depends(require_admin))
         raise HTTPException(404, f"Unknown metric {name!r}.")
     if v.approved_at is not None:
         raise HTTPException(409, f"{name} v{version} is already approved.")
-    await store.approve_version(pool, metric_id=meta["id"], version=version,
-                                approver_id=admin.get("id"), approver_name=admin.get("username"))
+    if meta["current_version"] and version < meta["current_version"]:
+        raise HTTPException(409, f"{name} v{version} is older than the approved "
+                                 f"v{meta['current_version']}; approving it would roll the "
+                                 "metric back. Write a new version instead.")
+    try:
+        await store.approve_version(pool, metric_id=meta["id"], version=version,
+                                    approver_id=admin.get("id"),
+                                    approver_name=admin.get("username"))
+    except store.NotApprovable:
+        raise HTTPException(409, f"{name} v{version} cannot be approved; reload and retry.")
     await _audit(admin, "admin", f"/api/semantic/metrics/{name}/versions/{version}/approve",
                  f"metric {name} v{version} approved")
     return {"name": name, "version": version}
@@ -389,11 +414,13 @@ async def approve_join(body: JoinBody, admin: dict = Depends(require_admin)):
     to_cols = await asyncio.to_thread(_columns, entry, body.to_table)
     if from_cols is None or to_cols is None:
         _bad("table", "Cannot read the columns of one of the tables.")
-    fl, tl = {c.lower() for c in from_cols}, {c.lower() for c in to_cols}
+    fl = {c.lower() for c in from_cols}
+    tl = {c.lower(): c for c in to_cols}
     for a, b in body.on_columns:
         if a.lower() not in fl or b.lower() not in tl:
             _bad("on_columns", f"Unknown column in pair [{a}, {b}].")
-    unique, dupes = await _target_unique(admin, entry, body.to_table, [b for _, b in body.on_columns])
+    unique, dupes = await _target_unique(admin, entry, body.to_table,
+                                         [tl[b.lower()] for _, b in body.on_columns])
     if not unique:
         _bad("on_columns", f"{body.to_table} has {dupes} key value(s) that repeat; only "
                            "many-to-one joins are allowed.", duplicates=dupes)

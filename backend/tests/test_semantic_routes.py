@@ -280,3 +280,89 @@ def test_dimension_named_like_the_metric_is_422(client):
     dims = [{"name": "revenue", "column": "channel"}]
     r = client.post("/api/semantic/metrics", json={**BODY, "version": {**BODY["version"], "dimensions": dims}})
     assert r.status_code == 422 and r.json()["detail"]["field"] == "dimensions"
+
+
+V2 = dict(BODY["version"], measure="SUM(amount * 2)", change_note="double")
+
+
+def test_approving_an_older_draft_is_409_and_keeps_the_current_version(client):
+    client.post("/api/semantic/metrics", json=BODY)
+    client.post("/api/semantic/metrics/revenue/versions", json=V2)
+    client.post("/api/semantic/metrics/revenue/versions", json=V2)
+    assert client.post("/api/semantic/metrics/revenue/versions/3/approve").status_code == 200
+    r = client.post("/api/semantic/metrics/revenue/versions/2/approve")
+    assert r.status_code == 409
+    assert client.fs.metrics["revenue"]["current_version"] == 3
+
+
+def test_a_lost_approval_race_is_409(client, monkeypatch):
+    client.post("/api/semantic/metrics", json=BODY)
+
+    async def lost(pool, **kw):
+        raise api.store.NotApprovable("raced")
+    monkeypatch.setattr(api.store, "approve_version", lost)
+    assert client.post("/api/semantic/metrics/revenue/versions/1/approve").status_code == 409
+
+
+def test_describe_shows_the_pending_version_beside_the_approved_one(client, monkeypatch):
+    monkeypatch.setattr(api.service, "today_local", lambda: __import__("datetime").date(2026, 10, 15))
+    client.post("/api/semantic/metrics", json=BODY)
+    client.post("/api/semantic/metrics/revenue/versions/1/approve")
+    client.post("/api/semantic/metrics/revenue/versions", json=V2)
+    body = client.get("/api/semantic/metrics/revenue").json()
+    assert body["metric"]["version"] == 1 and body["metric"]["measure"] == "SUM(amount)"
+    p = body["pending"]
+    assert p["version"] == 2 and p["measure"] == "SUM(amount * 2)"
+    assert p["base_table"] == "sales.orders" and p["filters"] == "status = 'paid'"
+    assert '"amount" * 2' in p["example_sql"]
+    assert '"amount" * 2' not in body["example_sql"]
+
+
+def test_no_pending_when_the_newest_version_is_approved(client):
+    client.post("/api/semantic/metrics", json=BODY)
+    client.post("/api/semantic/metrics/revenue/versions/1/approve")
+    assert client.get("/api/semantic/metrics/revenue").json()["pending"] is None
+
+
+def test_drafts_and_pending_are_hidden_from_viewers_who_cannot_author(client):
+    client.post("/api/semantic/metrics", json=BODY)
+    client.post("/api/semantic/metrics/revenue/versions/1/approve")
+    client.post("/api/semantic/metrics/revenue/versions", json=V2)
+    client.state["user"] = ANALYST
+    body = client.get("/api/semantic/metrics/revenue").json()
+    assert [v["version"] for v in body["versions"]] == [1]
+    assert body["pending"] is None
+
+
+def test_join_uniqueness_is_checked_on_the_catalogs_column_spelling(client, monkeypatch):
+    seen = []
+
+    async def target_unique(user, entry, to_table, columns):
+        seen.append(columns)
+        return True, 0
+    monkeypatch.setattr(api, "_target_unique", target_unique)
+    r = client.post("/api/semantic/joins", json={
+        "catalog": "glue", "from_table": "sales.orders", "to_table": "sales.customers",
+        "on_columns": [["CUSTOMER_ID", "ID"]], "source": "manual"})
+    assert r.status_code == 201 and seen == [["id"]]
+
+
+def test_uniqueness_probe_runs_as_internal_not_as_a_metric(monkeypatch):
+    import asyncio
+    calls = []
+
+    async def execute(sql, user, origin="metric"):
+        calls.append((sql, origin))
+        return {"columns": ["c"], "rows": [[0]], "row_count": 1, "truncated": False,
+                "pii_masked": 0}
+
+    class _Eng:
+        rls_dialect = "athena"
+
+    class _Entry:
+        engine_catalog = "AwsDataCatalog"
+    monkeypatch.setattr(api.service, "_execute", execute)
+    monkeypatch.setattr("app.api.query_engine.get_engine", lambda: _Eng())
+    assert asyncio.run(api._target_unique(ADMIN, _Entry(), "sales.customers", ["id"])) == (True, 0)
+    (sql, origin), = calls
+    assert origin == "internal" and '"AwsDataCatalog"."sales"."customers"' in sql

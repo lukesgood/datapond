@@ -80,13 +80,15 @@ async def resolve_visible(user: dict, name: str, version: Optional[int] = None):
     return meta, v, access.resolve(v.catalog)
 
 
-async def _execute(sql: str, user: dict) -> dict:
+async def _execute(sql: str, user: dict, origin: str = "metric") -> dict:
+    """`origin` labels the query_history row: "metric" for a metric's statement (kept out
+    of the relationship graph), "internal" for a console check such as join uniqueness."""
     from app.api.queries import QueryExecuteRequest, _execute_query_impl
     from app.database.connection import SessionLocal
     db = SessionLocal()
     try:
         r = await _execute_query_impl(
-            QueryExecuteRequest(query=sql, save_history=True, origin="metric"), db, user)
+            QueryExecuteRequest(query=sql, save_history=True, origin=origin), db, user)
     finally:
         db.close()
     return {"columns": r.columns, "rows": r.rows, "row_count": r.row_count,

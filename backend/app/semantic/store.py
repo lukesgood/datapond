@@ -105,16 +105,24 @@ async def insert_version(pool, *, metric_id: int, fields: dict, created_by, crea
     return n
 
 
+class NotApprovable(Exception):
+    """The version is missing, already approved, or older than the current one."""
+
+
 async def approve_version(pool, *, metric_id: int, version: int, approver_id, approver_name) -> None:
     async with pool.acquire() as c:
         async with c.transaction():
-            await c.execute(
+            # Never backwards: approving an older draft would roll current_version back.
+            moved = await c.execute(
+                "UPDATE semantic_metrics SET status = 'approved', current_version = $2, "
+                "updated_at = now() WHERE id = $1 "
+                "AND (current_version IS NULL OR current_version < $2)", metric_id, version)
+            stamped = await c.execute(
                 "UPDATE semantic_metric_versions SET approved_by = $3, approved_by_name = $4, "
                 "approved_at = now() WHERE metric_id = $1 AND version = $2 AND approved_at IS NULL",
                 metric_id, version, approver_id, approver_name)
-            await c.execute(
-                "UPDATE semantic_metrics SET status = 'approved', current_version = $2, "
-                "updated_at = now() WHERE id = $1", metric_id, version)
+            if moved != "UPDATE 1" or stamped != "UPDATE 1":
+                raise NotApprovable(f"version {version} cannot be approved")   # rolls back
 
 
 async def retire_metric(pool, metric_id: int) -> None:

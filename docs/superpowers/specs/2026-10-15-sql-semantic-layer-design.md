@@ -108,7 +108,8 @@ Never call it tamper-proof.
 1. **Many-to-one joins only.** A one-to-many join inflates `SUM`; v1 rules it out
    structurally. On approval, the target columns are checked for uniqueness with a query
    (`COUNT(*)` vs `COUNT(DISTINCT …)` on the target table) run through the governed path
-   as the approving admin.
+   as the approving admin. It sees only the rows that admin's RLS allows: a duplicate key
+   in rows hidden from the admin is not found.
 2. **Agents use approved versions only.** A `draft` is runnable as a preview by its author
    and by admins. Approval is admin-only. Author ≠ approver is not enforced (impossible in
    a one-person deployment); the approver is recorded instead.
