@@ -97,12 +97,14 @@ async def _execute(sql: str, user: dict, origin: str = "metric") -> dict:
 
 async def run_metric_query(user: dict, *, metric: str, by: Sequence[str] = (),
                            period: Optional[str] = None, grain: Optional[str] = None,
-                           where: Sequence[dict] = (), version: Optional[int] = None) -> dict:
+                           where: Sequence[dict] = (), version: Optional[int] = None,
+                           order_by: Sequence[dict] = (), limit: Optional[int] = None) -> dict:
     from app.api.queries import rls_applied_ids
     started = time.perf_counter()
     request_text = tool_call_log.masked_for_log(json.dumps(
         {"metric": metric, "by": list(by), "period": period, "grain": grain,
-         "where": list(where or []), "version": version}, ensure_ascii=False, default=str))
+         "where": list(where or []), "version": version,
+         "order_by": list(order_by or []), "limit": limit}, ensure_ascii=False, default=str))
 
     async def audit(outcome, *, cite=None, sql=None, hits=0, pii=0):
         await tool_call_log.record(
@@ -115,7 +117,8 @@ async def run_metric_query(user: dict, *, metric: str, by: Sequence[str] = (),
         _meta, v, entry = await resolve_visible(user, metric, version)
         compiled = compile_metric(v, engine_catalog=entry.engine_catalog, dialect=_dialect(),
                                   today=today_local(), by=list(by), period=period,
-                                  grain=grain, where=list(where or []))
+                                  grain=grain, where=list(where or []),
+                                  order_by=order_by or [], limit=limit)
     except MetricNotFound:
         await audit("refused")
         raise _not_found(metric)

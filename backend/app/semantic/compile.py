@@ -19,6 +19,7 @@ from app.semantic.validate import checked_stored
 
 BASE = "b"
 OPS = ("=", "!=", "in", ">", "<", "between")
+MAX_LIMIT = 1000
 _CMP = {"=": exp.EQ, "!=": exp.NEQ, ">": exp.GT, "<": exp.LT}
 
 
@@ -69,9 +70,33 @@ def _where_term(target: exp.Expression, op: str, value) -> exp.Expression:
     return cls(this=target, expression=_literal(value))
 
 
+def _ordering(order_by, outputs: List[str]) -> List[Tuple[int, bool]]:
+    """[{field, desc?}] -> (1-based output position, desc). A field is an output column:
+    the grain, a dimension in 'by', or the metric itself."""
+    allowed = {"order_by": list(outputs)}
+    if not isinstance(order_by, (list, tuple)):
+        raise MetricInputError("'order_by' is a list of {field, desc}.", allowed)
+    out: List[Tuple[int, bool]] = []
+    for term in order_by:
+        if (not isinstance(term, dict) or not set(term) <= {"field", "desc"}
+                or not isinstance(term.get("field"), str)
+                or not isinstance(term.get("desc", False), bool)):
+            raise MetricInputError("Each order_by term is {field, desc}; field is a string, "
+                                   "desc a boolean.", allowed)
+        if term["field"] not in outputs:
+            raise MetricInputError(f"Cannot order by {term['field']!r}: not in the result.",
+                                   allowed)
+        pos = outputs.index(term["field"]) + 1
+        if any(p == pos for p, _ in out):
+            raise MetricInputError(f"{term['field']!r} appears twice in 'order_by'.", allowed)
+        out.append((pos, term.get("desc", False)))
+    return out
+
+
 def compile_metric(v: MetricVersion, *, engine_catalog: str, dialect: str, today: date,
                    by: Sequence[str] = (), period: Optional[str] = None,
-                   grain: Optional[str] = None, where: Sequence[dict] = ()) -> CompiledQuery:
+                   grain: Optional[str] = None, where: Sequence[dict] = (),
+                   order_by: Sequence[dict] = (), limit: Optional[int] = None) -> CompiledQuery:
     dims = [d.name for d in v.dimensions]
     # The MCP/REST schemas allow Any here; anything but a string is the caller's error,
     # answered with what is allowed, never a TypeError (500).
@@ -136,9 +161,22 @@ def compile_metric(v: MetricVersion, *, engine_catalog: str, dialect: str, today
     if conds:
         q = q.where(exp.and_(*conds))
     n_dims = len(select) - 1
+    outputs = ([grain] if grain is not None else []) + list(by) + [v.metric]
     if n_dims:
         q = q.group_by(*[exp.Literal.number(i) for i in range(1, n_dims + 1)])
-        q = q.order_by(*[exp.Literal.number(i) for i in range(1, n_dims + 1)])
+    # Requested order first, then every dimension ascending, so equal values (a tie at
+    # the LIMIT boundary) always come back in the same order.
+    requested = _ordering(order_by, outputs)
+    tiebreak = [(i, False) for i in range(1, n_dims + 1) if i not in {p for p, _ in requested}]
+    if requested or tiebreak:
+        # Ascending stays a bare ordinal, so SQL for a query without order_by is unchanged.
+        q = q.order_by(*[exp.Ordered(this=exp.Literal.number(p), desc=True) if d
+                         else exp.Literal.number(p) for p, d in requested + tiebreak])
+    if limit is not None:
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_LIMIT:
+            raise MetricInputError(f"limit is an integer from 1 to {MAX_LIMIT}.",
+                                   {"limit": [1, MAX_LIMIT]})
+        q = q.limit(limit)
 
     sql = q.sql(dialect=dialect, identify=True)
     return CompiledQuery(sql=sql, citation={

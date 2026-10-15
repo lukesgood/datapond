@@ -206,6 +206,10 @@ def test_query_route_runs_the_approved_version_and_audits_metric_query(client, m
     r = client.post("/api/semantic/metrics/revenue/query", json={"period": "last_month"})
     assert r.status_code == 200 and r.json()["citation"]["version"] == 1
     assert audit[0]["tool"] == "metric.query" and len(rows) == 1
+    r = client.post("/api/semantic/metrics/revenue/query",
+                    json={"period": "last_month", "order_by": [{"field": "revenue", "desc": True}],
+                          "limit": 3})
+    assert r.status_code == 200 and rows[-1].endswith("ORDER BY 1 DESC LIMIT 3")
 
 
 def test_a_key_cannot_approve_even_on_an_admin_account(client):

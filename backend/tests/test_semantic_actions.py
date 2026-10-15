@@ -39,10 +39,13 @@ def test_query_executor_passes_everything_through(monkeypatch):
         return {"ok": True}
     monkeypatch.setattr(service, "run_metric_query", fake)
     asyncio.run(metrics.query_metric({"metric": "revenue", "by": ["channel"],
-                                      "period": "last_month", "grain": None, "where": None},
+                                      "period": "last_month", "grain": None, "where": None,
+                                      "order_by": [{"field": "revenue", "desc": True}],
+                                      "limit": 5},
                                      {"id": "u"}))
     assert seen == {"metric": "revenue", "by": ["channel"], "period": "last_month",
-                    "grain": None, "where": []}
+                    "grain": None, "where": [],
+                    "order_by": [{"field": "revenue", "desc": True}], "limit": 5}
 
 
 def test_list_and_describe_executors_reach_the_service(monkeypatch):

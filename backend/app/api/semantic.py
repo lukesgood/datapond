@@ -67,6 +67,8 @@ class PreviewBody(BaseModel):
     period: Optional[str] = None
     grain: Optional[str] = None
     where: List[dict] = Field(default_factory=list)
+    order_by: List[dict] = Field(default_factory=list)
+    limit: Optional[int] = None
 
 
 class JoinBody(BaseModel):
@@ -339,7 +341,8 @@ async def preview(name: str, body: PreviewBody,
                   user: dict = Depends(require_permission("governance:write"))):
     _require_person(user)
     return await service.run_metric_query(user, metric=name, by=body.by, period=body.period,
-                                          grain=body.grain, where=body.where, version=body.version)
+                                          grain=body.grain, where=body.where, version=body.version,
+                                          order_by=body.order_by, limit=body.limit)
 
 
 class QueryBody(BaseModel):
@@ -348,6 +351,8 @@ class QueryBody(BaseModel):
     period: Optional[str] = None
     grain: Optional[str] = None
     where: List[dict] = Field(default_factory=list)
+    order_by: List[dict] = Field(default_factory=list)
+    limit: Optional[int] = None
 
 
 @router.post("/semantic/metrics/{name}/query")
@@ -355,7 +360,8 @@ async def query(name: str, body: QueryBody, user: dict = Depends(require_permiss
     """The console's way to metric.query (SQL Lab's "Query as metric"). Same service,
     same single `metric.query` audit row as the MCP tool."""
     return await service.run_metric_query(user, metric=name, by=body.by, period=body.period,
-                                          grain=body.grain, where=body.where)
+                                          grain=body.grain, where=body.where,
+                                          order_by=body.order_by, limit=body.limit)
 
 
 @router.post("/semantic/metrics/{name}/versions/{version}/approve")
