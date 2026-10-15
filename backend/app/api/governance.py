@@ -929,7 +929,7 @@ class DirectReadIn(BaseModel):
 @router.get("/governance/rls/sensitive-tables")
 async def get_sensitive_tables(user: Optional[dict] = Depends(_get_current_user)):
     """
-    List policy-bearing (sensitive) tables + the SeaweedFS prefixes that the Jupyter
+    List policy- or mask-bearing (sensitive) tables + the SeaweedFS prefixes that the Jupyter
     S3 identity should be denied (RLS Layer 3 / DuckDB guard). See docs/RLS_DESIGN.md.
     Auth optional: the Jupyter guard calls this; if unauth and RLS off, returns empty.
     """
@@ -937,7 +937,7 @@ async def get_sensitive_tables(user: Optional[dict] = Depends(_get_current_user)
         return {"tables": [], "deny_prefixes": []}
     from app.rls.duckdb_guard import sensitive_tables, seaweedfs_deny_prefixes
     policies = await _rls_loader.load_policies()
-    tables = sensitive_tables(policies)
+    tables = sensitive_tables(policies, await _rls_loader.load_masks())
     warehouse = os.getenv("ICEBERG_WAREHOUSE", "iceberg")
     return {"tables": tables, "deny_prefixes": seaweedfs_deny_prefixes(tables, warehouse=warehouse)}
 
@@ -952,7 +952,7 @@ async def check_direct_read_endpoint(body: DirectReadIn):
         return {"blocked": False, "table": None, "reason": None}
     from app.rls.duckdb_guard import check_direct_read
     policies = await _rls_loader.load_policies()
-    return check_direct_read(body.sql, policies)
+    return check_direct_read(body.sql, policies, await _rls_loader.load_masks())
 
 
 @router.get("/governance/rls/trino-rules", dependencies=[Depends(require_permission("governance:read"))])

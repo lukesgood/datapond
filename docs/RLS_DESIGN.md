@@ -77,7 +77,7 @@ Per table reference in the parsed statement:
 
 1. **Canonicalise** to `catalog.schema.table`, lowercased (`_qualify`).
 2. **No policy and no mask for that table** → blocked if `RLS_DEFAULT_DENY`, otherwise skipped. A table with column masks but no row policy is governed: it is masked (never skipped), is not blocked by default-deny, and counts as sensitive for the direct-read guard.
-3. **`sensitive_block=True`** (Layer 3 caller) → any policy-bearing table is denied outright.
+3. **`sensitive_block=True`** (Layer 3 caller) → any policy- or mask-bearing table is denied outright.
 4. **Resolve applicable policies** — enabled, targeting one of the user's roles, and *no*
    matching role marked exempt. An exempt role frees the user from that policy entirely.
 5. **AND-combine** the surviving filter expressions in `priority` order.

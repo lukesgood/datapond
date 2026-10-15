@@ -316,3 +316,13 @@ def test_join_of_policy_table_and_mask_only_table_applies_both(monkeypatch):
     assert r.applied_mask_ids == ["m-region"]
     assert "'***' AS region" in r.sql
     assert "region = 'us-east'" in r.sql
+
+
+def test_table_with_only_disabled_mask_blocks_under_default_deny(monkeypatch):
+    # A disabled mask does not make a table governed: it is "no policy" again.
+    monkeypatch.setenv("RLS_DEFAULT_DENY", "true")
+    m = _region_mask()
+    m.enabled = False
+    with pytest.raises(RlsDenied):
+        enforce("SELECT region FROM awsdatacatalog.sales.customers", analyst(),
+                [], [m], dialect="athena")
