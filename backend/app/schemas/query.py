@@ -11,7 +11,7 @@ class QueryExecuteRequest(BaseModel):
     """Request schema for query execution"""
     query: str = Field(..., description="SQL query to execute")
     save_history: bool = Field(default=True, description="Save query to history")
-    origin: str = Field(default="ui", description="Who wrote this SQL: ui | ai_sql | internal")
+    origin: str = Field(default="ui", description="Who wrote this SQL: ui | ai_sql | internal | metric")
 
 
 class QueryHistoryResponse(BaseModel):

@@ -178,7 +178,7 @@ def test_rls_sees_the_qualified_table_name(monkeypatch):
 
     def _enforce(sql, ctx, policies, masks, dialect="trino"):
         seen["sql"] = sql
-        return types.SimpleNamespace(sql=sql)
+        return types.SimpleNamespace(sql=sql, applied_policy_ids=[], applied_mask_ids=[])
 
     class _Loader:
         async def load_user_context(self, user):

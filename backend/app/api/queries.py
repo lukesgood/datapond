@@ -11,6 +11,7 @@ import asyncio
 import re
 import uuid
 import logging
+from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,29 @@ def _note_resolved(sql: str) -> None:
     holder = _resolved_holder.get()
     if holder is not None:
         holder.append(sql)
+
+
+# Which RLS policies and masks rewrote the statement, for a caller that must say so
+# (the metric service's citation: the same definition can give different numbers to
+# different callers). Same holder pattern as _resolved_holder.
+_rls_holder: contextvars.ContextVar[Optional[list]] = \
+    contextvars.ContextVar("query_rls_applied", default=None)
+
+
+def _note_rls(policy_ids, mask_ids) -> None:
+    holder = _rls_holder.get()
+    if holder is not None:
+        holder.extend(list(policy_ids or []) + list(mask_ids or []))
+
+
+@contextmanager
+def rls_applied_ids():
+    ids: list = []
+    token = _rls_holder.set(ids)
+    try:
+        yield ids
+    finally:
+        _rls_holder.reset(token)
 
 # Configuration
 TRINO_HOST = os.getenv("TRINO_HOST", "trino.datapond.svc.cluster.local")
@@ -182,7 +206,7 @@ def add_limit_to_query(query: str, limit: int = MAX_ROWS) -> tuple[str, bool]:
     return query, False
 
 
-_ALLOWED_ORIGINS = ("ui", "ai_sql", "internal")
+_ALLOWED_ORIGINS = ("ui", "ai_sql", "internal", "metric")
 
 
 def _safe_origin(request) -> str:
@@ -388,6 +412,7 @@ async def _execute_query_impl(
             policies = await rls_loader.load_policies()
             masks = await rls_loader.load_masks()
             result = enforce(effective_query, ctx, policies, masks, dialect=engine.rls_dialect)
+            _note_rls(result.applied_policy_ids, result.applied_mask_ids)
             effective_query = result.sql
             trino_user = ctx.username or TRINO_USER  # run as the real user
         except RlsDenied as d:
@@ -848,6 +873,9 @@ async def catalog_relationships(
               .filter(QueryHistory.created_at >= cutoff)
               .filter(QueryHistory.status == "success")
         )
+        # A metric statement is built from joins an admin already approved; counting
+        # it would let the library vote for itself.
+        query = query.filter(QueryHistory.origin != "metric")
         if not include_ai:
             query = query.filter(QueryHistory.origin != "ai_sql")
         rows = query.order_by(QueryHistory.created_at.desc()).limit(5000).all()
