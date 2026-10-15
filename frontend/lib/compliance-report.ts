@@ -9,6 +9,8 @@ export type ToolCallActor = {
   // have. Older deployments do not send it (migration 0010).
   refused?: number
   collections: string[]; tables: string[]; hits: number; pii_masked: number
+  // metric.query rows (migration 0023). Older deployments do not send it.
+  metrics?: string[]
 }
 export type ToolCallSection = {
   total_available: number; returned: number; capped: boolean

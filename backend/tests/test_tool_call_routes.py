@@ -116,6 +116,23 @@ def test_summary_sql_counts_each_call_once():
     assert "ORDER BY c.calls DESC, c.actor_username ASC" in sql
 
 
+def test_summary_names_every_resource_kind_that_names_something(monkeypatch):
+    """A metric.query row (0023) names the metric it computed; the rollup lists it
+    beside collections and tables rather than dropping it."""
+    from app.tool_call_log import RESOURCE_KINDS
+    sql = tool_call_routes._SUMMARY_SQL
+    for kind in RESOURCE_KINDS:
+        if kind != "none":
+            assert f"b.resource_kind = '{kind}'" in sql
+    conn = _Conn([{"actor_id": "2", "actor_username": "svc-bot", "actor_kind": "service",
+                   "calls": 1, "ok": 1, "degraded": 0, "error": 0, "refused": 0,
+                   "collections": [], "tables": [], "metrics": None,
+                   "hits": 0, "pii_masked": 0}], 0)
+    _patch(monkeypatch, conn)
+    r = TestClient(_app()).get("/api/audit/tool-calls/summary")
+    assert r.json()["by_actor"][0]["metrics"] == []
+
+
 VIEWER = {"id": "44444444-4444-4444-4444-444444444444", "username": "vwr", "role": "viewer"}
 
 
