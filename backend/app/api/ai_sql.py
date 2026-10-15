@@ -205,6 +205,9 @@ def _schema_for_catalog(schema_ctx: str, entry, prefix: str) -> str:
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
 
+_METRIC_CONTEXT_TIMEOUT_S = 2.0   # a hung pool degrades the prompt, it must not block /ai/sql
+
+
 def _build_messages(schema_ctx: str, question: str, context: Optional[str],
                     metrics_block: str = "") -> tuple[str, list]:
     from app.api.query_engine import get_engine
@@ -526,7 +529,8 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
     metrics_block, metrics_provided, suggested = "", [], None
     try:
         from app.semantic import context as metric_context
-        visible_metrics = await metric_context.for_caller(user, req.catalog)
+        visible_metrics = await asyncio.wait_for(
+            metric_context.for_caller(user, req.catalog), timeout=_METRIC_CONTEXT_TIMEOUT_S)
         metrics_block, metrics_provided = metric_context.metric_lines(visible_metrics, q_text)
         suggested = metric_context.suggest(visible_metrics, q_text)
     except Exception as e:      # the semantic tables are optional context, never a blocker
@@ -647,7 +651,8 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
         has_ai=False,
         provider="none",
         pii_masked=pii_count,
-        metrics_provided=metrics_provided,
+        # No prompt was sent, so no definitions were "provided"; the suggestion is a
+        # deterministic string match and stays useful without a model.
         suggested_metric=suggested,
     )
 

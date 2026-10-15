@@ -117,3 +117,131 @@ def test_audit_row_cites_provided_definitions_with_the_context_prefix(monkeypatc
     app.dependency_overrides[auth.require_user] = _override
     assert TestClient(app).post("/api/ai/sql", json={"question": "매출"}).status_code == 200
     assert calls[0]["citation_sources"] == ["context:metric:revenue@v3"]
+
+
+def _route_env(monkeypatch, *, litellm_url="http://litellm:4000"):
+    """Common stubs for driving generate_sql end to end; returns the recorded audit rows."""
+    reg.set_entries([CatalogEntry(name="iceberg", kind="polaris", engine_catalog="iceberg",
+                                  is_default=True)])
+    catalog_access.set_grants({})
+    monkeypatch.setenv("QUERY_ENGINE", "trino")
+    calls = []
+
+    async def _record(**kw):
+        calls.append(kw)
+    monkeypatch.setattr(tool_call_log, "record", _record)
+    monkeypatch.setattr(m, "_cfg", lambda: {"litellm_url": litellm_url,
+                                            "litellm_model": "default", "master_key": ""})
+    monkeypatch.setattr(m, "_get_schema_context",
+                        lambda: "Available tables (catalog: iceberg):\n  iceberg.sales.orders: amount (double)")
+    monkeypatch.setattr(m, "egress_policy", lambda: "allow-external")
+    monkeypatch.setattr(m, "validate_sql", lambda sql: (True, None))
+    monkeypatch.setattr(m, "_call_litellm", lambda system, messages:
+                        '{"sql": "SELECT SUM(amount) FROM iceberg.sales.orders", "explanation": "x"}')
+    return calls
+
+
+def test_no_ai_path_provides_nothing_but_may_suggest(monkeypatch):
+    from app.semantic import context as mc
+    calls = _route_env(monkeypatch, litellm_url="")
+
+    async def fake_for_caller(user, catalog=None):
+        return M
+    monkeypatch.setattr(mc, "for_caller", fake_for_caller)
+    try:
+        res = asyncio.run(m.generate_sql(m.AskRequest(question="지난달 매출"), user=ENG))
+    finally:
+        reg.reset()
+    assert res.has_ai is False
+    assert res.metrics_provided == []
+    assert res.suggested_metric["name"] == "revenue"
+    assert not calls[0].get("citation_sources")
+
+
+def _failing_context_is_non_blocking(monkeypatch, fake):
+    from app.semantic import context as mc
+    _route_env(monkeypatch)
+    monkeypatch.setattr(mc, "for_caller", fake)
+    try:
+        return asyncio.run(m.generate_sql(m.AskRequest(question="지난달 매출"), user=ENG))
+    finally:
+        reg.reset()
+
+
+def test_context_failure_does_not_block_the_route(monkeypatch):
+    async def boom(user, catalog=None):
+        raise RuntimeError("semantic tables missing")
+    res = _failing_context_is_non_blocking(monkeypatch, boom)
+    assert res.sql.startswith("SELECT SUM(amount)")
+    assert res.metrics_provided == [] and res.suggested_metric is None
+
+
+def test_hung_context_times_out_and_degrades(monkeypatch):
+    monkeypatch.setattr(m, "_METRIC_CONTEXT_TIMEOUT_S", 0.05)
+
+    async def hang(user, catalog=None):
+        await asyncio.sleep(5)
+        return M
+    res = _failing_context_is_non_blocking(monkeypatch, hang)
+    assert res.sql.startswith("SELECT SUM(amount)")
+    assert res.metrics_provided == [] and res.suggested_metric is None
+
+
+# ── for_caller ────────────────────────────────────────────────────────────────
+
+class _Dim:
+    def __init__(self, name):
+        self.name = name
+
+
+class _Ver:
+    def __init__(self, version):
+        self.version, self.measure, self.filters = version, "SUM(amount)", None
+        self.base_table, self.time_column = "sales.orders", "ordered_at"
+        self.dimensions = [_Dim("channel")]
+
+
+def _fake_semantic(monkeypatch, visible, metrics, versions):
+    from app.semantic import service, store
+
+    async def list_visible(user, catalog=None):
+        return visible
+
+    async def pool():
+        return "POOL"
+
+    async def list_metrics(p):
+        return metrics
+
+    async def get_version(p, metric_id, name, version):
+        return versions.get(name)
+    monkeypatch.setattr(service, "list_visible", list_visible)
+    monkeypatch.setattr(service, "_pool", pool)
+    monkeypatch.setattr(store, "list_metrics", list_metrics)
+    monkeypatch.setattr(store, "get_version", get_version)
+
+
+def _row(name):
+    return {"id": f"id-{name}", "name": name, "label": name.upper(), "synonyms": None,
+            "current_version": 2}
+
+
+def test_for_caller_excludes_invisible_and_skips_missing_versions(monkeypatch):
+    from app.semantic import context as mc
+    _fake_semantic(monkeypatch,
+                   visible=[{"name": "revenue"}, {"name": "ghost"}],
+                   metrics=[_row("revenue"), _row("secret"), _row("ghost")],
+                   versions={"revenue": _Ver(2), "secret": _Ver(2)})   # ghost: no version
+    out = asyncio.run(mc.for_caller(ENG, None))
+    assert [x["name"] for x in out] == ["revenue"]
+    assert out[0]["version"] == 2 and out[0]["synonyms"] == [] and out[0]["dimensions"] == ["channel"]
+
+
+def test_for_caller_short_circuits_when_nothing_is_visible(monkeypatch):
+    from app.semantic import context as mc, service
+
+    async def no_pool():
+        raise AssertionError("pool must not be touched")
+    _fake_semantic(monkeypatch, visible=[], metrics=[_row("revenue")], versions={})
+    monkeypatch.setattr(service, "_pool", no_pool)
+    assert asyncio.run(mc.for_caller(ENG, None)) == []
