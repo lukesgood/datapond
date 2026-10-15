@@ -287,8 +287,10 @@ async def describe_metric(name: str, user: dict = Depends(require_user)):
             pending = {"version": p.version, "catalog": p.catalog, "base_table": p.base_table,
                        "measure": p.measure, "filters": p.filters,
                        "example_sql": _example_sql(name, p, access.resolve(p.catalog))}
-    if not insider:
-        versions = [x for x in versions if x["approved_at"]]
+    # A version on a catalog this caller cannot use is not shown, as the metric would
+    # not be if its current version were there.
+    versions = [x for x in versions if access.allows(x["catalog"])
+                and (insider or x["approved_at"])]
     return {"metric": dict(service._public(meta, v), status=meta["status"],
                            owner_name=meta["owner_name"], current_version=meta["current_version"]),
             "versions": versions, "pending": pending, "broken": broken_reason is not None,
@@ -326,6 +328,13 @@ async def create_version(name: str, body: VersionBody,
     pool = await _pool()
     meta = await store.get_metric(pool, name)
     if not meta or meta["status"] == "retired":
+        raise HTTPException(404, f"Unknown metric {name!r}.")
+    # A metric this caller cannot see (its catalog is hidden) is a missing one: the same
+    # 404, and no version written over it.
+    shown = meta["current_version"] or max((x["version"] for x in
+                                            await store.list_versions(pool, meta["id"])), default=None)
+    v = await store.get_version(pool, meta["id"], name, shown) if shown else None
+    if v is None or not (await catalog_access.for_caller(user)).allows(v.catalog):
         raise HTTPException(404, f"Unknown metric {name!r}.")
     fields = await _checked_version(user, body, name)
     n = await store.insert_version(pool, metric_id=meta["id"], fields=fields,
