@@ -33,13 +33,16 @@ class FakeStore:
         return self.versions.get(mid, {}).get(version)
 
     async def list_versions(self, pool, mid):
-        return [{"version": v.version, "approved_at": v.approved_at, "change_note": ""}
+        # The real store returns every column (SELECT *): the definition travels with it.
+        return [{"version": v.version, "approved_at": v.approved_at, "change_note": "",
+                 "catalog": v.catalog, "base_table": v.base_table, "measure": v.measure}
                 for v in sorted(self.versions.get(mid, {}).values(), key=lambda v: -v.version)]
 
     async def create_metric(self, pool, *, name, label, description, synonyms, owner_id, owner_name):
         mid = len(self.metrics) + 1
         self.metrics[name] = {"id": mid, "name": name, "label": label, "description": description,
-                              "synonyms": synonyms, "owner_name": owner_name, "status": "draft",
+                              "synonyms": synonyms, "owner_id": owner_id,
+                              "owner_name": owner_name, "status": "draft",
                               "current_version": None, "updated_at": None}
         return mid
 
@@ -206,6 +209,10 @@ def test_query_route_runs_the_approved_version_and_audits_metric_query(client, m
     r = client.post("/api/semantic/metrics/revenue/query", json={"period": "last_month"})
     assert r.status_code == 200 and r.json()["citation"]["version"] == 1
     assert audit[0]["tool"] == "metric.query" and len(rows) == 1
+    r = client.post("/api/semantic/metrics/revenue/query",
+                    json={"period": "last_month", "order_by": [{"field": "revenue", "desc": True}],
+                          "limit": 3})
+    assert r.status_code == 200 and rows[-1].endswith("ORDER BY 1 DESC LIMIT 3")
 
 
 def test_a_key_cannot_approve_even_on_an_admin_account(client):
@@ -332,6 +339,88 @@ def test_drafts_and_pending_are_hidden_from_viewers_who_cannot_author(client):
     body = client.get("/api/semantic/metrics/revenue").json()
     assert [v["version"] for v in body["versions"]] == [1]
     assert body["pending"] is None
+
+
+def _only_glue(monkeypatch):
+    """A caller who may use glue and nothing else."""
+    from app import catalog_access, catalog_registry
+
+    class GlueOnly:
+        def allows(self, e):
+            return (e if isinstance(e, str) else e.name) == "glue"
+
+        def resolve(self, name=None):
+            if name not in (None, "glue"):
+                raise catalog_registry.UnknownCatalog(f"Unknown catalog {name!r}")
+            return catalog_registry.resolve("glue")
+
+    async def for_caller(user):
+        return GlueOnly()
+    monkeypatch.setattr(catalog_access, "for_caller", for_caller)
+
+
+def _put_version(fs, name, version, catalog, measure, approved):
+    from app.semantic.store import row_to_version
+    import datetime
+    mid = fs.metrics[name]["id"]
+    fs.versions[mid][version] = row_to_version(name, {
+        "version": version, "catalog": catalog, "base_table": "hr.salaries", "measure": measure,
+        "filters": None, "time_column": None, "grains": [], "max_period_days": 366,
+        "dimensions": [], "approved_by_name": "root" if approved else None,
+        "approved_at": datetime.datetime(2026, 10, 15) if approved else None,
+        "created_by": None})
+    if approved:
+        fs.metrics[name].update(status="approved", current_version=version)
+
+
+def test_describe_omits_versions_on_a_catalog_the_caller_cannot_use(client, monkeypatch):
+    client.post("/api/semantic/metrics", json=BODY)
+    client.post("/api/semantic/metrics/revenue/versions/1/approve")
+    _put_version(client.fs, "revenue", 2, "secret", "SUM(salary)", approved=False)
+    _only_glue(monkeypatch)
+    r = client.get("/api/semantic/metrics/revenue")
+    assert r.status_code == 200
+    assert [v["version"] for v in r.json()["versions"]] == [1]
+    assert "salary" not in r.text and "secret" not in r.text
+
+
+def test_new_version_on_a_metric_the_caller_cannot_see_is_the_missing_404(client, monkeypatch):
+    client.post("/api/semantic/metrics", json=BODY)
+    _put_version(client.fs, "revenue", 2, "secret", "SUM(salary)", approved=True)
+    _only_glue(monkeypatch)
+    r = client.post("/api/semantic/metrics/revenue/versions", json=V2)
+    assert r.status_code == 404 and r.json()["detail"] == "Unknown metric 'revenue'."
+    assert sorted(client.fs.versions[1]) == [1, 2]
+
+
+ENGINEER = {"id": "00000000-0000-0000-0000-000000000005", "username": "eng",
+            "role": "data_engineer"}
+
+
+def test_only_the_owner_or_an_admin_writes_a_new_version(client, monkeypatch):
+    """No role but admin holds governance:write today; if one is granted it, holding the
+    permission lets that person author their own metrics, not rewrite someone else's."""
+    from app import permissions
+    monkeypatch.setitem(permissions.ROLE_PERMISSIONS, "data_engineer",
+                        permissions.ROLE_PERMISSIONS["data_engineer"] | {"governance:write"})
+    client.post("/api/semantic/metrics", json=BODY)                 # owned by root (admin)
+    client.state["user"] = ENGINEER
+    r = client.post("/api/semantic/metrics/revenue/versions", json=V2)
+    assert r.status_code == 403 and sorted(client.fs.versions[1]) == [1]
+    assert client.post("/api/semantic/metrics",
+                       json=dict(BODY, name="orders")).status_code == 201
+    assert client.post("/api/semantic/metrics/orders/versions", json=V2).status_code == 201
+    client.state["user"] = ADMIN
+    assert client.post("/api/semantic/metrics/orders/versions", json=V2).status_code == 201
+
+
+def test_a_taken_name_409_does_not_echo_the_existing_definition(client, monkeypatch):
+    client.post("/api/semantic/metrics", json=BODY)
+    _put_version(client.fs, "revenue", 2, "secret", "SUM(salary)", approved=True)
+    _only_glue(monkeypatch)
+    r = client.post("/api/semantic/metrics", json=BODY)
+    assert r.status_code == 409
+    assert "salary" not in r.text and "secret" not in r.text
 
 
 def test_join_uniqueness_is_checked_on_the_catalogs_column_spelling(client, monkeypatch):

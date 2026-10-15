@@ -175,3 +175,56 @@ def test_a_stored_definition_outside_the_allow_list_is_refused_at_compile(field,
         compile_metric(bad, engine_catalog="AwsDataCatalog", dialect="athena", today=TODAY,
                        period="last_month")
     assert not isinstance(e.value, MetricInputError)
+
+
+def test_order_by_metric_desc_with_limit_breaks_ties_by_dimensions():
+    sql = _c(by=["channel"], order_by=[{"field": "revenue", "desc": True}], limit=5).sql
+    assert sql.endswith("GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 5")
+
+
+def test_order_by_dimension_ascending_keeps_other_dimensions_as_tiebreak():
+    sql = _c(by=["region", "channel"], order_by=[{"field": "channel"}]).sql
+    assert sql.endswith("GROUP BY 1, 2 ORDER BY 2, 1")
+
+
+def test_order_by_grain():
+    sql = _c(by=["channel"], grain="month", order_by=[{"field": "month", "desc": True}]).sql
+    assert sql.endswith("GROUP BY 1, 2 ORDER BY 1 DESC, 2")
+
+
+def test_limit_alone_keeps_default_order():
+    assert _c(by=["channel"], limit=3).sql.endswith("GROUP BY 1 ORDER BY 1 LIMIT 3")
+
+
+def test_order_and_limit_are_in_the_citation_sql():
+    c = _c(by=["channel"], order_by=[{"field": "revenue", "desc": True}], limit=2)
+    assert c.citation["sql"] == c.sql and "LIMIT 2" in c.sql
+
+
+@pytest.mark.parametrize("order_by", [
+    [{"field": "nope"}],                       # not an output column
+    [{"field": "region"}],                     # a dimension not in 'by'
+    [{"field": "channel"}, {"field": "channel"}],
+    [{"field": "channel", "desc": "yes"}],
+    [{"field": 1}],
+    [{"column": "channel"}],
+    "revenue",
+])
+def test_bad_order_by_is_an_input_error_naming_allowed_fields(order_by):
+    with pytest.raises(MetricInputError) as e:
+        _c(by=["channel"], order_by=order_by)
+    assert e.value.allowed.get("order_by") == ["channel", "revenue"]
+
+
+@pytest.mark.parametrize("limit", [0, -1, 1001, True, 2.5, "5"])
+def test_bad_limit_is_an_input_error(limit):
+    with pytest.raises(MetricInputError) as e:
+        _c(by=["channel"], limit=limit)
+    assert e.value.allowed.get("limit") == [1, 1000]
+
+
+@pytest.mark.parametrize("where", [5, {"dimension": "channel", "op": "=", "value": "web"}, "x"])
+def test_non_list_where_is_an_input_error(where):
+    with pytest.raises(MetricInputError) as e:
+        _c(where=where)
+    assert "op" in e.value.allowed

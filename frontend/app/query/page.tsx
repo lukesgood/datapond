@@ -84,6 +84,13 @@ function QueryPageInner() {
   const [error, setError]                   = useState<string | null>(null)
   const [chartType, setChartType]           = useState<ChartType>("table")
   const resultShape                         = useRef<string>("")
+  // Bumped by every run that writes the editor and results; a metric response that
+  // returns after a newer run started is dropped instead of overwriting it.
+  const runSeq                              = useRef(0)
+  // The editor text as of now, for a slow response to tell whether the person has
+  // typed since it was asked for.
+  const queryNow                            = useRef("")
+  useEffect(() => { queryNow.current = query }, [query])
   const [xAxis, setXAxis]                   = useState("")
   const [yAxes, setYAxes]                   = useState<string[]>([])
   // null leaves the split automatic; "" turns it off.
@@ -205,6 +212,7 @@ function QueryPageInner() {
 
   const handleAskAI = async () => {
     if (!aiQuestion.trim() || aiLoading) return
+    const seq = ++runSeq.current
     setAiLoading(true)
     setAiExplanation(null)
     setAiMetrics({ chips: [], suggestion: null })
@@ -217,6 +225,8 @@ function QueryPageInner() {
       })
       if (!res.ok) throw new Error("AI request failed")
       const data = await res.json()
+      // A run or a metric query started since then owns the editor and the results.
+      if (seq !== runSeq.current) return
       setAiMetrics(aiSqlMetricView(data))
       // Only replace the editor when there is a statement. A clarifying question or
       // an empty catalog returns no SQL, and pasting that over the user's work — or
@@ -235,6 +245,7 @@ function QueryPageInner() {
         toast("Generated SQL did not pass catalog validation — review before running", "error")
       }
     } catch (error) {
+      if (seq !== runSeq.current) return
       toast(error instanceof Error ? error.message : "AI request failed", "error")
     } finally {
       setAiLoading(false)
@@ -244,29 +255,40 @@ function QueryPageInner() {
   // The approved definition, computed by the server: the result carries its own citation
   // (version, approver, the SQL that ran), which replaces the editor text.
   const runAsMetric = async (name: string) => {
+    const seq = ++runSeq.current
+    const typed = queryNow.current
+    // Stale when a newer run began, or when the person edited the SQL meanwhile: the
+    // metric's SQL would replace what they typed.
+    const stale = () => seq !== runSeq.current || queryNow.current !== typed
     const post = (body: object) => fetch(`/api/semantic/metrics/${encodeURIComponent(name)}/query`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     })
     try {
       let res = await post({ period: "last_month" })
+      if (stale()) return
       // A metric without a time column answers 400 to a period: ask for it unbounded.
       // Any other error is the first one, shown as is.
       if (!res.ok) {
         const message = await responseErrorMessage(res, "Metric query failed")
+        if (stale()) return
         if (!retryWithoutPeriod(res.status, message)) { toast(message, "error"); return }
         res = await post({})
+        if (stale()) return
         if (!res.ok) { toast(await responseErrorMessage(res, "Metric query failed"), "error"); return }
       }
       const data = await res.json()
+      if (stale()) return
       // The editor now holds the metric's SQL, not the generated statement: the AI
       // check, plan review and ai_sql attribution belonged to that statement.
       setAiCheck(null); setPlanReview(null); setAiGeneratedSql(null)
       setQuery(data.citation.sql)
+      setExecutedQuery(data.citation.sql)
       setError(null)
       setResults({ columns: data.columns, rows: data.rows, truncated: data.truncated, execution_time_ms: 0 })
       setQueryStatus("success")
       toast(`${name} v${data.citation.version} · approved by ${data.citation.approved_by}`, "success")
     } catch (error) {
+      if (stale()) return
       toast(error instanceof Error ? error.message : "Metric query failed", "error")
     }
   }
@@ -282,6 +304,7 @@ function QueryPageInner() {
       .trim()
     if (!stripped) return
 
+    const seq = ++runSeq.current
     setQueryStatus("running")
     setError(null)
     setResults(null)
@@ -296,6 +319,7 @@ function QueryPageInner() {
         }),
       })
       const data = await response.json()
+      if (seq !== runSeq.current) return
       if (!response.ok) throw new Error(data.detail || data.error || "Query execution failed")
 
       setResults(data)
@@ -318,6 +342,7 @@ function QueryPageInner() {
         setStacked(false)
       }
     } catch (err) {
+      if (seq !== runSeq.current) return
       setError(err instanceof Error ? err.message : "Unknown error")
       setQueryStatus("error")
     }

@@ -13,7 +13,7 @@ import { useConfirm } from "@/lib/confirm"
 import { useToast } from "@/lib/toast"
 import { responseErrorMessage } from "@/lib/auth"
 import {
-  approvalWarning, fieldError, joinCandidatePayload, metricStatusBadge, pendingApproval, versionDiff,
+  approvalWarning, fieldError, joinCandidatePayload, metricStatusBadge, pendingApproval, unresolvedJoinDims, versionDiff,
   type CatalogEntry, type DimensionRow, type MetricDetail, type MetricSummary, type RelationshipEdge, type Viewer,
 } from "@/lib/metrics"
 
@@ -205,6 +205,7 @@ function MetricEditor({ mode, base, onDone, onCancel }: {
   const [dims, setDims] = useState<DimRow[]>((cur?.dimensions ?? []).map(d => ({ name: d.name, column: d.column, join_id: null, joinRef: d.join })))
   const [note, setNote] = useState("")
   const [joins, setJoins] = useState<Join[]>([])
+  const [joinsLoaded, setJoinsLoaded] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [preview, setPreview] = useState<{ columns: string[]; rows: unknown[][]; citation: { sql: string } } | null>(null)
 
@@ -217,7 +218,7 @@ function MetricEditor({ mode, base, onDone, onCancel }: {
         const hit = ref && (d.joins as Join[]).find(j => j.to_table === ref.to_table && JSON.stringify(j.on_columns) === JSON.stringify(ref.on))
         return hit ? { ...x, join_id: hit.id } : x
       }))
-    }).catch(() => setJoins([]))
+    }).catch(() => setJoins([])).finally(() => setJoinsLoaded(true))
   }, [])
 
   const version = () => ({
@@ -227,6 +228,11 @@ function MetricEditor({ mode, base, onDone, onCancel }: {
   })
   const save = async () => {
     setErrors({})
+    const unresolved = unresolvedJoinDims(dims)
+    if (unresolved.length) {
+      setErrors({ dimensions: `Pick the join for ${unresolved.join(", ")}: its approved join was not found.` })
+      return
+    }
     const url = mode === "new" ? "/api/semantic/metrics" : `/api/semantic/metrics/${name}/versions`
     const body = mode === "new"
       ? { name, label, synonyms: synonyms.split(",").map(s => s.trim()).filter(Boolean), version: version() }
@@ -288,7 +294,7 @@ function MetricEditor({ mode, base, onDone, onCancel }: {
             <div key={i} className="grid grid-cols-[1fr_1fr_1.2fr_auto] gap-2">
               <Input value={d.name} placeholder="name" onChange={e => setDims(dims.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
               <Input value={d.column} placeholder="column" onChange={e => setDims(dims.map((x, j) => j === i ? { ...x, column: e.target.value } : x))} />
-              <select className="rounded border bg-background px-2" value={d.join_id ?? ""} onChange={e => setDims(dims.map((x, j) => j === i ? { ...x, join_id: e.target.value ? Number(e.target.value) : null } : x))}>
+              <select className="rounded border bg-background px-2" value={d.join_id ?? ""} onChange={e => setDims(dims.map((x, j) => j === i ? { ...x, join_id: e.target.value ? Number(e.target.value) : null, joinRef: undefined } : x))}>
                 <option value="">base table</option>
                 {usable.map(j => <option key={j.id} value={j.id}>{j.to_table}</option>)}
               </select>
@@ -300,7 +306,7 @@ function MetricEditor({ mode, base, onDone, onCancel }: {
         </div>
         <label className="block">Change note <Textarea value={note} onChange={e => setNote(e.target.value)} /></label>
         <div className="flex gap-2">
-          <Button onClick={save}>Save draft</Button>
+          <Button onClick={save} disabled={!joinsLoaded}>Save draft</Button>
           {mode === "version" && <Button variant="outline" onClick={runPreview}>Preview latest draft</Button>}
           <Button variant="ghost" onClick={onCancel}>Cancel</Button>
         </div>

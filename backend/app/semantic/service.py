@@ -97,12 +97,14 @@ async def _execute(sql: str, user: dict, origin: str = "metric") -> dict:
 
 async def run_metric_query(user: dict, *, metric: str, by: Sequence[str] = (),
                            period: Optional[str] = None, grain: Optional[str] = None,
-                           where: Sequence[dict] = (), version: Optional[int] = None) -> dict:
+                           where: Sequence[dict] = (), version: Optional[int] = None,
+                           order_by: Sequence[dict] = (), limit: Optional[int] = None) -> dict:
     from app.api.queries import rls_applied_ids
     started = time.perf_counter()
     request_text = tool_call_log.masked_for_log(json.dumps(
-        {"metric": metric, "by": list(by), "period": period, "grain": grain,
-         "where": list(where or []), "version": version}, ensure_ascii=False, default=str))
+        {"metric": metric, "by": by, "period": period, "grain": grain,
+         "where": where or [], "version": version,
+         "order_by": order_by or [], "limit": limit}, ensure_ascii=False, default=str))
 
     async def audit(outcome, *, cite=None, sql=None, hits=0, pii=0):
         await tool_call_log.record(
@@ -114,8 +116,9 @@ async def run_metric_query(user: dict, *, metric: str, by: Sequence[str] = (),
     try:
         _meta, v, entry = await resolve_visible(user, metric, version)
         compiled = compile_metric(v, engine_catalog=entry.engine_catalog, dialect=_dialect(),
-                                  today=today_local(), by=list(by), period=period,
-                                  grain=grain, where=list(where or []))
+                                  today=today_local(), by=by, period=period,
+                                  grain=grain, where=where or [],
+                                  order_by=order_by or [], limit=limit)
     except MetricNotFound:
         await audit("refused")
         raise _not_found(metric)
@@ -147,7 +150,10 @@ async def run_metric_query(user: dict, *, metric: str, by: Sequence[str] = (),
     citation = dict(compiled.citation, rls_applied=bool(applied),
                     pii_masked=int(result.get("pii_masked") or 0))
     return {"columns": result["columns"], "rows": result["rows"],
-            "row_count": result["row_count"], "truncated": result["truncated"],
+            "row_count": result["row_count"],
+            # A caller's LIMIT hides the engine's own cap, so a full page may not be all.
+            "truncated": bool(result["truncated"]) or (
+                limit is not None and int(result["row_count"] or 0) >= limit),
             "citation": citation}
 
 

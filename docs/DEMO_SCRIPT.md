@@ -2,7 +2,8 @@
 
 A 15-minute customer demo of what DataPond does that an agent gateway does not: the
 same question, asked by two agents against the same collection, returns different
-chunks; an agent over its budget is refused; every call is on the record.
+chunks; an agent over its budget is refused; every call is on the record. An optional
+step (2f) shows a governed metric: a number an agent can cite, with version and SQL.
 
 Everything here runs against a deployment you control with an **administrator's signed-in
 session** (the setup steps are admin-only and a key cannot perform them). The agent calls
@@ -112,12 +113,48 @@ Point at three columns: who called, what was cited, and `chunks_withheld` — ho
 nearer chunks the rule kept from that caller, recorded for the auditor and never
 returned to the agent. The refused (402) call is there too.
 
+**f. A number the agent can cite (governed SQL).** Needs the `query` capability (the
+AWS Single-Node Reference has it: Glue/Athena). Uses the sample `orders` table; on
+another catalog, change `catalog`, `base_table` and the columns.
+
+Define and approve a metric (console: Metrics → New, then Approve), or as below. A
+retired name cannot be reused, so for a second run pick a new name (`demo_order_count_2`).
+
+```bash
+curl -s "${H[@]}" -X POST $DP/api/semantic/metrics -d '{"name":"demo_order_count","label":"데모 주문 수","version":{"catalog":"AwsDataCatalog","base_table":"default.orders",
+  "measure":"COUNT(*)","time_column":"ordered_at","grains":["month"],
+  "dimensions":[{"name":"channel","column":"channel"},{"name":"customer_id","column":"customer_id"}]}}'
+curl -s "${H[@]}" -X POST $DP/api/semantic/metrics/demo_order_count/versions/1/approve
+```
+
+Give the Sales agent a key that may read the catalog and run read-only queries, and ask
+over MCP — the way an agent would:
+
+```bash
+SQL_KEY=$(curl -s "${H[@]}" -X POST $DP/api/service-accounts/$SALES_ID/keys \
+  -d '{"name":"demo-sql","scopes":["catalog:read","query:run"],"expires_in_days":7}' | jq -r .key)
+
+curl -s -H "Authorization: Bearer $SQL_KEY" -H "Content-Type: application/json" -X POST $DP/api/mcp \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"metric_query","arguments":
+      {"metric":"demo_order_count","by":["customer_id"],"period":"2026-04-01..2026-08-31",
+       "order_by":[{"field":"demo_order_count","desc":true}],"limit":5}}}' | jq .
+```
+
+Point at the citation: metric, version, who approved it, and the exact SQL that ran.
+Ask it three times — the same five rows come back each time, ties included (the other
+dimensions break ties), where a model writing its own SQL for "top 5 customers" varied
+between runs. Then show the audit (step e): the call is a `metric.query` row citing
+`metric:demo_order_count@v1`. Change the definition and approve v2: the next call cites v2,
+and the v1 rows still say v1.
+
 ## 3. What to say
 
 - A gateway decides **which tool** an agent may call. DataPond decides **which rows and
   chunks** that call may read, masks what it returns, and records what was cited.
 - The rule is data-layer: it holds for REST, MCP (`POST /api/mcp`) and a gateway in
   front alike, and it holds for administrators too.
+- Numbers come from definitions an administrator approved, with the version and SQL
+  cited on every answer — the same RLS, masking and audit apply as to any query.
 - It runs on the customer's AWS account (S3, Aurora, Bedrock) or fully on-prem (MinIO,
   Ollama) from the same chart.
 
@@ -127,6 +164,7 @@ returned to the agent. The refused (402) call is there too.
 curl -s "${H[@]}" -X DELETE $DP/api/ai/collections/company_handbook
 curl -s "${H[@]}" -X DELETE $DP/api/service-accounts/$HR_ID
 curl -s "${H[@]}" -X DELETE $DP/api/service-accounts/$SALES_ID
+curl -s "${H[@]}" -X POST $DP/api/semantic/metrics/demo_order_count/retire   # if you made it in 2f
 ```
 
 ## Known limits to mention if asked

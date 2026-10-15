@@ -9,7 +9,7 @@ approves the definition. See the semantic-layer spec §3.
 """
 from typing import Any, Callable, Dict, List, Optional
 
-from pydantic import Field
+from pydantic import Field, StrictInt
 
 from app.chat.actions import Action, ActionKind, _Strict
 from app.chat.analysis._resolve import _r
@@ -41,6 +41,15 @@ class MetricQuery(_Strict):
         default=None,
         description='Filters as [{"dimension": "...", "op": "=|!=|in|>|<|between", "value": ...}]. '
                     "in takes a list; between takes [low, high].")
+    order_by: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description='Sort the result: [{"field": "...", "desc": true}]. field is the metric name, '
+                    "the grain, or a dimension in by. Remaining dimensions break ties, so a "
+                    "top-N is stable.")
+    limit: Optional[StrictInt] = Field(
+        default=None, ge=1, le=1000,
+        description="Return at most this many rows (1-1000). With order_by, a top-N. When the "
+                    "result has exactly this many rows, truncated is true: there may be more.")
 
 
 # app.semantic.service is imported inside each executor, as query.py does for its
@@ -62,7 +71,8 @@ async def query_metric(params: dict, user: dict) -> dict:
     return await service.run_metric_query(
         user, metric=params["metric"], by=params.get("by") or [],
         period=params.get("period"), grain=params.get("grain"),
-        where=params.get("where") or [])
+        where=params.get("where") or [], order_by=params.get("order_by") or [],
+        limit=params.get("limit"))
 
 
 ACTIONS = (
@@ -75,8 +85,9 @@ ACTIONS = (
            "version and approver.",
            ("*",), "catalog:read", ActionKind.READ, MetricName, capability="query"),
     Action("metric.query", "Query metric",
-           "Compute an approved metric by dimensions over a period. Deterministic SQL from the "
-           "approved definition; the result carries a citation (metric, version, approver, SQL).",
+           "Compute an approved metric by dimensions over a period, optionally sorted and limited "
+           "(top-N). Deterministic SQL from the approved definition; the result carries a "
+           "citation (metric, version, approver, SQL).",
            ("*",), "query:run", ActionKind.READ, MetricQuery, capability="query"),
 )
 

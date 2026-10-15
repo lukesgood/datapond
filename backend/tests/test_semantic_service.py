@@ -220,3 +220,36 @@ def test_a_stored_definition_off_the_allow_list_is_audited_as_error(env, monkeyp
         _run(service.run_metric_query(ANA, metric="revenue", period="last_month"))
     (row,) = env["audit"]
     assert row["outcome"] == "error" and env["executed"] == []
+
+
+def test_top_n_runs_and_the_audit_row_records_order_and_limit(env):
+    _run(service.run_metric_query(ANA, metric="revenue", by=["channel"], period="last_month",
+                                  order_by=[{"field": "revenue", "desc": True}], limit=5))
+    assert env["executed"][0].endswith("ORDER BY 2 DESC, 1 LIMIT 5")
+    (row,) = env["audit"]
+    assert '"limit": 5' in row["request_text"] and '"desc": true' in row["request_text"]
+
+
+def test_bad_limit_is_a_400_refusal_naming_the_range(env):
+    with pytest.raises(HTTPException) as e:
+        _run(service.run_metric_query(ANA, metric="revenue", period="last_month", limit=0))
+    assert e.value.status_code == 400 and "1000" in e.value.detail
+    assert env["audit"][0]["outcome"] == "refused" and env["executed"] == []
+
+
+@pytest.mark.parametrize("kw", [{"where": 5}, {"where": {"dimension": "channel"}},
+                                {"where": "channel"}, {"by": 5}, {"order_by": 5}])
+def test_non_list_inputs_are_a_400_refusal_not_a_500(env, kw):
+    """The MCP/REST schemas allow Any; a scalar or object where a list belongs is the
+    caller's error, audited as refused, never a TypeError."""
+    with pytest.raises(HTTPException) as e:
+        _run(service.run_metric_query(ANA, metric="revenue", period="last_month", **kw))
+    assert e.value.status_code == 400
+    assert env["audit"][0]["outcome"] == "refused" and env["executed"] == []
+
+
+def test_a_full_page_under_limit_is_reported_as_possibly_truncated(env):
+    out = _run(service.run_metric_query(ANA, metric="revenue", period="last_month", limit=1))
+    assert out["row_count"] == 1 and out["truncated"] is True
+    out = _run(service.run_metric_query(ANA, metric="revenue", period="last_month", limit=5))
+    assert out["truncated"] is False

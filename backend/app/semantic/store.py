@@ -5,8 +5,8 @@ from typing import List, Optional
 
 from app.semantic.model import Dimension, Join, MetricVersion
 
-_METRIC_COLS = ("id, name, label, description, synonyms, owner_name, status, "
-                "current_version, updated_at")
+_METRIC_COLS = ("id, name, label, description, synonyms, owner_id::text AS owner_id, "
+                "owner_name, status, current_version, updated_at")
 
 
 def row_to_version(metric_name: str, r) -> MetricVersion:

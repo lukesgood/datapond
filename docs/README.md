@@ -14,7 +14,8 @@
 | [PRODUCTIZATION_READINESS_ASSESSMENT.md](PRODUCTIZATION_READINESS_ASSESSMENT.md) | 현재 구현의 상품화 준비도, 출시 차단 요소, 개선 로드맵 |
 | [CONCEPT_RECONFIRMATION.md](CONCEPT_RECONFIRMATION.md) | v6 방향 제안 노트 (2026-07-27). 2026-09-07 v6.0으로 승격됨. 수요 게이트(§5)는 여전히 유효하다 |
 | [ONTOLOGY_FEASIBILITY_REPORT.md](ONTOLOGY_FEASIBILITY_REPORT.md) | 온톨로지 실현가능성·가치 5개 실험 검증 리포트 (연구 기록) · 실험 하네스: [research/ontology-poc/](research/ontology-poc/) |
-| [ONTOLOGY_GRAPHRAG_REVIEW.md](ONTOLOGY_GRAPHRAG_REVIEW.md) | 온톨로지·GraphRAG 적용 필요성 검토 (2026-10-15 결정 기록): SQL 의미 정의 착수, 개념 계층 보강, GraphRAG 보류와 재검토 조건 |
+| [ONTOLOGY_GRAPHRAG_REVIEW.md](ONTOLOGY_GRAPHRAG_REVIEW.md) | 온톨로지·GraphRAG 적용 필요성 검토 (2026-10-15 결정 기록): SQL 의미 정의 착수, 개념 계층 보강, GraphRAG 보류와 재검토 조건; Cube 적용 보류 (2026-10-16) |
+| [DESIGN_PARTNER_QUESTIONS.md](DESIGN_PARTNER_QUESTIONS.md) | 디자인 파트너 인터뷰 질문지 — 질문마다 그 답으로 정할 결정 (D1 리전, Cube import, IdP 등) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Portable Core, 어댑터 계약, optional add-on 구조 |
 | [DEPLOYMENT_PROFILES.md](DEPLOYMENT_PROFILES.md) | Helm 프로필별 실제 구성과 선택 기준 |
 | [FOUNDATION_PROFILE.md](FOUNDATION_PROFILE.md) | `values-foundation.yaml` Portable Core · AWS starter 상세 |

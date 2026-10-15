@@ -39,10 +39,13 @@ def test_query_executor_passes_everything_through(monkeypatch):
         return {"ok": True}
     monkeypatch.setattr(service, "run_metric_query", fake)
     asyncio.run(metrics.query_metric({"metric": "revenue", "by": ["channel"],
-                                      "period": "last_month", "grain": None, "where": None},
+                                      "period": "last_month", "grain": None, "where": None,
+                                      "order_by": [{"field": "revenue", "desc": True}],
+                                      "limit": 5},
                                      {"id": "u"}))
     assert seen == {"metric": "revenue", "by": ["channel"], "period": "last_month",
-                    "grain": None, "where": []}
+                    "grain": None, "where": [],
+                    "order_by": [{"field": "revenue", "desc": True}], "limit": 5}
 
 
 def test_list_and_describe_executors_reach_the_service(monkeypatch):
@@ -60,3 +63,9 @@ def test_list_and_describe_executors_reach_the_service(monkeypatch):
     assert asyncio.run(metrics.list_metrics({"catalog": "glue"}, {})) == {
         "metrics": [{"name": "revenue", "catalog": "glue"}]}
     assert asyncio.run(metrics.describe_metric({"metric": "revenue"}, {})) == {"name": "revenue"}
+
+
+@pytest.mark.parametrize("limit", [True, "5", 2.0, 0, 1001])
+def test_query_params_hold_limit_to_a_strict_integer_in_range(limit):
+    with pytest.raises(ValidationError):
+        BY_ID["metric.query"].params.model_validate({"metric": "revenue", "limit": limit})

@@ -11,7 +11,7 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from app import catalog_access, catalog_registry, security_audit
 from app.api.auth import require_admin, require_permission, require_user
@@ -67,6 +67,8 @@ class PreviewBody(BaseModel):
     period: Optional[str] = None
     grain: Optional[str] = None
     where: List[dict] = Field(default_factory=list)
+    order_by: List[dict] = Field(default_factory=list)
+    limit: Optional[StrictInt] = Field(default=None, ge=1, le=1000)
 
 
 class JoinBody(BaseModel):
@@ -285,8 +287,10 @@ async def describe_metric(name: str, user: dict = Depends(require_user)):
             pending = {"version": p.version, "catalog": p.catalog, "base_table": p.base_table,
                        "measure": p.measure, "filters": p.filters,
                        "example_sql": _example_sql(name, p, access.resolve(p.catalog))}
-    if not insider:
-        versions = [x for x in versions if x["approved_at"]]
+    # A version on a catalog this caller cannot use is not shown, as the metric would
+    # not be if its current version were there.
+    versions = [x for x in versions if access.allows(x["catalog"])
+                and (insider or x["approved_at"])]
     return {"metric": dict(service._public(meta, v), status=meta["status"],
                            owner_name=meta["owner_name"], current_version=meta["current_version"]),
             "versions": versions, "pending": pending, "broken": broken_reason is not None,
@@ -325,6 +329,18 @@ async def create_version(name: str, body: VersionBody,
     meta = await store.get_metric(pool, name)
     if not meta or meta["status"] == "retired":
         raise HTTPException(404, f"Unknown metric {name!r}.")
+    # A metric this caller cannot see (its catalog is hidden) is a missing one: the same
+    # 404, and no version written over it.
+    shown = meta["current_version"] or max((x["version"] for x in
+                                            await store.list_versions(pool, meta["id"])), default=None)
+    v = await store.get_version(pool, meta["id"], name, shown) if shown else None
+    if v is None or not (await catalog_access.for_caller(user)).allows(v.catalog):
+        raise HTTPException(404, f"Unknown metric {name!r}.")
+    # The spec gates authoring on governance:write and is silent on whose metric; a new
+    # version changes what an approver is asked to approve, so it is the owner's act or
+    # a signed-in admin's, not any author's.
+    if not (_is_admin(user) or (meta.get("owner_id") and meta["owner_id"] == str(user.get("id")))):
+        raise HTTPException(403, f"Only the owner of {name!r} or an administrator can add a version.")
     fields = await _checked_version(user, body, name)
     n = await store.insert_version(pool, metric_id=meta["id"], fields=fields,
                                    created_by=user.get("id"), created_by_name=user.get("username"),
@@ -339,7 +355,8 @@ async def preview(name: str, body: PreviewBody,
                   user: dict = Depends(require_permission("governance:write"))):
     _require_person(user)
     return await service.run_metric_query(user, metric=name, by=body.by, period=body.period,
-                                          grain=body.grain, where=body.where, version=body.version)
+                                          grain=body.grain, where=body.where, version=body.version,
+                                          order_by=body.order_by, limit=body.limit)
 
 
 class QueryBody(BaseModel):
@@ -348,6 +365,8 @@ class QueryBody(BaseModel):
     period: Optional[str] = None
     grain: Optional[str] = None
     where: List[dict] = Field(default_factory=list)
+    order_by: List[dict] = Field(default_factory=list)
+    limit: Optional[StrictInt] = Field(default=None, ge=1, le=1000)
 
 
 @router.post("/semantic/metrics/{name}/query")
@@ -355,7 +374,8 @@ async def query(name: str, body: QueryBody, user: dict = Depends(require_permiss
     """The console's way to metric.query (SQL Lab's "Query as metric"). Same service,
     same single `metric.query` audit row as the MCP tool."""
     return await service.run_metric_query(user, metric=name, by=body.by, period=body.period,
-                                          grain=body.grain, where=body.where)
+                                          grain=body.grain, where=body.where,
+                                          order_by=body.order_by, limit=body.limit)
 
 
 @router.post("/semantic/metrics/{name}/versions/{version}/approve")

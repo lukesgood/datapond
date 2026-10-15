@@ -2,7 +2,8 @@
 import pytest
 
 from app.semantic.model import DefinitionError
-from app.semantic.validate import check_name, validate_filters, validate_grains, validate_measure
+from app.semantic.validate import (check_name, checked_stored, validate_filters, validate_grains,
+                                   validate_measure)
 
 COLS = ["amount", "status", "channel", "ordered_at"]
 
@@ -92,3 +93,14 @@ def test_untokenisable_filter_is_a_definition_error():
     with pytest.raises(DefinitionError) as e:
         validate_filters("status = 'paid", COLS, "athena")
     assert e.value.field == "filters"
+
+
+@pytest.mark.parametrize("field,text", [
+    ("measure", "SUM(COUNT(amount))"),
+    ("filters", "SUM(amount) > 0"),
+    ("filters", "amount + 1"),
+])
+def test_stored_recheck_holds_the_save_time_shape_rules(field, text):
+    """A row that bypassed save-time validation is refused before compile, not run."""
+    with pytest.raises(ValueError, match="Stored"):
+        checked_stored(field, text, "athena")

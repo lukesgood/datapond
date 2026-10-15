@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { aiSqlMetricView, approvalWarning, fieldError, joinCandidatePayload, metricStatusBadge, pendingApproval, retryWithoutPeriod, versionDiff, type MetricDetail, type MetricVersionRow, type RelationshipEdge } from "./metrics.ts"
+import { aiSqlMetricView, approvalWarning, fieldError, joinCandidatePayload, metricStatusBadge, pendingApproval, retryWithoutPeriod, unresolvedJoinDims, versionDiff, type MetricDetail, type MetricVersionRow, type RelationshipEdge } from "./metrics.ts"
 
 test("status badge: approved with a version, draft, retired", () => {
   assert.deepEqual(metricStatusBadge({ status: "approved", current_version: 3 }), { label: "v3", tone: "ok" })
@@ -94,4 +94,13 @@ test("metric query retries without a period only when the metric has no time col
   assert.equal(retryWithoutPeriod(400, "This metric has no time column; omit period."), true)
   assert.equal(retryWithoutPeriod(400, "Unknown dimension 'x'."), false)
   assert.equal(retryWithoutPeriod(404, "This metric has no time column; omit period."), false)
+})
+
+test("a copied dimension whose join is not matched to an approved join blocks save", () => {
+  const ref = { to_table: "sales.customers", on: [["customer_id", "id"]] }
+  assert.deepEqual(unresolvedJoinDims([
+    { name: "region", join_id: null, joinRef: ref },      // joins not loaded, or no longer approved
+    { name: "segment", join_id: 4, joinRef: ref },        // matched
+    { name: "channel", join_id: null },                   // a base-table column
+  ]), ["region"])
 })

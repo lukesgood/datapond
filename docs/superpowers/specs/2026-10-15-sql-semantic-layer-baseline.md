@@ -115,3 +115,19 @@ order_count, revenue (status <> 'cancelled'), avg_order_amount, avg_discount, cu
 - `suggested_metric` uses verbatim label/synonym matching, which is stricter than the questions' wording. Examples: "주문은 총 몇 건" vs "주문 건수", and "청구서의 금액 합계" vs "청구서 금액 합계". It also matches a word without understanding scope ("매출" in Q14 suggests `revenue`). Follow-up: token-level matching, plus a note that the suggestion is a hint.
 - `tools/list` on live shows 28 of the 29 READ tools. The one hidden is `pipelines.recent_runs`, whose `pipelines` capability is off on the AWS single-node profile. This is per-deployment capability gating, as designed.
 - During measurement the backend pod restarted once (exit 137). Five in-pod measurement scripts were running at once, so the measurement load caused it, not product traffic. It recovered without intervention.
+
+---
+
+# Backend memory check (2026-10-16, live 2.3.0-5d79ca9)
+
+Why: the backend pod restarted once (exit 137) during the after-measurement.
+
+- Limits (live = chart): 2 replicas, requests 500m / 512Mi, limits 1 CPU / 1Gi. The node had 11.9 GiB available.
+- Idle after the 07:30 start: 324Mi and 332Mi; restarts 0.
+- Load, in-pod against one replica's uvicorn (PID 1 VmHWM):
+  - 20 concurrent requests (12 `metric_query`, 4 `/ai/sql`, 4 `SELECT ... LIMIT 1000`): all 200 in 9.3 s; peak 542 MiB.
+  - Then 40 concurrent requests (24 / 8 / 8): all 200 in 13.4 s; peak 560 MiB.
+  - The process keeps that memory after the load (Python allocator), so the steady state after traffic is about 550 MiB.
+- Reading: product traffic at 40 concurrent requests uses about 55% of the 1Gi limit.
+  - The restart came from the measurement method. Each in-pod Python harness loads the whole app, about 150 to 300 MiB, inside the backend container's cgroup. Five harnesses plus the server went past 1Gi.
+- Rule: run in-pod harnesses one at a time, or as a separate Job pod. No chart change.
