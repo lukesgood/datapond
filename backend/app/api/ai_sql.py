@@ -26,7 +26,7 @@ from sqlglot import exp
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import List, Optional
 
 from app.guardrails import pii_ko
 from app.api.ai_backends import egress_policy, is_external_provider, provider_of_model
@@ -205,14 +205,16 @@ def _schema_for_catalog(schema_ctx: str, entry, prefix: str) -> str:
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
 
-def _build_messages(schema_ctx: str, question: str, context: Optional[str]) -> tuple[str, list]:
+def _build_messages(schema_ctx: str, question: str, context: Optional[str],
+                    metrics_block: str = "") -> tuple[str, list]:
     from app.api.query_engine import get_engine
     eng = get_engine()
+    metrics_part = f"\n{metrics_block}\n" if metrics_block else ""
     system = f"""You are an expert SQL assistant for DataPond, an AI Data Foundation.
 {eng.ai_dialect_prompt}
 
 {schema_ctx}
-
+{metrics_part}
 Rules:
 - Always use fully-qualified table names: {eng.ai_table_prefix}.<schema>.<table>
 - Presto/Trino SQL dialect: double-quote identifiers, no backticks
@@ -455,6 +457,11 @@ class AskResponse(BaseModel):
     # The model answered, but with a question rather than a query. The client must
     # show `explanation` and leave the editor alone — there is no SQL to paste.
     needs_input: bool = False
+    # Metric definitions put in the prompt ("revenue@v3"). Given, not necessarily used.
+    metrics_provided: List[str] = []
+    # A metric whose label or synonym occurs verbatim in the question: the cited,
+    # deterministic path (metric.query) for the same answer.
+    suggested_metric: Optional[dict] = None
 
 
 # ── Route ─────────────────────────────────────────────────────────────────────
@@ -516,7 +523,15 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
             needs_input=True,
         )
 
-    system, messages = _build_messages(schema_ctx, q_text, c_text or None)
+    metrics_block, metrics_provided, suggested = "", [], None
+    try:
+        from app.semantic import context as metric_context
+        visible_metrics = await metric_context.for_caller(user, req.catalog)
+        metrics_block, metrics_provided = metric_context.metric_lines(visible_metrics, q_text)
+        suggested = metric_context.suggest(visible_metrics, q_text)
+    except Exception as e:      # the semantic tables are optional context, never a blocker
+        logger.info("[ai_sql] metric context unavailable: %s", e)
+    system, messages = _build_messages(schema_ctx, q_text, c_text or None, metrics_block)
 
     cfg = _cfg()
 
@@ -558,6 +573,8 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
                     provider=provider,
                     pii_masked=pii_count,
                     needs_input=True,
+                    metrics_provided=metrics_provided,
+                    suggested_metric=suggested,
                 )
 
             sql = data["sql"].strip()
@@ -603,6 +620,8 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
                 pii_masked=pii_count,
                 validated=validated,
                 validation_error=verr,
+                metrics_provided=metrics_provided,
+                suggested_metric=suggested,
             )
 
     # ── 2. Graceful fallback — schema-aware SQL template ──────────────────────
@@ -628,6 +647,8 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
         has_ai=False,
         provider="none",
         pii_masked=pii_count,
+        metrics_provided=metrics_provided,
+        suggested_metric=suggested,
     )
 
 
@@ -649,6 +670,7 @@ async def generate_sql(req: AskRequest, user: dict = Depends(require_user)):
                                resource=[], request_text=masked_question,
                                hit_count=0,
                                pii_masked=int(resp.pii_masked or 0),
+                               citation_sources=[f"context:metric:{x}" for x in resp.metrics_provided] or None,
                                outcome="ok" if resp.has_ai else "degraded",
                                duration_ms=int((time.perf_counter() - started) * 1000))
     return resp
