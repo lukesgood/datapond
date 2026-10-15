@@ -174,7 +174,8 @@ bypasses governance. The response carries:
 ```
 
 `sql` is the compiled statement before RLS rewriting, so a person can re-run it.
-`rls_applied` is true when any RLS policy or mask applied to the statement; `pii_masked` counts values masked. `rls_applied` tells the reader that the same definition can give different numbers to
+`rls_applied` is true when any RLS policy or mask applied to the statement — including a
+mask alone, with no row filter; `pii_masked` counts values masked. `rls_applied` tells the reader that the same definition can give different numbers to
 different callers.
 
 ## 3. Tools, API, audit
@@ -205,14 +206,18 @@ out of v1.
 - `POST /semantic/metrics/{name}/query` (`query:run`) is the console/SQL Lab route for `metric.query`.
 - A non-current version (approved or not) is reachable only by its author or a signed-in admin.
 - Approve version, retire metric: `require_admin`. Service-account keys and IdP tokens
-  never pass it, so **agents cannot change definitions**.
+  never pass it, so **agents cannot change definitions**. Approval only moves forward: a
+  version older than the current one is refused (409).
+- Describe shows authors and approvers the newest unapproved version as `pending` (its
+  measure, filters, base table and example SQL), which is what "Approve" approves; other
+  viewers see approved versions only.
 - Joins: list candidates (history + naming), approve (`require_admin`, runs the
   many-to-one check), manual entry (same check).
 
 ### Audit
 
 - Each `metric.query` writes one `tool_call_log` row: `tool="metric.query"`,
-  `resource_kind="metric"`, `resource=["revenue"]`,
+  `resource_kind="metric"` (0023 widens 0008's `resource_kind` CHECK to allow it), `resource=["revenue"]`,
   `citation_sources=["metric:revenue@v3"]`, `pii_masked`, `outcome`, `duration_ms`, and
   the compiled SQL in `response_text`.
 - Execution calls `_execute_query_impl` directly, not the `/queries/execute` wrapper, so

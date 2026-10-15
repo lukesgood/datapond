@@ -163,7 +163,10 @@ audit tables: it stops the application's normal code paths, not the owning datab
 which can disable a trigger. It is not tamper-proof. The MCP surface grows from 26 to 29
 read actions (`metric_list`, `metric_describe`, `metric_query`), available only where the
 `query` capability is on. No setting is required; no metric exists until an administrator
-approves one under Metrics in the console. `/ai/sql` responses gain `metrics_provided` and
+approves one under Metrics in the console. Named periods (`last_month`, `this_quarter`, …)
+resolve in `SEMANTIC_TIMEZONE`, default `Asia/Seoul`; set it on the backend if your
+business calendar is elsewhere. The same migration widens `tool_call_log`'s
+`resource_kind` constraint to allow `metric`, the kind each `metric_query` audit row carries. `/ai/sql` responses gain `metrics_provided` and
 `suggested_metric`.
 
 ## 2026-09 — An MCP endpoint, read-only, on the key you already have

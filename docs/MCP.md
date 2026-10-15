@@ -56,6 +56,8 @@ are absent on the Portable Core. `metric_query` takes `metric`, `by`, `period`, 
 and `where`, compiles the SQL deterministically from an approved definition, executes it
 through the same RLS and masking path as `/queries/execute`, and returns the rows with a
 citation (metric, version, approver, the compiled SQL, `rls_applied`, `pii_masked`).
+`rls_applied` is true when any row policy or column mask rewrote the statement, so a mask
+alone sets it. Each call writes one `metric.query` row to the tool-call audit log.
 Definitions are authored and approved in the console, never over MCP.
 
 ## What it costs
