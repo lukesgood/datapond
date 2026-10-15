@@ -262,7 +262,7 @@ def test_relationships_endpoint_can_include_ai_history_on_request(monkeypatch):
 
     class _Q:
         def filter(self, expr):
-            filters.append(str(expr))
+            filters.append(str(expr.compile(compile_kwargs={"literal_binds": True})))
             return self
         def order_by(self, *a, **k): return self
         def limit(self, n): return self
@@ -274,7 +274,7 @@ def test_relationships_endpoint_can_include_ai_history_on_request(monkeypatch):
     monkeypatch.setattr(q, "_catalog_schema_for_graph", lambda: {})
     res = asyncio.run(q.catalog_relationships(days=30, include_ai=True, db=_DB(),
                                               user={"id": "00000000-0000-0000-0000-0000000000aa"}))
-    assert not any("origin" in f for f in filters)
+    assert not any("ai_sql" in f for f in filters)
     assert res["includes_ai_generated"] is True
 
 

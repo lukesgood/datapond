@@ -49,6 +49,7 @@ from app.api.maintenance import router as maintenance_router, deploy_maintenance
 from app.api.webauthn import router as webauthn_router
 from app.api.audit_export import router as audit_export_router
 from app.api.tool_call_routes import router as tool_call_router
+from app.api.semantic import router as semantic_router
 from app.api.source_access import router as source_members_router
 from app.api.sample_api import router as sample_api_router
 from app.mcp.server import router as mcp_router
@@ -512,6 +513,7 @@ app.include_router(maintenance_router, prefix="/api",
 app.include_router(webauthn_router, prefix="/api")
 app.include_router(audit_export_router, prefix="/api")
 app.include_router(tool_call_router, prefix="/api")
+app.include_router(semantic_router, prefix="/api")
 # Sharing a connector or a transform with named people (D2). One router for both
 # kinds — see app/api/source_access.py for why they are not written twice.
 app.include_router(source_members_router, prefix="/api")

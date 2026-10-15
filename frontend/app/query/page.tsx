@@ -31,6 +31,8 @@ const SaveDashboardModal = dynamic(() => import("@/components/query/save-dashboa
 const LogToMlflowModal = dynamic(() => import("@/components/query/log-to-mlflow-modal").then(m => ({ default: m.LogToMlflowModal })), { ssr: false })
 const OpenInNotebookModal = dynamic(() => import("@/components/query/open-in-notebook-modal").then(m => ({ default: m.OpenInNotebookModal })), { ssr: false })
 import { useToast } from "@/lib/toast"
+import { responseErrorMessage } from "@/lib/auth"
+import { aiSqlMetricView, retryWithoutPeriod } from "@/lib/metrics"
 import { useCapabilities, useCapability, CapabilityGate } from "@/lib/capabilities"
 import { AnalyticsTabs } from "@/components/query/analytics-tabs"
 import { DashboardsGallery } from "@/components/dashboards/dashboards-gallery"
@@ -103,6 +105,7 @@ function QueryPageInner() {
   const [aiQuestion, setAiQuestion]         = useState("")
   const [aiLoading, setAiLoading]           = useState(false)
   const [aiExplanation, setAiExplanation]   = useState<string | null>(null)
+  const [aiMetrics, setAiMetrics]           = useState<{ chips: string[]; suggestion: string | null }>({ chips: [], suggestion: null })
   const [aiCheck, setAiCheck]               = useState<{ ok: boolean | null; error?: string | null } | null>(null)
   const [planReview, setPlanReview]         = useState<PlanReview | null>(null)
   const [planLoading, setPlanLoading]       = useState(false)
@@ -204,6 +207,7 @@ function QueryPageInner() {
     if (!aiQuestion.trim() || aiLoading) return
     setAiLoading(true)
     setAiExplanation(null)
+    setAiMetrics({ chips: [], suggestion: null })
     setAiCheck(null)
     try {
       const res = await fetch("/api/ai/sql", {
@@ -213,6 +217,7 @@ function QueryPageInner() {
       })
       if (!res.ok) throw new Error("AI request failed")
       const data = await res.json()
+      setAiMetrics(aiSqlMetricView(data))
       // Only replace the editor when there is a statement. A clarifying question or
       // an empty catalog returns no SQL, and pasting that over the user's work — or
       // pasting prose as if it were runnable — is worse than doing nothing.
@@ -233,6 +238,36 @@ function QueryPageInner() {
       toast(error instanceof Error ? error.message : "AI request failed", "error")
     } finally {
       setAiLoading(false)
+    }
+  }
+
+  // The approved definition, computed by the server: the result carries its own citation
+  // (version, approver, the SQL that ran), which replaces the editor text.
+  const runAsMetric = async (name: string) => {
+    const post = (body: object) => fetch(`/api/semantic/metrics/${encodeURIComponent(name)}/query`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    })
+    try {
+      let res = await post({ period: "last_month" })
+      // A metric without a time column answers 400 to a period: ask for it unbounded.
+      // Any other error is the first one, shown as is.
+      if (!res.ok) {
+        const message = await responseErrorMessage(res, "Metric query failed")
+        if (!retryWithoutPeriod(res.status, message)) { toast(message, "error"); return }
+        res = await post({})
+        if (!res.ok) { toast(await responseErrorMessage(res, "Metric query failed"), "error"); return }
+      }
+      const data = await res.json()
+      // The editor now holds the metric's SQL, not the generated statement: the AI
+      // check, plan review and ai_sql attribution belonged to that statement.
+      setAiCheck(null); setPlanReview(null); setAiGeneratedSql(null)
+      setQuery(data.citation.sql)
+      setError(null)
+      setResults({ columns: data.columns, rows: data.rows, truncated: data.truncated, execution_time_ms: 0 })
+      setQueryStatus("success")
+      toast(`${name} v${data.citation.version} · approved by ${data.citation.approved_by}`, "success")
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Metric query failed", "error")
     }
   }
 
@@ -531,6 +566,22 @@ function QueryPageInner() {
           </div>
         )}
       </div>
+
+      {(aiMetrics.chips.length > 0 || aiMetrics.suggestion) && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-1.5 text-xs text-muted-foreground">
+          {aiMetrics.chips.length > 0 && (
+            <>
+              <span>Provided definitions:</span>
+              {aiMetrics.chips.map(c => <Badge key={c} variant="outline">{c}</Badge>)}
+            </>
+          )}
+          {aiMetrics.suggestion && (
+            <Button size="sm" variant="outline" onClick={() => void runAsMetric(aiMetrics.suggestion!)}>
+              Query as metric ({aiMetrics.suggestion})
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* ── Plan review — what this statement actually reads ─────────────────── */}
       {planReview && planReview.accessed.length > 0 && (

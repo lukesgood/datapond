@@ -136,7 +136,8 @@ def test_tool_definitions_describe_only_permitted_actions():
     tools = tool_definitions({"catalog:read"}, page="*", capabilities=CAPS)
     names = {t["name"] for t in tools}
     assert names and names <= {"catalog.describe_table", "catalog.find_tables",
-                               "catalog.explain_relationships"}
+                               "catalog.explain_relationships", "metric.list",
+                               "metric.describe"}
 
 
 def test_a_tool_definition_carries_a_usable_schema():

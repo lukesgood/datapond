@@ -94,7 +94,7 @@ DataPond는 이 **호출자 단위 거버넌스가 붙은 데이터 도구 면**
 
 ### 2. 도구로서의 인용 RAG와 governed SQL
 
-- REST/OpenAPI와 MCP 2026-07-28(stateless HTTP) read 전용 서버(26개 read 액션). 에이전트가 직접
+- REST/OpenAPI와 MCP 2026-07-28(stateless HTTP) read 전용 서버(29개 read 액션, metric 조회 포함). 에이전트가 직접
   붙는 경로이며, 조직에 게이트웨이가 있으면 `GET /api/tools/openapi.json`(anyOf 없는 3.0)이나 MCP
   엔드포인트를 타깃으로 등록한다.
 - `/api/ai/search`, `/api/ai/rag`: pgvector HNSW 검색, 선택적 rerank, `[n]` 인용, 실패 시 hit만 반환
