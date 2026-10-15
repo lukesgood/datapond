@@ -17,9 +17,15 @@ export type MetricVersionRow = {
   created_by_name?: string | null; change_note?: string; created_at?: string | null
   approved_by_name?: string | null; approved_at?: string | null
 }
+/** The newest unapproved version — what "Approve vN" approves — with its own SQL. The
+ *  server sends it only to viewers who may author or approve. */
+export type PendingVersion = {
+  version: number; catalog: string; base_table: string; measure: string; filters: string | null
+  example_sql: string | null
+}
 export type MetricDetail = {
   metric: MetricSummary & { version?: number; measure?: string; filters?: string | null; base_table?: string }
-  versions: MetricVersionRow[]; broken: boolean; broken_reason: string | null
+  versions: MetricVersionRow[]; pending: PendingVersion | null; broken: boolean; broken_reason: string | null
   example_sql: string | null; partition_info: string; recent_queries: number
 }
 export type AiSqlMetricInfo = { metrics_provided?: string[]; suggested_metric?: { name: string } | null }
@@ -30,8 +36,11 @@ export function metricStatusBadge(m: { status: string; current_version: number |
   return { label: "draft", tone: "draft" as const }
 }
 
+// A dimension shows its column (through its join's table), so a column or join change
+// is visible in the diff, not only a rename.
+const dim = (d: DimensionRow) => `${d.name}:${d.join ? `${d.join.to_table}.` : ""}${d.column}`
 const show = (v: unknown): string =>
-  Array.isArray(v) ? v.map(x => (typeof x === "object" ? (x as DimensionRow).name : String(x))).join(", ")
+  Array.isArray(v) ? v.map(x => (x && typeof x === "object" ? dim(x as DimensionRow) : show(x))).join(", ")
     : v === null || v === undefined ? "—" : String(v)
 
 const FIELDS: (keyof MetricVersionRow)[] =
@@ -41,6 +50,17 @@ export function versionDiff(prev: MetricVersionRow | undefined, next: MetricVers
   if (!prev) return ["first version"]
   return FIELDS.filter(f => JSON.stringify(prev[f]) !== JSON.stringify(next[f]))
     .map(f => `${f}: ${show(prev[f])} → ${show(next[f])}`)
+}
+
+export function pendingApproval(detail: MetricDetail | null): PendingVersion | null {
+  if (!detail || detail.metric.status === "retired") return null
+  return detail.pending ?? null
+}
+
+/** A metric without a time column answers 400 to a period; only that error is retried
+ *  without one. Any other 400 is the caller's to see. */
+export function retryWithoutPeriod(status: number, message: string): boolean {
+  return status === 400 && /no time column/i.test(message)
 }
 
 export function fieldError(detail: unknown): { field: string; message: string } | null {

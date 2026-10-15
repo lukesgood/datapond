@@ -13,7 +13,7 @@ import { useConfirm } from "@/lib/confirm"
 import { useToast } from "@/lib/toast"
 import { responseErrorMessage } from "@/lib/auth"
 import {
-  approvalWarning, fieldError, joinCandidatePayload, metricStatusBadge, versionDiff,
+  approvalWarning, fieldError, joinCandidatePayload, metricStatusBadge, pendingApproval, versionDiff,
   type CatalogEntry, type DimensionRow, type MetricDetail, type MetricSummary, type RelationshipEdge, type Viewer,
 } from "@/lib/metrics"
 
@@ -52,18 +52,20 @@ function MetricsPage() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load() }, [load])
 
-  const newest = detail?.versions[0]
+  // What "Approve vN" approves is the server's pending version, shown with its own SQL —
+  // never the approved version's fields under a newer number.
+  const pending = pendingApproval(detail)
   const approve = async () => {
-    if (!detail || !newest) return
+    if (!detail || !pending) return
     const warn = approvalWarning(detail.partition_info)
     if (!(await confirm({
-      title: `Approve ${detail.metric.name} v${newest.version}`,
-      message: `Agents will compute this metric from v${newest.version}.${warn ? ` ${warn}` : ""}`,
+      title: `Approve ${detail.metric.name} v${pending.version}`,
+      message: `Agents will compute this metric from v${pending.version}: ${pending.measure}${pending.filters ? ` WHERE ${pending.filters}` : ""}.${warn ? ` ${warn}` : ""}${pending.example_sql ? `\n\n${pending.example_sql}` : ""}`,
       confirmText: "Approve",
     }))) return
     try {
-      await jsonOrThrow(await fetch(`/api/semantic/metrics/${detail.metric.name}/versions/${newest.version}/approve`, { method: "POST" }), "Approval failed")
-      toast(`${detail.metric.name} v${newest.version} approved`, "success")
+      await jsonOrThrow(await fetch(`/api/semantic/metrics/${detail.metric.name}/versions/${pending.version}/approve`, { method: "POST" }), "Approval failed")
+      toast(`${detail.metric.name} v${pending.version} approved`, "success")
       await load(); await open(detail.metric.name)
     } catch (e) { toast(e instanceof Error ? e.message : "Approval failed", "error") }
   }
@@ -128,7 +130,7 @@ function MetricsPage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {viewer.can_author && detail.metric.status !== "retired" && <Button size="sm" variant="outline" onClick={() => setEditing("version")}>New version</Button>}
-                  {viewer.can_approve && newest && !newest.approved_at && <Button size="sm" onClick={approve}>Approve v{newest.version}</Button>}
+                  {viewer.can_approve && pending && detail.metric.status !== "retired" && <Button size="sm" onClick={approve}>Approve v{pending.version}</Button>}
                   {viewer.can_approve && detail.metric.status !== "retired" && <Button size="sm" variant="ghost" onClick={retire}>Retire</Button>}
                 </div>
               </CardHeader>
@@ -141,6 +143,17 @@ function MetricsPage() {
                   <dt className="text-muted-foreground">Synonyms</dt><dd>{detail.metric.synonyms.join(", ") || "—"}</dd>
                 </dl>
                 {detail.example_sql && <pre className="overflow-x-auto rounded bg-muted p-2 text-xs">{detail.example_sql}</pre>}
+                {pending && pending.version !== detail.metric.version && (
+                  <div className="space-y-1 rounded border border-dashed p-2">
+                    <h3 className="font-medium">Pending v{pending.version} (not approved)</h3>
+                    <dl className="grid grid-cols-[8rem_minmax(0,1fr)] gap-x-3 gap-y-1">
+                      <dt className="text-muted-foreground">Measure</dt><dd className="font-mono">{pending.measure}</dd>
+                      <dt className="text-muted-foreground">Table</dt><dd className="font-mono">{pending.catalog}.{pending.base_table}</dd>
+                      <dt className="text-muted-foreground">Filters</dt><dd className="font-mono">{pending.filters ?? "—"}</dd>
+                    </dl>
+                    {pending.example_sql && <pre className="overflow-x-auto rounded bg-muted p-2 text-xs">{pending.example_sql}</pre>}
+                  </div>
+                )}
                 <div>
                   <h3 className="mb-1 font-medium">Versions</h3>
                   <ul className="space-y-2">
@@ -218,22 +231,26 @@ function MetricEditor({ mode, base, onDone, onCancel }: {
     const body = mode === "new"
       ? { name, label, synonyms: synonyms.split(",").map(s => s.trim()).filter(Boolean), version: version() }
       : version()
-    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-    if (res.ok) { const d = await res.json(); toast(`${d.name} v${d.version} saved as draft`, "success"); onDone(d.name); return }
-    const data = await res.json().catch(() => ({}))
-    const fe = fieldError(data.detail)
-    if (fe) setErrors({ [fe.field]: fe.message })
-    else toast(typeof data.detail === "string" ? data.detail : "Save failed", "error")
+    try {
+      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      if (res.ok) { const d = await res.json(); toast(`${d.name} v${d.version} saved as draft`, "success"); onDone(d.name); return }
+      const data = await res.json().catch(() => ({}))
+      const fe = fieldError(data.detail)
+      if (fe) setErrors({ [fe.field]: fe.message })
+      else toast(typeof data.detail === "string" ? data.detail : "Save failed", "error")
+    } catch (e) { toast(e instanceof Error ? e.message : "Save failed", "error") }
   }
   const runPreview = async () => {
     const latest = base?.versions[0]?.version
     if (!latest) return
-    const res = await fetch(`/api/semantic/metrics/${name}/preview`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ version: latest, ...(base?.versions[0]?.time_column ? { period: "last_month" } : {}) }),
-    })
-    if (!res.ok) { toast(await responseErrorMessage(res, "Preview failed"), "error"); return }
-    setPreview(await res.json())
+    try {
+      const res = await fetch(`/api/semantic/metrics/${name}/preview`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: latest, ...(base?.versions[0]?.time_column ? { period: "last_month" } : {}) }),
+      })
+      if (!res.ok) { toast(await responseErrorMessage(res, "Preview failed"), "error"); return }
+      setPreview(await res.json())
+    } catch (e) { toast(e instanceof Error ? e.message : "Preview failed", "error") }
   }
   const err = (f: string) => errors[f] && <p className="text-xs text-destructive">{errors[f]}</p>
   const usable = joins.filter(j => j.catalog.toLowerCase() === catalog.toLowerCase() && j.from_table.toLowerCase() === table.toLowerCase())
@@ -318,12 +335,14 @@ function JoinsTab({ canApprove }: { canApprove: boolean }) {
   const approve = async (e: RelationshipEdge, reversed: boolean) => {
     const body = joinCandidatePayload(e, catalogs, reversed)
     if (!body) return
-    const res = await fetch("/api/semantic/joins", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-    })
-    if (res.ok) { toast("Join approved", "success"); await load(); return }
-    const data = await res.json().catch(() => ({}))
-    toast(fieldError(data.detail)?.message ?? (typeof data.detail === "string" ? data.detail : "Approval failed"), "error")
+    try {
+      const res = await fetch("/api/semantic/joins", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      })
+      if (res.ok) { toast("Join approved", "success"); await load(); return }
+      const data = await res.json().catch(() => ({}))
+      toast(fieldError(data.detail)?.message ?? (typeof data.detail === "string" ? data.detail : "Approval failed"), "error")
+    } catch (err) { toast(err instanceof Error ? err.message : "Approval failed", "error") }
   }
 
   return (

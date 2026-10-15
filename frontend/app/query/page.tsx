@@ -32,7 +32,7 @@ const LogToMlflowModal = dynamic(() => import("@/components/query/log-to-mlflow-
 const OpenInNotebookModal = dynamic(() => import("@/components/query/open-in-notebook-modal").then(m => ({ default: m.OpenInNotebookModal })), { ssr: false })
 import { useToast } from "@/lib/toast"
 import { responseErrorMessage } from "@/lib/auth"
-import { aiSqlMetricView } from "@/lib/metrics"
+import { aiSqlMetricView, retryWithoutPeriod } from "@/lib/metrics"
 import { useCapabilities, useCapability, CapabilityGate } from "@/lib/capabilities"
 import { AnalyticsTabs } from "@/components/query/analytics-tabs"
 import { DashboardsGallery } from "@/components/dashboards/dashboards-gallery"
@@ -250,9 +250,17 @@ function QueryPageInner() {
     try {
       let res = await post({ period: "last_month" })
       // A metric without a time column answers 400 to a period: ask for it unbounded.
-      if (res.status === 400) res = await post({})
-      if (!res.ok) { toast(await responseErrorMessage(res, "Metric query failed"), "error"); return }
+      // Any other error is the first one, shown as is.
+      if (!res.ok) {
+        const message = await responseErrorMessage(res, "Metric query failed")
+        if (!retryWithoutPeriod(res.status, message)) { toast(message, "error"); return }
+        res = await post({})
+        if (!res.ok) { toast(await responseErrorMessage(res, "Metric query failed"), "error"); return }
+      }
       const data = await res.json()
+      // The editor now holds the metric's SQL, not the generated statement: the AI
+      // check, plan review and ai_sql attribution belonged to that statement.
+      setAiCheck(null); setPlanReview(null); setAiGeneratedSql(null)
       setQuery(data.citation.sql)
       setError(null)
       setResults({ columns: data.columns, rows: data.rows, truncated: data.truncated, execution_time_ms: 0 })

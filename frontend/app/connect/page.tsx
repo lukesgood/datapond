@@ -134,7 +134,7 @@ function McpCard({ origin }: { origin: string }) {
         </CardTitle>
         <CardDescription>
           Model Context Protocol at <code className="font-mono">POST /api/mcp</code> — the
-          same 26 read actions as tools, for an agent that discovers its tools instead of
+          same 29 read actions as tools, for an agent that discovers its tools instead of
           being wired to them by hand. Read-only, and authenticated with the same
           service-account key as the REST endpoints below.
         </CardDescription>
