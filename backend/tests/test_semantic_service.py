@@ -122,8 +122,9 @@ def test_retired_or_unapproved_metric_is_404(env):
         _run(service.run_metric_query(ANA, metric="revenue", period="last_month"))
     assert e.value.status_code == 404
     env["meta"] = dict(META, status="draft", current_version=None)
-    with pytest.raises(HTTPException):
+    with pytest.raises(HTTPException) as e:
         _run(service.run_metric_query(ANA, metric="revenue", period="last_month"))
+    assert e.value.status_code == 404
 
 
 def test_bad_input_is_400_with_allowed_values_and_audited(env):
@@ -168,3 +169,40 @@ def test_an_execution_refusal_is_audited_as_refused(env, monkeypatch):
         _run(service.run_metric_query(ANA, metric="revenue", period="last_month"))
     assert e.value.status_code == 403
     assert env["audit"][0]["outcome"] == "refused"
+
+
+def test_unexpected_resolve_failure_is_audited_as_error(env, monkeypatch):
+    async def boom(pool, name):
+        raise RuntimeError("pool down")
+    monkeypatch.setattr(service.store, "get_metric", boom)
+    with pytest.raises(RuntimeError):
+        _run(service.run_metric_query(ANA, metric="revenue", period="last_month"))
+    (row,) = env["audit"]
+    assert row["outcome"] == "error"
+
+
+def test_overflowing_period_is_a_400_refusal(env):
+    with pytest.raises(HTTPException) as e:
+        _run(service.run_metric_query(ANA, metric="revenue", period="9999-12-31..9999-12-31"))
+    assert e.value.status_code == 400
+    (row,) = env["audit"]
+    assert row["outcome"] == "refused"
+
+
+def test_superseded_approved_version_needs_author_or_admin(env, monkeypatch):
+    v2 = MetricVersion(metric="revenue", version=2, catalog="glue", base_table="sales.orders",
+                       measure="SUM(amount)", time_column="ordered_at", approved_by="root",
+                       approved_at="2026-09-01T00:00:00+00:00", created_by=ADMIN["id"])
+
+    async def get_version(pool, metric_id, metric_name, version):
+        return {2: v2, 3: V3}.get(version)
+    monkeypatch.setattr(service.store, "get_version", get_version)
+    with pytest.raises(HTTPException) as e:
+        _run(service.run_metric_query(ANA, metric="revenue", period="last_month", version=2))
+    assert e.value.status_code == 404
+    assert [r["outcome"] for r in env["audit"]] == ["refused"]
+    out = _run(service.run_metric_query(ADMIN, metric="revenue", period="last_month", version=2))
+    assert out["citation"]["version"] == 2
+    # asking for the current version by number is the ordinary approved path
+    out = _run(service.run_metric_query(ANA, metric="revenue", period="last_month", version=3))
+    assert out["citation"]["version"] == 3

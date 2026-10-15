@@ -66,7 +66,11 @@ async def resolve_visible(user: dict, name: str, version: Optional[int] = None):
         v = await store.get_version(pool, meta["id"], name, meta["current_version"])
     else:
         v = await store.get_version(pool, meta["id"], name, version)
-        if v is None or (v.approved_at is None and not _may_preview(user, v)):
+        # Agents use only the approved current version; any other (draft or superseded)
+        # is for its author or a signed-in admin.
+        if v is None or (version != meta["current_version"] and not _may_preview(user, v)):
+            raise MetricNotFound(name)
+        if v.approved_at is None and not _may_preview(user, v):
             raise MetricNotFound(name)
     if v is None:
         raise MetricNotFound(name)
@@ -107,17 +111,19 @@ async def run_metric_query(user: dict, *, metric: str, by: Sequence[str] = (),
 
     try:
         _meta, v, entry = await resolve_visible(user, metric, version)
-    except MetricNotFound:
-        await audit("refused")
-        raise _not_found(metric)
-    try:
         compiled = compile_metric(v, engine_catalog=entry.engine_catalog, dialect=_dialect(),
                                   today=today_local(), by=list(by), period=period,
                                   grain=grain, where=list(where or []))
+    except MetricNotFound:
+        await audit("refused")
+        raise _not_found(metric)
     except MetricInputError as e:
         await audit("refused")
         allowed = f" Allowed: {json.dumps(e.allowed, ensure_ascii=False)}" if e.allowed else ""
         raise HTTPException(status_code=400, detail=f"{e}{allowed}")
+    except Exception:
+        await audit("error")
+        raise
 
     cite = [f"metric:{v.metric}@v{v.version}"]
     try:

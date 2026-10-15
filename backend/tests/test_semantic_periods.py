@@ -32,7 +32,8 @@ def test_january_last_month_crosses_the_year():
 
 
 @pytest.mark.parametrize("period", ["yesterday", "last_n_days:0", "2026-03-31..2026-01-01",
-                                    "2026-13-01..2026-12-01", "", "last_n_days:x"])
+                                    "2026-13-01..2026-12-01", "", "last_n_days:x",
+                                    "9999-12-31..9999-12-31", "last_n_days:99999999999"])
 def test_bad_periods(period):
     with pytest.raises(MetricInputError):
         resolve_period(period, TODAY)

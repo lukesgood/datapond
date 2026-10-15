@@ -24,7 +24,7 @@ def resolve_period(period: str, today: date) -> Tuple[date, date]:
         try:
             start = date.fromisoformat(m.group(1))
             end = date.fromisoformat(m.group(2)) + timedelta(days=1)   # `to` is inclusive
-        except ValueError:
+        except (ValueError, OverflowError):
             raise MetricInputError("period has an invalid date.", {"period": FORMS})
         if end <= start:
             raise MetricInputError("period ends before it starts.", {"period": FORMS})
@@ -34,7 +34,10 @@ def resolve_period(period: str, today: date) -> Tuple[date, date]:
         n = int(m.group(1))
         if n < 1:
             raise MetricInputError("last_n_days needs N >= 1.", {"period": FORMS})
-        return today - timedelta(days=n - 1), today + timedelta(days=1)
+        try:
+            return today - timedelta(days=n - 1), today + timedelta(days=1)
+        except OverflowError:
+            raise MetricInputError("last_n_days is out of range.", {"period": FORMS})
     month0 = today.replace(day=1)
     quarter0 = date(today.year, 3 * ((today.month - 1) // 3) + 1, 1)
     ranges = {
