@@ -207,3 +207,16 @@ def test_superseded_approved_version_needs_author_or_admin(env, monkeypatch):
     # asking for the current version by number is the ordinary approved path
     out = _run(service.run_metric_query(ANA, metric="revenue", period="last_month", version=3))
     assert out["citation"]["version"] == 3
+
+
+def test_a_stored_definition_off_the_allow_list_is_audited_as_error(env, monkeypatch):
+    import dataclasses
+    bad = dataclasses.replace(V3, measure="SUM((SELECT 1))")
+
+    async def get_version(pool, metric_id, metric_name, version):
+        return bad
+    monkeypatch.setattr(service.store, "get_version", get_version)
+    with pytest.raises(ValueError):
+        _run(service.run_metric_query(ANA, metric="revenue", period="last_month"))
+    (row,) = env["audit"]
+    assert row["outcome"] == "error" and env["executed"] == []

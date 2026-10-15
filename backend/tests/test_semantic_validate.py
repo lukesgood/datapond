@@ -78,3 +78,17 @@ def test_grains_are_deduplicated_and_checked():
     assert validate_grains(["month", "day", "month"]) == ("month", "day")
     with pytest.raises(DefinitionError):
         validate_grains(["hour"])
+
+
+@pytest.mark.parametrize("text", ["SUM(amount) = 'x", "SUM(amount) WHERE \"x"])
+def test_untokenisable_measure_is_a_definition_error(text):
+    """An unterminated quote raises TokenError, not ParseError: still a 422, never a 500."""
+    with pytest.raises(DefinitionError) as e:
+        validate_measure(text, COLS, "athena")
+    assert e.value.field == "measure"
+
+
+def test_untokenisable_filter_is_a_definition_error():
+    with pytest.raises(DefinitionError) as e:
+        validate_filters("status = 'paid", COLS, "athena")
+    assert e.value.field == "filters"

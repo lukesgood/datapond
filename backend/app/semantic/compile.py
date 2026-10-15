@@ -3,17 +3,19 @@
 Built as a sqlglot tree and rendered in the engine dialect. Caller input reaches the
 tree only as a registered dimension name (looked up, never spliced) or as a literal.
 The measure and filters were validated when the version was saved (validate.py);
-they are parsed again here only to re-point their columns at the base alias.
+they are parsed again here to re-point their columns at the base alias, and held to the
+same node allow-list on the way (defence in depth against a row that bypassed it).
 """
+import math
 from dataclasses import dataclass
 from datetime import date
 from typing import Dict, List, Optional, Sequence, Tuple
 
-import sqlglot
 from sqlglot import exp
 
 from app.semantic.model import Join, MetricInputError, MetricVersion
 from app.semantic.periods import resolve_period
+from app.semantic.validate import checked_stored
 
 BASE = "b"
 OPS = ("=", "!=", "in", ">", "<", "between")
@@ -33,8 +35,8 @@ def _table(catalog: str, dotted: str, alias: str) -> exp.Table:
                      alias=exp.TableAlias(this=exp.to_identifier(alias)))
 
 
-def _on_base(text: str, dialect: str) -> exp.Expression:
-    tree = sqlglot.parse_one(text, dialect=dialect)
+def _on_base(field: str, text: str, dialect: str) -> exp.Expression:
+    tree = checked_stored(field, text, dialect)
     for col in tree.find_all(exp.Column):
         col.set("table", exp.to_identifier(BASE))
     return tree
@@ -44,6 +46,8 @@ def _literal(value) -> exp.Expression:
     if isinstance(value, bool):
         return exp.Boolean(this=value)
     if isinstance(value, (int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            raise MetricInputError("where values must be finite numbers.")
         return exp.Literal.number(value)
     if isinstance(value, str):
         return exp.Literal.string(value)
@@ -69,6 +73,17 @@ def compile_metric(v: MetricVersion, *, engine_catalog: str, dialect: str, today
                    by: Sequence[str] = (), period: Optional[str] = None,
                    grain: Optional[str] = None, where: Sequence[dict] = ()) -> CompiledQuery:
     dims = [d.name for d in v.dimensions]
+    # The MCP/REST schemas allow Any here; anything but a string is the caller's error,
+    # answered with what is allowed, never a TypeError (500).
+    if not isinstance(by, (list, tuple)) or not all(isinstance(n, str) for n in by):
+        raise MetricInputError("'by' is a list of dimension names.", {"dimensions": dims})
+    if grain is not None and not isinstance(grain, str):
+        raise MetricInputError("grain is one of the metric's grains.", {"grains": list(v.grains)})
+    for term in where or ():
+        if (not isinstance(term, dict) or set(term) != {"dimension", "op", "value"}
+                or not isinstance(term["dimension"], str) or not isinstance(term["op"], str)):
+            raise MetricInputError("Each where term is {dimension, op, value}; dimension "
+                                   "and op are strings.", {"op": list(OPS), "dimensions": dims})
     joins: Dict[str, Tuple[str, Join]] = {}       # to_table -> (alias, join); first use wins
 
     def target_of(name: str) -> exp.Expression:
@@ -90,11 +105,11 @@ def compile_metric(v: MetricVersion, *, engine_catalog: str, dialect: str, today
         raise MetricInputError("A dimension appears twice in 'by'.", {"dimensions": dims})
     for name in by:
         select.append(target_of(name).as_(name))
-    select.append(_on_base(v.measure, dialect).as_(v.metric))
+    select.append(_on_base("measure", v.measure, dialect).as_(v.metric))
 
     conds: List[exp.Expression] = []
     if v.filters:
-        conds.append(exp.Paren(this=_on_base(v.filters, dialect)))
+        conds.append(exp.Paren(this=_on_base("filters", v.filters, dialect)))
     start = end = None
     if v.time_column is not None:
         if period is None:
@@ -111,9 +126,6 @@ def compile_metric(v: MetricVersion, *, engine_catalog: str, dialect: str, today
     elif period is not None:
         raise MetricInputError("This metric has no time column; omit period.")
     for term in where or ():
-        if not isinstance(term, dict) or set(term) != {"dimension", "op", "value"}:
-            raise MetricInputError("Each where term is {dimension, op, value}.",
-                                   {"op": list(OPS), "dimensions": dims})
         conds.append(_where_term(target_of(term["dimension"]), term["op"], term["value"]))
 
     q = exp.select(*select).from_(_table(engine_catalog, v.base_table, BASE))

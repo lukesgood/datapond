@@ -10,7 +10,7 @@ from typing import Iterable, Optional
 
 import sqlglot
 from sqlglot import exp
-from sqlglot.errors import ParseError
+from sqlglot.errors import SqlglotError
 
 from app.semantic.model import GRAINS, DefinitionError
 
@@ -39,18 +39,20 @@ def _parse_one(field: str, text: Optional[str], dialect: str) -> exp.Expression:
         raise DefinitionError(field, "Required.")
     try:
         trees = [t for t in sqlglot.parse(text, dialect=dialect) if t is not None]
-    except ParseError as e:
+    except SqlglotError as e:        # ParseError, and TokenError for an unterminated quote
         raise DefinitionError(field, f"Not a valid expression: {str(e).splitlines()[0][:200]}")
     if len(trees) != 1:
         raise DefinitionError(field, "Exactly one expression; no ';'.")
     return trees[0]
 
 
-def _check_nodes(field: str, tree: exp.Expression, allowed: tuple, columns: set) -> None:
+def _check_nodes(field: str, tree: exp.Expression, allowed: tuple,
+                 columns: Optional[set]) -> None:
+    """`columns` None checks node types only (the stored-definition re-check)."""
     for node in tree.walk():
         if not isinstance(node, allowed):
             raise DefinitionError(field, f"{node.key.upper()} is not allowed here.")
-        if isinstance(node, exp.Column):
+        if isinstance(node, exp.Column) and columns is not None:
             if node.table:
                 raise DefinitionError(field, f"Use bare column names of the base table, not {node.sql()}.")
             if node.name.lower() not in columns:
@@ -79,6 +81,21 @@ def validate_filters(text: Optional[str], columns: Iterable[str],
     _check_nodes("filters", tree, FILTER_NODES, cols)
     if not isinstance(tree, _PREDICATE):
         raise DefinitionError("filters", "Must be a condition, e.g. status = 'paid'.")
+    return tree
+
+
+def checked_stored(field: str, text: str, dialect: str) -> exp.Expression:
+    """A stored measure or filter, parsed and held to the same node allow-list before it
+    is compiled. It passed validate_measure/validate_filters when saved; failing here
+    means the row did not come through them (a manual INSERT, an older rule) — a
+    server-side data fault, so a plain ValueError rather than a caller's 400."""
+    try:
+        tree = _parse_one(field, text, dialect)
+        if field == "measure" and not isinstance(tree, AGGREGATES):
+            raise DefinitionError(field, "Must be one aggregate.")
+        _check_nodes(field, tree, MEASURE_NODES if field == "measure" else FILTER_NODES, None)
+    except DefinitionError as e:
+        raise ValueError(f"Stored {field} is not a valid definition: {e}") from None
     return tree
 
 

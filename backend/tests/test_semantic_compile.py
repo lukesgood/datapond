@@ -127,3 +127,51 @@ def test_rls_engine_rewrites_the_compiled_sql():
                 [pol], [], dialect="athena")
     assert r.applied_policy_ids == ["p1"]
     assert "WHERE (region = 'KR')) AS b" in r.sql
+
+
+@pytest.mark.parametrize("term", [
+    {"dimension": "channel", "op": ["in"], "value": ["web"]},
+    {"dimension": "channel", "op": {"a": 1}, "value": "web"},
+    {"dimension": 1, "op": "=", "value": "web"},
+    {"dimension": ["channel"], "op": "=", "value": "web"},
+])
+def test_non_string_op_or_dimension_is_an_input_error(term):
+    with pytest.raises(MetricInputError) as e:
+        _c(where=[term])
+    assert e.value.allowed
+
+
+@pytest.mark.parametrize("by", [[["channel"]], [1], [{"x": 1}]])
+def test_non_string_by_is_an_input_error(by):
+    with pytest.raises(MetricInputError) as e:
+        _c(by=by)
+    assert e.value.allowed["dimensions"] == ["channel", "region", "segment"]
+
+
+def test_non_string_grain_is_an_input_error():
+    with pytest.raises(MetricInputError):
+        _c(grain=["month"])
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_numbers_are_refused(value):
+    with pytest.raises(MetricInputError):
+        _c(where=[{"dimension": "channel", "op": "=", "value": value}])
+    with pytest.raises(MetricInputError):
+        _c(where=[{"dimension": "channel", "op": "in", "value": [1, value]}])
+
+
+@pytest.mark.parametrize("field,text", [
+    ("measure", "SUM((SELECT 1))"),
+    ("measure", "SUM(amount) OVER ()"),
+    ("filters", "status IN (SELECT s FROM t)"),
+])
+def test_a_stored_definition_outside_the_allow_list_is_refused_at_compile(field, text):
+    """Defence in depth: a row that reached the table without validate.py (a manual
+    INSERT, an older rule) is a server-side data fault — ValueError, not caller input."""
+    import dataclasses
+    bad = dataclasses.replace(V, **{field: text})
+    with pytest.raises(ValueError) as e:
+        compile_metric(bad, engine_catalog="AwsDataCatalog", dialect="athena", today=TODAY,
+                       period="last_month")
+    assert not isinstance(e.value, MetricInputError)
