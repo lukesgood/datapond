@@ -9,7 +9,7 @@ approves the definition. See the semantic-layer spec §3.
 """
 from typing import Any, Callable, Dict, List, Optional
 
-from pydantic import Field
+from pydantic import Field, StrictInt
 
 from app.chat.actions import Action, ActionKind, _Strict
 from app.chat.analysis._resolve import _r
@@ -46,8 +46,10 @@ class MetricQuery(_Strict):
         description='Sort the result: [{"field": "...", "desc": true}]. field is the metric name, '
                     "the grain, or a dimension in by. Remaining dimensions break ties, so a "
                     "top-N is stable.")
-    limit: Optional[int] = Field(
-        default=None, description="Return at most this many rows (1-1000). With order_by, a top-N.")
+    limit: Optional[StrictInt] = Field(
+        default=None, ge=1, le=1000,
+        description="Return at most this many rows (1-1000). With order_by, a top-N. When the "
+                    "result has exactly this many rows, truncated is true: there may be more.")
 
 
 # app.semantic.service is imported inside each executor, as query.py does for its

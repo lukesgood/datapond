@@ -246,3 +246,10 @@ def test_non_list_inputs_are_a_400_refusal_not_a_500(env, kw):
         _run(service.run_metric_query(ANA, metric="revenue", period="last_month", **kw))
     assert e.value.status_code == 400
     assert env["audit"][0]["outcome"] == "refused" and env["executed"] == []
+
+
+def test_a_full_page_under_limit_is_reported_as_possibly_truncated(env):
+    out = _run(service.run_metric_query(ANA, metric="revenue", period="last_month", limit=1))
+    assert out["row_count"] == 1 and out["truncated"] is True
+    out = _run(service.run_metric_query(ANA, metric="revenue", period="last_month", limit=5))
+    assert out["truncated"] is False

@@ -87,6 +87,10 @@ function QueryPageInner() {
   // Bumped by every run that writes the editor and results; a metric response that
   // returns after a newer run started is dropped instead of overwriting it.
   const runSeq                              = useRef(0)
+  // The editor text as of now, for a slow response to tell whether the person has
+  // typed since it was asked for.
+  const queryNow                            = useRef("")
+  useEffect(() => { queryNow.current = query }, [query])
   const [xAxis, setXAxis]                   = useState("")
   const [yAxes, setYAxes]                   = useState<string[]>([])
   // null leaves the split automatic; "" turns it off.
@@ -208,7 +212,7 @@ function QueryPageInner() {
 
   const handleAskAI = async () => {
     if (!aiQuestion.trim() || aiLoading) return
-    runSeq.current++
+    const seq = ++runSeq.current
     setAiLoading(true)
     setAiExplanation(null)
     setAiMetrics({ chips: [], suggestion: null })
@@ -221,6 +225,8 @@ function QueryPageInner() {
       })
       if (!res.ok) throw new Error("AI request failed")
       const data = await res.json()
+      // A run or a metric query started since then owns the editor and the results.
+      if (seq !== runSeq.current) return
       setAiMetrics(aiSqlMetricView(data))
       // Only replace the editor when there is a statement. A clarifying question or
       // an empty catalog returns no SQL, and pasting that over the user's work — or
@@ -239,6 +245,7 @@ function QueryPageInner() {
         toast("Generated SQL did not pass catalog validation — review before running", "error")
       }
     } catch (error) {
+      if (seq !== runSeq.current) return
       toast(error instanceof Error ? error.message : "AI request failed", "error")
     } finally {
       setAiLoading(false)
@@ -249,7 +256,10 @@ function QueryPageInner() {
   // (version, approver, the SQL that ran), which replaces the editor text.
   const runAsMetric = async (name: string) => {
     const seq = ++runSeq.current
-    const stale = () => seq !== runSeq.current
+    const typed = queryNow.current
+    // Stale when a newer run began, or when the person edited the SQL meanwhile: the
+    // metric's SQL would replace what they typed.
+    const stale = () => seq !== runSeq.current || queryNow.current !== typed
     const post = (body: object) => fetch(`/api/semantic/metrics/${encodeURIComponent(name)}/query`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     })
@@ -294,7 +304,7 @@ function QueryPageInner() {
       .trim()
     if (!stripped) return
 
-    runSeq.current++
+    const seq = ++runSeq.current
     setQueryStatus("running")
     setError(null)
     setResults(null)
@@ -309,6 +319,7 @@ function QueryPageInner() {
         }),
       })
       const data = await response.json()
+      if (seq !== runSeq.current) return
       if (!response.ok) throw new Error(data.detail || data.error || "Query execution failed")
 
       setResults(data)
@@ -331,6 +342,7 @@ function QueryPageInner() {
         setStacked(false)
       }
     } catch (err) {
+      if (seq !== runSeq.current) return
       setError(err instanceof Error ? err.message : "Unknown error")
       setQueryStatus("error")
     }

@@ -11,7 +11,7 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from app import catalog_access, catalog_registry, security_audit
 from app.api.auth import require_admin, require_permission, require_user
@@ -68,7 +68,7 @@ class PreviewBody(BaseModel):
     grain: Optional[str] = None
     where: List[dict] = Field(default_factory=list)
     order_by: List[dict] = Field(default_factory=list)
-    limit: Optional[int] = None
+    limit: Optional[StrictInt] = Field(default=None, ge=1, le=1000)
 
 
 class JoinBody(BaseModel):
@@ -366,7 +366,7 @@ class QueryBody(BaseModel):
     grain: Optional[str] = None
     where: List[dict] = Field(default_factory=list)
     order_by: List[dict] = Field(default_factory=list)
-    limit: Optional[int] = None
+    limit: Optional[StrictInt] = Field(default=None, ge=1, le=1000)
 
 
 @router.post("/semantic/metrics/{name}/query")

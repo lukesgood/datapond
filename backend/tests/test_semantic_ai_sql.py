@@ -279,6 +279,7 @@ def test_for_caller_short_circuits_when_nothing_is_visible(monkeypatch):
 
 # Labels from the 2026-10-15 live after-measurement; the questions are its Q1, Q2, Q9-Q11, Q19.
 LIVE = [{"name": n, "label": lab, "synonyms": syn, "version": 1, "dimensions": []} for n, lab, syn in [
+    ("order_count_en", "order count", []),
     ("order_count", "주문 수", ["주문 건수"]),
     ("revenue", "매출", ["매출액", "총 매출액"]),
     ("customer_count", "고객 수", []),
@@ -303,9 +304,8 @@ def test_words_match_across_particles_and_spacing(question, name):
     assert suggest(LIVE, question)["name"] == name
 
 
-def test_either_invoice_metric_answers_a_question_naming_both():
-    assert suggest(LIVE, "청구서 상태별 건수와 금액 합계를 보여주세요.")["name"] in (
-        "invoice_amount", "invoice_count")
+def test_a_tie_between_two_metrics_suggests_neither():
+    assert suggest(LIVE, "청구서 상태별 건수와 금액 합계를 보여주세요.") is None
 
 
 @pytest.mark.parametrize("question", [
@@ -314,6 +314,10 @@ def test_either_invoice_metric_answers_a_question_naming_both():
     "몇 건인가요?",            # a count cue alone names no metric
     "주문 금액 평균",          # "주문" alone does not make "주문 수"
     "주문 수량 합계",          # "수" inside "수량" is not a count
+    "주문 취소율을 알 수 있나요?",   # "할 수 있다" is not a count
+    "고객 이탈률을 볼 수 있을까요?",
+    "고객 점수는?",
+    "order rate per country",
 ])
 def test_partial_or_cue_only_questions_suggest_nothing(question):
     assert suggest(LIVE, question) is None

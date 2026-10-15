@@ -150,7 +150,10 @@ async def run_metric_query(user: dict, *, metric: str, by: Sequence[str] = (),
     citation = dict(compiled.citation, rls_applied=bool(applied),
                     pii_masked=int(result.get("pii_masked") or 0))
     return {"columns": result["columns"], "rows": result["rows"],
-            "row_count": result["row_count"], "truncated": result["truncated"],
+            "row_count": result["row_count"],
+            # A caller's LIMIT hides the engine's own cap, so a full page may not be all.
+            "truncated": bool(result["truncated"]) or (
+                limit is not None and int(result["row_count"] or 0) >= limit),
             "citation": citation}
 
 

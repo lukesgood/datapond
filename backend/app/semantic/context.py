@@ -19,31 +19,32 @@ def _terms(m: dict) -> List[str]:
 # Words a term may carry that the question need not repeat ("총 매출액" ~ "매출액").
 _OPTIONAL = {"총", "전체", "합계", "total", "sum"}
 # A term's count word ("주문 수", "청구서 건수") is satisfied by the question asking for a
-# count in any of the usual ways ("주문은 몇 건", "how many orders").
+# count: an explicit cue ("주문은 몇 건", "how many orders"), or "수" right after one of
+# the term's own words ("고객 수는", "고객수"). A bare "수" is not a cue: it is in
+# "할 수 있다", "점수" and "수량".
 _COUNT_WORDS = {"수", "건수", "개수", "횟수", "count", "number"}
-_COUNT_CUE = re.compile(r"몇\s*(건|개|명|번|회)|건수|개수|횟수|수(는|를|가|도|와|과|만)?(?=\W|$)"
-                        r"|how many|number of|\bcount")
+_COUNT_CUE = re.compile(r"몇\s*(건|개|명|번|회)|건수|개수|횟수|how many|number of|\bcount\b")
+
+
+def _counted(anchors: List[str], q: str) -> bool:
+    if _COUNT_CUE.search(q):
+        return True
+    return any(re.search(re.escape(a) + r"\s?수(는|를|가|도|와|과|만|의)?(?!\w)", q)
+               for a in anchors)
 
 
 def _term_score(term: str, q: str) -> int:
     """Characters of the term's words found in the question when every required word is
     found (as a substring, so Korean particles and spacing do not matter); else 0. A
     term made only of count or optional words never matches on its own."""
-    score, anchored = 0, False
-    for w in re.findall(r"\w+", term.lower()):
-        if w in _OPTIONAL:
-            continue
-        if w in _COUNT_WORDS:
-            # Never by substring: "수" is inside "수량" and "점수".
-            if not _COUNT_CUE.search(q):
-                return 0
-            score += len(w)
-        elif w in q:
-            score += len(w)
-            anchored = True
-        else:
-            return 0
-    return score if anchored else 0
+    words = [w for w in re.findall(r"\w+", term.lower()) if w not in _OPTIONAL]
+    anchors = [w for w in words if w not in _COUNT_WORDS]
+    if not anchors or any(a not in q for a in anchors):
+        return 0
+    counts = [w for w in words if w in _COUNT_WORDS]
+    if counts and not _counted(anchors, q):
+        return 0
+    return sum(len(w) for w in words)
 
 
 def _matches(m: dict, question: str) -> int:
@@ -67,9 +68,13 @@ def metric_lines(metrics: List[dict], question: str, limit: int = 20) -> Tuple[s
 
 
 def suggest(metrics: List[dict], question: str) -> Optional[dict]:
-    best = max(metrics or [], key=lambda m: _matches(m, question), default=None)
-    if best is None or _matches(best, question) == 0:
+    """The best-matching metric, or None when nothing matches or two metrics tie: a
+    coin flip between them is not a suggestion."""
+    scored = sorted(((_matches(m, question), m) for m in metrics or []),
+                    key=lambda x: -x[0])
+    if not scored or scored[0][0] == 0 or (len(scored) > 1 and scored[1][0] == scored[0][0]):
         return None
+    best = scored[0][1]
     return {"name": best["name"], "dimensions": list(best.get("dimensions") or [])}
 
 

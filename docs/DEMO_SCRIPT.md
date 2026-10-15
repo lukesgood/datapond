@@ -117,14 +117,14 @@ returned to the agent. The refused (402) call is there too.
 AWS Single-Node Reference has it: Glue/Athena). Uses the sample `orders` table; on
 another catalog, change `catalog`, `base_table` and the columns.
 
-Define and approve a metric (console: Metrics → New, then Approve), or:
+Define and approve a metric (console: Metrics → New, then Approve), or as below. A
+retired name cannot be reused, so for a second run pick a new name (`demo_order_count_2`).
 
 ```bash
-curl -s "${H[@]}" -X POST $DP/api/semantic/metrics -d '{"name":"order_count","label":"주문 수",
-  "synonyms":["주문 건수"],"version":{"catalog":"AwsDataCatalog","base_table":"default.orders",
+curl -s "${H[@]}" -X POST $DP/api/semantic/metrics -d '{"name":"demo_order_count","label":"데모 주문 수","version":{"catalog":"AwsDataCatalog","base_table":"default.orders",
   "measure":"COUNT(*)","time_column":"ordered_at","grains":["month"],
   "dimensions":[{"name":"channel","column":"channel"},{"name":"customer_id","column":"customer_id"}]}}'
-curl -s "${H[@]}" -X POST $DP/api/semantic/metrics/order_count/versions/1/approve
+curl -s "${H[@]}" -X POST $DP/api/semantic/metrics/demo_order_count/versions/1/approve
 ```
 
 Give the Sales agent a key that may read the catalog and run read-only queries, and ask
@@ -136,15 +136,15 @@ SQL_KEY=$(curl -s "${H[@]}" -X POST $DP/api/service-accounts/$SALES_ID/keys \
 
 curl -s -H "Authorization: Bearer $SQL_KEY" -H "Content-Type: application/json" -X POST $DP/api/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"metric_query","arguments":
-      {"metric":"order_count","by":["customer_id"],"period":"2026-04-01..2026-08-31",
-       "order_by":[{"field":"order_count","desc":true}],"limit":5}}}' | jq .
+      {"metric":"demo_order_count","by":["customer_id"],"period":"2026-04-01..2026-08-31",
+       "order_by":[{"field":"demo_order_count","desc":true}],"limit":5}}}' | jq .
 ```
 
 Point at the citation: metric, version, who approved it, and the exact SQL that ran.
 Ask it three times — the same five rows come back each time, ties included (the other
 dimensions break ties), where a model writing its own SQL for "top 5 customers" varied
 between runs. Then show the audit (step e): the call is a `metric.query` row citing
-`metric:order_count@v1`. Change the definition and approve v2: the next call cites v2,
+`metric:demo_order_count@v1`. Change the definition and approve v2: the next call cites v2,
 and the v1 rows still say v1.
 
 ## 3. What to say
@@ -164,7 +164,7 @@ and the v1 rows still say v1.
 curl -s "${H[@]}" -X DELETE $DP/api/ai/collections/company_handbook
 curl -s "${H[@]}" -X DELETE $DP/api/service-accounts/$HR_ID
 curl -s "${H[@]}" -X DELETE $DP/api/service-accounts/$SALES_ID
-curl -s "${H[@]}" -X POST $DP/api/semantic/metrics/order_count/retire   # if you made it in 2f
+curl -s "${H[@]}" -X POST $DP/api/semantic/metrics/demo_order_count/retire   # if you made it in 2f
 ```
 
 ## Known limits to mention if asked
