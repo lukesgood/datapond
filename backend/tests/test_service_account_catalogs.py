@@ -130,3 +130,11 @@ def test_catalogs_404_for_non_service(monkeypatch):
     r = TestClient(_app()).get(f"/api/service-accounts/{ACCT}/catalogs")
     assert r.status_code == 404
     assert r.json()["detail"] == "Unknown service account."
+
+
+def test_a_malformed_id_is_404_without_touching_the_database(monkeypatch):
+    async def _boom():
+        raise AssertionError("must not reach the database")
+    monkeypatch.setattr(sar, "_get_pool", _boom)
+    r = TestClient(_app()).get("/api/service-accounts/not-a-uuid/catalogs")
+    assert r.status_code == 404

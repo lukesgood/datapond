@@ -16,7 +16,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.api.auth import _KEY_CACHE, _get_pool, record_auth_event, require_admin
+from app.api.auth import _KEY_CACHE, _get_pool, forget_cached_keys_for, record_auth_event, require_admin
 from app.permissions import ASSIGNABLE_ROLES, permissions_for
 from app.service_accounts import NEVER_FOR_SERVICE_ACCOUNTS, effective_permissions, generate_key
 
@@ -194,6 +194,10 @@ async def account_catalogs(account_id: str):
     configured, so it is a 503 instead.
     """
     from app import catalog_access, catalog_registry
+    try:
+        uuid.UUID(account_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Unknown service account.")
     pool = await _get_pool()
     async with pool.acquire() as conn:
         acct = await conn.fetchrow(
@@ -439,6 +443,8 @@ async def delete_service_account(account_id: str, admin: dict = Depends(require_
             "DELETE FROM users WHERE id = $1::uuid AND auth_method = 'service'", account_id)
     if result.endswith("0"):
         raise HTTPException(status_code=404, detail="Service account not found")
+    # Keys are gone from the table; drop them from this replica's cache too.
+    forget_cached_keys_for(account_id)
     # The gateway's customer row (spend, cap) is keyed by this id; it goes too.
     from app.api.ai_budgets import forget_caller
     await forget_caller(account_id)
