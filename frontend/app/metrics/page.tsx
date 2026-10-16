@@ -13,7 +13,7 @@ import { useConfirm } from "@/lib/confirm"
 import { useToast } from "@/lib/toast"
 import { responseErrorMessage } from "@/lib/auth"
 import {
-  approvalWarning, fieldError, joinCandidatePayload, metricStatusBadge, pendingApproval, unresolvedJoinDims, versionDiff,
+  approvalWarning, edgeApproved, fieldError, joinCandidatePayload, metricStatusBadge, pendingApproval, unresolvedJoinDims, versionDiff,
   type CatalogEntry, type DimensionRow, type MetricDetail, type MetricSummary, type RelationshipEdge, type Viewer,
 } from "@/lib/metrics"
 
@@ -55,6 +55,8 @@ function MetricsPage() {
   // What "Approve vN" approves is the server's pending version, shown with its own SQL —
   // never the approved version's fields under a newer number.
   const pending = pendingApproval(detail)
+  // What agents get now: the approved version the metric points at.
+  const current = detail?.versions.find(v => v.version === detail.metric.version)
   const approve = async () => {
     if (!detail || !pending) return
     const warn = approvalWarning(detail.partition_info)
@@ -141,6 +143,16 @@ function MetricsPage() {
                   <dt className="text-muted-foreground">Table</dt><dd className="font-mono">{detail.metric.catalog}.{detail.metric.base_table}</dd>
                   <dt className="text-muted-foreground">Filters</dt><dd className="font-mono">{detail.metric.filters ?? "—"}</dd>
                   <dt className="text-muted-foreground">Synonyms</dt><dd>{detail.metric.synonyms.join(", ") || "—"}</dd>
+                  {current && <>
+                    <dt className="text-muted-foreground">Dimensions</dt>
+                    <dd className="font-mono">{current.dimensions.length
+                      ? current.dimensions.map(d => `${d.name} (${d.join ? `${d.join.to_table}.` : ""}${d.column})`).join(", ")
+                      : "—"}</dd>
+                    <dt className="text-muted-foreground">Time</dt>
+                    <dd className="font-mono">{current.time_column
+                      ? `${current.time_column} · ${current.grains.join(", ") || "no grains"} · max ${current.max_period_days} days`
+                      : "none — queried over all rows"}</dd>
+                  </>}
                 </dl>
                 {detail.example_sql && <pre className="overflow-x-auto rounded bg-muted p-2 text-xs">{detail.example_sql}</pre>}
                 {pending && pending.version !== detail.metric.version && (
@@ -324,19 +336,27 @@ function MetricEditor({ mode, base, onDone, onCancel }: {
 
 function JoinsTab({ canApprove }: { canApprove: boolean }) {
   const { toast } = useToast()
-  const [joins, setJoins] = useState<Join[]>([])
-  const [edges, setEdges] = useState<RelationshipEdge[]>([])
+  // Approved joins load on their own: the candidates read query history and column names
+  // across the catalog, which is slow, and must not hold the approved list back.
+  const [joins, setJoins] = useState<Join[] | null>(null)
+  const [edges, setEdges] = useState<RelationshipEdge[] | null>(null)
   const [catalogs, setCatalogs] = useState<CatalogEntry[]>([])
-  const load = useCallback(async () => {
-    const [j, g, c] = await Promise.all([
-      fetch("/api/semantic/joins").then(r => r.ok ? r.json() : { joins: [] }),
+  const loadJoins = useCallback(async () => {
+    const j = await fetch("/api/semantic/joins").then(r => r.ok ? r.json() : { joins: [] })
+    setJoins(j.joins ?? [])
+  }, [])
+  const loadCandidates = useCallback(async () => {
+    const [g, c] = await Promise.all([
       fetch("/api/catalog/relationships").then(r => r.ok ? r.json() : { edges: [] }),
       fetch("/api/catalogs").then(r => r.ok ? r.json() : { catalogs: [] }),
     ])
-    setJoins(j.joins); setEdges(g.edges ?? []); setCatalogs(c.catalogs ?? [])
+    setEdges(g.edges ?? []); setCatalogs(c.catalogs ?? [])
   }, [])
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void load().catch(() => undefined) }, [load])
+  useEffect(() => { void loadJoins().catch(() => setJoins([])) }, [loadJoins])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void loadCandidates().catch(() => setEdges([])) }, [loadCandidates])
+  const candidates = (edges ?? []).filter(e => e.joins?.length && !edgeApproved(e, joins ?? [], catalogs))
 
   const approve = async (e: RelationshipEdge, reversed: boolean) => {
     const body = joinCandidatePayload(e, catalogs, reversed)
@@ -345,7 +365,7 @@ function JoinsTab({ canApprove }: { canApprove: boolean }) {
       const res = await fetch("/api/semantic/joins", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       })
-      if (res.ok) { toast("Join approved", "success"); await load(); return }
+      if (res.ok) { toast("Join approved", "success"); await loadJoins(); return }
       const data = await res.json().catch(() => ({}))
       toast(fieldError(data.detail)?.message ?? (typeof data.detail === "string" ? data.detail : "Approval failed"), "error")
     } catch (err) { toast(err instanceof Error ? err.message : "Approval failed", "error") }
@@ -356,7 +376,8 @@ function JoinsTab({ canApprove }: { canApprove: boolean }) {
       <Card>
         <CardHeader><CardTitle>Approved joins</CardTitle></CardHeader>
         <CardContent className="space-y-1 text-sm">
-          {joins.length === 0 ? <p className="text-muted-foreground">None yet.</p> : joins.map(j => (
+          {joins === null ? <p className="text-muted-foreground">Loading…</p>
+            : joins.length === 0 ? <p className="text-muted-foreground">None yet.</p> : joins.map(j => (
             <div key={j.id} className="font-mono text-xs">{j.catalog}: {j.from_table} → {j.to_table} on {j.on_columns.map(p => p.join(" = ")).join(", ")} <span className="text-muted-foreground">({j.source}, {j.approved_by_name})</span></div>
           ))}
         </CardContent>
@@ -365,7 +386,9 @@ function JoinsTab({ canApprove }: { canApprove: boolean }) {
         <CardHeader><CardTitle>Candidates</CardTitle></CardHeader>
         <CardContent className="space-y-2 text-sm">
           <p className="text-xs text-muted-foreground">From query history (observed) and column naming (candidate). Only many-to-one joins can be approved; approval checks the target key is unique.</p>
-          {edges.filter(e => e.joins?.length).map(e => (
+          {edges === null && <p className="text-muted-foreground">Reading query history and column names…</p>}
+          {edges !== null && candidates.length === 0 && <p className="text-muted-foreground">No new candidates.</p>}
+          {candidates.map(e => (
             <div key={`${e.source}-${e.target}`} className="flex items-center justify-between gap-2">
               <span className="font-mono text-xs">{e.source} → {e.target} on {e.joins![0].left_column} = {e.joins![0].right_column} <Badge variant="outline">{e.evidence === "observed" ? `history ×${e.count}` : "naming"}</Badge></span>
               {canApprove && (
