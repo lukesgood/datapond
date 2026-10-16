@@ -42,7 +42,7 @@ LiteLLM logical model gateway (Bedrock, cloud, or local provider mapping)
 S3 API object storage (native S3 or compatible endpoint)
 ```
 
-Core navigation: Dashboard; Knowledge; AI Gateway; Governance; Storage; Services; System; Settings.
+Core navigation: Dashboard; Knowledge; Agents; AI Gateway; Governance; Storage; Services; System; Settings.
 
 ### Adapter and add-on layer
 

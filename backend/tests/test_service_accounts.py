@@ -378,3 +378,103 @@ def test_a_service_account_cannot_be_created_with_the_admin_role():
             ServiceAccountCreate(name="ci", role="admin"), admin=person))
     assert exc.value.status_code == 400
     assert "admin" in exc.value.detail
+
+
+# ── reading one account (the Agents page) ─────────────────────────────────────
+
+from datetime import datetime, timezone  # noqa: E402
+
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+_ACCT = "22222222-2222-2222-2222-222222222222"
+_NOW = datetime(2026, 10, 16, tzinfo=timezone.utc)
+
+
+class _OneConn:
+    """users + api_keys, honouring the id filter the single read adds."""
+
+    def __init__(self, accounts, keys):
+        self.accounts, self.keys = accounts, keys
+
+    async def fetch(self, sql, *args):
+        if "FROM users" in sql:
+            return [a for a in self.accounts if not args or str(a["id"]) == args[0]]
+        if "FROM api_keys" in sql:
+            return [k for k in self.keys if not args or str(k["user_id"]) == args[0]]
+        raise AssertionError(sql)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _OnePool:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def acquire(self):
+        return self.conn
+
+
+def _accounts_app(monkeypatch, accounts, keys=()):
+    from app.api import auth, service_account_routes as sar
+    app = FastAPI()
+    app.include_router(sar.router, prefix="/api")
+
+    async def _admin():
+        return {"id": "00000000-0000-0000-0000-000000000001", "role": "admin"}
+    app.dependency_overrides[auth.require_admin] = _admin
+
+    async def _pool():
+        return _OnePool(_OneConn(list(accounts), list(keys)))
+    monkeypatch.setattr(sar, "_get_pool", _pool)
+    return TestClient(app)
+
+
+def _row(id_=_ACCT, **extra):
+    return {"id": id_, "username": "svc-bot", "display_name": "Bot", "role": "ai_engineer",
+            "is_active": True, "created_at": _NOW, "external_id": None,
+            "external_provider": None, "attributes": {"department": "finance"}, **extra}
+
+
+def _key(user_id=_ACCT):
+    return {"id": "k1", "user_id": user_id, "name": "prod", "key_prefix": "dp_sk_ab",
+            "status": "active", "scopes": ["knowledge:read"], "expires_at": None,
+            "last_used_at": None, "created_at": _NOW}
+
+
+def test_get_one_shape(monkeypatch):
+    from app.rate_limit import api_key_limiter
+    other = "33333333-3333-3333-3333-333333333333"
+    c = _accounts_app(monkeypatch, [_row(), _row(other)], [_key(), _key(other)])
+    r = c.get(f"/api/service-accounts/{_ACCT}")
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["id"] == _ACCT and d["username"] == "svc-bot" and d["role"] == "ai_engineer"
+    assert d["attributes"] == {"department": "finance"}
+    assert [k["id"] for k in d["keys"]] == ["k1"] and d["oauth_client"] is None
+    assert d["rate_limit_per_minute"] == api_key_limiter().per_minute
+    assert set(d) >= {"permissions", "oauth", "assignable_roles", "grantable_permissions"}
+    assert "admin" not in d["assignable_roles"]
+
+
+def test_get_one_404_for_human_and_missing(monkeypatch):
+    # A human user is not in the service-account query's result at all.
+    c = _accounts_app(monkeypatch, [])
+    for bad in (_ACCT, "not-a-uuid"):
+        r = c.get(f"/api/service-accounts/{bad}")
+        assert r.status_code == 404 and r.json()["detail"] == "Unknown service account."
+
+
+def test_list_unchanged(monkeypatch):
+    """The list keeps its shape: no attributes, no rate limit, every account."""
+    other = "33333333-3333-3333-3333-333333333333"
+    c = _accounts_app(monkeypatch, [_row(), _row(other)], [_key()])
+    d = c.get("/api/service-accounts").json()
+    assert [a["id"] for a in d["accounts"]] == [_ACCT, other]
+    assert "attributes" not in d["accounts"][0] and "rate_limit_per_minute" not in d
+    assert [len(a["keys"]) for a in d["accounts"]] == [1, 0]
+    assert set(d) == {"accounts", "oauth", "assignable_roles", "grantable_permissions"}

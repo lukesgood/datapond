@@ -615,10 +615,12 @@ async def service_account_usage(account_id: str, user: dict = Depends(require_us
     try:
         async with httpx.AsyncClient(timeout=20) as c:
             r = await c.get(f"{url}/spend/logs", headers=_headers(key))
-        logs = r.json() if r.status_code < 400 and isinstance(r.json(), list) else []
+        if r.status_code >= 400 or not isinstance(r.json(), list):
+            return {**spend_for_user([], account_id), "unavailable": True}
+        logs = r.json()
     except Exception as e:
         logger.warning("service account usage failed: %s", e)
-        logs = []
+        return {**spend_for_user([], account_id), "unavailable": True}
     return spend_for_user(logs, account_id)
 
 

@@ -169,3 +169,17 @@ def test_the_sweep_is_quiet_when_nothing_was_deleted(monkeypatch):
     calls = _gateway_calls(monkeypatch)
     assert _run(ai_budgets.forget_deleted_callers(_AuditConn([]), days=7)) == 0
     assert calls == []
+
+
+def test_a_deleted_account_keys_leave_this_replicas_cache(monkeypatch):
+    import time
+    _gateway_calls(monkeypatch)
+    auth._KEY_CACHE["gone"] = ({"id": ACCT, "role": "ai_engineer"}, time.monotonic())
+    auth._KEY_CACHE["kept"] = ({"id": "33333333-3333-3333-3333-333333333333"}, time.monotonic())
+    try:
+        r = _client(monkeypatch).delete(f"/api/service-accounts/{ACCT}")
+        assert r.status_code == 204, r.text
+        assert "gone" not in auth._KEY_CACHE and "kept" in auth._KEY_CACHE
+    finally:
+        auth._KEY_CACHE.pop("gone", None)
+        auth._KEY_CACHE.pop("kept", None)

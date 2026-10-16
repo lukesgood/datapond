@@ -1188,6 +1188,10 @@ async def update_user(user_id: str, body: dict, admin: dict = Depends(require_pe
                     """INSERT INTO user_roles (user_id, role_id)
                        SELECT $1, id FROM roles WHERE name = $2 ON CONFLICT DO NOTHING""",
                     uuid.UUID(user_id), body["role"])
+    if "is_active" in body or "role" in body:
+        # A service account's key identity is cached per replica (role and is_active
+        # are read when it is resolved); this replica applies the change now.
+        forget_cached_keys_for(user_id)
     return {"message": "User updated"}
 
 
@@ -1303,6 +1307,22 @@ def _cache_get(digest: str):
         _KEY_CACHE.pop(digest, None)
         return _CACHE_MISS
     return resolved
+
+
+def forget_cached_keys_for(user_id: str) -> int:
+    """Drop every cached key identity that belongs to `user_id`; returns how many.
+
+    Disabling an account or changing its role must not wait out `_KEY_CACHE_TTL` on
+    the replica that served the change. Other replicas still hold their copy until the
+    TTL; the console says "within 30 seconds" for that reason. A cached None (a key
+    known to be invalid) names no user and stays.
+    """
+    wanted = str(user_id).lower()
+    stale = [d for d, (resolved, _) in _KEY_CACHE.items()
+             if resolved and str(resolved.get("id", "")).lower() == wanted]
+    for digest in stale:
+        _KEY_CACHE.pop(digest, None)
+    return len(stale)
 
 
 async def _resolve_api_key(raw_key: str) -> Optional[dict]:

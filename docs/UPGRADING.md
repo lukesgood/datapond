@@ -3,6 +3,35 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-10 — Agents menu; service accounts moved there; the virtual-key card is gone
+
+- **Agents** (`/agents`, administrators) lists every service account and opens one page
+  per agent: identity and role, keys (issue, rotate, revoke, OAuth client), the
+  collections and catalogs it may read, its attributes, spend and cap, its recent tool
+  calls, and disable / delete. Settings → Service accounts is gone;
+  `/settings?tab=service` redirects to `/agents`.
+- **Disable is now a button** (Agents → agent → Danger zone). It applies within 30
+  seconds, the key cache lifetime on each replica; the replica that served the change
+  applies it at once.
+- AI Gateway → **Caller budgets** shows an agent's cap read-only and links to its page,
+  where it is set. People stay editable there.
+- New routes behind the page: `GET /api/service-accounts/{id}`,
+  `GET /api/service-accounts/{id}/catalogs`, and idempotent
+  `PUT|DELETE /api/catalogs/{name}/grants/user/{principal}`.
+- **Virtual Keys & Budgets (AI Gateway) is removed.** Nothing in DataPond used those
+  LiteLLM keys, and a call made with one bypasses the tool-call log, collection ACLs,
+  masking and caller caps. The routes `/api/settings/ai/keys` are **deprecated and will
+  be removed in the next release**. **Action:** if your deployment issued any, list and
+  delete them while the routes exist:
+
+  ```bash
+  curl -s -H "Authorization: Bearer $ADMIN_TOKEN" https://<your-domain>/api/settings/ai/keys
+  curl -s -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" \
+       "https://<your-domain>/api/settings/ai/keys/<token>"
+  ```
+
+  The live reference deployment had none.
+
 ## 2026-10 — Model spend has one view: AI Gateway
 
 Spend was shown four ways. Governance → Cost was a second, smaller copy of AI Gateway's

@@ -2,8 +2,8 @@
 
 /** How an application or agent calls this deployment: the MCP endpoint, the document
  *  an agent gateway registers, and the REST surface. Reference material, shown in the
- *  integration guide (app/help/integrate); issuing the key is Settings → Service
- *  accounts. Everything is read from the running server, so it stays true as the API
+ *  integration guide (app/help/integrate); issuing the key is on the Agents page.
+ * Everything is read from the running server, so it stays true as the API
  *  changes. */
 import { useEffect, useState, useSyncExternalStore } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"

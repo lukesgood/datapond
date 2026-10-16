@@ -76,11 +76,11 @@ function IntegrateGuide() {
 
       <Card>
         <CardHeader>
-          <CardTitle>1. Create a service account</CardTitle>
+          <CardTitle>1. Create an agent</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            <Link href="/settings?tab=service" className={link}>Settings → Service accounts</Link>
+            <Link href="/agents" className={link}>Agents → New agent</Link>
             {" "}(administrators). One account per agent or application, so access, audit and
             spend stay per agent.
           </p>
@@ -118,12 +118,13 @@ function IntegrateGuide() {
         <CardContent>
           <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
             <li>
-              Collections: <Link href="/knowledge" className={link}>Knowledge</Link> → the
-              collection → Members → add the account&apos;s username (svc-…) as reader.
+              Collections and catalogs: the agent&apos;s page, under{" "}
+              <Link href="/agents" className={link}>Agents</Link> → Data access. Collections can also be
+              shared from <Link href="/knowledge" className={link}>Knowledge</Link> → the collection → Members.
             </li>
             <li>
-              Catalogs: a catalog with grants needs one for the account —{" "}
-              <Link href="/settings?tab=catalogs" className={link}>Settings → Data catalogs</Link>.
+              A catalog with grants needs one for the agent (or its role) —{" "}
+              <Link href="/settings?tab=catalogs" className={link}>Settings → Data catalogs</Link> lists them all.
             </li>
             <li>
               Rows and columns: row filters and masks under{" "}

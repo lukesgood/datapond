@@ -478,6 +478,12 @@ _GRANTS_DELETE = "DELETE FROM catalog_grants WHERE catalog_name = $1"
 _GRANT_INSERT = """INSERT INTO catalog_grants
                      (catalog_name, principal_kind, principal, created_by)
                    VALUES ($1, $2, $3, $4)"""
+# One user's grant at a time (the Agents page): a repeat adds nothing and a miss removes
+# nothing, so neither needs the whole list read back first.
+_USER_GRANT_INSERT = _GRANT_INSERT + " ON CONFLICT DO NOTHING"
+_USER_GRANT_DELETE = """DELETE FROM catalog_grants
+                         WHERE catalog_name = $1 AND principal_kind = 'user'
+                           AND principal = $2"""
 
 
 def _grant_public(r) -> dict:
@@ -578,6 +584,52 @@ async def put_catalog_grants(name: str, body: GrantsPut,
     # This replica at once; the others within the grants cache TTL.
     catalog_access.invalidate()
     return {"catalog": name, "restricted": bool(after), "grants": after}
+
+
+async def _change_user_grant(name: str, principal: str, admin: dict, *, grant: bool) -> dict:
+    """Add or remove one user grant. Both directions are idempotent, and the answer is
+    the catalog's full grant list, the shape `PUT /grants` returns."""
+    try:
+        user_id = str(uuid.UUID((principal or "").strip()))
+    except ValueError:
+        _bad(f"A user grant names the user by id; '{(principal or '')[:64]}' is not one.")
+    pool = await _pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await _catalog_or_404(conn, name)
+            if grant and not await conn.fetch(_USERS_EXIST, [user_id]):
+                _bad(f"No user with id {user_id}.")
+            try:
+                before = await _read_grants(conn, name)
+            except Exception as e:
+                if _missing_table(e):
+                    _bad("Catalog grants need database migration 0021; run the "
+                         "migration job and retry.", 409)
+                raise
+            if grant:
+                created_by = uuid.UUID(admin["id"]) if admin.get("id") else None
+                await conn.execute(_USER_GRANT_INSERT, name, "user", user_id, created_by)
+            else:
+                await conn.execute(_USER_GRANT_DELETE, name, user_id)
+            after = await _read_grants(conn, name)
+    await _audit_grants(pool, admin, name, before, after)
+    # This replica at once; the others within the grants cache TTL.
+    catalog_access.invalidate()
+    return {"catalog": name, "restricted": bool(after), "grants": after}
+
+
+@router.put("/catalogs/{name}/grants/user/{principal}")
+async def put_user_grant(name: str, principal: str, admin: dict = Depends(require_admin)):
+    """Let one user (a service account is a user) use the catalog. Already granted is
+    success. Granting the first row restricts a catalog that was open."""
+    return await _change_user_grant(name, principal, admin, grant=True)
+
+
+@router.delete("/catalogs/{name}/grants/user/{principal}")
+async def delete_user_grant(name: str, principal: str, admin: dict = Depends(require_admin)):
+    """Take one user's grant away. Not granted is success. Removing the last grant
+    reopens the catalog to everyone with catalog access."""
+    return await _change_user_grant(name, principal, admin, grant=False)
 
 
 async def _audit_grants(pool, admin: dict, name: str, before: list, after: list) -> None:
