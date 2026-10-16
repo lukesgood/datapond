@@ -55,3 +55,36 @@ def test_block_mode_refuses_and_records_the_refusal(monkeypatch):
 def test_ai_embed_is_a_tool_the_log_accepts():
     tool_call_log.build_row(actor=USER, tool="ai.embed", resource_kind="none",
                             resource=[], request_text="x")
+
+
+def test_a_budget_refusal_is_one_refused_row_not_also_an_error(monkeypatch):
+    """The 402 path writes its own `refused` row (app/ai_budget.refuse_over_budget);
+    the route used to add an `error` row for the same call, as if the model had failed
+    (seen live 2026-10-16). Search and rag already skip 402 in `_logged`."""
+    monkeypatch.setenv("PII_GUARDRAIL_MODE", "mask")
+    rows = []
+
+    async def _record(**kw):
+        rows.append(kw)
+
+    async def _capped(texts, **kw):
+        await _record(tool="ai.embed", outcome="refused")     # what refuse_over_budget writes
+        raise HTTPException(402, "This caller has reached its model spend budget.")
+    monkeypatch.setattr(ai_vectors, "_embed", _capped)
+    monkeypatch.setattr(tool_call_log, "record", _record)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(ai_vectors.embed(ai_vectors.EmbedRequest(input=["hello"]), USER))
+    assert exc.value.status_code == 402
+    assert [r["outcome"] for r in rows] == ["refused"]
+
+
+def test_a_failed_embedding_is_still_an_error_row(monkeypatch):
+    monkeypatch.setenv("PII_GUARDRAIL_MODE", "mask")
+    sent, rows = _install(monkeypatch)
+
+    async def _down(texts, **kw):
+        raise HTTPException(502, "Embedding failed")
+    monkeypatch.setattr(ai_vectors, "_embed", _down)
+    with pytest.raises(HTTPException):
+        asyncio.run(ai_vectors.embed(ai_vectors.EmbedRequest(input=["hello"]), USER))
+    assert [r["outcome"] for r in rows] == ["error"]
