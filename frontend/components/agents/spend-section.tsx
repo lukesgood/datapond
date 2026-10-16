@@ -10,7 +10,7 @@ import { parseCap } from "@/lib/caller-budgets"
 import { Loading, Section, SectionError, errorText } from "./section"
 import { useJson } from "./use-json"
 
-type Usage = { spend: number; requests: number }
+type Usage = { spend: number; requests: number; unavailable?: boolean }
 type Cap = { max_budget: number | null; spend: number; blocked: boolean }
 
 /** What this agent has cost and its cap. The gateway sees the DataPond user id on
@@ -48,7 +48,9 @@ export function SpendSection({ accountId }: { accountId: string }) {
   return (
     <Section title="Spend" icon={<Wallet className="h-4 w-4 text-primary" />}
              description="A call over the cap is refused (402).">
-      {usage.loading ? <Loading what="spend" /> : usage.data ? (
+      {usage.loading ? <Loading what="spend" /> : usage.data?.unavailable ? (
+        <p className="text-xs text-muted-foreground">Spend is unavailable: the model gateway could not be read.</p>
+      ) : usage.data ? (
         <p className="text-xs tabular-nums">
           {usage.data.requests === 0
             ? "No model calls yet."
@@ -58,14 +60,18 @@ export function SpendSection({ accountId }: { accountId: string }) {
         <p className="text-xs text-muted-foreground">Spend is unavailable: {usage.error}.</p>
       )}
 
-      {cap.loading ? <Loading what="cap" /> : cap.error && !cap.data ? (
-        <SectionError message={`Cap could not be read: ${cap.error}`} onRetry={cap.reload} />
-      ) : (
+      {cap.loading ? <Loading what="cap" /> : (
+        <>
+        {/* A failed read must not lock the editor: the PUT may still work, and the
+            current value is simply unknown. */}
+        {cap.error && !cap.data && (
+          <SectionError message={`Cap could not be read: ${cap.error}. You can still set one.`} onRetry={cap.reload} />
+        )}
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-muted-foreground">Cap</span>
           {draft === null ? (
             <>
-              <span className="tabular-nums">{current === null ? "no cap" : formatUsd(current)}</span>
+              <span className="tabular-nums">{cap.error && !cap.data ? "unknown" : current === null ? "no cap" : formatUsd(current)}</span>
               {cap.data?.blocked && <span className="text-destructive">blocked</span>}
               <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setDraft(current === null ? "" : String(current)); setFormErr(null) }}>
                 {current === null ? "Set a cap" : "Edit"}
@@ -84,6 +90,7 @@ export function SpendSection({ accountId }: { accountId: string }) {
             </>
           )}
         </div>
+        </>
       )}
       {formErr && <p className="text-2xs text-destructive">{formErr}</p>}
     </Section>

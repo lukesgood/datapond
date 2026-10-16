@@ -112,5 +112,53 @@ def test_an_account_reads_its_own_spend_and_an_admin_reads_any(monkeypatch):
 
     itself = {"id": ACCOUNT_ID, "role": "ai_engineer"}
     admin = {"id": "00000000-0000-0000-0000-0000000000ad", "role": "admin"}
-    assert _run(ai_backends.service_account_usage(ACCOUNT_ID, itself))["requests"] == 0
-    assert _run(ai_backends.service_account_usage(ACCOUNT_ID, admin))["requests"] == 0
+    # A gateway that errors is "unavailable", not "no calls": zeros would read as free.
+    for who in (itself, admin):
+        out = _run(ai_backends.service_account_usage(ACCOUNT_ID, who))
+        assert out["unavailable"] is True and out["requests"] == 0
+
+
+def test_usage_is_not_flagged_unavailable_when_the_gateway_answers(monkeypatch):
+    from app.api import ai_backends
+
+    monkeypatch.setattr(ai_backends, "_gateway", lambda: ("http://gw", "k"))
+
+    class _Logs:
+        status_code = 200
+
+        def json(self):
+            return [{"end_user": ACCOUNT_ID, "spend": 0.5}]
+
+    class _Client:
+        async def get(self, *a, **k):
+            return _Logs()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(ai_backends.httpx, "AsyncClient", lambda **k: _Client())
+    out = _run(ai_backends.service_account_usage(ACCOUNT_ID, {"id": ACCOUNT_ID, "role": "ai_engineer"}))
+    assert out["requests"] == 1 and "unavailable" not in out
+
+
+def test_usage_unavailable_when_the_gateway_is_unreachable(monkeypatch):
+    from app.api import ai_backends
+
+    monkeypatch.setattr(ai_backends, "_gateway", lambda: ("http://gw", "k"))
+
+    class _Client:
+        async def get(self, *a, **k):
+            raise ConnectionError("down")
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(ai_backends.httpx, "AsyncClient", lambda **k: _Client())
+    out = _run(ai_backends.service_account_usage(ACCOUNT_ID, {"id": ACCOUNT_ID, "role": "ai_engineer"}))
+    assert out["unavailable"] is True
