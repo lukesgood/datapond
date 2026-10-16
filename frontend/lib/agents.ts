@@ -74,3 +74,12 @@ export function viaLabel(via: "user" | "role" | "open" | null, role: string): st
     default: return "not granted"
   }
 }
+
+/** GET /api/service-accounts/{id}: the list item plus what the page needs to edit it. */
+export type AgentDetail = Agent & {
+  permissions: string[]
+  oauth?: { enabled: boolean; issuer: string | null }
+  assignable_roles: string[]
+  grantable_permissions: string[]
+  rate_limit_per_minute: number
+}
