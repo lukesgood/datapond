@@ -37,8 +37,6 @@ import {
   RefreshCw,
   Download,
   Loader2,
-  DollarSign,
-  ExternalLink,
 } from "lucide-react"
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts"
 import type {
@@ -48,7 +46,6 @@ import type {
   PiiTable,
   AiSafetyFlag,
 } from "@/lib/api"
-import { formatUsd } from "@/lib/format-usd"
 import { callerLabel } from "@/lib/caller-label"
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -222,19 +219,6 @@ function StatPill({
       <span className="font-semibold tabular-nums">{value}</span>
       <span className={tone === "default" ? "text-muted-foreground" : undefined}>{label}</span>
     </span>
-  )
-}
-
-// ─── inline share bar ──────────────────────────────────────────────────────
-// The app's inline-bar idiom: thin muted track + colored fill. Used to show a
-// row's share of a total so spend tables are scannable at a glance.
-
-function ShareBar({ pct, colorVar = "var(--chart-1)" }: { pct: number; colorVar?: string }) {
-  const clamped = Math.max(0, Math.min(100, pct))
-  return (
-    <div className="h-1.5 rounded-full bg-muted overflow-hidden" role="presentation">
-      <div className="h-full rounded-full" style={{ width: `${clamped}%`, backgroundColor: colorVar }} />
-    </div>
   )
 }
 
@@ -569,226 +553,6 @@ function AccessControlTab() {
   )
 }
 
-// ─── Cost (AI spend attribution) tab ───────────────────────────────────────
-
-// Matches GET /api/settings/ai/usage (backend/app/api/ai_backends.py) —
-// aggregated live from the LiteLLM gateway (/global/spend, /global/spend/models,
-// /spend/logs, /key/list). Per-user spend is the "cost attribution" story:
-// `users` is keyed by the DataPond user (via the `user` payload field / metadata),
-// not by LiteLLM API key.
-interface AiUsageModel {
-  model: string
-  spend: number
-  requests: number
-  total_tokens: number
-  prompt_tokens: number
-  completion_tokens: number
-}
-interface AiUsageUser {
-  user: string
-  name?: string | null
-  spend: number
-  requests: number
-  total_tokens: number
-}
-interface AiUsageKey {
-  key_alias: string | null
-  spend: number
-  max_budget: number | null
-  pct: number | null
-}
-interface AiUsage {
-  total_spend: number
-  max_budget: number | null
-  models: AiUsageModel[]
-  users: AiUsageUser[]
-  keys: AiUsageKey[]
-  total_tokens: number
-}
-
-function CostTab() {
-  const caps = useCapabilities()
-  const [usage, setUsage] = useState<AiUsage | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [err, setErr] = useState<string | null>(null)
-
-  useEffect(() => {
-    fetch("/api/settings/ai/usage")
-      .then((r) => r.ok ? r.json() : Promise.reject(r.status))
-      .then(setUsage)
-      .catch((e) => setErr(e === 403 || e === 401 ? "Admin permission required" : `Failed to load AI usage (${e})`))
-      .finally(() => setLoading(false))
-  }, [])
-
-  if (loading) return <Skeleton className="h-64" />
-  if (err) return (
-    <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">
-      <DollarSign className="h-5 w-5 mx-auto mb-2" />{err}
-    </CardContent></Card>
-  )
-
-  const hasSpend = !!usage && usage.total_spend > 0
-  const budgetPct = usage?.max_budget ? Math.round((usage.total_spend / usage.max_budget) * 100) : null
-
-  return (
-    <div className="space-y-4">
-      {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="pt-5 pb-4">
-            <p className="text-sm text-muted-foreground">Total AI spend</p>
-            <p className="dp-num text-3xl font-bold mt-1 text-[var(--chart-1)]">
-              {usage ? formatUsd(usage.total_spend) : "$0.00"}
-            </p>
-            {usage?.max_budget != null && budgetPct != null && (
-              <div className="mt-2 space-y-1">
-                <ShareBar
-                  pct={budgetPct}
-                  colorVar={budgetPct >= 90 ? "var(--destructive)" : budgetPct >= 75 ? "var(--dp-warn)" : "var(--dp-good)"}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {budgetPct}% of {formatUsd(usage.max_budget)} budget
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-5 pb-4">
-            <p className="text-sm text-muted-foreground">Total tokens</p>
-            <p className="dp-num text-3xl font-bold mt-1 text-[var(--chart-2)]">
-              {(usage?.total_tokens ?? 0).toLocaleString()}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-5 pb-4">
-            <p className="text-sm text-muted-foreground">Users attributed</p>
-            <p className="dp-num text-3xl font-bold mt-1 text-[var(--chart-4)]">
-              {usage?.users.length ?? 0}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {!hasSpend ? (
-        <Card>
-          <CardContent className="py-12 text-center text-sm text-muted-foreground">
-            <DollarSign className="h-5 w-5 mx-auto mb-2" />
-            No AI spend recorded yet — usage and provider-reported cost appear here once requests flow through the configured LiteLLM gateway.
-          </CardContent>
-        </Card>
-      ) : (
-        <>
-          {/* Per-user spend — cost attribution */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <DollarSign className="h-4 w-4" />
-                Spend by user
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>User</TableHead>
-                    <TableHead className="text-right">Spend</TableHead>
-                    <TableHead className="text-right">Requests</TableHead>
-                    <TableHead className="text-right">Tokens</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {usage!.users.length === 0 ? (
-                    <TableRow><TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-6">No per-user spend logs yet</TableCell></TableRow>
-                  ) : (
-                    usage!.users.map((u) => (
-                      <TableRow key={u.user}>
-                        <TableCell className="text-sm">
-                          <div className="space-y-1 max-w-[220px]">
-                            {u.user === "unattributed" ? <span className="text-muted-foreground italic">unattributed</span> : <span title={callerLabel(u.name, u.user).title}>{callerLabel(u.name, u.user).text}</span>}
-                            {/* Share of total spend — scannable ranking without a chart lib */}
-                            {usage!.total_spend > 0 && <ShareBar pct={(u.spend / usage!.total_spend) * 100} />}
-                          </div>
-                        </TableCell>
-                        <TableCell className="dp-num text-right">{formatUsd(u.spend)}</TableCell>
-                        <TableCell className="dp-num text-right">{u.requests.toLocaleString()}</TableCell>
-                        <TableCell className="dp-num text-right">{u.total_tokens.toLocaleString()}</TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-
-          {/* Per-model spend */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Spend by model</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Model</TableHead>
-                    <TableHead className="text-right">Spend</TableHead>
-                    <TableHead className="text-right">Requests</TableHead>
-                    <TableHead className="text-right">Tokens</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {usage!.models.length === 0 ? (
-                    <TableRow><TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-6">No per-model spend logs yet</TableCell></TableRow>
-                  ) : (
-                    usage!.models.map((m) => (
-                      <TableRow key={m.model}>
-                        <TableCell className="font-mono text-xs">
-                          <div className="space-y-1 max-w-[220px]">
-                            {m.model}
-                            {usage!.total_spend > 0 && <ShareBar pct={(m.spend / usage!.total_spend) * 100} colorVar="var(--chart-2)" />}
-                          </div>
-                        </TableCell>
-                        <TableCell className="dp-num text-right">{formatUsd(m.spend)}</TableCell>
-                        <TableCell className="dp-num text-right">{m.requests.toLocaleString()}</TableCell>
-                        <TableCell className="dp-num text-right">{m.total_tokens.toLocaleString()}</TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </>
-      )}
-
-      {caps.query_engine === "athena" && (
-        <Card>
-          <CardContent className="py-4 flex items-start gap-3">
-          <ExternalLink className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
-          <p className="text-xs text-muted-foreground">
-            Athena query scan cost (estimated at $5/TB) is tracked separately in the{" "}
-            <code className="font-mono">DataPond</code> CloudWatch namespace, on the{" "}
-            <code className="font-mono">&lt;name_prefix&gt;-foundation</code> dashboard
-            (see <code className="font-mono">terraform/cloudwatch.tf</code>) — it isn&rsquo;t exposed via a
-            backend API yet, so it isn&rsquo;t rendered here. Open{" "}
-            <a
-              href="https://console.aws.amazon.com/cloudwatch/home#dashboards"
-              target="_blank"
-              rel="noreferrer"
-              className="underline hover:text-foreground"
-            >
-              CloudWatch Dashboards
-            </a>{" "}
-            to view it.
-          </p>
-        </CardContent>
-      </Card>
-      )}
-    </div>
-  )
-}
-
 // ─── main page ────────────────────────────────────────────────────────────────
 
 export default function GovernancePage() {
@@ -1054,18 +818,12 @@ export default function GovernancePage() {
           <TabsTrigger value="ai-safety">AI Safety</TabsTrigger>
           <TabsTrigger value="data-protection">Data Protection</TabsTrigger>
           <TabsTrigger value="access-control">Access Control</TabsTrigger>
-          <TabsTrigger value="cost">Cost</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
         </TabsList>
 
         {/* ── Tab: Access Control (RLS) ─────────────────────────────────── */}
         <TabsContent value="access-control" className="mt-4 space-y-4">
           <AccessControlTab />
-        </TabsContent>
-
-        {/* ── Tab: Cost (AI spend attribution) ─────────────────────────── */}
-        <TabsContent value="cost" className="mt-4 space-y-4">
-          <CostTab />
         </TabsContent>
 
         {/* ── Tab 1: Audit Log ──────────────────────────────────────────── */}

@@ -13,7 +13,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ConceptsPanel } from "@/components/knowledge/concepts-panel"
 import { ComparePanel } from "@/components/knowledge/compare-panel"
 import { Markdown } from "@/components/ui/markdown"
-import { MySpend } from "@/components/ai/my-spend"
 import { CompositionPanel } from "@/components/knowledge/composition-panel"
 import { LineagePanel } from "@/components/knowledge/lineage-panel"
 import { MembersPanel } from "@/components/knowledge/members-panel"
@@ -231,7 +230,6 @@ export default function KnowledgePage() {
           what an *application* costs, and rather than AI Gateway, which reports the
           whole deployment and needs a permission data_scientist does not hold.
           Knowledge is where a person spends tokens, so it is where they see it. */}
-      <MySpend />
 
       {/* Lineage spans collections, so it belongs to the page rather than to the
           selected one — the question it answers ("this table changed, what is now
