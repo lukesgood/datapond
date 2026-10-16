@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { PasskeyManager } from "@/components/passkey-manager"
+import { MySpend } from "@/components/ai/my-spend"
 import { readUser, serverUser, subscribeToUser } from "@/lib/auth"
 import { useToast } from "@/lib/toast"
 import { useCapabilityStrict } from "@/lib/capabilities"
@@ -68,6 +69,10 @@ export default function AccountPage() {
           <div className="flex justify-between gap-4"><span className="text-muted-foreground">Role</span><span className="capitalize">{user?.role ?? "—"}</span></div>
         </CardContent>
       </Card>
+
+      {/* Your own model use. It sat on Knowledge; it is about you, not a collection.
+          The deployment-wide view is AI Gateway (spend:read). */}
+      <MySpend />
 
       <Card>
         <CardHeader className="pb-3">

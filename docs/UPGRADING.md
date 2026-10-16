@@ -3,6 +3,15 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-10 — Model spend has one view: AI Gateway
+
+Spend was shown four ways. Governance → Cost was a second, smaller copy of AI Gateway's
+usage view (same endpoint, `spend:read`; every role that sees Governance also holds
+`spend:read`) and is removed. The signed-in person's own spend moved from the top of
+Knowledge to Your account, where every role that can spend sees it. Overview keeps
+its one-line spend figure, now a link to AI Gateway; a service account's own spend
+stays on its row in Settings → Service accounts.
+
 ## 2026-10 — Instructions moved out of working pages into Help
 
 - Settings → System (Helm values, upgrade commands, Airflow SMTP) is now Help → Change
