@@ -7,7 +7,9 @@ is an API key, which `auth.get_current_user` resolves.
 Only an administrator manages these. A credential that can mint further credentials
 is a credential that cannot be contained.
 """
+import json
 import logging
+import uuid
 from datetime import timedelta
 from typing import List, Optional
 
@@ -46,20 +48,32 @@ def _account_username(name: str) -> str:
     return f"svc-{slug}"[:64]
 
 
-@router.get("/service-accounts")
-async def list_service_accounts(admin: dict = Depends(require_admin)):
-    """Service accounts with their keys. Key material is never returned."""
-    from app import oauth_rs
-    pool = await _get_pool()
-    async with pool.acquire() as conn:
+async def _account_rows(conn, where_id: Optional[str] = None, *,
+                        with_attributes: bool = False) -> list:
+    """Service accounts with their keys, in the shape both reads return: all of them
+    (`where_id` None) or one. One builder, so the list and the single read cannot
+    drift. Key material is never returned."""
+    attrs = ", COALESCE(attributes, '{}'::jsonb) AS attributes" if with_attributes else ""
+    if where_id is None:
         accounts = await conn.fetch(
-            """SELECT id, username, display_name, role, is_active, created_at,
-                      external_id, external_provider
-                 FROM users WHERE auth_method = 'service' ORDER BY created_at DESC""")
+            f"""SELECT id, username, display_name, role, is_active, created_at,
+                       external_id, external_provider{attrs}
+                  FROM users WHERE auth_method = 'service' ORDER BY created_at DESC""")
         keys = await conn.fetch(
             """SELECT id, user_id, name, key_prefix, status, scopes,
                       expires_at, last_used_at, created_at
                  FROM api_keys ORDER BY created_at DESC""")
+    else:
+        accounts = await conn.fetch(
+            f"""SELECT id, username, display_name, role, is_active, created_at,
+                       external_id, external_provider{attrs}
+                  FROM users WHERE auth_method = 'service' AND id = $1::uuid""",
+            where_id)
+        keys = await conn.fetch(
+            """SELECT id, user_id, name, key_prefix, status, scopes,
+                      expires_at, last_used_at, created_at
+                 FROM api_keys WHERE user_id = $1::uuid ORDER BY created_at DESC""",
+            where_id)
 
     by_user: dict = {}
     for k in keys:
@@ -70,24 +84,68 @@ async def list_service_accounts(admin: dict = Depends(require_admin)):
             "created_at": k["created_at"],
         })
 
-    return {"accounts": [{
-        "id": str(a["id"]), "username": a["username"],
-        "display_name": a["display_name"], "role": a["role"],
-        "is_active": a["is_active"], "created_at": a["created_at"],
-        "permissions": sorted(effective_permissions(a["role"], [])),
-        "keys": by_user.get(str(a["id"]), []),
-        # The issuer it was linked under: a link made under an earlier issuer no
-        # longer matches any token, and the console says so.
-        "oauth_client": ({"client_id": a["external_id"], "issuer": a["external_provider"]}
-                         if a["external_id"] else None),
-    } for a in accounts],
-        "oauth": {"enabled": oauth_rs.enabled(),
-                  "issuer": oauth_rs.config().issuer if oauth_rs.enabled() else None},
-        "assignable_roles": [r for r in ASSIGNABLE_ROLES if r != "admin"],
-        "grantable_permissions": sorted(
-            set().union(*(permissions_for(r) for r in ASSIGNABLE_ROLES))
-            - set(NEVER_FOR_SERVICE_ACCOUNTS)),
-    }
+    rows = []
+    for a in accounts:
+        row = {
+            "id": str(a["id"]), "username": a["username"],
+            "display_name": a["display_name"], "role": a["role"],
+            "is_active": a["is_active"], "created_at": a["created_at"],
+            "permissions": sorted(effective_permissions(a["role"], [])),
+            "keys": by_user.get(str(a["id"]), []),
+            # The issuer it was linked under: a link made under an earlier issuer no
+            # longer matches any token, and the console says so.
+            "oauth_client": ({"client_id": a["external_id"], "issuer": a["external_provider"]}
+                             if a["external_id"] else None),
+        }
+        if with_attributes:
+            attrs_value = a["attributes"]
+            if not isinstance(attrs_value, dict):
+                try:
+                    attrs_value = json.loads(attrs_value) if attrs_value else {}
+                except Exception:
+                    attrs_value = {}
+            row["attributes"] = attrs_value
+        rows.append(row)
+    return rows
+
+
+def _account_options() -> dict:
+    """What the console offers when creating or editing an account."""
+    from app import oauth_rs
+    return {"oauth": {"enabled": oauth_rs.enabled(),
+                      "issuer": oauth_rs.config().issuer if oauth_rs.enabled() else None},
+            "assignable_roles": [r for r in ASSIGNABLE_ROLES if r != "admin"],
+            "grantable_permissions": sorted(
+                set().union(*(permissions_for(r) for r in ASSIGNABLE_ROLES))
+                - set(NEVER_FOR_SERVICE_ACCOUNTS))}
+
+
+@router.get("/service-accounts")
+async def list_service_accounts(admin: dict = Depends(require_admin)):
+    """Service accounts with their keys. Key material is never returned."""
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        accounts = await _account_rows(conn)
+    return {"accounts": accounts, **_account_options()}
+
+
+@router.get("/service-accounts/{account_id}")
+async def get_service_account(account_id: str, admin: dict = Depends(require_admin)):
+    """One service account, in the list's shape plus its attributes (the values chunk
+    rules read), so a page about one agent does not fetch every account and user.
+    The per-key rate limit is deployment-wide; it is shown, not set, here."""
+    from app.rate_limit import api_key_limiter
+    try:
+        uuid.UUID(account_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Unknown service account.")
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        rows = await _account_rows(conn, account_id, with_attributes=True)
+    if not rows:
+        raise HTTPException(status_code=404, detail="Unknown service account.")
+    return {**rows[0], **_account_options(),
+            "rate_limit_per_minute": api_key_limiter().per_minute}
 
 
 _ACCOUNT_COLLECTIONS_SQL = """
