@@ -131,3 +131,25 @@ Why: the backend pod restarted once (exit 137) during the after-measurement.
 - Reading: product traffic at 40 concurrent requests uses about 55% of the 1Gi limit.
   - The restart came from the measurement method. Each in-pod Python harness loads the whole app, about 150 to 300 MiB, inside the backend container's cgroup. Five harnesses plus the server went past 1Gi.
 - Rule: run in-pod harnesses one at a time, or as a separate Job pod. No chart change.
+
+---
+
+# Follow-up verification (2026-10-16, live 2.3.0-c58e039, helm rev 77, PR #227)
+
+- **Q13 (top-N):** `order_count` by `customer_id`, `order_by` desc, `limit` 5. Three calls returned identical rows, and every call equals the reference including its tie order: (25,18), (3,13), (10,13), (18,13), (697,12). `truncated` is true because the page is full.
+- **Q14 (category revenue, non-cancelled orders):** covered with no compiler change.
+  - Setup: two single-hop approved joins (order_items→products, order_items→orders) plus a new metric `item_revenue`, defined as `SUM(quantity * unit_price)` on order_items with dimensions `category` and `order_status`.
+  - Query: `where order_status != 'cancelled'`. Result equals the reference.
+  - The earlier "two-hop" label was wrong: both tables join directly from order_items. So the metric path now covers 20/20 questions.
+- **suggested_metric** (via /api/ai/sql):
+
+  | Question | Suggestion |
+  |---|---|
+  | Q1 | order_count |
+  | Q10 | invoice_amount |
+  | Q11 | none (it needs two metrics that tie, so no single suggestion) |
+  | Q13 | order_count |
+  | Q14 | item_revenue (was revenue) |
+
+- **MCP:** `metric_query` with `order_by` and `limit` 2 returned web 809, mobile 423, `truncated` true. `limit: true` was refused ("Input should be a valid integer"), and the audit log shows the `metric.query` row as refused.
+- **Left in place for the demo:** joins order_items→products and order_items→orders; metric `item_revenue` v1, approved.
