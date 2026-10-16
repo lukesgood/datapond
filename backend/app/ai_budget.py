@@ -20,6 +20,12 @@ call, gets one more answer (seen live 2026-10-13). DataPond asks the gateway for
 caller's spend and cap first — cached a few seconds, forgotten when an operator
 changes the cap — and refuses when spend >= cap. A cap of 0 is therefore "no calls",
 at once. The gateway's check stays as the backstop for what this one cannot see.
+
+"Forgotten when an operator changes the cap" held only in the pod that served the
+change: with two backend pods the other kept its cached "no cap" (seen live
+2026-10-16, HTTP 200 at a cap of 0). So the cap an operator sets through DataPond is
+also kept in Postgres (`ai_budget_caps`, migration 0024) and read on every call; only
+the spend is cached. No row means DataPond never set one, and the gateway's cap applies.
 """
 import logging
 import time
@@ -122,6 +128,33 @@ async def _figures(user_id: str) -> Optional[Tuple[Optional[float], float]]:
     return figures
 
 
+# _shared_cap's answer when DataPond holds no cap for the caller.
+NO_SHARED_CAP = object()
+
+
+async def _shared_cap(user_id: str):
+    """The cap set through DataPond, as every pod sees it, or NO_SHARED_CAP."""
+    from app.api.connectors import get_db_pool
+    pool = await get_db_pool()
+    async with pool.acquire() as c:
+        cap = await c.fetchval("SELECT max_budget FROM ai_budget_caps WHERE user_id = $1", user_id)
+    return NO_SHARED_CAP if cap is None else float(cap)
+
+
+async def store_shared_cap(user_id: str, cap: Optional[float]) -> None:
+    """Record the cap an operator set; None (cleared) removes it."""
+    from app.api.connectors import get_db_pool
+    pool = await get_db_pool()
+    async with pool.acquire() as c:
+        if cap is None:
+            await c.execute("DELETE FROM ai_budget_caps WHERE user_id = $1", user_id)
+        else:
+            await c.execute(
+                "INSERT INTO ai_budget_caps (user_id, max_budget) VALUES ($1, $2) "
+                "ON CONFLICT (user_id) DO UPDATE SET max_budget = EXCLUDED.max_budget, "
+                "updated_at = now()", user_id, float(cap))
+
+
 async def assert_within_cap(*, actor: dict, tool: str, request_text: str) -> None:
     """Raise the 402 (and write the `refused` row) when the caller has spent its cap.
 
@@ -131,10 +164,22 @@ async def assert_within_cap(*, actor: dict, tool: str, request_text: str) -> Non
     user_id = (actor or {}).get("id")
     if not user_id:
         return
+    try:
+        shared = await _shared_cap(str(user_id))
+    except Exception as e:
+        logger.warning("[ai_budget] shared cap unreadable, using the gateway's: %s", str(e)[:120])
+        shared = NO_SHARED_CAP
+    if shared is not NO_SHARED_CAP and shared <= 0:
+        # No spend can be under a cap of 0: no need to ask the gateway.
+        raise await refuse_over_budget(
+            actor=actor, tool=tool, request_text=request_text,
+            body="Budget=0 (checked before the call).")
     figures = await _figures(str(user_id))
     if figures is None:
         return
     cap, spend = figures
+    if shared is not NO_SHARED_CAP:
+        cap = shared
     if cap is not None and spend >= cap:
         raise await refuse_over_budget(
             actor=actor, tool=tool, request_text=request_text,

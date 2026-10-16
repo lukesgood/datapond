@@ -3,6 +3,21 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-10 — A cap set in Settings → Budgets holds on every backend replica at once
+
+The pre-call check below cached each caller's cap for 15 seconds per replica, and a
+cap change cleared only the cache of the replica that served it. With the reference's
+two backend replicas (HPA minimum 2), a caller capped at 0 was answered again by the
+other one (seen live on 2026-10-16; only the gateway's own check, which is not
+reliable for this, refused the probe). A cap set through DataPond is now also kept in
+Postgres (`ai_budget_caps`, migration 0024) and read before every model call; only the
+spend is cached. A cap of 0 refuses without asking the gateway. **Action:** caps set
+before this upgrade live only in the gateway and keep the old per-replica behaviour;
+set them again in Settings → Budgets (or `PUT /api/settings/ai/budgets/{user_id}`) to
+have them recorded. Clearing a cap removes the row, so the gateway's cap — including a
+deployment default — applies again; a replica may refuse for up to 15 seconds after a
+cap is cleared, never the other way round.
+
 ## 2026-10 — Reranking works on the AWS Single-Node Reference (it never did)
 
 `values-prod-single.yaml` registered `rerank` as `bedrock/amazon.rerank-v1:0`, a model
