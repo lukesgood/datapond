@@ -253,3 +253,40 @@ def test_a_full_page_under_limit_is_reported_as_possibly_truncated(env):
     assert out["row_count"] == 1 and out["truncated"] is True
     out = _run(service.run_metric_query(ANA, metric="revenue", period="last_month", limit=5))
     assert out["truncated"] is False
+
+
+def test_dimension_values_are_counted_within_the_metric_scope(env):
+    out = _run(service.run_dimension_values(ANA, metric="revenue", dimension="channel",
+                                            period="last_month"))
+    sql = env["executed"][0]
+    assert sql.startswith('SELECT "b"."channel" AS "channel", COUNT(*) AS "rows"')
+    assert "'paid'" in sql or "WHERE" in sql            # the metric's own filters apply
+    assert sql.endswith("ORDER BY 2 DESC, 1 LIMIT 20")
+    assert out["dimension"] == "channel" and out["citation"]["metric"] == "revenue"
+    (row,) = env["audit"]
+    assert row["tool"] == "metric.values" and row["outcome"] == "ok"
+
+
+def test_dimension_values_without_a_period_scan_all_time(env):
+    _run(service.run_dimension_values(ANA, metric="revenue", dimension="channel"))
+    assert "ordered_at" not in env["executed"][0]
+
+
+def test_dimension_values_of_an_unknown_dimension_is_a_400(env):
+    with pytest.raises(HTTPException) as e:
+        _run(service.run_dimension_values(ANA, metric="revenue", dimension="nope"))
+    assert e.value.status_code == 400 and "channel" in e.value.detail
+    assert env["audit"][0]["outcome"] == "refused" and env["executed"] == []
+
+
+def test_an_empty_filtered_result_points_at_metric_values(env, monkeypatch):
+    async def empty(sql, user, origin="metric"):
+        env["executed"].append(sql)
+        return {"columns": ["revenue"], "rows": [], "row_count": 0, "truncated": False,
+                "pii_masked": 0}
+    monkeypatch.setattr(service, "_execute", empty)
+    out = _run(service.run_metric_query(ANA, metric="revenue", period="last_month",
+                                        where=[{"dimension": "channel", "op": "=", "value": "Web"}]))
+    assert "metric_values" in out["note"]
+    out = _run(service.run_metric_query(ANA, metric="revenue", period="last_month"))
+    assert "note" not in out

@@ -4,7 +4,7 @@
 
 DataPond is an open-core data tool server for teams whose AI agents and applications need to reach company data. Agents call it **directly** with a service-account key, and if your organization runs an agent gateway (Amazon Bedrock AgentCore Gateway, Obot, Runlayer) DataPond can be registered behind it as a target. Either way it does the part gateways do not: ingestion and freshness, chunking and embeddings, pgvector retrieval with optional reranking, cited answers, governed SQL, per-caller collection and row access, PII masking on the data itself, audit, and per-caller model spend. Infrastructure stays behind open contracts. Every search, cited answer, SQL call and embedding writes a tool-call audit row, and per-caller budgets are enforced (an over-budget call is refused with 402 and audited).
 
-The tool surface is **REST/OpenAPI with service-account keys**, and a read-only MCP server at `POST /api/mcp` exposes the same 29 read actions as tools for agents that discover tools rather than being wired to them by hand. DataPond does not build gateway features (agent registry, SSO/SCIM sync, tool-level policy engines). **AWS is the current reference deployment, not the product boundary.** Run on native S3, Aurora PostgreSQL/pgvector, Glue/Athena, and Bedrock, or on PostgreSQL, S3-compatible storage, and local/cloud models through LiteLLM.
+The tool surface is **REST/OpenAPI with service-account keys**, and a read-only MCP server at `POST /api/mcp` exposes the same 30 read actions as tools for agents that discover tools rather than being wired to them by hand. DataPond does not build gateway features (agent registry, SSO/SCIM sync, tool-level policy engines). **AWS is the current reference deployment, not the product boundary.** Run on native S3, Aurora PostgreSQL/pgvector, Glue/Athena, and Bedrock, or on PostgreSQL, S3-compatible storage, and local/cloud models through LiteLLM.
 
 Positioning decision and its evidence: [docs/POSITIONING_REVIEW.md](docs/POSITIONING_REVIEW.md). How well the current build fits it: [docs/POSITIONING_FIT_AUDIT.md](docs/POSITIONING_FIT_AUDIT.md).
 
@@ -141,7 +141,7 @@ Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider r
 - Capability-gated navigation and direct-route states
 - Community authentication plus Enterprise OIDC SSO
 - Append-only tool call log: who called search, cited answers, SQL generation or query execution, against which collection or tables, with hit count, cited sources and PII masked; NDJSON export and compliance-report section
-- Read-only MCP server at POST /api/mcp (2026-07-28 stateless HTTP): the 29 read actions as tools, scoped by the calling key, one audit row per call
+- Read-only MCP server at POST /api/mcp (2026-07-28 stateless HTTP): the 30 read actions as tools, scoped by the calling key, one audit row per call
 - Governed metrics: admin-approved, versioned metric definitions; `metric_query` compiles deterministic SQL (no model), runs it through the same RLS/masking path, and returns rows with a citation (metric, version, approver, SQL) recorded in the audit log
 - OAuth resource-server mode: the API and MCP endpoint accept the customer's IdP access tokens for existing users and linked service accounts, narrowed by `datapond:` scopes (off by default; a client is linked to a service account under Settings → Service accounts)
 - Tool-facing OpenAPI for gateway registration at `GET /api/tools/openapi.json` (3.0, no `anyOf`, only the tools the calling key may use)

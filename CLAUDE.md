@@ -369,7 +369,7 @@ See `.claude/agents/pm-agent.md` for detailed spawning examples and coordination
 
 > **Direction (v6.0, 2026-09-07):** governed data tool server for AI agents and apps (v5.0 "Portable AI Data Foundation" superseded; see `docs/POSITIONING_REVIEW.md`). Where the build still does not fit: `docs/POSITIONING_FIT_AUDIT.md` §0. The pre-v6 completion log lives in `docs/archive/IMPLEMENTATION_LOG_2026H1.md`.
 
-- **Tool surface:** REST/OpenAPI, read-only MCP at `POST /api/mcp` (29 read actions, incl. `metric_list/describe/query`: admin-approved versioned metric definitions compiled to cited SQL), gateway OpenAPI at `GET /api/tools/openapi.json`.
+- **Tool surface:** REST/OpenAPI, read-only MCP at `POST /api/mcp` (30 read actions, incl. `metric_list/describe/query/values`: admin-approved versioned metric definitions compiled to cited SQL), gateway OpenAPI at `GET /api/tools/openapi.json`.
 - **Caller identity:** service-account keys (scoped, expiring, rotatable, per-key rate limit), the console's HttpOnly session cookie (same-origin only on state-changing requests), and OAuth resource-server mode for IdP tokens (off by default; never exercised against a live IdP). A key or IdP token never passes `require_admin`/`require_human` and cannot set a password.
 - **Governance at the data layer:** collection ACL, chunk-level caller filters (`app/chunk_access.py`), SQL RLS/masking on `/queries/execute` (the catalog preview runs through it), per-caller/collection PII modes and sensitivity labels, tool-call audit (`tool_call_log`, incl. refused calls and `ai.embed`), enforced per-caller budgets (402).
 - **Sovereign Core** is installed from nothing on every CI run (kind: MinIO via `pgsty/minio`, Ollama, local-only egress, embed → ingest → search).
