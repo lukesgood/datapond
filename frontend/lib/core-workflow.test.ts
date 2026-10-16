@@ -43,7 +43,7 @@ test("the steps that do not branch point at the expected page", () => {
   assert.equal(menuOf(byTitle.get("Ground")!), "Knowledge")
   // The integration guide, not a menu page of its own: what this step needs is how to
   // connect (MCP, the gateway document, the REST surface), which is documentation,
-  // and the one action in it — issuing a key — lives in Settings → Service accounts.
+  // and the one action in it — issuing a key — lives on the Agents page.
   assert.equal(byTitle.get("Connect your agent"), "/help/integrate")
   assert.equal(menuOf(byTitle.get("Connect your agent")!), "Help")
   assert.equal(menuOf(byTitle.get("Govern")!), "Governance")

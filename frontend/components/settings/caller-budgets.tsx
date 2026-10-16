@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import Link from "next/link"
 import { AlertCircle, Loader2, Wallet } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -31,6 +32,8 @@ export function CallerBudgets({ canEdit }: { canEdit: boolean }) {
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [known, setKnown] = useState<KnownCaller[]>([])
+  // Service accounts are agents, and an agent's cap is set on its own page.
+  const [agentIds, setAgentIds] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState("")
   const [addId, setAddId] = useState("")
@@ -63,9 +66,8 @@ export function CallerBudgets({ canEdit }: { canEdit: boolean }) {
       const out: KnownCaller[] = []
       try {
         const r = await fetch("/api/service-accounts")
-        if (r.ok) for (const a of (await r.json()).accounts ?? [])
-          out.push({ id: a.id, label: `${a.display_name || a.username} (service account)` })
-      } catch { /* picker stays partial */ }
+        if (r.ok) setAgentIds(new Set(((await r.json()).accounts ?? []).map((a: { id: string }) => a.id)))
+      } catch { /* agent rows stay editable, which is the old behaviour */ }
       try {
         const r = await fetch("/api/auth/users")
         if (r.ok) for (const u of await r.json())
@@ -133,18 +135,23 @@ export function CallerBudgets({ canEdit }: { canEdit: boolean }) {
           <p className="text-xs text-muted-foreground">No caller has spent or been capped yet.</p>
         ) : (
           <div className="divide-y rounded-lg border">
-            <div className="grid grid-cols-[1fr_5rem_9rem_5.5rem] gap-3 px-3 py-1.5 text-2xs text-muted-foreground">
+            <div className="grid grid-cols-[1fr_5rem_14rem_5.5rem] gap-3 px-3 py-1.5 text-2xs text-muted-foreground">
               <span>Caller</span><span className="text-right">Spent</span><span className="text-right">Cap</span><span>Status</span>
             </div>
             {rows.map(c => {
               const label = callerLabel(c.alias, c.user_id)
               const st = STATUS[budgetStatus(c)]
               return (
-                <div key={c.user_id} className="grid grid-cols-[1fr_5rem_9rem_5.5rem] items-center gap-3 px-3 py-1.5 text-xs">
+                <div key={c.user_id} className="grid grid-cols-[1fr_5rem_14rem_5.5rem] items-center gap-3 px-3 py-1.5 text-xs">
                   <span className="truncate" title={label.title}>{label.text}</span>
                   <span className="text-right tabular-nums">{formatUsd(c.spend)}</span>
                   <span className="flex items-center justify-end gap-1.5 tabular-nums">
-                    {editing === c.user_id ? (
+                    {agentIds.has(c.user_id) ? (
+                      <>
+                        <span>{c.max_budget == null ? "—" : formatUsd(c.max_budget)}</span>
+                        <Link href={`/agents/${c.user_id}`} className="text-primary">Set on the agent&apos;s page</Link>
+                      </>
+                    ) : editing === c.user_id ? (
                       <>
                         <Input value={draft} onChange={e => setDraft(e.target.value)} inputMode="decimal"
                                aria-label={`Cap in dollars for ${label.text}`} className="h-7 w-20 text-xs"

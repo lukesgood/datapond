@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback, useSyncExternalStore, Suspense } from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
@@ -13,7 +13,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ServiceAccounts } from "@/components/settings/service-accounts"
 import { DataCatalogs } from "@/components/settings/data-catalogs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
@@ -78,8 +77,9 @@ const subscribeToClient = () => () => {}
 
 // ── Main page ──────────────────────────────────────────────────────────────────
 
-// ?tab=<value> opens that tab, so a guide can link straight to Service accounts.
-const TABS = ["overview", "users", "security", "service", "catalogs"]
+// ?tab=<value> opens that tab. "service" is gone: service accounts moved to /agents, and
+// old links to ?tab=service are sent there.
+const TABS = ["overview", "users", "security", "catalogs"]
 
 export default function SettingsPage() {
   return (
@@ -91,6 +91,8 @@ export default function SettingsPage() {
 
 function SettingsWorkspace() {
   const asked = useSearchParams().get("tab")
+  const router = useRouter()
+  useEffect(() => { if (asked === "service") router.replace("/agents") }, [asked, router])
   const initialTab = asked && TABS.includes(asked) ? asked : "overview"
   // Fail-closed: only render passkey management when the backend explicitly
   // reports webauthn=true. A /api/capabilities fetch error must not show the
@@ -131,7 +133,7 @@ function SettingsWorkspace() {
 
   // Settings is platform administration — admin only. Personal credentials
   // (password, passkeys) live on /account, available to every user. Every tab this
-  // page composes (Users, Security, System, Service accounts) is itself admin-only
+  // page composes (Users, Security, Data catalogs) is itself admin-only
   // on the backend, so this reads the role rather than a fabricated permission name
   // — sourced from /api/me/permissions rather than the token in localStorage.
   const { role, loaded, error, refetch } = usePermissions()
@@ -206,7 +208,6 @@ function SettingsWorkspace() {
             <TabsTrigger value="overview"  className="text-xs">Overview</TabsTrigger>
             <TabsTrigger value="users"     className="text-xs">Users</TabsTrigger>
             <TabsTrigger value="security"  className="text-xs">Security</TabsTrigger>
-            <TabsTrigger value="service"   className="text-xs">Service accounts</TabsTrigger>
             <TabsTrigger value="catalogs"  className="text-xs">Data catalogs</TabsTrigger>
           </TabsList>
 
@@ -349,11 +350,6 @@ function SettingsWorkspace() {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
-
-          {/* ── System ── */}
-          <TabsContent value="service" className="mt-5">
-            <ServiceAccounts />
           </TabsContent>
 
           <TabsContent value="catalogs" className="mt-5">
