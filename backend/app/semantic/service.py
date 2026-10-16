@@ -111,7 +111,8 @@ async def run_metric_query(user: dict, *, metric: str, by: Sequence[str] = (),
                               order_by=order_by or [], limit=limit)
     out = await _governed(user, tool=TOOL, metric=metric, request=request, version=version,
                           build=build, limit=limit)
-    if where and not out["rows"]:
+    # COUNT over no rows is a single 0, SUM a single NULL: both mean nothing matched.
+    if where and all(not row or row[-1] in (0, None) for row in out["rows"]):
         out["note"] = ("No rows. If a where value may be spelled differently in the data, "
                        "metric_values lists the values a dimension takes.")
     return out

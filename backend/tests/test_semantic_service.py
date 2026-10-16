@@ -290,3 +290,15 @@ def test_an_empty_filtered_result_points_at_metric_values(env, monkeypatch):
     assert "metric_values" in out["note"]
     out = _run(service.run_metric_query(ANA, metric="revenue", period="last_month"))
     assert "note" not in out
+
+
+def test_a_filtered_count_of_zero_also_points_at_metric_values(env, monkeypatch):
+    # COUNT(*) over no rows is one row of 0, not an empty result.
+    async def zero(sql, user, origin="metric"):
+        env["executed"].append(sql)
+        return {"columns": ["revenue"], "rows": [[0]], "row_count": 1, "truncated": False,
+                "pii_masked": 0}
+    monkeypatch.setattr(service, "_execute", zero)
+    out = _run(service.run_metric_query(ANA, metric="revenue", period="last_month",
+                                        where=[{"dimension": "channel", "op": "=", "value": "Web"}]))
+    assert "metric_values" in out["note"]
