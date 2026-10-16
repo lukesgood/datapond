@@ -61,6 +61,14 @@ citation (metric, version, approver, the compiled SQL, `rls_applied`, `pii_maske
 alone sets it. Each call writes one `metric.query` row to the tool-call audit log.
 Definitions are authored and approved in the console, never over MCP.
 
+Agents do not find metrics on their own: measured on live (2026-10-16), an agent that
+could also run SQL never called `metric_list`, and one limited to MCP reached it only
+after four other tools. So the server points at them where agents already look: the
+`initialize` result carries `instructions` (numbers and KPIs → `metric_list` first);
+`query_generate_sql` adds `suggested_metric` and a ready `metric_query` call when an
+approved metric matches the question; `catalog_describe_table` lists the metrics defined
+on that table.
+
 ## What it costs
 
 `knowledge_search`, `knowledge_answer_with_citations` and `query_generate_sql` call a

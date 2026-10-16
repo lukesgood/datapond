@@ -34,8 +34,33 @@ async def generate_sql(params: dict, user: dict) -> dict:
     from app.api.ai_sql import AskRequest, generate_sql as _generate
     result = await _generate(AskRequest(question=params["question"],
                                         catalog=params.get("catalog")), user=user)
-    return {"sql": result.sql, "explanation": result.explanation,
-            "validated": result.validated, "needs_input": result.needs_input}
+    out = {"sql": result.sql, "explanation": result.explanation,
+           "validated": result.validated, "needs_input": result.needs_input}
+    out.update(_metric_hint(result))
+    return out
+
+
+def _metric_hint(result) -> dict:
+    """Point the agent at an approved metric. Measured on live (2026-10-16): agents
+    almost always call this tool, and without a pointer they never reached metric_list
+    when they could run SQL, or gave up when they could not."""
+    s = getattr(result, "suggested_metric", None)
+    if s:
+        import json
+        args = {"metric": s["name"]}
+        if s.get("period_required"):
+            args["period"] = "YYYY-MM-DD..YYYY-MM-DD"
+        dims = (f" Group with by: any of {', '.join(s['dimensions'])}."
+                if s.get("dimensions") else "")
+        return {"suggested_metric": s,
+                "next": ("An approved metric matches this question. metric_query returns its "
+                         "number with a citation (version, approver, SQL); prefer it to running "
+                         "this SQL. Call: metric_query " + json.dumps(args, ensure_ascii=False)
+                         + "." + dims)}
+    if getattr(result, "metrics_provided", None):
+        return {"next": ("Approved metrics exist for this data. If the question asks for a "
+                         "KPI, metric_list shows them and metric_query returns a cited number.")}
+    return {}
 
 
 HIDDEN_CATALOG = ("This statement references a data catalog you may not use. Ask an "

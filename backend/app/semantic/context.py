@@ -75,7 +75,8 @@ def suggest(metrics: List[dict], question: str) -> Optional[dict]:
     if not scored or scored[0][0] == 0 or (len(scored) > 1 and scored[1][0] == scored[0][0]):
         return None
     best = scored[0][1]
-    return {"name": best["name"], "dimensions": list(best.get("dimensions") or [])}
+    return {"name": best["name"], "dimensions": list(best.get("dimensions") or []),
+            "period_required": bool(best.get("time_column"))}
 
 
 async def for_caller(user: dict, catalog: Optional[str] = None) -> List[dict]:

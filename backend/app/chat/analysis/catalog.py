@@ -4,6 +4,7 @@ Declaration and implementation live together. `actions.py` owns the vocabulary â
 Action type, resolution, validation, the gate â€” and assembles what these modules
 declare.
 """
+import logging
 import re
 from typing import Callable, Dict, Optional
 
@@ -12,6 +13,8 @@ from pydantic import Field
 from app.api.catalog_backend import get_catalog_reader
 from app.chat.actions import Action, ActionKind, _Strict
 from app.chat.analysis._resolve import _r
+
+logger = logging.getLogger(__name__)
 
 
 _CATALOG_DESCRIPTION = ("The data catalog the table is in, as catalog_find_tables names it "
@@ -66,11 +69,40 @@ async def describe_table(params: dict, user: dict) -> dict:
     entry = (await _access(user)).resolve(params.get("catalog"))
     reader = get_catalog_reader(entry.name)
     columns = reader.get_columns(params["namespace"], params["table"])
-    return {
+    out = {
         "catalog": entry.engine_catalog,
         "table": _qualified(entry, params["namespace"], params["table"]),
         "columns": [{"name": c.get("name"), "type": c.get("type")} for c in columns],
     }
+    metrics = await _metrics_on(user, entry, params["namespace"], params["table"])
+    if metrics:
+        out["metrics"] = metrics
+        out["metrics_note"] = ("Approved metrics over this table. For these numbers use "
+                               "metric_query: a cited result from the approved definition.")
+    return out
+
+
+def _metrics_enabled() -> bool:
+    import os
+    from app.capabilities import compute_capabilities
+    return bool(compute_capabilities(os.environ).get("query"))
+
+
+async def _metrics_on(user: dict, entry, namespace: str, table: str) -> list:
+    """Approved metrics this caller may use whose base table is this one. A hint, so it
+    never fails the describe: no metric tools (the query capability is off), no semantic
+    tables yet, or any error means no hint."""
+    try:
+        if not _metrics_enabled():
+            return []
+        from app.semantic import context
+        want = f"{entry.engine_catalog}.{namespace}.{table}".lower()
+        return [{"name": m["name"], "label": m["label"]}
+                for m in await context.for_caller(user, entry.name)
+                if m["base_table"].lower() == want]
+    except Exception:
+        logger.debug("metric hint for %s.%s skipped", namespace, table, exc_info=True)
+        return []
 
 
 # Tokens shorter than this are dropped: "in", "of", "a" match almost anything, and a
