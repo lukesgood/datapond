@@ -12,6 +12,7 @@ is not written; this module writes one `metric.query` row instead.
 import json
 import os
 import time
+from dataclasses import replace
 from datetime import date, datetime
 from typing import Optional, Sequence, Tuple
 from zoneinfo import ZoneInfo
@@ -99,26 +100,67 @@ async def run_metric_query(user: dict, *, metric: str, by: Sequence[str] = (),
                            period: Optional[str] = None, grain: Optional[str] = None,
                            where: Sequence[dict] = (), version: Optional[int] = None,
                            order_by: Sequence[dict] = (), limit: Optional[int] = None) -> dict:
+    request = {"metric": metric, "by": by, "period": period, "grain": grain,
+               "where": where or [], "version": version,
+               "order_by": order_by or [], "limit": limit}
+
+    def build(v: MetricVersion, entry):
+        return compile_metric(v, engine_catalog=entry.engine_catalog, dialect=_dialect(),
+                              today=today_local(), by=by, period=period,
+                              grain=grain, where=where or [],
+                              order_by=order_by or [], limit=limit)
+    out = await _governed(user, tool=TOOL, metric=metric, request=request, version=version,
+                          build=build, limit=limit)
+    if where and not out["rows"]:
+        out["note"] = ("No rows. If a where value may be spelled differently in the data, "
+                       "metric_values lists the values a dimension takes.")
+    return out
+
+
+VALUES_TOOL = "metric.values"
+VALUES_LIMIT = 20
+
+
+async def run_dimension_values(user: dict, *, metric: str, dimension: str,
+                               period: Optional[str] = None) -> dict:
+    """The values one dimension takes within the metric's own scope (base table, default
+    filters, approved join), most rows first — so an agent filters on a value that
+    exists instead of guessing its spelling. The metric is run with COUNT(*) as its
+    measure through the same compiler and governed path, so RLS and masking apply to
+    the values exactly as to a query. Without a period the time column is not bounded."""
+    request = {"metric": metric, "dimension": dimension, "period": period}
+
+    def build(v: MetricVersion, entry):
+        counted = replace(v, metric="rows", measure="COUNT(*)",
+                          time_column=v.time_column if period is not None else None)
+        return compile_metric(counted, engine_catalog=entry.engine_catalog, dialect=_dialect(),
+                              today=today_local(), by=[dimension], period=period,
+                              order_by=[{"field": "rows", "desc": True}], limit=VALUES_LIMIT)
+    out = await _governed(user, tool=VALUES_TOOL, metric=metric, request=request, version=None,
+                          build=build, limit=VALUES_LIMIT)
+    out["dimension"] = dimension
+    return out
+
+
+async def _governed(user: dict, *, tool: str, metric: str, request: dict,
+                    version: Optional[int], build, limit: Optional[int]) -> dict:
+    """Resolve the visible version, compile, execute through the governed path, and
+    write one audit row whatever happens."""
     from app.api.queries import rls_applied_ids
     started = time.perf_counter()
-    request_text = tool_call_log.masked_for_log(json.dumps(
-        {"metric": metric, "by": by, "period": period, "grain": grain,
-         "where": where or [], "version": version,
-         "order_by": order_by or [], "limit": limit}, ensure_ascii=False, default=str))
+    request_text = tool_call_log.masked_for_log(
+        json.dumps(request, ensure_ascii=False, default=str))
 
     async def audit(outcome, *, cite=None, sql=None, hits=0, pii=0):
         await tool_call_log.record(
-            actor=user, tool=TOOL, resource_kind="metric", resource=[metric],
+            actor=user, tool=tool, resource_kind="metric", resource=[metric],
             request_text=request_text, hit_count=hits, citation_sources=cite,
             pii_masked=pii, outcome=outcome, response_text=sql,
             duration_ms=int((time.perf_counter() - started) * 1000))
 
     try:
         _meta, v, entry = await resolve_visible(user, metric, version)
-        compiled = compile_metric(v, engine_catalog=entry.engine_catalog, dialect=_dialect(),
-                                  today=today_local(), by=by, period=period,
-                                  grain=grain, where=where or [],
-                                  order_by=order_by or [], limit=limit)
+        compiled = build(v, entry)
     except MetricNotFound:
         await audit("refused")
         raise _not_found(metric)
@@ -147,8 +189,8 @@ async def run_metric_query(user: dict, *, metric: str, by: Sequence[str] = (),
         raise
     await audit("ok", cite=cite, sql=compiled.sql, hits=int(result["row_count"] or 0),
                 pii=int(result.get("pii_masked") or 0))
-    citation = dict(compiled.citation, rls_applied=bool(applied),
-                    pii_masked=int(result.get("pii_masked") or 0))
+    citation = dict(compiled.citation, metric=v.metric, version=v.version,
+                    rls_applied=bool(applied), pii_masked=int(result.get("pii_masked") or 0))
     return {"columns": result["columns"], "rows": result["rows"],
             "row_count": result["row_count"],
             # A caller's LIMIT hides the engine's own cap, so a full page may not be all.

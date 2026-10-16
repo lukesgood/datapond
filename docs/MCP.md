@@ -3,7 +3,7 @@
 DataPond speaks the Model Context Protocol at `POST /api/mcp`, so an agent can discover
 its tools instead of being wired to them by hand.
 
-**Read-only.** The 29 read actions are exposed; nothing that writes is reachable, by
+**Read-only.** The 30 read actions are exposed; nothing that writes is reachable, by
 three separate refusals. Changing configuration or data still goes through the console
 or the typed REST endpoints.
 
@@ -50,8 +50,11 @@ request. A tool you may not use is indistinguishable from one that does not exis
 that is deliberate, so a call cannot be used to enumerate your scopes or this
 deployment's components.
 
-**Metric tools.** `metric_list` and `metric_describe` (`catalog:read`) and `metric_query`
-(`query:run`) are the three governed-metric actions. They need the `query` capability and
+**Metric tools.** `metric_list` and `metric_describe` (`catalog:read`), `metric_query` and
+`metric_values` (`query:run`) are the four governed-metric actions. `metric_values` lists
+the values one dimension takes (top 20 by rows) within the metric's scope, through the
+same governed path, so an agent filters on a value that exists; a `metric_query` with a
+`where` that returns no rows says so and points at it. They need the `query` capability and
 are absent on the Portable Core. `metric_query` takes `metric`, `by`, `period`, `grain`,
 `where`, `order_by` and `limit` (1–1000; with `order_by`, a top-N whose ties are broken by
 the remaining dimensions, so it returns the same rows every time), compiles the SQL deterministically from an approved definition, executes it

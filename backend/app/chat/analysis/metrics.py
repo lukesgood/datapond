@@ -52,6 +52,14 @@ class MetricQuery(_Strict):
                     "result has exactly this many rows, truncated is true: there may be more.")
 
 
+class MetricValues(_Strict):
+    metric: str = Field(description="The metric's name, as metric_list returns it.")
+    dimension: str = Field(description="One of the metric's dimensions, from metric_describe.")
+    period: Optional[str] = Field(
+        default=None, description="Optional. Same forms as metric_query. Omit to look at "
+                                  "all time.")
+
+
 # app.semantic.service is imported inside each executor, as query.py does for its
 # routes: at module load it would close a cycle (service -> tool_call_log ->
 # app.chat.actions REGISTRY -> this module).
@@ -75,6 +83,13 @@ async def query_metric(params: dict, user: dict) -> dict:
         limit=params.get("limit"))
 
 
+async def metric_values(params: dict, user: dict) -> dict:
+    from app.semantic import service
+    return await service.run_dimension_values(
+        user, metric=params["metric"], dimension=params["dimension"],
+        period=params.get("period"))
+
+
 ACTIONS = (
     Action("metric.list", "List metrics",
            "Approved business metrics you may query, with their names and synonyms. Call this "
@@ -90,18 +105,25 @@ ACTIONS = (
            "(top-N). Deterministic SQL from the approved definition; the result carries a "
            "citation (metric, version, approver, SQL).",
            ("*",), "query:run", ActionKind.READ, MetricQuery, capability="query"),
+    Action("metric.values", "Dimension values",
+           "The values one of a metric's dimensions takes (top 20 by rows), within the "
+           "metric's scope. Call before filtering with where, so the value matches the data "
+           "(e.g. 'cancelled' vs 'canceled').",
+           ("*",), "query:run", ActionKind.READ, MetricValues, capability="query"),
 )
 
 EXECUTORS: Dict[str, Callable] = {
     "metric.list": list_metrics,
     "metric.describe": describe_metric,
     "metric.query": query_metric,
+    "metric.values": metric_values,
 }
 
 RESOLVERS: Dict[str, Callable] = {
     "metric.list": _r("app.semantic.service", "list_visible"),
     "metric.describe": _r("app.semantic.service", "describe_visible"),
     "metric.query": _r("app.semantic.service", "run_metric_query"),
+    "metric.values": _r("app.semantic.service", "run_dimension_values"),
 }
 
 PREVIEWERS: Dict[str, Callable] = {}
