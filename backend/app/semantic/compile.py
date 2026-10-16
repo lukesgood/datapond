@@ -15,7 +15,7 @@ from sqlglot import exp
 
 from app.semantic.model import Join, MetricInputError, MetricVersion
 from app.semantic.periods import resolve_period
-from app.semantic.validate import checked_stored
+from app.semantic.validate import AGGREGATES, checked_stored
 
 BASE = "b"
 OPS = ("=", "!=", "in", ">", "<", "between")
@@ -40,6 +40,18 @@ def _on_base(field: str, text: str, dialect: str) -> exp.Expression:
     tree = checked_stored(field, text, dialect)
     for col in tree.find_all(exp.Column):
         col.set("table", exp.to_identifier(BASE))
+    return tree
+
+
+def _real_division(tree: exp.Expression) -> exp.Expression:
+    """A ratio between aggregates divides as real numbers, and a zero denominator gives
+    NULL rather than an error: Athena/Trino would truncate COUNT(...) / COUNT(*) to 0.
+    Only division outside an aggregate — the kind ratios introduced — is changed, so a
+    version approved before ratios existed compiles to the SQL it was approved with."""
+    for div in tree.find_all(exp.Div):
+        if div.find_ancestor(*AGGREGATES) is None:
+            div.set("typed", False)
+            div.set("safe", True)
     return tree
 
 
@@ -133,7 +145,7 @@ def compile_metric(v: MetricVersion, *, engine_catalog: str, dialect: str, today
         raise MetricInputError("A dimension appears twice in 'by'.", {"dimensions": dims})
     for name in by:
         select.append(target_of(name).as_(name))
-    select.append(_on_base("measure", v.measure, dialect).as_(v.metric))
+    select.append(_real_division(_on_base("measure", v.measure, dialect)).as_(v.metric))
 
     conds: List[exp.Expression] = []
     if v.filters:

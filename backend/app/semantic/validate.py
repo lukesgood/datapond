@@ -19,7 +19,7 @@ AGGREGATES = (exp.Sum, exp.Count, exp.Avg, exp.Min, exp.Max)
 
 _SCALAR = (exp.Column, exp.Identifier, exp.Literal, exp.Null, exp.Boolean, exp.Paren,
            exp.Neg, exp.Add, exp.Sub, exp.Mul, exp.Div, exp.Mod, exp.Cast, exp.DataType,
-           exp.Coalesce, exp.Case, exp.If)
+           exp.Coalesce, exp.Nullif, exp.Case, exp.If)
 _PREDICATE = (exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE, exp.In, exp.Between,
               exp.Is, exp.Like, exp.And, exp.Or, exp.Not)
 
@@ -64,12 +64,26 @@ def _check_nodes(field: str, tree: exp.Expression, allowed: tuple,
 def validate_measure(text: str, columns: Iterable[str], dialect: str) -> exp.Expression:
     cols = {c.lower() for c in columns}
     tree = _parse_one("measure", text, dialect)
-    if not isinstance(tree, AGGREGATES):
-        raise DefinitionError("measure", "Must be one aggregate: SUM, COUNT, AVG, MIN or MAX.")
     _check_nodes("measure", tree, MEASURE_NODES, cols)
-    if sum(1 for n in tree.walk() if isinstance(n, AGGREGATES)) != 1:
-        raise DefinitionError("measure", "Nested aggregates are not allowed.")
+    _check_measure_shape("measure", tree)
     return tree
+
+
+def _check_measure_shape(field: str, tree: exp.Expression) -> None:
+    """A number per group: aggregates, or arithmetic over them (a ratio such as
+    SUM(x) / COUNT(*)). Every column sits inside an aggregate — a bare column outside
+    one is not a value per group — and no aggregate sits inside another."""
+    aggs = [n for n in tree.walk() if isinstance(n, AGGREGATES)]
+    if not aggs:
+        raise DefinitionError(field, "Must use an aggregate: SUM, COUNT, AVG, MIN or MAX, or "
+                                     "arithmetic over them such as SUM(a) / COUNT(*).")
+    if any(isinstance(inner, AGGREGATES) for a in aggs for inner in a.walk() if inner is not a):
+        raise DefinitionError(field, "Nested aggregates are not allowed.")
+    for col in tree.find_all(exp.Column):
+        if col.find_ancestor(*AGGREGATES) is None:
+            raise DefinitionError(field, f"Column {col.name!r} must be inside an aggregate.")
+    if isinstance(tree, _PREDICATE):
+        raise DefinitionError(field, "A measure is a number, not a condition.")
 
 
 def validate_filters(text: Optional[str], columns: Iterable[str],
@@ -91,11 +105,9 @@ def checked_stored(field: str, text: str, dialect: str) -> exp.Expression:
     server-side data fault, so a plain ValueError rather than a caller's 400."""
     try:
         tree = _parse_one(field, text, dialect)
-        if field == "measure" and not isinstance(tree, AGGREGATES):
-            raise DefinitionError(field, "Must be one aggregate.")
         _check_nodes(field, tree, MEASURE_NODES if field == "measure" else FILTER_NODES, None)
-        if field == "measure" and sum(1 for n in tree.walk() if isinstance(n, AGGREGATES)) != 1:
-            raise DefinitionError(field, "Nested aggregates are not allowed.")
+        if field == "measure":
+            _check_measure_shape(field, tree)
         if field != "measure" and not isinstance(tree, _PREDICATE):
             raise DefinitionError(field, "Must be a condition.")
     except DefinitionError as e:
