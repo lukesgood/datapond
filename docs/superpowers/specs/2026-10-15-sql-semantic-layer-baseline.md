@@ -153,3 +153,42 @@ Why: the backend pod restarted once (exit 137) during the after-measurement.
 
 - **MCP:** `metric_query` with `order_by` and `limit` 2 returned web 809, mobile 423, `truncated` true. `limit: true` was refused ("Input should be a valid integer"), and the audit log shows the `metric.query` row as refused.
 - **Left in place for the demo:** joins order_items→products and order_items→orders; metric `item_revenue` v1, approved.
+
+---
+
+# Agent evaluation (2026-10-16, live)
+
+**Question:** does a real agent use the metric tools?
+
+**Method**
+- Agent: the live default model (Bedrock Claude via LiteLLM), temperature 0, at most 10 tool steps.
+- Questions and references: the same 20.
+- System prompt: "answer with tools", plus a final `{"answer_rows": ...}`.
+- One attempt per question in each condition:
+  - A: the MCP tools only. MCP has no ad-hoc SQL execution; `query_generate_sql` does not run.
+  - B: the MCP tools plus `run_sql`, which maps to REST `/api/queries/execute`.
+- Before = live `2.3.0-c58e039` (#227). After = live `2.3.0-02e505c` (#229, which adds discovery hints).
+- In the after run, the harness appended the server's `initialize` instructions to the system prompt, as MCP clients do.
+- Cost: about 1.35M input tokens before and 0.96M after, roughly 5 and 3.5 USD.
+
+| | A before | A after | B before | B after |
+|---|---|---|---|---|
+| Correct (strict) | 14/20 | 18/20 | 17/20 | 17/20 |
+| Correct (content) | 16/20 | **20/20** | 18/20 | **19/20** |
+| Answered from a metric | 16/20 | 20/20 | **0/20** | **19/20** |
+| Gave up | 4 | 0 | 0 | 0 |
+| Avg tool steps | 7.1 | 3.5 | 3.5 | 3.5 |
+| Input tokens | 908k | 481k | 444k | 483k |
+
+"Content" counts as correct the answers whose values are right but which add a label or date column (Q4, Q5, Q10).
+
+**Before**
+- With SQL available, the agent never called `metric_list`. Its misses were Q9 (ambiguous column) and Q13 (tie order), the two that the metrics fix.
+- MCP-only, it reached `metric_list` only after four other tools (find, describe, generate, explain). On Q3, Q14, Q15 and Q20 it answered "I cannot execute SQL" although the metric existed.
+
+**After (#229)**
+- The agent calls `metric_list` first in almost every episode.
+- B's only remaining miss is Q9: the agent took the SQL route and summed `inventory` instead of `products.stock_qty`.
+- A missing `period` still causes a first failed call on Q5, Q11 and Q13, followed by recovery. The error now carries an example range.
+
+**Reading:** the metric layer was accurate when used. Its practical problem was discovery, and pointing agents at it where they already look fixed most of that.
