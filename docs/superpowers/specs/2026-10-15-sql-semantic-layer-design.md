@@ -128,11 +128,15 @@ compile_metric(version, by, period, grain, where, dialect, now) -> CompiledQuery
 
 ### On save (new metric or new version), parsed with sqlglot 26.33
 
-- `measure`: exactly one top-level aggregate — `SUM`, `COUNT`, `COUNT(DISTINCT …)`, `AVG`,
-  `MIN`, `MAX`. Inside it only base-table columns, literals, arithmetic, `CASE`,
-  `COALESCE`, `CAST`. Subqueries, window functions, multiple statements, nested
-  aggregates and functions outside the allow-list are refused. The check walks AST node
-  types, never strings.
+- `measure`: aggregates — `SUM`, `COUNT`, `COUNT(DISTINCT …)`, `AVG`, `MIN`, `MAX` — or
+  arithmetic over them (amended 2026-10-16: ratios such as
+  `SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) / COUNT(*)`). Every column sits
+  inside an aggregate; inside one only base-table columns, literals, arithmetic, `CASE`,
+  `COALESCE`, `NULLIF`, `CAST`. A division outside an aggregate compiles as real division
+  with a NULL for a zero denominator (`CAST(… AS DOUBLE) / NULLIF(…, 0)`); division inside
+  an aggregate is left as written, so earlier approved versions keep their SQL.
+  Subqueries, window functions, multiple statements, nested aggregates and functions
+  outside the allow-list are refused. The check walks AST node types, never strings.
 - `filters`: comparisons, `IN`, `BETWEEN`, `IS [NOT] NULL`, `LIKE`, `AND`/`OR`/`NOT` over
   base-table columns and literals. No aggregates, no subqueries.
 - Every column is checked against the table schema from the existing catalog index. An

@@ -274,7 +274,7 @@ function MetricEditor({ mode, base, onDone, onCancel }: {
           <label className="block">Catalog <Input value={catalog} onChange={e => setCatalog(e.target.value)} />{err("catalog")}</label>
           <label className="block">Base table <Input value={table} onChange={e => setTable(e.target.value)} placeholder="sales.orders" />{err("base_table")}</label>
         </div>
-        <label className="block">Measure <Input className="font-mono" value={measure} onChange={e => setMeasure(e.target.value)} placeholder="SUM(amount)" />{err("measure")}</label>
+        <label className="block">Measure <Input className="font-mono" value={measure} onChange={e => setMeasure(e.target.value)} placeholder="SUM(amount)  ·  ratio: SUM(x) / COUNT(*)" />{err("measure")}</label>
         <label className="block">Filters <Input className="font-mono" value={filters} onChange={e => setFilters(e.target.value)} placeholder="status = 'paid'" />{err("filters")}</label>
         <div className="grid grid-cols-2 gap-2">
           <label className="block">Time column <Input value={timeColumn} onChange={e => setTimeColumn(e.target.value)} />{err("time_column")}</label>

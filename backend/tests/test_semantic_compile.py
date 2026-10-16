@@ -228,3 +228,22 @@ def test_non_list_where_is_an_input_error(where):
     with pytest.raises(MetricInputError) as e:
         _c(where=where)
     assert "op" in e.value.allowed
+
+
+def _ratio(measure):
+    return MetricVersion(metric="cancel_rate", version=1, catalog="glue", base_table="sales.orders",
+                         measure=measure, dimensions=(Dimension("channel", "channel"),))
+
+
+def test_a_ratio_divides_as_real_numbers_and_zero_gives_null():
+    sql = compile_metric(_ratio("SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) / COUNT(*)"),
+                         engine_catalog="C", dialect="athena", today=TODAY, by=["channel"]).sql
+    assert ('CAST(SUM(CASE WHEN "b"."status" = \'cancelled\' THEN 1 ELSE 0 END) AS DOUBLE) '
+            '/ NULLIF(COUNT(*), 0) AS "cancel_rate"') in sql
+
+
+def test_division_inside_an_aggregate_keeps_its_approved_meaning():
+    # A version approved before ratios existed must compile to the same SQL.
+    sql = compile_metric(_ratio("SUM(amount / 2)"), engine_catalog="C", dialect="athena",
+                         today=TODAY).sql
+    assert 'SUM("b"."amount" / 2) AS "cancel_rate"' in sql

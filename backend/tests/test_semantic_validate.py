@@ -11,17 +11,25 @@ COLS = ["amount", "status", "channel", "ordered_at"]
 @pytest.mark.parametrize("text", [
     "SUM(amount)", "COUNT(*)", "COUNT(DISTINCT channel)", "AVG(CAST(amount AS DOUBLE))",
     "SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END)", "MAX(COALESCE(amount, 0) * 2)",
+    # ratios and other arithmetic over aggregates
+    "SUM(amount) / COUNT(*)", "SUM(amount) / NULLIF(COUNT(DISTINCT channel), 0)",
+    "SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) * 100.0 / COUNT(*)",
+    "(MAX(amount) - MIN(amount)) / 2",
 ])
 def test_accepted_measures(text):
     validate_measure(text, COLS, "athena")
 
 
 @pytest.mark.parametrize("text,needle", [
-    ("SUM(amount) OVER ()", "one aggregate"),
+    ("SUM(amount) OVER ()", "WINDOW"),
     ("SUM((SELECT 1))", "SUBQUERY"),
     ("SUM(SUM(amount))", "Nested"),
-    ("APPROX_DISTINCT(amount)", "one aggregate"),
-    ("amount", "one aggregate"),
+    ("SUM(amount) / SUM(COUNT(*))", "Nested"),
+    ("APPROX_DISTINCT(amount)", "not allowed"),
+    ("amount", "aggregate"),
+    ("1 + 2", "aggregate"),
+    ("SUM(amount) / amount", "inside an aggregate"),
+    ("SUM(amount) > 0", "a number"),
     ("SUM(amount); DROP TABLE x", "no ';'"),
     ("SUM(o.amount)", "bare column"),
     ("SUM(nope)", "Unknown column"),
@@ -97,6 +105,8 @@ def test_untokenisable_filter_is_a_definition_error():
 
 @pytest.mark.parametrize("field,text", [
     ("measure", "SUM(COUNT(amount))"),
+    ("measure", "SUM(amount) / amount"),
+    ("measure", "SUM(amount) > 0"),
     ("filters", "SUM(amount) > 0"),
     ("filters", "amount + 1"),
 ])
