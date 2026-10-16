@@ -197,7 +197,7 @@ function NewAgentDialog({ open, roles, onClose }: { open: boolean; roles: string
           <div className="space-y-1">
             <Label htmlFor="agent-name" className="text-xs">Name</Label>
             <Input id="agent-name" value={name} onChange={e => setName(e.target.value)}
-                   placeholder="e.g. support-assistant" maxLength={128} />
+                   placeholder="e.g. support-assistant" maxLength={64} />
             <p className="text-2xs text-muted-foreground">Becomes the username <code className="font-mono">svc-…</code>.</p>
           </div>
           <div className="space-y-1">

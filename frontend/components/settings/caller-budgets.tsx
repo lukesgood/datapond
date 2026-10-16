@@ -64,14 +64,19 @@ export function CallerBudgets({ canEdit }: { canEdit: boolean }) {
     if (!canEdit) return
     void (async () => {
       const out: KnownCaller[] = []
+      let agents = new Set<string>()
       try {
         const r = await fetch("/api/service-accounts")
-        if (r.ok) setAgentIds(new Set(((await r.json()).accounts ?? []).map((a: { id: string }) => a.id)))
+        if (r.ok) {
+          agents = new Set(((await r.json()).accounts ?? []).map((a: { id: string }) => a.id))
+          setAgentIds(agents)
+        }
       } catch { /* agent rows stay editable, which is the old behaviour */ }
       try {
         const r = await fetch("/api/auth/users")
+        // An agent's cap is edited on its own page; one edit point.
         if (r.ok) for (const u of await r.json())
-          out.push({ id: u.id, label: u.display_name || u.username })
+          if (!agents.has(u.id)) out.push({ id: u.id, label: u.display_name || u.username })
       } catch { /* picker stays partial */ }
       setKnown(out)
     })()

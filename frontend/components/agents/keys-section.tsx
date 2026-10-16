@@ -95,7 +95,12 @@ export function KeysSection({ agent, onChange }: { agent: AgentDetail; onChange:
     if (!ok) return
     setBusy(true)
     try {
-      await fetch(`/api/service-accounts/keys/${key.id}`, { method: "DELETE" })
+      const res = await fetch(`/api/service-accounts/keys/${key.id}`, { method: "DELETE" })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        toast(typeof d.detail === "string" ? d.detail : `Could not revoke key (HTTP ${res.status})`, "error")
+        return
+      }
       onChange()
     } finally { setBusy(false) }
   }
