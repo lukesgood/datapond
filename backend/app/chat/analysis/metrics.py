@@ -77,8 +77,9 @@ async def query_metric(params: dict, user: dict) -> dict:
 
 ACTIONS = (
     Action("metric.list", "List metrics",
-           "Approved business metrics you may query, with their names and synonyms. Use before "
-           "writing SQL for a KPI: a metric gives a cited, reproducible number.",
+           "Approved business metrics you may query, with their names and synonyms. Call this "
+           "first for any question asking for a number (count, sum, average, top-N): a metric "
+           "gives a cited, reproducible number, and SQL you write yourself does not.",
            ("*",), "catalog:read", ActionKind.READ, MetricList, capability="query"),
     Action("metric.describe", "Describe metric",
            "One metric's definition: expression, filters, dimensions, grains, period cap, "

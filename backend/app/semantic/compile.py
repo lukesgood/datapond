@@ -141,7 +141,9 @@ def compile_metric(v: MetricVersion, *, engine_catalog: str, dialect: str, today
     start = end = None
     if v.time_column is not None:
         if period is None:
-            raise MetricInputError("period is required for this metric.",
+            raise MetricInputError(
+                "period is required for this metric, e.g. "
+                f"\"{today.year}-01-01..{today.isoformat()}\" or last_month.",
                                    {"max_period_days": v.max_period_days})
         start, end = resolve_period(period, today)
         if (end - start).days > v.max_period_days:

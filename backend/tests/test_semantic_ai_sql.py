@@ -38,7 +38,8 @@ def test_no_metrics_no_block():
 
 
 def test_suggestion_is_a_verbatim_label_or_synonym_match():
-    assert suggest(M, "지난달 매출액 지역별") == {"name": "revenue", "dimensions": ["channel", "region"]}
+    assert suggest(M, "지난달 매출액 지역별") == {"name": "revenue", "dimensions": ["channel", "region"],
+                                               "period_required": True}
     assert suggest(M, "고객 이탈률") is None
 
 

@@ -62,7 +62,17 @@ def initialize_result(server_name: str, server_version: str) -> Dict:
         "protocolVersion": PROTOCOL_VERSION,
         "capabilities": {"tools": {}},
         "serverInfo": {"name": server_name, "version": server_version},
+        "instructions": INSTRUCTIONS,
     }
+
+
+INSTRUCTIONS = (
+    "DataPond answers from company documents and tables under the caller's own access "
+    "rules. For a number or KPI (counts, sums, averages, rankings), call metric_list first "
+    "when it is listed: metric_query returns the number from an administrator-approved "
+    "definition with a citation (version, approver, SQL). Use query_generate_sql only "
+    "when no metric fits. For questions about documents, use knowledge_search or "
+    "knowledge_answer_with_citations.")
 
 
 def tools_list_result(tools: List[dict]) -> Dict:
