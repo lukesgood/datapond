@@ -99,7 +99,7 @@ DataPond는 이 **호출자 단위 거버넌스가 붙은 데이터 도구 면**
   엔드포인트를 타깃으로 등록한다.
 - `/api/ai/search`, `/api/ai/rag`: pgvector HNSW 검색, 선택적 rerank, `[n]` 인용, 실패 시 hit만 반환
 - `/api/ai/sql` + `/api/queries/execute`: 자연어 → SQL 생성, 테이블 해석·RLS·마스킹·LIMIT를 거친 실행
-- `/api/api-surface`와 `/connect` 페이지: 실행 중인 라우트에서 생성된 엔드포인트 목록과 curl 예시
+- `/api/api-surface`와 연결 가이드(Help → Integrate, `/help/integrate`): 실행 중인 라우트에서 생성된 엔드포인트 목록, MCP·게이트웨이 OpenAPI 안내, curl 예시
 - 텍스트·S3·Iceberg 소스 적재, `source_group` 단위 교체, 인프로세스 freshness 스케줄러
 
 ### 3. 잠기지 않음 (반대 제거)

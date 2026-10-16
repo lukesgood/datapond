@@ -37,7 +37,7 @@ export function UseFromAppPanel({ name }: { name: string }) {
           </p>
           <p>
             {role === "admin"
-              ? <>Issue one under <Link href="/connect" className="underline">API → Service accounts</Link> with scopes <code className="font-mono">knowledge:read</code> and <code className="font-mono">ai:generate</code>, then grant it this collection under the <b>Members</b> tab.</>
+              ? <>Issue one under <Link href="/settings?tab=service" className="underline">Settings → Service accounts</Link> with scopes <code className="font-mono">knowledge:read</code> and <code className="font-mono">ai:generate</code>, then grant it this collection under the <b>Members</b> tab.</>
               : <>Ask an administrator for a service account with <code className="font-mono">knowledge:read</code> and <code className="font-mono">ai:generate</code>, granted this collection under the <b>Members</b> tab.</>}
           </p>
         </CardContent>

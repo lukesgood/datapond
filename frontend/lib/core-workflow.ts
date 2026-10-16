@@ -36,8 +36,8 @@ export function coreWorkflowSteps({ sourcesEnabled, catalogEnabled, catalogBacke
     {
       n: "04",
       title: "Connect your agent",
-      sub: "Issue a key, call this deployment",
-      href: "/connect",
+      sub: "MCP, REST or an agent gateway",
+      href: "/help/integrate",
       cta: true,
     },
     { n: "05", title: "Govern", sub: "Access · PII · spend", href: "/governance" },
