@@ -375,8 +375,11 @@ async def embed(req: EmbedRequest, user: dict = Depends(require_user)):
         raise HTTPException(400, "Input blocked by the PII guardrail, which is set to block.")
     try:
         vecs = await _embed([text for text, _, _ in guarded], tool="ai.embed")
-    except Exception:
-        await _log("error")
+    except Exception as e:
+        # A spend-cap 402 already wrote its `refused` row (app/ai_budget); it is not
+        # also an error.
+        if not (isinstance(e, HTTPException) and e.status_code == 402):
+            await _log("error")
         raise
     await _log("ok", len(vecs))
     return {"model": _embed_model(), "dim": len(vecs[0]) if vecs else EMBED_DIM(),
