@@ -11,10 +11,16 @@ export type GlobalBudget = { spend: number; max_budget: number; pct: number; ale
 
 const CALLERS_SHOWN = 5
 
-function Metric({ label, value, sub, warn, title }: { label: string; value: string; sub?: string; warn?: boolean; title?: string }) {
+function Metric({ label, value, sub, warn, title, href }: { label: string; value: string; sub?: string; warn?: boolean; title?: string; href?: string }) {
   return (
     <div className="border-b px-5 py-4 last:border-b-0 sm:[&:nth-child(odd)]:border-r lg:border-b-0 lg:border-r lg:last:border-r-0">
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      {href ? (
+        <Link href={href} className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-primary">
+          {label} <ArrowRight className="h-3 w-3" />
+        </Link>
+      ) : (
+        <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      )}
       <p className={`dp-num mt-1 text-3xl font-semibold tracking-tight${warn ? " text-[var(--dp-warn-text)]" : ""}`} title={title}>{value}</p>
       {sub && <p className="mt-1 text-xs text-muted-foreground">{sub}</p>}
     </div>
@@ -54,7 +60,8 @@ export function ActivityPanel({ canAudit, canSpend, actors, totals, spend, budge
             </>
           )}
           {canSpend && (
-            <Metric label="Model spend" value={spendLabel.text} title={spendLabel.title} sub={spendSub} warn={!!budget?.alert} />
+            <Metric label="Model spend" value={spendLabel.text} title={spendLabel.title} sub={spendSub} warn={!!budget?.alert}
+                    href="/ai" />
           )}
         </div>
 
