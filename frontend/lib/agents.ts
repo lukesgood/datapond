@@ -11,7 +11,7 @@ export interface Agent {
   is_active: boolean; created_at: string
   keys: AgentKey[]
   oauth_client: { client_id: string; issuer: string | null } | null
-  attributes?: Record<string, string | string[]>
+  attributes?: Record<string, unknown>
 }
 
 export interface ByActor { actor_id: string | null; calls: number; refused: number }
@@ -82,4 +82,55 @@ export type AgentDetail = Agent & {
   assignable_roles: string[]
   grantable_permissions: string[]
   rate_limit_per_minute: number
+}
+
+// ── catalog grants ───────────────────────────────────────────────────────────
+// A catalog with no grants is open to every caller; the first grant restricts it to
+// the granted principals and the last revoke reopens it. Both flip access for people
+// other than the agent on screen, so the page must say so before doing it.
+
+export function grantWarning(catalog: string, restricted: boolean): string | null {
+  return restricted ? null
+    : `${catalog} is open to every caller. Granting it to this agent restricts it: every other caller without a grant loses access.`
+}
+
+export function revokeWarning(
+  catalog: string, grants: { kind: string; principal: string }[], agentId: string,
+): string | null {
+  const only = grants.length === 1 && grants[0].kind === "user"
+    && grants[0].principal.toLowerCase() === agentId.toLowerCase()
+  return only ? `This is the only grant on ${catalog}. Revoking it opens the catalog to every caller.` : null
+}
+
+// ── attributes ───────────────────────────────────────────────────────────────
+// Values chunk rules and SQL RLS read. Saving replaces the whole object, so a value the
+// admin did not touch has to come back exactly as it was: never re-parsed, never
+// re-typed. A list is a list because it was one (or the admin said so), never because
+// a string contains a comma.
+
+/** The text box content: lists one value per line, other scalars as strings. */
+export function attrToText(v: unknown): string {
+  if (v === undefined || v === null) return ""
+  if (Array.isArray(v)) return v.map(x => String(x)).join("\n")
+  return String(v)
+}
+
+export const attrIsList = (v: unknown): boolean => Array.isArray(v)
+
+export interface AttrRow { key: string; text: string; isList: boolean; original?: unknown }
+
+/** One value back from the box: the original, untouched, unless text or list-ness changed. */
+export function attrFromText(text: string, isList: boolean, original?: unknown): unknown {
+  if (original !== undefined && text === attrToText(original) && isList === attrIsList(original)) return original
+  return isList ? text.split("\n").map(s => s.trim()).filter(Boolean) : text.trim()
+}
+
+export function buildAttributes(rows: AttrRow[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const r of rows) if (r.key.trim()) out[r.key.trim()] = attrFromText(r.text, r.isList, r.original)
+  return out
+}
+
+export function attrRows(attrs: Record<string, unknown> | undefined): AttrRow[] {
+  return Object.entries(attrs ?? {}).map(([key, v]) => ({ key, text: attrToText(v), isList: attrIsList(v), original: v }))
 }

@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { agentStatus, joinAgentRows, lastUsed, viaLabel, type Agent, type AgentKey } from "./agents.ts"
+import { attrFromText, attrRows, attrToText, buildAttributes, grantWarning, revokeWarning, agentStatus, joinAgentRows, lastUsed, viaLabel, type Agent, type AgentKey } from "./agents.ts"
 
 const NOW = new Date("2026-10-16T00:00:00Z")
 const DAY = 86_400_000
@@ -66,4 +66,37 @@ test("via labels", () => {
   assert.equal(viaLabel("role", "ai_engineer"), "granted to role ai_engineer")
   assert.equal(viaLabel("open", "ai_engineer"), "open to every caller")
   assert.equal(viaLabel(null, "ai_engineer"), "not granted")
+})
+
+test("grantWarning: only an open catalog warns", () => {
+  assert.match(grantWarning("hr", false)!, /hr is open to every caller\. Granting it to this agent restricts it: every other caller without a grant loses access\./)
+  assert.equal(grantWarning("hr", true), null)
+})
+
+test("revokeWarning: only when this agent's user grant is the only grant", () => {
+  const me = { kind: "user", principal: "AAA" }
+  assert.match(revokeWarning("hr", [me], "aaa")!, /only grant on hr\. Revoking it opens the catalog to every caller\./)
+  assert.equal(revokeWarning("hr", [me, { kind: "role", principal: "viewer" }], "aaa"), null)
+  assert.equal(revokeWarning("hr", [{ kind: "user", principal: "bbb" }], "aaa"), null)
+  assert.equal(revokeWarning("hr", [{ kind: "role", principal: "aaa" }], "aaa"), null)
+})
+
+test("attributes: an unedited 'Sales, Korea' string and an unedited number survive unchanged", () => {
+  const rows = attrRows({ department: "Sales, Korea", level: 3, tags: ["a", "b"] })
+  assert.deepEqual(buildAttributes(rows), { department: "Sales, Korea", level: 3, tags: ["a", "b"] })
+  assert.equal(rows[1].text, "3")
+})
+
+test("attributes: edited list round-trips one value per line; edited string stays a string", () => {
+  const rows = attrRows({ tags: ["a", "b"], department: "Sales" })
+  rows[0].text = "a\nb\n c "
+  rows[1].text = "Sales, Korea"
+  assert.deepEqual(buildAttributes(rows), { tags: ["a", "b", "c"], department: "Sales, Korea" })
+  assert.equal(attrToText(["x", "y"]), "x\ny")
+})
+
+test("attributes: a number that is edited becomes text; a list toggle turns text into a list", () => {
+  assert.equal(attrFromText("4", false, 3), "4")
+  assert.deepEqual(attrFromText("a\nb", true, "a"), ["a", "b"])
+  assert.deepEqual(buildAttributes([{ key: " k ", text: "v", isList: false }, { key: " ", text: "x", isList: false }]), { k: "v" })
 })

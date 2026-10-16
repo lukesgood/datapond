@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useCapability } from "@/lib/capabilities"
 import { useToast } from "@/lib/toast"
-import { viaLabel, type AgentDetail } from "@/lib/agents"
+import { attrRows, buildAttributes, grantWarning, revokeWarning, viaLabel, type AgentDetail, type AttrRow } from "@/lib/agents"
+import { useConfirm } from "@/lib/confirm"
 import { isInvalidRule, isRule, type StoredChunkRule } from "@/lib/chunk-rule"
 import { Loading, Section, SectionError, errorText } from "./section"
 import { useJson } from "./use-json"
@@ -129,9 +130,25 @@ function Catalogs({ agent }: { agent: AgentDetail }) {
   const list = useJson<{ catalogs: CatalogRow[] }>(`/api/service-accounts/${agent.id}/catalogs`)
   const [busy, setBusy] = useState(false)
 
-  const send = async (catalog: string, method: "PUT" | "DELETE") => {
+  const confirm = useConfirm()
+
+  const send = async (row: CatalogRow, method: "PUT" | "DELETE") => {
+    const catalog = row.catalog
     setBusy(true)
     try {
+      // The first grant restricts a catalog for everyone else and the last revoke
+      // reopens it, so say so before doing either.
+      let warning: string | null = null
+      if (method === "PUT") warning = grantWarning(catalog, row.restricted)
+      else {
+        const g = await fetch(`/api/catalogs/${encodeURIComponent(catalog)}/grants`)
+        if (!g.ok) { toast(await errorText(g, "Could not read the catalog's grants"), "error"); return }
+        warning = revokeWarning(catalog, (await g.json()).grants ?? [], agent.id)
+      }
+      if (warning && !(await confirm({
+        title: method === "PUT" ? "Restrict this catalog?" : "Open this catalog to everyone?",
+        message: warning, confirmText: method === "PUT" ? "Grant" : "Revoke", destructive: true,
+      }))) return
       const res = await fetch(`/api/catalogs/${encodeURIComponent(catalog)}/grants/user/${agent.id}`, { method })
       if (!res.ok) { toast(await errorText(res, "Could not change the grant"), "error"); return }
       list.reload()
@@ -156,9 +173,9 @@ function Catalogs({ agent }: { agent: AgentDetail }) {
                 <span className={c.allowed ? "text-[var(--dp-good-text)]" : "text-muted-foreground"}>{viaLabel(c.via, agent.role)}</span>
               </span>
               {c.via === "user" ? (
-                <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={busy} onClick={() => void send(c.catalog, "DELETE")}>Revoke</Button>
+                <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={busy} onClick={() => void send(c, "DELETE")}>Revoke</Button>
               ) : (
-                <Button size="sm" variant="outline" className="h-7 text-xs" disabled={busy} onClick={() => void send(c.catalog, "PUT")}>Grant</Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs" disabled={busy} onClick={() => void send(c, "PUT")}>Grant</Button>
               )}
             </li>
           ))}
@@ -168,38 +185,31 @@ function Catalogs({ agent }: { agent: AgentDetail }) {
   )
 }
 
-/** Attribute values as the text box shows them, and back. A comma makes a list. */
-const toText = (v: string | string[]) => (Array.isArray(v) ? v.join(", ") : v)
-const fromText = (t: string): string | string[] => {
-  const parts = t.split(",").map(s => s.trim()).filter(Boolean)
-  return t.includes(",") ? parts : t.trim()
-}
-
 function Attributes({ agent, mine, rules, onChange }: {
   agent: AgentDetail; mine: AccountCollection[] | null; rules: CollectionInfo[] | null; onChange: () => void
 }) {
   const { toast } = useToast()
-  const [items, setItems] = useState<[string, string][]>(
-    Object.entries(agent.attributes ?? {}).map(([k, v]) => [k, toText(v)]))
+  const [items, setItems] = useState<AttrRow[]>(() => attrRows(agent.attributes))
   const [busy, setBusy] = useState(false)
 
   const save = async () => {
-    const attributes: Record<string, string | string[]> = {}
-    for (const [k, v] of items) if (k.trim()) attributes[k.trim()] = fromText(v)
     setBusy(true)
     try {
-      // Whole-object replace, as PATCH /api/auth/users/{id} does.
+      // Whole-object replace, as PATCH /api/auth/users/{id} does. Unedited rows are
+      // sent back exactly as loaded.
       const res = await fetch(`/api/auth/users/${agent.id}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ attributes }),
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attributes: buildAttributes(items) }),
       })
       if (!res.ok) { toast(await errorText(res, "Could not save attributes"), "error"); return }
       toast("Attributes saved", "success")
       onChange()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not save attributes", "error")
     } finally { setBusy(false) }
   }
 
-  const set = (i: number, pos: 0 | 1, value: string) =>
-    setItems(prev => prev.map((it, j) => (j === i ? (pos === 0 ? [value, it[1]] : [it[0], value]) : it)))
+  const patch = (i: number, p: Partial<AttrRow>) => setItems(prev => prev.map((it, j) => (j === i ? { ...it, ...p } : it)))
 
   // Collections whose chunk rule reads an attribute. A rule on an attribute this agent
   // lacks withholds every chunk of that collection from it, which is easy to miss.
@@ -214,20 +224,29 @@ function Attributes({ agent, mine, rules, onChange }: {
       <h4 className="text-xs font-medium">Attributes</h4>
       <p className="text-2xs text-muted-foreground">
         Values that chunk rules match against (for example <code className="font-mono">department</code>).
-        Separate several values with commas.
+        A comma is part of the value; tick &ldquo;list&rdquo; to give several values, one per line.
       </p>
-      {items.map(([k, v], i) => (
-        <div key={i} className="flex items-center gap-2">
-          <Input value={k} onChange={e => set(i, 0, e.target.value)} placeholder="name" aria-label="Attribute name" className="h-8 w-40 font-mono text-xs" />
-          <Input value={v} onChange={e => set(i, 1, e.target.value)} placeholder="value" aria-label="Attribute value" className="h-8 flex-1 text-xs" />
-          <button className="text-muted-foreground hover:text-destructive" aria-label="Remove attribute"
+      {items.map((it, i) => (
+        <div key={i} className="flex items-start gap-2">
+          <Input value={it.key} onChange={e => patch(i, { key: e.target.value })} placeholder="name" aria-label="Attribute name" className="h-8 w-40 font-mono text-xs" />
+          {it.isList ? (
+            <textarea value={it.text} onChange={e => patch(i, { text: e.target.value })} rows={Math.max(2, it.text.split("\n").length)}
+                      placeholder="one value per line" aria-label="Attribute values"
+                      className="flex-1 rounded-md border bg-background px-3 py-1.5 text-xs" />
+          ) : (
+            <Input value={it.text} onChange={e => patch(i, { text: e.target.value })} placeholder="value" aria-label="Attribute value" className="h-8 flex-1 text-xs" />
+          )}
+          <label className="flex h-8 items-center gap-1 text-2xs text-muted-foreground">
+            <input type="checkbox" checked={it.isList} onChange={e => patch(i, { isList: e.target.checked })} />list
+          </label>
+          <button className="flex h-8 items-center text-muted-foreground hover:text-destructive" aria-label="Remove attribute"
                   onClick={() => setItems(prev => prev.filter((_, j) => j !== i))}>
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
       ))}
       <div className="flex gap-2">
-        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setItems(prev => [...prev, ["", ""]])}>Add attribute</Button>
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setItems(prev => [...prev, { key: "", text: "", isList: false }])}>Add attribute</Button>
         <Button size="sm" className="h-7 text-xs" disabled={busy} onClick={() => void save()}>Save attributes</Button>
       </div>
       {used.length > 0 && (
