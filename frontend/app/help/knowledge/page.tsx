@@ -44,7 +44,7 @@ export default function KnowledgeHelpPage() {
         <AlertTitle>This path works in every profile</AlertTitle>
         <AlertDescription>
           Knowledge needs PostgreSQL with pgvector and a model provider through LiteLLM — nothing else.
-          Catalog, SQL Lab and the optional add-ons can all be switched off and this guide still applies.
+          Catalog, Analytics and the optional add-ons can all be switched off and this guide still applies.
         </AlertDescription>
       </Alert>
 

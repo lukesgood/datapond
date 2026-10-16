@@ -11,7 +11,10 @@ import {
 } from "@/components/ui/breadcrumb"
 import { Plug } from "lucide-react"
 import Link from "next/link"
+import { Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import { EndpointsCard, GatewayCard, McpCard } from "@/components/connect/agent-reference"
+import { CollectionSnippets } from "@/components/connect/collection-snippets"
 
 // What a key needs, by what the agent does. Tables also follow the account's role and
 // any row filters or masks; a catalog with grants also needs one for the account.
@@ -29,6 +32,16 @@ const link = "text-primary hover:underline"
  *  server. It used to be split between this guide and an "API & MCP" menu page that
  *  was the same reference plus a second copy of the service-account manager. */
 export default function IntegrateHelpPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading…</div>}>
+      <IntegrateGuide />
+    </Suspense>
+  )
+}
+
+function IntegrateGuide() {
+  // Opened from a collection's Members tab: its calls, with its name filled in.
+  const collection = useSearchParams().get("collection")
   return (
     <div className="flex-1 space-y-6 p-8 pt-6 max-w-5xl">
       <Breadcrumb>
@@ -123,6 +136,14 @@ export default function IntegrateHelpPage() {
 
       <div className="space-y-3">
         <h2 className="text-lg font-semibold tracking-tight">4. Call it</h2>
+        {collection && (
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Calls for the collection <code className="rounded bg-muted px-1 font-mono text-xs">{collection}</code>:
+            </p>
+            <CollectionSnippets name={collection} />
+          </div>
+        )}
         <McpCard />
         <GatewayCard />
         <EndpointsCard />

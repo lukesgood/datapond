@@ -215,11 +215,11 @@ Without model access, requests to unavailable models return 403 `ModelNotFound`.
 
 ## Runtime Configuration (Settings UI)
 
-**Preferred method** for non-Helm configuration: Settings → System → AI.
+**Preferred method** for non-Helm configuration: AI Gateway (`/ai`), administrators only.
 
 ### Add Bedrock Backend (Interactive)
 
-1. **Navigate** to Settings → System → AI (or `/settings/system/ai`)
+1. **Navigate** to AI Gateway (`/ai`)
 2. **Click** "+ Add Backend"
 3. **Fill form:**
    - **Provider**: `bedrock`

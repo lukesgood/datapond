@@ -40,7 +40,7 @@ export default function SqlLabHelpPage() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>SQL Lab</BreadcrumbPage>
+            <BreadcrumbPage>Analytics</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -52,7 +52,7 @@ export default function SqlLabHelpPage() {
         </div>
         <div>
           <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-primary">Guide</p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight">SQL Lab</h1>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight">Analytics</h1>
           <p className="mt-2 text-muted-foreground">
             Interactive query interface for your data
           </p>
@@ -66,7 +66,7 @@ export default function SqlLabHelpPage() {
             <Play className="h-5 w-5" />
             Quick Start
           </CardTitle>
-          <CardDescription>Get started with SQL Lab in 3 steps</CardDescription>
+          <CardDescription>Get started with Analytics in 3 steps</CardDescription>
         </CardHeader>
         <CardContent className="pt-1">
           <div className="relative flex gap-3 pb-6">
@@ -76,7 +76,7 @@ export default function SqlLabHelpPage() {
               1
             </div>
             <div>
-              <h3 className="font-semibold">Navigate to SQL Lab</h3>
+              <h3 className="font-semibold">Navigate to Analytics</h3>
               <p className="text-sm text-muted-foreground">
                 Click &quot;Query Lab&quot; in the sidebar or visit{" "}
                 <Link href="/query" className="text-primary hover:underline">

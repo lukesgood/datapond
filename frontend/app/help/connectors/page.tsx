@@ -421,7 +421,7 @@ export default function ConnectorsHelpPage() {
             </Link>
             <Link href="/help/sql-lab">
               <Badge variant="outline" className="cursor-pointer hover:bg-background">
-                SQL Lab Guide
+                Analytics Guide
               </Badge>
             </Link>
             <Link href="/docs/pipelines">

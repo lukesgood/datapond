@@ -4,7 +4,7 @@ import Link from "next/link"
 import { Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import type { LucideIcon } from "lucide-react"
-import { ArrowDownToLine, ArrowRight, BookOpen, Bot, Code2, Database, HardDrive, Layers, Plug, ShieldCheck, Sparkles } from "lucide-react"
+import { ArrowDownToLine, ArrowRight, BookOpen, Code2, Database, HardDrive, Layers, Plug, Settings2, ShieldCheck, Sigma, Sparkles } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -45,13 +45,6 @@ const guides: Guide[] = [
     topics: ["Service accounts", "Scoped keys", "MCP", "Agent gateway", "REST endpoints", "Audit"],
   },
   {
-    title: "AI Gateway",
-    description: "Route models and inspect usage through one provider boundary",
-    icon: Bot,
-    href: "/ai",
-    topics: ["Models", "Routing", "Usage", "Spend"],
-  },
-  {
     title: "Governance",
     description: "Decide who reads what, what never leaves in the clear, and what the record shows",
     icon: ShieldCheck,
@@ -75,12 +68,27 @@ const guides: Guide[] = [
     topics: ["Namespaces", "Schema", "Preview", "Send to Knowledge"],
   },
   {
-    title: "SQL Lab",
-    description: "Query through the configured Athena or Trino adapter",
+    title: "Analytics",
+    description: "Write or generate SQL against the configured query engine",
     icon: Code2,
     href: "/help/sql-lab",
     capability: "query",
     topics: ["Editor", "Schema", "History", "Results"],
+  },
+  {
+    title: "Approved metrics",
+    description: "Define a number once, approve it, and let agents cite it",
+    icon: Sigma,
+    href: "/help/metrics",
+    capability: "query",
+    topics: ["Definitions", "Joins", "Approval", "metric_query", "Citations"],
+  },
+  {
+    title: "Change the configuration",
+    description: "Helm values and upgrade commands for this deployment's profile",
+    icon: Settings2,
+    href: "/help/operate",
+    topics: ["Helm values", "Upgrade", "SMTP alerts"],
   },
 ]
 

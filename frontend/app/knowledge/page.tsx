@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react"
 import { useToast } from "@/lib/toast"
 import Link from "next/link"
-import { Sparkles, Plus, Trash2, Search, MessageSquare, Database, Upload, AlertCircle, Loader2, FileText, ShieldCheck, Clock, Users, CheckCircle2, ArrowDownWideNarrow, BookMarked, Layers, GitBranch, Plug } from "lucide-react"
+import { Sparkles, Plus, Trash2, Search, MessageSquare, Database, Upload, AlertCircle, Loader2, FileText, ShieldCheck, Clock, Users, CheckCircle2, ArrowDownWideNarrow, BookMarked, Layers, GitBranch } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -19,7 +19,6 @@ import { LineagePanel } from "@/components/knowledge/lineage-panel"
 import { MembersPanel } from "@/components/knowledge/members-panel"
 import { ChunkAccessPanel } from "@/components/knowledge/chunk-access-panel"
 import type { StoredChunkRule } from "@/lib/chunk-rule"
-import { UseFromAppPanel } from "@/components/knowledge/use-from-app-panel"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -364,7 +363,6 @@ function Workspace({ name, onChange, empty, ownerId, chunkAccess }: { name: stri
             <TabsTrigger value="schedule"><Clock className="h-3.5 w-3.5 mr-1" />Schedule</TabsTrigger>
             <TabsTrigger value="members"><Users className="h-3.5 w-3.5 mr-1" />Members</TabsTrigger>
             <TabsTrigger value="access"><ShieldCheck className="h-3.5 w-3.5 mr-1" />Chunk access</TabsTrigger>
-            <TabsTrigger value="app"><Plug className="h-3.5 w-3.5 mr-1" />Use from app</TabsTrigger>
             {/* Only when the deployment has the capability. Without the flag every
                 concepts call 404s, so an always-present tab would greet everyone with
                 an error for a feature they have not turned on. The Concepts toggle in
@@ -377,7 +375,6 @@ function Workspace({ name, onChange, empty, ownerId, chunkAccess }: { name: stri
           <TabsContent value="schedule"><SchedulePanel name={name} ownerId={ownerId} /></TabsContent>
           <TabsContent value="members"><MembersPanel name={name} ownerId={ownerId} /></TabsContent>
           <TabsContent value="access"><ChunkAccessPanel name={name} initial={chunkAccess} canEdit={canEditRule} onChange={onChange} /></TabsContent>
-          <TabsContent value="app" className="mt-4"><UseFromAppPanel name={name} /></TabsContent>
           {/* Deliberately in Knowledge rather than a page of its own: concepts change
               what Search returns, so the cause belongs next to the effect. */}
           {ontologyOn && <TabsContent value="concepts"><ConceptsPanel /></TabsContent>}

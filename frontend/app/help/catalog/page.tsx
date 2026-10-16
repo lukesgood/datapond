@@ -275,7 +275,7 @@ export default function CatalogHelpPage() {
           <div className="space-y-2">
             <h3 className="font-semibold">Can I delete tables from the catalog?</h3>
             <p className="text-sm text-muted-foreground">
-              Yes, but only if you have admin permissions. Use <code className="bg-muted px-1 py-0.5 rounded">DROP TABLE</code> in SQL Lab.
+              Yes, but only if you have admin permissions. Use <code className="bg-muted px-1 py-0.5 rounded">DROP TABLE</code> in Analytics.
               Dropped tables are moved to trash and can be recovered within 7 days.
             </p>
           </div>
@@ -297,7 +297,7 @@ export default function CatalogHelpPage() {
           <div className="space-y-2">
             <h3 className="font-semibold">Can I see historical table versions?</h3>
             <p className="text-sm text-muted-foreground">
-              Yes! Iceberg supports time travel. In SQL Lab, use <code className="bg-muted px-1 py-0.5 rounded">FOR SYSTEM_TIME AS OF</code> to query past snapshots.
+              Yes! Iceberg supports time travel. In Analytics, use <code className="bg-muted px-1 py-0.5 rounded">FOR SYSTEM_TIME AS OF</code> to query past snapshots.
               Example: <code className="bg-muted px-1 py-0.5 rounded">SELECT * FROM orders FOR SYSTEM_TIME AS OF TIMESTAMP &apos;2024-01-01 00:00:00&apos;</code>
             </p>
           </div>
@@ -354,7 +354,7 @@ export default function CatalogHelpPage() {
           <div className="flex gap-2 flex-wrap">
             <Link href="/help/sql-lab">
               <Badge variant="outline" className="cursor-pointer hover:bg-background">
-                SQL Lab Guide
+                Analytics Guide
               </Badge>
             </Link>
             <Link href="/docs/catalog-query">
