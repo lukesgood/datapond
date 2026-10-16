@@ -66,6 +66,14 @@ def gateway(monkeypatch):
             raise AssertionError(f"no model call expected: {url}")
     monkeypatch.setattr(ai_budget.httpx, "AsyncClient", _Client)
     monkeypatch.setattr(ai_budget, "_gateway", lambda: ("http://gw", "k"))
+    # The cap DataPond set, as every pod reads it: none set here unless a test says so.
+    state["shared"] = ai_budget.NO_SHARED_CAP
+
+    async def _shared(user_id):
+        if isinstance(state["shared"], Exception):
+            raise state["shared"]
+        return state["shared"]
+    monkeypatch.setattr(ai_budget, "_shared_cap", _shared)
     ai_budget.forget_cached()
     return state
 
@@ -127,10 +135,51 @@ def test_no_actor_means_nothing_to_check(gateway, rows):
     assert gateway["gets"] == 0
 
 
+def test_a_cap_set_in_another_pod_holds_here_at_once(gateway, rows):
+    """Live, 2026-10-16, two backend pods: the cap was set through pod A, and pod B —
+    which had cached "no cap" for this caller seconds before — let the next call
+    through. Only the gateway's own (unreliable) check stopped it. The cap DataPond
+    set is read from Postgres on every call, so no pod's cache can outlive it."""
+    gateway["answer"] = _Resp(200, _info(None, 0.0))
+    _run(ai_budget.assert_within_cap(actor=ACTOR, tool="ai.search", request_text="q"))
+    gateway["shared"] = 0.0                       # set through the other pod; no forget here
+    with pytest.raises(HTTPException) as e:
+        _run(ai_budget.assert_within_cap(actor=ACTOR, tool="ai.search", request_text="q"))
+    assert e.value.status_code == 402
+    assert [(r["tool"], r["outcome"]) for r in rows] == [("ai.search", "refused")]
+
+
+def test_a_cap_of_zero_refuses_without_asking_the_gateway(gateway, rows):
+    gateway["shared"] = 0.0
+    with pytest.raises(HTTPException):
+        _run(ai_budget.assert_within_cap(actor=ACTOR, tool="ai.search", request_text="q"))
+    assert gateway["gets"] == 0
+
+
+def test_the_shared_cap_wins_over_the_gateways(gateway, rows):
+    gateway["answer"] = _Resp(200, _info(0.0, 5.0))   # the gateway's cached cap row
+    gateway["shared"] = 10.0
+    _run(ai_budget.assert_within_cap(actor=ACTOR, tool="ai.search", request_text="q"))
+    gateway["shared"] = 5.0                           # spend 5 >= cap 5
+    with pytest.raises(HTTPException):
+        _run(ai_budget.assert_within_cap(actor=ACTOR, tool="ai.search", request_text="q"))
+
+
+def test_without_the_database_the_gateways_cap_still_applies(gateway, rows):
+    gateway["shared"] = RuntimeError("pool closed")
+    gateway["answer"] = _Resp(200, _info(0.0, 0.0))
+    with pytest.raises(HTTPException):
+        _run(ai_budget.assert_within_cap(actor=ACTOR, tool="ai.search", request_text="q"))
+
+
 def test_setting_a_cap_forgets_the_cached_answer(monkeypatch):
     from app.api import ai_budgets
-    forgotten = []
+    forgotten, stored = [], []
     monkeypatch.setattr(ai_budget, "forget_cached", lambda uid=None: forgotten.append(uid))
+
+    async def _store(uid, cap):
+        stored.append((uid, cap))
+    monkeypatch.setattr(ai_budget, "store_shared_cap", _store)
 
     class _Client:
         def __init__(self, *a, **kw):
@@ -148,6 +197,10 @@ def test_setting_a_cap_forgets_the_cached_answer(monkeypatch):
     monkeypatch.setattr(ai_budgets, "_gateway", lambda: ("http://gw", "k"))
     _run(ai_budgets.set_budget("u-sales", ai_budgets.BudgetPut(max_budget=0)))
     assert forgotten == ["u-sales"]
+    # Every pod reads this one, not its own cache.
+    assert stored == [("u-sales", 0)]
+    _run(ai_budgets.set_budget("u-sales", ai_budgets.BudgetPut(max_budget=None)))
+    assert stored[-1] == ("u-sales", None)
 
 
 def test_embedding_asks_before_it_posts(monkeypatch, rows):

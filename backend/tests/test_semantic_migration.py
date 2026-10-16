@@ -1,5 +1,4 @@
 """Migration 0023: the semantic layer's tables, and versions that cannot be edited."""
-import re
 from pathlib import Path
 
 from app.migration_rules import review_migration
@@ -20,9 +19,9 @@ def test_files_exist_and_chain_from_0022():
     assert "run_sql_file" in body
 
 
-def test_it_is_the_highest_revision():
-    stems = sorted(p.stem for p in VERSIONS.glob("*.py") if re.fullmatch(r"\d{4}_[a-z0-9_]+", p.stem))
-    assert stems[-1] == "0023_semantic_metrics"
+def test_the_next_revision_chains_from_it():
+    nxt = (VERSIONS / "0024_ai_budget_caps.py").read_text()
+    assert 'down_revision: Union[str, None] = "0023_semantic_metrics"' in nxt
 
 
 def test_three_tables_are_created_idempotently():

@@ -4,9 +4,11 @@ How it was run (2026-10-01): base64 this file into an SSM command on the live no
 `kubectl cp` it into the backend pod, then from the app directory:
     cd $(dirname $(python -c "import main;print(main.__file__)")); PYTHONPATH=. python /tmp/x.py
 It mints an admin session in-pod (the same way CI's install jobs do), creates two
-service accounts, a collection, a chunk rule and a zero budget, prints each demo step,
-and deletes everything it created in `finally`. All names start with demo-rehearsal /
-demo_rehearsal. Creates and deletes live data: run only with the owner's approval.
+service accounts, a collection, a chunk rule, a zero budget and (when the query capability
+is on) an approved metric, prints each demo step, and deletes everything it created in
+`finally`. A metric cannot be deleted, only retired: each run leaves one retired
+`demo_rehearsal_oc_<epoch>` row. All names start with demo-rehearsal / demo_rehearsal.
+Creates and deletes live data: run only with the owner's approval.
 """
 
 import asyncio, json, time, urllib.request, urllib.error
@@ -51,7 +53,7 @@ def call(method, path, body=None, token=ADMIN, ok=(200, 201, 204)):
     return status, data
 
 
-created = {"accounts": [], "collection": False, "budget_users": []}
+created = {"accounts": [], "collection": False, "budget_users": [], "metric": None}
 report = []
 try:
     # 1. two agents
@@ -108,6 +110,8 @@ try:
                                            "question": "What is the Q4 quota?"},
                     token=keys["sales"], ok=None)
     report.append(f"d sales after cap 0: HTTP {st} {str(body)[:120]}")
+    if st != 402:
+        raise RuntimeError(f"a cap of 0 must refuse the next call, got HTTP {st}")
 
     # e. audit
     _, a = call("GET", "/api/audit/tool-calls?limit=12")
@@ -119,8 +123,53 @@ try:
                       f"cited={r.get('citation_sources')}")
     if not mine:
         report.append(f"e audit: no rehearsal rows among {[r.get('actor_username') for r in a['rows']]}")
+
+    # f. governed metric (needs the query capability; skipped on a Portable Core install)
+    _, caps = call("GET", "/api/capabilities")
+    if caps.get("query") is not True:
+        report.append("f metric: skipped (query capability off)")
+    else:
+        # A retired name cannot be reused, so each run defines its own.
+        metric = f"demo_rehearsal_oc_{int(time.time())}"
+        call("POST", "/api/semantic/metrics", {"name": metric, "label": "rehearsal order count",
+             "version": {"catalog": "AwsDataCatalog", "base_table": "default.orders",
+                         "measure": "COUNT(*)", "time_column": "ordered_at", "grains": ["month"],
+                         "dimensions": [{"name": "channel", "column": "channel"},
+                                        {"name": "customer_id", "column": "customer_id"}]}})
+        created["metric"] = metric
+        call("POST", f"/api/semantic/metrics/{metric}/versions/1/approve")
+        _, k = call("POST", f"/api/service-accounts/{ids['sales']['id']}/keys",
+                    {"name": "rehearsal-sql", "scopes": ["catalog:read", "query:run"],
+                     "expires_in_days": 1})
+        args = {"metric": metric, "by": ["customer_id"], "period": "2026-04-01..2026-08-31",
+                "order_by": [{"field": metric, "desc": True}], "limit": 5}
+        answers = []
+        for i in range(3):
+            _, r = call("POST", "/api/mcp", {"jsonrpc": "2.0", "id": i, "method": "tools/call",
+                        "params": {"name": "metric_query", "arguments": args}}, token=k["key"])
+            res = r["result"]
+            if res.get("isError"):
+                raise RuntimeError(f"metric_query: {res['content'][0]['text'][:300]}")
+            text = res["content"][0]["text"]
+            # Tool payloads arrive behind a one-line untrusted-content notice.
+            if text.startswith("[untrusted content]"):
+                text = text.split("\n", 1)[1]
+            answers.append(json.loads(text))
+        same = all(a["rows"] == answers[0]["rows"] for a in answers)
+        cite = answers[0]["citation"]
+        report.append(f"f metric x3 same={same} rows={answers[0]['rows']} "
+                      f"cites v{cite['version']} approved_by={cite['approved_by']}")
+        if not same:
+            raise RuntimeError("metric_query answered differently across runs")
+        _, a = call("GET", "/api/audit/tool-calls?limit=10")
+        rows = [r for r in a["rows"] if r.get("tool") == "metric.query"
+                and f"metric:{metric}@v1" in str(r.get("citation_sources"))]
+        report.append(f"f audit: {len(rows)} metric.query rows cite metric:{metric}@v1")
 finally:
     cleanup = []
+    if created["metric"]:
+        cleanup.append(("metric", call("POST", f"/api/semantic/metrics/{created['metric']}/retire",
+                                       ok=None)[0]))
     for uid in created["budget_users"]:
         cleanup.append(("budget", call("PUT", f"/api/settings/ai/budgets/{uid}",
                                        {"max_budget": None}, ok=None)[0]))

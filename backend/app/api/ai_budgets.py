@@ -147,5 +147,13 @@ async def set_budget(user_id: str, body: BudgetPut):
         # The body can echo part of the master key on an auth failure — status only.
         raise HTTPException(502, f"Gateway refused the budget change (HTTP {r.status_code})")
     from app import ai_budget
-    ai_budget.forget_cached(user_id)   # the next call asks the gateway again
+    # Every pod reads the cap from here before a model call; its own cache would keep
+    # the old one (see app/ai_budget). A gateway that took the change but a database
+    # that did not is an error to report: the pre-call check would not see the cap.
+    try:
+        await ai_budget.store_shared_cap(user_id, body.max_budget)
+    except Exception as e:
+        raise HTTPException(500, f"The gateway took the cap but DataPond could not record it: "
+                                 f"{str(e)[:160]}")
+    ai_budget.forget_cached(user_id)   # this pod's cached spend is asked for again
     return {"user_id": user_id, "max_budget": body.max_budget}
