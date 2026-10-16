@@ -57,12 +57,6 @@ export function pendingApproval(detail: MetricDetail | null): PendingVersion | n
   return detail.pending ?? null
 }
 
-/** A metric without a time column answers 400 to a period; only that error is retried
- *  without one. Any other 400 is the caller's to see. */
-export function retryWithoutPeriod(status: number, message: string): boolean {
-  return status === 400 && /no time column/i.test(message)
-}
-
 export function fieldError(detail: unknown): { field: string; message: string } | null {
   if (detail && typeof detail === "object" && "field" in detail && "message" in detail) {
     const d = detail as { field: unknown; message: unknown }
@@ -117,4 +111,54 @@ export function joinCandidatePayload(edge: RelationshipEdge, catalogs: CatalogEn
  *  longer holds that join. Saved as they are, they would be sent as base-table columns. */
 export function unresolvedJoinDims(dims: { name: string; join_id: number | null; joinRef?: unknown }[]): string[] {
   return dims.filter(d => d.joinRef && d.join_id === null).map(d => d.name)
+}
+
+const iso = (y: number, m: number, d: number) =>
+  `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`
+const lastDay = (y: number, m: number) => new Date(y, m, 0).getDate()
+const months = (y: number, from: number, to: number) => `${iso(y, from, 1)}..${iso(y, to, lastDay(y, to))}`
+
+/** The period a question names, in the server's `period` forms (dates inclusive), or null
+ *  when it names none. Only the forms read without doubt; anything else is the person's
+ *  to fill in, so a query never runs on a period the question did not ask for. */
+export function periodFromQuestion(question: string, today: Date): string | null {
+  const q = question.toLowerCase()
+  const year = today.getFullYear()
+  let m = q.match(/(\d{4})\s*년\s*(\d{1,2})\s*월/) ?? q.match(/\b(\d{4})-(\d{1,2})\b(?!-)/)
+  if (m) { const mo = +m[2]; return mo >= 1 && mo <= 12 ? months(+m[1], mo, mo) : null }
+  m = q.match(/(?:(\d{4})\s*년\s*)?([1-4])\s*분기/)
+  if (m) { const y = m[1] ? +m[1] : year, s = 3 * (+m[2] - 1) + 1; return months(y, s, s + 2) }
+  m = q.match(/(?:(\d{4})\s*년\s*)?(상|하)반기/)
+  if (m) { const y = m[1] ? +m[1] : year; return m[2] === "상" ? months(y, 1, 6) : months(y, 7, 12) }
+  m = q.match(/(?:^|[^\d])(\d{1,2})\s*월/)
+  if (m) { const mo = +m[1]; return mo >= 1 && mo <= 12 ? months(year, mo, mo) : null }
+  m = q.match(/(\d{4})\s*년/)
+  if (m) return months(+m[1], 1, 12)
+  if (/지난\s*달|전월|last month/.test(q)) return "last_month"
+  if (/이번\s*달|당월|this month/.test(q)) return "this_month"
+  if (/작년|전년|last year/.test(q)) return "last_year"
+  if (/올해|금년|this year/.test(q)) return "this_year"
+  return null
+}
+
+/** The citation's half-open [start, end) as the inclusive range a person reads. */
+export function periodLabel(period: [string, string] | null | undefined): string {
+  if (!period) return "all time"
+  const end = new Date(`${period[1]}T00:00:00Z`)
+  end.setUTCDate(end.getUTCDate() - 1)
+  return `${period[0]} – ${end.toISOString().slice(0, 10)}`
+}
+
+type JoinKey = { catalog: string; from_table: string; to_table: string; on_columns: string[][] }
+
+/** Whether a relationship edge is already an approved join, in either direction — such an
+ *  edge is not a candidate any more. */
+export function edgeApproved(edge: RelationshipEdge, joins: JoinKey[], catalogs: CatalogEntry[]): boolean {
+  const key = (j: JoinKey) =>
+    [j.catalog.toLowerCase(), j.from_table, j.to_table, JSON.stringify(j.on_columns)].join("|")
+  const approved = new Set(joins.map(key))
+  return [false, true].some(rev => {
+    const body = joinCandidatePayload(edge, catalogs, rev)
+    return !!body && approved.has(key(body))
+  })
 }

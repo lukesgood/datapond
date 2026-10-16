@@ -32,7 +32,7 @@ const LogToMlflowModal = dynamic(() => import("@/components/query/log-to-mlflow-
 const OpenInNotebookModal = dynamic(() => import("@/components/query/open-in-notebook-modal").then(m => ({ default: m.OpenInNotebookModal })), { ssr: false })
 import { useToast } from "@/lib/toast"
 import { responseErrorMessage } from "@/lib/auth"
-import { aiSqlMetricView, retryWithoutPeriod } from "@/lib/metrics"
+import { aiSqlMetricView, periodFromQuestion, periodLabel, type MetricDetail } from "@/lib/metrics"
 import { useCapabilities, useCapability, CapabilityGate } from "@/lib/capabilities"
 import { AnalyticsTabs } from "@/components/query/analytics-tabs"
 import { DashboardsGallery } from "@/components/dashboards/dashboards-gallery"
@@ -113,6 +113,11 @@ function QueryPageInner() {
   const [aiLoading, setAiLoading]           = useState(false)
   const [aiExplanation, setAiExplanation]   = useState<string | null>(null)
   const [aiMetrics, setAiMetrics]           = useState<{ chips: string[]; suggestion: string | null }>({ chips: [], suggestion: null })
+  // "Query as metric" asks before it runs: the period and dimensions read from the
+  // question, for the person to confirm or change.
+  const [metricForm, setMetricForm]         = useState<MetricForm | null>(null)
+  const [metricRanNote, setMetricRanNote]   = useState<string | null>(null)
+  const askedQuestion = useRef("")
   const [aiCheck, setAiCheck]               = useState<{ ok: boolean | null; error?: string | null } | null>(null)
   const [planReview, setPlanReview]         = useState<PlanReview | null>(null)
   const [planLoading, setPlanLoading]       = useState(false)
@@ -216,6 +221,9 @@ function QueryPageInner() {
     setAiLoading(true)
     setAiExplanation(null)
     setAiMetrics({ chips: [], suggestion: null })
+    setMetricForm(null)
+    setMetricRanNote(null)
+    askedQuestion.current = aiQuestion
     setAiCheck(null)
     try {
       const res = await fetch("/api/ai/sql", {
@@ -252,30 +260,51 @@ function QueryPageInner() {
     }
   }
 
+  // The metric's current version says which period and dimensions it takes; the form is
+  // pre-filled from the question and runs only when the person confirms it.
+  const openMetricForm = async (name: string) => {
+    // A newer question or run since the click makes this form belong to an old answer.
+    const seq = runSeq.current
+    try {
+      const res = await fetch(`/api/semantic/metrics/${encodeURIComponent(name)}`)
+      if (seq !== runSeq.current) return
+      if (!res.ok) { toast(await responseErrorMessage(res, "Could not load the metric"), "error"); return }
+      const detail: MetricDetail = await res.json()
+      if (seq !== runSeq.current) return
+      const v = detail.versions.find(r => r.version === detail.metric.current_version)
+      if (!v) { toast(`${name} has no approved version`, "error"); return }
+      // The question the suggestion answered, not whatever is in the box now.
+      const asked = askedQuestion.current
+      const q = asked.toLowerCase()
+      setMetricForm({
+        name, version: v.version, hasTime: !!v.time_column, grains: v.grains ?? [],
+        dims: v.dimensions.map(d => d.name),
+        period: v.time_column ? (periodFromQuestion(asked, new Date()) ?? "") : "",
+        by: v.dimensions.map(d => d.name).filter(d => q.includes(d.toLowerCase())),
+        grain: "",
+      })
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not load the metric", "error")
+    }
+  }
+
   // The approved definition, computed by the server: the result carries its own citation
-  // (version, approver, the SQL that ran), which replaces the editor text.
-  const runAsMetric = async (name: string) => {
+  // (version, approver, the period and SQL that ran), which replaces the editor text.
+  const runAsMetric = async (form: MetricForm) => {
     const seq = ++runSeq.current
     const typed = queryNow.current
     // Stale when a newer run began, or when the person edited the SQL meanwhile: the
     // metric's SQL would replace what they typed.
     const stale = () => seq !== runSeq.current || queryNow.current !== typed
-    const post = (body: object) => fetch(`/api/semantic/metrics/${encodeURIComponent(name)}/query`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-    })
+    const body: Record<string, unknown> = { by: form.by }
+    if (form.hasTime) body.period = form.period.trim()
+    if (form.grain) body.grain = form.grain
     try {
-      let res = await post({ period: "last_month" })
+      const res = await fetch(`/api/semantic/metrics/${encodeURIComponent(form.name)}/query`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      })
       if (stale()) return
-      // A metric without a time column answers 400 to a period: ask for it unbounded.
-      // Any other error is the first one, shown as is.
-      if (!res.ok) {
-        const message = await responseErrorMessage(res, "Metric query failed")
-        if (stale()) return
-        if (!retryWithoutPeriod(res.status, message)) { toast(message, "error"); return }
-        res = await post({})
-        if (stale()) return
-        if (!res.ok) { toast(await responseErrorMessage(res, "Metric query failed"), "error"); return }
-      }
+      if (!res.ok) { toast(await responseErrorMessage(res, "Metric query failed"), "error"); return }
       const data = await res.json()
       if (stale()) return
       // The editor now holds the metric's SQL, not the generated statement: the AI
@@ -286,7 +315,12 @@ function QueryPageInner() {
       setError(null)
       setResults({ columns: data.columns, rows: data.rows, truncated: data.truncated, execution_time_ms: 0 })
       setQueryStatus("success")
-      toast(`${name} v${data.citation.version} · approved by ${data.citation.approved_by}`, "success")
+      setMetricForm(null)
+      const ran = [`${form.name} v${data.citation.version}`, `approved by ${data.citation.approved_by}`]
+      if (form.hasTime) ran.push(periodLabel(data.citation.period))
+      if (form.by.length) ran.push(`by ${form.by.join(", ")}`)
+      if (form.grain) ran.push(`per ${form.grain}`)
+      setMetricRanNote(ran.join(" · "))
     } catch (error) {
       if (stale()) return
       toast(error instanceof Error ? error.message : "Metric query failed", "error")
@@ -600,11 +634,69 @@ function QueryPageInner() {
               {aiMetrics.chips.map(c => <Badge key={c} variant="outline">{c}</Badge>)}
             </>
           )}
-          {aiMetrics.suggestion && (
-            <Button size="sm" variant="outline" onClick={() => void runAsMetric(aiMetrics.suggestion!)}>
+          {aiMetrics.suggestion && !metricForm && (
+            <Button size="sm" variant="outline" onClick={() => void openMetricForm(aiMetrics.suggestion!)}>
               Query as metric ({aiMetrics.suggestion})
             </Button>
           )}
+          {metricRanNote && !metricForm && <span className="text-foreground">Ran {metricRanNote}</span>}
+        </div>
+      )}
+
+      {metricForm && (
+        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b bg-muted/30 px-3 py-2 text-xs">
+          <span className="font-medium">{metricForm.name} v{metricForm.version}</span>
+          {metricForm.hasTime && (
+            <label className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">Period</span>
+              <Input
+                className="h-7 w-56 font-mono text-xs"
+                value={metricForm.period}
+                placeholder="2026-06-01..2026-06-30 or last_month"
+                onChange={e => setMetricForm(f => f && { ...f, period: e.target.value })}
+              />
+            </label>
+          )}
+          {metricForm.dims.length > 0 && (
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="text-muted-foreground">By</span>
+              {metricForm.dims.map(d => (
+                <label key={d} className="flex items-center gap-1">
+                  <input
+                    type="checkbox"
+                    checked={metricForm.by.includes(d)}
+                    onChange={e => setMetricForm(f => f && {
+                      ...f, by: e.target.checked ? [...f.by, d] : f.by.filter(x => x !== d),
+                    })}
+                  />
+                  {d}
+                </label>
+              ))}
+            </span>
+          )}
+          {metricForm.hasTime && metricForm.grains.length > 0 && (
+            <label className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">Per</span>
+              <select
+                className="h-7 rounded border bg-background px-1 text-xs"
+                value={metricForm.grain}
+                onChange={e => setMetricForm(f => f && { ...f, grain: e.target.value })}
+              >
+                <option value="">whole period</option>
+                {metricForm.grains.map(g => <option key={g} value={g}>{g}</option>)}
+              </select>
+            </label>
+          )}
+          <span className="ml-auto flex gap-1.5">
+            <Button size="sm" variant="ghost" onClick={() => setMetricForm(null)}>Cancel</Button>
+            <Button
+              size="sm"
+              disabled={metricForm.hasTime && !metricForm.period.trim()}
+              onClick={() => void runAsMetric(metricForm)}
+            >
+              Run
+            </Button>
+          </span>
         </div>
       )}
 
@@ -992,6 +1084,11 @@ function QueryPageInner() {
 function AnalyticsWorkspace() {
   const tab = useSearchParams().get("tab")
   return tab === "dashboards" ? <DashboardsGallery /> : <QueryPageInner />
+}
+
+type MetricForm = {
+  name: string; version: number; hasTime: boolean; grains: string[]; dims: string[]
+  period: string; by: string[]; grain: string
 }
 
 export default function QueryPage() {

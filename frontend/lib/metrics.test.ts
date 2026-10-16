@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { aiSqlMetricView, approvalWarning, fieldError, joinCandidatePayload, metricStatusBadge, pendingApproval, retryWithoutPeriod, unresolvedJoinDims, versionDiff, type MetricDetail, type MetricVersionRow, type RelationshipEdge } from "./metrics.ts"
+import { aiSqlMetricView, edgeApproved, periodFromQuestion, periodLabel, approvalWarning, fieldError, joinCandidatePayload, metricStatusBadge, pendingApproval, unresolvedJoinDims, versionDiff, type MetricDetail, type MetricVersionRow, type RelationshipEdge } from "./metrics.ts"
 
 test("status badge: approved with a version, draft, retired", () => {
   assert.deepEqual(metricStatusBadge({ status: "approved", current_version: 3 }), { label: "v3", tone: "ok" })
@@ -90,12 +90,6 @@ test("pending approval: the server's pending version, never on a retired metric"
   assert.equal(pendingApproval(null), null)
 })
 
-test("metric query retries without a period only when the metric has no time column", () => {
-  assert.equal(retryWithoutPeriod(400, "This metric has no time column; omit period."), true)
-  assert.equal(retryWithoutPeriod(400, "Unknown dimension 'x'."), false)
-  assert.equal(retryWithoutPeriod(404, "This metric has no time column; omit period."), false)
-})
-
 test("a copied dimension whose join is not matched to an approved join blocks save", () => {
   const ref = { to_table: "sales.customers", on: [["customer_id", "id"]] }
   assert.deepEqual(unresolvedJoinDims([
@@ -103,4 +97,42 @@ test("a copied dimension whose join is not matched to an approved join blocks sa
     { name: "segment", join_id: 4, joinRef: ref },        // matched
     { name: "channel", join_id: null },                   // a base-table column
   ]), ["region"])
+})
+
+test("a period is read from the question, inclusive dates as the server takes them", () => {
+  const today = new Date(2026, 9, 16)
+  const p = (q: string) => periodFromQuestion(q, today)
+  assert.equal(p("2026년 6월 채널별 주문 건수"), "2026-06-01..2026-06-30")
+  assert.equal(p("2024년 2월 매출"), "2024-02-01..2024-02-29")
+  assert.equal(p("2026-02 orders"), "2026-02-01..2026-02-28")
+  assert.equal(p("6월 주문 건수"), "2026-06-01..2026-06-30")          // this year
+  assert.equal(p("2026년 상반기 취소율"), "2026-01-01..2026-06-30")
+  assert.equal(p("2025년 하반기"), "2025-07-01..2025-12-31")
+  assert.equal(p("2026년 3분기 매출"), "2026-07-01..2026-09-30")
+  assert.equal(p("2025년 매출"), "2025-01-01..2025-12-31")
+  assert.equal(p("지난달 매출"), "last_month")
+  assert.equal(p("revenue last month"), "last_month")
+  assert.equal(p("이번 달 주문"), "this_month")
+  assert.equal(p("올해 매출"), "this_year")
+  assert.equal(p("작년 매출"), "last_year")
+  assert.equal(p("주문 건수"), null)
+  assert.equal(p("2026년 13월"), null)
+})
+
+test("a half-open period from the citation is shown with its inclusive end", () => {
+  assert.equal(periodLabel(["2026-06-01", "2026-07-01"]), "2026-06-01 – 2026-06-30")
+  assert.equal(periodLabel(null), "all time")
+})
+
+test("a candidate already approved, either way round, is not offered again", () => {
+  const cats = [{ name: "demo", engine_catalog: "awsdatacatalog" }]
+  const edge = { source: "awsdatacatalog.shop.order_items", target: "awsdatacatalog.shop.products",
+    evidence: "naming", count: 1, joins: [{ left_column: "product_id", right_column: "id" }] }
+  const join = { catalog: "demo", from_table: "shop.order_items", to_table: "shop.products", on_columns: [["product_id", "id"]] }
+  assert.equal(edgeApproved(edge, [join], cats), true)
+  // Approved reversed: the edge came alphabetically the other way.
+  assert.equal(edgeApproved({ ...edge, source: edge.target, target: edge.source,
+    joins: [{ left_column: "id", right_column: "product_id" }] }, [join], cats), true)
+  assert.equal(edgeApproved(edge, [{ ...join, to_table: "shop.orders" }], cats), false)
+  assert.equal(edgeApproved(edge, [], cats), false)
 })
