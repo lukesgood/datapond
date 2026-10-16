@@ -27,7 +27,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { title: "Knowledge", url: "/knowledge" },
       // How to connect an agent (MCP, the gateway document, the REST surface) is a
-      // guide, at /help/integrate; issuing its key is Settings → Service accounts.
+      // guide, at /help/integrate; issuing its key is on the Agents page.
       // A menu item that was a page of documentation with a copy of the key manager
       // sat between pages that do things. /connect redirects to the guide.
     ],
@@ -64,6 +64,10 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Operate",
     hint: "Govern and run the foundation",
     items: [
+      // First, and not under "Build AI": an agent is the unit being governed (which
+      // data it reads, what it spends, what it called), and it may use metrics and
+      // SQL, not only knowledge. Admin-only, like the service-account API behind it.
+      { title: "Agents", url: "/agents", permission: "user:manage" },
       // Not in "Build AI", where it sat next to Knowledge. Nobody builds anything on
       // this page: it registers providers, issues keys, and reports spend — operator
       // actions, which is what this group is for.
