@@ -142,19 +142,28 @@ class CatalogAccess:
     user_id: Optional[str] = None
     role: Optional[str] = None
 
-    def allows(self, entry) -> bool:
-        """`entry` is a CatalogEntry or a registry name."""
+    def via(self, entry) -> Optional[str]:
+        """Why this caller may use `entry`, or None when it may not: "exempt" (a
+        signed-in administrator), "user" (granted directly), "role" (its role is
+        granted) or "open" (the catalog has no grants). A user grant outranks a role
+        grant. This is the one rule; `allows` and the Agents page both read it."""
         if self.exempt:
-            return True
+            return "exempt"
         if self.grants is None:
-            return False
+            return None
         name = entry if isinstance(entry, str) else entry.name
         granted = self.grants.get(str(name).lower())
         if not granted:
-            return True
+            return "open"
         if self.user_id and ("user", self.user_id.lower()) in granted:
-            return True
-        return bool(self.role) and ("role", self.role) in granted
+            return "user"
+        if self.role and ("role", self.role) in granted:
+            return "role"
+        return None
+
+    def allows(self, entry) -> bool:
+        """`entry` is a CatalogEntry or a registry name."""
+        return self.via(entry) is not None
 
     def entries(self, include_disabled: bool = False):
         return [e for e in catalog_registry.entries(include_disabled=include_disabled)

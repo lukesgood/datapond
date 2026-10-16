@@ -125,6 +125,40 @@ async def account_collections(account_id: str):
                              "chunks": int(r["chunks"] or 0)} for r in rows]}
 
 
+@router.get("/service-accounts/{account_id}/catalogs", dependencies=[Depends(require_admin)])
+async def account_catalogs(account_id: str):
+    """Which catalogs this service account may use, and why.
+
+    Computed by CatalogAccess.via, the rule enforcement applies to the account's own
+    key, so this page cannot claim access that a query would be refused. The grants
+    are read directly rather than through `for_caller`, which turns an unreadable
+    table into "nothing allowed": here that would read as a denial the operator never
+    configured, so it is a 503 instead.
+    """
+    from app import catalog_access, catalog_registry
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        acct = await conn.fetchrow(
+            "SELECT id, role FROM users WHERE id = $1::uuid AND auth_method = 'service'",
+            account_id)
+    if not acct:
+        raise HTTPException(status_code=404, detail="Unknown service account.")
+    try:
+        grants = await catalog_access.load_grants()
+    except Exception as e:
+        logger.warning(f"[svc] catalog grants unreadable: {e}")
+        raise HTTPException(status_code=503, detail="Catalog grants are unavailable.")
+    access = catalog_access.CatalogAccess(grants=grants, user_id=account_id,
+                                          role=acct["role"])
+    out = []
+    for entry in catalog_registry.entries():
+        via = access.via(entry)
+        out.append({"catalog": entry.name,
+                    "restricted": bool(grants.get(entry.name.lower())),
+                    "allowed": via is not None, "via": via})
+    return {"account_id": account_id, "catalogs": out}
+
+
 @router.post("/service-accounts", status_code=201)
 async def create_service_account(body: ServiceAccountCreate, admin: dict = Depends(require_admin)):
     if body.role not in ASSIGNABLE_ROLES:
