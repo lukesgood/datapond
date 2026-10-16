@@ -102,7 +102,7 @@ export function AssetContextPanel({ nodeId, nodeData, edges, allNodes, onClose }
               href={`/query?sql=${encodeURIComponent(`SELECT * FROM ${nodeId} LIMIT 100`)}`}
               className="flex items-center gap-2 text-xs bg-muted hover:bg-accent rounded px-3 py-2 transition-colors"
             >
-              <Table2 className="h-3 w-3" /> Preview in SQL Lab
+              <Table2 className="h-3 w-3" /> Preview in Analytics
             </a>
             <a
               href={`/catalog?table=${nodeId}`}

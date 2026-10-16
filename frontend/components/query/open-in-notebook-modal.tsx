@@ -40,7 +40,7 @@ function buildNotebookCells(
       source: [
         "# DataPond Analysis Notebook\n",
         "\n",
-        "Generated from **SQL Lab** — edit and run to explore your data.\n",
+        "Generated from **Analytics** — edit and run to explore your data.\n",
         "\n",
         `**Query columns:** \`${columns.slice(0, 8).join(", ")}${columns.length > 8 ? " ..." : ""}\`  \n`,
         `**Rows returned:** ${rowCount.toLocaleString()}  \n`,
@@ -76,7 +76,7 @@ function buildNotebookCells(
     // Cell 3: Load data from SQL
     {
       cell_type: "markdown",
-      source: "## 1. Load Data from SQL Lab",
+      source: "## 1. Load Data from Analytics",
       metadata: {},
       outputs: [],
     },

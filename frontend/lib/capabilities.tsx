@@ -16,7 +16,7 @@ const CapsContext = createContext<Capabilities>({})
 const CAPABILITY_LABELS: Record<string, string> = {
   connectors: "Sources",
   catalog: "Catalog",
-  query: "SQL Lab",
+  query: "Analytics",
   dashboards: "Dashboards",
   pipelines: "Transforms",
   streaming: "Streaming",

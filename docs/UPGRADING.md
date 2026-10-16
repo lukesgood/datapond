@@ -3,6 +3,18 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-10 — Instructions moved out of working pages into Help
+
+- Settings → System (Helm values, upgrade commands, Airflow SMTP) is now Help → Change
+  the configuration (`/help/operate`), still filled in for this deployment's profile and
+  namespace. Settings keeps only settings.
+- A collection's "Use from app" tab is gone. Its calls, with the collection's name
+  filled in, are in the integration guide (`/help/integrate?collection=<name>`), linked
+  from the collection's Members tab.
+- New guide: Approved metrics (`/help/metrics`). The Help card that linked to the AI
+  Gateway page (not a guide) is gone; "SQL Lab" in Help is now Analytics, the menu's
+  name for it.
+
 ## 2026-10 — "API & MCP" is now the integration guide; keys are issued in Settings
 
 The "API & MCP" menu page held the MCP endpoint, the agent-gateway OpenAPI download and

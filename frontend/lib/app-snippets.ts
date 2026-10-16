@@ -1,4 +1,4 @@
-// Snippets shown on a collection's "Use from app" tab. Pure strings, tested here.
+// Snippets for one collection (components/connect/collection-snippets.tsx). Pure strings, tested here.
 //
 // Collection names are user-controlled (CollectionCreate.name is an unconstrained str,
 // only `.strip()`-ed server-side) and these snippets are copy-pasted straight into a

@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import Link from "next/link"
 import { AlertCircle, Loader2, ShieldCheck, Trash2, UserPlus, Users } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -130,7 +131,13 @@ export function MembersPanel({ name, ownerId }: { name: string; ownerId: string 
 
   return (
     <div className="space-y-3 pt-3">
-      <p className="text-xs text-muted-foreground">{ROLE_EXPLANATION}</p>
+      <p className="text-xs text-muted-foreground">
+        {ROLE_EXPLANATION}{" "}
+        An agent reads this collection as a member, with its own service account:{" "}
+        <Link href={`/help/integrate?collection=${encodeURIComponent(name)}`} className="text-primary hover:underline">
+          connect an agent to it
+        </Link>.
+      </p>
 
       <div className="divide-y rounded-lg border">
         {rows.map(row => row.kind === "owner" ? (

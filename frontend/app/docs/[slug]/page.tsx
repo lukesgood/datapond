@@ -39,7 +39,7 @@ const ARTICLES: Record<string, Doc> = {
       "Open Knowledge, create a collection, and ingest text or configured S3 objects.",
       "Run semantic search before RAG to verify chunk quality and retrieval relevance.",
       "Ask a question, check citations, then review collection access, PII behavior, and AI usage.",
-      "Sources, Catalog, SQL Lab, and other add-ons appear only when their backing capability is explicitly enabled.",
+      "Sources, Catalog, Analytics, and other add-ons appear only when their backing capability is explicitly enabled.",
     ],
     related: [{ label: "Open Knowledge", href: "/knowledge" }, { label: "Open Governance", href: "/governance" }],
   },
@@ -182,12 +182,12 @@ const ARTICLES: Record<string, Doc> = {
     summary: "Catalog and SQL are adapter-backed modules: Glue + Athena in the AWS single-node reference or Polaris + Trino in an OSS extended profile.",
     points: [
       "The UI reads runtime query-engine and catalog hints; it does not assume AWS services from the product name.",
-      "When no supported adapter is enabled, Catalog, Sources, SQL Lab, and Dashboards are hidden and direct routes explain the missing capability.",
+      "When no supported adapter is enabled, Catalog, Sources, Analytics, and Dashboards are hidden and direct routes explain the missing capability.",
       "Catalog → Send to Knowledge bridges selected table content into the governed RAG workflow.",
     ],
     related: [
       { label: "Catalog", href: "/catalog", capability: "catalog" },
-      { label: "SQL Lab", href: "/query", capability: "query" },
+      { label: "Analytics", href: "/query", capability: "query" },
     ],
   },
   "ai-gateway": {
