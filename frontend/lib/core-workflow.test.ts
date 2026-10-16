@@ -15,6 +15,10 @@ import { BOTTOM_ITEMS, NAV_SECTIONS } from "./nav-items.ts"
 const LEAN = { sourcesEnabled: false, catalogEnabled: false, catalogBackend: "collections" }
 const FULL = { sourcesEnabled: true, catalogEnabled: true, catalogBackend: "glue" }
 const navUrls = new Map([...NAV_SECTIONS.flatMap((s) => s.items), ...BOTTOM_ITEMS].map((i) => [i.url, i.title]))
+// The menu item a page sits under: its own entry, or the entry whose path it extends
+// (a guide at /help/integrate is under Help).
+const menuOf = (href: string) =>
+  navUrls.get(href) ?? [...navUrls].find(([url]) => href.startsWith(`${url}/`))?.[1]
 
 test("the strip has five steps in both shapes", () => {
   assert.equal(coreWorkflowSteps(LEAN).length, 5)
@@ -23,7 +27,7 @@ test("the strip has five steps in both shapes", () => {
 
 test("every step leads somewhere the menu has", () => {
   for (const inputs of [LEAN, FULL]) {
-    const missing = coreWorkflowSteps(inputs).filter((s) => !navUrls.has(s.href))
+    const missing = coreWorkflowSteps(inputs).filter((s) => !menuOf(s.href))
     assert.deepEqual(missing, [], "a step links to a page with no menu item")
   }
 })
@@ -36,12 +40,13 @@ test("no menu item takes a name a workflow step already uses", () => {
 
 test("the steps that do not branch point at the expected page", () => {
   const byTitle = new Map(coreWorkflowSteps(FULL).map((s) => [s.title, s.href]))
-  assert.equal(navUrls.get(byTitle.get("Ground")!), "Knowledge")
-  // "API & MCP" since the menu started naming the agent-native entry point too. The
-  // contract is that the workflow step and the menu lead to the same place; the label
-  // is allowed to change, and this assertion exists to notice when it does.
-  assert.equal(navUrls.get(byTitle.get("Connect your agent")!), "API & MCP")
-  assert.equal(navUrls.get(byTitle.get("Govern")!), "Governance")
+  assert.equal(menuOf(byTitle.get("Ground")!), "Knowledge")
+  // The integration guide, not a menu page of its own: what this step needs is how to
+  // connect (MCP, the gateway document, the REST surface), which is documentation,
+  // and the one action in it — issuing a key — lives in Settings → Service accounts.
+  assert.equal(byTitle.get("Connect your agent"), "/help/integrate")
+  assert.equal(menuOf(byTitle.get("Connect your agent")!), "Help")
+  assert.equal(menuOf(byTitle.get("Govern")!), "Governance")
 })
 
 test("the two branching steps follow the adapters a deployment runs", () => {

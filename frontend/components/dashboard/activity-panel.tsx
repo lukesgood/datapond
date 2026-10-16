@@ -70,7 +70,7 @@ export function ActivityPanel({ canAudit, canSpend, actors, totals, spend, budge
               <p className="text-sm text-muted-foreground">Caller activity could not be loaded.</p>
             ) : actors.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No tool calls yet today. <Link href="/connect" className="text-primary hover:underline">Connect an agent</Link>
+                No tool calls yet today. <Link href="/help/integrate" className="text-primary hover:underline">Connect an agent</Link>
               </p>
             ) : (
               <table className="w-full text-sm">

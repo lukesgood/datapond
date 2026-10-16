@@ -38,11 +38,11 @@ const guides: Guide[] = [
     topics: ["Collections", "Ingestion", "Semantic search", "Citations", "Refresh"],
   },
   {
-    title: "Integrate an application or agent",
-    description: "Create an agent identity, issue a scoped key, call search and cited answers",
+    title: "Connect an application or agent",
+    description: "An identity per agent, a scoped key, then MCP, REST or an agent gateway",
     icon: Plug,
     href: "/help/integrate",
-    topics: ["Service accounts", "Scoped keys", "Search and RAG calls", "Governed SQL", "Audit"],
+    topics: ["Service accounts", "Scoped keys", "MCP", "Agent gateway", "REST endpoints", "Audit"],
   },
   {
     title: "AI Gateway",

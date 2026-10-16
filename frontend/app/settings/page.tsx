@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState, useCallback, useSyncExternalStore } from "react"
+import { useEffect, useState, useCallback, useSyncExternalStore, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
@@ -115,7 +116,20 @@ const subscribeToClient = () => () => {}
 
 // ── Main page ──────────────────────────────────────────────────────────────────
 
+// ?tab=<value> opens that tab, so a guide can link straight to Service accounts.
+const TABS = ["overview", "users", "security", "system", "service", "catalogs"]
+
 export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading…</div>}>
+      <SettingsWorkspace />
+    </Suspense>
+  )
+}
+
+function SettingsWorkspace() {
+  const asked = useSearchParams().get("tab")
+  const initialTab = asked && TABS.includes(asked) ? asked : "overview"
   const caps = useCapabilities()
   const runtimeProfileId = typeof caps.profile_id === "string" ? caps.profile_id : ""
   const deploymentNamespace = typeof caps.deployment_namespace === "string" ? caps.deployment_namespace : ""
@@ -231,7 +245,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="overview">
+        <Tabs defaultValue={initialTab}>
           <TabsList className="h-9">
             <TabsTrigger value="overview"  className="text-xs">Overview</TabsTrigger>
             <TabsTrigger value="users"     className="text-xs">Users</TabsTrigger>

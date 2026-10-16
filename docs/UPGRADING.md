@@ -3,6 +3,15 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-10 — "API & MCP" is now the integration guide; keys are issued in Settings
+
+The "API & MCP" menu page held the MCP endpoint, the agent-gateway OpenAPI download and
+the REST endpoint list, plus a second copy of the service-account manager. The
+reference moved into Help → Integrate (`/help/integrate`), which also lists the key
+scopes by what the agent does; service accounts and keys are issued only in Settings
+→ Service accounts (`/settings?tab=service`). The menu item is gone and `/connect`
+redirects to the guide, so bookmarks still work. Nothing changed in the API.
+
 ## 2026-10 — A cap set in Settings → Budgets holds on every backend replica at once
 
 The pre-call check below cached each caller's cap for 15 seconds per replica, and a
