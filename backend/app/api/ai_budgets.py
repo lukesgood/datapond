@@ -12,6 +12,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.api import ai_backends
 from app.api.ai_backends import _gateway, _headers
 from app.api.auth import require_admin, require_permission
 
@@ -106,7 +107,11 @@ async def list_budgets():
     except Exception as e:
         logger.warning("[ai_budgets] list failed: %s", e)
         return {"customers": [], "unavailable": "gateway could not be reached"}
-    return {"customers": [_customer(row) for row in rows if isinstance(row, dict)]}
+    customers = [_customer(row) for row in rows if isinstance(row, dict)]
+    # The gateway's alias is rarely set; the caller id is a DataPond account id, so
+    # name it the way the spend table does.
+    named = await ai_backends._with_user_names([{"user": c["user_id"]} for c in customers])
+    return {"customers": [{**c, "name": n["name"]} for c, n in zip(customers, named)]}
 
 
 @router.get("/settings/ai/budgets/{user_id}",

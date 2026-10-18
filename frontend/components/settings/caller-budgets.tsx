@@ -144,7 +144,7 @@ export function CallerBudgets({ canEdit }: { canEdit: boolean }) {
               <span>Caller</span><span className="text-right">Spent</span><span className="text-right">Cap</span><span>Status</span>
             </div>
             {rows.map(c => {
-              const label = callerLabel(c.alias, c.user_id)
+              const label = callerLabel(c.name ?? c.alias, c.user_id)
               const st = STATUS[budgetStatus(c)]
               return (
                 <div key={c.user_id} className="grid grid-cols-[1fr_5rem_14rem_5.5rem] items-center gap-3 px-3 py-1.5 text-xs">

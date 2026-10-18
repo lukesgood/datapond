@@ -197,7 +197,7 @@ const ARTICLES: Record<string, Doc> = {
     points: [
       "Use logical model names for embedding, chat, and reranking so provider-specific IDs stay in adapter configuration.",
       "User identity and application metadata are attached to calls for spend attribution and usage reporting.",
-      "Provider management, virtual keys, and global spend administration should be restricted to administrators in production deployments.",
+      "Provider management, caller budgets, and global spend administration should be restricted to administrators in production deployments.",
     ],
     related: [{ label: "AI Gateway", href: "/ai" }, { label: "Settings", href: "/settings" }],
   },

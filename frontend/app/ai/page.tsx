@@ -7,7 +7,7 @@ import { useHasPermission, usePermissions } from "@/lib/permissions"
 import { permissionState } from "@/lib/permission-state"
 import { PermissionUnknown } from "@/components/ui/permission-state"
 
-// AI Gateway — first-class home for LiteLLM model routing, virtual keys,
+// AI Gateway — first-class home for LiteLLM model routing,
 // usage, and budgets. Promoted out of Settings so the model-provider boundary
 // that powers the whole foundation is discoverable, not buried.
 export default function AiGatewayPage() {
@@ -33,7 +33,7 @@ export default function AiGatewayPage() {
         <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-primary">AI</p>
         <h1 className="mt-0.5 text-2xl font-semibold tracking-tight">AI Gateway</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Route embeddings, RAG, and AI SQL through logical LiteLLM models; manage configured cloud or local providers, virtual keys, usage, and budgets.
+          Route embeddings, RAG, and AI SQL through logical LiteLLM models; manage configured cloud or local providers, usage, and per-caller budgets.
         </p>
       </div>
       {access === "unknown" ? (
@@ -50,7 +50,7 @@ export default function AiGatewayPage() {
           <UsagePanel />
           <CallerBudgets canEdit={false} />
           <p className="text-xs text-muted-foreground">
-            Model backends and virtual keys are managed by an administrator.
+            Model backends and caller budgets are managed by an administrator.
           </p>
         </>
       ) : (
@@ -58,7 +58,7 @@ export default function AiGatewayPage() {
           <ShieldAlert className="h-6 w-6 text-muted-foreground" />
           <h2 className="text-lg font-semibold">Admin permission required</h2>
           <p className="max-w-md text-sm text-muted-foreground">
-            The AI Gateway manages model providers, virtual keys, and spend. Ask an administrator for access.
+            The AI Gateway manages model providers, caller budgets, and spend. Ask an administrator for access.
           </p>
         </div>
       )}
