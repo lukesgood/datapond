@@ -141,6 +141,19 @@ async def _shared_cap(user_id: str):
     return NO_SHARED_CAP if cap is None else float(cap)
 
 
+async def shared_caps() -> Dict[str, float]:
+    """Every cap set through DataPond, by caller id: what the console shows as the cap.
+
+    The gateway keeps no cap of 0 (it reports none), so its own figure is not the one
+    enforced here; a display must overlay these on it.
+    """
+    from app.api.connectors import get_db_pool
+    pool = await get_db_pool()
+    async with pool.acquire() as c:
+        rows = await c.fetch("SELECT user_id, max_budget FROM ai_budget_caps")
+    return {str(r["user_id"]): float(r["max_budget"]) for r in rows}
+
+
 async def store_shared_cap(user_id: str, cap: Optional[float]) -> None:
     """Record the cap an operator set; None (cleared) removes it."""
     from app.api.connectors import get_db_pool

@@ -750,6 +750,13 @@ async def _with_user_budgets(users: list) -> list:
                     caps[str(row.get("user_id"))] = float(cap)
     except Exception as e:
         logger.warning(f"[ai_backends] caller budgets unavailable: {e}")
+    # The cap enforced is DataPond's where it set one (app/ai_budget); the gateway keeps
+    # no cap of 0 at all.
+    from app import ai_budget
+    try:
+        caps.update(await ai_budget.shared_caps())
+    except Exception as e:
+        logger.warning(f"[ai_backends] shared caps unavailable: {e}")
     return [{**u, "max_budget": caps.get(str(u.get("user")))} for u in users]
 
 
