@@ -156,10 +156,11 @@ function IntegrateGuide() {
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            Every call is logged against the account — what it read, cited and masked, and
-            what was refused — under{" "}
-            <Link href="/governance" className={link}>Governance → Audit Log</Link>; its model
-            spend is under <Link href="/ai" className={link}>AI Gateway</Link>.
+            The agent&apos;s page under <Link href="/agents" className={link}>Agents</Link> shows
+            its recent calls, its model spend and its cap. Every call — what it read, cited
+            and masked, and what was refused — is also in{" "}
+            <Link href="/governance" className={link}>Governance → Audit Log</Link>, next to
+            every other caller.
           </p>
         </CardContent>
       </Card>

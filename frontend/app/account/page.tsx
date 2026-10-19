@@ -54,7 +54,7 @@ export default function AccountPage() {
         <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-primary">Account</p>
         <h1 className="mt-0.5 text-2xl font-semibold tracking-tight">Your account</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Manage your own sign-in credentials — password and passkeys.
+          Your profile, your own model usage, and how you sign in — password and passkeys.
         </p>
       </div>
 
