@@ -92,8 +92,8 @@ HR gets "every March" with `hr/leave.md` cited. Sales is answered from Sales doc
 only — no `hr/` source is cited, so the model has nothing to say about salaries. The Sales
 agent is not told that a better passage exists; that would itself be a leak.
 
-**d. A budget is enforced, not reported.** In the console (AI Gateway → Caller budgets)
-set the Sales agent's cap to `0`, or:
+**d. A budget is enforced, not reported.** In the console (Agents → the Sales agent →
+Spend → Set a cap) set its cap to `0`, or:
 
 ```bash
 curl -s "${H[@]}" -X PUT $DP/api/settings/ai/budgets/$SALES_ID -d '{"max_budget":0}'

@@ -138,7 +138,7 @@ kubectl top nodes
 
 ## Key URLs
 
-**Portable Core:** Dashboard · Knowledge · AI Gateway · Governance · Storage · Services · System · Settings are always present. Sources/Catalog/SQL Lab and add-on pages appear only when their runtime capability is explicitly true (`GET /api/capabilities`).
+**Portable Core:** Dashboard · Knowledge · Agents (admins) · AI Gateway · Governance · Storage · Services · System · Settings are always present. Sources/Catalog/Analytics and add-on pages appear only when their runtime capability is explicitly true (`GET /api/capabilities`).
 
 | Service | URL | Credentials |
 |---|---|---|
