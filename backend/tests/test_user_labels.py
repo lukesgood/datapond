@@ -201,6 +201,11 @@ def test_budget_rows_gain_names(monkeypatch):
 
     monkeypatch.setattr(budgets, "_gateway", lambda: ("http://gw", "k"))
     monkeypatch.setattr(budgets.httpx, "AsyncClient", _Client)
+    async def _no_caps():
+        return {}
+
+    import app.ai_budget as ai_budget
     monkeypatch.setattr(ai, "_with_user_names", _names)
+    monkeypatch.setattr(ai_budget, "shared_caps", _no_caps)
     out = _run(budgets.list_budgets())
     assert [(c["user_id"], c["name"]) for c in out["customers"]] == [("u1", "alice"), ("tagcheck", None)]

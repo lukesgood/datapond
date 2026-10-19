@@ -108,6 +108,18 @@ async def list_budgets():
         logger.warning("[ai_budgets] list failed: %s", e)
         return {"customers": [], "unavailable": "gateway could not be reached"}
     customers = [_customer(row) for row in rows if isinstance(row, dict)]
+    from app import ai_budget
+    try:
+        shared = await ai_budget.shared_caps()
+    except Exception as e:
+        logger.warning("[ai_budgets] shared caps unreadable: %s", e)
+        return {"customers": [], "unavailable": "the caps DataPond enforces could not be read"}
+    # The cap shown is the cap enforced (app/ai_budget): DataPond's wins, and a caller
+    # capped before its first call is not yet a gateway customer.
+    seen = {c["user_id"] for c in customers}
+    customers = [{**c, "max_budget": shared.get(c["user_id"], c["max_budget"])} for c in customers]
+    customers += [{"user_id": uid, "alias": None, "spend": 0.0, "max_budget": cap, "blocked": False}
+                  for uid, cap in shared.items() if uid not in seen]
     # The gateway's alias is rarely set; the caller id is a DataPond account id, so
     # name it the way the spend table does.
     named = await ai_backends._with_user_names([{"user": c["user_id"]} for c in customers])
@@ -125,10 +137,20 @@ async def get_budget(user_id: str):
     except Exception as e:
         raise HTTPException(502, f"Cannot reach the model gateway: {str(e)[:160]}")
     if r.status_code == 404:
-        return {"user_id": user_id, "max_budget": None, "spend": 0.0, "blocked": False}
-    if r.status_code >= 400:
+        out = {"user_id": user_id, "max_budget": None, "spend": 0.0, "blocked": False}
+    elif r.status_code >= 400:
         raise HTTPException(502, f"Gateway returned HTTP {r.status_code}")
-    return _customer(r.json())
+    else:
+        out = _customer(r.json())
+    from app import ai_budget
+    try:
+        shared = await ai_budget.shared_caps()
+    except Exception as e:
+        raise HTTPException(503, f"The cap DataPond enforces could not be read: {str(e)[:160]}")
+    # The cap shown is the cap enforced (app/ai_budget): DataPond's wins over the gateway's.
+    if user_id in shared:
+        out["max_budget"] = shared[user_id]
+    return out
 
 
 @router.put("/settings/ai/budgets/{user_id}", dependencies=[Depends(require_admin)])
