@@ -70,7 +70,7 @@ Knowledge collection authorization currently uses application-level owner/admin/
 
 - AWS reference: Glue catalog + Athena query.
 - OSS extended: Polaris catalog + Trino query.
-- No adapter: Sources/Catalog/SQL Lab/Dashboards are capability-disabled.
+- No adapter: Sources/Catalog/Analytics/Dashboards are capability-disabled.
 
 Catalog/query are optional because the core can ingest text and S3 sources directly into Knowledge.
 

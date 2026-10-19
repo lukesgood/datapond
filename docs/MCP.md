@@ -11,7 +11,7 @@ or the typed REST endpoints.
 
 **Authentication.** The service-account key you already use for REST:
 `Authorization: Bearer dp_sk_…`. A person's own session token works too, resolved the
-same way. Issue a key under Settings → Service accounts with the scopes the agent
+same way. Issue a key under Agents → the agent → Access keys with the scopes the agent
 needs — `knowledge:read` and `ai:generate` cover search and cited answers.
 
 **OAuth (optional).** With `auth.oauthResourceServer.enabled`, the endpoint also accepts
