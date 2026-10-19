@@ -156,10 +156,39 @@ Athena/Glue 직접 조립과 현상 유지 — 차별점은 비용보다 하나�
 
 ## 9. 운영 리소스
 
-라이브 AWS 참조 배포(us-east-1, EC2/K3s + Aurora + S3 + Glue/Athena + Bedrock)는 이 검토 후
-오너 지시로 정리 대상이 되었다. 정리 결과는 아래에 기록한다.
+라이브 AWS 참조 배포(us-east-1, 계정 588738574974, EC2/K3s + Aurora + S3 + Glue/Athena + Bedrock)는
+이 검토 후 오너 지시로 2026-10-19에 정리했다. 선택: **백업을 남기고 과금 리소스 삭제**.
 
-(정리 후 기록)
+**정리 전 월 비용 추정** (Cost Explorer는 결제 계정 권한이 없어 조회 불가, 사양·CloudWatch·정가 기준):
+Aurora Serverless v2 약 $90(평균 1.03 ACU, 상시) + EC2 m6i.xlarge 스팟 약 $25~30(평일 업무시간) + EBS·공인 IP·
+스냅샷·ECR·CloudWatch·Bedrock 등 약 $15~20 = **약 $130~145/월**. 정리 후 남는 비용은 월 $1 미만(+시크릿 $0.40).
+
+**삭제** — `terraform destroy`(-var-file=live.tfvars) 30개 리소스: EC2 노드·EIP, Aurora 클러스터·인스턴스·서브넷 그룹,
+보안 그룹 2, ECR 저장소 2(이미지 33개 선삭제), IAM 역할·정책·인스턴스 프로파일, GitHub OIDC 공급자와
+`datapond-cd` 역할, 시작/중지 스케줄, CloudWatch 대시보드·알람 3, DLM 정책, Route53 레코드
+`datapond.csg.fitcloud.co.kr`. 이어서 DLM이 만든 EBS 스냅샷 7개를 삭제했다. Aurora 자동 스냅샷 15개는
+수동 삭제가 불가능하며(“Only manual snapshots may be deleted”) 클러스터 삭제 후 AWS가 정리한다. DB가 약 0.16 GB라 비용은 무시할 수준이다.
+
+**보존**
+
+| 대상 | 용도 |
+|---|---|
+| Aurora 스냅샷 `datapond-pg-final-snapshot`(삭제 시점), `datapond-pg-pre-15-19-20260929` | DB 복구 |
+| S3 `datapond-iceberg` (약 92 MB, 버전 관리) | 데이터 |
+| Secrets Manager `datapond/critical-secrets` | 복구 시 필요한 키(암호화된 자격증명 해독). 원래 삭제 예정이었으나 복구 가능성을 위해 보존으로 변경 |
+| S3 `datapond-terraform-state-588738574974` | Terraform 상태, `backups/`에 정리 직전 상태와 `live.tfvars` 사본 |
+| S3 `datapond-deploy-588738574974` (2026-05, 약 4.5 MB) | 초기 배포 산출물. 손대지 않음 |
+
+S3 데이터 버킷과 시크릿은 삭제 전에 Terraform 상태에서 제외(`terraform state rm`)했으므로, 다시
+배포하려면 `terraform import`로 되돌리거나 새 이름을 쓴다. 공유 SNS 토픽 `datapond-alarms`와 CDK 부트스트랩
+ECR 저장소는 Terraform 밖의 리소스라 그대로 두었다.
+
+**영향**: `deploy-aws.yml`은 역할이 없어 실행되지 않는다. PR CI의 "Portable Core acceptance (deployed target)"는
+대상이 응답하지 않으면 실패가 아니라 "실행 안 됨" 알림으로 끝나므로 병합을 막지 않는다.
+
+**복구 순서**: `backups/live.tfvars`로 `terraform apply`(새 클러스터는 `snapshot_identifier`로
+`datapond-pg-final-snapshot`에서 복원하도록 일시 지정) → 이미지 빌드·ECR 푸시 → `deploy-aws.yml`.
+`docs/DISASTER_RECOVERY.md` 참조.
 
 ## 출처
 
