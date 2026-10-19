@@ -375,4 +375,4 @@ See `.claude/agents/pm-agent.md` for detailed spawning examples and coordination
 - **Sovereign Core** is installed from nothing on every CI run (kind: MinIO via `pgsty/minio`, Ollama, local-only egress, embed → ingest → search).
 - **Open:** a long-running self-hosted Sovereign install and the Bedrock→local provider exit drill; demand gate (design partner) by 2026-10-27. Demo walkthrough: `docs/DEMO_SCRIPT.md`.
 
-> **Deploying to the live AWS node:** `gh workflow run deploy-aws.yml --ref main` after CI is green on that SHA (builds immutable ECR tags, rolls the node over SSM). The node runs weekdays 07:30–18:00 KST only. Fresh installs (`helm`/`scripts/install.sh`) are unaffected.
+> **Live AWS deployment: torn down 2026-10-19** (backups kept: Aurora final snapshot, S3 data bucket, critical secret, Terraform state + `live.tfvars` copy under `backups/` in the state bucket). `deploy-aws.yml` has no target until it is re-provisioned; the deployed-target acceptance job reports "not run" instead of failing. Teardown record and restore order: `docs/MARKET_REVIEW_2026-10.md` §9. Fresh installs (`helm`/`scripts/install.sh`) are unaffected.
