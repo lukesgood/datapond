@@ -93,7 +93,7 @@ const docCategories: DocCategory[] = [
       { title: "Knowledge & RAG", description: "Collections, ingestion, embeddings, retrieval, reranking, and citations", href: "/docs/knowledge-rag", badge: "Shipped" },
       { title: "Sources", description: "Database and object ingestion when a catalog adapter is enabled", href: "/docs/sources", badge: "Optional" },
       { title: "Catalog & Query", description: "Glue/Athena or Polaris/Trino, selected by deployment profile", href: "/docs/catalog-query", badge: "Optional" },
-      { title: "AI Gateway", description: "Provider routing, virtual keys, usage, and spend attribution", href: "/docs/ai-gateway", badge: "Shipped" },
+      { title: "AI Gateway", description: "Provider routing, usage, per-caller budgets, and spend attribution", href: "/docs/ai-gateway", badge: "Shipped" },
       { title: "Governance", description: "Collection access, PII controls, audit, lineage, and cost governance", href: "/docs/governance", badge: "Shipped" },
     ],
   },

@@ -3,6 +3,8 @@
 export interface CallerBudget {
   user_id: string
   alias: string | null
+  /** DataPond account name for the caller id, when it is one. */
+  name?: string | null
   spend: number
   max_budget: number | null
   blocked: boolean

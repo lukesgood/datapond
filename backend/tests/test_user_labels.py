@@ -178,3 +178,29 @@ def test_stream_names_bare_user_ids_but_keeps_emails():
     assert (by_source["auth"].actor, by_source["auth"].actor_name) == ("ops@x", None)
     label_calls = [c for c in db.calls if "FROM users" in c[0]]
     assert label_calls and label_calls[0][1] == {"ids": ["u1"]}
+
+
+def test_budget_rows_gain_names(monkeypatch):
+    """Caller budgets name a DataPond account rather than showing its id."""
+    import app.api.ai_budgets as budgets
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return [{"user_id": "u1", "spend": 0.5}, {"user_id": "tagcheck", "alias": "tagcheck"}]
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, *a, **k): return _Resp()
+
+    async def _names(users):
+        return [{**u, "name": {"u1": "alice"}.get(u["user"])} for u in users]
+
+    monkeypatch.setattr(budgets, "_gateway", lambda: ("http://gw", "k"))
+    monkeypatch.setattr(budgets.httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(ai, "_with_user_names", _names)
+    out = _run(budgets.list_budgets())
+    assert [(c["user_id"], c["name"]) for c in out["customers"]] == [("u1", "alice"), ("tagcheck", None)]
