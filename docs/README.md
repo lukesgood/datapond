@@ -11,6 +11,7 @@
 | [PRODUCT_CONCEPT.md](PRODUCT_CONCEPT.md) | 대상 사용자, 가치 제안, 제품 경계, 경쟁 기준 (v6.0 — **현행 정본**) |
 | [POSITIONING_REVIEW.md](POSITIONING_REVIEW.md) | v5.0→v6.0 포지셔닝 문제 분석과 결정 기록 (2026-09-07) |
 | [POSITIONING_FIT_AUDIT.md](POSITIONING_FIT_AUDIT.md) | v6.0 문장 기준 기능·사용성 적합도 점검과 우선순위 (2026-09-07) |
+| [MARKET_REVIEW_2026-10.md](MARKET_REVIEW_2026-10.md) | 메뉴·기능 점검과 시장성 재검토(경량 데이터레이크, 페르소나, 에어갭, 레드오션) — 미검증 판정과 권장 (2026-10-19) |
 | [PRODUCTIZATION_READINESS_ASSESSMENT.md](PRODUCTIZATION_READINESS_ASSESSMENT.md) | 현재 구현의 상품화 준비도, 출시 차단 요소, 개선 로드맵 |
 | [CONCEPT_RECONFIRMATION.md](CONCEPT_RECONFIRMATION.md) | v6 방향 제안 노트 (2026-07-27). 2026-09-07 v6.0으로 승격됨. 수요 게이트(§5)는 여전히 유효하다 |
 | [ONTOLOGY_FEASIBILITY_REPORT.md](ONTOLOGY_FEASIBILITY_REPORT.md) | 온톨로지 실현가능성·가치 5개 실험 검증 리포트 (연구 기록) · 실험 하네스: [research/ontology-poc/](research/ontology-poc/) |
