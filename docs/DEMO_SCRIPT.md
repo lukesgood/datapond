@@ -102,14 +102,15 @@ curl -s "${H[@]}" -X PUT $DP/api/settings/ai/budgets/$SALES_ID -d '{"max_budget"
 Re-run the Sales call from step c: it now answers **402**. Clear the cap afterwards
 (`{"max_budget":null}`).
 
-**e. Everything is on the record.** Governance → Reports → Agent tool calls, or:
+**e. Everything is on the record.** In the console, Governance → Tool calls (each agent's
+own calls are also on its page under Agents), or:
 
 ```bash
 curl -s "${H[@]}" "$DP/api/audit/tool-calls?limit=10" \
   | jq '.rows[] | {actor_username, tool, outcome, hit_count, chunks_withheld, citation_sources}'
 ```
 
-Point at three columns: who called, what was cited, and `chunks_withheld` — how many
+Point at three columns: Caller, Cited, and Withheld (`chunks_withheld`) — how many
 nearer chunks the rule kept from that caller, recorded for the auditor and never
 returned to the agent. The refused (402) call is there too.
 

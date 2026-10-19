@@ -70,7 +70,7 @@ export function ActivityPanel({ canAudit, canSpend, actors, totals, spend, budge
             <div className="mb-2 flex items-baseline justify-between gap-2">
               <h2 className="text-sm font-semibold">Callers today</h2>
               <Link href="/governance" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-                Audit log <ArrowRight className="h-3 w-3" />
+                Tool calls <ArrowRight className="h-3 w-3" />
               </Link>
             </div>
             {actors === null ? (
@@ -105,7 +105,7 @@ export function ActivityPanel({ canAudit, canSpend, actors, totals, spend, budge
               </table>
             )}
             {actors && actors.length > CALLERS_SHOWN && (
-              <p className="mt-2 text-xs text-muted-foreground">+{actors.length - CALLERS_SHOWN} more in the audit log</p>
+              <p className="mt-2 text-xs text-muted-foreground">+{actors.length - CALLERS_SHOWN} more under Governance → Tool calls</p>
             )}
           </div>
         )}

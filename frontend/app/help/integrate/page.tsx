@@ -159,7 +159,7 @@ function IntegrateGuide() {
             The agent&apos;s page under <Link href="/agents" className={link}>Agents</Link> shows
             its recent calls, its model spend and its cap. Every call — what it read, cited
             and masked, and what was refused — is also in{" "}
-            <Link href="/governance" className={link}>Governance → Audit Log</Link>, next to
+            <Link href="/governance" className={link}>Governance → Tool calls</Link>, next to
             every other caller.
           </p>
         </CardContent>

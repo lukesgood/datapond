@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { ToolCallsTab } from "@/components/governance/tool-calls-tab"
 import {
   Table,
   TableBody,
@@ -811,9 +812,10 @@ export default function GovernancePage() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="audit">
+      <Tabs defaultValue="tool-calls">
         <TabsList>
-          <TabsTrigger value="audit">Audit Log</TabsTrigger>
+          <TabsTrigger value="tool-calls">Tool calls</TabsTrigger>
+          <TabsTrigger value="audit">Query log</TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
           <TabsTrigger value="ai-safety">AI Safety</TabsTrigger>
           <TabsTrigger value="data-protection">Data Protection</TabsTrigger>
@@ -821,12 +823,17 @@ export default function GovernancePage() {
           <TabsTrigger value="reports">Reports</TabsTrigger>
         </TabsList>
 
+        {/* ── Tab: Tool calls (every caller's search, answers, metrics, SQL) ── */}
+        <TabsContent value="tool-calls" className="mt-4 space-y-4">
+          <ToolCallsTab />
+        </TabsContent>
+
         {/* ── Tab: Access Control (RLS) ─────────────────────────────────── */}
         <TabsContent value="access-control" className="mt-4 space-y-4">
           <AccessControlTab />
         </TabsContent>
 
-        {/* ── Tab 1: Audit Log ──────────────────────────────────────────── */}
+        {/* ── Tab: Query log (SQL executions) ──────────────────────────────── */}
         <TabsContent value="audit" className="mt-4 space-y-4">
           {/* Filter bar */}
           <div className="flex flex-col sm:flex-row gap-3">

@@ -98,7 +98,7 @@ export default function MetricsHelpPage() {
         <CardContent className="text-sm text-muted-foreground">
           Every result carries its citation: metric, version, approver and the exact SQL
           that ran, after row filters and masks. The call is in{" "}
-          <Link href="/governance" className={link}>Governance → Audit Log</Link> as{" "}
+          <Link href="/governance" className={link}>Governance → Tool calls</Link> as{" "}
           <code className={code}>metric.query</code>, citing{" "}
           <code className={code}>metric:&lt;name&gt;@v&lt;N&gt;</code>.
         </CardContent>

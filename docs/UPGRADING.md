@@ -3,6 +3,16 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2026-10 — Governance has a Tool calls tab; "Audit Log" is now "Query log"
+
+- **Governance → Tool calls** (first tab, opens by default) lists every caller's tool
+  calls — search, cited answers, metrics, SQL — newest first, with outcome, hits, chunks
+  withheld, PII masked and cited sources, filterable by caller and window. Until now the
+  console showed them only per agent (Agents → the agent → Activity) or as the Reports
+  export. It needs `audit:read`, like the export.
+- The tab formerly called **Audit Log** listed SQL executions only and is renamed
+  **Query log**. Nothing about what it shows changed.
+
 ## 2026-10 — Agents menu; service accounts moved there; the virtual-key card is gone
 
 - **Agents** (`/agents`, administrators) lists every service account and opens one page
