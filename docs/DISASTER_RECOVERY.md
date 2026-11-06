@@ -94,6 +94,20 @@ TF state manages `aws_rds_cluster.aurora` = `datapond-pg`. Restoring to a differ
 
 **Do NOT run `terraform apply` until the restored cluster is reconciled with state.**
 
+#### A.2 Cluster gone from state too (full re-provision after a teardown)
+If the whole stack was destroyed (state empty, only the final snapshot left), skip the
+CLI restore above and let Terraform create the cluster **from the snapshot**:
+```bash
+terraform apply -var-file=live.tfvars \
+  -var db_snapshot_identifier=datapond-pg-final-snapshot \
+  -var db_master_password='<the previous master password, from the state backup>'
+```
+`snapshot_identifier` is read only at creation and is under `ignore_changes`, so later
+applies without the var do not replace the cluster. Resources that were `terraform state rm`'d
+before the destroy and still exist (the data bucket and its versioning / public-access-block /
+SSE / lifecycle sub-resources, the `datapond/critical-secrets` vault) must be `terraform import`ed
+first, or the apply collides on them. This is the path used on 2026-11-06.
+
 ### B. Secrets — re-seed BEFORE app start
 ```bash
 SM=datapond/critical-secrets   # deterministic — no TF state needed
@@ -116,10 +130,14 @@ aws s3api list-object-versions --bucket datapond-iceberg --prefix <key>
 ### D. Full cluster rebuild (order)
 1. Reconcile the restored Aurora with TF state (§A.1) FIRST, then `terraform apply`
    (Aurora + S3 already exist / restored per A & C). A bare apply against a mismatched
-   state recreates an empty `datapond-pg` — see §A.1.
+   state recreates an empty `datapond-pg` — see §A.1. If the stack was fully torn down,
+   import the survivors and apply with `db_snapshot_identifier` instead (§A.2).
 2. Re-seed `datapond-secrets` from Secrets Manager (procedure B).
-3. `helm upgrade --install` with `externalDatabase.host` = restored Aurora writer.
-4. Verify (drill below).
+3. `helm upgrade --install` with `externalDatabase.host` = restored Aurora writer
+   (DEPLOY_SINGLE_NODE §5, with an image tag the `deploy-aws.yml` build-push job has already
+   pushed; `deploy-node-helm.sh` only upgrades an existing release).
+4. Update the GitHub secret `NODE_INSTANCE_ID` to the new instance id.
+5. Verify (drill below).
 
 ## Quarterly backup-verification drill
 1. Find a snapshot id
