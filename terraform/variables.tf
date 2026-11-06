@@ -62,6 +62,14 @@ variable "db_deletion_protection" {
   default = true # block destroy/console delete
 }
 
+variable "db_snapshot_identifier" {
+  type = string
+  # Aurora cluster snapshot to restore from on creation (e.g. the final snapshot a previous
+  # destroy left: "<name_prefix>-pg-final-snapshot"). Only read at cluster creation; see
+  # the lifecycle block in aurora.tf. Empty ⇒ create an empty cluster.
+  default = ""
+}
+
 variable "db_skip_final_snapshot" {
   type    = bool
   default = false # take a final snapshot on destroy
@@ -244,7 +252,7 @@ variable "k3s_version" {
 
 variable "k3s_installer_sha256" {
   type        = string
-  default     = "ed01f89fd977bf20ac1516bbebf8370bf3ddbaa55dac8aba610956a4c78cc00b"
+  default     = "c2a2643dd7c259121a876d16538844c60928de3d38ae98f22f7b95a7ffcfab9d"
   description = "sha256 of https://get.k3s.io. This script is served from a rolling URL; the pin is what makes it reproducible."
 }
 
