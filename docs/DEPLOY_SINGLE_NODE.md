@@ -269,9 +269,22 @@ kubectl -n datapond create secret generic datapond-secrets \
 # THEN run step 5 — the chart's lookup-preserve keeps these exact values.
 ```
 
-(On this restore path Helm adopts a Secret it created originally, and lookup-preserve
-reads the restored keys — no ownership-metadata conflict, unlike a hand-created Secret on a
-truly fresh cluster.)
+On a rebuilt node the Secret above *is* hand-created, so `helm upgrade --install` fails
+with *"invalid ownership metadata ... missing key app.kubernetes.io/managed-by"* until it
+carries Helm's ownership labels (seen on the 2026-11-06 re-provision). Add them first:
+
+```bash
+kubectl -n datapond label secret datapond-secrets app.kubernetes.io/managed-by=Helm --overwrite
+kubectl -n datapond annotate secret datapond-secrets \
+  meta.helm.sh/release-name=datapond meta.helm.sh/release-namespace=datapond --overwrite
+```
+
+The vault does not hold the Aurora master password: either add it to the Secret as
+`POSTGRES_PASSWORD` (lookup-preserve then uses it) or pass `--set postgres.auth.password`
+in step 5. If the previous install used the `datapond_app` runtime role, its password lived
+only in the lost cluster Secret — reset it (`ALTER ROLE datapond_app LOGIN PASSWORD ...`, as
+the master user from inside the backend pod, `kubectl exec -i`) and re-add `APP_DB_PASSWORD`
+before re-enabling `externalDatabase.appUser`.
 
 ---
 

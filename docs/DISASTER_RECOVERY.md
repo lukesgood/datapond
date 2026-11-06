@@ -118,6 +118,15 @@ kubectl -n datapond create secret generic datapond-secrets \
   --from-literal=JWT_SECRET="$(echo "$vals" | jq -r .JWT_SECRET)" \
   --from-literal=INTERNAL_API_KEY="$(echo "$vals" | jq -r .INTERNAL_API_KEY)" \
   --dry-run=client -o yaml | kubectl apply -f -
+# On a FRESH cluster the Secret is now hand-created, and `helm install` refuses to adopt an
+# object without Helm ownership metadata ("invalid ownership metadata ... missing key
+# app.kubernetes.io/managed-by"). Mark it as Helm's before the install (hit on 2026-11-06):
+kubectl -n datapond label secret datapond-secrets app.kubernetes.io/managed-by=Helm --overwrite
+kubectl -n datapond annotate secret datapond-secrets \
+  meta.helm.sh/release-name=datapond meta.helm.sh/release-namespace=datapond --overwrite
+# The vault holds no DB passwords. Add POSTGRES_PASSWORD (Aurora master) to this Secret too,
+# or pass --set postgres.auth.password on the install; a runtime role password
+# (APP_DB_PASSWORD, DEPLOY_SINGLE_NODE "app DB user") must be reset with ALTER ROLE and re-added.
 # THEN helm upgrade — lookup-preserve keeps these exact values.
 ```
 

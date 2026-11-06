@@ -190,6 +190,9 @@ ECR 저장소는 Terraform 밖의 리소스라 그대로 두었다.
 `datapond-pg-final-snapshot`에서 복원하도록 일시 지정) → 이미지 빌드·ECR 푸시 → `deploy-aws.yml`.
 `docs/DISASTER_RECOVERY.md` 참조.
 
+**2026-11-06 재구성 완료.** 위 순서대로 복구했다(`db_snapshot_identifier` 변수 추가, 버킷·시크릿 import, 노드 재생성,
+`datapond_app` 런타임 역할·MLflow 재적용). 세부 절차와 걸림돌은 `docs/DISASTER_RECOVERY.md` §A.2·B 참조.
+
 ## 출처
 
 - Databricks 가격: [DoIT](https://www.doit.com/de/blog/databricks-pricing-explained-dbus-tiers-cost-control),
