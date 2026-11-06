@@ -62,6 +62,14 @@ variable "db_deletion_protection" {
   default = true # block destroy/console delete
 }
 
+variable "db_snapshot_identifier" {
+  type = string
+  # Aurora cluster snapshot to restore from on creation (e.g. the final snapshot a previous
+  # destroy left: "<name_prefix>-pg-final-snapshot"). Only read at cluster creation; see
+  # the lifecycle block in aurora.tf. Empty ⇒ create an empty cluster.
+  default = ""
+}
+
 variable "db_skip_final_snapshot" {
   type    = bool
   default = false # take a final snapshot on destroy

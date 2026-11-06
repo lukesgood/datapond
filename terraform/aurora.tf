@@ -42,6 +42,11 @@ resource "aws_rds_cluster" "aurora" {
   storage_encrypted      = true
   kms_key_id             = var.db_kms_key_id
 
+  # Rebuild from a snapshot (DR / re-provision after a teardown). Empty ⇒ fresh empty
+  # cluster. Set once on the restoring apply; ignore_changes below keeps a later apply
+  # without the var from forcing a replacement of the restored cluster.
+  snapshot_identifier = var.db_snapshot_identifier != "" ? var.db_snapshot_identifier : null
+
   # ── Backup / DR (P0-5) ──
   backup_retention_period      = var.db_backup_retention_period
   preferred_backup_window      = var.db_preferred_backup_window
@@ -57,6 +62,10 @@ resource "aws_rds_cluster" "aurora" {
   serverlessv2_scaling_configuration {
     min_capacity = var.db_min_acu
     max_capacity = var.db_max_acu
+  }
+
+  lifecycle {
+    ignore_changes = [snapshot_identifier]
   }
 }
 
