@@ -258,3 +258,12 @@ def test_a_metric_stored_under_the_alias_compiles_to_the_engine_name():
     sql = compile_metric(v, engine_catalog=reg.resolve(v.catalog).engine_catalog,
                          dialect="trino", today=date(2026, 11, 9), period="last_month").sql
     assert "iceberg" in sql.lower() and "awsdatacatalog" not in sql.lower()
+
+
+def test_canonical_catalog_maps_either_name_to_the_engine_name_and_keeps_unknowns():
+    reg.set_entries(_alias_entries())
+    assert reg.canonical_catalog("AwsDataCatalog") == "iceberg"
+    assert reg.canonical_catalog("awsdatacatalog") == "iceberg"
+    assert reg.canonical_catalog("iceberg") == "iceberg"
+    assert reg.canonical_catalog("system") == "system"      # no entry: as written
+    assert reg.canonical_catalog("") == ""

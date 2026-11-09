@@ -392,3 +392,38 @@ def test_a_hidden_default_catalog_hides_its_bare_names_too():
                        load_index=lambda: _two_catalog_index(),
                        catalog_allowed=lambda c: (c or "").lower() != "iceberg")
     assert "Available namespaces: secret.hr." in str(exc.value)
+
+
+# ── 2.4 alias: a fully qualified name may say the registry name ──────────────
+
+def _alias_registry():
+    from app import catalog_registry as reg
+    reg.set_entries([reg.CatalogEntry(name="AwsDataCatalog", kind="glue",
+                                      engine_catalog="iceberg", is_default=True)])
+    return reg
+
+
+def test_canonicalise_catalogs_rewrites_the_registry_name_to_the_engine_name():
+    from app.api.table_resolver import canonicalise_catalogs
+    reg = _alias_registry()
+    try:
+        out = canonicalise_catalogs(
+            "SELECT o.id FROM AwsDataCatalog.default.orders o JOIN iceberg.default.items i ON i.oid = o.id",
+            dialect="trino")
+        assert "awsdatacatalog" not in out.lower()
+        assert "iceberg.default.orders" in out.lower() and "iceberg.default.items" in out.lower()
+    finally:
+        reg.reset()
+
+
+def test_canonicalise_catalogs_leaves_a_statement_with_nothing_to_rename_verbatim():
+    from app.api.table_resolver import canonicalise_catalogs
+    reg = _alias_registry()
+    try:
+        sql = "SELECT  *  FROM iceberg.default.orders   WHERE id = 1"
+        assert canonicalise_catalogs(sql, dialect="trino") == sql
+        sql2 = "SELECT 1 FROM system.jdbc.tables"      # unknown catalog: not ours to rename
+        assert canonicalise_catalogs(sql2, dialect="trino") == sql2
+        assert canonicalise_catalogs("SELECT * FROM default.orders", dialect="trino") == "SELECT * FROM default.orders"
+    finally:
+        reg.reset()

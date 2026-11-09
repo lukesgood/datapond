@@ -229,7 +229,19 @@ def _qualify(table: exp.Table) -> str:
         parts = [_default_catalog(), _default_schema(), parts[0]]
     elif len(parts) == 2:
         parts = [_default_catalog(), parts[0], parts[1]]
+    else:
+        parts = [_canonical(parts[0]), parts[1], parts[2]]
     return ".".join(p.lower() for p in parts)
+
+
+def _canonical(catalog: str) -> str:
+    """The engine's name for `catalog` (registry alias → engine name); unknown names
+    and an unavailable registry leave it as written."""
+    try:
+        from app.catalog_registry import canonical_catalog
+        return canonical_catalog(catalog) or catalog
+    except Exception:
+        return catalog
 
 
 def _policy_key(p) -> str:
@@ -239,11 +251,7 @@ def _policy_key(p) -> str:
     through the registry so the two meet; an unknown name stays as written."""
     cat = str(p.catalog or "")
     if cat:
-        try:
-            from app.catalog_registry import resolve
-            cat = resolve(cat).engine_catalog
-        except Exception:
-            pass
+        cat = _canonical(cat)
     return f"{cat}.{p.schema}.{p.table}".lower()
 
 

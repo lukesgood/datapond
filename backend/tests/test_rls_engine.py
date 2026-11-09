@@ -323,7 +323,8 @@ def test_policy_stored_under_the_registry_alias_matches_the_engine_name(monkeypa
     try:
         pol = orders_region_policy()
         pol.catalog = "AwsDataCatalog"
-        for sql in ("SELECT id, region FROM iceberg.sales.orders", "SELECT id, region FROM orders"):
+        for sql in ("SELECT id, region FROM iceberg.sales.orders", "SELECT id, region FROM orders",
+                    "SELECT id, region FROM AwsDataCatalog.sales.orders"):
             res = enforce(sql, analyst(), [pol], dialect="trino")
             assert "p-orders-region" in res.applied_policy_ids, sql
             assert "region = 'us-east'" in res.sql.lower(), sql

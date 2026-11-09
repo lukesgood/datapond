@@ -16,8 +16,11 @@ from typing import Iterable, List, Sequence, Tuple
 def _key(catalog: str, schema: str, table: str) -> str:
     # Lower-cased to match the engine, which lower-cases identifiers before looking a
     # policy up. Comparing raw here would report a policy on `Orders` as covering
-    # nothing.
-    return f"{catalog}.{schema}.{table}".lower()
+    # nothing. The catalog goes through the registry for the same reason the engine's
+    # `_policy_key` does: a policy stored as `AwsDataCatalog.…` (pre-2.4 glue row)
+    # governs the engine's `iceberg.…` table and must be reported as covering it.
+    from app.catalog_registry import canonical_catalog
+    return f"{canonical_catalog(catalog) or catalog}.{schema}.{table}".lower()
 
 
 def coverage(tables: Sequence[Tuple[str, str, str]],

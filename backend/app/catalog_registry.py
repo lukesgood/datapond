@@ -292,6 +292,20 @@ def resolve(name: Optional[str] = None) -> CatalogEntry:
     raise UnknownCatalog(f"Unknown catalog '{wanted}'. Known catalogs: {known}.")
 
 
+def canonical_catalog(name: Optional[str]) -> str:
+    """The ENGINE's name for a catalog given either of its names: `AwsDataCatalog` or
+    `iceberg` → `iceberg` on the 2.4 alias row. A name no entry answers to (`system`,
+    a typo) comes back as written — the engine, not the registry, judges it. Never
+    raises and never does IO: it reads the cache, like resolve()."""
+    raw = "" if name is None else str(name).strip()
+    if not raw:
+        return raw
+    try:
+        return resolve(raw).engine_catalog
+    except Exception:
+        return raw
+
+
 def is_default(name: Optional[str]) -> bool:
     """True when `name` is empty or refers to the default entry."""
     if name is None or str(name).strip() == "":

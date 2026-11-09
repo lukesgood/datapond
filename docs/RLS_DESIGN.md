@@ -134,7 +134,13 @@ aligned:
   (`catalog_registry.resolve(name).engine_catalog`): a policy stored as
   `AwsDataCatalog.sales.orders` on a pre-2.4 AWS deployment matches a query that says
   `iceberg.sales.orders`, because `AwsDataCatalog` is the registry name of the catalog
-  whose engine name is `iceberg` (migration 0025). An unknown name is kept as written.
+  whose engine name is `iceberg` (migration 0025). The query side (`_qualify()`) and
+  `rls/coverage.py` go through the same helper (`catalog_registry.canonical_catalog`),
+  and `/queries/execute` rewrites the statement itself to engine names before
+  `enforce()`. An unknown name is kept as written. Because the match now depends on
+  the registry having been read, `rls.loader.load_policies()` loads the registry
+  from the same database when it still holds only its env default, so a policy
+  stored under the alias is never left unmatched (fail-open) at boot.
 
 Resolution is fail-closed for exactly this reason: handing an unresolvable bare name to
 the engine is what would let a query miss its policy.

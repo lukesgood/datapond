@@ -29,7 +29,9 @@ catalogs (`docs/superpowers/specs/2026-11-09-trino-unified-engine-and-connectors
   `iceberg` (`TRINO_CATALOG`) on the glue row and nothing else. The registry name stays
   `AwsDataCatalog`, so stored metric versions, joins, chunk sources and RLS policies keep
   working: `catalog_registry.resolve()` accepts either name and the RLS policy key is
-  canonicalised through it. Both names resolve in SQL and in the console.
+  canonicalised through it. Both names resolve in SQL (`/queries/execute` rewrites a
+  three-part `AwsDataCatalog.<schema>.<table>` to the engine name before the grant
+  check and RLS, so stored dashboards and saved queries keep running) and in the console.
 - **`pyathena` is no longer a dependency.** `RLS_DEFAULT_CATALOG` is `iceberg` and
   `RLS_DEFAULT_SCHEMA` is `default` on every profile.
 - **Support:** Trino leaves the "add-ons this release does not support" list in
