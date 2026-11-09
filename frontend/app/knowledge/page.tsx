@@ -660,8 +660,8 @@ function IngestPanel({ name, ownerId, onChange }: { name: string; ownerId: strin
   const [sched, setSched] = useState("@daily"); const [schedBusy, setSchedBusy] = useState(false)
   // Lakehouse picker: iceberg catalog tree (schemas→tables) + columns of the chosen table.
   const [tree, setTree] = useState<{ schema: string; tables: string[] }[]>([])
-  // The catalog the picked table lives in, as the server named it. It was the literal
-  // "iceberg", which is not a catalog at all on Athena deployments (AwsDataCatalog).
+  // The catalog the picked table lives in, as the server named it (the engine's name,
+  // which a deployment may configure; never a literal here).
   const [catalogName, setCatalogName] = useState("")
   const [cols, setCols] = useState<CatalogColumn[]>([])
   const sourceType = catalogEnabled ? stype : "s3"

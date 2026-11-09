@@ -70,7 +70,7 @@ const docCategories: DocCategory[] = [
     docs: [
       { title: "Profile Matrix", description: "Compare supported, reference, community, and development profiles", href: "/docs/profiles", badge: "Shipped" },
       { title: "Portable Core · AWS", description: "Lean five-workload starter using S3 and Bedrock", href: "/docs/portable-core" },
-      { title: "AWS Single-Node Reference", description: "EC2/K3s with Aurora, S3, Glue/Athena, and Bedrock", href: "/docs/aws-reference", badge: "Reference" },
+      { title: "AWS Single-Node Reference", description: "EC2/K3s with Aurora, S3, the Glue catalog, Bedrock, and in-cluster Trino", href: "/docs/aws-reference", badge: "Reference" },
       { title: "Sovereign OSS Extended", description: "Self-hosted core plus selected open-source add-ons", href: "/docs/sovereign", badge: "Optional" },
     ],
   },
@@ -92,7 +92,7 @@ const docCategories: DocCategory[] = [
     docs: [
       { title: "Knowledge & RAG", description: "Collections, ingestion, embeddings, retrieval, reranking, and citations", href: "/docs/knowledge-rag", badge: "Shipped" },
       { title: "Sources", description: "Database and object ingestion when a catalog adapter is enabled", href: "/docs/sources", badge: "Optional" },
-      { title: "Catalog & Query", description: "Glue/Athena or Polaris/Trino, selected by deployment profile", href: "/docs/catalog-query", badge: "Optional" },
+      { title: "Catalog & Query", description: "Trino over the Glue or Polaris catalog, selected by deployment profile", href: "/docs/catalog-query", badge: "Optional" },
       { title: "AI Gateway", description: "Provider routing, usage, per-caller budgets, and spend attribution", href: "/docs/ai-gateway", badge: "Shipped" },
       { title: "Governance", description: "Collection access, PII controls, audit, lineage, and cost governance", href: "/docs/governance", badge: "Shipped" },
     ],

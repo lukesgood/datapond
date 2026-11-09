@@ -326,7 +326,7 @@ function CatalogDialog({ original, onClose, onSaved }: {
             </Field>
           </div>
           {text("engine_catalog", "Engine catalog", creating ? (f.name || "same as name") : undefined,
-            "The name the query engine knows it by (Trino catalog / Athena data catalog).")}
+            "The name the query engine knows it by (the Trino catalog name).")}
 
           {f.kind === "iceberg_rest" && (
             <>

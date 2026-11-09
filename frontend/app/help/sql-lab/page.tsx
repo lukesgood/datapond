@@ -257,7 +257,7 @@ FROM catalog.users.profiles;`}</code>
           <div className="space-y-2">
             <h3 className="font-semibold">What SQL dialect does DataPond use?</h3>
             <p className="text-sm text-muted-foreground">
-              DataPond uses Presto/Trino-family SQL (ANSI SQL compatible) for OLAP queries — Amazon Athena (AWS) or self-hosted Trino. It supports standard SQL-92/99/2003 syntax plus analytics extensions.
+              DataPond uses Trino SQL (ANSI SQL compatible) for OLAP queries on every profile, over the Glue or Polaris catalog. It supports standard SQL-92/99/2003 syntax plus analytics extensions.
             </p>
           </div>
 

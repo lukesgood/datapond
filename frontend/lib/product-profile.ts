@@ -16,7 +16,9 @@ function text(value: boolean | string | undefined): string {
 export function getProductProfile(caps: Capabilities): ProductProfile {
   const configuredLabel = text(caps.profile_label)
   const configuredId = text(caps.profile_id)
-  const hasAwsAnalytics = caps.query_engine === "athena" || caps.catalog_backend === "glue"
+  // The catalog backend alone says "AWS reference": the engine is Trino on every
+  // profile since 2.4 (it runs in-cluster over the Glue catalog there too).
+  const hasAwsAnalytics = caps.catalog_backend === "glue"
   // The add-ons that put a module in this console — the reason a deployment reads as
   // extended rather than core. OpenMetadata is not among them: it is reachable at its
   // own URL and appears under Services, but it adds no page here, so a deployment

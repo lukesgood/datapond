@@ -133,18 +133,16 @@ function QueryPageInner() {
   const notebooksEnabled = useCapability("notebooks")
   const experimentsEnabled = useCapability("experiments")
   const caps = useCapabilities()
-  // Derived, not stored: the engine is a function of the capability map, and a
-  // second copy in state can only disagree with it. Read off the provider rather
-  // than fetching /api/capabilities again — that endpoint answers an anonymous
-  // caller with two login-page flags only, and the provider is the one place that
-  // asks it with the signed-in caller's token.
-  const engineName = caps.query_engine === "athena" ? "Athena" : "Trino"
+  // One engine on every profile since 2.4: Trino, in-cluster. Read the capability
+  // map off the provider rather than fetching /api/capabilities again — that
+  // endpoint answers an anonymous caller with two login-page flags only, and the
+  // provider is the one place that asks it with the signed-in caller's token.
+  const engineName = "Trino"
 
-  // Waits for `_loaded` so a still-empty map is not read as "not Athena", which
-  // would ask /api/services about the wrong engine and report it unknown.
+  // Waits for `_loaded` so the Services lookup runs once, with the signed-in caller.
   useEffect(() => {
     if (!caps._loaded) return
-    const svcName = engineName === "Athena" ? "Amazon Athena" : "trino"
+    const svcName = "trino"
     fetch("/api/services").then(r => r.json())
       .then((services: { name: string; status: string }[]) => {
         const svc = services.find(s => s.name === svcName)
@@ -412,9 +410,9 @@ function QueryPageInner() {
   }, [query, toast])
 
   const handleTableSelect = (catalog: string, schema: string, table: string, isDefault = true) => {
-    // Two parts resolve under the default catalog (Athena AwsDataCatalog / Trino
-    // iceberg); a table in any other catalog has to be named with its catalog, or the
-    // query would read the default catalog's table of the same name.
+    // Two parts resolve under the default catalog (`iceberg`); a table in any other
+    // catalog has to be named with its catalog, or the query would read the default
+    // catalog's table of the same name.
     const name = isDefault ? `${schema}.${table}` : `${catalog}.${schema}.${table}`
     setQuery(`SELECT *\nFROM ${name}\nLIMIT 100;`)
   }
