@@ -233,7 +233,18 @@ def _qualify(table: exp.Table) -> str:
 
 
 def _policy_key(p) -> str:
-    return f"{p.catalog}.{p.schema}.{p.table}".lower()
+    """catalog.schema.table as the ENGINE names the catalog. A policy stores the
+    registry name (`AwsDataCatalog` on a pre-2.4 glue deployment, migration 0025 left
+    it so on purpose); the query carries the engine name (`iceberg`). Canonicalise
+    through the registry so the two meet; an unknown name stays as written."""
+    cat = str(p.catalog or "")
+    if cat:
+        try:
+            from app.catalog_registry import resolve
+            cat = resolve(cat).engine_catalog
+        except Exception:
+            pass
+    return f"{cat}.{p.schema}.{p.table}".lower()
 
 
 def enforce(

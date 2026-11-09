@@ -307,3 +307,25 @@ def test_table_with_only_disabled_mask_blocks_under_default_deny(monkeypatch):
     with pytest.raises(RlsDenied):
         enforce("SELECT region FROM awsdatacatalog.sales.customers", analyst(),
                 [], [m], dialect="trino")
+
+
+# ── Registry alias (2.4) ──────────────────────────────────────────────────────
+# The glue reference's catalog row is still named AwsDataCatalog (what pre-2.4 policies,
+# metrics and chunk sources stored); its engine_catalog is `iceberg` since migration
+# 0025. A policy stored under the registry name must match the engine's name.
+
+def test_policy_stored_under_the_registry_alias_matches_the_engine_name(monkeypatch):
+    from app import catalog_registry as reg
+    monkeypatch.delenv("RLS_DEFAULT_DENY", raising=False)
+    monkeypatch.setenv("RLS_DEFAULT_SCHEMA", "sales")
+    reg.set_entries([reg.CatalogEntry(name="AwsDataCatalog", kind="glue",
+                                      engine_catalog="iceberg", is_default=True)])
+    try:
+        pol = orders_region_policy()
+        pol.catalog = "AwsDataCatalog"
+        for sql in ("SELECT id, region FROM iceberg.sales.orders", "SELECT id, region FROM orders"):
+            res = enforce(sql, analyst(), [pol], dialect="trino")
+            assert "p-orders-region" in res.applied_policy_ids, sql
+            assert "region = 'us-east'" in res.sql.lower(), sql
+    finally:
+        reg.reset()

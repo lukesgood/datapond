@@ -16,11 +16,6 @@ def test_files_exist_and_chain_from_0023():
     assert "run_sql_file" in body
 
 
-def test_it_is_the_highest_revision():
-    stems = sorted(p.stem for p in VERSIONS.glob("*.py") if re.fullmatch(r"\d{4}_[a-z0-9_]+", p.stem))
-    assert stems[-1] == "0024_ai_budget_caps"
-
-
 def test_the_table_is_created_idempotently_and_holds_only_set_caps():
     sql = SQL.read_text()
     assert "CREATE TABLE IF NOT EXISTS public.ai_budget_caps" in sql

@@ -229,3 +229,32 @@ def test_the_migration_creates_the_registry_with_one_default_at_most():
     assert 'down_revision: Union[str, None] = "0017_chunk_access"' in py
     # No secret in a column: config is non-secret, secret_ref names where one lives.
     assert re.search(r"secret_ref\s+text NULL", sql)
+
+
+# ── the 2.4 alias: AwsDataCatalog row, iceberg engine name ───────────────────
+
+def _alias_entries():
+    return [CatalogEntry(name="AwsDataCatalog", kind="glue", engine_catalog="iceberg",
+                         config={"warehouse": "s3://b/warehouse"}, is_default=True)]
+
+
+def test_alias_resolves_to_the_engine_name():
+    reg.set_entries(_alias_entries())
+    assert reg.resolve("AwsDataCatalog").engine_catalog == "iceberg"
+    assert reg.resolve("iceberg").name == "AwsDataCatalog"
+    assert reg.default_entry().engine_catalog == "iceberg"
+    assert reg.cached_default_name() == "iceberg"
+
+
+def test_a_metric_stored_under_the_alias_compiles_to_the_engine_name():
+    """semantic/service.py compiles with access.resolve(v.catalog).engine_catalog, so a
+    metric version whose stored catalog is AwsDataCatalog must come out as iceberg.*"""
+    from datetime import date
+    from app.semantic.compile import compile_metric
+    from app.semantic.model import MetricVersion
+    reg.set_entries(_alias_entries())
+    v = MetricVersion(metric="revenue", version=1, catalog="AwsDataCatalog",
+                      base_table="sales.orders", measure="SUM(amount)", time_column="order_date")
+    sql = compile_metric(v, engine_catalog=reg.resolve(v.catalog).engine_catalog,
+                         dialect="trino", today=date(2026, 11, 9), period="last_month").sql
+    assert "iceberg" in sql.lower() and "awsdatacatalog" not in sql.lower()
