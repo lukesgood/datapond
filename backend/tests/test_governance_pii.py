@@ -1,8 +1,8 @@
 """
 Unit tests: Glue/Iceberg-native PII discovery for /governance/pii-report.
 
-The PII scan was Trino-only, so on the live Athena/Glue foundation it returned
-None ("not scanned"). _scan_pii_via_catalog enumerates namespaces/tables/columns
+The PII scan was Trino-only, so on the live Glue deployment (before it ran Trino) it
+returned None ("not scanned"). _scan_pii_via_catalog enumerates namespaces/tables/columns
 via the catalog reader (Glue Data Catalog metadata) and runs the column-name PII
 detector — a real scan on the foundation. These tests pin: PII columns are found by
 name, a clean catalog scans to [] (not None), and an unreachable catalog is None

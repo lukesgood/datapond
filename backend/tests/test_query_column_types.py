@@ -2,8 +2,8 @@
 
 The console picked chart axes by position — first column on X, second on Y — because
 the result carried column names only. A second column of text drew an empty chart, and
-a date column was treated like any label. Trino and Athena both report each column's
-type in the cursor description; the result now carries it, normalised to the handful
+a date column was treated like any label. Trino reports each column's type in the
+cursor description; the result now carries it, normalised to the handful
 of kinds a chart can use.
 """
 import asyncio

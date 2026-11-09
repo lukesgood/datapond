@@ -884,16 +884,15 @@ async def ingest(name: str, req: IngestRequest, user: dict = Depends(require_use
 def _read_iceberg_docs(schema: str, table: str, text_column: str, limit: int,
                        label_column: Optional[str] = None,
                        catalog: Optional[str] = None) -> List[tuple]:
-    """One document per row of <catalog>.<schema>.<table>.<text_column> — read via the
-    active query engine (self-hosted Trino, or Amazon Athena/Glue on the AWS foundation
-    profile). Engine selection mirrors app.api.query_engine.get_engine()
-    (QUERY_ENGINE=athena|trino), so this stays in lockstep with Query Lab / AI SQL.
+    """One document per row of <catalog>.<schema>.<table>.<text_column> — read through
+    Trino (the one engine on every profile since 2.4), so this stays in lockstep with
+    Query Lab / AI SQL.
 
-    The default catalog is read through the engine's own prefix, exactly as before;
-    any other registry catalog through its engine catalog name."""
+    The default catalog is read through the engine's own prefix; any other registry
+    catalog through its engine catalog name."""
     from app import catalog_registry
     from app.api.catalog_backend import safe_identifier
-    from app.api.query_engine import get_engine, AthenaEngine
+    from app.api.query_engine import get_engine
     eng = get_engine()
     entry = catalog_registry.resolve(catalog)
     prefix = eng.ai_table_prefix if entry.is_default else safe_identifier(entry.engine_catalog)
@@ -903,18 +902,13 @@ def _read_iceberg_docs(schema: str, table: str, text_column: str, limit: int,
         f'SELECT {columns} FROM {prefix}."{schema}"."{table}" '
         f'WHERE "{text_column}" IS NOT NULL LIMIT {int(limit)}'
     )
-    if isinstance(eng, AthenaEngine):
-        # Reuse AthenaEngine.execute() — same pyathena connection/error-mapping/cost
-        # metrics as Query Lab, so this path is exercised the same way in production.
-        rows, _cols = eng.execute(sql, None)
-    else:
-        # Unchanged Trino path (trino_util.trino_conn, not queries.get_trino_connection)
-        # so self-hosted behavior is untouched by this Athena addition.
-        from app.api.trino_util import trino_conn
-        conn = trino_conn(timeout=60)
-        cur = conn.cursor()
-        cur.execute(sql)
-        rows = cur.fetchall()
+    # trino_util.trino_conn, not queries.get_trino_connection: a longer timeout for a
+    # bulk read, and no per-user impersonation (ingestion is a system action).
+    from app.api.trino_util import trino_conn
+    conn = trino_conn(timeout=60)
+    cur = conn.cursor()
+    cur.execute(sql)
+    rows = cur.fetchall()
     docs = []
     for i, r in enumerate(rows):
         meta = {"schema": schema, "table": table, "row": i}

@@ -14,13 +14,13 @@ def test_tables_are_labelled_with_the_engines_catalog(monkeypatch):
         def list_namespaces(self): return ["planlab"]
         def list_tables(self, ns): return ["orders"]
 
-    # The engine decides the name; the registry's env default derives it from there.
-    monkeypatch.setenv("QUERY_ENGINE", "athena")
+    # The engine decides the name; the registry's env default takes it from TRINO_CATALOG.
+    monkeypatch.setenv("TRINO_CATALOG", "lake")
     monkeypatch.setattr(catalog, "get_catalog_reader", lambda *a: _Reader())
 
     res = asyncio.run(catalog.list_all_tables(user={"id": "11111111-1111-1111-1111-111111111111", "role": "viewer"}))
 
-    assert res.tables[0].catalog == "AwsDataCatalog"
+    assert res.tables[0].catalog == "lake"
 
 
 def test_trino_deployments_still_read_iceberg(monkeypatch):

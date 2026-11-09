@@ -28,14 +28,16 @@ def _clean_registry():
 
 # ── the env-derived default ──────────────────────────────────────────────────
 
-def test_athena_deployments_default_to_awsdatacatalog(monkeypatch):
-    """The name SQL uses on Athena — and the value rls_policies.catalog_name already
-    holds there, so every stored policy keeps matching."""
-    monkeypatch.setenv("QUERY_ENGINE", "athena")
+def test_glue_deployments_default_to_the_trino_catalog_name(monkeypatch):
+    """2.4: Trino is the engine on the glue backend too, so a fresh install names the
+    default catalog the way Trino does (`iceberg`), never `AwsDataCatalog`. Existing
+    rows that still carry the old name stay valid as an alias (migration 0025)."""
+    monkeypatch.delenv("QUERY_ENGINE", raising=False)
+    monkeypatch.delenv("TRINO_CATALOG", raising=False)
     monkeypatch.setenv("ICEBERG_CATALOG_BACKEND", "glue")
     monkeypatch.setenv("GLUE_WAREHOUSE", "s3://b/warehouse")
     e = reg.default_entry()
-    assert (e.name, e.kind, e.engine_catalog) == ("AwsDataCatalog", "glue", "AwsDataCatalog")
+    assert (e.name, e.kind, e.engine_catalog) == ("iceberg", "glue", "iceberg")
     assert e.config["warehouse"] == "s3://b/warehouse"
     assert e.is_default and e.enabled
 
@@ -167,9 +169,9 @@ def test_load_reads_rows_from_the_database():
 
 
 def test_an_unreachable_database_keeps_the_env_default(monkeypatch):
-    monkeypatch.setenv("QUERY_ENGINE", "athena")
+    monkeypatch.setenv("TRINO_CATALOG", "lake")
     out = _run(reg.load(_Pool(_Conn(fail=True)), force=True))
-    assert [e.name for e in out] == ["AwsDataCatalog"]
+    assert [e.name for e in out] == ["lake"]
 
 
 def test_an_unreachable_database_keeps_the_last_good_rows():
@@ -179,14 +181,14 @@ def test_an_unreachable_database_keeps_the_last_good_rows():
 
 
 def test_seed_inserts_the_env_default_only_into_an_empty_table(monkeypatch):
-    monkeypatch.setenv("QUERY_ENGINE", "athena")
+    monkeypatch.delenv("TRINO_CATALOG", raising=False)
     monkeypatch.setenv("ICEBERG_CATALOG_BACKEND", "glue")
     conn = _Conn()
     _run(reg.seed_from_env(_Pool(conn)))
     sql, args = conn.executed[0]
     assert "INSERT INTO data_catalogs" in sql
     assert "WHERE NOT EXISTS (SELECT 1 FROM data_catalogs)" in sql
-    assert args[0] == "AwsDataCatalog" and args[1] == "glue" and args[2] == "AwsDataCatalog"
+    assert args[0] == "iceberg" and args[1] == "glue" and args[2] == "iceberg"
 
 
 # ── TableRef ─────────────────────────────────────────────────────────────────

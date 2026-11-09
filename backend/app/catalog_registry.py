@@ -210,13 +210,10 @@ def env_default_entry() -> CatalogEntry:
     """The one catalog today's env describes. Computed on every call — tests and
     Settings change env at runtime, and this costs nothing."""
     backend = os.getenv("ICEBERG_CATALOG_BACKEND", "polaris").strip().lower()
-    # The engine names the catalog. An unset QUERY_ENGINE on the glue backend is the
-    # Athena reference (Helm derives one from the other).
-    engine = (os.getenv("QUERY_ENGINE") or ("athena" if backend == "glue" else "trino"))
-    if engine.strip().lower() == "athena":
-        name = "AwsDataCatalog"
-    else:
-        name = (os.getenv("TRINO_CATALOG") or "iceberg").strip() or "iceberg"
+    # The engine names the catalog, and the engine is Trino on every backend (2.4).
+    # A glue deployment seeded before 2.4 carries the row `AwsDataCatalog`; migration
+    # 0025 points its engine_catalog at this name and resolve() accepts either.
+    name = (os.getenv("TRINO_CATALOG") or "iceberg").strip() or "iceberg"
     if backend == "glue":
         config = {"warehouse": os.getenv("GLUE_WAREHOUSE", "")}
         region = os.getenv("S3_REGION")

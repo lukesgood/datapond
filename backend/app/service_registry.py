@@ -98,7 +98,5 @@ def service_registry(env: Mapping) -> List[dict]:
         services.append({"name": "Amazon Bedrock", "kind": "managed", "desc": "Embedding and generation provider"})
     if _feat(env, "GLUE", default=legacy_aws):
         services.append({"name": "AWS Glue", "kind": "managed", "desc": "Iceberg catalog adapter"})
-    if _feat(env, "ATHENA", default=legacy_aws):
-        services.append({"name": "Amazon Athena", "kind": "managed", "desc": "Serverless SQL query adapter"})
 
     return services

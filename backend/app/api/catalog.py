@@ -112,9 +112,10 @@ def _readers(access):
 
 
 def _label(entry) -> str:
-    """The catalog name to show and to write into SQL: the engine's name for it —
-    AwsDataCatalog on Athena, iceberg on Trino. Printing any other name for the
-    default printed a name the engine would reject."""
+    """The catalog name to show and to write into SQL: the engine's name for it
+    (`iceberg` by default; a pre-2.4 glue row keeps its registry name AwsDataCatalog
+    but its engine_catalog is `iceberg`). Printing any other name for the default
+    printed a name the engine would reject."""
     return entry.engine_catalog
 
 

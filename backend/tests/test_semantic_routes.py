@@ -205,7 +205,7 @@ def test_query_route_runs_the_approved_version_and_audits_metric_query(client, m
     monkeypatch.setattr(api.service, "_execute", execute)
     monkeypatch.setattr(api.service.tool_call_log, "record", record)
     monkeypatch.setattr(api.service, "today_local", lambda: date(2026, 10, 15))
-    monkeypatch.setattr(api.service, "_dialect", lambda: "athena")
+    monkeypatch.setattr(api.service, "_dialect", lambda: "trino")
     r = client.post("/api/semantic/metrics/revenue/query", json={"period": "last_month"})
     assert r.status_code == 200 and r.json()["citation"]["version"] == 1
     assert audit[0]["tool"] == "metric.query" and len(rows) == 1
@@ -446,7 +446,7 @@ def test_uniqueness_probe_runs_as_internal_not_as_a_metric(monkeypatch):
                 "pii_masked": 0}
 
     class _Eng:
-        rls_dialect = "athena"
+        rls_dialect = "trino"
 
     class _Entry:
         engine_catalog = "AwsDataCatalog"

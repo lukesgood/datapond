@@ -446,7 +446,7 @@ async def _execute_query_impl(
         raise
     except Exception as e:
         error_msg = str(e)
-        # Engine-specific error taxonomy (Trino codes vs Athena/pyathena messages).
+        # The engine's error taxonomy (Trino error codes → status, message, HTTP code).
         status, error_detail, http_code = engine.map_error(e)
 
         # Save error to history if requested (a service account cannot decline)

@@ -41,14 +41,20 @@ the **AWS Single-Node Reference** / `values-foundation.yaml`, and the self-hoste
 installed from nothing on every CI run — MinIO, Ollama, local-only egress, and an
 embed → ingest → search round trip; a long-running self-hosted acceptance remains open).
 
-The optional OSS add-ons (Trino, Airflow, Spark, Polaris, RisingWave, OpenMetadata,
-Jupyter, MLflow) are configuration around upstream projects. We will help with how the
-chart wires them; we are not in a position to support those projects themselves.
+**Trino as the query engine** (SQL Lab, catalog preview, dashboards, metrics) on every
+profile, the AWS Single-Node Reference included, where it runs in-cluster over the Glue
+catalog (2.4; Amazon Athena is no longer used). We support Trino as the chart configures
+it: one coordinator, the `iceberg` catalog, the file-based access control the backend
+writes. Trino clusters, catalogs or settings outside that configuration are upstream
+Trino, not DataPond.
+
+The optional OSS add-ons (Airflow, Spark, Polaris, RisingWave, OpenMetadata, Jupyter,
+MLflow) are configuration around upstream projects. We will help with how the chart
+wires them; we are not in a position to support those projects themselves.
 
 ### Add-ons this release does not support
 
 <!-- unsupported-addons -->
-- Trino
 - Airflow
 - Spark
 - Polaris

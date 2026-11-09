@@ -140,7 +140,7 @@ async def preview_query_run(params: dict, user: dict) -> dict:
         "filters": {f"{t['schema']}.{t['table']}":
                     [f"{f['column']} {f['summary']}" for f in t["filters"]]
                     for t in plan["tables"]},
-        # Athena bills by bytes scanned and these tables carry no statistics, so an
+        # A scan's cost is bytes read and these tables carry no statistics, so an
         # estimate here would be invented. Saying so beats a number.
         "cost_estimate_available": plan["estimates_available"],
     }
@@ -178,7 +178,7 @@ ACTIONS = (
            "What a statement will read, and anything worth knowing before running it.",
            ("*",), "query:run", ActionKind.READ, SqlText,
            capability="query"),
-    # Classed CREATE, not READ: Athena bills by bytes scanned, and a query the user
+    # Classed CREATE, not READ: a scan costs what it reads, and a query the user
     # did not write can read the wrong table. It gets an approval step.
     Action("query.run", "Run query",
            "Execute a statement and return rows.",

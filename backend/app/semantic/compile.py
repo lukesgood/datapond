@@ -45,7 +45,7 @@ def _on_base(field: str, text: str, dialect: str) -> exp.Expression:
 
 def _real_division(tree: exp.Expression) -> exp.Expression:
     """A ratio between aggregates divides as real numbers, and a zero denominator gives
-    NULL rather than an error: Athena/Trino would truncate COUNT(...) / COUNT(*) to 0.
+    NULL rather than an error: Trino would truncate COUNT(...) / COUNT(*) to 0.
     Only division outside an aggregate — the kind ratios introduced — is changed, so a
     version approved before ratios existed compiles to the SQL it was approved with."""
     for div in tree.find_all(exp.Div):

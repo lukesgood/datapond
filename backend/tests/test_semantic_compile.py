@@ -19,7 +19,7 @@ TODAY = date(2026, 10, 15)
 
 def _c(**kw):
     kw.setdefault("period", "last_month")
-    return compile_metric(V, engine_catalog="AwsDataCatalog", dialect="athena", today=TODAY, **kw)
+    return compile_metric(V, engine_catalog="AwsDataCatalog", dialect="trino", today=TODAY, **kw)
 
 
 def test_total_without_dimensions():
@@ -114,8 +114,8 @@ def test_period_on_a_metric_without_time_column_is_refused():
     v = MetricVersion(metric="customers", version=1, catalog="glue",
                       base_table="sales.customers", measure="COUNT(*)")
     with pytest.raises(MetricInputError):
-        compile_metric(v, engine_catalog="c", dialect="athena", today=TODAY, period="last_month")
-    assert "WHERE" not in compile_metric(v, engine_catalog="c", dialect="athena", today=TODAY).sql
+        compile_metric(v, engine_catalog="c", dialect="trino", today=TODAY, period="last_month")
+    assert "WHERE" not in compile_metric(v, engine_catalog="c", dialect="trino", today=TODAY).sql
 
 
 def test_rls_engine_rewrites_the_compiled_sql():
@@ -124,7 +124,7 @@ def test_rls_engine_rewrites_the_compiled_sql():
     pol = RlsPolicy(id="p1", catalog="awsdatacatalog", schema="sales", table="orders",
                     filter_expression="region = 'KR'", role_map={"business_analyst": False})
     r = enforce(sql, UserContext(user_id="u", username="ana", roles=["business_analyst"]),
-                [pol], [], dialect="athena")
+                [pol], [], dialect="trino")
     assert r.applied_policy_ids == ["p1"]
     assert "WHERE (region = 'KR')) AS b" in r.sql
 
@@ -172,7 +172,7 @@ def test_a_stored_definition_outside_the_allow_list_is_refused_at_compile(field,
     import dataclasses
     bad = dataclasses.replace(V, **{field: text})
     with pytest.raises(ValueError) as e:
-        compile_metric(bad, engine_catalog="AwsDataCatalog", dialect="athena", today=TODAY,
+        compile_metric(bad, engine_catalog="AwsDataCatalog", dialect="trino", today=TODAY,
                        period="last_month")
     assert not isinstance(e.value, MetricInputError)
 
@@ -237,13 +237,13 @@ def _ratio(measure):
 
 def test_a_ratio_divides_as_real_numbers_and_zero_gives_null():
     sql = compile_metric(_ratio("SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) / COUNT(*)"),
-                         engine_catalog="C", dialect="athena", today=TODAY, by=["channel"]).sql
+                         engine_catalog="C", dialect="trino", today=TODAY, by=["channel"]).sql
     assert ('CAST(SUM(CASE WHEN "b"."status" = \'cancelled\' THEN 1 ELSE 0 END) AS DOUBLE) '
             '/ NULLIF(COUNT(*), 0) AS "cancel_rate"') in sql
 
 
 def test_division_inside_an_aggregate_keeps_its_approved_meaning():
     # A version approved before ratios existed must compile to the same SQL.
-    sql = compile_metric(_ratio("SUM(amount / 2)"), engine_catalog="C", dialect="athena",
+    sql = compile_metric(_ratio("SUM(amount / 2)"), engine_catalog="C", dialect="trino",
                          today=TODAY).sql
     assert 'SUM("b"."amount" / 2) AS "cancel_rate"' in sql

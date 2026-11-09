@@ -18,9 +18,10 @@ def _feat(env: Mapping, name: str, default: bool = False) -> bool:
 
 # The add-ons SUPPORT.md disclaims, as FEATURE_* names. Tied to that document by
 # tests/test_capability_support_tiers.py — the list lives there for people, here for
-# the derivation, and neither may drift.
+# the derivation, and neither may drift. Trino is not among them since 2.4: it is the
+# product's query engine on every profile, the AWS reference included.
 UNSUPPORTED_BACKENDS = (
-    "TRINO", "AIRFLOW", "SPARK", "POLARIS", "RISINGWAVE", "OPENMETADATA",
+    "AIRFLOW", "SPARK", "POLARIS", "RISINGWAVE", "OPENMETADATA",
     "JUPYTER", "MLFLOW",
 )
 
@@ -36,8 +37,8 @@ UNSUPPORTED_BACKENDS = (
 CAPABILITY_BACKENDS = {
     "connectors":  ("TRINO", "POLARIS", "GLUE"),
     "catalog":     ("TRINO", "POLARIS", "GLUE"),
-    "query":       ("TRINO", "ATHENA"),
-    "dashboards":  ("TRINO", "ATHENA"),
+    "query":       ("TRINO",),
+    "dashboards":  ("TRINO",),
     "pipelines":   ("AIRFLOW",),
     "streaming":   ("RISINGWAVE",),
     "experiments": ("MLFLOW",),
@@ -75,16 +76,14 @@ def compute_capabilities(env: Mapping) -> dict:
     trino = _feat(env, "TRINO")
     polaris = _feat(env, "POLARIS")
     glue = _feat(env, "GLUE", default=False)  # new opt-in AWS backend — off unless set
-    athena = _feat(env, "ATHENA", default=False)  # AWS-native query engine (slice 2)
 
     def _gated(name: str) -> bool:
         return any(_feat(env, flag) for flag in CAPABILITY_BACKENDS[name])
 
-    # Report only active adapters. Helm may retain a backend default while its
-    # component flag is disabled; exposing that default would mislabel the profile.
-    configured_query_engine = str(env.get("QUERY_ENGINE", "trino")).strip().lower()
-    query_engine = configured_query_engine if (trino or athena) else "none"
-    query_catalog = "AwsDataCatalog" if query_engine == "athena" else ("iceberg" if query_engine == "trino" else "")
+    # Report only active adapters. Trino is the one engine (2.4); a release whose env
+    # still carries QUERY_ENGINE=athena is reported as what it actually runs.
+    query_engine = "trino" if trino else "none"
+    query_catalog = "iceberg" if trino else ""
     catalog_backend = "glue" if glue else ("polaris" if polaris else "none")
     return {
         # Core — always available
@@ -118,7 +117,7 @@ def compute_capabilities(env: Mapping) -> dict:
         # Phase 0 ontology slice: concept store + opt-in query expansion. Fail-closed.
         "ontology": _feat(env, "ONTOLOGY", default=False),
         # Non-boolean UI hints (safe extras — nav gating ignores these):
-        "query_engine": query_engine,      # "athena" | "trino"
+        "query_engine": query_engine,      # "trino" | "none"
         "query_catalog": query_catalog,    # catalog prefix for fully-qualified names
         "catalog_backend": catalog_backend,
         "storage_provider": str(env.get("STORAGE_PROVIDER", "s3")).strip().lower(),

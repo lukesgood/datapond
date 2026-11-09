@@ -3,8 +3,8 @@
 `SELECT * FROM orders` is ambiguous to us in two different ways, and they are not
 equally harmless:
 
-1. The engine resolves it against its *session* database (`ATHENA_DATABASE` for
-   Athena), which is a single static value and usually not the namespace the table
+1. The engine resolves it against its *session* schema (`default` for Trino),
+   which is a single static value and usually not the namespace the table
    actually lives in — so the query fails even though the table exists.
 2. RLS keys policies on the fully qualified name (`app/rls/engine.py:_qualify`,
    which falls back to `RLS_DEFAULT_SCHEMA`). If that fallback and the engine's

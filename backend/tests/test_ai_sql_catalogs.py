@@ -46,8 +46,8 @@ def test_a_single_catalog_prompt_is_unchanged(monkeypatch):
     import app.api.catalog_backend as cb
     from app.api import ai_sql
 
-    monkeypatch.setenv("QUERY_ENGINE", "athena")
+    monkeypatch.delenv("TRINO_CATALOG", raising=False)
     monkeypatch.setattr(cb, "get_catalog_reader", lambda name=None: _R({"sales": ["orders"]}))
     text = ai_sql._fetch_schema_context()
-    assert text == ("Available tables (catalog: AwsDataCatalog):\n"
-                    "  AwsDataCatalog.sales.orders: id (bigint)")
+    assert text == ("Available tables (catalog: iceberg):\n"
+                    "  iceberg.sales.orders: id (bigint)")

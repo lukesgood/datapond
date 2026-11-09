@@ -5,17 +5,19 @@ def _names(env):
     return [s["name"] for s in service_registry(env)]
 
 
-def test_aws_foundation_profile():
-    """Glue/Athena profile: core pods + AWS-managed, no self-hosted engines."""
+def test_aws_reference_profile():
+    """Glue catalog + in-cluster Trino (2.4): core pods, Trino, AWS-managed adapters;
+    no Polaris, no object-store pod, and no "Amazon Athena" entry any more."""
     env = {"ICEBERG_CATALOG_BACKEND": "glue",
-           "FEATURE_TRINO": "false", "FEATURE_POLARIS": "false"}
+           "FEATURE_TRINO": "true", "FEATURE_POLARIS": "false"}
     names = _names(env)
-    assert {"backend", "frontend", "litellm", "valkey"} <= set(names)
-    assert {"Amazon S3", "Amazon Aurora", "Amazon Bedrock", "AWS Glue", "Amazon Athena"} <= set(names)
-    assert "trino" not in names and "polaris" not in names and "seaweedfs" not in names
+    assert {"backend", "frontend", "litellm", "valkey", "trino"} <= set(names)
+    assert {"Amazon S3", "Amazon Aurora", "Amazon Bedrock", "AWS Glue"} <= set(names)
+    assert "Amazon Athena" not in names
+    assert "polaris" not in names and "seaweedfs" not in names
     # managed services carry kind=managed
     managed = [s for s in service_registry(env) if s["kind"] == "managed"]
-    assert len(managed) == 5
+    assert len(managed) == 4
 
 
 def test_onprem_full_profile():
@@ -47,7 +49,6 @@ def test_portable_core_aws_lists_only_configured_adapters():
         "FEATURE_POSTGRES": "true",
         "FEATURE_MINIO": "false",
         "FEATURE_GLUE": "false",
-        "FEATURE_ATHENA": "false",
         "FEATURE_TRINO": "false",
         "FEATURE_POLARIS": "false",
     }

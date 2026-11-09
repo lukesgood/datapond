@@ -1,8 +1,8 @@
 """Iceberg medallion namespace bootstrap — Trino-only, gated on FEATURE_TRINO.
 
 Creating `iceberg.{raw,refined,serving}` goes through a Trino coordinator. Profiles
-that disable Trino (the AWS reference uses the Glue catalog + Athena engine) have no
-coordinator to reach, so an unconditional attempt just logged three DNS-failure
+that disable Trino (Portable Core / Sovereign Core) have no coordinator to reach, so
+an unconditional attempt just logged three DNS-failure
 warnings per boot and burned up to `request_timeout` seconds of startup time —
 observed live on the single-node AWS deployment.
 

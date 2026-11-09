@@ -45,7 +45,7 @@ def test_the_table_answers_the_same_as_the_flags():
 def test_the_support_map_is_the_derivation_not_a_hand_written_list():
     """Computed here independently: a capability is experimental exactly when every
     backend that can enable it is one the product does not support. That is why query
-    and catalog are not — Athena and Glue are supported adapters."""
+    and catalog are not — Trino (the engine, 2.4) and Glue are supported adapters."""
     expected = {}
     for capability, backends in CAPABILITY_BACKENDS.items():
         if all(backend in UNSUPPORTED_BACKENDS for backend in backends):
