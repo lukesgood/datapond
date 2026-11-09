@@ -252,7 +252,7 @@ git commit -m "backend: one query engine (Trino); drop the Athena engine, capabi
 ### Task 3: `AwsDataCatalog` as an alias — data migration + canonical policy matching
 
 **Files:**
-- Create: `backend/migrations/versions/0025_glue_engine_catalog_is_trino.py`
+- Create: `backend/migrations/versions/0025_glue_engine_catalog_trino.py`
 - Modify: `backend/app/rls/engine.py:235-236` (`_policy_key`)
 - Test: `backend/tests/test_rls_engine.py`, `backend/tests/test_catalog_registry.py`, `backend/tests/test_semantic_service.py`
 
@@ -312,7 +312,7 @@ def _policy_key(p) -> str:
 
 - [ ] **Step 4: Write the migration**
 
-`0025_glue_engine_catalog_is_trino.py` (no `.sql`; it needs env): `revision = "0025_glue_engine_catalog_is_trino"`, `down_revision = "0024_ai_budget_caps"`. `upgrade()` executes, with `name = os.getenv("TRINO_CATALOG", "iceberg").strip() or "iceberg"`:
+`0025_glue_engine_catalog_trino.py` (no `.sql`; it needs env): `revision = "0025_glue_engine_catalog_trino"`, `down_revision = "0024_ai_budget_caps"`. `upgrade()` executes, with `name = os.getenv("TRINO_CATALOG", "iceberg").strip() or "iceberg"`:
 
 ```sql
 UPDATE public.data_catalogs SET engine_catalog = :name
@@ -329,7 +329,7 @@ Expected: pass. If `tests/test_helm_migration_ordering.py` or a migrations test 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add backend/app/rls/engine.py backend/migrations/versions/0025_glue_engine_catalog_is_trino.py backend/tests
+git add backend/app/rls/engine.py backend/migrations/versions/0025_glue_engine_catalog_trino.py backend/tests
 git commit -m "catalog: AwsDataCatalog stays a registry alias; glue default's engine name becomes iceberg (0025)"
 ```
 

@@ -1,6 +1,6 @@
 """The glue catalog's engine name is Trino's (2.4: Athena removed).
 
-Revision ID: 0025_glue_engine_catalog_is_trino
+Revision ID: 0025_glue_engine_catalog_trino
 Revises: 0024_ai_budget_caps
 
 Until 2.4 the AWS Single-Node Reference ran Amazon Athena, which calls the Glue catalog
@@ -24,7 +24,7 @@ from alembic import op
 
 from app.migrations import run_sql
 
-revision: str = "0025_glue_engine_catalog_is_trino"
+revision: str = "0025_glue_engine_catalog_trino"
 down_revision: Union[str, None] = "0024_ai_budget_caps"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

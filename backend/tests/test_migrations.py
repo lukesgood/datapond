@@ -403,3 +403,14 @@ def test_only_one_replica_may_build_an_empty_database():
         system_events.LOCK_KEY,
     }
     assert len(keys) == 4, "two advisory locks share a key — one of them never runs"
+
+
+def test_every_revision_id_fits_alembic_version():
+    """Alembic's `alembic_version.version_num` is varchar(32). A longer revision id
+    passes every unit test and fails only when the migrate Job writes it — found when
+    0025's first name (33 chars) stopped every fresh install in CI with
+    `StringDataRightTruncation`."""
+    from pathlib import Path
+    versions = Path(__file__).resolve().parents[1] / "migrations/versions"
+    too_long = [p.stem for p in versions.glob("*.py") if len(p.stem) > 32]
+    assert not too_long, f"revision ids over 32 chars: {too_long}"

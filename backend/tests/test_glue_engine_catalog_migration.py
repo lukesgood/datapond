@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 VERSIONS = Path(__file__).resolve().parents[1] / "migrations/versions"
-PY = VERSIONS / "0025_glue_engine_catalog_is_trino.py"
+PY = VERSIONS / "0025_glue_engine_catalog_trino.py"
 
 
 def _load():
@@ -23,7 +23,7 @@ def _load():
 
 def test_it_is_the_highest_revision():
     stems = sorted(p.stem for p in VERSIONS.glob("*.py") if re.fullmatch(r"\d{4}_[a-z0-9_]+", p.stem))
-    assert stems[-1] == "0025_glue_engine_catalog_is_trino"
+    assert stems[-1] == "0025_glue_engine_catalog_trino"
 
 
 def test_it_chains_from_0024():
