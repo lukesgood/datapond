@@ -122,7 +122,6 @@ helm upgrade --install datapond helm/datapond -n datapond \
   --set backend.image.repository=$(terraform output -raw ecr_backend_repo_url) \
   --set frontend.image.repository=$(terraform output -raw ecr_frontend_repo_url) \
   --set-string catalog.glueWarehouse="s3://$BUCKET/warehouse" \
-  --set-string catalog.athenaOutputLocation="s3://$BUCKET/athena-results/" \
   --set ingress.domain=datapond.example.com \
   --set postgres.auth.password='<same Aurora master password>'
 ```
@@ -161,7 +160,7 @@ terraform validate
 terraform -chdir=bootstrap validate
 ```
 
-After apply, validate the full S3 → Bedrock → pgvector → cited RAG path with [AWS_MVP_RUNBOOK.md](../docs/AWS_MVP_RUNBOOK.md). Glue/Athena claims require their optional acceptance section.
+After apply, validate the full S3 → Bedrock → pgvector → cited RAG path with [AWS_MVP_RUNBOOK.md](../docs/AWS_MVP_RUNBOOK.md). Glue/Trino claims require their optional acceptance section.
 
 ## Teardown
 

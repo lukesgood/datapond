@@ -117,7 +117,6 @@ function ServicesPanel() {
     "Amazon Aurora": "PostgreSQL + pgvector (managed)",
     "Amazon Bedrock": "LLM / embeddings (managed)",
     "AWS Glue": "Iceberg Data Catalog (serverless)",
-    "Amazon Athena": "Serverless SQL query engine",
     // Full-profile (self-hosted) services
     postgres: "PostgreSQL database - metadata storage",
     minio: "S3-compatible object storage",

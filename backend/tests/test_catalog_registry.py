@@ -28,14 +28,16 @@ def _clean_registry():
 
 # ── the env-derived default ──────────────────────────────────────────────────
 
-def test_athena_deployments_default_to_awsdatacatalog(monkeypatch):
-    """The name SQL uses on Athena — and the value rls_policies.catalog_name already
-    holds there, so every stored policy keeps matching."""
-    monkeypatch.setenv("QUERY_ENGINE", "athena")
+def test_glue_deployments_default_to_the_trino_catalog_name(monkeypatch):
+    """2.4: Trino is the engine on the glue backend too, so a fresh install names the
+    default catalog the way Trino does (`iceberg`), never `AwsDataCatalog`. Existing
+    rows that still carry the old name stay valid as an alias (migration 0025)."""
+    monkeypatch.delenv("QUERY_ENGINE", raising=False)
+    monkeypatch.delenv("TRINO_CATALOG", raising=False)
     monkeypatch.setenv("ICEBERG_CATALOG_BACKEND", "glue")
     monkeypatch.setenv("GLUE_WAREHOUSE", "s3://b/warehouse")
     e = reg.default_entry()
-    assert (e.name, e.kind, e.engine_catalog) == ("AwsDataCatalog", "glue", "AwsDataCatalog")
+    assert (e.name, e.kind, e.engine_catalog) == ("iceberg", "glue", "iceberg")
     assert e.config["warehouse"] == "s3://b/warehouse"
     assert e.is_default and e.enabled
 
@@ -167,9 +169,9 @@ def test_load_reads_rows_from_the_database():
 
 
 def test_an_unreachable_database_keeps_the_env_default(monkeypatch):
-    monkeypatch.setenv("QUERY_ENGINE", "athena")
+    monkeypatch.setenv("TRINO_CATALOG", "lake")
     out = _run(reg.load(_Pool(_Conn(fail=True)), force=True))
-    assert [e.name for e in out] == ["AwsDataCatalog"]
+    assert [e.name for e in out] == ["lake"]
 
 
 def test_an_unreachable_database_keeps_the_last_good_rows():
@@ -179,14 +181,14 @@ def test_an_unreachable_database_keeps_the_last_good_rows():
 
 
 def test_seed_inserts_the_env_default_only_into_an_empty_table(monkeypatch):
-    monkeypatch.setenv("QUERY_ENGINE", "athena")
+    monkeypatch.delenv("TRINO_CATALOG", raising=False)
     monkeypatch.setenv("ICEBERG_CATALOG_BACKEND", "glue")
     conn = _Conn()
     _run(reg.seed_from_env(_Pool(conn)))
     sql, args = conn.executed[0]
     assert "INSERT INTO data_catalogs" in sql
     assert "WHERE NOT EXISTS (SELECT 1 FROM data_catalogs)" in sql
-    assert args[0] == "AwsDataCatalog" and args[1] == "glue" and args[2] == "AwsDataCatalog"
+    assert args[0] == "iceberg" and args[1] == "glue" and args[2] == "iceberg"
 
 
 # ── TableRef ─────────────────────────────────────────────────────────────────
@@ -227,3 +229,41 @@ def test_the_migration_creates_the_registry_with_one_default_at_most():
     assert 'down_revision: Union[str, None] = "0017_chunk_access"' in py
     # No secret in a column: config is non-secret, secret_ref names where one lives.
     assert re.search(r"secret_ref\s+text NULL", sql)
+
+
+# ── the 2.4 alias: AwsDataCatalog row, iceberg engine name ───────────────────
+
+def _alias_entries():
+    return [CatalogEntry(name="AwsDataCatalog", kind="glue", engine_catalog="iceberg",
+                         config={"warehouse": "s3://b/warehouse"}, is_default=True)]
+
+
+def test_alias_resolves_to_the_engine_name():
+    reg.set_entries(_alias_entries())
+    assert reg.resolve("AwsDataCatalog").engine_catalog == "iceberg"
+    assert reg.resolve("iceberg").name == "AwsDataCatalog"
+    assert reg.default_entry().engine_catalog == "iceberg"
+    assert reg.cached_default_name() == "iceberg"
+
+
+def test_a_metric_stored_under_the_alias_compiles_to_the_engine_name():
+    """semantic/service.py compiles with access.resolve(v.catalog).engine_catalog, so a
+    metric version whose stored catalog is AwsDataCatalog must come out as iceberg.*"""
+    from datetime import date
+    from app.semantic.compile import compile_metric
+    from app.semantic.model import MetricVersion
+    reg.set_entries(_alias_entries())
+    v = MetricVersion(metric="revenue", version=1, catalog="AwsDataCatalog",
+                      base_table="sales.orders", measure="SUM(amount)", time_column="order_date")
+    sql = compile_metric(v, engine_catalog=reg.resolve(v.catalog).engine_catalog,
+                         dialect="trino", today=date(2026, 11, 9), period="last_month").sql
+    assert "iceberg" in sql.lower() and "awsdatacatalog" not in sql.lower()
+
+
+def test_canonical_catalog_maps_either_name_to_the_engine_name_and_keeps_unknowns():
+    reg.set_entries(_alias_entries())
+    assert reg.canonical_catalog("AwsDataCatalog") == "iceberg"
+    assert reg.canonical_catalog("awsdatacatalog") == "iceberg"
+    assert reg.canonical_catalog("iceberg") == "iceberg"
+    assert reg.canonical_catalog("system") == "system"      # no entry: as written
+    assert reg.canonical_catalog("") == ""

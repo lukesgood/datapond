@@ -1,14 +1,16 @@
-"""Query-engine abstraction. Selected by QUERY_ENGINE (athena|trino, default trino).
-Isolates dialect, execution, and error-mapping so queries.py / ai_sql.py / rls stay
-engine-agnostic. TrinoEngine wraps the existing self-hosted path; AthenaEngine uses
-pyathena (serverless, AWS-native)."""
-import os
+"""Query-engine abstraction: one engine, Trino, on every profile (2.4).
+
+Isolates dialect, execution and error mapping so queries.py / ai_sql.py / rls stay
+engine-agnostic. The AWS Single-Node Reference runs the same in-cluster Trino over the
+Glue catalog; the Athena engine that used to serve it was removed in 2.4 (design:
+docs/superpowers/specs/2026-11-09-trino-unified-engine-and-connectors-design.md).
+`QUERY_ENGINE` in a release's env is no longer read."""
 import re
 
 
 # What a chart can do with a column, from the type the engine reports. Coarse on
 # purpose: the console needs "can this be an axis, a measure, a time line", not the
-# engine's full type system. Trino and Athena (engine v3) report the same names.
+# engine's full type system.
 _QUANTITATIVE = re.compile(r"^(tinyint|smallint|integer|int|bigint|real|double|float|decimal)\b")
 _TEMPORAL = re.compile(r"^(date|time|timestamp|interval)\b")
 _TEXT = re.compile(r"^(varchar|char|string|json|uuid|ipaddress)\b")
@@ -84,68 +86,8 @@ class TrinoEngine:
         return "error", clean if clean != msg else f"Query failed: {clean}", 400
 
 
-class AthenaEngine:
-    default_catalog = "AwsDataCatalog"
-    rls_dialect = "athena"
-    ai_dialect_prompt = ("The query engine is Amazon Athena (Trino/Presto SQL, engine v3). "
-                         "Tables are Apache Iceberg registered in AWS Glue.")
-    ai_table_prefix = "AwsDataCatalog"
-
-    @property
-    def default_schema(self):
-        return os.getenv("ATHENA_DATABASE", "default")
-
-    def execute(self, sql, user):
-        from pyathena import connect
-        conn = connect(
-            s3_staging_dir=os.getenv("ATHENA_OUTPUT_LOCATION", ""),
-            region_name=os.getenv("S3_REGION", "us-east-1"),
-            work_group=os.getenv("ATHENA_WORKGROUP", "primary"),
-            schema_name=os.getenv("ATHENA_DATABASE", "default"),
-            catalog_name="AwsDataCatalog",
-        )
-        cur = conn.cursor()
-        cur.execute(sql)
-        rows = cur.fetchall()
-        cols = [d[0] for d in cur.description] if cur.description else []
-        self.column_types = _kinds(cur.description)
-        # Cost-governance metric: bytes scanned is directly billable ($5/TB).
-        # Read defensively — nothing here may affect the query result.
-        try:
-            scanned = getattr(cur, "data_scanned_in_bytes", None)
-        except Exception:
-            scanned = None
-        cur.close(); conn.close()
-        try:
-            from app.metrics import emit
-            emit("QueryCount", 1, "Count", {"Engine": "Athena"})
-            if scanned is not None:
-                emit("BytesScanned", scanned, "Bytes", {"Engine": "Athena"})
-        except Exception:
-            pass
-        return rows, cols
-
-    def map_error(self, exc):
-        msg = str(exc)
-        low = msg.lower()
-        if "accessdenied" in low or "not authorized" in low:
-            return "error", f"Access denied: {msg[:300]}", 403
-        if "syntax_error" in low or "cannot be resolved" in low or "mismatched input" in low:
-            return "error", f"Syntax error: {msg[:300]}", 400
-        if "table_not_found" in low or ("does not exist" in low and "table" in low):
-            return "error", f"Table not found: {msg[:300]}", 404
-        if "schema_not_found" in low or "database does not exist" in low:
-            return "error", f"Schema not found: {msg[:300]}", 400
-        if "timeout" in low or "timed out" in low:
-            return "timeout", "Query timed out. Try adding a LIMIT clause or narrowing the scan.", 504
-        if "outputlocation" in low or ("s3" in low and "staging" in low):
-            return "error", "Athena result location not configured (ATHENA_OUTPUT_LOCATION).", 400
-        return "error", f"Query failed: {msg[:300]}", 400
-
-
-def get_engine():
-    backend = os.getenv("QUERY_ENGINE", "trino").strip().lower()
-    return AthenaEngine() if backend == "athena" else TrinoEngine()
+def get_engine() -> TrinoEngine:
+    return TrinoEngine()
 
 
 def explain_statement(sql: str, kind: str = "IO, FORMAT JSON", user: str = "datapond"):
@@ -175,8 +117,7 @@ def validate_statement(sql: str, user: str = "datapond"):
 
     `EXPLAIN (TYPE VALIDATE)` parses and analyses the statement — resolving every
     table and column — and scans no data, so it is the cheapest way to tell a
-    plausible-looking generated query from a runnable one. Both engines are
-    Trino-dialect and support it.
+    plausible-looking generated query from a runnable one.
 
     Returns (ok, error_message). Never raises: a validator that fails closed on its
     own outage would block queries that are perfectly fine.

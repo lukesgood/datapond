@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 import asyncpg
 
+from app import catalog_registry
 from app.runtime import component_secret
 from .engine import UserContext, RlsPolicy, MaskPolicy
 
@@ -153,7 +154,35 @@ async def load_policies() -> List[RlsPolicy]:
             by_id[pid] = pol
         if r["role_name"]:
             pol.role_map[r["role_name"]] = bool(r["is_exempt"])
-    return list(by_id.values())
+    policies = list(by_id.values())
+    await _ensure_registry_for(policies, pool)
+    return policies
+
+
+async def _ensure_registry_for(policies: List[RlsPolicy], pool) -> None:
+    """A policy's catalog is matched through the catalog registry (`AwsDataCatalog`
+    is the registry name of the engine's `iceberg` on a pre-2.4 glue deployment).
+    Policies and the registry live in the same database, so when the policies were
+    just read but the registry still holds only its env default, read the registry
+    now rather than let these policies go unmatched until the refresher gets there —
+    with RLS_DEFAULT_DENY off, unmatched means unfiltered. A catalog that still
+    resolves to nothing is logged by policy id; the policy is kept (the engine keys it
+    as written, so it matches a query that says the same name)."""
+    if not policies:
+        return
+    if catalog_registry.cached_default_name() is None:
+        try:
+            await catalog_registry.load(pool, force=True)
+        except Exception as e:  # load() never raises; belt and braces
+            logger.warning("[rls] registry load alongside policies failed: %s", e)
+    for pol in policies:
+        if pol.catalog and catalog_registry.canonical_catalog(pol.catalog) == pol.catalog:
+            try:
+                catalog_registry.resolve(pol.catalog)
+            except Exception:
+                logger.warning("[rls] policy %s names catalog %r, which no registry entry "
+                               "answers to; it matches only a query that says the same name",
+                               pol.id, pol.catalog)
 
 
 async def load_policy_by_id(policy_id: str) -> Optional[RlsPolicy]:

@@ -21,7 +21,7 @@ Key positioning (v6.0 — governed tool layer, 2026-09-07):
 - **Core value:** search, cited answers, and governed SQL as tools behind service-account keys, governed at the data layer (which caller reads which collection/row; what was cited and masked; per-caller spend). Orthogonal to agent gateways such as AgentCore Gateway: register behind one if the customer runs it, never require it. Portability is a lock-in objection remover, not the headline.
 - **Not doing:** gateway features (agent registry, SSO/SCIM sync, tool-level policy engine, rug-pull detection), coding-agent spend control, ontology Phase 1, more add-ons, more operator-assistant actions, regulated verticals as first partner.
 - **Portability:** S3 API, PostgreSQL + pgvector, LiteLLM/OpenAI-compatible model boundary, REST/OIDC, Helm/Kubernetes.
-- **AWS reference:** S3, Aurora, Glue/Athena, and Bedrock where the selected profile actually enables them.
+- **AWS reference:** S3, Aurora, Glue, and Bedrock where the selected profile actually enables them; Trino runs in-cluster on every profile with a catalog (Athena removed in 2.4).
 - **Optional OSS add-ons:** Polaris, Trino, RisingWave, OpenMetadata, Airflow, Spark, Jupyter, and MLflow.
 
 Never claim that disabling an OSS component automatically provisions an AWS replacement. EKS, EMR Serverless, S3 Tables, Lake Formation, AOSS, DataZone, Marketplace packaging, and a unified export/import CLI remain roadmap until implementation and acceptance exist.
@@ -46,10 +46,10 @@ Core navigation: Dashboard; Knowledge; Agents; AI Gateway; Governance; Storage; 
 
 ### Adapter and add-on layer
 
-- Catalog/query: Glue + Athena in `values-prod-single.yaml`; Polaris + Trino in OSS extended profiles.
+- Catalog/query: one engine, Trino, over the Glue catalog in `values-prod-single.yaml` or the Polaris catalog in OSS extended profiles.
 - Workloads: RisingWave, Airflow/Spark, OpenMetadata, Jupyter/DuckDB, and MLflow are capability-gated optional add-ons.
 - `values-foundation.yaml` is the lean Portable Core AWS starter: in-cluster PostgreSQL/pgvector + external S3/Bedrock and no catalog/query service.
-- `values-prod-single.yaml` is the current Terraform-backed AWS reference: EC2/K3s + Aurora/S3/Glue/Athena/Bedrock. It is not EKS or application-node HA.
+- `values-prod-single.yaml` is the current Terraform-backed AWS reference: EC2/K3s + Aurora/S3/Glue/Bedrock with in-cluster Trino. It is not EKS or application-node HA.
 - `values-aws.yaml` is a compatibility overlay for an existing cluster. It states none of the add-on flags, so it renders the Portable Core on a fresh install and preserves whatever an existing cluster is already running.
 
 ### Critical design rules
@@ -81,7 +81,7 @@ Core navigation: Dashboard; Knowledge; Agents; AI Gateway; Governance; Storage; 
 ### Deploy — AWS Single-Node Reference
 
 The current infrastructure reference is single-node EC2/K3s with external Aurora, S3,
-Glue/Athena, and Bedrock. Full runbook: **`docs/DEPLOY_SINGLE_NODE.md`**.
+the Glue catalog, Bedrock, and Trino in-cluster. Full runbook: **`docs/DEPLOY_SINGLE_NODE.md`**.
 
 ```bash
 BUCKET=$(terraform -chdir=terraform output -raw bucket_name)
@@ -91,7 +91,6 @@ helm upgrade --install datapond helm/datapond -n datapond \
   --set backend.image.repository=$(terraform -chdir=terraform output -raw ecr_backend_repo_url) \
   --set frontend.image.repository=$(terraform -chdir=terraform output -raw ecr_frontend_repo_url) \
   --set-string catalog.glueWarehouse="s3://$BUCKET/warehouse" \
-  --set-string catalog.athenaOutputLocation="s3://$BUCKET/athena-results/" \
   --set ingress.domain=<your-domain> \
   --wait=false
 ```

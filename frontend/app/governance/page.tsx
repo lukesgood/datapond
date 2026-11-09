@@ -310,7 +310,7 @@ function AccessControlTab() {
   }, [load])
 
   // Apply the runtime catalog at submission time. This preserves user-entered
-  // values while keeping the default aligned with Athena/Glue or Trino/Polaris.
+  // values while keeping the default aligned with the engine's catalog name.
   const caps = useCapabilities()
   const queryCatalog = typeof caps.query_catalog === "string" && caps.query_catalog ? caps.query_catalog : "iceberg"
 

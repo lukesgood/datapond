@@ -47,6 +47,7 @@ from app.api.query_engine import explain_statement, get_engine
 from app.api.plan_review import review as review_plan_text
 from app.api.catalog_graph import build_graph
 from app.api.table_resolver import (
+    canonicalise_catalogs,
     TableResolutionError,
     get_catalog_index,
     qualify_tables,
@@ -385,6 +386,10 @@ async def _execute_query_impl(
             effective_query, dialect=engine.rls_dialect, load_index=get_catalog_index,
             catalog_allowed=access.allows_sql_catalog,
         )
+        # A three-part name may say the registry name (`AwsDataCatalog.…` on a pre-2.4
+        # glue deployment); the engine, the grant check and RLS all want its engine
+        # name. Nothing to rename is the common case and costs one parse.
+        effective_query = canonicalise_catalogs(effective_query, dialect=engine.rls_dialect)
     except TableResolutionError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -446,7 +451,7 @@ async def _execute_query_impl(
         raise
     except Exception as e:
         error_msg = str(e)
-        # Engine-specific error taxonomy (Trino codes vs Athena/pyathena messages).
+        # The engine's error taxonomy (Trino error codes → status, message, HTTP code).
         status, error_detail, http_code = engine.map_error(e)
 
         # Save error to history if requested (a service account cannot decline)

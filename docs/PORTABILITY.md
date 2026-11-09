@@ -49,7 +49,7 @@ S3-compatible does not guarantee every lifecycle, IAM, versioning, or consistenc
 
 Store model name, provider/version, dimension, content hash, and embedding time with vector data when extending the schema.
 
-### Glue/Athena to Polaris/Trino
+### Glue to Polaris (same Trino engine)
 
 1. Copy or retain the same Iceberg object data.
 2. Export table namespace, metadata location, and property inventory.
@@ -58,7 +58,7 @@ Store model name, provider/version, dimension, content hash, and embedding time 
 5. Translate provider-specific SQL with SQLGlot where practical.
 6. Compare schema, snapshots, row counts, and representative queries.
 
-Not every Athena/Glue feature maps directly to Trino/Polaris. Provider-specific grants, workgroups, and query history are control-plane state and require separate handling.
+The query engine is the same Trino on both sides, so SQL carries over unchanged; only the catalog moves. Provider-specific grants (Lake Formation) are control-plane state and require separate handling.
 
 ## Critical non-portable state
 

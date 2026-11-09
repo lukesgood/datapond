@@ -2,8 +2,7 @@
 
 Fits the AWS foundation profile: no extra pods (unlike an on-node Prometheus
 stack), no memory pressure on the single node, and it feeds the cost-governance
-story directly — Athena BytesScanned is dollars ($5/TB), embedding counts track
-Bedrock spend, RagQuery tracks usage.
+story directly — embedding counts track Bedrock spend, RagQuery tracks usage.
 
 Design:
 - Gated by CLOUDWATCH_METRICS_ENABLED (default OFF) so a fresh install never

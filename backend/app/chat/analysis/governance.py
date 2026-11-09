@@ -253,10 +253,11 @@ def _split_table(table: str):
     table_name). Two parts default the catalog to the same runtime default the RLS
     engine itself resolves against — `app.rls.engine._default_catalog()`
     (RLS_DEFAULT_CATALOG or TRINO_CATALOG, else "iceberg") — and the same value
-    `rls_coverage` computes inline at `app/api/governance.py:698`. On this project's
-    AWS Single-Node Reference, Helm sets RLS_DEFAULT_CATALOG=AwsDataCatalog; a
-    literal "iceberg" here would store a policy the engine's own lookup can never
-    match, so this must not diverge from either of those two places."""
+    `rls_coverage` computes inline at `app/api/governance.py:698`. Helm sets
+    RLS_DEFAULT_CATALOG=iceberg on every profile since 2.4, but a deployment may name
+    its Trino catalog differently (TRINO_CATALOG), so a literal here could store a
+    policy the engine's own lookup can never match: this must not diverge from
+    either of those two places."""
     from app.rls.engine import _default_catalog
     parts = [p for p in str(table).split(".") if p]
     if len(parts) == 3:

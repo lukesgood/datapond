@@ -61,7 +61,7 @@ const ARTICLES: Record<string, Doc> = {
     summary: "The architecture separates the Apache-2.0 application core from infrastructure adapters and optional OSS add-ons.",
     points: [
       "Core workloads: FastAPI backend, Next.js frontend, PostgreSQL + pgvector or external Aurora, LiteLLM, and Valkey.",
-      "Adapter boundaries: S3/native or S3-compatible object access; PostgreSQL-compatible vector storage; model providers through LiteLLM; optional Glue/Athena or Polaris/Trino data plane.",
+      "Adapter boundaries: S3/native or S3-compatible object access; PostgreSQL-compatible vector storage; model providers through LiteLLM; optional Trino data plane over a Glue or Polaris catalog.",
       "A disabled add-on is absent. Helm does not automatically provision an AWS service to replace it.",
       "The current Terraform reference creates EC2/K3s, Aurora, S3, ECR, IAM, Route53, Secrets Manager, and monitoring resources—not EKS.",
     ],
@@ -73,7 +73,7 @@ const ARTICLES: Record<string, Doc> = {
     summary: "Profiles describe operating intent and enabled adapters. Runtime capability flags—not profile names—control which product modules appear.",
     points: [
       "Portable Core · AWS (`values-foundation.yaml`): lean starter with native S3, Bedrock, in-cluster pgvector, LiteLLM, and Valkey; no catalog/query service is provisioned.",
-      "AWS Single-Node Reference (`values-prod-single.yaml`): EC2/K3s with Aurora, S3, Glue/Athena, Bedrock, ECR, TLS, and CloudWatch metrics; intentionally non-HA at the application-node layer.",
+      "AWS Single-Node Reference (`values-prod-single.yaml`): EC2/K3s with Aurora, S3, the Glue catalog, Bedrock, ECR, TLS, and CloudWatch metrics, and Trino in-cluster as the query engine; intentionally non-HA at the application-node layer.",
       "AWS Hybrid Extended (`values-aws.yaml`): compatibility overlay for an existing Kubernetes cluster; it inherits heavy OSS defaults and is not an EKS installer.",
       "Sovereign OSS Extended (`values-onprem.yaml`): self-hosted core plus selected OSS services; greater control with greater operational responsibility.",
     ],
@@ -93,7 +93,7 @@ const ARTICLES: Record<string, Doc> = {
   "aws-reference": {
     title: "AWS Single-Node Reference",
     status: "Reference",
-    summary: "The current AWS infrastructure reference is a single EC2/K3s application node connected to managed Aurora, S3, Glue/Athena, and Bedrock services.",
+    summary: "The current AWS infrastructure reference is a single EC2/K3s application node connected to managed Aurora, S3, Glue, and Bedrock services, running Trino in-cluster.",
     points: [
       "Terraform also creates ECR, IAM/instance profile, Route53, Secrets Manager, CloudWatch/SNS, and start/stop scheduling.",
       "The profile is production-oriented but not application-node HA; recovery procedures are part of the operating model.",
@@ -179,7 +179,7 @@ const ARTICLES: Record<string, Doc> = {
   "catalog-query": {
     title: "Catalog & Query",
     status: "Optional",
-    summary: "Catalog and SQL are adapter-backed modules: Glue + Athena in the AWS single-node reference or Polaris + Trino in an OSS extended profile.",
+    summary: "Catalog and SQL are adapter-backed modules: Trino over the Glue catalog in the AWS single-node reference, or over Polaris in an OSS extended profile.",
     points: [
       "The UI reads runtime query-engine and catalog hints; it does not assume AWS services from the product name.",
       "When no supported adapter is enabled, Catalog, Sources, Analytics, and Dashboards are hidden and direct routes explain the missing capability.",
@@ -250,7 +250,7 @@ const ARTICLES: Record<string, Doc> = {
     points: [
       "If a module is absent, compare the active profile and capability flag before debugging a service that is intentionally not installed.",
       "For RAG failures, check PostgreSQL/pgvector, object access, LiteLLM, model access, egress policy, and embedding dimensions.",
-      "For catalog/query failures, verify the active Glue/Athena or Polaris/Trino adapter and its credentials independently.",
+      "For catalog/query failures, verify Trino and the active catalog adapter (Glue or Polaris) and its credentials independently.",
     ],
     related: [{ label: "Services", href: "/services" }, { label: "Profile matrix", href: "/docs/profiles" }],
   },

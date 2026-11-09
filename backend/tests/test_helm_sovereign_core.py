@@ -73,7 +73,7 @@ def test_render_has_core_minio_ollama_and_no_addons():
 
 def test_render_hides_data_navigation():
     m = _render()
-    for flag in ("FEATURE_TRINO", "FEATURE_POLARIS", "FEATURE_GLUE", "FEATURE_ATHENA"):
+    for flag in ("FEATURE_TRINO", "FEATURE_POLARIS", "FEATURE_GLUE"):
         assert re.search(rf"name: {flag}\n\s+value: \"false\"", m), flag
     assert re.search(r"name: FEATURE_OLLAMA\n\s+value: \"true\"", m)
     assert re.search(r"name: AI_EGRESS_POLICY\n\s+value: \"local-only\"", m)

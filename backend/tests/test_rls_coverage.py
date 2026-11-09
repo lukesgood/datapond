@@ -107,3 +107,18 @@ def test_the_warning_names_the_number_of_unprotected_tables():
 def test_the_warning_names_the_setting_that_changes_it():
     msg = startup_warning(rls_enabled=True, default_deny=False, uncovered=1)
     assert "RLS_DEFAULT_DENY" in msg
+
+
+def test_a_policy_stored_under_the_registry_alias_covers_the_engine_named_table():
+    """2.4: the pre-2.4 glue row is named AwsDataCatalog, its engine name is iceberg.
+    Coverage reports what the engine enforces, so the policy covers the table rather
+    than appearing orphaned."""
+    from app import catalog_registry as reg
+    reg.set_entries([reg.CatalogEntry(name="AwsDataCatalog", kind="glue",
+                                      engine_catalog="iceberg", is_default=True)])
+    try:
+        out = coverage([("iceberg", "sales", "orders")], [P("AwsDataCatalog", "sales", "orders")], [])
+        assert out["covered"] == ["iceberg.sales.orders"]
+        assert out["orphaned_policies"] == []
+    finally:
+        reg.reset()

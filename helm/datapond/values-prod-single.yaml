@@ -1,7 +1,8 @@
 # AWS Single-Node Reference — Portable Core with managed adapters
 # ---------------------------------------------------------------
 # Current documented AWS reference: EC2 Spot/K3s application node plus external
-# Aurora PostgreSQL/pgvector, S3, Glue/Athena, and Bedrock. This is production-
+# Aurora PostgreSQL/pgvector, S3, the Glue catalog, and Bedrock, with Trino running
+# in-cluster as the query engine (2.4; Athena removed). This is production-
 # oriented but intentionally single-node and is not an EKS or HA deployment.
 # Set ECR repositories, domain, and externalDatabase.host from Terraform outputs.
 #
@@ -17,7 +18,7 @@ product:
   profile:
     id: aws-single-node
     label: AWS Single-Node Reference
-    description: Portable Core on EC2/K3s with Aurora, S3, Glue/Athena, and Bedrock adapters.
+    description: Portable Core on EC2/K3s with Aurora, S3, Glue and Bedrock adapters; Trino in-cluster.
     maturity: reference
     topology: ec2-k3s-single-node
 
@@ -44,17 +45,12 @@ storage:
   endpoint: ""
   region: us-east-1
 
-# --- Catalog/query: AWS Glue + Athena adapters.
-# The defaults match Terraform's default bucket only. If var.bucket_name changes,
-# override BOTH paths from `terraform output -raw bucket_name` as shown in the runbook. ---
+# --- Catalog/query: AWS Glue catalog, Trino engine in-cluster (trino.enabled below).
+# The default matches Terraform's default bucket only. If var.bucket_name changes,
+# override it from `terraform output -raw bucket_name` as shown in the runbook. ---
 catalog:
   backend: glue
   glueWarehouse: "s3://datapond-iceberg/warehouse"
-  athenaOutputLocation: "s3://datapond-iceberg/athena-results/"
-  athenaWorkgroup: "primary"
-  # Bare table names are resolved against the Glue catalog at query time; this is
-  # only the fallback database (and RLS's matching default schema).
-  athenaDatabase: "default"
 
 # --- Postgres: external Aurora (not in-cluster) ---
 # Set postgres.auth.password to the Aurora master password at deploy time (--set) — the
@@ -142,8 +138,9 @@ ai:
   provider: bedrock
   rerankModel: "rerank"
 
-# --- Heavy analytics: AWS-managed (Athena/EMR), not on the node ---
-trino: { enabled: false }
+# --- Query engine: Trino, small and in-cluster (chart defaults: 2–4 Gi, 2 G heap),
+# reading the Glue catalog through the node role. Heavy analytics add-ons stay off. ---
+trino: { enabled: true }
 spark: { enabled: false }
 polaris: { enabled: false }
 airflow: { enabled: false }

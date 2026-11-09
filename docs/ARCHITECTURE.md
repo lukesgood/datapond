@@ -29,7 +29,7 @@ flowchart TB
     LLM --> LITELLM[LiteLLM]
     LITELLM --> BEDROCK[Bedrock]
     LITELLM --> OTHER[cloud/local providers]
-    DATA --> AWS[Glue · Athena]
+    DATA --> AWS[Glue · Trino]
     DATA --> OSS[Polaris · Trino · RisingWave · Airflow · OpenMetadata]
 ```
 
@@ -68,7 +68,7 @@ Knowledge collection authorization currently uses application-level owner/admin/
 
 ### Catalog and query
 
-- AWS reference: Glue catalog + Athena query.
+- AWS reference: Glue catalog + Trino query (in-cluster; Athena removed in 2.4).
 - OSS extended: Polaris catalog + Trino query.
 - No adapter: Sources/Catalog/Analytics/Dashboards are capability-disabled.
 
@@ -141,7 +141,7 @@ Kubernetes runs backend, frontend, PostgreSQL/pgvector, LiteLLM, and Valkey. Nat
 
 ### AWS Single-Node Reference
 
-Terraform creates an EC2/K3s node and connects it to Aurora, S3, Glue/Athena, Bedrock, ECR, IAM, Route53, Secrets Manager, and CloudWatch/SNS. The application node is not HA.
+Terraform creates an EC2/K3s node and connects it to Aurora, S3, Glue, Bedrock, ECR, IAM, Route53, Secrets Manager, and CloudWatch/SNS. The application node is not HA.
 
 ### Sovereign OSS Extended
 

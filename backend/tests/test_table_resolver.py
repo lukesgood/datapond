@@ -37,7 +37,7 @@ class _Loader:
 def test_qualifies_a_unique_table_name():
     loader = _Loader(_index({"orders": ["sales"]}))
 
-    out = qualify_tables("SELECT * FROM orders", dialect="athena", load_index=loader)
+    out = qualify_tables("SELECT * FROM orders", dialect="trino", load_index=loader)
 
     assert out == "SELECT * FROM sales.orders"
 
@@ -46,7 +46,7 @@ def test_leaves_already_qualified_sql_byte_identical():
     loader = _Loader(_index({"orders": ["sales"]}))
     sql = "SELECT  id,\n  amt\nFROM sales.orders  -- keep formatting"
 
-    assert qualify_tables(sql, dialect="athena", load_index=loader) == sql
+    assert qualify_tables(sql, dialect="trino", load_index=loader) == sql
     assert loader.calls == 0, "catalog must not be read for a fully qualified query"
 
 
@@ -54,7 +54,7 @@ def test_ambiguous_table_names_the_candidates():
     loader = _Loader(_index({"orders": ["ops", "sales"]}))
 
     with pytest.raises(TableResolutionError) as ei:
-        qualify_tables("SELECT * FROM orders", dialect="athena", load_index=loader)
+        qualify_tables("SELECT * FROM orders", dialect="trino", load_index=loader)
 
     msg = str(ei.value)
     assert "orders" in msg and "ops" in msg and "sales" in msg
@@ -64,7 +64,7 @@ def test_unknown_table_lists_available_namespaces():
     loader = _Loader(_index({"orders": ["sales"]}, namespaces=["ops", "sales"]))
 
     with pytest.raises(TableResolutionError) as ei:
-        qualify_tables("SELECT * FROM widgets", dialect="athena", load_index=loader)
+        qualify_tables("SELECT * FROM widgets", dialect="trino", load_index=loader)
 
     msg = str(ei.value)
     assert "widgets" in msg and "ops" in msg and "sales" in msg
@@ -75,7 +75,7 @@ def test_qualifies_tables_in_joins_and_subqueries():
 
     out = qualify_tables(
         "SELECT * FROM orders o JOIN (SELECT * FROM regions) r ON o.rid = r.id",
-        dialect="athena",
+        dialect="trino",
         load_index=loader,
     )
 
@@ -87,7 +87,7 @@ def test_does_not_qualify_cte_names():
 
     out = qualify_tables(
         "WITH recent AS (SELECT * FROM orders) SELECT * FROM recent",
-        dialect="athena",
+        dialect="trino",
         load_index=loader,
     )
 
@@ -98,7 +98,7 @@ def test_does_not_qualify_cte_names():
 def test_loads_the_index_at_most_once():
     loader = _Loader(_index({"orders": ["sales"], "regions": ["ref"]}))
 
-    qualify_tables("SELECT * FROM orders, regions", dialect="athena", load_index=loader)
+    qualify_tables("SELECT * FROM orders, regions", dialect="trino", load_index=loader)
 
     assert loader.calls == 1
 
@@ -108,13 +108,13 @@ def test_unparseable_sql_is_passed_through_untouched():
     loader = _Loader(_index({"orders": ["sales"]}))
     sql = "SELECT FROM WHERE ((("
 
-    assert qualify_tables(sql, dialect="athena", load_index=loader) == sql
+    assert qualify_tables(sql, dialect="trino", load_index=loader) == sql
 
 
 def test_table_matching_is_case_insensitive():
     loader = _Loader(_index({"orders": ["sales"]}))
 
-    out = qualify_tables("SELECT * FROM Orders", dialect="athena", load_index=loader)
+    out = qualify_tables("SELECT * FROM Orders", dialect="trino", load_index=loader)
 
     assert "sales." in out.lower()
 
@@ -192,7 +192,7 @@ def test_leaves_a_create_table_target_alone():
     loader = _Loader(_index({"orders": ["sales"]}))
     sql = "CREATE TABLE foo (id INT)"
 
-    assert qualify_tables(sql, dialect="athena", load_index=loader) == sql
+    assert qualify_tables(sql, dialect="trino", load_index=loader) == sql
     assert loader.calls == 0
 
 
@@ -200,7 +200,7 @@ def test_qualifies_a_ctas_source_but_not_its_target():
     loader = _Loader(_index({"orders": ["sales"]}))
 
     out = qualify_tables(
-        "CREATE TABLE newt AS SELECT * FROM orders", dialect="athena", load_index=loader
+        "CREATE TABLE newt AS SELECT * FROM orders", dialect="trino", load_index=loader
     )
 
     assert "sales.orders" in out
@@ -211,21 +211,21 @@ def test_never_redirects_a_drop_target():
     loader = _Loader(_index({"orders": ["sales"]}))
     sql = "DROP TABLE orders"
 
-    assert qualify_tables(sql, dialect="athena", load_index=loader) == sql
+    assert qualify_tables(sql, dialect="trino", load_index=loader) == sql
 
 
 def test_leaves_an_alter_target_alone():
     loader = _Loader(_index({"orders": ["sales"]}))
     sql = "ALTER TABLE orders ADD COLUMN x INT"
 
-    assert qualify_tables(sql, dialect="athena", load_index=loader) == sql
+    assert qualify_tables(sql, dialect="trino", load_index=loader) == sql
 
 
 def test_qualifies_an_insert_source_but_not_its_target():
     loader = _Loader(_index({"orders": ["sales"]}))
 
     out = qualify_tables(
-        "INSERT INTO foo SELECT * FROM orders", dialect="athena", load_index=loader
+        "INSERT INTO foo SELECT * FROM orders", dialect="trino", load_index=loader
     )
 
     assert "sales.orders" in out
@@ -236,7 +236,7 @@ def test_leaves_describe_alone():
     loader = _Loader(_index({"orders": ["sales"]}))
     sql = "DESCRIBE orders"
 
-    assert qualify_tables(sql, dialect="athena", load_index=loader) == sql
+    assert qualify_tables(sql, dialect="trino", load_index=loader) == sql
 
 
 def test_qualifies_a_table_referenced_only_in_a_subquery():
@@ -244,7 +244,7 @@ def test_qualifies_a_table_referenced_only_in_a_subquery():
 
     out = qualify_tables(
         "SELECT * FROM sales.customers WHERE id IN (SELECT cid FROM orders)",
-        dialect="athena",
+        dialect="trino",
         load_index=loader,
     )
 
@@ -392,3 +392,38 @@ def test_a_hidden_default_catalog_hides_its_bare_names_too():
                        load_index=lambda: _two_catalog_index(),
                        catalog_allowed=lambda c: (c or "").lower() != "iceberg")
     assert "Available namespaces: secret.hr." in str(exc.value)
+
+
+# ── 2.4 alias: a fully qualified name may say the registry name ──────────────
+
+def _alias_registry():
+    from app import catalog_registry as reg
+    reg.set_entries([reg.CatalogEntry(name="AwsDataCatalog", kind="glue",
+                                      engine_catalog="iceberg", is_default=True)])
+    return reg
+
+
+def test_canonicalise_catalogs_rewrites_the_registry_name_to_the_engine_name():
+    from app.api.table_resolver import canonicalise_catalogs
+    reg = _alias_registry()
+    try:
+        out = canonicalise_catalogs(
+            "SELECT o.id FROM AwsDataCatalog.default.orders o JOIN iceberg.default.items i ON i.oid = o.id",
+            dialect="trino")
+        assert "awsdatacatalog" not in out.lower()
+        assert "iceberg.default.orders" in out.lower() and "iceberg.default.items" in out.lower()
+    finally:
+        reg.reset()
+
+
+def test_canonicalise_catalogs_leaves_a_statement_with_nothing_to_rename_verbatim():
+    from app.api.table_resolver import canonicalise_catalogs
+    reg = _alias_registry()
+    try:
+        sql = "SELECT  *  FROM iceberg.default.orders   WHERE id = 1"
+        assert canonicalise_catalogs(sql, dialect="trino") == sql
+        sql2 = "SELECT 1 FROM system.jdbc.tables"      # unknown catalog: not ours to rename
+        assert canonicalise_catalogs(sql2, dialect="trino") == sql2
+        assert canonicalise_catalogs("SELECT * FROM default.orders", dialect="trino") == "SELECT * FROM default.orders"
+    finally:
+        reg.reset()

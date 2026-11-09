@@ -31,7 +31,6 @@ def test_capability_on_is_false_for_a_non_boolean_value(monkeypatch):
 
 def test_require_capability_raises_503_when_off(monkeypatch):
     monkeypatch.delenv("FEATURE_TRINO", raising=False)
-    monkeypatch.delenv("FEATURE_ATHENA", raising=False)
     guard = require_capability("query", "SQL Lab")
     with pytest.raises(HTTPException) as e:
         guard()

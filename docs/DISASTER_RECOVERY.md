@@ -9,7 +9,7 @@ profiles use their configured object store/PostgreSQL and require an equivalent 
 |---|---|
 | RPO (data loss window) | ≤ 5 min for Aurora (continuous backup); PITR horizon = 14 days (`db_backup_retention_period`) |
 | RTO (Aurora restore) | ~30–60 min (PITR/snapshot restore to a new cluster) |
-| RTO (full cluster rebuild) | ~2–4 h (Terraform apply + Helm install + secret re-seed) |
+| RTO (full cluster rebuild) | ~2–4 h (Terraform apply + Helm install incl. the Trino pod + secret re-seed) |
 
 ## What holds what
 - **Aurora pgvector** — app DB **and** RAG vectors (`ai_collections`/`ai_chunks`) **and**
@@ -143,7 +143,8 @@ aws s3api list-object-versions --bucket datapond-iceberg --prefix <key>
    import the survivors and apply with `db_snapshot_identifier` instead (§A.2).
 2. Re-seed `datapond-secrets` from Secrets Manager (procedure B).
 3. `helm upgrade --install` with `externalDatabase.host` = restored Aurora writer
-   (DEPLOY_SINGLE_NODE §5, with an image tag the `deploy-aws.yml` build-push job has already
+   (DEPLOY_SINGLE_NODE §5; the Trino pod is part of the release — `values-prod-single.yaml`
+   sets `trino.enabled=true`, and the chart refuses `catalog.backend=glue` without it; with an image tag the `deploy-aws.yml` build-push job has already
    pushed; `deploy-node-helm.sh` only upgrades an existing release).
 4. Update the GitHub secret `NODE_INSTANCE_ID` to the new instance id.
 5. Verify (drill below).

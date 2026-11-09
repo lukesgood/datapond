@@ -3,6 +3,43 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2.4 (2026-11) — Athena removed; Trino is the query engine on every profile
+
+The AWS Single-Node Reference used Amazon Athena to query the Glue catalog. It now runs
+the same in-cluster Trino the OSS profiles run, over the same Glue catalog. One engine,
+one SQL dialect, one RLS path; Phase 2 of the same design adds external sources as Trino
+catalogs (`docs/superpowers/specs/2026-11-09-trino-unified-engine-and-connectors-design.md`).
+
+- **`catalog.backend=glue` requires `trino.enabled=true`.** The chart refuses to render
+  otherwise (`datapond.engineGuard`). `values-prod-single.yaml` sets it; a deployment that
+  holds stored release values from before 2.4 (`trino.enabled: false`) must re-supply its
+  overrides once with `helm upgrade --reset-values -f values-prod-single.yaml -f
+  <overrides>` — `DEPLOY_SINGLE_NODE.md` §5b has the exact steps. The node needs ~2 GiB
+  more memory for the Trino coordinator (m6i.xlarge is fine).
+- **`catalog.athenaOutputLocation`, `catalog.athenaWorkgroup`, `catalog.athenaDatabase`**
+  are gone from the chart and ignored if still present in stored values. The backend env
+  `FEATURE_ATHENA`, `ATHENA_*` and `QUERY_ENGINE` are no longer read: the engine is
+  always Trino, and `/api/capabilities` reports `"query_engine": "trino"`.
+- **Trino must reach IMDS.** The NetworkPolicy allow-list for the node's instance role
+  now includes the `trino` pod (it reads Glue and S3 with that role). No new IAM:
+  the `GlueDataCatalog` and `S3Data` statements already cover it; the `AthenaQuery`
+  statement, the Athena scan alarm and the two Athena dashboard widgets are removed
+  from Terraform.
+- **Migration 0025** changes `data_catalogs.engine_catalog` from `AwsDataCatalog` to
+  `iceberg` (`TRINO_CATALOG`) on the glue row and nothing else. The registry name stays
+  `AwsDataCatalog`, so stored metric versions, joins, chunk sources and RLS policies keep
+  working: `catalog_registry.resolve()` accepts either name and the RLS policy key is
+  canonicalised through it. Both names resolve in SQL (`/queries/execute` rewrites a
+  three-part `AwsDataCatalog.<schema>.<table>` to the engine name before the grant
+  check and RLS, so stored dashboards and saved queries keep running) and in the console.
+- **`pyathena` is no longer a dependency.** `RLS_DEFAULT_CATALOG` is `iceberg` and
+  `RLS_DEFAULT_SCHEMA` is `default` on every profile.
+- **Support:** Trino leaves the "add-ons this release does not support" list in
+  `SUPPORT.md`. It is supported as the chart configures it; a Trino cluster, catalog or
+  setting outside that configuration is upstream Trino.
+- **Expect** the Glue databases `raw`, `refined`, `serving` to appear after the first 2.4
+  backend start (the medallion layout the OSS profiles already have).
+
 ## 2026-10 — Governance has a Tool calls tab; "Audit Log" is now "Query log"
 
 - **Governance → Tool calls** (first tab, opens by default) lists every caller's tool
@@ -322,7 +359,7 @@ reporting rather than a policy to relax.
 IAM, because the same credential the application queries with is the one connector
 syncs write Iceberg tables through — a read-only policy would break ingestion.
 Separating those is a second credential and a separate change. Until then, anything
-that reaches Athena or Trino outside this application is not covered.
+that reaches Trino outside this application is not covered.
 
 **What to do.** Nothing, unless someone reports a 403. The refusal names the
 permission, so they can tell you what to grant.

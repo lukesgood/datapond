@@ -89,8 +89,8 @@ resource "aws_instance" "node" {
   # most of the value here.
   #
   # hop_limit stays at 2, and not by oversight. The hardening advice is 1, which
-  # keeps IMDS off the pod network entirely — but the backend reaches S3, Bedrock
-  # and Athena through this instance profile, from a pod on the CNI network (no
+  # keeps IMDS off the pod network entirely — but the backend and Trino reach S3,
+  # Bedrock and Glue through this instance profile, from a pod on the CNI network (no
   # AWS_ACCESS_KEY_ID is injected anywhere; verified against the running cluster).
   # Those packets take one extra hop, so 1 would cut off every AWS call the product
   # makes. Keeping IMDS off the pod network requires giving the backend its own

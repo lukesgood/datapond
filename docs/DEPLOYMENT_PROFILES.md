@@ -20,7 +20,7 @@ Helm profile names are retained for compatibility. Product role, actual topology
 |---|---|---|---|---|---|---|
 | `values-foundation.yaml` | Portable Core · AWS | in-cluster PostgreSQL/pgvector | S3 + Bedrock | none | disabled | supported starter |
 | `values-sovereign-core.yaml` | Sovereign Core | in-cluster PostgreSQL/pgvector | MinIO + Ollama | none | disabled | supported starter |
-| `values-prod-single.yaml` | AWS Single-Node Reference | Aurora PostgreSQL/pgvector | S3 + Bedrock | Glue + Athena | heavy add-ons disabled | reference |
+| `values-prod-single.yaml` | AWS Single-Node Reference | Aurora PostgreSQL/pgvector | S3 + Bedrock | Glue + Trino | Trino only; heavy add-ons disabled | reference |
 | `values-aws.yaml` | AWS Hybrid Extended | external PostgreSQL | S3 + Bedrock | none set — preserved if already running, otherwise off | none set — preserved if already running, otherwise off | compatibility |
 | `values-onprem.yaml` | Sovereign OSS Extended | in-cluster PostgreSQL/pgvector | S3-compatible + local model path | Polaris + Trino | selected full OSS | community |
 | `values-dev.yaml` | Development | in-cluster | self-hosted | Polaris + Trino | all eight stated `true` | development |
@@ -62,7 +62,7 @@ Terraform + Helm topology:
 - one EC2 Spot/K3s application node
 - external Aurora PostgreSQL Serverless v2
 - native S3
-- Glue Data Catalog and Athena output/workgroup configuration
+- Glue Data Catalog, queried by Trino in-cluster (one coordinator; `trino.enabled=true` is required with `catalog.backend=glue`)
 - Bedrock through LiteLLM
 - ECR image repositories
 - Route53 + TLS
@@ -133,11 +133,12 @@ name. DataPond does not create engine catalogs:
   chart renders `<name>.properties` next to `iceberg.properties`, with credentials from a
   Kubernetes Secret (`credentialSecret` / `tokenSecret`), never from values. `name` must
   equal the entry's engine catalog.
-- **Athena (AWS reference):** the default `AwsDataCatalog`, including Lake Formation
-  resource links to other accounts' databases, which appear as ordinary namespaces.
+- **Glue (AWS reference):** Trino's `iceberg` catalog over the Glue Data Catalog. A
+  deployment seeded before 2.4 keeps the registry name `AwsDataCatalog` for it (migration
+  0025 changes only the engine name). Lake Formation resource links are not read by Trino.
 - **S3 Tables:** the Iceberg REST path (SigV4, signing name `s3tables`) was measured
   with pyiceberg (spec `docs/superpowers/specs/2026-09-29-multi-catalog-design.md` §5);
-  a DataPond install reading one has not been accepted live yet. Athena and other AWS
+  a DataPond install reading one has not been accepted live yet. AWS-managed
   engines query S3 Tables only after the account's S3 Tables ↔ AWS analytics
   integration is enabled — an install prerequisite, not something DataPond turns on.
 - The Trino `extraCatalogs` rendering is covered by chart tests; a Trino reading a

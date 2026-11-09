@@ -73,7 +73,7 @@ def env(monkeypatch):
     monkeypatch.setattr(service, "_execute", execute)
     monkeypatch.setattr(service, "_pool", pool)
     monkeypatch.setattr(service, "today_local", lambda: date(2026, 10, 15))
-    monkeypatch.setattr(service, "_dialect", lambda: "athena")
+    monkeypatch.setattr(service, "_dialect", lambda: "trino")
     return state
 
 

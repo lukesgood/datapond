@@ -79,7 +79,7 @@ def test_catalog_on_if_only_polaris():
 
 
 def test_glue_enables_connectors_and_catalog_but_not_query():
-    """FEATURE_GLUE (AWS-native) re-enables ingestion+catalog, but not SQL query (Athena = later slice)."""
+    """FEATURE_GLUE (AWS-native) re-enables ingestion+catalog; SQL query needs Trino."""
     caps = compute_capabilities(_env(TRINO="false", POLARIS="false", GLUE="true"))
     assert caps["connectors"] is True
     assert caps["catalog"] is True
@@ -93,17 +93,19 @@ def test_glue_off_by_default():
     assert caps["connectors"] is False and caps["catalog"] is False
 
 
-def test_athena_enables_query_and_dashboards():
-    """FEATURE_ATHENA (AWS-native query) re-enables SQL + dashboards."""
-    caps = compute_capabilities(_env(TRINO="false", POLARIS="false", GLUE="true", ATHENA="true"))
+def test_glue_with_trino_enables_query_and_dashboards():
+    """The AWS reference since 2.4: Glue catalog + in-cluster Trino."""
+    caps = compute_capabilities(_env(TRINO="true", POLARIS="false", GLUE="true"))
     assert caps["query"] is True and caps["dashboards"] is True
     assert caps["catalog"] is True
+    assert caps["query_engine"] == "trino" and caps["query_catalog"] == "iceberg"
 
 
-def test_athena_off_keeps_query_off():
-    """Slice-1-only (glue catalog, no athena): catalog on, query off."""
+def test_glue_without_trino_keeps_query_off():
+    """Glue catalog, no engine: catalog on, query off, and the UI hints say so."""
     caps = compute_capabilities(_env(TRINO="false", POLARIS="false", GLUE="true"))
     assert caps["query"] is False and caps["catalog"] is True
+    assert caps["query_engine"] == "none" and caps["query_catalog"] == ""
 
 
 def test_profile_and_adapter_metadata_is_additive():
@@ -117,12 +119,10 @@ def test_profile_and_adapter_metadata_is_additive():
         "DATAPOND_NAMESPACE": "datapond-prod",
         "STORAGE_PROVIDER": "s3",
         "ICEBERG_CATALOG_BACKEND": "glue",
-        "QUERY_ENGINE": "athena",
         "VECTOR_STORE": "aurora-pgvector",
         "MODEL_GATEWAY": "litellm",
         "FEATURE_GLUE": "true",
-        "FEATURE_ATHENA": "true",
-        "FEATURE_TRINO": "false",
+        "FEATURE_TRINO": "true",
         "FEATURE_POLARIS": "false",
         "FEATURE_RLS": "true",
     })
@@ -135,6 +135,6 @@ def test_profile_and_adapter_metadata_is_additive():
     assert caps["rls"] is True
     assert caps["storage_provider"] == "s3"
     assert caps["catalog_backend"] == "glue"
-    assert caps["query_engine"] == "athena"
+    assert caps["query_engine"] == "trino"
     assert caps["vector_store"] == "aurora-pgvector"
     assert caps["model_gateway"] == "litellm"

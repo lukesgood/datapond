@@ -110,7 +110,7 @@ externalDatabase:
   sslmode: require
 ```
 
-This changes the vector/state adapter but does not add Glue/Athena or create infrastructure. For the actual Terraform-backed AWS reference use `values-prod-single.yaml` and [DEPLOY_SINGLE_NODE.md](DEPLOY_SINGLE_NODE.md).
+This changes the vector/state adapter but does not add the Glue catalog, Trino, or any infrastructure. For the actual Terraform-backed AWS reference use `values-prod-single.yaml` and [DEPLOY_SINGLE_NODE.md](DEPLOY_SINGLE_NODE.md).
 
 ## Model configuration
 
@@ -133,7 +133,7 @@ Application code should use logical names. Provider model IDs stay in LiteLLM co
 
 | Requirement | Profile |
 |---|---|
-| Terraform-backed Aurora/S3/Glue/Athena/Bedrock reference | `values-prod-single.yaml` |
+| Terraform-backed Aurora/S3/Glue/Bedrock reference (Trino in-cluster) | `values-prod-single.yaml` |
 | Existing Kubernetes plus AWS and intentionally retained OSS engines | `values-aws.yaml` |
 | Local/self-hosted services and model path | `values-onprem.yaml` |
 | Development/integration | `values-dev.yaml` or `values-quicktest.yaml` |

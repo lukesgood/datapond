@@ -1,4 +1,4 @@
-"""Read an Athena/Trino execution plan and say what the query will actually do.
+"""Read a Trino execution plan and say what the query will actually do.
 
 The first question about a generated query is not "is it fast" but **"does it read
 what I asked for"**. `EXPLAIN (TYPE VALIDATE)` only proves every identifier resolves;

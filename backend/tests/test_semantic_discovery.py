@@ -122,5 +122,5 @@ def test_missing_period_error_gives_a_usable_example():
     v = MetricVersion(metric="m", version=1, catalog="c", base_table="s.t", measure="COUNT(*)",
                       time_column="d", grains=("month",))
     with pytest.raises(MetricInputError) as e:
-        compile_metric(v, engine_catalog="C", dialect="athena", today=date(2026, 10, 16))
+        compile_metric(v, engine_catalog="C", dialect="trino", today=date(2026, 10, 16))
     assert "2026-01-01..2026-10-16" in str(e.value) and "last_month" in str(e.value)

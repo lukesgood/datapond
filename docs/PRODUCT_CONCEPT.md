@@ -121,7 +121,7 @@ DataPond는 이 **호출자 단위 거버넌스가 붙은 데이터 도구 면**
 
 ### 4. AWS-Ready, Not AWS-Locked
 
-AWS single-node reference는 EC2/K3s, Aurora PostgreSQL Serverless v2 + pgvector, S3, Glue + Athena,
+AWS single-node reference는 EC2/K3s, Aurora PostgreSQL Serverless v2 + pgvector, S3, Glue(+ in-cluster Trino),
 Bedrock via LiteLLM, ECR/IAM/Route53/Secrets Manager/CloudWatch를 실제 제공한다. EKS, EMR Serverless,
 S3 Tables, Lake Formation, AOSS, DataZone, Marketplace는 만들지 않으며 roadmap이다.
 
@@ -144,7 +144,7 @@ flowchart TB
     TOOLS --> STORE[S3 / S3-compatible]
     TOOLS --> VECTOR[PostgreSQL / Aurora + pgvector]
     TOOLS --> MODEL[Bedrock / cloud / local]
-    TOOLS -. optional .-> PLANE[Glue+Athena / Polaris+Trino · add-ons]
+    TOOLS -. optional .-> PLANE[Trino over Glue / Polaris · add-ons]
 ```
 
 ## 사용자와 주요 여정
@@ -159,7 +159,7 @@ flowchart TB
 ### Secondary: 운영자·플랫폼 팀
 
 - 어떤 에이전트가 무엇에 접근하는지 한 화면에서 보고 끊고 싶다.
-- S3/Iceberg 테이블을 도구 면에 연결한다(Glue/Athena 또는 Polaris/Trino).
+- S3/Iceberg 테이블을 도구 면에 연결한다(Trino, Glue 또는 Polaris 카탈로그).
 
 ### 첫 세그먼트
 
@@ -193,7 +193,7 @@ AWS Summit Seoul 2026의 규제 환경 에이전트 세션은 책임 소재와 �
 
 - **Portable Core · AWS starter** (`values-foundation.yaml`): S3/Bedrock + in-cluster pgvector.
 - **Sovereign Core** (`values-sovereign-core.yaml`): AWS starter의 온프렘 쌍둥이 — in-cluster MinIO + Ollama, add-on 없음.
-- **AWS Single-Node Reference** (`values-prod-single.yaml`): Terraform 기반 Aurora/S3/Glue/Athena/Bedrock.
+- **AWS Single-Node Reference** (`values-prod-single.yaml`): Terraform 기반 Aurora/S3/Glue/Bedrock + 클러스터 내 Trino.
 
 나머지(`values-aws.yaml`, `values-onprem.yaml`, dev/quicktest/prod)는 compatibility·개발용이다.
 상세는 [DEPLOYMENT_PROFILES.md](DEPLOYMENT_PROFILES.md).

@@ -16,8 +16,8 @@ resource "aws_iam_role" "app" {
 data "aws_iam_policy_document" "app" {
   statement {
     sid = "S3Data"
-    # GetBucketLocation + multipart are required by Athena to verify/write the query
-    # results bucket (ATHENA_OUTPUT_LOCATION).
+    # GetBucketLocation + multipart: Trino's native S3 filesystem resolves the bucket
+    # region and writes Iceberg data files as multipart uploads.
     actions = [
       "s3:ListBucket", "s3:GetObject", "s3:PutObject", "s3:DeleteObject",
       "s3:GetBucketLocation", "s3:ListBucketMultipartUploads", "s3:AbortMultipartUpload",
@@ -75,15 +75,6 @@ data "aws_iam_policy_document" "app" {
       "glue:BatchCreatePartition", "glue:CreatePartition", "glue:UpdatePartition", "glue:DeletePartition",
     ]
     resources = ["*"] # Glue ARNs are catalog/db/table-scoped; tighten to datapond* dbs in a follow-up
-  }
-  statement {
-    sid    = "AthenaQuery"
-    effect = "Allow"
-    actions = [
-      "athena:StartQueryExecution", "athena:GetQueryExecution",
-      "athena:GetQueryResults", "athena:StopQueryExecution", "athena:GetWorkGroup",
-    ]
-    resources = ["*"] # workgroup-scoped; tighten to the primary workgroup ARN in a follow-up
   }
   # docs/DISASTER_RECOVERY.md procedure B re-seeds datapond-secrets from this vault
   # BEFORE the app starts, and it runs on the node (kubectl reaches the cluster from

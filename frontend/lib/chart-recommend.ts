@@ -391,7 +391,7 @@ export function chartSpecFor(type: ChartType, rec: Recommendation) {
 }
 
 /** Row objects for the renderer, with a measure's numeric strings made numbers —
- *  Athena returns decimals as strings, which Recharts would not plot. */
+ *  the engine's client returns decimals as strings, which Recharts would not plot. */
 export function toChartRows(columns: string[], rows: unknown[][],
                             profiles: ColumnProfile[]): Record<string, unknown>[] {
   const measure = new Set(profiles.filter(p => p.role === "measure").map(p => p.name))

@@ -17,7 +17,7 @@ COLS = ["amount", "status", "channel", "ordered_at"]
     "(MAX(amount) - MIN(amount)) / 2",
 ])
 def test_accepted_measures(text):
-    validate_measure(text, COLS, "athena")
+    validate_measure(text, COLS, "trino")
 
 
 @pytest.mark.parametrize("text,needle", [
@@ -38,13 +38,13 @@ def test_accepted_measures(text):
 ])
 def test_refused_measures(text, needle):
     with pytest.raises(DefinitionError) as e:
-        validate_measure(text, COLS, "athena")
+        validate_measure(text, COLS, "trino")
     assert e.value.field == "measure"
     assert needle in str(e.value)
 
 
 def test_column_match_ignores_case():
-    validate_measure("SUM(Amount)", COLS, "athena")
+    validate_measure("SUM(Amount)", COLS, "trino")
 
 
 @pytest.mark.parametrize("text", [
@@ -52,7 +52,7 @@ def test_column_match_ignores_case():
     "amount BETWEEN 1 AND 10", "channel IS NOT NULL", "channel LIKE 'w%'", "NOT status = 'void'",
 ])
 def test_accepted_filters(text):
-    assert validate_filters(text, COLS, "athena") is not None
+    assert validate_filters(text, COLS, "trino") is not None
 
 
 @pytest.mark.parametrize("text,needle", [
@@ -63,13 +63,13 @@ def test_accepted_filters(text):
 ])
 def test_refused_filters(text, needle):
     with pytest.raises(DefinitionError) as e:
-        validate_filters(text, COLS, "athena")
+        validate_filters(text, COLS, "trino")
     assert e.value.field == "filters" and needle in str(e.value)
 
 
 def test_empty_filters_mean_none():
-    assert validate_filters("  ", COLS, "athena") is None
-    assert validate_filters(None, COLS, "athena") is None
+    assert validate_filters("  ", COLS, "trino") is None
+    assert validate_filters(None, COLS, "trino") is None
 
 
 @pytest.mark.parametrize("name", ["revenue", "a", "order_count_2"])
@@ -93,13 +93,13 @@ def test_grains_are_deduplicated_and_checked():
 def test_untokenisable_measure_is_a_definition_error(text):
     """An unterminated quote raises TokenError, not ParseError: still a 422, never a 500."""
     with pytest.raises(DefinitionError) as e:
-        validate_measure(text, COLS, "athena")
+        validate_measure(text, COLS, "trino")
     assert e.value.field == "measure"
 
 
 def test_untokenisable_filter_is_a_definition_error():
     with pytest.raises(DefinitionError) as e:
-        validate_filters("status = 'paid", COLS, "athena")
+        validate_filters("status = 'paid", COLS, "trino")
     assert e.value.field == "filters"
 
 
@@ -113,4 +113,4 @@ def test_untokenisable_filter_is_a_definition_error():
 def test_stored_recheck_holds_the_save_time_shape_rules(field, text):
     """A row that bypassed save-time validation is refused before compile, not run."""
     with pytest.raises(ValueError, match="Stored"):
-        checked_stored(field, text, "athena")
+        checked_stored(field, text, "trino")

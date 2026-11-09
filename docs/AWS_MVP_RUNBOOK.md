@@ -13,7 +13,7 @@ It does not provision infrastructure. For the Terraform-backed EC2/K3s reference
 | Profile | Database | Catalog/query | Expected test scope |
 |---|---|---|---|
 | `values-foundation.yaml` | in-cluster PostgreSQL/pgvector | none | Knowledge/RAG, PII, spend |
-| `values-prod-single.yaml` | Aurora PostgreSQL/pgvector | Glue/Athena | Core scope plus Catalog/SQL |
+| `values-prod-single.yaml` | Aurora PostgreSQL/pgvector | Glue + Trino | Core scope plus Catalog/SQL |
 
 `values-aws.yaml` is the hybrid extended compatibility overlay and is not the default target for this runbook.
 
@@ -177,18 +177,18 @@ Pass condition:
 
 Collection ACL is currently application-level owner/admin/shared enforcement, not PostgreSQL-native collection RLS.
 
-## 10. Optional Glue/Athena acceptance
+## 10. Optional Glue/Trino acceptance
 
 Run only when `/api/capabilities` reports:
 
 ```json
-{"catalog": true, "query": true, "catalog_backend": "glue", "query_engine": "athena"}
+{"catalog": true, "query": true, "catalog_backend": "glue", "query_engine": "trino"}
 ```
 
 Verify:
 
 1. Catalog lists expected Glue databases/tables.
-2. Athena executes a bounded `SELECT` and writes results to the configured output location.
+2. Trino (in-cluster, over the Glue catalog) executes a bounded `SELECT` against a Glue table.
 3. Catalog → Send to Knowledge creates/updates a collection.
 4. The resulting collection can answer a cited question.
 5. IAM denies access outside the intended bucket/catalog scope.
@@ -202,11 +202,11 @@ Do not run or claim this scope for `values-foundation.yaml`.
 - model IDs and embedding dimension;
 - collection/document/chunk counts;
 - retrieval and RAG result samples with test data only;
-- Glue/Athena evidence when applicable;
+- Glue/Trino evidence when applicable;
 - failures, fallbacks, latency, and cost observations.
 
 ## 12. Pass/fail summary
 
-A release may claim the AWS RAG adapter path only when sections 5–9 pass. Glue/Athena claims require section 10. EKS, EMR Serverless, S3 Tables, Lake Formation, AOSS, DataZone, and Marketplace require separate implementation and acceptance; this runbook does not validate them.
+A release may claim the AWS RAG adapter path only when sections 5–9 pass. Glue/Trino claims require section 10. EKS, EMR Serverless, S3 Tables, Lake Formation, AOSS, DataZone, and Marketplace require separate implementation and acceptance; this runbook does not validate them.
 
 For critical secret generation, preservation, and restore ordering, use [DEPLOY_SINGLE_NODE.md](DEPLOY_SINGLE_NODE.md) and [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md).

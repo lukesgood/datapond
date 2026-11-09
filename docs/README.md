@@ -60,7 +60,7 @@
 | 인증 — OIDC SSO | | ✅ Enterprise 이미지(`/ee`) **＋** `OIDC_ENABLED` | SAML 미구현 |
 | RLS 엔진 (행 필터·컬럼 마스킹) | | ✅ `governance.rls.enabled` | |
 | S3/Bedrock adapter | ✅ AWS starter · MinIO/Ollama in Sovereign Core | | |
-| Aurora/Glue/Athena adapter | | ✅ AWS single-node | |
+| Aurora/Glue adapter (+ in-cluster Trino) | | ✅ AWS single-node | |
 | Polaris/Trino | | ✅ OSS extended | |
 | RisingWave/OpenMetadata/Airflow/Spark/Jupyter/MLflow | | ✅ Optional add-on | |
 | 온톨로지 concept store (Phase 0 슬라이스) | | ✅ opt-in, 기본 off (`ontology.enabled`) | Phase 1+ 는 수요 게이트 대기 |

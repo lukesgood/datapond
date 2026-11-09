@@ -3,8 +3,8 @@
 `SELECT * FROM orders` is ambiguous to us in two different ways, and they are not
 equally harmless:
 
-1. The engine resolves it against its *session* database (`ATHENA_DATABASE` for
-   Athena), which is a single static value and usually not the namespace the table
+1. The engine resolves it against its *session* schema (`default` for Trino),
+   which is a single static value and usually not the namespace the table
    actually lives in — so the query fails even though the table exists.
 2. RLS keys policies on the fully qualified name (`app/rls/engine.py:_qualify`,
    which falls back to `RLS_DEFAULT_SCHEMA`). If that fallback and the engine's
@@ -192,6 +192,35 @@ def _location_catalog(location: Location, default: Optional[str]) -> Optional[st
 def _namespace_catalog(namespace: str, default: Optional[str]) -> Optional[str]:
     """Index namespaces are "ns" in the default catalog and "catalog.ns" elsewhere."""
     return namespace.split(".", 1)[0] if "." in namespace else default
+
+
+def canonicalise_catalogs(sql: str, *, dialect: str) -> str:
+    """Rewrite a three-part table name whose catalog is a REGISTRY name into the
+    engine's name for it: `AwsDataCatalog.default.orders` → `iceberg.default.orders`
+    on a pre-2.4 glue deployment (the catalog was called AwsDataCatalog by Athena and
+    the Catalog page printed that name as "the one to write into SQL", so stored
+    dashboards and saved queries carry it). A statement with nothing to rename — the
+    common case — is returned byte-for-byte unchanged; a catalog no registry entry
+    answers to is left for the engine to judge. Runs after qualify_tables() and before
+    the catalog-grant check and RLS, so all three see engine names only."""
+    from app.catalog_registry import canonical_catalog
+    try:
+        statements = [s for s in sqlglot.parse(sql, read=dialect) if s is not None]
+    except Exception:
+        return sql
+    changed = False
+    for stmt in statements:
+        for tbl in stmt.find_all(exp.Table):
+            cat = tbl.catalog
+            if not cat:
+                continue
+            engine_name = canonical_catalog(cat)
+            if engine_name.lower() != cat.lower():
+                tbl.set("catalog", exp.to_identifier(engine_name))
+                changed = True
+    if not changed:
+        return sql
+    return ";\n".join(stmt.sql(dialect=dialect) for stmt in statements)
 
 
 def qualify_tables(sql: str, *, dialect: str, load_index: Callable[[], CatalogIndex],

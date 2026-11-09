@@ -440,8 +440,8 @@ def _scan_pii_tables() -> Optional[List[PiiTableEntry]]:
         Trino unreachable). None ≠ []: the caller must surface "not scanned",
         never "clean". NEVER fabricates rows.
     """
-    # On the Glue/Iceberg foundation, discover PII straight from the catalog
-    # metadata (Glue Data Catalog — no Athena query, ~free) instead of Trino.
+    # On the Glue backend, discover PII straight from the catalog metadata (Glue Data
+    # Catalog — no query engine involved, ~free) instead of a Trino scan.
     catalog_backend = os.getenv("ICEBERG_CATALOG_BACKEND", "polaris").strip().lower()
     if catalog_backend == "glue":
         return _scan_pii_via_catalog()
@@ -514,9 +514,8 @@ def get_pii_report():
     Scan columns of recently queried tables for PII patterns.
 
     Real Trino information_schema scan only — no fabricated/mock fallback.
-    Returns {tables: []} when no genuine scan can run (e.g. the live
-    Athena/Glue foundation profile, which has no Trino information_schema
-    to scan) or when the scan finds nothing.
+    Returns {tables: []} when no genuine scan can run (no Trino and no Glue
+    catalog to read metadata from) or when the scan finds nothing.
 
     Gated on `governance:read` (B5): this carried no authorization dependency at
     all before. A PII report is precisely the thing that must not be readable by an

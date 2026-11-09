@@ -103,14 +103,6 @@ def test_enforce_dialect_param_exists():
     assert "dialect" in inspect.signature(enforce).parameters
 
 
-def test_enforce_athena_dialect_wraps_table():
-    # Athena (Presto-derived) dialect must round-trip the same rewrite without error.
-    res = enforce("SELECT id, region FROM iceberg.sales.orders",
-                  analyst(), [orders_region_policy()], dialect="athena")
-    assert "p-orders-region" in res.applied_policy_ids
-    assert "region = 'us-east'" in res.sql.lower()
-    assert "iceberg.sales.orders" in res.sql.lower()
-
 
 def test_enforce_unqualified_table_uses_defaults():
     # default catalog=iceberg schema=default; register a policy on that key
@@ -201,20 +193,9 @@ def test_enforce_applies_mask_in_projection():
     assert "except" in low and "regexp_replace" in low
 
 
-def test_enforce_mask_survives_athena_dialect():
-    # The SELECT * EXCEPT (col), <mask> AS col rewrite must round-trip on athena too.
-    mask = MaskPolicy(id="m-email", catalog="iceberg", schema="sales", table="orders",
-                      column="email", masking_type="partial_email",
-                      role_map={"business_analyst": False})
-    res = enforce("SELECT email FROM iceberg.sales.orders",
-                  analyst(), [orders_region_policy()], [mask], dialect="athena")
-    assert "m-email" in res.applied_mask_ids
-    low = res.sql.lower()
-    assert "except" in low and "regexp_replace" in low
-
 
 # ── Default catalog/schema for unqualified references ─────────────────────────
-# The engine's session database (ATHENA_DATABASE) and RLS's fallback schema must
+# The engine's session schema (RLS_DEFAULT_SCHEMA) and RLS's fallback schema must
 # come from one source; when they diverge, a policy on sales.orders does not match
 # a query that says `FROM orders`.
 
@@ -264,7 +245,7 @@ def _region_mask(roles=None, table="customers"):
     )
 
 
-@pytest.mark.parametrize("dialect", ["trino", "athena"])
+@pytest.mark.parametrize("dialect", ["trino"])
 def test_mask_only_table_masks_column(dialect, monkeypatch):
     monkeypatch.delenv("RLS_DEFAULT_DENY", raising=False)
     r = enforce("SELECT region FROM AwsDataCatalog.sales.customers", analyst(),
@@ -278,7 +259,7 @@ def test_mask_only_table_masks_column(dialect, monkeypatch):
 def test_mask_only_table_unmasked_for_exempt_role(monkeypatch):
     monkeypatch.delenv("RLS_DEFAULT_DENY", raising=False)
     r = enforce("SELECT region FROM AwsDataCatalog.sales.customers", analyst(),
-                [], [_region_mask({"business_analyst": True})], dialect="athena")
+                [], [_region_mask({"business_analyst": True})], dialect="trino")
     assert r.applied_mask_ids == []
     assert "***" not in r.sql
 
@@ -286,7 +267,7 @@ def test_mask_only_table_unmasked_for_exempt_role(monkeypatch):
 def test_mask_only_table_allowed_and_masked_under_default_deny(monkeypatch):
     monkeypatch.setenv("RLS_DEFAULT_DENY", "true")
     r = enforce("SELECT region FROM AwsDataCatalog.sales.customers", analyst(),
-                [], [_region_mask()], dialect="athena")
+                [], [_region_mask()], dialect="trino")
     assert r.applied_mask_ids == ["m-region"]
     assert "'***' AS region" in r.sql
 
@@ -295,14 +276,14 @@ def test_table_with_neither_still_blocks_under_default_deny(monkeypatch):
     monkeypatch.setenv("RLS_DEFAULT_DENY", "true")
     with pytest.raises(RlsDenied):
         enforce("SELECT * FROM awsdatacatalog.sales.other", analyst(),
-                [], [_region_mask()], dialect="athena")
+                [], [_region_mask()], dialect="trino")
 
 
 def test_sensitive_block_blocks_mask_only_table(monkeypatch):
     monkeypatch.delenv("RLS_DEFAULT_DENY", raising=False)
     with pytest.raises(RlsDenied) as e:
         enforce("SELECT region FROM awsdatacatalog.sales.customers", analyst(),
-                [], [_region_mask()], sensitive_block=True, dialect="athena")
+                [], [_region_mask()], sensitive_block=True, dialect="trino")
     assert "direct read" in str(e.value)
 
 
@@ -325,4 +306,27 @@ def test_table_with_only_disabled_mask_blocks_under_default_deny(monkeypatch):
     m.enabled = False
     with pytest.raises(RlsDenied):
         enforce("SELECT region FROM awsdatacatalog.sales.customers", analyst(),
-                [], [m], dialect="athena")
+                [], [m], dialect="trino")
+
+
+# ── Registry alias (2.4) ──────────────────────────────────────────────────────
+# The glue reference's catalog row is still named AwsDataCatalog (what pre-2.4 policies,
+# metrics and chunk sources stored); its engine_catalog is `iceberg` since migration
+# 0025. A policy stored under the registry name must match the engine's name.
+
+def test_policy_stored_under_the_registry_alias_matches_the_engine_name(monkeypatch):
+    from app import catalog_registry as reg
+    monkeypatch.delenv("RLS_DEFAULT_DENY", raising=False)
+    monkeypatch.setenv("RLS_DEFAULT_SCHEMA", "sales")
+    reg.set_entries([reg.CatalogEntry(name="AwsDataCatalog", kind="glue",
+                                      engine_catalog="iceberg", is_default=True)])
+    try:
+        pol = orders_region_policy()
+        pol.catalog = "AwsDataCatalog"
+        for sql in ("SELECT id, region FROM iceberg.sales.orders", "SELECT id, region FROM orders",
+                    "SELECT id, region FROM AwsDataCatalog.sales.orders"):
+            res = enforce(sql, analyst(), [pol], dialect="trino")
+            assert "p-orders-region" in res.applied_policy_ids, sql
+            assert "region = 'us-east'" in res.sql.lower(), sql
+    finally:
+        reg.reset()
