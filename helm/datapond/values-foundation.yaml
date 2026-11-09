@@ -3,7 +3,7 @@
 # Backward-compatible filename: values-foundation.yaml.
 # Runs the lightweight governed-RAG core with native S3, Bedrock through LiteLLM,
 # and in-cluster PostgreSQL + pgvector. Optional analytics and governance add-ons
-# are disabled; this profile does NOT provision Athena, Glue, EMR, MWAA, DataZone,
+# are disabled; this profile does NOT provision Glue, EMR, MWAA, DataZone,
 # or SageMaker as replacements.
 #
 # Deploy:

@@ -1,4 +1,5 @@
 {{- if .Values.backend.enabled }}
+{{- include "datapond.engineGuard" . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -414,18 +415,17 @@ spec:
         # Phase 0 ontology slice (concept store + opt-in query expansion). Fail-closed.
         - name: FEATURE_ONTOLOGY
           value: {{ ((.Values.ontology | default dict).enabled | default false) | quote }}
-        # Query engine (slice 2): Athena on the glue profile, else Trino. Derived from catalog.backend.
-        - name: FEATURE_ATHENA
-          value: "{{ if eq ((.Values.catalog | default dict).backend | default "polaris") "glue" }}true{{ else }}false{{ end }}"
+        # Query engine: Trino on every profile (2.4 — Athena removed; the glue profile
+        # runs Trino over the Glue catalog, see _engine.tpl). The catalog Trino calls
+        # `iceberg` is RLS's default for two-part names; RLS's fallback schema must equal
+        # the engine's session schema, or a policy on <schema>.<table> does not match a
+        # query that says `FROM <table>`.
         - name: QUERY_ENGINE
-          value: "{{ if eq ((.Values.catalog | default dict).backend | default "polaris") "glue" }}athena{{ else }}trino{{ end }}"
+          value: "trino"
         - name: RLS_DEFAULT_CATALOG
-          value: "{{ if eq ((.Values.catalog | default dict).backend | default "polaris") "glue" }}AwsDataCatalog{{ else }}iceberg{{ end }}"
-        # Derived from the SAME value as ATHENA_DATABASE below. RLS's fallback schema for
-        # an unqualified table must equal the engine's session database; if they diverge,
-        # a policy on <db>.<table> does not match a query that says `FROM <table>`.
+          value: "iceberg"
         - name: RLS_DEFAULT_SCHEMA
-          value: "{{ if eq ((.Values.catalog | default dict).backend | default "polaris") "glue" }}{{ (.Values.catalog | default dict).athenaDatabase | default "default" }}{{ else }}default{{ end }}"
+          value: "default"
         # RLS (Layer 1) policy enforcement gate — off by default (dark) until governance.rls.enabled
         # is set. See docs/RLS_DESIGN.md. Use `dig` (bool-false safe — see RAG_SCHEDULER note above).
         - name: RLS_ENABLED
@@ -445,12 +445,6 @@ spec:
         # budget. See backend/app/rate_limit.py.
         - name: LOGIN_TRUST_PROXY
           value: {{ (.Values.ingress | default dict).enabled | default false | quote }}
-        - name: ATHENA_OUTPUT_LOCATION
-          value: {{ (.Values.catalog | default dict).athenaOutputLocation | default "" | quote }}
-        - name: ATHENA_WORKGROUP
-          value: {{ (.Values.catalog | default dict).athenaWorkgroup | default "primary" | quote }}
-        - name: ATHENA_DATABASE
-          value: {{ (.Values.catalog | default dict).athenaDatabase | default "default" | quote }}
         {{- if (((.Values.auth).ldap).enabled) }}
         # LDAP / Active Directory authentication
         - name: LDAP_ENABLED

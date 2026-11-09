@@ -458,10 +458,12 @@ def test_notes_derives_its_list_from_the_one_table():
 #
 # Expected sets verified directly against `helm template` output for each profile
 # (not assumed from the profile files' prose):
-#   - base values.yaml, values-foundation.yaml, values-prod-single.yaml,
-#     values-aws.yaml and values-ephemeral.yaml render none of the eight. base and
-#     values-aws.yaml are the two that moved when the base defaults went to unset;
-#     foundation, prod-single and ephemeral state false for all eight themselves.
+#   - base values.yaml, values-foundation.yaml, values-aws.yaml and
+#     values-ephemeral.yaml render none of the eight. base and values-aws.yaml are
+#     the two that moved when the base defaults went to unset; foundation and
+#     ephemeral state false for all eight themselves.
+#   - values-prod-single.yaml renders trino only (2.4: the AWS reference runs Trino
+#     over the Glue catalog; Athena was removed) and states the other seven false.
 #   - values-onprem.yaml, values-dev.yaml and values-prod.yaml render all eight, each
 #     stating all eight true.
 #   - values-quicktest.yaml renders seven of eight -- every add-on except spark, which
@@ -481,7 +483,7 @@ ALL_ADDONS = frozenset(ADDONS)
 PROFILE_EXPECTATIONS = {
     None: frozenset(),  # base values.yaml, no --values override
     "values-foundation.yaml": frozenset(),
-    "values-prod-single.yaml": frozenset(),
+    "values-prod-single.yaml": frozenset({"trino"}),
     "values-aws.yaml": frozenset(),
     "values-ephemeral.yaml": frozenset(),
     "values-onprem.yaml": ALL_ADDONS,

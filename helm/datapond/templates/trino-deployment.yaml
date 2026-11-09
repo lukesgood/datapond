@@ -183,7 +183,13 @@ metadata:
 data:
   iceberg.properties: |
     connector.name=iceberg
-    {{- if (include "datapond.addonOn" (dict "root" $ "component" "polaris")) }}
+    {{- if eq ((.Values.catalog | default dict).backend | default "polaris") "glue" }}
+    # AWS Glue Data Catalog (the AWS Single-Node Reference). Credentials come from the
+    # node instance profile via IMDS — networkpolicy.yaml allows this pod to reach it.
+    iceberg.catalog.type=glue
+    hive.metastore.glue.region={{ .Values.storage.region | default "us-east-1" }}
+    hive.metastore.glue.default-warehouse-dir={{ (.Values.catalog | default dict).glueWarehouse }}
+    {{- else if (include "datapond.addonOn" (dict "root" $ "component" "polaris")) }}
     # Polaris REST Catalog (Unity Catalog alternative)
     iceberg.catalog.type=rest
     iceberg.rest-catalog.uri=http://{{ .Values.polaris.name }}:{{ .Values.polaris.service.port }}/api/catalog

@@ -24,13 +24,16 @@ Egress is allowed everywhere EXCEPT the instance metadata endpoint.
 
 This is the other half of terraform/ec2.tf's metadata_options. The hardening advice
 is hop_limit 1, which keeps IMDS off the pod network entirely — but the backend
-reaches S3, Bedrock and Athena through the node's instance profile from a pod, so
+reaches S3, Bedrock and Glue through the node's instance profile from a pod, so
 hop_limit has to stay at 2 and every pod in the cluster can therefore ask
 169.254.169.254 for the node's credentials. An SSRF in any add-on is enough.
 
 Denying it here and re-allowing it only for the pods that need it gets most of that
 back. NetworkPolicies are additive: this rule and the allow below are unioned, so
-backend and litellm keep their access and nothing else has it.
+backend, litellm and trino keep their access and nothing else has it. Trino needs it
+to read the Glue catalog and S3 on the AWS reference; it therefore holds the whole
+node role, like the backend does — single-node K3s has no per-pod IAM, which is a
+documented limitation of this profile (docs/superpowers/specs/2026-11-09-trino-*.md).
 */}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -67,7 +70,7 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        values: [{{ .Values.backend.name }}, {{ (.Values.litellm).name | default "litellm" }}]
+        values: [{{ .Values.backend.name }}, {{ (.Values.litellm).name | default "litellm" }}, {{ (.Values.trino).name | default "trino" }}]
   policyTypes: [Egress]
   egress:
     - to:
