@@ -115,7 +115,7 @@ nearer chunks the rule kept from that caller, recorded for the auditor and never
 returned to the agent. The refused (402) call is there too.
 
 **f. A number the agent can cite (governed SQL).** Needs the `query` capability (the
-AWS Single-Node Reference has it: Glue/Athena). Uses the sample `orders` table; on
+AWS Single-Node Reference has it: Trino over the Glue catalog). Uses the sample `orders` table; on
 another catalog, change `catalog`, `base_table` and the columns.
 
 Define and approve a metric (console: Metrics → New, then Approve), or as below. A

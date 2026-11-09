@@ -4,8 +4,9 @@ This is the end-to-end operator runbook for the current **production-oriented re
 DataPond deployment on a single K3s node in AWS. It provisions EC2 (K3s) + Elastic IP,
 ECR, Aurora Serverless v2 pgvector, S3, a Secrets Manager DR vault, and Route53 +
 Let's Encrypt TLS for the Portable Core application. `values-prod-single.yaml` also
-configures the shipped Glue/Athena and Bedrock adapters. Heavy self-hosted add-ons
-(Trino/Spark/Polaris/Airflow/OpenMetadata) are not part of this topology.
+configures the shipped Glue and Bedrock adapters and runs Trino in-cluster as the query
+engine (one coordinator, ~2 GiB; Athena was removed in 2.4 — see §5b). Heavy self-hosted
+add-ons (Spark/Polaris/Airflow/OpenMetadata) are not part of this topology.
 
 This is deliberately not an EKS or application-node HA architecture. Read this top to
 bottom before starting; the steps are order-dependent.
@@ -326,7 +327,6 @@ helm upgrade --install datapond helm/datapond -n datapond \
   --set backend.image.repository=$(terraform -chdir=/path/to/terraform output -raw ecr_backend_repo_url) \
   --set frontend.image.repository=$(terraform -chdir=/path/to/terraform output -raw ecr_frontend_repo_url) \
   --set-string catalog.glueWarehouse="s3://$BUCKET/warehouse" \
-  --set-string catalog.athenaOutputLocation="s3://$BUCKET/athena-results/" \
   --set ingress.domain=$DOMAIN \
   --set postgres.auth.password="$DB_MASTER_PASSWORD"
 ```
@@ -348,7 +348,6 @@ helm upgrade --install datapond helm/datapond -n datapond \
   --set backend.image.repository=<acct>.dkr.ecr.us-east-1.amazonaws.com/datapond-backend \
   --set frontend.image.repository=<acct>.dkr.ecr.us-east-1.amazonaws.com/datapond-frontend \
   --set-string catalog.glueWarehouse='s3://<terraform-bucket-name>/warehouse' \
-  --set-string catalog.athenaOutputLocation='s3://<terraform-bucket-name>/athena-results/' \
   --set ingress.domain=datapond.example.com \
   --set postgres.auth.password='<the-aurora-master-password>'
 ```
@@ -357,8 +356,8 @@ helm upgrade --install datapond helm/datapond -n datapond \
 init's `ecr-refresh` timer keeps current), `storage.provider=s3` with no static keys (node
 instance-profile IAM), `externalDatabase.enabled=true` / `postgres.enabled=false`
 (external Aurora, no in-cluster Postgres), the Portable Core workload set (backend/
-frontend/valkey/litellm; Trino/Spark/Polaris/Airflow/MLflow/Jupyter/RisingWave/
-OpenMetadata/Ollama/vLLM/MinIO all `enabled: false`), litellm's Bedrock model list
+frontend/valkey/litellm, plus `trino.enabled: true` — the query engine; Spark/Polaris/
+Airflow/MLflow/Jupyter/RisingWave/OpenMetadata/Ollama/vLLM/MinIO all `enabled: false`), litellm's Bedrock model list
 (Titan embed + Claude Haiku/Sonnet, `us-east-1`), and `ingress.tls.enabled=true` with the
 `cert-manager.io/cluster-issuer: letsencrypt-prod` annotation. The image `tag` is not set
 explicitly — it defaults to the chart `appVersion`, which must match whatever CI pushed
@@ -406,6 +405,37 @@ Three things to know before you run it:
 `--reset-then-reuse-values` keeps the release's existing values, so this does not need
 the install flags from §5 repeated. `deploy-aws.yml` preserves the setting on later
 deploys for the same reason.
+
+### 5b. Cutover from Athena (2.4)
+
+A release installed before 2.4 queried the Glue catalog through Amazon Athena. Since 2.4
+the chart runs Trino in-cluster over the same Glue catalog and `catalog.backend=glue`
+**refuses to render** unless `trino.enabled=true`. The stored release values of such a
+deployment still say `trino.enabled: false` (and carry `catalog.athenaOutputLocation`),
+and `deploy-node-helm.sh` keeps stored values (`--reset-then-reuse-values`), so the first
+2.4 deploy cannot go through CD alone. Do this once, on the node, with a chart staged as
+in "Changing release values" below:
+
+```bash
+KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+helm -n datapond get values datapond > /tmp/live.yaml            # contains postgres.auth.password
+# keep only the per-deployment overrides: externalDatabase.host, image repositories/tags,
+# ingress.domain, postgres.auth.password, catalog.glueWarehouse, any §5a MLflow flags.
+# Drop the `trino:` block and every `catalog.athena*` key.
+$EDITOR /tmp/live.yaml && cp /tmp/live.yaml /tmp/overrides.yaml
+helm -n datapond upgrade datapond helm/datapond --reset-values \
+  -f helm/datapond/values-prod-single.yaml -f /tmp/overrides.yaml --wait --timeout 900s
+rm -f /tmp/live.yaml /tmp/overrides.yaml                          # both hold the DB password
+```
+
+After it rolls: `kubectl -n datapond get pod -l app=trino` is Running; `GET
+/api/capabilities` reports `"query_engine": "trino"`; a bounded `SELECT` in SQL Lab
+returns rows; Governance → RLS coverage still lists the policies it listed before (their
+stored catalog name `AwsDataCatalog` is an alias of the engine's `iceberg` — migration
+0025 and `docs/UPGRADING.md` "2.4 — Athena removed"). Later deploys go through CD again.
+
+Side effect to expect: the first backend start with Trino reachable creates the Glue
+databases `raw`, `refined` and `serving` (the medallion layout the OSS profiles have).
 
 ## 6. Verify
 

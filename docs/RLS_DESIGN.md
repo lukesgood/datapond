@@ -36,9 +36,9 @@ be reached without the API.
 | `RLS_DEFAULT_SCHEMA` | `TRINO_SCHEMA` → `default` | Schema assumed for a bare table name. |
 
 Helm derives all five from `governance.rls.*` and `catalog.backend`
-(`helm/datapond/templates/backend-deployment.yaml`). `RLS_DEFAULT_CATALOG` and
-`RLS_DEFAULT_SCHEMA` are derived from the **same** expression as the query engine's own
-`ATHENA_DATABASE`, deliberately: if the schema RLS assumes and the schema the engine
+(`helm/datapond/templates/backend-deployment.yaml`). `RLS_DEFAULT_CATALOG` is
+`iceberg` and `RLS_DEFAULT_SCHEMA` is `default` on every profile since 2.4 — the same values
+the Trino engine resolves a bare name against, deliberately: if the schema RLS assumes and the schema the engine
 resolves against ever diverge, a policy on `sales.orders` stops matching a query that says
 `FROM orders`. See §7.
 
@@ -128,8 +128,13 @@ aligned:
   qualified name in the normal case.
 - `_qualify()`'s fallback (`RLS_DEFAULT_CATALOG` / `RLS_DEFAULT_SCHEMA`) covers the RLS
   entry points that do not go through the resolver — Layer 3's direct-read check and the
-  governance preview. Helm derives it from the same value as the engine's session database
-  so the two cannot drift.
+  governance preview. Helm sets it to the engine's own default (`iceberg` / `default`) so
+  the two cannot drift.
+- `_policy_key()` canonicalises a policy's stored catalog **through the catalog registry**
+  (`catalog_registry.resolve(name).engine_catalog`): a policy stored as
+  `AwsDataCatalog.sales.orders` on a pre-2.4 AWS deployment matches a query that says
+  `iceberg.sales.orders`, because `AwsDataCatalog` is the registry name of the catalog
+  whose engine name is `iceberg` (migration 0025). An unknown name is kept as written.
 
 Resolution is fail-closed for exactly this reason: handing an unresolvable bare name to
 the engine is what would let a query miss its policy.
@@ -160,10 +165,11 @@ An unrecognised type falls back to `'***'` rather than passing the value through
   problem — or uncovered.
 - **Layer 2 needs Trino.** `generate_rules()` emits a Trino file-based access-control
   `rules.json` and `POST /api/governance/rls/trino-rules/apply` patches it into the
-  `trino-access-control` ConfigMap. On profiles where Trino is disabled — including the
-  current AWS single-node reference, which queries through Athena — there is nothing to
-  apply it to. **A BI tool connecting straight to Athena is not covered by any layer.**
-  Lake Formation is the AWS-native equivalent and is roadmap, not implemented.
+  `trino-access-control` ConfigMap. On profiles where Trino is disabled (Portable Core,
+  Sovereign Core) there is nothing to apply it to. The AWS reference runs Trino since 2.4 but
+  ships with `trino.rls.enabled=false`: **a client connecting straight to that Trino, or to
+  the Glue tables through another engine, is not covered by any layer.** Lake Formation is
+  the AWS-native equivalent and is roadmap, not implemented.
 - **Layer 3's hard boundary is manual.** `check_direct_read()` is a soft, sanctioned-path
   check a notebook helper calls; `seaweedfs_deny_prefixes()` only *computes* the S3
   prefixes to deny. Applying them to the shared Jupyter identity is an operator action.
@@ -178,10 +184,9 @@ An unrecognised type falls back to `'***'` rather than passing the value through
   default of `true`. Any Helm deploy sets the variable explicitly, so they agree in
   practice — but an environment with it unset would filter differently at Layer 1 than the
   generated `rules.json` does at Layer 2.
-- **Masking SQL is Trino-dialect.** The rewrite is emitted through sqlglot's `athena`
-  dialect and covered by unit tests (`test_enforce_mask_survives_athena_dialect`), and
-  Athena engine v3 is Trino-derived, but the masking path has not yet been run against
-  live Athena. Unit coverage of the emitted string is not proof the service accepts it.
+- **Masking SQL is Trino-dialect.** The rewrite is emitted through sqlglot's `trino`
+  dialect and covered by unit tests; it has run against the in-cluster Trino on the OSS
+  profiles, and the AWS reference uses the same engine since 2.4.
 - **Rewriting, not database-native RLS.** Enforcement is SQL rewriting in the application
   layer. It is not PostgreSQL `CREATE POLICY`, and collection access control
   (`ai_collections.owner_id`) is a separate application-level ACL — not this engine.

@@ -4,7 +4,7 @@
 
 DataPond is an open-core data tool server for teams whose AI agents and applications need to reach company data. Agents call it **directly** with a service-account key, and if your organization runs an agent gateway (Amazon Bedrock AgentCore Gateway, Obot, Runlayer) DataPond can be registered behind it as a target. Either way it does the part gateways do not: ingestion and freshness, chunking and embeddings, pgvector retrieval with optional reranking, cited answers, governed SQL, per-caller collection and row access, PII masking on the data itself, audit, and per-caller model spend. Infrastructure stays behind open contracts. Every search, cited answer, SQL call and embedding writes a tool-call audit row, and per-caller budgets are enforced (an over-budget call is refused with 402 and audited).
 
-The tool surface is **REST/OpenAPI with service-account keys**, and a read-only MCP server at `POST /api/mcp` exposes the same 30 read actions as tools for agents that discover tools rather than being wired to them by hand. DataPond does not build gateway features (agent registry, SSO/SCIM sync, tool-level policy engines). **AWS is the current reference deployment, not the product boundary.** Run on native S3, Aurora PostgreSQL/pgvector, Glue/Athena, and Bedrock, or on PostgreSQL, S3-compatible storage, and local/cloud models through LiteLLM.
+The tool surface is **REST/OpenAPI with service-account keys**, and a read-only MCP server at `POST /api/mcp` exposes the same 30 read actions as tools for agents that discover tools rather than being wired to them by hand. DataPond does not build gateway features (agent registry, SSO/SCIM sync, tool-level policy engines). **AWS is the current reference deployment, not the product boundary.** Run on native S3, Aurora PostgreSQL/pgvector, Glue + Trino, and Bedrock, or on PostgreSQL, S3-compatible storage, and local/cloud models through LiteLLM.
 
 Positioning decision and its evidence: [docs/POSITIONING_REVIEW.md](docs/POSITIONING_REVIEW.md). How well the current build fits it: [docs/POSITIONING_FIT_AUDIT.md](docs/POSITIONING_FIT_AUDIT.md).
 
@@ -15,7 +15,7 @@ Positioning decision and its evidence: [docs/POSITIONING_REVIEW.md](docs/POSITIO
 | **Governed data tool server** | `/api/ai/search`, `/api/ai/rag`, `/api/ai/sql`, `/api/queries/execute` behind service-account keys; collection ACL, RLS/masking, PII, audit, per-caller spend; called directly, or registered behind an agent gateway if you run one | Shipped (REST and read-only MCP) |
 | **Knowledge core** | Ingestion, chunk replacement, freshness scheduler, pgvector retrieval, citations, operator UI | Shipped |
 | **Open contracts** | S3 API, PostgreSQL + pgvector, LiteLLM/OpenAI-compatible model boundary, REST, OIDC, Helm/Kubernetes | Shipped |
-| **AWS adapters** | S3, Aurora, Bedrock; Glue/Athena in the single-node reference | Shipped per profile |
+| **AWS adapters** | S3, Aurora, Bedrock; Glue catalog + in-cluster Trino in the single-node reference | Shipped per profile |
 | **OSS add-ons** | Trino, Polaris, RisingWave, OpenMetadata, Airflow, Jupyter, MLflow, Spark | Optional and capability-gated |
 | **Future adapters** | EKS installer, EMR Serverless, S3 Tables, Lake Formation, AOSS, DataZone, Marketplace packaging | Roadmap |
 
@@ -67,7 +67,7 @@ flowchart TB
     DB --> AUR[Aurora PostgreSQL]
     LLM --> BR[Amazon Bedrock]
     LLM --> OTHER[Other cloud/local providers]
-    DATA --> AWS[Glue · Athena]
+    DATA --> AWS[Glue · Trino]
     DATA --> OSS[Polaris · Trino · RisingWave · OpenMetadata · Airflow]
 ```
 
@@ -79,7 +79,7 @@ The product domain does not require every component in the diagram. Runtime capa
 |---|---|---|
 | `values-foundation.yaml` | **Portable Core · AWS starter** | About five workloads: backend, frontend, PostgreSQL/pgvector, LiteLLM, Valkey; external native S3 + Bedrock; no catalog/query service |
 | `values-sovereign-core.yaml` | **Sovereign Core** | On-prem twin of the AWS starter: core five + in-cluster MinIO + Ollama; no catalog/query, no add-ons, no egress |
-| `values-prod-single.yaml` | **AWS Single-Node Reference** | EC2/K3s application node with external Aurora, S3, Glue/Athena, Bedrock, ECR, TLS, and CloudWatch metrics; not application-node HA |
+| `values-prod-single.yaml` | **AWS Single-Node Reference** | EC2/K3s application node with external Aurora, S3, Glue, Bedrock, ECR, TLS, and CloudWatch metrics, Trino in-cluster; not application-node HA |
 | `values-aws.yaml` | **AWS Hybrid Extended compatibility** | Connects an existing Kubernetes cluster to S3, Bedrock, and external PostgreSQL; states none of the OSS add-on flags, so a fresh install renders none and an existing cluster keeps whatever it is already running; does not provision EKS |
 | `values-onprem.yaml` | **Sovereign OSS Extended** | Self-hosted core plus selected local/OSS services; higher operational footprint |
 | `values-dev.yaml`, `values-quicktest.yaml` | Development/test | Reduced-resource integration environments |
@@ -151,7 +151,7 @@ Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider r
 
 ### Optional
 
-- Glue/Athena data plane in the AWS single-node reference
+- Glue catalog + Trino data plane in the AWS single-node reference
 - Polaris/Trino catalog and query
 - RisingWave streaming (Experimental)
 - Airflow-backed SQL transforms deploy and run; the declarative pipeline builder on the
