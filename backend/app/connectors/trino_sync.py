@@ -80,8 +80,11 @@ _WIDENS = {("integer", "bigint"), ("real", "double"), ("integer", "double"), ("b
 
 def compatible(source_type: str, target_type: str) -> bool:
     """Whether a target column of `target_type` can hold the source column as is or by a
-    widening cast (the only type differences a sync tolerates)."""
+    widening cast (the only type differences a sync tolerates). A decimal source loads
+    into a double target: that is what the pandas path wrote for every NUMERIC column."""
     src, dst = iceberg_type(source_type), iceberg_type(target_type)
+    if src.startswith("decimal(") and dst == "double":
+        return True
     return src == dst or (src, dst) in _WIDENS
 
 

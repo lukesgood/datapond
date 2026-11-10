@@ -108,6 +108,17 @@ def test_a_merge_whose_every_column_is_a_key_only_inserts():
     assert "WHEN MATCHED" not in sql and "WHEN NOT MATCHED THEN INSERT" in sql
 
 
+def test_a_decimal_source_loads_into_a_double_target_written_before_2_5():
+    """Live cutover 2026-11-10: `iceberg.default.orders` (pandas path, float64 → double)
+    refused the sample's NUMERIC(10,2) `total_amount` as 'changed type from double to
+    decimal(10,2)'. The pandas path loaded decimals as doubles; the Trino path casts."""
+    assert s.compatible("decimal(10,2)", "double") is True
+    assert s.build_evolve(T, [("amt", "double")], [("amt", "decimal(10,2)")]) == []
+    (replace,) = s.build_full(T, S, [("amt", "decimal(10,2)")], None, existing=[("amt", "double")])
+    assert 'CAST("amt" AS double) AS "amt"' in replace
+    assert s.compatible("double", "decimal(10,2)") is False, "narrowing is still a change"
+
+
 def test_evolve_adds_new_columns_and_refuses_a_type_change():
     assert s.build_evolve(T, [("id", "integer")], [("id", "integer"), ("email", "varchar(10)")]) == \
         ['ALTER TABLE "iceberg"."default"."orders" ADD COLUMN "email" varchar']
