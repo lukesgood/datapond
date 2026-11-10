@@ -20,7 +20,8 @@ syncing. Phase 2 of `docs/superpowers/specs/2026-11-09-trino-unified-engine-and-
   bound watermark cast to the column's type (incremental), `ALTER TABLE … ADD COLUMN`
   for new source columns. A column whose type changed stops the sync with a message
   naming it, except a target column that is wider than the source (`bigint` for
-  `integer`, `double` for `real`): the load casts up. PII columns are masked inside the
+  `integer`, `double` for `real` or `decimal(p,s)` — the pandas path wrote every
+  NUMERIC as a double): the load casts up. PII columns are masked inside the
   `SELECT` (`pii_ko.mask_sql`) — the raw value never reaches the lake.
 - **Unqualified table names resolve against the lake catalogs only.** A source catalog
   is a customer's live database; `SELECT … FROM orders` never reaches it. Federate it by
