@@ -210,7 +210,13 @@ def normalise_type_and_config(t: ConnectorType, config: dict) -> Tuple[Connector
 import asyncio  # noqa: E402
 from typing import Any, List  # noqa: E402
 
-from .base import BaseConnector, ColumnSchema, ConnectionTestResult, SyncJobStatus, TableSchema  # noqa: E402
+import logging  # noqa: E402
+from datetime import datetime  # noqa: E402
+
+from .base import (  # noqa: E402
+    BaseConnector, ColumnSchema, ConnectionTestResult, SyncJobStatus, SyncMode, SyncStatus, TableSchema)
+
+logger = logging.getLogger(__name__)
 
 _IDENT = re.compile(r"^[A-Za-z0-9_$]+$")
 
@@ -305,5 +311,120 @@ class TrinoSourceConnector(BaseConnector):
         return await asyncio.to_thread(self._read_via_trino, schema, name,
                                        max(1, min(int(limit), 10000)), max(0, int(offset)))
 
-    async def sync_to_iceberg(self, source_table: str, target_table: str, *args, **kwargs) -> SyncJobStatus:
-        raise NotImplementedError("Trino-backed sync arrives with trino_sync (Phase 2, Task 6).")
+    # ── sync: Trino copies the source into Iceberg ───────────────────────────
+
+    def _target(self, source_table: str, target_table: Optional[str]):
+        from . import trino_sync
+        return trino_sync.target_ref(source_table, target_table)
+
+    def _source_columns(self, cur, schema: str, name: str):
+        cur.execute(
+            f"SELECT column_name, data_type, is_nullable FROM {self.catalog}.information_schema.columns "
+            f"WHERE table_schema='{schema}' AND table_name='{name}' ORDER BY ordinal_position")
+        return [(r[0], r[1]) for r in cur.fetchall()]
+
+    @staticmethod
+    def _target_columns(cur, target):
+        cur.execute(
+            f"SELECT column_name, data_type FROM {target.catalog}.information_schema.columns "
+            f"WHERE table_schema='{target.namespace}' AND table_name='{target.table}' "
+            f"ORDER BY ordinal_position")
+        return [(r[0], r[1]) for r in cur.fetchall()]
+
+    @staticmethod
+    def _count(cur) -> int:
+        row = cur.fetchone()
+        try:
+            return int(row[0]) if row and row[0] is not None else 0
+        except (TypeError, ValueError):
+            return 0
+
+    def _run_sync(self, source_table, target_table, sync_mode, incremental_column, last_value,
+                  on_step, partition_spec, key_columns, pii_columns):
+        """Synchronous; one Trino connection for the whole job."""
+        from . import trino_sync
+        from app.catalog_registry import TableRef
+
+        def step(name, message, extra=None):
+            if on_step:
+                on_step(name, message, extra or {})
+
+        if not self.catalog:
+            raise RuntimeError("This source has no Trino catalog yet (it is still being "
+                               "projected). Try again in a minute.")
+        schema, name = self._split(source_table)
+        source = TableRef(self.catalog, schema, name)
+        target = self._target(source_table, target_table)
+        if incremental_column:
+            _ident(incremental_column)
+
+        step("connect", f"Connecting to Trino ({self.catalog})…")
+        cur = self._cursor(timeout=3600)
+        self._last_cursor = cur
+
+        step("introspect", f"Reading columns of {source.sql()}…")
+        columns = self._source_columns(cur, schema, name)
+        if not columns:
+            raise RuntimeError(f"{source.sql()} has no columns Trino can see (does the table exist?).")
+        existing = self._target_columns(cur, target)
+
+        step("create", f"Ensuring {target.sql()} exists…")
+        cur.execute(trino_sync.build_create(target, columns, partition_spec))
+
+        step("evolve", "Adding new source columns to the target…")
+        if existing:
+            for stmt in trino_sync.build_evolve(target, existing, columns):
+                cur.execute(stmt)
+
+        incremental = sync_mode == SyncMode.INCREMENTAL and bool(incremental_column)
+        max_value = last_value
+        masked = sorted(trino_sync.pii_set(columns, pii_columns))
+        if incremental:
+            step("load", f"Loading rows of {source.sql()} newer than the watermark…",
+                 {"incremental_column": incremental_column, "last_value": last_value,
+                  "pii_masked": masked})
+            stmts, watermark = trino_sync.build_incremental(
+                target, source, columns, pii_columns, incremental_column, last_value, key_columns)
+            rows = 0
+            for sql, params in stmts:
+                cur.execute(sql, params) if params else cur.execute(sql)
+                rows += self._count(cur)
+            step("watermark", "Reading the new watermark…")
+            cur.execute(watermark)
+            row = cur.fetchone()
+            if row and row[0] is not None:
+                max_value = str(row[0])
+        else:
+            step("load", f"Replacing {target.sql()} with {source.sql()}…", {"pii_masked": masked})
+            delete, insert = trino_sync.build_full(target, source, columns, pii_columns)
+            cur.execute(delete)
+            cur.fetchall()
+            cur.execute(insert)
+            rows = self._count(cur)
+        return rows, max_value, target
+
+    async def sync_to_iceberg(self, source_table: str, target_table: str,
+                              sync_mode: SyncMode = SyncMode.FULL,
+                              incremental_column: Optional[str] = None,
+                              last_value: Optional[Any] = None, on_step=None,
+                              partition_spec: Optional[list] = None,
+                              key_columns: Optional[list] = None,
+                              pii_columns: Optional[list] = None) -> SyncJobStatus:
+        from . import probe
+        started_at = datetime.utcnow()
+        try:
+            rows, max_value, target = await asyncio.to_thread(
+                self._run_sync, source_table, target_table, sync_mode, incremental_column,
+                last_value, on_step, partition_spec, key_columns, pii_columns)
+            return SyncJobStatus(
+                status=SyncStatus.SUCCESS, started_at=started_at, completed_at=datetime.utcnow(),
+                rows_processed=rows, rows_failed=0,
+                metadata={"source_table": source_table, "target_table": target_table,
+                          "sync_mode": sync_mode.value, "iceberg_table": target.sql(),
+                          "max_value": max_value, "engine": "trino"})
+        except Exception as e:
+            message = probe.scrub(str(e) or type(e).__name__, self.config)[:1000]
+            logger.warning("[trino_sync] %s → %s failed: %s", source_table, target_table, message)
+            return SyncJobStatus(status=SyncStatus.FAILED, started_at=started_at,
+                                 completed_at=datetime.utcnow(), rows_processed=0, rows_failed=0,
+                                 error_message=message)

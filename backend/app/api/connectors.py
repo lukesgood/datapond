@@ -216,7 +216,6 @@ from ..connectors.base import (
     ConnectionStatus,
     SyncStatus
 )
-from ..connectors.database import DatabaseConfig, PostgreSQLConnector, MySQLConnector
 from ..connectors import trino_source as _trino_source
 from ..connectors.trino_source import TrinoSourceConfig, TrinoSourceConnector
 from ..connectors.storage import StorageConfig, S3Connector

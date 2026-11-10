@@ -112,9 +112,3 @@ def test_test_connection_always_uses_the_driver(monkeypatch):
     c = _connector({})
     assert asyncio.run(c.test_connection()).success is True
     assert seen == [(T.POSTGRESQL, "h")]
-
-
-def test_sync_is_not_available_until_task_6():
-    c = _connector({})
-    with pytest.raises(NotImplementedError):
-        asyncio.run(c.sync_to_iceberg("public.users", "users"))

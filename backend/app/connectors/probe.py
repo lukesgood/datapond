@@ -51,10 +51,12 @@ def _driver(t: T):
 
 
 def scrub(text: str, cfg: TrinoSourceConfig) -> str:
-    """`text` with every spelling of the password removed."""
+    """`text` with every spelling of the password removed. A password shorter than four
+    characters is not scrubbed: it would be a substring of ordinary words and turn the
+    message into asterisks (and no real system accepts one)."""
     out = str(text or "")
     pw = cfg.password or ""
-    if pw:
+    if len(pw) >= 4:
         for spelled in {pw, quote_plus(pw), quote(pw, safe="")}:
             out = out.replace(spelled, "***")
     return out

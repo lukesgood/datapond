@@ -12,10 +12,8 @@ import types
 
 import pandas as pd
 
-from app.connectors import database
 from app.connectors.base import ConnectorType, SyncStatus, target_namespace
 from app.connectors.custom import CustomConfig, CustomConnector
-from app.connectors.database import DatabaseURLConfig, DatabaseURLConnector
 from app.connectors.rest import RestConfig, RestConnector
 from app.connectors.storage import S3Connector, StorageConfig
 
@@ -86,40 +84,3 @@ def test_s3_writes_into_the_target_namespace(monkeypatch):
     st = _run(s.sync_to_iceberg("in/", "datapond.raw.files"))
     assert st.status == SyncStatus.SUCCESS
     assert w.calls == [{"table": "files", "schema": "raw"}]
-
-
-def test_database_syncs_write_into_the_target_namespace(monkeypatch):
-    captured = {}
-
-    def fake_rwc(engine, query, source_table, write_mode, incremental_column,
-                 on_step=None, partition_spec=None, key_columns=None, pii_columns=None,
-                 chunk_size=database.INGEST_CHUNK_SIZE, params=None, namespace="default"):
-        captured["namespace"] = namespace
-        return 1, None
-
-    monkeypatch.setattr(database, "_read_write_chunked", fake_rwc)
-    c = DatabaseURLConnector(DatabaseURLConfig(
-        name="d", connector_type=ConnectorType.DATABASE_URL, database_url="sqlite:///:memory:"))
-    st = _run(c.sync_to_iceberg("public.events", "datapond.sales.events"))
-    assert st.status == SyncStatus.SUCCESS
-    assert captured["namespace"] == "sales"
-    assert st.metadata["iceberg_table"] == "iceberg.sales.events"
-
-
-def test_the_chunked_writer_passes_the_namespace_through(monkeypatch):
-    w = _patch_writer(monkeypatch)
-
-    class _Conn:
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-
-    class _Engine:
-        def connect(self): return self
-        def execution_options(self, **kw): return _Conn()
-
-    monkeypatch.setattr(database.pd, "read_sql",
-                        lambda sql, conn=None, chunksize=None, params=None:
-                        iter([pd.DataFrame({"id": [1]})]))
-    database._read_write_chunked(_Engine(), "SELECT 1", "t", "overwrite", None,
-                                 namespace="sales")
-    assert w.calls == [{"table": "t", "schema": "sales"}]
