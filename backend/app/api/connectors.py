@@ -22,6 +22,8 @@ from typing import List, Optional, Dict, Any, AsyncGenerator, Tuple
 from datetime import datetime
 import uuid
 import asyncpg
+import re
+import time
 import asyncio
 import json
 import os
@@ -811,57 +813,16 @@ async def create_sample_db():
             # insert, which leaves every sequence at 1.
             for statement in sequence_reset_statements():
                 await sample_conn.execute(statement)
+            await grant_sample_role(sample_conn, "sampledb")
         finally:
             await sample_conn.close()
 
-        pool = await get_db_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT id, config_encrypted FROM connector_connections "
-                "WHERE name='Sample E-Commerce DB'")
-
-        decryptable = False
-        if row:
-            try:
-                vault.decrypt_credentials(row["config_encrypted"])
-                decryptable = True
-            except Exception:
-                decryptable = False
-
-        action = connector_action(exists=bool(row), decryptable=decryptable)
-        sample_config = {
-            "host": os.getenv("POSTGRES_HOST", "postgres"),
-            "port": 5432,
-            "database": "sampledb",
-            "username": os.getenv("POSTGRES_USER", "datapond"),
-            "password": component_secret("POSTGRES_PASSWORD", "dev_password",
-                                         component="postgres"),
-            "ssl": False,
-        }
-        if action == "create":
-            connection_id = str(uuid.uuid4())
-            async with pool.acquire() as conn:
-                await conn.execute("""
-                    INSERT INTO connector_connections
-                    (id, name, connector_type, config_encrypted, status, created_at, updated_at)
-                    VALUES ($1,$2,'postgresql',$3,'active',$4,$4)
-                """, connection_id, "Sample E-Commerce DB",
-                     vault.encrypt_credentials(sample_config), datetime.utcnow())
-        elif action == "repair":
-            # Re-encrypt in place. The row keeps its id, which sync history and
-            # schedules point at; a new row would orphan all of it.
-            connection_id = str(row["id"])
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    "UPDATE connector_connections SET config_encrypted=$2, "
-                    "status='active', updated_at=$3 WHERE id=$1",
-                    row["id"], vault.encrypt_credentials(sample_config), datetime.utcnow())
-            logger.warning("[sample-db] sample connector credentials could not be "
-                           "decrypted; re-encrypted with the current key")
-        else:
-            connection_id = str(row["id"])
-        # Created as "active" without a test; the check below is what makes that true.
-        check = await _check_connection(connection_id)
+        # Saved like every sample: tested, written in place, registered as a Trino
+        # catalog with the restricted role — never the application's own credentials.
+        saved = await _save_sample_connection(
+            "Sample E-Commerce DB", ConnectorType.POSTGRESQL, sample_db_config("sampledb"))
+        connection_id, action = saved["id"], saved["action"]
+        check = {"status": saved["status"]}
 
         return {
             "id": connection_id,
@@ -870,6 +831,8 @@ async def create_sample_db():
             "status": check["status"],
             "created_at": datetime.utcnow(),
             "connector_action": action,
+            "catalog": saved.get("catalog"),
+            "engine_restarting": saved.get("engine_restarting", False),
             "tables": [t.name for t in DATASET],
             "domains": sorted({t.domain for t in DATASET}),
             "seeded": seeded,
@@ -881,6 +844,8 @@ async def create_sample_db():
                         f"{len({t.domain for t in DATASET})} domains"),
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create sample DB: {str(e)}")
 
@@ -919,6 +884,10 @@ async def activate_sample_db(user: dict = Depends(require_user)):
     if not connection_id:
         raise HTTPException(status_code=409,
                             detail="Seed the sample database first (POST /connectors/sample-db).")
+    # Seeding projected a new catalog, and Trino restarts to pick it up; a sync that
+    # starts into the restart fails on connect. Wait for the engine, bounded.
+    if not await _wait_for_engine(ENGINE_WAIT_SECONDS):
+        raise HTTPException(status_code=503, detail="query engine restarting; retry in a minute")
     try:
         # `user`, explicitly: this is an in-process call to a route function whose
         # `user` parameter is a FastAPI dependency. Left to its default it is a
@@ -1021,6 +990,48 @@ def _sample_pg_params() -> Dict[str, Any]:
     }
 
 
+SAMPLE_ROLE = "datapond_sample"
+_SAMPLE_DB_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+
+
+def sample_role_credentials() -> Optional[Tuple[str, str]]:
+    """(role, password) the sample sources connect as — the read-only role migration
+    0026 creates from SAMPLE_DB_PASSWORD — or None when the chart did not set it."""
+    password = (os.getenv("SAMPLE_DB_PASSWORD") or "").strip()
+    return (SAMPLE_ROLE, password) if password else None
+
+
+def sample_db_config(database: str) -> Dict[str, Any]:
+    """The connector config of a SQL sample: the application's PostgreSQL host, the
+    sample database, the restricted role. 409 when the role is not provisioned — the
+    application's own password is never handed to a source again."""
+    creds = sample_role_credentials()
+    if creds is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Sample sources need the datapond_sample role: set SAMPLE_DB_PASSWORD "
+                   "(chart ≥ 2.5) and rerun the migration job.")
+    return {"host": os.getenv("POSTGRES_HOST", "postgres"), "port": 5432,
+            "database": database, "username": creds[0], "password": creds[1], "ssl": False}
+
+
+def sample_role_grant_statements(database: str) -> List[str]:
+    """SELECT on everything in the sample database's public schema, now and later
+    (ALTER DEFAULT PRIVILEGES covers tables a re-seed adds). Nothing wider."""
+    if not _SAMPLE_DB_NAME.match(database or ""):
+        raise ValueError(f"not a sample database name: {database!r}")
+    return [f'GRANT CONNECT ON DATABASE "{database}" TO {SAMPLE_ROLE}',
+            f"GRANT USAGE ON SCHEMA public TO {SAMPLE_ROLE}",
+            f"GRANT SELECT ON ALL TABLES IN SCHEMA public TO {SAMPLE_ROLE}",
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {SAMPLE_ROLE}"]
+
+
+async def grant_sample_role(conn, database: str) -> None:
+    """Run on a connection to `database` (the grants on its schema live there)."""
+    for statement in sample_role_grant_statements(database):
+        await conn.execute(statement)
+
+
 async def _sample_connection_ids() -> Dict[str, str]:
     from app.sample_sources import SAMPLE_SOURCES
     pool = await get_db_pool()
@@ -1052,27 +1063,44 @@ async def _save_sample_connection(name: str, connector_type: ConnectorType,
     status = ConnectionStatus.ACTIVE.value if ok else "error"
     encrypted = vault.encrypt_credentials(config)
     now = datetime.utcnow()
+    is_trino = _trino_source.engine_of(connector_type.value) == "trino"
+    slug = None
     pool = await get_db_pool()
     async with pool.acquire() as conn:
-        existing = await conn.fetchval(
-            "SELECT id FROM connector_connections WHERE name=$1", name)
-        if existing:
-            await conn.execute(
-                "UPDATE connector_connections SET config_encrypted=$2, status=$3, "
-                "updated_at=$4 WHERE id=$1", existing, encrypted, status, now)
-            connection_id, action = str(existing), "updated"
-        else:
-            # Unowned, like the e-commerce sample: a demo everyone on the install can see.
-            connection_id = str(uuid.uuid4())
-            await conn.execute("""
-                INSERT INTO connector_connections
-                (id, name, connector_type, config_encrypted, status, created_at, updated_at)
-                VALUES ($1,$2,$3,$4,$5,$6,$6)
-            """, connection_id, name, connector_type.value, encrypted, status, now)
-            action = "created"
+        async with conn.transaction():
+            existing = await conn.fetchval(
+                "SELECT id FROM connector_connections WHERE name=$1", name)
+            if existing:
+                # connector_type too: the finance sample was a `database_url` row before 2.5.
+                await conn.execute(
+                    "UPDATE connector_connections SET connector_type=$5, config_encrypted=$2, "
+                    "status=$3, updated_at=$4 WHERE id=$1",
+                    existing, encrypted, status, now, connector_type.value)
+                connection_id, action = str(existing), "updated"
+            else:
+                # Unowned, like the e-commerce sample: a demo everyone on the install can see.
+                connection_id = str(uuid.uuid4())
+                await conn.execute("""
+                    INSERT INTO connector_connections
+                    (id, name, connector_type, config_encrypted, status, created_at, updated_at)
+                    VALUES ($1,$2,$3,$4,$5,$6,$6)
+                """, connection_id, name, connector_type.value, encrypted, status, now)
+                action = "created"
+            if is_trino:
+                # A sample is a Trino catalog like any other SQL source. Idempotent: a
+                # re-saved row keeps the catalog it already has.
+                from app.connectors import source_catalog
+                slug = await source_catalog.catalog_for(conn, connection_id)
+                if not slug:
+                    slug = await source_catalog.register(
+                        conn, connection_id=connection_id, name=name,
+                        connector_type=connector_type.value)
+                await source_catalog.sync_grants(conn, connection_id)
     await _record_check(connection_id, ok, message)
+    restarting = await _project_catalogs(pool, slug) if is_trino else False
     return {"id": connection_id, "action": action, "status": status,
-            "test": {"success": ok, "message": message}}
+            "test": {"success": ok, "message": message},
+            "catalog": slug, "engine_restarting": restarting}
 
 
 def _sample_bucket() -> Optional[str]:
@@ -1144,7 +1172,7 @@ async def _add_custom_sample(source) -> Dict[str, Any]:
 async def _add_finance_sample(source) -> Dict[str, Any]:
     from app.sample_data import ddl_statement, insert_statements
     from app.sample_sources import (
-        FINANCE_DATABASE, FINANCE_DATASET, database_url, finance_sequence_reset_statements,
+        FINANCE_DATABASE, FINANCE_DATASET, finance_sequence_reset_statements,
     )
     pg = _sample_pg_params()
     sys_conn = await asyncpg.connect(database="postgres", **pg)
@@ -1165,10 +1193,11 @@ async def _add_finance_sample(source) -> Dict[str, Any]:
             seeded[t.name] = await conn.fetchval(f"SELECT COUNT(*) FROM {t.name}")
         for statement in finance_sequence_reset_statements():
             await conn.execute(statement)
+        await grant_sample_role(conn, FINANCE_DATABASE)
     finally:
         await conn.close()
-    config = {"database_url": database_url(pg["host"], pg["port"], pg["user"], pg["password"])}
-    saved = await _save_sample_connection(source.name, ConnectorType.DATABASE_URL, config)
+    saved = await _save_sample_connection(
+        source.name, ConnectorType.POSTGRESQL, sample_db_config(FINANCE_DATABASE))
     return {**saved, "database": FINANCE_DATABASE, "seeded": seeded}
 
 
@@ -1185,6 +1214,30 @@ _SAMPLE_BUILDERS = {
     "custom_python": _add_custom_sample,
     "database_url": _add_finance_sample,
 }
+
+
+ENGINE_WAIT_SECONDS = 180
+
+
+async def _wait_for_engine(timeout: float, poll: float = 5.0) -> bool:
+    """True when Trino reports ready (or there is no engine to wait for / Kubernetes
+    cannot be asked); False only when it stayed not-ready for `timeout` seconds."""
+    from app.connectors import trino_catalogs
+    if not trino_catalogs.enabled():
+        return True
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            st = await asyncio.to_thread(
+                lambda: trino_catalogs.engine_status(trino_catalogs.RealKube()))
+        except Exception as e:
+            logger.warning("[sample-db] engine status unavailable (%s); not waiting", e)
+            return True
+        if st.get("ready"):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        await asyncio.sleep(poll)
 
 
 @router.get("/connectors/engine")

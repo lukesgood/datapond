@@ -227,6 +227,9 @@ postgres:
     database: datapond
     username: datapond
     password: ""  # empty ⇒ Helm generates & preserves (see templates/secrets.yaml)
+    # Password of the read-only `datapond_sample` role the SQL sample sources use
+    # (migration 0026). Letters and digits only, 16–64 chars. Empty ⇒ generated & preserved.
+    samplePassword: ""
 
   # High Availability (optional)
   replication:
