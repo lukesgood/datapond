@@ -100,7 +100,7 @@ helm upgrade --install datapond helm/datapond \
 Then:
 
 1. Sign in and open **Knowledge**.
-2. Create a collection and ingest text or an S3 source.
+2. Create a collection and ingest text or an S3 source. (Database sources — PostgreSQL, MySQL, SQL Server, Oracle, MongoDB — are Trino catalogs and need a profile with Trino; REST, custom Python and S3 sources are read by the backend on every profile.)
 3. Test semantic search, then ask a cited RAG question.
 4. Open **API**, issue a service-account key with `knowledge:read` and `ai:generate`, and call `/api/ai/rag` from your app or agent using the curl sample shown there.
 5. Review **Governance** and **AI Gateway** for who called what, PII, usage, and spend.

@@ -142,7 +142,7 @@ spend 귀속은 실제로 있다. 그러나 문장이 약속하는 "호출자 �
 - `/ai/sql`은 질문·컨텍스트만 마스킹, 생성된 SQL·설명은 재검사 안 함 — `ai_sql.py:380-392`
 - **`/queries/execute` 결과 행은 어디서도 PII 검사 없음** — `queries.py` 전체
 - 모드는 전역 env 하나(`PII_GUARDRAIL_MODE`, 기본 mask) — `pii_ko.py:100-101`. 호출자·컬렉션별 정책 없음.
-  유일한 리소스별 설정은 커넥터의 `pii_columns` — `backend/app/connectors/database.py:57-79`
+  유일한 리소스별 설정은 커넥터의 `pii_columns` — `backend/app/connectors/pii_chunk.py`(백엔드 경로) · `trino_sync.pii_set`(Trino 소스, 2.5)
 
 ### 2.5 감사 — 미충족
 

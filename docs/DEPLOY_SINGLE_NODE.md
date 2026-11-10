@@ -628,6 +628,34 @@ seeing rather than assuming.
 
 ---
 
+## 6c. Source catalogs (2.5)
+
+Every database connection created in Sources is a Trino catalog `src_<slug>`. The backend
+renders the catalog files into the Secret `trino-source-catalogs` and the passwords into
+`trino-source-credentials`, then restarts Trino (~1 min; `GET /api/connectors/engine`
+reports it). Both Secrets are **lookup-preserved** — `helm upgrade` keeps whatever the
+backend wrote — and the backend Role may `get`/`patch` exactly those two and nothing else.
+
+```bash
+# Which catalogs are projected — key names only; the values are connection credentials.
+kubectl -n datapond get secret trino-source-catalogs -o jsonpath='{.data}' | jq 'keys'
+kubectl -n datapond get deploy trino -o jsonpath='{.spec.template.metadata.annotations}' | jq .
+curl -sk https://datapond.example.com/api/connectors/engine -H "Authorization: Bearer $TOKEN" | jq .
+```
+
+On a rebuild there is nothing to back up here: the Secrets are a projection of
+`connector_connections` (Aurora) decrypted with `ENCRYPTION_KEY`, and the backend
+re-creates them on start (`trino_catalogs.reconcile_on_startup`). That is one more reason
+the §7 rule holds — re-seed `ENCRYPTION_KEY` from the vault **before** the backend starts;
+a connection whose credentials no longer decrypt is skipped (logged with its catalog
+name) and shows as broken in Sources until its credentials are re-entered.
+
+The sample sources connect as the read-only `datapond_sample` role, created by migration
+0026 from `SAMPLE_DB_PASSWORD` (generated into `datapond-secrets` by the chart; the
+migration Job must run once after the 2.5 upgrade).
+
+---
+
 ## 7. Disaster recovery
 
 This deployment's availability posture is **"no HA, fast restore"** — a deliberate
