@@ -633,6 +633,8 @@ jobs:
           kubectl -n datapond get configmap trino-catalog -o yaml | grep -v -i "secret" || true
           # Which source catalogs were projected — key names only, never values.
           kubectl -n datapond get secret trino-source-catalogs -o jsonpath='{.data}' | grep -o '"[^"]*":' || true
+          # Which env names the application container carries (names only).
+          kubectl -n datapond get deploy backend -o jsonpath='{.spec.template.spec.containers[?(@.name=="backend")].env[*].name}' || true; echo
           kubectl -n datapond logs -l app.kubernetes.io/component=migrate --tail=40 || true
           kubectl -n datapond logs deploy/backend --tail=150 || true
 

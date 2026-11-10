@@ -56,10 +56,6 @@ spec:
         - name: POSTGRES_DB
           valueFrom:
             secretKeyRef: {name: datapond-secrets, key: POSTGRES_DB}
-        # The sample sources' read-only role (migration 0026); Trino connects as it.
-        - name: SAMPLE_DB_PASSWORD
-          valueFrom:
-            secretKeyRef: {name: datapond-secrets, key: SAMPLE_DB_PASSWORD}
         - name: POSTGRES_HOST
           value: "{{ if .Values.externalDatabase.enabled }}{{ .Values.externalDatabase.host }}{{ else }}postgres{{ end }}"
         - name: POSTGRES_PORT
@@ -299,6 +295,16 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: ENCRYPTION_KEY
+        # Password of the read-only datapond_sample role the SQL sample sources connect
+        # through (migration 0026 creates it; the backend hands it to Trino as a source
+        # catalog credential). Optional: a chart that renders no PostgreSQL credentials
+        # (no in-cluster postgres, no external database) has no samples to offer.
+        - name: SAMPLE_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SAMPLE_DB_PASSWORD
+              optional: true
         # Initial admin login password (generated/preserved — see secrets.yaml)
         - name: ADMIN_PASSWORD
           valueFrom:
