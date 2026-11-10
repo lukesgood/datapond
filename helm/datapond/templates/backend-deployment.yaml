@@ -253,6 +253,17 @@ spec:
         # chart creates it with and the Role permits writing.
         - name: TRINO_ACL_CONFIGMAP
           value: {{ .Values.trino.rls.configMapName | default "trino-access-control" | quote }}
+        {{- if include "datapond.addonOn" (dict "root" $ "component" "trino") }}
+        # Source catalogs (app/connectors/trino_catalogs.py): the Secrets the backend
+        # projects Trino-backed connections into, and the Deployment it restarts so
+        # Trino reads them. Absent on profiles without Trino: no projection runs.
+        - name: TRINO_SOURCE_CATALOGS_SECRET
+          value: {{ include "datapond.trinoSourceCatalogsSecret" . | quote }}
+        - name: TRINO_SOURCE_CREDENTIALS_SECRET
+          value: {{ include "datapond.trinoSourceCredentialsSecret" . | quote }}
+        - name: TRINO_DEPLOYMENT
+          value: {{ .Values.trino.name | quote }}
+        {{- end }}
         # Periodic source connection checks (app/connector_checks.py). They contact
         # customer systems on a schedule, so there is an off switch; `dig` for the
         # bool-false case, as above.
@@ -284,6 +295,16 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: ENCRYPTION_KEY
+        # Password of the read-only datapond_sample role the SQL sample sources connect
+        # through (migration 0026 creates it; the backend hands it to Trino as a source
+        # catalog credential). Optional: a chart that renders no PostgreSQL credentials
+        # (no in-cluster postgres, no external database) has no samples to offer.
+        - name: SAMPLE_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SAMPLE_DB_PASSWORD
+              optional: true
         # Initial admin login password (generated/preserved — see secrets.yaml)
         - name: ADMIN_PASSWORD
           valueFrom:

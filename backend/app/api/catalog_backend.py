@@ -404,9 +404,70 @@ class IcebergRestReader:
         return {"columns": cols, "rows": rows}
 
 
+# ── Trino source catalogs ────────────────────────────────────────────────────
+#
+# A Trino-backed connection (PostgreSQL, MySQL, SQL Server, Oracle, MongoDB) is a Trino
+# catalog `src_<slug>` (app/connectors/trino_source.py). Everything about it is read
+# through Trino: there is no Iceberg metadata, no location, and a COUNT(*) would scan a
+# customer's production table, so row_count stays None.
+
+# Schemas the source engines keep for themselves; nobody browses them as data.
+SOURCE_SYSTEM_SCHEMAS = frozenset({"information_schema", "pg_catalog", "mysql", "sys",
+                                   "performance_schema"})
+
+
+class TrinoSourceReader:
+    def __init__(self, entry):
+        self.entry = entry
+        self.catalog = safe_identifier(entry.engine_catalog)
+
+    def _cursor(self):
+        from app.api import trino_util
+        return trino_util.trino_conn(catalog=self.catalog, timeout=15).cursor()
+
+    def list_namespaces(self):
+        cur = self._cursor()
+        cur.execute(f"SHOW SCHEMAS FROM {self.catalog}")
+        return [r[0] for r in cur.fetchall()
+                if r[0] and r[0].lower() not in SOURCE_SYSTEM_SCHEMAS]
+
+    def list_tables(self, namespace):
+        safe_identifier(namespace)
+        cur = self._cursor()
+        cur.execute(f"SHOW TABLES FROM {self.catalog}.{namespace}")
+        return [r[0] for r in cur.fetchall()]
+
+    def get_columns(self, namespace, table):
+        for name in (namespace, table):
+            safe_identifier(name)
+        cur = self._cursor()
+        cur.execute(
+            f"SELECT column_name, data_type, is_nullable FROM {self.catalog}.information_schema.columns "
+            f"WHERE table_schema='{namespace}' AND table_name='{table}' ORDER BY ordinal_position")
+        return [{"name": r[0], "type": r[1], "nullable": (str(r[2]).upper() == "YES")}
+                for r in cur.fetchall()]
+
+    def get_location(self, namespace, table):
+        return None
+
+    def row_count(self, namespace, table):
+        return None
+
+    def preview(self, namespace, table, limit):
+        for name in (namespace, table):
+            safe_identifier(name)
+        cur = self._cursor()
+        cur.execute(f"SELECT * FROM {self.catalog}.{namespace}.{table} LIMIT {min(int(limit), 500)}")
+        rows_raw = cur.fetchall()
+        cols = [d[0] for d in cur.description]
+        return {"columns": cols, "rows": [list(r) for r in rows_raw]}
+
+
 def reader_for_entry(entry):
     """The reader for one registry entry, enabled or not (the admin test route tries a
     disabled entry before an admin enables it)."""
+    if entry.kind == "trino_source":
+        return TrinoSourceReader(entry)
     if uses_rest(entry):
         return IcebergRestReader(entry)
     if entry.kind == "glue":

@@ -954,6 +954,48 @@ async def check_direct_read_endpoint(body: DirectReadIn):
     return check_direct_read(body.sql, policies, await _rls_loader.load_masks())
 
 
+_SOURCE_GRANTS = """SELECT d.engine_catalog, g.principal_kind, g.principal
+                      FROM data_catalogs d
+                      LEFT JOIN catalog_grants g ON g.catalog_name = d.name
+                     WHERE d.kind = 'trino_source' AND d.enabled"""
+
+
+async def _source_catalog_users(users) -> dict:
+    """Trino catalog name → usernames who may read it, for every enabled source
+    catalog (Phase 2): user grants by id, role grants expanded to the users holding
+    the role. An ungranted catalog maps to [] (open); a catalog whose grants name no
+    current user (deleted user, unknown role) maps to None (closed — the grant rows
+    say "restricted", so resolving nobody must not read as "everyone"). Empty when
+    the tables predate the feature or cannot be read — the section then stays as
+    before."""
+    from app.api.connectors import get_db_pool
+    try:
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(_SOURCE_GRANTS)
+    except Exception as e:
+        logger.warning("[rls] source catalog grants not read: %s", e)
+        return {}
+    by_id = {u.user_id.lower(): u.username for u in users}
+    by_role: dict = {}
+    for u in users:
+        for role in u.roles:
+            by_role.setdefault(role, set()).add(u.username)
+    out: dict = {}
+    restricted: set = set()
+    for r in rows:
+        names = out.setdefault(r["engine_catalog"], set())
+        if r["principal_kind"] == "user":
+            restricted.add(r["engine_catalog"])
+            name = by_id.get(str(r["principal"]).lower())
+            if name:
+                names.add(name)
+        elif r["principal_kind"] == "role":
+            restricted.add(r["engine_catalog"])
+            names |= by_role.get(r["principal"], set())
+    return {k: (sorted(v) if v or k not in restricted else None) for k, v in out.items()}
+
+
 @router.get("/governance/rls/trino-rules", dependencies=[Depends(require_permission("governance:read"))])
 async def get_trino_rules():
     """
@@ -970,7 +1012,8 @@ async def get_trino_rules():
     default_deny = os.getenv("RLS_DEFAULT_DENY", "true").lower() in ("1", "true", "yes")
     admin_bypass = os.getenv("RLS_ADMIN_BYPASS", "false").lower() in ("1", "true", "yes")
     rules = generate_rules(users, policies, masks,
-                           default_deny=default_deny, admin_bypass=admin_bypass)
+                           default_deny=default_deny, admin_bypass=admin_bypass,
+                           source_catalogs=await _source_catalog_users(users))
     return {"rules": rules, "summary": rules_summary(rules),
             "users": len(users), "policies": len(policies), "masks": len(masks)}
 
@@ -991,7 +1034,8 @@ async def apply_trino_rules(user: Optional[dict] = Depends(_get_current_user)):
     default_deny = os.getenv("RLS_DEFAULT_DENY", "true").lower() in ("1", "true", "yes")
     admin_bypass = os.getenv("RLS_ADMIN_BYPASS", "false").lower() in ("1", "true", "yes")
     rules = generate_rules(users, policies, masks,
-                           default_deny=default_deny, admin_bypass=admin_bypass)
+                           default_deny=default_deny, admin_bypass=admin_bypass,
+                           source_catalogs=await _source_catalog_users(users))
     cm_name = os.getenv("TRINO_ACL_CONFIGMAP", "trino-access-control")
     namespace = os.getenv("POD_NAMESPACE", "datapond")
     try:

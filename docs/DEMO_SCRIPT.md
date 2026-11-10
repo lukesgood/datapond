@@ -118,6 +118,21 @@ returned to the agent. The refused (402) call is there too.
 AWS Single-Node Reference has it: Trino over the Glue catalog). Uses the sample `orders` table; on
 another catalog, change `catalog`, `base_table` and the columns.
 
+If the sample is not there yet: Sources → **Sample sources** → add the e-commerce
+sample. It is a PostgreSQL source read through Trino, so the query engine restarts for
+about a minute before **Activate** can run its sync (the page shows the banner and waits).
+Once synced, the same table answers from two places — the lake copy and the live source —
+and one query can join them, which is the sentence to say out loud:
+
+```sql
+SELECT count(*) AS lake FROM iceberg.default.orders;
+SELECT count(*) AS live FROM src_sample_e_commerce_db.public.orders;
+SELECT l.channel, count(*) AS lake_orders, count(s.id) AS still_in_source
+FROM iceberg.default.orders l
+LEFT JOIN src_sample_e_commerce_db.public.orders s ON s.id = l.id
+GROUP BY l.channel ORDER BY lake_orders DESC;
+```
+
 Define and approve a metric (console: Metrics → New, then Approve), or as below. A
 retired name cannot be reused, so for a second run pick a new name (`demo_order_count_2`).
 

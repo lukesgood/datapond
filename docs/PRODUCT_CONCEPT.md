@@ -182,7 +182,7 @@ AWS Summit Seoul 2026의 규제 환경 에이전트 세션은 책임 소재와 �
 |---|---|---|
 | Home | Dashboard | profile, core workflow, health |
 | Build AI | Knowledge, API | 모든 프로필에서 표시. API는 도구 면의 진입점 |
-| Data | Sources, Catalog, Analytics | adapter capability가 true일 때만 |
+| Data | Sources, Catalog, Analytics | adapter capability가 true일 때만 — Sources(`connectors`)는 Trino가 켜진 프로파일에서만: DB 소스(PostgreSQL·MySQL·SQL Server·Oracle·MongoDB)는 Trino 카탈로그 `src_<slug>`로 조회·동기화·연합되고, REST·custom Python·S3는 백엔드가 읽는다 (2.5) |
 | Add-ons | Transforms, Streaming, Notebooks, Experiments | 해당 add-on 활성화 시에만, 지원 티어 배지 |
 | Operate | AI Gateway, Governance, Storage, Infrastructure, Settings | 호출자·비용·정책 운영 |
 | Learn | Help | shipped/optional/roadmap 구분 |

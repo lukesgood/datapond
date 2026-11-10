@@ -70,9 +70,11 @@ SAMPLE_SOURCES: List[SampleSource] = [
         "custom_python", "Sample Business Calendar", "custom",
         "Custom Python 커넥터 — 2026년 영업일·공휴일 캘린더를 코드로 생성",
         ("business_calendar",)),
+    # The kind id `database_url` is the finance sample's handle (console panel, builders);
+    # the connector itself is a PostgreSQL source read through Trino, like the e-commerce one.
     SampleSource(
-        "database_url", "Sample Finance DB", "database_url",
-        "SQLAlchemy URL로 연결한 데이터베이스 — 주문별 청구서와 결제",
+        "database_url", "Sample Finance DB", "postgresql",
+        "별도 PostgreSQL 데이터베이스 — 주문별 청구서와 결제 (Trino 카탈로그로 조회)",
         ("invoices", "payments")),
 ]
 
@@ -470,12 +472,6 @@ def s3_config(bucket: str, region: str, endpoint_url: str = "",
     return config
 
 
-def database_url(host: str, port: int, user: str, password: str) -> str:
-    from urllib.parse import quote
-    return (f"postgresql://{quote(user, safe='')}:{quote(password, safe='')}"
-            f"@{host}:{port}/{FINANCE_DATABASE}")
-
-
 def join_examples() -> List[Dict[str, str]]:
     """Questions the combined samples answer, for the response and the docs. Each one
     spans at least two sources — that is the point of adding them."""
@@ -489,5 +485,5 @@ def join_examples() -> List[Dict[str, str]]:
         {"question": "달러 환산 월별 매출",
          "tables": "orders (PostgreSQL) × fx_rates (REST)"},
         {"question": "영업일 기준 청구서 연체 일수",
-         "tables": "invoices (Database URL) × business_calendar (Custom Python)"},
+         "tables": "invoices (PostgreSQL, finance) × business_calendar (Custom Python)"},
     ]

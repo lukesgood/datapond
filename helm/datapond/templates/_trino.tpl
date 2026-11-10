@@ -122,3 +122,18 @@ for the Polaris client secret.
   s3.region={{ $c.s3Region | default ($root.Values.storage.region | default "us-east-1") }}
 {{- end }}
 {{- end -}}
+
+{{/*
+Trino source catalogs (Phase 2): the two Secrets the backend projects connector
+credentials into. `trino-source-catalogs` holds one `<catalog>.properties` per
+Trino-backed connection (passwords referenced as ${ENV:...}); `trino-source-credentials`
+holds those env values. The chart creates both empty and keeps whatever data they
+already carry across upgrades; only the backend writes them (rbac-backend.yaml).
+*/}}
+{{- define "datapond.trinoSourceCatalogsSecret" -}}
+{{- dig "sourceCatalogs" "catalogsSecret" "trino-source-catalogs" (.Values.trino | default dict) -}}
+{{- end -}}
+
+{{- define "datapond.trinoSourceCredentialsSecret" -}}
+{{- dig "sourceCatalogs" "credentialsSecret" "trino-source-credentials" (.Values.trino | default dict) -}}
+{{- end -}}

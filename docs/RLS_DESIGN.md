@@ -18,7 +18,7 @@ hard S3 boundary is applied by an operator, not by the product.
 | Layer | Module | Enforces on | Active when |
 |---|---|---|---|
 | 1 · Backend engine | `backend/app/rls/engine.py` | `POST /api/queries/execute` and the governance preview endpoint | `RLS_ENABLED=true` |
-| 2 · Trino file-based ACL | `backend/app/rls/trino_acl.py` | direct Trino connections (BI, JDBC) that never touch the backend | Trino deployed **and** rules applied |
+| 2 · Trino file-based ACL | `backend/app/rls/trino_acl.py` | direct Trino connections (BI, JDBC) that never touch the backend; since 2.5 also *which catalogs* a user may read (`catalogs` section) | Trino deployed **and** rules applied |
 | 3 · Direct-read guard | `backend/app/rls/duckdb_guard.py` | JupyterLab → DuckDB → object storage reads | Jupyter add-on deployed |
 
 Layer 1 is the only layer that enforces by itself. Layers 2 and 3 exist because a user who
@@ -190,6 +190,15 @@ An unrecognised type falls back to `'***'` rather than passing the value through
   default of `true`. Any Helm deploy sets the variable explicitly, so they agree in
   practice — but an environment with it unset would filter differently at Layer 1 than the
   generated `rules.json` does at Layer 2.
+- **Source catalogs are governed like `iceberg`.** A database connection is a Trino catalog
+  `src_<slug>` (2.5) with a `data_catalogs` row of kind `trino_source`, so `catalog_grants`
+  decide who may name it in SQL — the connection's owner and members are projected as user
+  grants, and an unowned connection is open. Row filters and masks are keyed by the fully
+  qualified name and apply to a source table (`src_crm.public.orders`) exactly as to a
+  lake table; the `/queries/execute` path is the same. At Layer 2, `generate_rules()`
+  emits a `catalogs` section: granted users read their `src_*` catalogs, open ones are
+  readable by everyone, every other `src_*` is denied, then `allow: all`. Trino's catalog
+  rule carries no row filter, so Layer 2 is coarser than Layer 1 for source tables.
 - **Masking SQL is Trino-dialect.** The rewrite is emitted through sqlglot's `trino`
   dialect and covered by unit tests; it has run against the in-cluster Trino on the OSS
   profiles, and the AWS reference uses the same engine since 2.4.

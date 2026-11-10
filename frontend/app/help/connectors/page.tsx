@@ -145,8 +145,8 @@ export default function ConnectorsHelpPage() {
               <div>
                 <h3 className="font-semibold">Database Connectors</h3>
                 <p className="text-sm text-muted-foreground">
-                  Shipped source paths include PostgreSQL, MySQL, REST APIs, custom Python, and SQLAlchemy URLs for installed database drivers.
-                  Table ingestion supports full and incremental batch sync; real-time PostgreSQL CDC belongs to the optional RisingWave Streaming path.
+                  Database sources (PostgreSQL, MySQL, SQL Server, Oracle, MongoDB) are Trino catalogs: DataPond browses, syncs and federates them through the one query engine. REST APIs, custom Python and object storage are ingested by the backend.
+                  Real-time PostgreSQL CDC belongs to the optional RisingWave Streaming path.
                 </p>
                 <div className="flex gap-2 mt-2">
                   <Badge variant="secondary">Batch Sync</Badge>
@@ -291,11 +291,11 @@ export default function ConnectorsHelpPage() {
           <div className="space-y-2">
             <h3 className="font-semibold">Backfill and Incremental Refresh</h3>
             <p className="text-sm text-muted-foreground">
-              Start a supported database source with a full load, validate the Iceberg destination, then configure an incremental column for recurring batch refreshes.
-              Additional SQLAlchemy databases depend on the required dialect and driver being installed.
+              Backfill and incremental refresh run as Trino statements (<code>INSERT … SELECT</code>, <code>MERGE</code>); PII columns are masked at ingest with the same rules as at read.
+              Start with a full load, validate the Iceberg destination, then configure an incremental column (and key columns for MERGE) for recurring refreshes.
             </p>
             <pre className="bg-muted p-3 rounded-lg text-xs">
-              <code>Supported DB → Full Sync → Validate → Incremental Batch Sync</code>
+              <code>Trino catalog → Full Sync → Validate → Incremental (INSERT … SELECT / MERGE)</code>
             </pre>
           </div>
         </CardContent>

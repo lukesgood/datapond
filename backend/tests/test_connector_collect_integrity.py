@@ -10,155 +10,19 @@ Two classes of bug are pinned here:
    upserting by (connection, table). These tests pin: the watermark is loaded and
    forwarded, the new watermark is persisted via UPDATE, and no duplicate row is INSERTed.
 
-2. DatabaseURLConnector.sync_to_iceberg (app.connectors.database) accepted
-   pii_columns/key_columns but ignored them, blind-appended the whole table in one
-   pandas read, and string-interpolated the incremental predicate (SQL injection).
-   These tests pin: PII/key columns and chunking now flow through the shared
-   _read_write_chunked helper, and the watermark value is bound as a parameter.
+2. (The pandas database path these tests also covered is gone: Trino-backed sources
+   sync through Trino, tests/test_trino_sync_statements.py and
+   tests/test_trino_source_sync.py pin the bound watermark and PII masking there.)
 """
 import asyncio
-import sys
-import types
 import uuid
 from datetime import datetime
 
-import pandas as pd
-
-from app.connectors import database
-from app.connectors.database import DatabaseURLConnector, DatabaseURLConfig
 from app.connectors.base import ConnectorType, SyncMode, SyncStatus, SyncJobStatus
 
 
 def _run(coro):
     return asyncio.new_event_loop().run_until_complete(coro)
-
-
-# ── FIX #2: DatabaseURLConnector.sync_to_iceberg ─────────────────────────────
-
-class _RecordingWriter:
-    """Stand-in for write_dataframe_to_iceberg — records the call, returns row count."""
-    def __init__(self):
-        self.calls = []
-
-    def __call__(self, df, table_name, schema="default", mode="overwrite", on_step=None,
-                 partition_spec=None, join_cols=None):
-        self.calls.append({"rows": len(df), "table": table_name, "mode": mode,
-                           "join_cols": join_cols})
-        return len(df)
-
-
-def _patch_writer(monkeypatch):
-    """Inject a fake app.connectors.iceberg_writer so the lazy import inside
-    _read_write_chunked resolves to our recorder (no pyarrow/pyiceberg needed)."""
-    w = _RecordingWriter()
-    fake = types.ModuleType("app.connectors.iceberg_writer")
-    fake.write_dataframe_to_iceberg = w
-    monkeypatch.setitem(sys.modules, "app.connectors.iceberg_writer", fake)
-    return w
-
-
-class _FakeConn:
-    """Minimal DB connection: enter/exit no-op, ignores what it's handed."""
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False
-
-
-class _FakeEngine:
-    def connect(self):
-        return self
-
-    def execution_options(self, **kw):
-        return _FakeConn()
-
-
-def test_read_write_chunked_binds_params_and_upserts(monkeypatch):
-    # _read_write_chunked must: stream via chunksize, bind params (not interpolate),
-    # upsert when key_columns + append mode, and track the watermark max.
-    w = _patch_writer(monkeypatch)
-    df = pd.DataFrame({"id": [1, 2], "ts": [10, 20]})
-    captured = {}
-
-    def fake_read_sql(sql, conn=None, chunksize=None, params=None):
-        captured["sql"] = sql
-        captured["chunksize"] = chunksize
-        captured["params"] = params
-        return iter([df])
-
-    monkeypatch.setattr(database.pd, "read_sql", fake_read_sql)
-
-    rows, max_value = database._read_write_chunked(
-        _FakeEngine(), 'SELECT * FROM "t" WHERE "ts" > :last_value', "t",
-        "append", "ts", key_columns=["id"], params={"last_value": 5})
-
-    assert rows == 2
-    assert max_value == "20"                       # watermark derived from the chunk
-    assert captured["params"] == {"last_value": 5}  # value bound, never interpolated
-    assert captured["chunksize"] == database.INGEST_CHUNK_SIZE  # streamed, not full load
-    assert w.calls[0]["mode"] == "upsert" and w.calls[0]["join_cols"] == ["id"]
-    # params present → query is wrapped as a bound SQLAlchemy text() statement
-    from sqlalchemy.sql.elements import TextClause
-    assert isinstance(captured["sql"], TextClause)
-
-
-def _dburl_connector():
-    return DatabaseURLConnector(DatabaseURLConfig(
-        name="d", connector_type=ConnectorType.DATABASE_URL,
-        database_url="sqlite:///:memory:"))
-
-
-def test_dburl_incremental_parameterizes_and_forwards_columns(monkeypatch):
-    captured = {}
-
-    def fake_rwc(engine, query, source_table, write_mode, incremental_column,
-                 on_step=None, partition_spec=None, key_columns=None,
-                 pii_columns=None, chunk_size=database.INGEST_CHUNK_SIZE, params=None,
-                 namespace="default"):
-        captured.update(query=query, source_table=source_table, write_mode=write_mode,
-                        incremental_column=incremental_column, key_columns=key_columns,
-                        pii_columns=pii_columns, params=params)
-        return 5, "2024-06-30"
-
-    monkeypatch.setattr(database, "_read_write_chunked", fake_rwc)
-
-    st = _run(_dburl_connector().sync_to_iceberg(
-        "public.events", "iceberg.default.events",
-        sync_mode=SyncMode.INCREMENTAL, incremental_column="updated_at",
-        last_value="2024-01-01", key_columns=["id"], pii_columns=["email"]))
-
-    assert st.status == SyncStatus.SUCCESS and st.rows_processed == 5
-    assert st.metadata["max_value"] == "2024-06-30"
-    # SQL injection fix: the watermark value is bound, never in the SQL text
-    assert captured["params"] == {"last_value": "2024-01-01"}
-    assert ":last_value" in captured["query"]
-    assert "2024-01-01" not in captured["query"]
-    # PII + key columns are actually forwarded now (were silently dropped before)
-    assert captured["key_columns"] == ["id"] and captured["pii_columns"] == ["email"]
-    assert captured["write_mode"] == "append"
-    assert captured["source_table"] == "events"   # writes to the bare table name
-
-
-def test_dburl_full_mode_overwrites_no_params(monkeypatch):
-    captured = {}
-
-    def fake_rwc(engine, query, source_table, write_mode, incremental_column,
-                 on_step=None, partition_spec=None, key_columns=None,
-                 pii_columns=None, chunk_size=database.INGEST_CHUNK_SIZE, params=None,
-                 namespace="default"):
-        captured.update(write_mode=write_mode, params=params, query=query)
-        return 3, None
-
-    monkeypatch.setattr(database, "_read_write_chunked", fake_rwc)
-
-    st = _run(_dburl_connector().sync_to_iceberg(
-        "events", "iceberg.default.events", sync_mode=SyncMode.FULL))
-
-    assert st.status == SyncStatus.SUCCESS and st.rows_processed == 3
-    assert captured["write_mode"] == "overwrite"
-    assert captured["params"] is None
-    assert "WHERE" not in captured["query"]
 
 
 # ── FIX #1: non-SSE trigger_sync watermark load + persist ─────────────────────

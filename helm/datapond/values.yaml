@@ -227,6 +227,9 @@ postgres:
     database: datapond
     username: datapond
     password: ""  # empty ⇒ Helm generates & preserves (see templates/secrets.yaml)
+    # Password of the read-only `datapond_sample` role the SQL sample sources use
+    # (migration 0026). Letters and digits only, 16–64 chars. Empty ⇒ generated & preserved.
+    samplePassword: ""
 
   # High Availability (optional)
   replication:
@@ -617,6 +620,15 @@ trino:
   #     # or credentialSecret: {name: ..., key: ...}  OAuth2 client "id:secret"
   #     # scope: PRINCIPAL_ROLE:ALL   prefix: ...   vendedCredentials: true
   extraCatalogs: []
+
+  # Source catalogs: every Trino-backed connection added in Sources (PostgreSQL, MySQL,
+  # SQL Server, Oracle, MongoDB) becomes a Trino catalog `src_<slug>`. The backend
+  # writes the catalog file into `catalogsSecret` and the password into
+  # `credentialsSecret`, then restarts Trino (~1 min). Both Secrets are created empty
+  # by the chart and preserved across upgrades; only the backend writes them.
+  sourceCatalogs:
+    catalogsSecret: trino-source-catalogs
+    credentialsSecret: trino-source-credentials
 
 # Monitoring
 monitoring:

@@ -47,23 +47,25 @@ export interface SyncJob {
   error_message?: string
 }
 
-// Mock connector data
+// The source kinds the console offers. The five database kinds are Trino catalogs
+// (`engine: trino` in GET /api/connectors/available); REST, custom Python and S3 are
+// read by the backend.
 export const availableConnectors: Connector[] = [
   {
     id: "postgresql",
     name: "PostgreSQL",
     category: "database",
     icon: "/connectors/postgresql.svg",
-    description: "Connect to PostgreSQL databases for full or incremental batch sync",
+    description: "PostgreSQL as a Trino catalog: browse, sync and federate it with the query engine",
     supported: true,
-    features: ["Incremental Sync", "Schema Discovery"],
+    features: ["Trino federated query", "Incremental Sync", "Schema Discovery"],
     fields: [
       { half: true, name: "host", label: "Host", type: "text", required: true, placeholder: "localhost" },
       { half: true, name: "port", label: "Port", type: "number", default: 5432, required: true },
       { name: "database", label: "Database", type: "text", required: true, placeholder: "mydb" },
       { half: true, name: "username", label: "Username", type: "text", required: true },
       { half: true, name: "password", label: "Password", type: "password", required: true },
-      { name: "ssl", label: "Use SSL", type: "boolean", default: false, help: "Enable SSL/TLS connection" }
+      { name: "ssl", label: "Use SSL/TLS", type: "boolean", default: false, help: "sslmode=require on the JDBC connection" }
     ]
   },
   {
@@ -71,15 +73,68 @@ export const availableConnectors: Connector[] = [
     name: "MySQL",
     category: "database",
     icon: "/connectors/mysql.svg",
-    description: "Connect to MySQL and MariaDB for full or incremental batch sync",
+    description: "MySQL and MariaDB as a Trino catalog: browse, sync and federate with the query engine",
     supported: true,
-    features: ["Incremental Sync", "Schema Discovery"],
+    features: ["Trino federated query", "Incremental Sync", "Schema Discovery"],
     fields: [
       { half: true, name: "host", label: "Host", type: "text", required: true, placeholder: "localhost" },
       { half: true, name: "port", label: "Port", type: "number", default: 3306, required: true },
-      { name: "database", label: "Database", type: "text", required: true, placeholder: "mydb" },
+      { name: "database", label: "Default schema", type: "text", required: false, placeholder: "mydb", help: "Optional — Trino lists every schema the user can see" },
       { half: true, name: "username", label: "Username", type: "text", required: true },
-      { half: true, name: "password", label: "Password", type: "password", required: true }
+      { half: true, name: "password", label: "Password", type: "password", required: true },
+      { name: "ssl", label: "Use SSL/TLS", type: "boolean", default: false, help: "sslMode=REQUIRED on the JDBC connection" }
+    ]
+  },
+  {
+    id: "sqlserver",
+    name: "SQL Server",
+    category: "database",
+    icon: "/connectors/sqlserver.svg",
+    description: "Microsoft SQL Server as a Trino catalog: browse, sync and federate with the query engine",
+    supported: true,
+    features: ["Trino federated query", "Incremental Sync", "Schema Discovery"],
+    fields: [
+      { half: true, name: "host", label: "Host", type: "text", required: true, placeholder: "localhost" },
+      { half: true, name: "port", label: "Port", type: "number", default: 1433, required: true },
+      { name: "database", label: "Database", type: "text", required: true, placeholder: "master" },
+      { half: true, name: "username", label: "Username", type: "text", required: true },
+      { half: true, name: "password", label: "Password", type: "password", required: true },
+      { name: "ssl", label: "Use SSL/TLS", type: "boolean", default: false, help: "encrypt=true (the server certificate is trusted)" }
+    ]
+  },
+  {
+    id: "oracle",
+    name: "Oracle",
+    category: "database",
+    icon: "/connectors/oracle.svg",
+    description: "Oracle Database as a Trino catalog: browse, sync and federate with the query engine",
+    supported: true,
+    features: ["Trino federated query", "Incremental Sync", "Schema Discovery"],
+    fields: [
+      { half: true, name: "host", label: "Host", type: "text", required: true, placeholder: "localhost" },
+      { half: true, name: "port", label: "Port", type: "number", default: 1521, required: true },
+      { name: "database", label: "Service name", type: "text", required: true, placeholder: "ORCLPDB1", help: "The service name (not SID) of the database" },
+      { half: true, name: "username", label: "Username", type: "text", required: true },
+      { half: true, name: "password", label: "Password", type: "password", required: true },
+      { name: "ssl", label: "Use SSL/TLS", type: "boolean", default: false, help: "TCPS on the JDBC connection" }
+    ]
+  },
+  {
+    id: "mongodb",
+    name: "MongoDB",
+    category: "database",
+    icon: "/connectors/mongodb.svg",
+    description: "MongoDB as a Trino catalog: collections become tables with inferred schemas",
+    supported: true,
+    features: ["Trino federated query", "Incremental Sync", "Schema Discovery"],
+    fields: [
+      { half: true, name: "host", label: "Host", type: "text", required: true, placeholder: "localhost" },
+      { half: true, name: "port", label: "Port", type: "number", default: 27017, required: true },
+      { name: "database", label: "Database", type: "text", required: true },
+      { half: true, name: "username", label: "Username", type: "text", required: true },
+      { half: true, name: "password", label: "Password", type: "password", required: true },
+      { name: "auth_source", label: "Auth database", type: "text", default: "admin", help: "authSource of the user (usually admin)" },
+      { name: "ssl", label: "Use SSL/TLS", type: "boolean", default: false, help: "tls=true on the connection string" }
     ]
   },
   {
@@ -120,20 +175,6 @@ export const availableConnectors: Connector[] = [
       { name: "consumer_group", label: "Consumer Group", type: "text", required: true, placeholder: "datapond-group" },
       { name: "sasl_username", label: "SASL Username", type: "text", required: false },
       { name: "sasl_password", label: "SASL Password", type: "password", required: false }
-    ]
-  },
-  {
-    id: "mongodb",
-    name: "MongoDB",
-    category: "database",
-    icon: "/connectors/mongodb.svg",
-    description: "Connect to MongoDB databases",
-    supported: false,
-    features: ["Change Streams", "Schema Inference", "Incremental Sync"],
-    fields: [
-      { name: "connection_string", label: "Connection String", type: "text", required: true, placeholder: "mongodb://localhost:27017" },
-      { name: "database", label: "Database", type: "text", required: true },
-      { name: "auth_database", label: "Auth Database", type: "text", default: "admin" }
     ]
   },
   {
@@ -181,32 +222,6 @@ export const availableConnectors: Connector[] = [
       { name: "project_id", label: "Project ID", type: "text", required: true },
       { name: "dataset", label: "Dataset", type: "text", required: true },
       { name: "credentials_json", label: "Service Account JSON", type: "password", required: true, help: "Paste your service account JSON key" }
-    ]
-  },
-  {
-    id: "database_url",
-    name: "Universal Database",
-    category: "database",
-    icon: "/connectors/database.svg",
-    description: "Connect through a SQLAlchemy URL when the required dialect and driver are installed",
-    supported: true,
-    features: ["SQLAlchemy URL", "Batch Sync", "Driver-dependent"],
-    fields: [
-      {
-        name: "database_url",
-        label: "Connection URL",
-        type: "text",
-        required: true,
-        placeholder: "postgresql://user:pass@host:5432/db",
-        help: "SQLAlchemy 연결 문자열. 예: postgresql://, mysql+pymysql://, mssql+pyodbc://, oracle+cx_oracle://"
-      },
-      {
-        name: "query",
-        label: "Test Query (optional)",
-        type: "text",
-        placeholder: "SELECT 1",
-        help: "연결 테스트에 사용할 SQL 쿼리"
-      }
     ]
   },
   {

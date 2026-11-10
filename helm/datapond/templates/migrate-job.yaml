@@ -79,6 +79,12 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: POSTGRES_DB
+        # Creates/rotates the sample read-only role (migration 0026).
+        - name: SAMPLE_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: SAMPLE_DB_PASSWORD
         - name: POSTGRES_HOST
           value: "{{ if .Values.externalDatabase.enabled }}{{ .Values.externalDatabase.host }}{{ else }}postgres{{ end }}"
         - name: POSTGRES_PORT

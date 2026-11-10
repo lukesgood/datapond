@@ -27,7 +27,10 @@ from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
-KINDS = ("glue", "iceberg_rest", "polaris")
+# `trino_source` is the catalog of a Trino-backed connection (Sources); it is
+# created and removed with its connection (app/connectors/source_catalog.py),
+# never from the catalog admin routes.
+KINDS = ("glue", "iceberg_rest", "polaris", "trino_source")
 CACHE_TTL_SECONDS = 30
 
 _IDENT = re.compile(r"^[A-Za-z0-9_]+$")
@@ -50,7 +53,9 @@ CONFIG_KEYS = {
     "iceberg_rest": {"uri": str, "warehouse": str, "sigv4": bool, "signing_name": str,
                      "signing_region": str, "scope": str, "prefix": str},
     "polaris": {"warehouse": str, "uri": str},
+    "trino_source": {"connection_id": str, "connector_type": str},
 }
+_REQUIRED_KEYS = {"trino_source": ("connection_id", "connector_type")}
 
 _REGION = re.compile(r"^[a-z]{2}(-[a-z]+)+-\d$")
 _ACCOUNT = re.compile(r"^\d{12}$")
@@ -106,6 +111,9 @@ def validate_config(kind: str, config: Optional[dict]) -> dict:
         raise ValueError("catalog_id must be a 12-digit AWS account id.")
     if config.get("signing_name") and not _SIGNING_NAME.match(config["signing_name"]):
         raise ValueError("signing_name must be an AWS service name such as glue or s3tables.")
+    for key in _REQUIRED_KEYS.get(kind, ()):
+        if not config.get(key):
+            raise ValueError(f"config '{key}' is required for {kind}.")
     if config.get("uri"):
         check_uri(config["uri"])
     if kind == "iceberg_rest":

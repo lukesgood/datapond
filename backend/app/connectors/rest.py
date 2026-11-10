@@ -301,7 +301,7 @@ class RestConnector(BaseConnector):
             masked = 0
             if pii_columns:
                 try:
-                    from .database import _mask_pii_in_chunk
+                    from .pii_chunk import _mask_pii_in_chunk
                     masked = _mask_pii_in_chunk(df, pii_columns)
                 except Exception as e:
                     logger.warning(f"[rest_connector] PII masking skipped ({e})")

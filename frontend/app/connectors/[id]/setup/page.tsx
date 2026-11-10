@@ -56,7 +56,9 @@ interface IntrospectedTable {
   columns?: { name: string; type: string; nullable: boolean }[]
 }
 interface TablesResponse { tables?: Array<string | IntrospectedTable> }
-interface CreatedConnection { id: string }
+interface CreatedConnection { id: string
+  engine_restarting?: boolean
+}
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
@@ -81,6 +83,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "success" | "error">("idle")
   const [testMessage, setTestMessage] = useState("")
   const [createdId, setCreatedId] = useState<string | null>(null)
+  const [engineRestarting, setEngineRestarting] = useState(false)
 
   // Step 2
   const [loadingTables, setLoadingTables] = useState(false)
@@ -202,6 +205,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
         const created: CreatedConnection = await res.json()
         connectionId = created.id
         setCreatedId(created.id)
+        setEngineRestarting(!!created.engine_restarting)
       }
       const createdId2 = connectionId
       // 1. Apply table enabled state + incremental columns in one pass
@@ -242,7 +246,9 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
         })
       }
 
-      router.push(`/connectors/connections/${createdId2}`)
+      // A Trino-backed source restarts the engine to load its catalog; the detail page
+      // shows the restart banner and holds Sync until it is back.
+      router.push(`/connectors/connections/${createdId2}${engineRestarting ? "?engine=restarting" : ""}`)
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : "Failed to finalize")
       setCreating(false)

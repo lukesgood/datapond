@@ -3,6 +3,77 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2.5 (2026-11) — Database sources are Trino catalogs
+
+A database connection is now a Trino catalog, and Trino does the reading and the
+syncing. Phase 2 of `docs/superpowers/specs/2026-11-09-trino-unified-engine-and-connectors-design.md`
+(plan: `docs/superpowers/plans/2026-11-10-trino-connectors-phase2.md`).
+
+- **Five source types, one engine.** PostgreSQL, MySQL, SQL Server, Oracle and MongoDB
+  connections are Trino catalogs named `src_<slug>` (slug from the connection name;
+  `src_sales_db`, `src_sales_db_2` on a clash). The Sources page browses them through
+  Trino, SQL Lab federates them (`SELECT … FROM src_crm.public.orders JOIN iceberg.default.…`),
+  and a sync is Trino SQL: `CREATE TABLE IF NOT EXISTS` with the table's partitioning,
+  `CREATE OR REPLACE TABLE … AS SELECT` (full: one Iceberg commit, so a reader during the
+  load sees the previous rows and a failed load changes nothing; the previous snapshot
+  stays in the table history), `MERGE` on the key columns or `INSERT … SELECT` with a
+  bound watermark cast to the column's type (incremental), `ALTER TABLE … ADD COLUMN`
+  for new source columns. A column whose type changed stops the sync with a message
+  naming it, except a target column that is wider than the source (`bigint` for
+  `integer`, `double` for `real`): the load casts up. PII columns are masked inside the
+  `SELECT` (`pii_ko.mask_sql`) — the raw value never reaches the lake.
+- **Unqualified table names resolve against the lake catalogs only.** A source catalog
+  is a customer's live database; `SELECT … FROM orders` never reaches it. Federate it by
+  its qualified name: `src_crm.public.orders`.
+  Nothing passes through the backend's memory any more.
+- **Two Secrets, one restart.** The backend renders the catalog files into the Secret
+  `trino-source-catalogs` and the passwords into `trino-source-credentials` (both
+  lookup-preserved; the backend Role may `get`/`patch` exactly these two), then bumps
+  the `datapond.io/source-catalogs-restarted-at` annotation on the `trino` Deployment.
+  Trino reads catalog files only at start, so **creating a connection, changing its
+  credentials or deleting it restarts the engine (~1 min)**. The console shows a banner
+  and holds Sync; `GET /api/connectors/engine` reports `restarting`/`ready`;
+  `POST /connectors/sample-db/activate` waits up to 180 s and answers 503 if the
+  engine is still down.
+- **Existing PostgreSQL/MySQL connections need nothing.** On the first backend start
+  after the upgrade every stored connection of a Trino type without a registry row is
+  registered (`source_catalog.ensure_rows`) and projected; its owner and members become
+  catalog grants. No re-registration, no re-entry of credentials. Targets the pandas
+  path wrote (`bigint`/`double` where the source says `integer`/`real`) load with casts.
+  Migration `0027` widens the registry's kind check to admit `trino_source` — the
+  migration Job must run before the first connection is created on 2.5.
+- **The engine status is time-bound.** `GET /api/connectors/engine` reports
+  `restarting` for up to 10 minutes after a projection; an engine that is down later
+  reports `ready: false, restarting: false` and the console says so instead of
+  "restarting (~1 min)".
+- **`database_url` is folded.** The SQLAlchemy URL type is gone from the create form and
+  `/connectors/available`. Stored rows of that type keep working: the backend reads the
+  URL as a PostgreSQL or MySQL source (other dialects are refused with 422 naming the
+  type). On the first backend start after the upgrade such rows are rewritten as that
+  type (`source_catalog.rewrite_legacy_rows`), so the console edits them with the
+  PostgreSQL/MySQL form; a config save does the same. New payloads naming
+  `database_url` are normalised at once.
+- **Samples connect as a read-only role.** The e-commerce and finance samples are
+  PostgreSQL sources whose user is `datapond_sample`, created by **migration 0026** from
+  `SAMPLE_DB_PASSWORD` (the chart generates and preserves it in `datapond-secrets`;
+  override with `postgres.auth.samplePassword`, letters and digits only). Run the
+  migration Job once after the upgrade; without the variable the sample routes answer
+  409 and say so. The application's own PostgreSQL password is no longer stored in any
+  connection.
+- **`connectors` capability needs `trino` only.** A profile with a Glue or Polaris
+  catalog and no Trino has a Catalog page and no Sources page (it could not sync anyway).
+  Portable Core · AWS and Sovereign Core are unchanged: no engine, no Sources.
+- **RLS Layer 2:** the generated `rules.json` gains a `catalogs` section on the next
+  apply — granted users read their `src_*` catalogs, open ones are readable by everyone,
+  every other `src_*` is denied, `iceberg` is unchanged.
+- **Removed:** `backend/app/connectors/database.py` (the pandas sync path), the
+  `PostgreSQLConnector`/`MySQLConnector`/`DatabaseURLConnector` classes, and the
+  SQLAlchemy-URL connector type in the console. Drivers for the five types are present
+  only for the pre-create test and the pre-create column listing (`app/connectors/probe.py`).
+- **Support:** the five types are supported as Trino 482's connectors expose them.
+  PostgreSQL is exercised end to end on every CI run (kind); MySQL, SQL Server, Oracle
+  and MongoDB are verified by unit tests and the pre-create probe only — `SUPPORT.md`.
+
 ## 2.4 (2026-11) — Athena removed; Trino is the query engine on every profile
 
 The AWS Single-Node Reference used Amazon Athena to query the Glue catalog. It now runs

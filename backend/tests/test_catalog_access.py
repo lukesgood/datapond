@@ -201,3 +201,27 @@ def test_an_unparseable_statement_is_refused_only_when_something_is_hidden():
     assert not ca.statement_uses_hidden(_access(ALICE), bad, "trino")
     ca.set_grants({"finance": [("user", BOB["id"])]})
     assert ca.statement_uses_hidden(_access(ALICE), bad, "trino")
+
+
+# ── a connection's catalog is governed like any other (Phase 2, Review Focus 5) ──
+
+def test_an_ungranted_caller_cannot_see_or_name_a_source_catalog():
+    reg.set_entries([
+        CatalogEntry(name="iceberg", kind="polaris", engine_catalog="iceberg", is_default=True),
+        CatalogEntry(name="src_crm", kind="trino_source", engine_catalog="src_crm",
+                     config={"connection_id": "c", "connector_type": "postgresql"}),
+    ])
+    ca.set_grants({"src_crm": {("user", BOB["id"])}})
+    other = _access(ALICE)
+    assert other.allows("src_crm") is False
+    assert "src_crm" in other.hidden_sql_names()
+    for sql in ("SELECT 1 FROM src_crm.public.orders", "SHOW SCHEMAS FROM src_crm"):
+        assert ca.statement_uses_hidden(other, sql, "trino"), sql
+    # The reason is for the security audit row only (it names the catalog so auditors
+    # can read it); responses carry the unknown-catalog message instead.
+    assert "src_crm" in ca.hidden_reason(other, "SELECT 1 FROM src_crm.public.orders", "trino")
+    with pytest.raises(reg.UnknownCatalog) as e:
+        other.resolve("src_crm")
+    assert str(e.value) == "Unknown catalog 'src_crm'. Known catalogs: iceberg."
+    assert _access(BOB).allows("src_crm") and _access(ADMIN).allows("src_crm")
+    assert not _access(ADMIN_KEY).allows("src_crm")

@@ -101,6 +101,22 @@ def detect(text: str) -> list[dict]:
     return out
 
 
+def mask_sql(col: str) -> str:
+    """The same masking as `mask`, as a Trino expression over column `col` (already
+    quoted by the caller): one regexp_replace per pattern, innermost first, over
+    CAST(col AS VARCHAR). Trino's regexp functions take Java/Joni syntax, which agrees
+    with Python on every construct the patterns use, so they travel verbatim.
+
+    Stricter than Python: the checksum validators (RRN, Luhn) cannot run in SQL, so
+    every regex match is masked — a 13-digit number that fails Luhn is masked here and
+    kept by `mask`. At ingest that is the right side to err on."""
+    expr = f"CAST({col} AS VARCHAR)"
+    for label, rx, _validator in _PATTERNS:
+        pattern = rx.pattern.replace("'", "''")
+        expr = f"regexp_replace({expr}, '{pattern}', '[{label}]')"
+    return expr
+
+
 def mask(text: str, findings: list[dict] | None = None) -> str:
     """Replace each finding with a [유형] tag (offsets applied right-to-left)."""
     findings = findings if findings is not None else detect(text)

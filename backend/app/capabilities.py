@@ -34,8 +34,11 @@ UNSUPPORTED_BACKENDS = (
 # nobody could open — the shape app/permissions.py refuses one level up, where a
 # permission nothing enforces is a lie. Whether OpenMetadata is running stays visible
 # through Services, which reads FEATURE_OPENMETADATA from app/service_registry.py.
+# `connectors` needs only Trino since 2.5: every database source is a Trino catalog and
+# the sync is a Trino statement, so ingestion exists exactly when the engine does. A
+# Polaris or Glue catalog alone is a place to write with nothing that can write there.
 CAPABILITY_BACKENDS = {
-    "connectors":  ("TRINO", "POLARIS", "GLUE"),
+    "connectors":  ("TRINO",),
     "catalog":     ("TRINO", "POLARIS", "GLUE"),
     "query":       ("TRINO",),
     "dashboards":  ("TRINO",),
@@ -102,7 +105,7 @@ def compute_capabilities(env: Mapping) -> dict:
         # PREVIEW_CAPABILITIES above, not decided here.
         "support": support_tiers(),
         # Component-gated
-        "connectors": _gated("connectors"),  # Ingestion → Iceberg via Trino/Polaris or Glue
+        "connectors": _gated("connectors"),  # Ingestion → Iceberg through Trino (2.5)
         "catalog": _gated("catalog"),
         "query": _gated("query"),
         "dashboards": _gated("dashboards"),  # BI mini-charts run through /queries/execute

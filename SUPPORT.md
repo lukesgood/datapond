@@ -48,6 +48,15 @@ it: one coordinator, the `iceberg` catalog, the file-based access control the ba
 writes. Trino clusters, catalogs or settings outside that configuration are upstream
 Trino, not DataPond.
 
+**Database sources through Trino's connectors** (2.5): PostgreSQL, MySQL, SQL Server,
+Oracle and MongoDB connections are Trino catalogs, synced by Trino SQL, as Trino 482's
+connectors expose them. PostgreSQL is exercised end to end on every CI run (a source
+registered, the engine restarted, a sync, a federated query, the catalog ACL). MySQL,
+SQL Server, Oracle and MongoDB are verified by unit tests and the pre-create connection
+probe only — there is no live acceptance for them yet; a type-mapping or dialect issue
+there is a bug we want to hear about, not a configuration we can promise. The SQLAlchemy
+URL type and the pandas sync path are gone.
+
 The optional OSS add-ons (Airflow, Spark, Polaris, RisingWave, OpenMetadata, Jupyter,
 MLflow) are configuration around upstream projects. We will help with how the chart
 wires them; we are not in a position to support those projects themselves.

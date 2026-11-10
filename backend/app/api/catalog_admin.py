@@ -236,6 +236,9 @@ async def list_catalogs(user: dict = Depends(require_user)):
 @router.post("/catalogs", status_code=201)
 async def create_catalog(body: CatalogCreate, admin: dict = Depends(require_admin)):
     name = _check_ident("name", body.name)
+    if body.kind == "trino_source":
+        _bad("A trino_source catalog is created with its connection (Sources); "
+             "it cannot be created here.")
     if body.kind not in catalog_registry.KINDS:
         _bad(f"kind must be one of {', '.join(catalog_registry.KINDS)}.")
     engine = _check_ident("engine_catalog", body.engine_catalog or name)
@@ -283,6 +286,9 @@ async def update_catalog(name: str, body: CatalogPatch, admin: dict = Depends(re
                 _bad(f"No catalog named '{name}'.", 404)
             current = _public(row)
             engine = current["engine_catalog"]
+            if row["kind"] == "trino_source" and ("engine_catalog" in sent or "config" in sent):
+                _bad("A trino_source catalog is named and configured by its connection "
+                     "(Sources); only enabled and grants change here.")
             if "engine_catalog" in sent and body.engine_catalog is not None \
                     and body.engine_catalog != engine:
                 engine = _check_ident("engine_catalog", body.engine_catalog)
@@ -347,6 +353,13 @@ async def delete_catalog(name: str, admin: dict = Depends(require_admin)):
             if row["is_default"]:
                 _bad("The default catalog cannot be deleted; make another catalog the "
                      "default first.", 409)
+            if row["kind"] == "trino_source":
+                cfg = _public(row)["config"]
+                owner = await conn.fetchval(
+                    "SELECT name FROM connector_connections WHERE id::text = $1",
+                    str(cfg.get("connection_id") or ""))
+                _bad(f"'{name}' is the catalog of connection {owner or cfg.get('connection_id')}; "
+                     "delete the connection to remove it.", 409)
             await _check_policy_refs(conn, rows, row, "delete")
             await conn.execute(_DELETE, name)
             if row["secret_ref"]:

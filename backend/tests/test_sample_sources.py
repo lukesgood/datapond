@@ -32,10 +32,51 @@ def _ecommerce_values(table: str, column: str) -> set:
 
 # ── the catalogue of kinds ────────────────────────────────────────────────────
 
-def test_every_kind_is_a_different_connector_type():
-    types = [s.connector_type for s in sample_sources.SAMPLE_SOURCES]
-    assert len(types) == len(set(types))
-    assert {"postgresql", "s3", "rest_api", "custom", "database_url"} <= set(types)
+def test_every_kind_is_distinct_and_the_sql_samples_are_postgresql_sources():
+    """Two SQL samples (e-commerce, finance) are both PostgreSQL databases read through
+    Trino; the kind id `database_url` stays as the finance sample's handle so the
+    console's panel and the builders keep working."""
+    kinds = [s.kind for s in sample_sources.SAMPLE_SOURCES]
+    assert len(kinds) == len(set(kinds))
+    types = {s.connector_type for s in sample_sources.SAMPLE_SOURCES}
+    assert types == {"postgresql", "s3", "rest_api", "custom"}
+    assert sample_sources.sample_source("database_url").connector_type == "postgresql"
+
+
+def test_sql_samples_connect_as_the_restricted_role(monkeypatch):
+    monkeypatch.setenv("SAMPLE_DB_PASSWORD", "Abc123Abc123Abc123")
+    from app.api import connectors
+    assert connectors.sample_role_credentials() == ("datapond_sample", "Abc123Abc123Abc123")
+    monkeypatch.delenv("SAMPLE_DB_PASSWORD")
+    assert connectors.sample_role_credentials() is None
+
+
+def test_the_grant_statements_give_the_role_select_and_nothing_else():
+    from app.api import connectors
+    stmts = connectors.sample_role_grant_statements("samplefinance")
+    joined = " ".join(stmts)
+    assert 'GRANT CONNECT ON DATABASE "samplefinance" TO datapond_sample' in joined
+    assert "GRANT USAGE ON SCHEMA public TO datapond_sample" in joined
+    assert "GRANT SELECT ON ALL TABLES IN SCHEMA public TO datapond_sample" in joined
+    assert "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO datapond_sample" in joined
+    assert "INSERT" not in joined and "ALL PRIVILEGES" not in joined
+    import pytest
+    with pytest.raises(ValueError):
+        connectors.sample_role_grant_statements('x"; DROP DATABASE datapond')
+
+
+def test_the_sample_connection_config_names_the_restricted_role(monkeypatch):
+    monkeypatch.setenv("SAMPLE_DB_PASSWORD", "Abc123Abc123Abc123")
+    monkeypatch.setenv("POSTGRES_HOST", "pg.internal")
+    from app.api import connectors
+    cfg = connectors.sample_db_config("samplefinance")
+    assert cfg == {"host": "pg.internal", "port": 5432, "database": "samplefinance",
+                   "username": "datapond_sample", "password": "Abc123Abc123Abc123", "ssl": False}
+    monkeypatch.delenv("SAMPLE_DB_PASSWORD")
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as e:
+        connectors.sample_db_config("sampledb")
+    assert e.value.status_code == 409 and "SAMPLE_DB_PASSWORD" in e.value.detail
 
 
 def test_the_postgres_kind_is_the_existing_sample_connector():
@@ -254,13 +295,7 @@ def test_the_bearer_exemption_is_exactly_the_feed_route():
     assert any(getattr(r, "path", None) == "/api" + FX_RATES_PATH for r in main.app.routes)
 
 
-# ── database URL ──────────────────────────────────────────────────────────────
-
-def test_the_finance_url_survives_a_password_with_url_characters():
-    from sqlalchemy.engine import make_url
-    url = make_url(sample_sources.database_url("pg", 5432, "datapond", "p@ss:w/rd#1"))
-    assert (url.password, url.database, url.host) == ("p@ss:w/rd#1", "samplefinance", "pg")
-
+# ── finance database ──────────────────────────────────────────────────────────
 
 def test_the_finance_tables_only_constrain_within_their_own_database():
     """invoices.order_id is a cross-source reference, so it must not become a
@@ -309,24 +344,3 @@ def test_an_unknown_kind_is_refused_before_anything_is_written(monkeypatch):
         _run(connectors.add_sample_sources(
             connectors.SampleSourcesRequest(kinds=["rest_api", "mongodb"])))
     assert e.value.status_code == 400 and called == []
-
-
-def test_a_database_url_source_lists_only_user_schemas(monkeypatch):
-    """PostgreSQL reports information_schema as a schema with tables. Listing it made
-    the finance sample sync sql_features and sql_sizing into the catalog."""
-    from app.connectors import database
-    from app.connectors.database import DatabaseURLConfig, DatabaseURLConnector
-
-    class _Inspector:
-        def get_schema_names(self):
-            return ["information_schema", "pg_catalog", "public", "INFORMATION_SCHEMA"]
-
-        def get_table_names(self, schema=None):
-            return {"public": ["invoices", "payments"]}.get(schema, ["sql_features"])
-
-    monkeypatch.setattr(database, "inspect", lambda engine: _Inspector())
-    connector = DatabaseURLConnector(DatabaseURLConfig(
-        name="f", connector_type=ConnectorType.DATABASE_URL,
-        database_url="postgresql://u:p@h/samplefinance"))
-    connector.engine = object()
-    assert _run(connector.get_tables()) == ["public.invoices", "public.payments"]

@@ -2,8 +2,8 @@
 DataPond Data Connectors Module
 
 Provides data ingestion capabilities from 50+ sources:
-- Database connectors (PostgreSQL, MySQL, SQL Server)
-- Universal database connector (SQLAlchemy connection string)
+- Trino-backed sources (PostgreSQL, MySQL, SQL Server, Oracle, MongoDB): each a Trino catalog,
+  read and synced by Trino (trino_source, trino_sync)
 - Cloud storage (S3, Azure Blob, GCS)
 - Streaming sources (Kafka, Kinesis)
 - REST API connector (HTTP/HTTPS with auth)
@@ -13,23 +13,24 @@ Provides data ingestion capabilities from 50+ sources:
 
 from .base import BaseConnector, ConnectorType, SyncMode
 from .vault import CredentialVault
-from .database import PostgreSQLConnector, MySQLConnector, DatabaseURLConnector, DatabaseURLConfig
 from .storage import S3Connector
 from .rest import RestConnector, RestConfig
 from .custom import CustomConnector, CustomConfig
+from .trino_source import TrinoSourceConnector, TrinoSourceConfig
+from . import probe, trino_sync
 
 __all__ = [
     "BaseConnector",
     "ConnectorType",
     "SyncMode",
     "CredentialVault",
-    "PostgreSQLConnector",
-    "MySQLConnector",
-    "DatabaseURLConnector",
-    "DatabaseURLConfig",
     "S3Connector",
     "RestConnector",
     "RestConfig",
     "CustomConnector",
     "CustomConfig",
+    "TrinoSourceConnector",
+    "TrinoSourceConfig",
+    "probe",
+    "trino_sync",
 ]

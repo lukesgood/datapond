@@ -74,6 +74,15 @@ Knowledge collection authorization currently uses application-level owner/admin/
 
 Catalog/query are optional because the core can ingest text and S3 sources directly into Knowledge.
 
+### Sources (connectors)
+
+- Database sources — PostgreSQL, MySQL, SQL Server, Oracle, MongoDB — are **Trino
+  catalogs** (`src_<slug>`, 2.5): browsed, federated and synced into Iceberg by Trino
+  SQL, with PII masked in the `SELECT`; governed by `catalog_grants` like any catalog.
+- REST APIs, custom Python and S3 objects are read by the backend and written to Iceberg.
+- The `connectors` capability therefore requires Trino: Portable Core · AWS and Sovereign
+  Core have no Sources page; a catalog without the engine has Catalog and no Sources.
+
 ## 4. Optional add-ons
 
 | Add-on | Capability | Operational note |

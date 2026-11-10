@@ -78,10 +78,11 @@ def test_catalog_on_if_only_polaris():
     assert caps["catalog"] is True
 
 
-def test_glue_enables_connectors_and_catalog_but_not_query():
-    """FEATURE_GLUE (AWS-native) re-enables ingestion+catalog; SQL query needs Trino."""
+def test_glue_enables_the_catalog_but_not_ingestion_or_query():
+    """FEATURE_GLUE (AWS-native) re-enables the catalog; ingestion and SQL both run on
+    Trino since 2.5, so a Glue catalog without the engine browses and nothing more."""
     caps = compute_capabilities(_env(TRINO="false", POLARIS="false", GLUE="true"))
-    assert caps["connectors"] is True
+    assert caps["connectors"] is False
     assert caps["catalog"] is True
     assert caps["query"] is False
     assert caps["dashboards"] is False

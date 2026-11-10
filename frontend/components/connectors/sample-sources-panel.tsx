@@ -27,6 +27,8 @@ interface SampleResult {
   action?: string
   detail?: string
   test?: { success: boolean; message: string }
+  // SQL samples are Trino catalogs: the engine restarts to load a new one.
+  engine_restarting?: boolean
 }
 
 const TYPE_ICON: Record<string, string> = {
@@ -34,10 +36,12 @@ const TYPE_ICON: Record<string, string> = {
   s3: "🪣",
   rest_api: "🌐",
   custom: "🐍",
-  database_url: "🔗",
 }
 
-export function SampleSourcesPanel({ onAdded }: { onAdded?: () => void }) {
+export function SampleSourcesPanel({ onAdded, onEngineRestart }: {
+  onAdded?: () => void
+  onEngineRestart?: () => void
+}) {
   const [sources, setSources] = useState<SampleSource[]>([])
   const [examples, setExamples] = useState<JoinExample[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -86,10 +90,12 @@ export function SampleSourcesPanel({ onAdded }: { onAdded?: () => void }) {
       })
       const d = await res.json()
       if (!res.ok) throw new Error(d.detail ?? `Failed (${res.status})`)
-      setResults(d.results ?? [])
+      const results: SampleResult[] = d.results ?? []
+      setResults(results)
       setSelected(new Set())
       await load()
       onAdded?.()
+      if (results.some(r => r.engine_restarting)) onEngineRestart?.()
     } catch (e) {
       setResults([{ kind: "request", name: "Request", status: "failed",
                     detail: e instanceof Error ? e.message : "Failed" }])
@@ -128,7 +134,10 @@ export function SampleSourcesPanel({ onAdded }: { onAdded?: () => void }) {
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">{s.description}</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {s.description}
+                  {s.connector_type === "postgresql" && " (restarts the query engine, ~1 min)"}
+                </p>
                 <p className="text-2xs font-mono text-muted-foreground/80 truncate">
                   {s.tables.join(" · ")}
                 </p>
