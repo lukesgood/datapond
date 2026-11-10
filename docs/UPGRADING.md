@@ -9,6 +9,17 @@ A database connection is now a Trino catalog, and Trino does the reading and the
 syncing. Phase 2 of `docs/superpowers/specs/2026-11-09-trino-unified-engine-and-connectors-design.md`
 (plan: `docs/superpowers/plans/2026-11-10-trino-connectors-phase2.md`).
 
+**Live AWS Single-Node Reference: cut over 2026-11-10** (PR #251, release revision 6, tag
+`2.5.0-fb4121d`, deployed through `deploy-aws.yml` from `main`). Verified on the node: migrate Job
+`backend-migrate-6` ran 0026 and 0027; the two pre-existing SQL sample connections became
+`src_sample_e_commerce_db` and `src_sample_finance_db` at backend start with no
+re-registration (the finance row, stored as `database_url`, was rewritten as PostgreSQL);
+Trino restarted once (annotation `datapond.io/source-catalogs-restarted-at`) and
+`SHOW CATALOGS` lists both; `SELECT count(*) FROM src_sample_e_commerce_db.public.orders`
+answers 6,000 through SQL Lab's route; the samples re-added through
+`POST /connectors/sample-sources` connect as `datapond_sample`, which the app database
+refuses (`SELECT 1 FROM users` → insufficient privilege) and the sample database serves. A follow-up the same day (PR #252, release revision 7, tag `2.5.0-4090015`) let a `decimal(p,s)` source load into the `double` targets the pandas path had written — the first sync forward of `public.orders` had refused `total_amount`.
+
 - **Five source types, one engine.** PostgreSQL, MySQL, SQL Server, Oracle and MongoDB
   connections are Trino catalogs named `src_<slug>` (slug from the connection name;
   `src_sales_db`, `src_sales_db_2` on a clash). The Sources page browses them through

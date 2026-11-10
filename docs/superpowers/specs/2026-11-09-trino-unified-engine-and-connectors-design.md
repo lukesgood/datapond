@@ -1,6 +1,6 @@
 # Trino everywhere: one query engine, connectors as Trino catalogs
 
-Date: 2026-11-09. Status: Phase 1 shipped 2026-11-09 (PR #250); Phase 2 implemented from `docs/superpowers/plans/2026-11-10-trino-connectors-phase2.md` (PR #251).
+Date: 2026-11-09. Status: Phase 1 shipped 2026-11-09 (PR #250); Phase 2 shipped 2026-11-10 (PR #251, live release revision 6; follow-up #252).
 
 ## Why
 
