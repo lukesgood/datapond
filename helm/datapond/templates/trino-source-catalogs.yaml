@@ -1,0 +1,29 @@
+{{- if include "datapond.addonOn" (dict "root" $ "component" "trino") }}
+{{- /*
+Source catalogs: the backend turns every Trino-backed connection (PostgreSQL, MySQL,
+SQL Server, Oracle, MongoDB) into a Trino catalog `src_<slug>` by writing its catalog
+file into the first Secret and its password into the second, then restarting Trino.
+Helm creates both empty and, on upgrade, re-renders whatever data they hold (lookup), so
+a `helm upgrade` never erases the backend's projection. The backend may only get/patch
+these two names (rbac-backend.yaml); the plaintext never reaches a ConfigMap or values.
+*/ -}}
+{{- $ns := .Values.namespace }}
+{{- range $name := (list (include "datapond.trinoSourceCatalogsSecret" $) (include "datapond.trinoSourceCredentialsSecret" $)) }}
+{{- $existing := (lookup "v1" "Secret" $ns $name) }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    app: {{ $.Values.trino.name }}
+    app.kubernetes.io/component: trino-source-catalogs
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+type: Opaque
+{{- if and $existing $existing.data }}
+data:
+  {{- toYaml $existing.data | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- end }}

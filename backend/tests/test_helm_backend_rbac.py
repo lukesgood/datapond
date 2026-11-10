@@ -70,3 +70,37 @@ def test_the_backend_is_told_which_configmap_to_write():
     assert "TRINO_ACL_CONFIGMAP" in BACKEND_DEPLOY
     env = BACKEND_DEPLOY.split("TRINO_ACL_CONFIGMAP", 1)[1][:200]
     assert ACL_NAME_SOURCE in env, "the env does not come from the same values key"
+
+
+# ── Trino source catalogs: two Secrets, get/patch, nothing wider ────────────
+
+def _rendered_role():
+    import subprocess
+    import yaml
+    chart = Path(__file__).resolve().parents[2] / "helm/datapond"
+    out = subprocess.run(["helm", "template", "datapond", str(chart), "--namespace", "datapond",
+                          "-f", str(chart / "values-onprem.yaml"), "--set", "trino.enabled=true"],
+                         capture_output=True, text=True, check=True).stdout
+    for d in yaml.safe_load_all(out):
+        if d and d.get("kind") == "Role" and d["metadata"]["name"] == "datapond-backend-reader":
+            return d
+    raise AssertionError("no backend Role rendered")
+
+
+def _secret_rules(role):
+    return [r for r in role["rules"] if "secrets" in r.get("resources", [])]
+
+
+def test_the_backend_may_patch_exactly_the_two_source_catalog_secrets():
+    rules = _secret_rules(_rendered_role())
+    assert rules, "no secrets rule: the backend cannot project source catalogs"
+    for r in rules:
+        assert set(r["verbs"]) <= {"get", "patch"}, r
+        assert set(r.get("resourceNames", [])) == {"trino-source-catalogs",
+                                                   "trino-source-credentials"}, r
+
+
+def test_the_backend_may_not_list_or_read_other_secrets():
+    for r in _secret_rules(_rendered_role()):
+        assert "list" not in r["verbs"] and "watch" not in r["verbs"]
+        assert r.get("resourceNames"), "an unscoped secrets rule reads every Secret"

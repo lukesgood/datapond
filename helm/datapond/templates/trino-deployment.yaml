@@ -69,6 +69,12 @@ spec:
         {{- if .Values.trino.extraCatalogs }}
         {{- include "datapond.trinoExtraCatalogs.env" . | trim | nindent 8 }}
         {{- end }}
+        # Source-catalog passwords, referenced as ${ENV:SRC_<SLUG>_PASSWORD} from the
+        # projected catalog files. Optional: empty until the first source is added.
+        envFrom:
+        - secretRef:
+            name: {{ include "datapond.trinoSourceCredentialsSecret" . }}
+            optional: true
         volumeMounts:
         - name: trino-config
           mountPath: /etc/trino
@@ -108,9 +114,18 @@ spec:
       - name: trino-config
         configMap:
           name: trino-config
+      # Catalog directory: the chart's catalog files plus the source catalogs the backend
+      # projects (trino-source-catalogs.yaml). Trino reads one directory, so both land in
+      # it through a projected volume; the Secret is optional so a fresh install starts
+      # before any source exists.
       - name: trino-catalog
-        configMap:
-          name: trino-catalog
+        projected:
+          sources:
+          - configMap:
+              name: trino-catalog
+          - secret:
+              name: {{ include "datapond.trinoSourceCatalogsSecret" . }}
+              optional: true
       - name: iceberg-warehouse
         persistentVolumeClaim:
           claimName: iceberg-warehouse-pvc

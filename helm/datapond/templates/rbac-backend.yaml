@@ -66,6 +66,17 @@ rules:
     # the documented knob left this Role pinned to the default and policy writes 403'd.
     resourceNames: [{{ .Values.trino.rls.configMapName | default "trino-access-control" | quote }}]
     verbs: ["update", "patch"]
+{{- if include "datapond.addonOn" (dict "root" $ "component" "trino") }}
+  # Source catalogs (Phase 2): the backend projects connector credentials into exactly
+  # two Secrets and nothing else — get to diff, patch to write. No list/watch: those
+  # cannot be narrowed by resourceNames and would expose every Secret in the namespace.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - {{ include "datapond.trinoSourceCatalogsSecret" . | quote }}
+      - {{ include "datapond.trinoSourceCredentialsSecret" . | quote }}
+    verbs: ["get", "patch"]
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
