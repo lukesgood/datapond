@@ -18,7 +18,7 @@ Trino restarted once (annotation `datapond.io/source-catalogs-restarted-at`) and
 `SHOW CATALOGS` lists both; `SELECT count(*) FROM src_sample_e_commerce_db.public.orders`
 answers 6,000 through SQL Lab's route; the samples re-added through
 `POST /connectors/sample-sources` connect as `datapond_sample`, which the app database
-refuses (`SELECT 1 FROM users` → insufficient privilege) and the sample database serves. A follow-up the same day (PR #252, release revision 7, tag `2.5.0-4090015`) let a `decimal(p,s)` source load into the `double` targets the pandas path had written — the first sync forward of `public.orders` had refused `total_amount`.
+refuses (`SELECT 1 FROM users` → insufficient privilege) and the sample database serves. A follow-up the same day (PR #252, release revision 7, tag `2.5.0-4090015`) let a `decimal(p,s)` source load into the `double` targets the pandas path had written — the first sync forward of `public.orders` had refused `total_amount`. The review's deferred minors followed on 2026-11-11 (PR #253, release revision 9, tag `2.5.0-ec8ee4a`); live check: `PUT /catalogs/src_sample_e_commerce_db/grants` answers 409, grants still read, federation answers 6,000.
 
 - **Five source types, one engine.** PostgreSQL, MySQL, SQL Server, Oracle and MongoDB
   connections are Trino catalogs named `src_<slug>` (slug from the connection name;
