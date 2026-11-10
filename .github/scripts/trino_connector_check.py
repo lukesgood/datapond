@@ -48,11 +48,12 @@ async def _tokens():
             "ON CONFLICT (username) DO UPDATE SET role='viewer', is_active=true",
             viewer_id, "ci-viewer@example.invalid", "ci-viewer", _hash_password(uuid.uuid4().hex))
         viewer = await c.fetchrow("SELECT id,username,role FROM users WHERE username='ci-viewer'")
-    return (str(admin["id"]), _create_token(str(admin["id"]), admin["username"], admin["role"]),
+    return (str(admin["id"]), admin["username"],
+            _create_token(str(admin["id"]), admin["username"], admin["role"]),
             _create_token(str(viewer["id"]), viewer["username"], viewer["role"]))
 
 
-ADMIN_ID, ADMIN, VIEWER = asyncio.run(_tokens())
+ADMIN_ID, ADMIN_USER, ADMIN, VIEWER = asyncio.run(_tokens())
 
 
 def call(method, path, body=None, timeout=600, token=None):
@@ -189,11 +190,19 @@ if st != 200 or int(b["rows"][0][0]) != WANT:
     fail(f"{FED} -> {st} {b}")
 log(f"federated count from {CATALOG} = {WANT}")
 
-# ── 6. a grant hides the catalog from an ungranted viewer ────────────────────
+# ── 6. sharing the source hides its catalog from an ungranted viewer ─────────
+# The catalog's grants are the connection's share list: editing them directly is
+# refused, sharing the source writes them.
 st, b = call("PUT", f"/api/catalogs/{CATALOG}/grants",
              {"grants": [{"kind": "user", "principal": ADMIN_ID}]})
+if st != 409:
+    fail(f"PUT grants on a source catalog should be refused (409), got {st} {b}")
+st, b = call("POST", f"/api/connectors/{CONN}/members", {"username": ADMIN_USER, "role": "reader"})
+if st != 200:
+    fail(f"POST members -> {st} {b}")
+st, b = call("GET", f"/api/catalogs/{CATALOG}/grants")
 if st != 200 or b.get("restricted") is not True:
-    fail(f"PUT grants -> {st} {b}")
+    fail(f"grants after sharing -> {st} {b}")
 
 
 def refused():
@@ -206,9 +215,12 @@ if "src_sample" in detail:
     fail(f"the refusal names the hidden catalog: {detail}")
 log(f"viewer refused ({st}) without the catalog name: {detail[:120]}")
 
-st, b = call("PUT", f"/api/catalogs/{CATALOG}/grants", {"grants": []})
+st, b = call("DELETE", f"/api/connectors/{CONN}/members?username={ADMIN_USER}")
+if st != 200:
+    fail(f"DELETE members -> {st} {b}")
+st, b = call("GET", f"/api/catalogs/{CATALOG}/grants")
 if st != 200 or b.get("restricted") is not False:
-    fail(f"PUT grants [] -> {st} {b}")
+    fail(f"grants after unsharing -> {st} {b}")
 
 
 def allowed():
@@ -217,7 +229,7 @@ def allowed():
 
 
 eventually("viewer allowed once the catalog is open again", allowed, seconds=90)
-log("viewer allowed after the grant was removed")
+log("viewer allowed after the source was unshared")
 
 # ── 7. deleting the connection removes the catalog; the engine comes back ────
 st, b = call("DELETE", f"/api/connectors/{CONN}")

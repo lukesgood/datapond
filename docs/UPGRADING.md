@@ -34,6 +34,11 @@ refuses (`SELECT 1 FROM users` → insufficient privilege) and the sample databa
   `integer`, `double` for `real` or `decimal(p,s)` — the pandas path wrote every
   NUMERIC as a double): the load casts up. PII columns are masked inside the
   `SELECT` (`pii_ko.mask_sql`) — the raw value never reaches the lake.
+- **A source catalog's grants are the source's share list.** `PUT /catalogs/src_x/grants`
+  answers 409; share or unshare the source (Sources, or `POST`/`DELETE
+  /connectors/{id}/members`) and the grants follow. Source previews are ordered by
+  their first column so pages are stable; the Secret projection runs under a Postgres
+  advisory lock, so two replicas starting together restart Trino once.
 - **Unqualified table names resolve against the lake catalogs only.** A source catalog
   is a customer's live database; `SELECT … FROM orders` never reaches it. Federate it by
   its qualified name: `src_crm.public.orders`.

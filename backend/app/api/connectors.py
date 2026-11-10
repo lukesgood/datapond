@@ -739,7 +739,10 @@ async def introspect_connection(request: ConnectionIntrospectRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to introspect: {str(e)}")
+        from app.connectors import probe
+        password = (request.config or {}).get("password") if isinstance(request.config, dict) else None
+        raise HTTPException(status_code=500,
+                            detail=f"Failed to introspect: {probe.scrub_password(str(e), password)}")
 
 
 @router.post("/connectors/sample-db",
@@ -868,6 +871,10 @@ async def activate_sample_db(user: dict = Depends(require_user)):
     Every step reports what happened rather than failing the request. A partial result
     an operator can read beats a 500 that says nothing about which half worked — and
     the first step depends on a catalog sync that can legitimately take minutes.
+
+    Right after a sample was added the query engine is restarting (~1 min): this
+    request first waits for it, up to 180 s, and answers 503 if it is still down.
+    Callers should allow a long timeout or poll `GET /connectors/engine` first.
     """
     from app.sample_data import (
         activation_steps, catalog_join_queries, knowledge_ingest_requests,

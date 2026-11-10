@@ -60,8 +60,8 @@ def generate_rules(
       catalogs rule (read-only for the granted users; read-only for everyone when the
       list is empty, the "open" case; no rule at all when it is None — grants exist
       but name no current user, so the catalog stays closed), every other `src_*`
-      catalog is denied, and a matching SELECT table rule keeps default_deny from
-      refusing what the catalogs rule admits.
+      catalog is denied (always, even with no source catalogs), and a matching SELECT
+      table rule keeps default_deny from refusing what the catalogs rule admits.
 
     - One combined rule per (user, policy-bearing table): SELECT + bound filter + masks.
     - admin_bypass: admins get a top allow-all rule (matches RLS_ADMIN_BYPASS).
@@ -133,7 +133,9 @@ def generate_rules(
                 catalog_rules.append({"catalog": cat_re, "allow": "read-only"})
                 table_rules.append({"catalog": cat_re, "schema": ".*", "table": ".*",
                                     "privileges": list(read_privileges)})
-        catalog_rules.append({"catalog": "^src_.*$", "allow": "none"})
+    # Always: a src_* catalog file that outlived its registry row (a projection that
+    # failed after the delete) must not become readable to everyone.
+    catalog_rules.append({"catalog": "^src_.*$", "allow": "none"})
     catalog_rules.append({"allow": "all"})
 
     # 4) default_deny catch-all (whitelist): no privileges => deny

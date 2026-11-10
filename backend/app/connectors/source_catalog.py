@@ -65,13 +65,23 @@ async def register(conn, *, connection_id: str, name: str, connector_type: str) 
     """Insert the connection's registry row and return its Trino catalog name. The
     name is unique against every registry name and engine catalog and against the
     catalogs the chart renders itself."""
-    taken = set(RESERVED)
-    for r in await conn.fetch(_TAKEN):
-        taken |= {r["name"], r["engine_catalog"]}
-    slug = unique_slug(source_slug(name), taken)
+    import asyncpg
     config = {"connection_id": str(connection_id), "connector_type": str(connector_type)}
-    await conn.execute(_INSERT, slug, KIND, slug, json.dumps(config))
-    return slug
+    last = None
+    for _attempt in range(3):
+        taken = set(RESERVED)
+        for r in await conn.fetch(_TAKEN):
+            taken |= {r["name"], r["engine_catalog"]}
+        slug = unique_slug(source_slug(name), taken)
+        try:
+            # A savepoint: a concurrent create may have taken the slug between the read
+            # and the insert; the unique constraint says so and the next read sees it.
+            async with conn.transaction():
+                await conn.execute(_INSERT, slug, KIND, slug, json.dumps(config))
+            return slug
+        except asyncpg.UniqueViolationError as e:
+            last = e
+    raise RuntimeError(f"could not register a catalog for {name!r}: {last}")
 
 
 async def catalog_for(conn, connection_id: str) -> Optional[str]:

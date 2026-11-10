@@ -294,7 +294,9 @@ class TrinoSourceConnector(BaseConnector):
 
     def _read_via_trino(self, schema: str, name: str, limit: int, offset: int) -> List[Dict[str, Any]]:
         cur = self._cursor()
-        sql = f"SELECT * FROM {self.catalog}.{schema}.{name}"
+        # ORDER BY 1: pages are pages only under one order; without it Trino may hand
+        # the same row on two pages and skip another.
+        sql = f"SELECT * FROM {self.catalog}.{schema}.{name} ORDER BY 1"
         if offset:
             sql += f" OFFSET {int(offset)}"
         sql += f" LIMIT {int(limit)}"

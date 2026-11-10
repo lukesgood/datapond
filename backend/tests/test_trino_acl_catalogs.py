@@ -25,9 +25,12 @@ def test_usernames_are_escaped_in_the_user_pattern():
     assert rules["catalogs"][0]["user"] == r"^(a\.b|c\+d)$"
 
 
-def test_without_source_catalogs_the_section_is_unchanged():
-    assert generate_rules([], [], [])["catalogs"] == [{"allow": "all"}]
-    assert generate_rules([], [], [], source_catalogs={})["catalogs"] == [{"allow": "all"}]
+def test_src_catalogs_are_denied_even_when_none_is_registered():
+    """A catalog file that outlived its registry row (a projection that failed after
+    the delete) must not become readable to everyone under Layer 2 (deferred minor #14)."""
+    deny_then_all = [{"catalog": "^src_.*$", "allow": "none"}, {"allow": "all"}]
+    assert generate_rules([], [], [])["catalogs"] == deny_then_all
+    assert generate_rules([], [], [], source_catalogs={})["catalogs"] == deny_then_all
 
 
 def test_source_catalog_tables_are_readable_by_granted_users_under_default_deny():
