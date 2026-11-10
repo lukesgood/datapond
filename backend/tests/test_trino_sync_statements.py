@@ -24,6 +24,12 @@ def test_types_iceberg_cannot_hold_are_mapped(src, dst):
     assert s.iceberg_type(src) == dst
 
 
+def test_the_target_namespace_is_created_before_the_table():
+    """The kind job's Polaris catalog has no `default` schema: CREATE TABLE answered
+    "Schema default not found" (CI finding). The pandas path created the namespace."""
+    assert s.build_create_schema(T) == 'CREATE SCHEMA IF NOT EXISTS "iceberg"."default"'
+
+
 def test_create_statement_quotes_names_and_renders_partitioning():
     sql = s.build_create(T, COLS, [
         {"column": "ts", "transform": "day"}, {"column": "id", "transform": "bucket", "buckets": 8},

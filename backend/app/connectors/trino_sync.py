@@ -139,6 +139,12 @@ def partition_clause(spec: Optional[list]) -> str:
     return "WITH (partitioning = ARRAY[" + ", ".join(f"'{p}'" for p in parts) + "])"
 
 
+def build_create_schema(target: TableRef) -> str:
+    """The target namespace, created if missing: a fresh Iceberg catalog (the kind
+    job's Polaris) has no `default` schema and CREATE TABLE into it fails."""
+    return f"CREATE SCHEMA IF NOT EXISTS {quote(target.catalog)}.{quote(target.namespace)}"
+
+
 def build_create(target: TableRef, columns: Sequence[Column], partition_spec: Optional[list]) -> str:
     cols = ", ".join(f"{quote(n)} {iceberg_type(t)}" for n, t in columns)
     sql = f"CREATE TABLE IF NOT EXISTS {qualified(target)} ({cols})"

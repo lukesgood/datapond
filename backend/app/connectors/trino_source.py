@@ -369,6 +369,8 @@ class TrinoSourceConnector(BaseConnector):
         existing = self._target_columns(cur, target)
 
         step("create", f"Ensuring {target.sql()} exists…")
+        cur.execute(trino_sync.build_create_schema(target))
+        cur.fetchall()
         cur.execute(trino_sync.build_create(target, columns, partition_spec))
 
         step("evolve", "Adding new source columns to the target…")
