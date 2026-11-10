@@ -1204,7 +1204,9 @@ async def _add_finance_sample(source) -> Dict[str, Any]:
 async def _add_postgres_sample(source) -> Dict[str, Any]:
     created = await create_sample_db()
     return {"id": created["id"], "action": created["connector_action"],
-            "status": created["status"], "seeded": created["seeded"]}
+            "status": created["status"], "seeded": created["seeded"],
+            "catalog": created.get("catalog"),
+            "engine_restarting": created.get("engine_restarting", False)}
 
 
 _SAMPLE_BUILDERS = {

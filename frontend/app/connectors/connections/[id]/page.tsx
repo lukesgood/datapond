@@ -26,6 +26,8 @@ import { getConnector } from "@/lib/connectors"
 import { describeCheck } from "@/lib/source-check"
 import { FREQ_OPTIONS, HOUR_OPTIONS, parseCron, cronToFreqHour, nextRun } from "@/lib/schedule"
 import { useCapability } from "@/lib/capabilities"
+import { EngineRestartBanner } from "@/components/connectors/engine-restart-banner"
+import { isTrinoEngine } from "@/lib/engine-restart"
 
 type ConfigValue = string | number | boolean | null | undefined
 interface SchemaColumn { name: string; type: string }
@@ -609,6 +611,9 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const catalogEnabled = useCapability("catalog")
 
   const [connector, setConnector]         = useState<Connector | null>(null)
+  // The engine restarts when a Trino-backed source is created or re-configured; the
+  // wizard says so in the URL, and the banner polls until it is back.
+  const [engineRestarting, setEngineRestarting] = useState(false)
   const [tables, setTables]               = useState<ConnectorTable[]>([])
   const [togglingTable, setTogglingTable] = useState<string | null>(null)
   const [configPreview, setConfigPreview] = useState<Record<string, ConfigValue>>({})
@@ -764,6 +769,14 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
       }
     } catch { /* non-critical */ }
   }, [id])
+
+  useEffect(() => {
+    // The wizard lands here with ?engine=restarting right after creating a Trino-backed
+    // source; hold Sync until the banner's first poll says otherwise.
+    if (new URLSearchParams(window.location.search).get("engine") === "restarting") {
+      setEngineRestarting(true)
+    }
+  }, [])
 
   useEffect(() => {
     const initial = window.setTimeout(() => {
@@ -1134,7 +1147,8 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           <Button variant="outline" onClick={startEdit} disabled={editing}>
             <Pencil className="h-4 w-4 mr-2" />Edit
           </Button>
-          <Button variant="outline" onClick={handleSyncNow} disabled={syncing}>
+          <Button variant="outline" onClick={handleSyncNow} disabled={syncing || engineRestarting}
+            title={engineRestarting ? "The query engine is restarting; Sync is available when it is back." : undefined}>
             <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
             {syncing ? "Syncing…" : "Sync Now"}
           </Button>
@@ -1144,6 +1158,13 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           </Button>
         </div>
       </div>
+
+      {/* The query engine, for a Trino-backed source: restarting (after create/edit) or
+          not ready. Polls once on load, and on while a restart is reported. */}
+      <EngineRestartBanner
+        active={!!connector && isTrinoEngine(connector.connector_type)}
+        onStatus={(s) => setEngineRestarting(!!s?.restarting)}
+      />
 
       {/* Feedback */}
       {syncedOk && catalogEnabled && (

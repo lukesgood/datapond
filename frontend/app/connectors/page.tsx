@@ -27,6 +27,7 @@ import Link from "next/link"
 import { parseCron, nextRun } from "@/lib/schedule"
 import { CapabilityGate } from "@/lib/capabilities"
 import { describeCheck } from "@/lib/source-check"
+import { EngineRestartBanner } from "@/components/connectors/engine-restart-banner"
 
 interface Connection {
   id: string
@@ -38,6 +39,9 @@ interface Connection {
   schedule: string | null
   last_checked_at?: string | null
   last_check_message?: string | null
+  // Trino-backed sources: the engine catalog (`src_…`) and `engine: "trino"`.
+  catalog?: string | null
+  engine?: string | null
 }
 
 interface ConnStats {
@@ -93,10 +97,11 @@ const SOURCE_TYPES = [
   { name: "Custom Python", icon: "🐍" },
 ]
 
-function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated }: {
+function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated, onEngineRestart }: {
   onAddSource: () => void
   hideTitle?: boolean
   onSampleCreated?: () => void
+  onEngineRestart?: () => void
 }) {
   return (
     <div className="px-8 py-10 space-y-8">
@@ -155,7 +160,7 @@ function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated }: {
       {/* CTA */}
       <div className="flex flex-col items-center gap-3">
         {/* Primary: one sample per connector kind */}
-        <SampleSourcesPanel onAdded={onSampleCreated} />
+        <SampleSourcesPanel onAdded={onSampleCreated} onEngineRestart={onEngineRestart} />
 
         {/* Divider */}
         <div className="flex items-center gap-3 w-full max-w-xs">
@@ -180,6 +185,8 @@ function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated }: {
 function ConnectorsPageInner() {
   // ── Connections state ──────────────────────────────────────────────────────
   const [connections, setConnections] = useState<Connection[]>([])
+  // A sample SQL source was just added: the engine restarts to load its catalog.
+  const [engineRestart, setEngineRestart] = useState(false)
   const [connStats, setConnStats] = useState<Map<string, ConnStats>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -325,6 +332,9 @@ function ConnectorsPageInner() {
   return (
     <div className="flex-1 space-y-5 px-6 py-5">
 
+      {/* A sample SQL source was just added: Trino restarts to load its catalog. */}
+      <EngineRestartBanner active={engineRestart} />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -453,7 +463,7 @@ function ConnectorsPageInner() {
               <IngestionEmptyState onAddSource={() => {
                 setShowOnboarding(false)
                 setActiveTab("marketplace")
-              }} onSampleCreated={fetchConnections} hideTitle />
+              }} onSampleCreated={fetchConnections} onEngineRestart={() => setEngineRestart(true)} hideTitle />
             </div>
           )}
 
@@ -465,7 +475,7 @@ function ConnectorsPageInner() {
             <div className="rounded-xl border bg-card">
               <IngestionEmptyState onAddSource={() => {
                 setActiveTab("marketplace")
-              }} onSampleCreated={fetchConnections} />
+              }} onSampleCreated={fetchConnections} onEngineRestart={() => setEngineRestart(true)} />
             </div>
           )}
 
@@ -514,6 +524,17 @@ function ConnectorsPageInner() {
                           <Database className="h-3.5 w-3.5 text-muted-foreground" />
                           <span className="capitalize">{conn.connector_type}</span>
                         </span>
+                        {conn.catalog && (
+                          // A Trino-backed source is a catalog the engine federates: name
+                          // it, and open SQL Lab on it.
+                          <span className="mt-0.5 flex items-center gap-1.5 text-2xs text-muted-foreground">
+                            <code className="font-mono">{conn.catalog}</code>
+                            <Link href={`/query?catalog=${encodeURIComponent(conn.catalog)}`}
+                              className="hover:text-primary hover:underline">
+                              Query in SQL Lab
+                            </Link>
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {/* Status is the last real contact with the source, not a live

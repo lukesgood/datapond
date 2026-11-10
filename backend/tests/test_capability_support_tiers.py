@@ -146,3 +146,10 @@ def test_preview_expires_when_pipelines_stop_compiling_to_placeholders(tmp_path)
         assert refuse_placeholder_deploy(dag, allow=False), (
             "the generator emits placeholders but the deploy no longer refuses them"
         )
+
+
+def test_connectors_need_only_trino():
+    """2.5: every database source is a Trino catalog and the sync is a Trino statement,
+    so ingestion exists exactly when the engine does. A Polaris or Glue catalog alone
+    gives a place to write and nothing that can write there."""
+    assert CAPABILITY_BACKENDS["connectors"] == ("TRINO",)
