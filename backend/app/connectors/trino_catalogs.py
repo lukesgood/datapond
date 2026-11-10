@@ -32,9 +32,12 @@ logger = logging.getLogger(__name__)
 
 RESTART_ANNOTATION = "datapond.io/source-catalogs-restarted-at"
 
-# Task 4 wires this to source_catalog.ensure_rows so a connection that predates Phase 2
-# gets its registry row (and therefore its catalog) before the projection is computed.
-_ensure_rows: Optional[Callable[[object], Awaitable[int]]] = None
+
+async def _ensure_rows(pool) -> int:
+    """A connection that predates Phase 2 gets its registry row (and so its catalog)
+    before the projection is computed."""
+    from .source_catalog import ensure_rows
+    return await ensure_rows(pool)
 
 
 def enabled() -> bool:

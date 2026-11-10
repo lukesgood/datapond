@@ -26,7 +26,7 @@ Output schema (Trino file-based access control):
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Sequence
+from typing import Dict, List, Mapping, Optional, Sequence
 
 from .engine import (
     UserContext, RlsPolicy, MaskPolicy,
@@ -50,9 +50,17 @@ def generate_rules(
     default_deny: bool = True,
     admin_bypass: bool = False,
     read_privileges: Sequence[str] = ("SELECT",),
+    source_catalogs: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> Dict:
     """
     Build a Trino file-based access control config dict.
+
+    - source_catalogs: Trino catalog name → usernames granted (Phase 2 source
+      catalogs, projected from the connection's owner and members). Each becomes a
+      catalogs rule (read-only for the granted users; read-only for everyone when the
+      list is empty, the "open" case), every other `src_*` catalog is denied, and a
+      matching SELECT table rule keeps default_deny from refusing what the catalogs
+      rule admits.
 
     - One combined rule per (user, policy-bearing table): SELECT + bound filter + masks.
     - admin_bypass: admins get a top allow-all rule (matches RLS_ADMIN_BYPASS).
@@ -106,15 +114,35 @@ def generate_rules(
                 ]
             table_rules.append(rule)
 
-    # 3) default_deny catch-all (whitelist): no privileges => deny
+    # 3) source catalogs: a catalogs rule per connection, plus the table rule that
+    #    lets default_deny admit the whole catalog to whoever the catalogs rule admits.
+    catalog_rules: List[Dict] = []
+    if source_catalogs:
+        for catalog, usernames in sorted(source_catalogs.items()):
+            cat_re = "^" + re.escape(catalog) + "$"
+            names = sorted({str(u) for u in usernames if u})
+            if names:
+                user_re = "^(" + "|".join(re.escape(u) for u in names) + ")$"
+                catalog_rules.append({"user": user_re, "catalog": cat_re, "allow": "read-only"})
+                table_rules.append({"user": user_re, "catalog": cat_re, "schema": ".*",
+                                    "table": ".*", "privileges": list(read_privileges)})
+            else:
+                catalog_rules.append({"catalog": cat_re, "allow": "read-only"})
+                table_rules.append({"catalog": cat_re, "schema": ".*", "table": ".*",
+                                    "privileges": list(read_privileges)})
+        catalog_rules.append({"catalog": "^src_.*$", "allow": "none"})
+    catalog_rules.append({"allow": "all"})
+
+    # 4) default_deny catch-all (whitelist): no privileges => deny
     if default_deny:
         table_rules.append({
             "catalog": ".*", "schema": ".*", "table": ".*", "privileges": [],
         })
 
     return {
-        # Catalog visibility is allowed; row/column enforcement happens at table rules.
-        "catalogs": [{"allow": "all"}],
+        # Catalog visibility is allowed except where a source catalog says otherwise;
+        # row/column enforcement happens at table rules.
+        "catalogs": catalog_rules,
         "schemas": [{"user": ".*", "schema": ".*", "owner": False}],
         "tables": table_rules,
     }

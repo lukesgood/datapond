@@ -238,6 +238,7 @@ async def _add_member(kind: Kind, resource_id: str, body: MemberGrant, user: dic
                               granted_at = now()""",
             row["id"], target["id"], body.role, caller_uuid(user),
         )
+        await _after_member_change(c, kind, row["id"])
     return {"success": True, "id": str(row["id"]),
             "username": body.username, "role": body.role}
 
@@ -256,10 +257,25 @@ async def _remove_member(kind: Kind, resource_id: str, username: str, user: dict
             f"DELETE FROM {kind.members} WHERE {kind.fk} = $1 AND user_id = $2",
             row["id"], target["id"],
         )
+        await _after_member_change(c, kind, row["id"])
     removed = int(result.split()[-1]) if result and result.split()[-1].isdigit() else 0
     if removed == 0:
         raise HTTPException(404, f"'{username}' has no grant on this {kind.label}.")
     return {"success": True, "id": str(row["id"]), "username": username}
+
+
+async def _after_member_change(c, kind: Kind, resource_id) -> None:
+    """A connection's members are its catalog's grants (Phase 2): re-project them so
+    SQL sees the share at once. Other kinds have no catalog."""
+    if kind is not CONNECTOR:
+        return
+    from app import catalog_access
+    from app.connectors import source_catalog
+    try:
+        await source_catalog.sync_grants(c, str(resource_id))
+    except Exception as e:                       # a database before migration 0021
+        logger.warning("[sources] catalog grants of %s not synced: %s", resource_id, e)
+    catalog_access.invalidate()
 
 
 @router.get("/connectors/{connection_id}/members",
