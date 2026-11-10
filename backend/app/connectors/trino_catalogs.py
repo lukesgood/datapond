@@ -138,15 +138,27 @@ def _patch_for(current: Mapping[str, str], wanted: Mapping[str, str]) -> Dict[st
 
 
 def apply(desired: Desired, kube: KubeClient) -> bool:
-    """Make the two Secrets hold exactly `desired`. Returns whether anything changed."""
+    """Make the two Secrets hold exactly `desired`. Returns whether anything changed.
+
+    Order matters: a catalog file that names ${ENV:SRC_X_PASSWORD} while the credentials
+    Secret lacks it stops the whole engine at its next start. Passwords are therefore
+    added before the files that reference them and removed only after those files are
+    gone, so a failure between the patches never leaves a dangling reference."""
     catalogs_secret, credentials_secret, _ = _names()
     changed = False
-    for name, wanted in ((catalogs_secret, desired.catalogs),
-                         (credentials_secret, desired.credentials)):
-        patch = _patch_for(kube.read_secret_data(name), wanted)
-        if patch:
-            kube.patch_secret_data(name, patch)
-            changed = True
+    current_credentials = kube.read_secret_data(credentials_secret)
+    added = {k: v for k, v in desired.credentials.items() if current_credentials.get(k) != v}
+    if added:
+        kube.patch_secret_data(credentials_secret, added)
+        changed = True
+    files = _patch_for(kube.read_secret_data(catalogs_secret), desired.catalogs)
+    if files:
+        kube.patch_secret_data(catalogs_secret, files)
+        changed = True
+    removed = {k: None for k in current_credentials if k not in desired.credentials}
+    if removed:
+        kube.patch_secret_data(credentials_secret, removed)
+        changed = True
     return changed
 
 
@@ -157,8 +169,26 @@ def restart(kube: KubeClient, now: Optional[str] = None) -> None:
     kube.patch_deployment_annotation(deployment, RESTART_ANNOTATION, stamp)
 
 
-def engine_status(kube: KubeClient) -> Dict:
-    """{"engine", "ready", "restarting", "restarted_at"} — what the console polls."""
+# How long after a projection an unready engine counts as "restarting" (the console
+# says "~1 min"; Trino with many catalogs takes a few). Past it, not-ready is not-ready:
+# an engine that fell over an hour later must not read as our rollout.
+RESTART_WINDOW_SECONDS = 600
+
+
+def _recent(stamp: Optional[str], now: Optional[datetime]) -> bool:
+    if not stamp:
+        return False
+    try:
+        at = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return True                           # a hand-written stamp: assume in progress
+    return ((now or datetime.now(timezone.utc)) - at).total_seconds() < RESTART_WINDOW_SECONDS
+
+
+def engine_status(kube: KubeClient, now: Optional[datetime] = None) -> Dict:
+    """{"engine", "ready", "restarting", "restarted_at"} — what the console polls.
+    `restarting` is true only while a rollout stamped within RESTART_WINDOW_SECONDS has
+    not completed; a later unreadiness reports ready=False, restarting=False."""
     if not enabled():
         return {"engine": "none", "ready": False, "restarting": False, "restarted_at": None}
     _, _, deployment = _names()
@@ -168,7 +198,7 @@ def engine_status(kube: KubeClient) -> Dict:
     rolled = int(st.get("updated_replicas") or 0) >= replicas
     restarted_at = (st.get("annotations") or {}).get(RESTART_ANNOTATION)
     return {"engine": "trino", "ready": ready,
-            "restarting": bool(restarted_at) and not (ready and rolled),
+            "restarting": _recent(restarted_at, now) and not (ready and rolled),
             "restarted_at": restarted_at}
 
 

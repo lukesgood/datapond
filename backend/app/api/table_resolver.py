@@ -107,6 +107,11 @@ def _registry_readers():
     from app.catalog_registry import entries
     out = []
     for entry in entries():
+        # A source catalog is a customer's live database: indexing it would reach it
+        # over the network on every cache miss and fail every unqualified query while
+        # the engine restarts. Federate it by its qualified name (src_x.schema.table).
+        if entry.kind == "trino_source":
+            continue
         try:
             out.append((entry, get_catalog_reader(entry.name)))
         except Exception as e:

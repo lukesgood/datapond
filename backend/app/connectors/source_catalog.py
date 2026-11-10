@@ -102,12 +102,47 @@ async def sync_grants(conn, connection_id: str) -> List[str]:
     return principals
 
 
+_LEGACY_URL_ROWS = """SELECT id, config_encrypted FROM connector_connections
+                      WHERE connector_type = 'database_url' ORDER BY created_at"""
+
+
+async def rewrite_legacy_rows(conn) -> int:
+    """A connection stored before 2.5 as `database_url` becomes the PostgreSQL or MySQL
+    row its URL described (the console has no card for the URL type any more, so such
+    a row could not be edited). The registry entry's connector_type follows. A row the
+    vault cannot open, or whose URL names another database, is left as it is and logged."""
+    from .base import ConnectorType
+    from .trino_source import normalise_type_and_config
+    from .vault import CredentialVault
+    vault = CredentialVault()
+    rewritten = 0
+    for r in await conn.fetch(_LEGACY_URL_ROWS):
+        try:
+            kind, config = normalise_type_and_config(
+                ConnectorType.DATABASE_URL, vault.decrypt_credentials(r["config_encrypted"]))
+        except Exception as e:
+            logger.warning("[source-catalogs] connection %s stays database_url: %s", r["id"], e)
+            continue
+        await conn.execute(
+            "UPDATE connector_connections SET connector_type = $1, config_encrypted = $2 WHERE id = $3",
+            kind.value, vault.encrypt_credentials(config), r["id"])
+        await conn.execute(
+            "UPDATE data_catalogs SET config = config || jsonb_build_object('connector_type', $1::text) "
+            "WHERE kind = 'trino_source' AND config->>'connection_id' = $2",
+            kind.value, str(r["id"]))
+        logger.info("[source-catalogs] connection %s rewritten as %s", r["id"], kind.value)
+        rewritten += 1
+    return rewritten
+
+
 async def ensure_rows(pool) -> int:
     """Register every Trino-engine connection that has no registry row yet — the
-    upgrade and disaster-recovery path. Returns how many were added."""
+    upgrade and disaster-recovery path. Returns how many were added. Legacy
+    `database_url` rows are rewritten first (`rewrite_legacy_rows`)."""
     added = 0
     async with pool.acquire() as conn:
         async with conn.transaction():
+            await rewrite_legacy_rows(conn)
             for r in await conn.fetch(_UNREGISTERED):
                 if not is_trino_type(r["connector_type"]):
                     continue

@@ -50,7 +50,7 @@ def generate_rules(
     default_deny: bool = True,
     admin_bypass: bool = False,
     read_privileges: Sequence[str] = ("SELECT",),
-    source_catalogs: Optional[Mapping[str, Sequence[str]]] = None,
+    source_catalogs: Optional[Mapping[str, Optional[Sequence[str]]]] = None,
 ) -> Dict:
     """
     Build a Trino file-based access control config dict.
@@ -58,9 +58,10 @@ def generate_rules(
     - source_catalogs: Trino catalog name → usernames granted (Phase 2 source
       catalogs, projected from the connection's owner and members). Each becomes a
       catalogs rule (read-only for the granted users; read-only for everyone when the
-      list is empty, the "open" case), every other `src_*` catalog is denied, and a
-      matching SELECT table rule keeps default_deny from refusing what the catalogs
-      rule admits.
+      list is empty, the "open" case; no rule at all when it is None — grants exist
+      but name no current user, so the catalog stays closed), every other `src_*`
+      catalog is denied, and a matching SELECT table rule keeps default_deny from
+      refusing what the catalogs rule admits.
 
     - One combined rule per (user, policy-bearing table): SELECT + bound filter + masks.
     - admin_bypass: admins get a top allow-all rule (matches RLS_ADMIN_BYPASS).
@@ -119,6 +120,8 @@ def generate_rules(
     catalog_rules: List[Dict] = []
     if source_catalogs:
         for catalog, usernames in sorted(source_catalogs.items()):
+            if usernames is None:
+                continue                      # closed: the ^src_.*$ deny below covers it
             cat_re = "^" + re.escape(catalog) + "$"
             names = sorted({str(u) for u in usernames if u})
             if names:

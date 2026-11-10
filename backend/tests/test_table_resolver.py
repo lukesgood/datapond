@@ -427,3 +427,19 @@ def test_canonicalise_catalogs_leaves_a_statement_with_nothing_to_rename_verbati
         assert canonicalise_catalogs("SELECT * FROM default.orders", dialect="trino") == "SELECT * FROM default.orders"
     finally:
         reg.reset()
+
+
+def test_source_catalogs_are_not_in_the_bare_name_index(monkeypatch):
+    """Unqualified names resolve against the lake only: indexing a customer database
+    would reach it over the network on every cache miss and fail every unqualified
+    query while the engine restarts (review finding 6). Federate as src_x.schema.t."""
+    from app import catalog_registry
+    from app.api import table_resolver
+    from app.catalog_registry import CatalogEntry
+    monkeypatch.setattr(catalog_registry, "entries", lambda: [
+        CatalogEntry(name="iceberg", kind="polaris", engine_catalog="iceberg", is_default=True),
+        CatalogEntry(name="src_crm", kind="trino_source", engine_catalog="src_crm")])
+    asked = []
+    monkeypatch.setattr(table_resolver, "get_catalog_reader", lambda name=None: asked.append(name) or object())
+    names = [e.name for e, _ in table_resolver._registry_readers()]
+    assert names == ["iceberg"] and asked == ["iceberg"]

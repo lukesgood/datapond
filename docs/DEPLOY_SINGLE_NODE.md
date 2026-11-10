@@ -648,7 +648,10 @@ On a rebuild there is nothing to back up here: the Secrets are a projection of
 re-creates them on start (`trino_catalogs.reconcile_on_startup`). That is one more reason
 the §7 rule holds — re-seed `ENCRYPTION_KEY` from the vault **before** the backend starts;
 a connection whose credentials no longer decrypt is skipped (logged with its catalog
-name) and shows as broken in Sources until its credentials are re-entered.
+name): its catalog file is dropped from Trino, so SQL Lab no longer sees `src_<slug>`
+and Sources shows it as broken, until its credentials are re-entered. The projection
+writes passwords before the catalog files that reference them and removes them after,
+so a failure between the two Secret patches never leaves Trino with a file it cannot start.
 
 The sample sources connect as the read-only `datapond_sample` role, created by migration
 0026 from `SAMPLE_DB_PASSWORD` (generated into `datapond-secrets` by the chart; the

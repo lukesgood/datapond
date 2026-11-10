@@ -26,12 +26,12 @@ class _DB:
     def connection_rows(self):
         return [dict(c) for c in self.connections]
 
-    def seed_connection(self, *, name, connector_type, catalog=None, owner_id=None):
+    def seed_connection(self, *, name, connector_type, catalog=None, owner_id=None, config=None):
         cid = str(uuid.uuid4())
         self.connections.append({"id": cid, "name": name, "connector_type": connector_type,
                                  "owner_id": owner_id, "config_encrypted": connectors.vault.encrypt_credentials(
-                                     {"host": "h", "port": 5432, "database": "d",
-                                      "username": "u", "password": "p"})})
+                                     config or {"host": "h", "port": 5432, "database": "d",
+                                                "username": "u", "password": "p"})})
         if catalog:
             self.catalogs.append({"name": catalog, "kind": "trino_source", "engine_catalog": catalog,
                                   "config": {"connection_id": cid, "connector_type": connector_type}})
@@ -113,6 +113,10 @@ class _Conn:
             before = len(self.db.connections)
             self.db.connections = [c for c in self.db.connections if str(c["id"]) != str(args[0])]
             return f"DELETE {before - len(self.db.connections)}"
+        if s.startswith("UPDATE connector_connections SET name = $1, connector_type = $2, config_encrypted = $3"):
+            c = self._conn(args[4])
+            c.update({"name": args[0], "connector_type": args[1], "config_encrypted": args[2]})
+            return "UPDATE 1"
         if s.startswith("UPDATE connector_connections"):
             return "UPDATE 1"
         if s.startswith("INSERT INTO auth_audit_log"):
@@ -273,3 +277,23 @@ def test_introspect_lists_tables_and_columns_through_the_probe(client, monkeypat
     assert r.status_code == 200, r.text
     assert r.json()["tables"] == [{"name": "public.orders", "row_count": None,
                                    "columns": [{"name": "id", "type": "integer", "nullable": False}]}]
+
+
+def test_reconfiguring_a_legacy_database_url_row_keeps_the_new_password_and_rewrites_the_type(
+        client, fake_pool, fake_project, monkeypatch):
+    """A row stored before 2.5 as database_url: the PATCH used to merge {"password": new}
+    beside the URL, and normalisation then read the OLD password back out of the URL
+    (review finding 5). UPGRADING promises the row becomes its real type on save."""
+    cid = fake_pool.seed_connection(name="Fin", connector_type="database_url", catalog="src_fin",
+                                    config={"database_url": "postgresql://u:old@h:5432/fin"})
+
+    async def _check(connection_id):
+        return {"success": True, "message": "ok", "status": "active"}
+    monkeypatch.setattr(connectors, "_check_connection", _check)
+    r = client.patch(f"/api/connectors/{cid}", json={"config": {"password": "new"}})
+    assert r.status_code == 200, r.text
+    row = fake_pool.connection_rows()[0]
+    stored = connectors.vault.decrypt_credentials(row["config_encrypted"])
+    assert row["connector_type"] == "postgresql"
+    assert stored["password"] == "new" and stored["host"] == "h" and "database_url" not in stored
+    assert fake_project.calls == 1

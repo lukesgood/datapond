@@ -36,14 +36,28 @@ def test_create_statement_quotes_names_and_renders_partitioning():
     assert "truncate(\"email\", 4)" in s.partition_clause([{"column": "email", "transform": "truncate", "width": 4}])
 
 
-def test_full_sync_is_delete_then_insert_select_with_casts_and_masks():
-    delete, insert = s.build_full(T, S, COLS, pii_columns=["email"])
-    assert delete == 'DELETE FROM "iceberg"."default"."orders"'
-    assert insert.startswith('INSERT INTO "iceberg"."default"."orders" SELECT "id" AS "id", regexp_replace(')
-    assert 'CAST("flag" AS integer) AS "flag"' in insert
-    assert 'json_format(CAST("doc" AS JSON)) AS "doc"' in insert
-    assert 'CAST("ts" AS timestamp(6)) AS "ts"' in insert and '"amt" AS "amt"' in insert
-    assert insert.endswith('FROM "src_crm"."public"."orders"')
+def test_full_sync_is_one_atomic_replace_with_casts_and_masks():
+    """One Iceberg commit: a reader during the load sees the old rows, a failed load
+    leaves them in place (review finding 3; DELETE + INSERT left a window of none)."""
+    (replace,) = s.build_full(T, S, COLS, pii_columns=["email"], partition_spec=[{"column": "ts", "transform": "day"}])
+    assert replace.startswith('CREATE OR REPLACE TABLE "iceberg"."default"."orders" '
+                              """WITH (partitioning = ARRAY['day("ts")']) AS SELECT "id" AS "id", regexp_replace(""")
+    assert 'CAST("flag" AS integer) AS "flag"' in replace
+    assert 'json_format(CAST("doc" AS JSON)) AS "doc"' in replace
+    assert 'CAST("ts" AS timestamp(6)) AS "ts"' in replace and '"amt" AS "amt"' in replace
+    assert replace.endswith('FROM "src_crm"."public"."orders"')
+    (plain,) = s.build_full(T, S, COLS, pii_columns=None)
+    assert plain.startswith('CREATE OR REPLACE TABLE "iceberg"."default"."orders" AS SELECT ')
+
+
+def test_the_projection_casts_to_the_target_s_existing_wider_type():
+    """A target written before 2.5 holds bigint/double where the source says
+    integer/real (pandas → int64/float64); the load casts up instead of failing."""
+    (replace,) = s.build_full(T, S, [("id", "integer"), ("score", "real"), ("n", "smallint")], None,
+                              existing=[("id", "bigint"), ("score", "double"), ("n", "bigint")])
+    assert 'CAST("id" AS bigint) AS "id"' in replace
+    assert 'CAST("score" AS double) AS "score"' in replace
+    assert 'CAST("n" AS bigint) AS "n"' in replace
 
 
 def test_star_masks_every_varchar_column_only():
@@ -53,12 +67,19 @@ def test_star_masks_every_varchar_column_only():
     assert s.pii_set(COLS, None) == set() and s.pii_set(COLS, []) == set()
 
 
-def test_incremental_without_keys_binds_the_watermark_as_a_parameter():
+def test_incremental_without_keys_binds_the_watermark_as_a_parameter_cast_to_the_column_type():
+    """The stored watermark is text; the trino client binds text as varchar and Trino
+    has no varchar → timestamp/bigint coercion (review finding 1: the second run of
+    every non-varchar incremental sync failed)."""
     stmts, watermark = s.build_incremental(T, S, COLS, None, "ts", "2026-01-01 00:00:00", key_columns=None)
     (sql, params), = stmts
-    assert sql.endswith('FROM "src_crm"."public"."orders" WHERE "ts" > ?')
+    assert sql.endswith('FROM "src_crm"."public"."orders" WHERE "ts" > CAST(? AS timestamp(3))')
     assert params == ["2026-01-01 00:00:00"] and "2026-01-01" not in sql
     assert watermark == 'SELECT max("ts") FROM "src_crm"."public"."orders"'
+    (sql, params), = s.build_incremental(T, S, [("id", "bigint")], None, "id", "17", key_columns=None)[0]
+    assert sql.endswith('WHERE "id" > CAST(? AS bigint)') and params == ["17"]
+    (sql, _), = s.build_incremental(T, S, [("v", "varchar(20)")], None, "v", "m", key_columns=None)[0]
+    assert sql.endswith('WHERE "v" > ?'), "a varchar watermark binds as it is"
 
 
 def test_a_first_incremental_run_has_no_predicate():
@@ -85,6 +106,10 @@ def test_evolve_adds_new_columns_and_refuses_a_type_change():
     assert s.build_evolve(T, [("id", "integer")], [("id", "integer"), ("email", "varchar(10)")]) == \
         ['ALTER TABLE "iceberg"."default"."orders" ADD COLUMN "email" varchar']
     assert s.build_evolve(T, [("ts", "timestamp(6)")], [("ts", "timestamp(3)")]) == []
+    assert s.build_evolve(T, [("id", "bigint"), ("x", "double")], [("id", "integer"), ("x", "real")]) == [], \
+        "a wider target column holds the source (pre-2.5 targets: int64/float64)"
+    with pytest.raises(s.SchemaChanged):
+        s.build_evolve(T, [("id", "integer")], [("id", "bigint")])
     with pytest.raises(s.SchemaChanged) as e:
         s.build_evolve(T, [("id", "integer")], [("id", "varchar(10)")])
     assert e.value.column == "id" and "integer" in str(e.value) and "varchar" in str(e.value)

@@ -164,6 +164,24 @@ if st != 200 or int(b["rows"][0][0]) != WANT:
     fail(f"iceberg.default.orders count -> {st} {b}")
 log(f"iceberg.default.orders has {WANT} rows")
 
+# ── 4b. incremental on a timestamptz watermark: the second run binds the stored
+#        watermark CAST to the column's type (text would fail: no varchar → timestamp) ──
+INC = {"source_table": TABLE, "sync_mode": "incremental", "incremental_column": "ordered_at"}
+st, b = call("POST", f"/api/connectors/{CONN}/sync", INC)
+if st != 200 or str(b.get("status", "")).lower() not in ("success", "completed"):
+    fail(f"incremental sync (first run) -> {st} {b}")
+if int(b.get("rows_processed") or 0) != WANT:
+    fail(f"incremental first run processed {b.get('rows_processed')} rows, expected every one ({WANT}): {b}")
+st, b = call("POST", f"/api/connectors/{CONN}/sync", INC)
+if st != 200 or str(b.get("status", "")).lower() not in ("success", "completed"):
+    fail(f"incremental sync (second run, watermark bound) -> {st} {b}")
+if int(b.get("rows_processed") or 0) != 0:
+    fail(f"incremental second run processed {b.get('rows_processed')} rows; nothing is newer than the watermark: {b}")
+log("incremental: first run appended every row, second run (watermark cast to timestamp) found none newer")
+st, b = count("SELECT count(*) FROM iceberg.default.orders")
+if st != 200 or int(b["rows"][0][0]) != 2 * WANT:
+    fail(f"iceberg.default.orders after full + incremental append -> {st} {b}")
+
 # ── 5. federation: the live source answers through its catalog ───────────────
 FED = f"SELECT count(*) FROM {CATALOG}.public.orders"
 st, b = count(FED)

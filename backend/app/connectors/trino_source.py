@@ -384,7 +384,8 @@ class TrinoSourceConnector(BaseConnector):
                  {"incremental_column": incremental_column, "last_value": last_value,
                   "pii_masked": masked})
             stmts, watermark = trino_sync.build_incremental(
-                target, source, columns, pii_columns, incremental_column, last_value, key_columns)
+                target, source, columns, pii_columns, incremental_column, last_value, key_columns,
+                existing=existing)
             rows = 0
             for sql, params in stmts:
                 cur.execute(sql, params) if params else cur.execute(sql)
@@ -396,10 +397,9 @@ class TrinoSourceConnector(BaseConnector):
                 max_value = str(row[0])
         else:
             step("load", f"Replacing {target.sql()} with {source.sql()}…", {"pii_masked": masked})
-            delete, insert = trino_sync.build_full(target, source, columns, pii_columns)
-            cur.execute(delete)
-            cur.fetchall()
-            cur.execute(insert)
+            (replace,) = trino_sync.build_full(target, source, columns, pii_columns,
+                                               existing=existing, partition_spec=partition_spec)
+            cur.execute(replace)
             rows = self._count(cur)
         return rows, max_value, target
 

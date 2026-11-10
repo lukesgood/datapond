@@ -14,10 +14,17 @@ syncing. Phase 2 of `docs/superpowers/specs/2026-11-09-trino-unified-engine-and-
   `src_sales_db`, `src_sales_db_2` on a clash). The Sources page browses them through
   Trino, SQL Lab federates them (`SELECT … FROM src_crm.public.orders JOIN iceberg.default.…`),
   and a sync is Trino SQL: `CREATE TABLE IF NOT EXISTS` with the table's partitioning,
-  `DELETE` + `INSERT … SELECT` (full), `MERGE` on the key columns or `INSERT … SELECT`
-  with a bound watermark (incremental), `ALTER TABLE … ADD COLUMN` for new source columns.
-  A column whose type changed stops the sync with a message naming it. PII columns are
-  masked inside the `SELECT` (`pii_ko.mask_sql`) — the raw value never reaches the lake.
+  `CREATE OR REPLACE TABLE … AS SELECT` (full: one Iceberg commit, so a reader during the
+  load sees the previous rows and a failed load changes nothing; the previous snapshot
+  stays in the table history), `MERGE` on the key columns or `INSERT … SELECT` with a
+  bound watermark cast to the column's type (incremental), `ALTER TABLE … ADD COLUMN`
+  for new source columns. A column whose type changed stops the sync with a message
+  naming it, except a target column that is wider than the source (`bigint` for
+  `integer`, `double` for `real`): the load casts up. PII columns are masked inside the
+  `SELECT` (`pii_ko.mask_sql`) — the raw value never reaches the lake.
+- **Unqualified table names resolve against the lake catalogs only.** A source catalog
+  is a customer's live database; `SELECT … FROM orders` never reaches it. Federate it by
+  its qualified name: `src_crm.public.orders`.
   Nothing passes through the backend's memory any more.
 - **Two Secrets, one restart.** The backend renders the catalog files into the Secret
   `trino-source-catalogs` and the passwords into `trino-source-credentials` (both
@@ -31,11 +38,20 @@ syncing. Phase 2 of `docs/superpowers/specs/2026-11-09-trino-unified-engine-and-
 - **Existing PostgreSQL/MySQL connections need nothing.** On the first backend start
   after the upgrade every stored connection of a Trino type without a registry row is
   registered (`source_catalog.ensure_rows`) and projected; its owner and members become
-  catalog grants. No re-registration, no re-entry of credentials.
+  catalog grants. No re-registration, no re-entry of credentials. Targets the pandas
+  path wrote (`bigint`/`double` where the source says `integer`/`real`) load with casts.
+  Migration `0027` widens the registry's kind check to admit `trino_source` — the
+  migration Job must run before the first connection is created on 2.5.
+- **The engine status is time-bound.** `GET /api/connectors/engine` reports
+  `restarting` for up to 10 minutes after a projection; an engine that is down later
+  reports `ready: false, restarting: false` and the console says so instead of
+  "restarting (~1 min)".
 - **`database_url` is folded.** The SQLAlchemy URL type is gone from the create form and
   `/connectors/available`. Stored rows of that type keep working: the backend reads the
   URL as a PostgreSQL or MySQL source (other dialects are refused with 422 naming the
-  type) and rewrites the row as that type on the next config save. New payloads naming
+  type). On the first backend start after the upgrade such rows are rewritten as that
+  type (`source_catalog.rewrite_legacy_rows`), so the console edits them with the
+  PostgreSQL/MySQL form; a config save does the same. New payloads naming
   `database_url` are normalised at once.
 - **Samples connect as a read-only role.** The e-commerce and finance samples are
   PostgreSQL sources whose user is `datapond_sample`, created by **migration 0026** from

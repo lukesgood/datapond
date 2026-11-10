@@ -73,13 +73,15 @@ def test_apply_patches_only_when_something_differs_and_removes_stale_keys():
 
 def test_restart_sets_the_annotation_and_status_reports_restarting_until_ready():
     kube = FakeKube(replicas=1, ready=0, updated=0)
+    from datetime import datetime, timezone
     tc.restart(kube, now="2026-11-10T01:02:03Z")
     assert kube.annotations["datapond.io/source-catalogs-restarted-at"] == "2026-11-10T01:02:03Z"
-    s = tc.engine_status(kube)
+    now = datetime(2026, 11, 10, 1, 2, 40, tzinfo=timezone.utc)
+    s = tc.engine_status(kube, now=now)
     assert s == {"engine": "trino", "ready": False, "restarting": True,
                  "restarted_at": "2026-11-10T01:02:03Z"}
     kube.ready = kube.updated = 1
-    s = tc.engine_status(kube)
+    s = tc.engine_status(kube, now=now)
     assert s["restarting"] is False and s["ready"] is True
 
 
@@ -165,3 +167,31 @@ def test_load_rows_decrypts_with_the_vault_and_skips_what_it_cannot(monkeypatch,
     assert [r["catalog"] for r in rows] == ["src_crm"]
     assert rows[0]["config"]["password"] == "s3cr;t"
     assert "src_legacy" in caplog.text and "s3cr;t" not in caplog.text and stale not in caplog.text
+
+
+def test_a_new_catalog_s_password_lands_before_its_file_and_leaves_after_it():
+    """A catalog file naming ${ENV:…} that the credentials Secret lacks stops the whole
+    engine at its next start (review finding 7): credentials are added first and
+    removed last, so no sequence of partial failures leaves a dangling reference."""
+    kube = FakeKube(secrets={"trino-source-catalogs": {"src_old.properties": "x"},
+                             "trino-source-credentials": {"SRC_OLD_PASSWORD": "y"}})
+    tc.apply(tc.desired_from_rows([ROW]), kube)
+    order = [(name, sorted(k for k, v in data.items() if v is not None),
+              sorted(k for k, v in data.items() if v is None)) for name, data in kube.patches]
+    assert order == [("trino-source-credentials", ["SRC_CRM_PASSWORD"], []),
+                     ("trino-source-catalogs", ["src_crm.properties"], ["src_old.properties"]),
+                     ("trino-source-credentials", [], ["SRC_OLD_PASSWORD"])]
+
+
+def test_an_old_restart_stamp_does_not_make_later_unreadiness_a_restart():
+    """restarting means our rollout is in progress; an engine that fell over an hour
+    after it is not-ready, so the console says so instead of 'restarting (~1 min)'
+    and the sample activation does not wait on it (review finding 8)."""
+    from datetime import datetime, timezone
+    kube = FakeKube(replicas=1, ready=0, updated=1,
+                    annotations={"datapond.io/source-catalogs-restarted-at": "2026-11-10T01:00:00Z"})
+    soon = datetime(2026, 11, 10, 1, 3, 0, tzinfo=timezone.utc)
+    later = datetime(2026, 11, 10, 2, 0, 0, tzinfo=timezone.utc)
+    assert tc.engine_status(kube, now=soon)["restarting"] is True
+    s = tc.engine_status(kube, now=later)
+    assert s["restarting"] is False and s["ready"] is False

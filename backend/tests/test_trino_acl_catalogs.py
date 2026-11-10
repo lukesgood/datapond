@@ -40,3 +40,14 @@ def test_source_catalog_tables_are_readable_by_granted_users_under_default_deny(
     assert {"catalog": "^src_open$", "schema": ".*", "table": ".*",
             "privileges": ["SELECT"]} in tables
     assert tables[-1]["privileges"] == []
+
+
+def test_a_catalog_granted_to_nobody_resolvable_is_closed_not_open():
+    """None = grant rows exist but name no current user (deleted user, foreign
+    principal). [] = no grant rows = open. The two must not collapse (finding 4)."""
+    rules = generate_rules([], [], [], source_catalogs={"src_gone": None, "src_open": []})
+    cats = rules["catalogs"]
+    assert not any(r.get("catalog") == "^src_gone$" for r in cats)
+    assert {"catalog": "^src_open$", "allow": "read-only"} in cats
+    assert {"catalog": "^src_.*$", "allow": "none"} in cats
+    assert not any(r.get("catalog") == "^src_gone$" for r in rules["tables"])

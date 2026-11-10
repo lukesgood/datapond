@@ -24,7 +24,7 @@ class Cursor:
             self._rows = self.answers.get("source_columns", [])
         elif "iceberg.information_schema.columns" in s:
             self._rows = self.answers.get("target_columns", [])
-        elif s.startswith(("INSERT INTO", "MERGE INTO")):
+        elif s.startswith(("INSERT INTO", "MERGE INTO", "CREATE OR REPLACE TABLE")):
             if "boom" in self.answers:
                 raise RuntimeError(self.answers["boom"])
             self._rows = self.answers.get("load", [])
@@ -63,7 +63,7 @@ def _connector(answers, password="p"):
     return c
 
 
-def test_full_sync_runs_introspect_create_delete_insert_and_counts_rows():
+def test_full_sync_runs_introspect_create_replace_and_counts_rows():
     c = _connector({"source_columns": [("id", "integer", "NO"), ("email", "varchar(255)", "YES")],
                     "target_columns": [], "load": [(42,)]})
     steps = []
@@ -76,9 +76,9 @@ def test_full_sync_runs_introspect_create_delete_insert_and_counts_rows():
     assert ex[0].startswith("SELECT column_name, data_type, is_nullable FROM src_crm.information_schema.columns")
     assert ex[1].startswith("SELECT column_name, data_type FROM iceberg.information_schema.columns")
     assert ex[2].startswith('CREATE TABLE IF NOT EXISTS "iceberg"."default"."orders" ("id" integer, "email" varchar)')
-    assert ex[3] == 'DELETE FROM "iceberg"."default"."orders"'
-    assert ex[4].startswith('INSERT INTO "iceberg"."default"."orders" SELECT "id" AS "id", regexp_replace(')
-    assert not any(x.startswith("ALTER") for x in ex), "a fresh table has nothing to evolve"
+    assert ex[3].startswith('CREATE OR REPLACE TABLE "iceberg"."default"."orders" AS SELECT "id" AS "id", regexp_replace(')
+    assert len(ex) == 4, "one load statement: the replace is the only commit"
+    assert not any(x.startswith(("ALTER", "DELETE")) for x in ex), "a fresh table has nothing to evolve"
     assert st.metadata["iceberg_table"] == "iceberg.default.orders" and st.metadata["max_value"] is None
 
 
@@ -102,7 +102,7 @@ def test_incremental_sync_merges_evolves_and_advances_the_watermark():
     assert any(x == 'ALTER TABLE "iceberg"."default"."orders" ADD COLUMN "note" varchar' for x in ex)
     merge = next(i for i, x in enumerate(ex) if x.startswith("MERGE INTO"))
     assert c._last_cursor.params[merge] == ["2026-01-01 00:00:00"]
-    assert "2026-01-01" not in ex[merge]
+    assert "2026-01-01" not in ex[merge] and 'WHERE "ts" > CAST(? AS timestamp(3))' in ex[merge]
     assert ex[-1] == 'SELECT max("ts") FROM "src_crm"."public"."orders"'
 
 
@@ -144,3 +144,14 @@ def test_a_source_table_with_no_columns_is_a_failure_not_an_empty_table():
     st = asyncio.run(c.sync_to_iceberg("public.nope", "default.nope", SyncMode.FULL))
     assert st.status == SyncStatus.FAILED and "nope" in st.error_message
     assert not any(x.startswith("CREATE") for x in c._last_cursor.executed)
+
+
+def test_a_pre_2_5_target_with_wider_columns_is_loaded_with_casts_not_refused():
+    """The pandas path wrote int64/float64: the lake says bigint/double where the source
+    says integer/real. The upgrade note promises existing connections need nothing."""
+    c = _connector({"source_columns": [("id", "integer", "NO"), ("score", "real", "YES")],
+                    "target_columns": [("id", "bigint"), ("score", "double")], "load": [(3,)]})
+    st = asyncio.run(c.sync_to_iceberg("public.orders", "default.orders", SyncMode.FULL))
+    assert st.status == SyncStatus.SUCCESS, st.error_message
+    load = next(x for x in c._last_cursor.executed if x.startswith("CREATE OR REPLACE"))
+    assert 'CAST("id" AS bigint) AS "id"' in load and 'CAST("score" AS double) AS "score"' in load

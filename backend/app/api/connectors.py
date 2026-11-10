@@ -1572,16 +1572,22 @@ async def update_connection(connection_id: str, request: ConnectionUpdateRequest
             raise HTTPException(status_code=404, detail="Connection not found")
 
         new_name = request.name or row['name']
+        ctype = ConnectorType(row['connector_type'])
         if request.config is not None:
             # Merge with existing config (keep existing values for masked/empty fields)
             # Always remove ingestion metadata that should not be in DB connection config
             INGESTION_KEYS = {"sync_frequency", "sync_mode", "selected_tables", "schedule"}
             existing = vault.decrypt_credentials(row['config_encrypted'])
+            # A row stored before 2.5 as `database_url` becomes its real type here: the
+            # URL is split into fields first, so a new password replaces the old one
+            # instead of sitting beside a URL that still carries it.
+            ctype, existing = _normalise_for_storage(ctype, existing)
             # Strip ingestion keys from existing
             merged = {k: v for k, v in existing.items() if k not in INGESTION_KEYS}
             for k, v in request.config.items():
                 if v not in ("••••••••", "") and k not in ("name", "connector_type") and k not in INGESTION_KEYS:
                     merged[k] = v
+            ctype, merged = _normalise_for_storage(ctype, merged)
             new_config = vault.encrypt_credentials(merged)
         else:
             new_config = row['config_encrypted']
@@ -1589,9 +1595,9 @@ async def update_connection(connection_id: str, request: ConnectionUpdateRequest
         async with pool.acquire() as conn:
             await conn.execute('''
                 UPDATE connector_connections
-                SET name = $1, config_encrypted = $2, updated_at = $3
-                WHERE id = $4
-            ''', new_name, new_config, datetime.utcnow(), uuid.UUID(connection_id))
+                SET name = $1, connector_type = $2, config_encrypted = $3, updated_at = $4
+                WHERE id = $5
+            ''', new_name, ctype.value, new_config, datetime.utcnow(), uuid.UUID(connection_id))
 
         # A changed config is a different connection. Test it now rather than leave
         # the status the old credentials earned standing over the new ones.
@@ -1599,8 +1605,7 @@ async def update_connection(connection_id: str, request: ConnectionUpdateRequest
         # A Trino-backed connection's catalog file carries this config: re-project it
         # (Trino restarts only when the rendered file or password actually changed).
         restarting = False
-        if request.config is not None and \
-                _trino_source.engine_of(ConnectorType(row['connector_type'])) == "trino":
+        if request.config is not None and _trino_source.engine_of(ctype) == "trino":
             from app.connectors import source_catalog
             async with pool.acquire() as conn:
                 slug = await source_catalog.catalog_for(conn, connection_id)

@@ -963,8 +963,11 @@ _SOURCE_GRANTS = """SELECT d.engine_catalog, g.principal_kind, g.principal
 async def _source_catalog_users(users) -> dict:
     """Trino catalog name → usernames who may read it, for every enabled source
     catalog (Phase 2): user grants by id, role grants expanded to the users holding
-    the role. An ungranted catalog maps to [] (open). Empty when the tables predate
-    the feature or cannot be read — the section then stays as before."""
+    the role. An ungranted catalog maps to [] (open); a catalog whose grants name no
+    current user (deleted user, unknown role) maps to None (closed — the grant rows
+    say "restricted", so resolving nobody must not read as "everyone"). Empty when
+    the tables predate the feature or cannot be read — the section then stays as
+    before."""
     from app.api.connectors import get_db_pool
     try:
         pool = await get_db_pool()
@@ -979,15 +982,18 @@ async def _source_catalog_users(users) -> dict:
         for role in u.roles:
             by_role.setdefault(role, set()).add(u.username)
     out: dict = {}
+    restricted: set = set()
     for r in rows:
         names = out.setdefault(r["engine_catalog"], set())
         if r["principal_kind"] == "user":
+            restricted.add(r["engine_catalog"])
             name = by_id.get(str(r["principal"]).lower())
             if name:
                 names.add(name)
         elif r["principal_kind"] == "role":
+            restricted.add(r["engine_catalog"])
             names |= by_role.get(r["principal"], set())
-    return {k: sorted(v) for k, v in out.items()}
+    return {k: (sorted(v) if v or k not in restricted else None) for k, v in out.items()}
 
 
 @router.get("/governance/rls/trino-rules", dependencies=[Depends(require_permission("governance:read"))])

@@ -73,11 +73,24 @@ def _is_jsonish(trino_type: str) -> bool:
     return t == "json" or t.startswith(("row(", "map("))
 
 
-def column_expr(name: str, trino_type: str, *, pii: bool) -> str:
-    """One SELECT-list item: the column cast to what Iceberg holds, masked when PII."""
+# Target column types that hold a narrower source type: a target written before 2.5
+# (pandas → Arrow int64/float64) says bigint/double where the source says integer/real.
+_WIDENS = {("integer", "bigint"), ("real", "double"), ("integer", "double"), ("bigint", "double")}
+
+
+def compatible(source_type: str, target_type: str) -> bool:
+    """Whether a target column of `target_type` can hold the source column as is or by a
+    widening cast (the only type differences a sync tolerates)."""
+    src, dst = iceberg_type(source_type), iceberg_type(target_type)
+    return src == dst or (src, dst) in _WIDENS
+
+
+def column_expr(name: str, trino_type: str, *, pii: bool, target_type: Optional[str] = None) -> str:
+    """One SELECT-list item: the column cast to what Iceberg holds — the target's existing
+    type when the table already has the column — masked when PII."""
     from app.guardrails import pii_ko
     col = quote(name)
-    target = iceberg_type(trino_type)
+    target = iceberg_type(target_type) if target_type else iceberg_type(trino_type)
     if pii:
         expr = pii_ko.mask_sql(col)
     elif target == "varchar" and _is_jsonish(trino_type):
@@ -133,27 +146,45 @@ def build_create(target: TableRef, columns: Sequence[Column], partition_spec: Op
     return f"{sql} {clause}" if clause else sql
 
 
-def _select(source: TableRef, columns: Sequence[Column], pii: Set[str]) -> str:
-    exprs = ", ".join(column_expr(n, t, pii=(n in pii)) for n, t in columns)
+def _select(source: TableRef, columns: Sequence[Column], pii: Set[str],
+            existing: Optional[Sequence[Column]] = None) -> str:
+    have = {n: t for n, t in (existing or [])}
+    exprs = ", ".join(column_expr(n, t, pii=(n in pii), target_type=have.get(n)) for n, t in columns)
     return f"SELECT {exprs} FROM {qualified(source)}"
 
 
 def build_full(target: TableRef, source: TableRef, columns: Sequence[Column],
-               pii_columns: Optional[Iterable[str]]) -> List[str]:
-    return [f"DELETE FROM {qualified(target)}",
-            f"INSERT INTO {qualified(target)} {_select(source, columns, pii_set(columns, pii_columns))}"]
+               pii_columns: Optional[Iterable[str]], existing: Optional[Sequence[Column]] = None,
+               partition_spec: Optional[list] = None) -> List[str]:
+    """One statement, one Iceberg commit: `CREATE OR REPLACE TABLE … AS SELECT`. A reader
+    during the load sees the previous rows; a failed load leaves them (DELETE + INSERT
+    had a window with none, and a failed INSERT left the table empty). The previous
+    snapshot stays in the table's history."""
+    partitioning = partition_clause(partition_spec)
+    head = f"CREATE OR REPLACE TABLE {qualified(target)}" + (f" {partitioning}" if partitioning else "")
+    return [f"{head} AS {_select(source, columns, pii_set(columns, pii_columns), existing)}"]
+
+
+def _is_textual(trino_type: str) -> bool:
+    t = str(trino_type).strip().lower()
+    return t.startswith(("varchar", "char"))
 
 
 def build_incremental(target: TableRef, source: TableRef, columns: Sequence[Column],
                       pii_columns: Optional[Iterable[str]], column: str, last_value,
-                      key_columns: Optional[Sequence[str]]) -> Tuple[List[Tuple[str, list]], str]:
+                      key_columns: Optional[Sequence[str]],
+                      existing: Optional[Sequence[Column]] = None) -> Tuple[List[Tuple[str, list]], str]:
     """Statements (sql, params) plus the watermark query. With keys a MERGE (changed rows
     update, new rows insert); without, an append. `last_value` None means a first run:
-    every row, no predicate."""
-    select = _select(source, columns, pii_set(columns, pii_columns))
+    every row, no predicate. The watermark is stored as text and the client binds text as
+    varchar, which Trino does not coerce to a timestamp or a number: the parameter is
+    CAST to the watermark column's own type (a textual column binds as it is)."""
+    select = _select(source, columns, pii_set(columns, pii_columns), existing)
     params: list = []
     if last_value is not None:
-        select += f" WHERE {quote(column)} > ?"
+        wm_type = next((t for n, t in columns if n == column), None)
+        bound = "?" if wm_type is None or _is_textual(wm_type) else f"CAST(? AS {' '.join(str(wm_type).split())})"
+        select += f" WHERE {quote(column)} > {bound}"
         params.append(last_value)
     keys = [k for k in (key_columns or []) if any(k == n for n, _ in columns)]
     if not keys:
@@ -173,15 +204,16 @@ def build_incremental(target: TableRef, source: TableRef, columns: Sequence[Colu
 
 def build_evolve(target: TableRef, existing: Sequence[Column], wanted: Sequence[Column]) -> List[str]:
     """ADD COLUMN for every source column the target lacks; a shared column whose
-    Iceberg type differs raises SchemaChanged."""
-    have = {n: iceberg_type(t) for n, t in existing}
+    Iceberg type differs raises SchemaChanged — unless the target's type is wider
+    (`compatible`): the load then casts up to it."""
+    have = {n: t for n, t in existing}
     out: List[str] = []
     for n, t in wanted:
         want = iceberg_type(t)
         if n not in have:
             out.append(f"ALTER TABLE {qualified(target)} ADD COLUMN {quote(n)} {want}")
-        elif have[n] != want:
-            raise SchemaChanged(n, have[n], want)
+        elif not compatible(t, have[n]):
+            raise SchemaChanged(n, iceberg_type(have[n]), want)
     return out
 
 

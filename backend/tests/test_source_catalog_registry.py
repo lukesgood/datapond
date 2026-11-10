@@ -50,6 +50,9 @@ class FakeConn:
         if s.startswith("SELECT c.id, c.name, c.connector_type FROM connector_connections c"):
             return [{"id": c["id"], "name": c["name"], "connector_type": c["connector_type"]}
                     for c in self.connections if self._catalog_of(c["id"]) is None]
+        if s.startswith("SELECT id, config_encrypted FROM connector_connections WHERE connector_type = 'database_url'"):
+            return [{"id": c["id"], "config_encrypted": c["config_encrypted"]}
+                    for c in self.connections if c["connector_type"] == "database_url" and "config_encrypted" in c]
         raise AssertionError(f"unexpected fetch: {s}")
 
     async def fetchval(self, sql, *args):
@@ -84,6 +87,15 @@ class FakeConn:
             self.grants_rows.append({"catalog_name": args[0], "principal_kind": "user",
                                      "principal": args[1]})
             return "INSERT 0 1"
+        if s.startswith("UPDATE connector_connections SET connector_type = $1, config_encrypted = $2"):
+            row = next(c for c in self.connections if str(c["id"]) == str(args[2]))
+            row.update(connector_type=args[0], config_encrypted=args[1])
+            return "UPDATE 1"
+        if s.startswith("UPDATE data_catalogs SET config = config || jsonb_build_object('connector_type', $1::text)"):
+            for c in self.catalogs:
+                if c["kind"] == "trino_source" and c["config"].get("connection_id") == str(args[1]):
+                    c["config"]["connector_type"] = args[0]
+            return "UPDATE 1"
         raise AssertionError(f"unexpected execute: {s}")
 
     def transaction(self):
@@ -165,6 +177,23 @@ def test_ensure_rows_registers_a_connection_that_predates_phase_2():
     assert conn.catalog("src_legacy_pg") is not None and conn.catalog("src_fin") is not None
     assert conn.catalog("src_bucket") is None
     assert asyncio.run(source_catalog.ensure_rows(FakePool(conn))) == 0
+
+
+def test_ensure_rows_rewrites_a_database_url_row_as_its_real_type():
+    """A row stored before 2.5 as `database_url` has no card in the console any more
+    (review finding 5: nothing to edit). On start it becomes the PostgreSQL/MySQL row
+    the URL described, in both the connection and its registry entry."""
+    from app.connectors.vault import CredentialVault
+    v = CredentialVault()
+    conn = FakeConn(connections=[{"id": "url", "owner_id": None, "name": "Fin", "connector_type": "database_url",
+                                  "config_encrypted": v.encrypt_credentials(
+                                      {"database_url": "postgresql://u:p@h:5432/fin"})}])
+    asyncio.run(source_catalog.ensure_rows(FakePool(conn)))
+    row = conn.connections[0]
+    assert row["connector_type"] == "postgresql"
+    assert v.decrypt_credentials(row["config_encrypted"]) == {
+        "host": "h", "port": 5432, "database": "fin", "username": "u", "password": "p", "ssl": False}
+    assert conn.catalog("src_fin")["config"]["connector_type"] == "postgresql"
 
 
 # ── the registry's view of such an entry ──────────────────────────────────────
