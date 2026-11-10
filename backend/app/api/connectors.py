@@ -1199,6 +1199,23 @@ _SAMPLE_BUILDERS = {
 }
 
 
+@router.get("/connectors/engine")
+async def engine_status(user: dict = Depends(require_user)):
+    """Whether the query engine is up, and whether it is restarting to pick up a new
+    source catalog (app/connectors/trino_catalogs.py). The console polls this after a
+    Trino-backed connection is created, re-configured or deleted. A Kubernetes error is
+    reported, not raised: the page must still render."""
+    from app.connectors import trino_catalogs
+    if not trino_catalogs.enabled():
+        return trino_catalogs.engine_status(None)
+    try:
+        return await asyncio.to_thread(
+            lambda: trino_catalogs.engine_status(trino_catalogs.RealKube()))
+    except Exception as e:
+        return {"engine": "trino", "ready": None, "restarting": None, "restarted_at": None,
+                "error": type(e).__name__}
+
+
 @router.get("/connectors/sample-sources")
 async def list_sample_sources():
     """The sample kinds this install can add, and which are already there."""

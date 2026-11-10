@@ -405,6 +405,17 @@ async def startup():
     except Exception as e:
         logger.warning(f"[startup] catalog registry not loaded (env default in use): {e}")
 
+    # Source catalogs (Phase 2): rebuild the Trino catalog Secrets from the vault when
+    # they differ — a fresh cluster after DR recovers its catalogs from the database +
+    # ENCRYPTION_KEY. Only on profiles whose chart set the Secret names (Trino on).
+    try:
+        from app.connectors import trino_catalogs
+        if trino_catalogs.enabled():
+            from app.api.connectors import get_db_pool
+            await trino_catalogs.reconcile_on_startup(await asyncio.wait_for(get_db_pool(), timeout=5))
+    except Exception as e:
+        logger.warning(f"[startup] source catalogs not reconciled: {e}")
+
     # RAG freshness scheduler — periodic re-embedding of scheduled collections
     # (Airflow-free; multi-replica safe via pg advisory lock).
     try:
