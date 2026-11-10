@@ -72,10 +72,18 @@ class FakeConn:
             return row["engine_catalog"]
         raise AssertionError(f"unexpected fetchval: {s}")
 
+    race_on = None      # a slug a concurrent create takes just before our INSERT
+
     async def execute(self, sql, *args):
         s = " ".join(sql.split())
         if s.startswith("INSERT INTO data_catalogs"):
             name, kind, engine, config = args[0], args[1], args[2], json.loads(args[3])
+            if name == self.race_on:
+                import asyncpg
+                self.race_on = None
+                self.catalogs.append({"name": name, "kind": kind, "engine_catalog": engine,
+                                      "config": {"connection_id": "other"}, "is_default": False, "enabled": True})
+                raise asyncpg.UniqueViolationError("duplicate key value violates unique constraint")
             assert self.catalog(name) is None
             self.catalogs.append({"name": name, "kind": kind, "engine_catalog": engine,
                                   "config": config, "is_default": False, "enabled": True})
@@ -129,6 +137,18 @@ def test_register_picks_a_unique_slug_and_unregister_removes_it():
     assert asyncio.run(source_catalog.unregister(conn, cid)) == "src_sales_db_2"
     assert conn.catalog("src_sales_db_2") is None
     assert asyncio.run(source_catalog.unregister(conn, cid)) is None
+
+
+def test_register_takes_the_next_slug_when_a_concurrent_create_took_this_one():
+    """Read-then-insert: two simultaneous 'Sales DB' creates both computed src_sales_db
+    and the loser got a 500 from the unique constraint (deferred minor #11)."""
+    conn = FakeConn()
+    conn.race_on = "src_sales_db"
+    cid = str(uuid.uuid4())
+    slug = asyncio.run(source_catalog.register(conn, connection_id=cid, name="Sales DB", connector_type="mysql"))
+    assert slug == "src_sales_db_2"
+    assert conn.catalog("src_sales_db")["config"] == {"connection_id": "other"}
+    assert conn.catalog("src_sales_db_2")["config"]["connection_id"] == cid
 
 
 def test_register_never_yields_a_name_the_chart_already_uses():

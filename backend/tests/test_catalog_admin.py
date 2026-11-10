@@ -95,8 +95,9 @@ class _Conn:
         raise AssertionError(sql)
 
     async def fetchrow(self, sql, *args):
-        if "SELECT name FROM data_catalogs WHERE name" in sql:
-            return {"name": args[0]} if args[0] in self.db.catalogs else None
+        if "FROM data_catalogs WHERE name" in sql and sql.lstrip().startswith("SELECT name"):
+            row = self.db.catalogs.get(args[0])
+            return {"name": row["name"], "kind": row["kind"]} if row else None
         if "rls_policies" in sql:
             names = set(args[0])
             return {"rls": sum(1 for c in self.db.rls if c.lower() in names),
@@ -499,6 +500,19 @@ def test_a_catalog_nobody_was_granted_is_open(people):
     r = _client().get("/api/catalogs/lake/grants")
     assert r.status_code == 200, r.text
     assert r.json() == {"catalog": "lake", "restricted": False, "grants": []}
+
+
+def test_grants_of_a_source_catalog_are_the_connection_s_share_list(people):
+    """A `trino_source` catalog's grants are projected from its connection's owner and
+    members on every member change; an admin edit here would be silently replaced by
+    the next share (deferred minor #13). The route says so instead."""
+    people.add("src_crm", kind="trino_source", engine="src_crm",
+               config={"connection_id": "c1", "connector_type": "postgresql"})
+    r = _client().put("/api/catalogs/src_crm/grants", json={"grants": []})
+    assert r.status_code == 409, r.text
+    assert "share" in r.json()["detail"].lower() and "Sources" in r.json()["detail"]
+    r = _client().get("/api/catalogs/src_crm/grants")
+    assert r.status_code == 200, "reading stays"
 
 
 def test_put_replaces_the_grants_and_audits_the_difference(people):

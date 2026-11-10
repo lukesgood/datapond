@@ -478,7 +478,7 @@ class GrantsPut(BaseModel):
     grants: List[GrantIn] = Field(default_factory=list)
 
 
-_CATALOG_EXISTS = "SELECT name FROM data_catalogs WHERE name = $1"
+_CATALOG_EXISTS = "SELECT name, kind FROM data_catalogs WHERE name = $1"
 _GRANTS = """SELECT g.principal_kind, g.principal, g.created_at,
                     u.username, u.email, u.auth_method::text AS auth_method
                FROM catalog_grants g
@@ -517,9 +517,11 @@ def _missing_table(exc: BaseException) -> bool:
             or type(exc).__name__ == "UndefinedTableError")
 
 
-async def _catalog_or_404(conn, name: str) -> None:
-    if not await conn.fetchrow(_CATALOG_EXISTS, name):
+async def _catalog_or_404(conn, name: str):
+    row = await conn.fetchrow(_CATALOG_EXISTS, name)
+    if not row:
         _bad(f"No catalog named '{name}'.", 404)
+    return row
 
 
 async def _read_grants(conn, name: str) -> list:
@@ -574,7 +576,13 @@ async def put_catalog_grants(name: str, body: GrantsPut,
     pool = await _pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
-            await _catalog_or_404(conn, name)
+            row = await _catalog_or_404(conn, name)
+            if (row.get("kind") if hasattr(row, "get") else row["kind"]) == "trino_source":
+                # Projected from the connection's owner and members on every member
+                # change; an edit here would be replaced by the next share.
+                _bad("This catalog belongs to a database source: its grants are the "
+                     "source's share list. Share or unshare the source in Sources "
+                     "(or POST/DELETE /connectors/{id}/members).", 409)
             user_ids = [p for k, p in wanted if k == "user"]
             if user_ids:
                 found = {r["id"] for r in await conn.fetch(_USERS_EXIST, user_ids)}

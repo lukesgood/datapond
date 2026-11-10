@@ -231,13 +231,31 @@ async def load_rows(pool) -> List[dict]:
     return rows
 
 
+# Session advisory lock the projection runs under: two replicas (or a create racing the
+# startup reconcile) would otherwise both see a diff and bump the annotation twice —
+# two Trino restarts. The second waits, re-reads, finds nothing to change.
+LOCK_KEY = 7233183143331076974
+
+
 async def project(pool, kube: Optional[KubeClient] = None, *,
                   restart_if_changed: bool = True) -> Dict:
     """The one entry point: registry rows for unregistered connections (Task 4 hook),
     desired state from the vault, Secrets patched, Trino restarted if anything changed.
-    {"changed": bool, "catalogs": [names]}."""
+    {"changed": bool, "catalogs": [names]}. Serialised through LOCK_KEY when a pool
+    is given."""
     if not enabled():
         return {"changed": False, "catalogs": []}
+    if pool is None:
+        return await _project(pool, kube, restart_if_changed=restart_if_changed)
+    async with pool.acquire() as lock_conn:
+        await lock_conn.execute("SELECT pg_advisory_lock($1)", LOCK_KEY)
+        try:
+            return await _project(pool, kube, restart_if_changed=restart_if_changed)
+        finally:
+            await lock_conn.execute("SELECT pg_advisory_unlock($1)", LOCK_KEY)
+
+
+async def _project(pool, kube, *, restart_if_changed: bool) -> Dict:
     if _ensure_rows is not None:
         try:
             await _ensure_rows(pool)

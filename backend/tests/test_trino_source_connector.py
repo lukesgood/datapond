@@ -77,7 +77,8 @@ def test_read_data_selects_from_the_catalog_with_limit_and_offset():
     c = _connector({"src_crm.public.users": [(1, "a@x"), (2, "b@x")]})
     rows = asyncio.run(c.read_data("public.users", limit=2, offset=5))
     assert rows == [{"id": 1, "email": "a@x"}, {"id": 2, "email": "b@x"}]
-    assert c._cursors[-1][1].executed[-1] == "SELECT * FROM src_crm.public.users OFFSET 5 LIMIT 2"
+    assert c._cursors[-1][1].executed[-1] == "SELECT * FROM src_crm.public.users ORDER BY 1 OFFSET 5 LIMIT 2", \
+        "pages are only pages under one order (deferred minor #12: OFFSET without ORDER BY)"
 
 
 def test_a_table_name_that_is_not_an_identifier_is_refused():

@@ -195,3 +195,34 @@ def test_an_old_restart_stamp_does_not_make_later_unreadiness_a_restart():
     assert tc.engine_status(kube, now=soon)["restarting"] is True
     s = tc.engine_status(kube, now=later)
     assert s["restarting"] is False and s["ready"] is False
+
+
+def test_project_holds_an_advisory_lock_around_the_patches(monkeypatch):
+    """Two replicas (or create + startup) projecting at once both saw a diff and bumped
+    the annotation twice — two restarts (deferred minor #10). The projection now runs
+    under a session advisory lock, so the second waits and finds nothing to change."""
+    calls = []
+
+    class Conn:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def execute(self, sql, *args):
+            calls.append(sql)
+
+    class Pool:
+        def acquire(self):
+            return Conn()
+
+    async def rows(_pool):
+        calls.append("rows")
+        return [ROW]
+    monkeypatch.setattr(tc, "load_rows", rows)
+    monkeypatch.setattr(tc, "_ensure_rows", None)
+    out = asyncio.run(tc.project(pool=Pool(), kube=FakeKube()))
+    assert out["changed"] is True
+    assert len(calls) == 3 and "pg_advisory_lock(" in calls[0] and calls[1] == "rows" \
+        and "pg_advisory_unlock(" in calls[2]

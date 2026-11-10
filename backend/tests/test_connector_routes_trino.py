@@ -297,3 +297,14 @@ def test_reconfiguring_a_legacy_database_url_row_keeps_the_new_password_and_rewr
     assert row["connector_type"] == "postgresql"
     assert stored["password"] == "new" and stored["host"] == "h" and "database_url" not in stored
     assert fake_project.calls == 1
+
+
+def test_introspect_errors_do_not_echo_the_password(client, monkeypatch):
+    """probe.test and the sync scrub their errors; introspect did not (deferred minor #9)."""
+    def boom(t, cfg, timeout=10.0):
+        raise RuntimeError("FATAL: password=hunter22 rejected for user u")
+    monkeypatch.setattr(probe, "list_tables", boom)
+    r = client.post("/api/connectors/introspect", json={"connector_type": "postgresql",
+                    "config": {"host": "h", "port": 5432, "database": "d", "username": "u", "password": "hunter22"}})
+    assert r.status_code == 500
+    assert "hunter22" not in r.text and "rejected" in r.text
