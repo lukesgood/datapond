@@ -549,7 +549,7 @@ jobs:
           kubectl -n datapond logs deploy/backend --tail=120 || true
 
   multi-catalog-install:
-    name: Two Polaris catalogs listed, kept apart and queried (kind, Trino)
+    name: "Two Polaris catalogs and one Trino-backed source: listed, kept apart, queried, governed (kind, Trino)"
     runs-on: ubuntu-latest
     timeout-minutes: 35
     # Multi-catalog (docs/superpowers/specs/2026-09-29-multi-catalog-design.md, P4) was
@@ -614,6 +614,14 @@ jobs:
       - name: Register, create, list, resolve, query, test
         run: kubectl -n datapond exec -i deploy/backend -- python - < .github/scripts/multicatalog_check.py
 
+      # Phase 2 (docs/superpowers/specs/2026-11-09-trino-unified-engine-and-connectors-design.md):
+      # a database source is a Trino catalog. The e-commerce sample is created as one,
+      # the engine restarts to load it, a sync runs as Trino SQL, the live source is
+      # federated, the catalog ACL hides it from an ungranted viewer, and deleting the
+      # connection removes it (.github/scripts/trino_connector_check.py).
+      - name: Register a Trino-backed source, sync it, federate it, govern it
+        run: kubectl -n datapond exec -i deploy/backend -- python - < .github/scripts/trino_connector_check.py
+
       - name: Show the cluster on failure
         if: failure()
         run: |
@@ -623,6 +631,9 @@ jobs:
           kubectl -n datapond logs deploy/polaris --tail=80 || true
           kubectl -n datapond logs deploy/trino --tail=120 || true
           kubectl -n datapond get configmap trino-catalog -o yaml | grep -v -i "secret" || true
+          # Which source catalogs were projected — key names only, never values.
+          kubectl -n datapond get secret trino-source-catalogs -o jsonpath='{.data}' | grep -o '"[^"]*":' || true
+          kubectl -n datapond logs -l app.kubernetes.io/component=migrate --tail=40 || true
           kubectl -n datapond logs deploy/backend --tail=150 || true
 
   helm-lint:
