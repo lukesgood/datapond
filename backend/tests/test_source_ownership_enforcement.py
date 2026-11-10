@@ -304,6 +304,9 @@ def test_creating_a_connector_records_the_caller_as_its_owner(monkeypatch):
             captured["query"], captured["args"] = query, args
             return "INSERT 0 1"
 
+        def transaction(self):          # the row and its catalog commit together
+            return self
+
         async def __aenter__(self):
             return self
 

@@ -217,6 +217,8 @@ from ..connectors.base import (
     SyncStatus
 )
 from ..connectors.database import DatabaseConfig, PostgreSQLConnector, MySQLConnector
+from ..connectors import trino_source as _trino_source
+from ..connectors.trino_source import TrinoSourceConfig, TrinoSourceConnector
 from ..connectors.storage import StorageConfig, S3Connector
 from ..connectors.vault import CredentialVault
 
@@ -234,6 +236,9 @@ class ConnectorInfo(BaseModel):
     description: str
     supported: bool
     config_schema: Dict[str, Any]
+    # "trino": the connection becomes a Trino catalog, read and synced by Trino (adding
+    # one restarts Trino). "python": read by the backend. None: not supported yet.
+    engine: Optional[str] = None
 
 
 class ConnectionTestRequest(BaseModel):
@@ -261,7 +266,9 @@ class ConnectionCreateRequest(BaseModel):
 
 
 class ConnectionResponse(BaseModel):
-    """Connection response"""
+    """Connection response. `catalog` is the Trino catalog a Trino-backed connection
+    became (None for Python-engine sources); `engine_restarting` says Trino is picking
+    it up now (~1 min) — the console polls GET /connectors/engine until it is ready."""
     id: str
     name: str
     connector_type: str
@@ -269,6 +276,8 @@ class ConnectionResponse(BaseModel):
     created_at: datetime
     last_sync_at: Optional[datetime] = None
     schedule: Optional[str] = None
+    catalog: Optional[str] = None
+    engine_restarting: bool = False
 
 
 class SyncRequest(BaseModel):
@@ -503,44 +512,60 @@ async def list_available_connectors():
 
     Returns connector metadata including configuration schema.
     """
+    # Every Trino-backed type carries `"engine": "trino"`: the connection becomes a Trino
+    # catalog, its tables are read and synced by Trino, and adding one restarts Trino
+    # (~1 min). Python-engine sources (`"engine": "python"`) are read by the backend.
+    def _db(default_port, description, **extra):
+        schema = {
+            "host": {"type": "string", "required": True},
+            "port": {"type": "integer", "default": default_port},
+            "database": {"type": "string", "required": True, **extra.pop("database", {})},
+            "username": {"type": "string", "required": True},
+            "password": {"type": "password", "required": True},
+            "ssl": {"type": "boolean", "default": False},
+        }
+        schema.update(extra)
+        return schema
+
     connectors = [
         {
-            "id": "postgresql",
-            "name": "PostgreSQL",
-            "category": "database",
-            "icon": "/icons/postgresql.svg",
-            "description": "Connect to PostgreSQL databases (v9.6+)",
-            "supported": True,
-            "config_schema": {
-                "host": {"type": "string", "required": True},
-                "port": {"type": "integer", "default": 5432},
-                "database": {"type": "string", "required": True},
-                "username": {"type": "string", "required": True},
-                "password": {"type": "password", "required": True},
-                "ssl": {"type": "boolean", "default": False}
-            }
+            "id": "postgresql", "name": "PostgreSQL", "category": "database",
+            "icon": "/icons/postgresql.svg", "engine": "trino", "supported": True,
+            "description": "Connect to PostgreSQL databases (v11+) — read through Trino",
+            "config_schema": _db(5432, "postgresql"),
         },
         {
-            "id": "mysql",
-            "name": "MySQL",
-            "category": "database",
-            "icon": "/icons/mysql.svg",
-            "description": "Connect to MySQL and MariaDB databases",
-            "supported": True,
-            "config_schema": {
-                "host": {"type": "string", "required": True},
-                "port": {"type": "integer", "default": 3306},
-                "database": {"type": "string", "required": True},
-                "username": {"type": "string", "required": True},
-                "password": {"type": "password", "required": True},
-                "ssl": {"type": "boolean", "default": False}
-            }
+            "id": "mysql", "name": "MySQL", "category": "database",
+            "icon": "/icons/mysql.svg", "engine": "trino", "supported": True,
+            "description": "Connect to MySQL and MariaDB databases — read through Trino",
+            "config_schema": _db(3306, "mysql", database={"required": False,
+                                                          "placeholder": "schema to list (optional)"}),
+        },
+        {
+            "id": "sqlserver", "name": "SQL Server", "category": "database",
+            "icon": "/icons/sqlserver.svg", "engine": "trino", "supported": True,
+            "description": "Connect to Microsoft SQL Server (2017+) and Azure SQL — read through Trino",
+            "config_schema": _db(1433, "sqlserver"),
+        },
+        {
+            "id": "oracle", "name": "Oracle", "category": "database",
+            "icon": "/icons/oracle.svg", "engine": "trino", "supported": True,
+            "description": "Connect to Oracle Database (12c+) by service name — read through Trino",
+            "config_schema": _db(1521, "oracle", database={"placeholder": "service name (e.g. ORCLPDB1)"}),
+        },
+        {
+            "id": "mongodb", "name": "MongoDB", "category": "database",
+            "icon": "/icons/mongodb.svg", "engine": "trino", "supported": True,
+            "description": "Connect to MongoDB (4.2+) — collections read through Trino",
+            "config_schema": _db(27017, "mongodb",
+                                 auth_source={"type": "string", "required": False, "default": "admin"}),
         },
         {
             "id": "s3",
             "name": "Amazon S3",
             "category": "storage",
             "icon": "/icons/s3.svg",
+            "engine": "python",
             "description": "Connect to AWS S3 buckets",
             "supported": True,
             "config_schema": {
@@ -552,24 +577,6 @@ async def list_available_connectors():
             }
         },
         {
-            "id": "sqlserver",
-            "name": "SQL Server",
-            "category": "database",
-            "icon": "/icons/sqlserver.svg",
-            "description": "Connect to Microsoft SQL Server",
-            "supported": False,
-            "config_schema": {}
-        },
-        {
-            "id": "mongodb",
-            "name": "MongoDB",
-            "category": "database",
-            "icon": "/icons/mongodb.svg",
-            "description": "Connect to MongoDB databases",
-            "supported": False,
-            "config_schema": {}
-        },
-        {
             "id": "kafka",
             "name": "Apache Kafka",
             "category": "streaming",
@@ -579,30 +586,11 @@ async def list_available_connectors():
             "config_schema": {}
         },
         {
-            "id": "database_url",
-            "name": "Universal Database (SQLAlchemy)",
-            "category": "database",
-            "icon": "/icons/database_url.svg",
-            "description": "SQLAlchemy 연결 문자열로 모든 데이터베이스 연결. Oracle, SQL Server, Snowflake, Redshift 등.",
-            "supported": True,
-            "config_schema": {
-                "database_url": {
-                    "type": "string",
-                    "required": True,
-                    "placeholder": "postgresql://user:pass@host:5432/db"
-                },
-                "query": {
-                    "type": "string",
-                    "required": False,
-                    "placeholder": "SELECT 1 (test query)"
-                }
-            }
-        },
-        {
             "id": "rest_api",
             "name": "REST API",
             "category": "saas",
             "icon": "/icons/rest_api.svg",
+            "engine": "python",
             "description": "HTTP/HTTPS REST API 엔드포인트에서 데이터 수집. Bearer, Basic, API Key 인증 지원.",
             "supported": True,
             "config_schema": {
@@ -630,6 +618,7 @@ async def list_available_connectors():
             "name": "Custom Python",
             "category": "saas",
             "icon": "/icons/custom.svg",
+            "engine": "python",
             "description": "Python 코드를 직접 작성해 어떤 소스든 연결. fetch_data() 함수를 정의하면 됩니다.",
             "supported": True,
             "config_schema": {
@@ -1307,6 +1296,8 @@ async def create_connection(request: ConnectionCreateRequest,
     Tests connectivity first, then encrypts credentials before storage.
     Status is set to 'active' on success, 'error' on connection failure.
     """
+    connector_type, config = _normalise_for_storage(request.connector_type, request.config)
+    is_trino = _trino_source.engine_of(connector_type) == "trino"
     try:
         # Generate connection ID
         connection_id = str(uuid.uuid4())
@@ -1315,7 +1306,7 @@ async def create_connection(request: ConnectionCreateRequest,
         status = ConnectionStatus.ACTIVE.value
         check_message = None
         try:
-            connector = _create_connector(request.connector_type, request.config)
+            connector = _create_connector(connector_type, config)
             result = await connector.test_connection()
             check_message = result.message
             if not result.success:
@@ -1325,40 +1316,62 @@ async def create_connection(request: ConnectionCreateRequest,
             check_message = str(e)[:500]
 
         # Encrypt credentials
-        encrypted_config = vault.encrypt_credentials(request.config)
+        encrypted_config = vault.encrypt_credentials(config)
 
-        # Store in database
+        # Store in database. A Trino-backed connection is also a registry catalog whose
+        # grants are its owner (and later its members): row, catalog and grants land in
+        # one transaction, so none exists without the others.
+        slug = None
         pool = await get_db_pool()
         async with pool.acquire() as conn:
-            await conn.execute('''
-                INSERT INTO connector_connections
-                (id, name, connector_type, config_encrypted, status, created_at, updated_at,
-                 owner_id, last_checked_at, last_check_message)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
-            ''',
-                connection_id,
-                request.name,
-                request.connector_type.value,
-                encrypted_config,
-                status,
-                datetime.utcnow(),
-                datetime.utcnow(),
-                # The one line that makes ownership mean anything: without it every
-                # new connector is created unowned, and unowned means visible and
-                # editable by everyone — which is the state D2 exists to end.
-                caller_uuid(user),
-                # The test above is the first check; recorded with the row, not after it.
-                (check_message or "")[:500],
-            )
+            async with conn.transaction():
+                await conn.execute('''
+                    INSERT INTO connector_connections
+                    (id, name, connector_type, config_encrypted, status, created_at, updated_at,
+                     owner_id, last_checked_at, last_check_message)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
+                ''',
+                    connection_id,
+                    request.name,
+                    connector_type.value,
+                    encrypted_config,
+                    status,
+                    datetime.utcnow(),
+                    datetime.utcnow(),
+                    # The one line that makes ownership mean anything: without it every
+                    # new connector is created unowned, and unowned means visible and
+                    # editable by everyone — which is the state D2 exists to end.
+                    caller_uuid(user),
+                    # The test above is the first check; recorded with the row, not after it.
+                    (check_message or "")[:500],
+                )
+                if is_trino:
+                    from app.connectors import source_catalog
+                    slug = await source_catalog.register(
+                        conn, connection_id=connection_id, name=request.name,
+                        connector_type=connector_type.value)
+                    await source_catalog.sync_grants(conn, connection_id)
+
+        restarting = False
+        if slug:
+            from app.api import catalog_admin
+            await catalog_admin._audit(pool, user, "catalog_created", slug, {
+                "kind": "trino_source", "engine_catalog": slug, "via": "connection",
+                "connection_id": connection_id, "connector_type": connector_type.value})
+            restarting = await _project_catalogs(pool, slug)
 
         return ConnectionResponse(
             id=connection_id,
             name=request.name,
-            connector_type=request.connector_type.value,
+            connector_type=connector_type.value,
             status=status,
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
+            catalog=slug,
+            engine_restarting=restarting,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create connection: {str(e)}")
 
@@ -1383,8 +1396,11 @@ async def list_connections(user: dict = Depends(require_user)):
             rows = await conn.fetch(f'''
                 SELECT c.id, c.name, c.connector_type, c.status, c.created_at,
                        c.last_sync_at, c.schedule, c.owner_id,
-                       c.last_checked_at, c.last_check_message
+                       c.last_checked_at, c.last_check_message,
+                       d.engine_catalog AS catalog
                 FROM connector_connections c
+                LEFT JOIN data_catalogs d
+                  ON d.kind = 'trino_source' AND d.config->>'connection_id' = c.id::text
                 {where}
                 ORDER BY c.created_at DESC
             ''', *args)
@@ -1400,6 +1416,9 @@ async def list_connections(user: dict = Depends(require_user)):
                 "last_sync_at": iso_utc(row['last_sync_at']) if row['last_sync_at'] else None,
                 "schedule": row['schedule'],
                 "owner_id": str(row['owner_id']) if row['owner_id'] else None,
+                "catalog": row['catalog'],
+                "engine": _trino_source.engine_of(ConnectorType(row['connector_type']))
+                          if row['connector_type'] in ConnectorType._value2member_map_ else "python",
                 **_check_fields(row),
             })
 
@@ -1523,7 +1542,17 @@ async def update_connection(connection_id: str, request: ConnectionUpdateRequest
         # A changed config is a different connection. Test it now rather than leave
         # the status the old credentials earned standing over the new ones.
         check = await _check_connection(connection_id) if request.config is not None else None
-        return {"message": "Connection updated successfully", "check": check}
+        # A Trino-backed connection's catalog file carries this config: re-project it
+        # (Trino restarts only when the rendered file or password actually changed).
+        restarting = False
+        if request.config is not None and \
+                _trino_source.engine_of(ConnectorType(row['connector_type'])) == "trino":
+            from app.connectors import source_catalog
+            async with pool.acquire() as conn:
+                slug = await source_catalog.catalog_for(conn, connection_id)
+            restarting = await _project_catalogs(pool, slug)
+        return {"message": "Connection updated successfully", "check": check,
+                "engine_restarting": restarting}
     except (HTTPException, ValueError) as e:
         if isinstance(e, ValueError):
             raise HTTPException(status_code=400, detail="Invalid connection ID")
@@ -1688,17 +1717,31 @@ async def delete_connection(connection_id: str, user: dict = Depends(require_use
     """Delete a connection"""
     await require_access(CONNECTOR, connection_id, user, write=True)
     try:
+        from app.connectors import source_catalog
         pool = await get_db_pool()
         async with pool.acquire() as conn:
-            result = await conn.execute('''
-                DELETE FROM connector_connections
-                WHERE id = $1
-            ''', uuid.UUID(connection_id))
+            async with conn.transaction():
+                # The catalog goes with the connection, in the same transaction (its
+                # grants cascade from the registry row).
+                slug = await source_catalog.unregister(conn, connection_id)
+                result = await conn.execute('''
+                    DELETE FROM connector_connections
+                    WHERE id = $1
+                ''', uuid.UUID(connection_id))
 
         if result == "DELETE 0":
             raise HTTPException(status_code=404, detail="Connection not found")
 
-        return {"message": "Connection deleted successfully"}
+        restarting = False
+        if slug:
+            from app.api import catalog_admin
+            await catalog_admin._audit(pool, user, "catalog_deleted", slug, {
+                "kind": "trino_source", "engine_catalog": slug, "via": "connection",
+                "connection_id": connection_id})
+            restarting = await _project_catalogs(pool, slug)
+
+        return {"message": "Connection deleted successfully", "catalog": slug,
+                "engine_restarting": restarting}
 
     except (HTTPException, ValueError) as e:
         if isinstance(e, ValueError):
@@ -2687,18 +2730,16 @@ def _create_connector(connector_type: ConnectorType, config: Dict[str, Any]):  #
         config = {**config, 'name': connector_type.value}
 
     try:
-        if connector_type == ConnectorType.POSTGRESQL:
-            return PostgreSQLConnector(DatabaseConfig(connector_type=connector_type, **config))
-
-        elif connector_type == ConnectorType.MYSQL:
-            return MySQLConnector(DatabaseConfig(connector_type=connector_type, **config))
+        if _trino_source.engine_of(connector_type) == "trino":
+            # PostgreSQL, MySQL, SQL Server, Oracle, MongoDB — and the legacy
+            # database_url payload, which normalises to PostgreSQL or MySQL. One
+            # connector class: Trino reads the source once its catalog is projected.
+            t, cfg = _trino_source.normalise_type_and_config(connector_type, config)
+            cfg.setdefault("name", config.get("name") or t.value)
+            return TrinoSourceConnector(TrinoSourceConfig(connector_type=t, **cfg))
 
         elif connector_type == ConnectorType.S3:
             return S3Connector(StorageConfig(connector_type=connector_type, **config))
-
-        elif connector_type == ConnectorType.DATABASE_URL:
-            from ..connectors.database import DatabaseURLConfig, DatabaseURLConnector
-            return DatabaseURLConnector(DatabaseURLConfig(connector_type=connector_type, **config))
 
         elif connector_type == ConnectorType.REST_API:
             from ..connectors.rest import RestConfig, RestConnector
@@ -2713,6 +2754,41 @@ def _create_connector(connector_type: ConnectorType, config: Dict[str, Any]):  #
 
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=f"Invalid connector config: {e.error_count()} field(s) missing or invalid")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=f"Invalid connector config: {e}")
+
+
+def _normalise_for_storage(connector_type: ConnectorType, config: Dict[str, Any]):
+    """What is stored for a new connection: the Trino-engine types keep their normalised
+    form (a `database_url` payload becomes PostgreSQL/MySQL fields), everything else
+    is stored as sent. Raises HTTPException 422 on a payload that cannot be normalised."""
+    if _trino_source.engine_of(connector_type) != "trino":
+        return connector_type, dict(config)
+    try:
+        return _trino_source.normalise_type_and_config(connector_type, config)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=f"Invalid connector config: {e}")
+
+
+async def _project_catalogs(pool, slug: Optional[str]) -> bool:
+    """After a connection's registry row changed: drop the caches that still hold the
+    old registry (catalog_admin._refresh) and project the Trino Secrets. Returns whether
+    the projection changed anything — the engine is restarting if it did. Never raises:
+    the connection change already committed."""
+    from app.api import catalog_admin
+    from app.connectors import trino_catalogs
+    try:
+        await catalog_admin._refresh(pool, slug or "")
+    except Exception as e:
+        logger.warning("[connectors] registry refresh after %s skipped: %s", slug, e)
+    if not trino_catalogs.enabled():
+        return False
+    try:
+        out = await trino_catalogs.project(pool)
+        return bool(out.get("changed"))
+    except Exception as e:
+        logger.warning("[connectors] source catalogs not projected after %s: %s", slug, e)
+        return False
 
 
 # ── what a source's status means ──────────────────────────────────────────────
@@ -2863,6 +2939,14 @@ async def _get_connector_instance(connection_id: str):
         config['name'] = row['name']
 
     connector_type = ConnectorType(row['connector_type'])
+    if _trino_source.engine_of(connector_type) == "trino":
+        # The connection's Trino catalog, when it has one: reads then go through Trino.
+        from app.connectors import source_catalog
+        try:
+            async with pool.acquire() as conn:
+                config['catalog'] = await source_catalog.catalog_for(conn, connection_id)
+        except Exception as e:
+            logger.warning("[connectors] catalog of %s not resolved: %s", connection_id, e)
     return _create_connector(connector_type, config)
 
 

@@ -17,6 +17,8 @@ from .database import PostgreSQLConnector, MySQLConnector, DatabaseURLConnector,
 from .storage import S3Connector
 from .rest import RestConnector, RestConfig
 from .custom import CustomConnector, CustomConfig
+from .trino_source import TrinoSourceConnector, TrinoSourceConfig
+from . import probe
 
 __all__ = [
     "BaseConnector",
@@ -32,4 +34,7 @@ __all__ = [
     "RestConfig",
     "CustomConnector",
     "CustomConfig",
+    "TrinoSourceConnector",
+    "TrinoSourceConfig",
+    "probe",
 ]

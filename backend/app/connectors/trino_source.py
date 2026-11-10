@@ -198,3 +198,112 @@ def normalise_type_and_config(t: ConnectorType, config: dict) -> Tuple[Connector
         if key in config:
             out[key] = config[key]
     return kind, out
+
+
+# ── the connector ─────────────────────────────────────────────────────────────
+#
+# One class for the five types. With `config.catalog` set (the connection exists and its
+# catalog is projected) every read goes through Trino; before that, tables and columns
+# come from the driver probe so the wizard can finish. The test always uses the driver:
+# it answers "is the password right" even while Trino is restarting.
+
+import asyncio  # noqa: E402
+from typing import Any, List  # noqa: E402
+
+from .base import BaseConnector, ColumnSchema, ConnectionTestResult, SyncJobStatus, TableSchema  # noqa: E402
+
+_IDENT = re.compile(r"^[A-Za-z0-9_$]+$")
+
+
+def _ident(value: str) -> str:
+    if not isinstance(value, str) or not _IDENT.match(value):
+        raise ValueError(f"Not a bare identifier: {value!r}")
+    return value
+
+
+class TrinoSourceConnector(BaseConnector):
+    def __init__(self, config: TrinoSourceConfig):
+        super().__init__(config)
+        self.config: TrinoSourceConfig = config
+        self.source_type: ConnectorType = ConnectorType(config.connector_type)
+        self._connect = None            # tests inject; default is trino_util.trino_conn
+
+    # Trino access
+    def _cursor(self, timeout: int = 30):
+        connect = self._connect
+        if connect is None:
+            from app.api.trino_util import trino_conn
+            connect = trino_conn
+        return connect(catalog=self.catalog, timeout=timeout).cursor()
+
+    @property
+    def catalog(self) -> Optional[str]:
+        return _ident(self.config.catalog) if self.config.catalog else None
+
+    def _split(self, table_name: str):
+        from . import probe
+        schema, name = probe.split_table(self.source_type, self.config, table_name)
+        return _ident(schema), _ident(name)
+
+    async def test_connection(self) -> ConnectionTestResult:
+        from . import probe
+        return await probe.atest(self.source_type, self.config)
+
+    def _tables_via_trino(self) -> List[str]:
+        from app.api.catalog_backend import SOURCE_SYSTEM_SCHEMAS
+        cur = self._cursor()
+        cur.execute(f"SHOW SCHEMAS FROM {self.catalog}")
+        schemas = [r[0] for r in cur.fetchall() if r[0] and r[0].lower() not in SOURCE_SYSTEM_SCHEMAS]
+        out: List[str] = []
+        for schema in schemas:
+            if not _IDENT.match(schema):
+                continue
+            cur = self._cursor()
+            cur.execute(f"SHOW TABLES FROM {self.catalog}.{schema}")
+            out.extend(f"{schema}.{r[0]}" for r in cur.fetchall())
+        return out
+
+    async def get_tables(self) -> List[str]:
+        from . import probe
+        if not self.catalog:
+            return await probe.alist_tables(self.source_type, self.config)
+        return await asyncio.to_thread(self._tables_via_trino)
+
+    def _columns_via_trino(self, schema: str, name: str) -> List[ColumnSchema]:
+        cur = self._cursor()
+        cur.execute(
+            f"SELECT column_name, data_type, is_nullable FROM {self.catalog}.information_schema.columns "
+            f"WHERE table_schema='{schema}' AND table_name='{name}' ORDER BY ordinal_position")
+        return [ColumnSchema(name=r[0], type=r[1], nullable=(str(r[2]).upper() == "YES"))
+                for r in cur.fetchall()]
+
+    async def get_schema(self, table_name: str) -> TableSchema:
+        from . import probe
+        schema, name = self._split(table_name)
+        if not self.catalog:
+            cols = await probe.acolumns(self.source_type, self.config, f"{schema}.{name}")
+        else:
+            cols = await asyncio.to_thread(self._columns_via_trino, schema, name)
+        return TableSchema(table_name=table_name, columns=cols, row_count=None)
+
+    def _read_via_trino(self, schema: str, name: str, limit: int, offset: int) -> List[Dict[str, Any]]:
+        cur = self._cursor()
+        sql = f"SELECT * FROM {self.catalog}.{schema}.{name}"
+        if offset:
+            sql += f" OFFSET {int(offset)}"
+        sql += f" LIMIT {int(limit)}"
+        cur.execute(sql)
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+    async def read_data(self, table_name: str, limit: int = 1000, offset: int = 0,
+                        **kwargs) -> List[Dict[str, Any]]:
+        schema, name = self._split(table_name)
+        if not self.catalog:
+            raise RuntimeError("This source is not queryable yet: its Trino catalog is still "
+                               "being projected. Try again in a minute.")
+        return await asyncio.to_thread(self._read_via_trino, schema, name,
+                                       max(1, min(int(limit), 10000)), max(0, int(offset)))
+
+    async def sync_to_iceberg(self, source_table: str, target_table: str, *args, **kwargs) -> SyncJobStatus:
+        raise NotImplementedError("Trino-backed sync arrives with trino_sync (Phase 2, Task 6).")
