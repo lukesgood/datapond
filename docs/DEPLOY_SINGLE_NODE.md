@@ -133,7 +133,7 @@ with `aws ec2 describe-subnets --filters Name=vpc-id,Values=<vpc-id> --query
 VPC (`data.aws_vpc.selected` in `ec2.tf`), and the EC2 node's own security group is wired
 automatically as Aurora's DB-ingress source (the T2 integration fix — no separate
 `app_security_group_id` variable exists or is needed). `instance_type` defaults to
-`m6i.xlarge` (4 vCPU/16 GB); `allowed_cidrs` is **required** — the ranges allowed
+`t3.xlarge` (4 vCPU/16 GB, Spot, unlimited CPU credits; m6i.xlarge until 2026-11-11 — see §7b); `allowed_cidrs` is **required** — the ranges allowed
 to reach ports 80/443: a customer CIDR allowlist, or `["0.0.0.0/0"]` for a public endpoint
 (Let's Encrypt HTTP-01 renewal needs port 80 reachable). `app_version` defaults to `2.3.0` (must match whatever tag CI pushes in step 3 —
 it seeds the node's cloud-init with the image tag used for `ecr-refresh`/pull auth, and
@@ -672,6 +672,39 @@ connect to Aurora.** If Helm is allowed to regenerate `ENCRYPTION_KEY` first, ev
 encrypted credential already stored in Aurora becomes permanently unreadable. Expected
 RTO: ~30-60 min for an Aurora-only restore, ~2-4 h for a full node rebuild (Terraform
 apply + cloud-init + secrets re-seed + Helm install), per the DR doc's objectives table.
+
+### 7b. Changing the node's instance type (no rebuild)
+
+A Spot instance's type cannot be modified (`Client.UnsupportedOperation`), so a type
+change replaces the instance. This keeps the cluster instead of rebuilding it; done on
+2026-11-11 (m6i.xlarge → t3.xlarge, ~12 min of downtime, inside the weekday window):
+
+1. `aws ec2 stop-instances` the node; `create-image` from it — the rollback point.
+2. `modify-instance-attribute … DeleteOnTermination=false` on the root, so the old
+   volume survives as a second rollback point.
+3. `cancel-spot-instance-requests` for its persistent request, then
+   `terminate-instances`; wait until its private IP is free.
+4. `run-instances` from the AMI with the new type and **the same private IP**,
+   subnet, security group, instance profile, IMDSv2 (`HttpTokens=required`, hop limit
+   2), Spot `persistent`/`stop`, root 60 GiB gp3, and the tags (`Name=datapond-k3s`
+   on the instance — the CD role's SSM permission is scoped by it — and
+   `Backup=daily` on the volume for the DLM snapshots). K3s names the node after the
+   hostname (`ip-<private ip>`): a new IP would register a second node and strand
+   the pods and their local-path volumes.
+5. `associate-address` the EIP to the new instance (DNS points at the EIP).
+6. Wait for the kubelet (~3 min after boot), then check pods, `/api/health`, a
+   Trino query and public HTTPS.
+7. Terraform: `terraform state rm aws_instance.node`, `terraform import
+   aws_instance.node <new id>` (with `-var-file=live.tfvars` and
+   `TF_VAR_db_master_password` from `terraform state pull`), set `instance_type`,
+   then a full plan — it should show only the node-status alarm, the scheduler policy
+   and the two schedules (all in place, instance id only). Apply those with
+   `-target`, and re-plan to `No changes`.
+8. Outside Terraform: the GitHub secret `NODE_INSTANCE_ID`, and the
+   `datapond-spot-recovery` Lambda (`INSTANCE_ID` env var, its EventBridge rule's
+   instance id, and its role's `ec2:StartInstances` resource).
+9. Delete the AMI, its snapshot and the old root volume once the new node has come
+   through a scheduled stop and start.
 
 ---
 
