@@ -101,6 +101,15 @@ resource "aws_instance" "node" {
     http_put_response_hop_limit = 2
   }
 
+  # A burstable type runs unlimited: a long sync over the baseline bursts instead of
+  # throttling (Spot T instances support it). No effect on non-burstable types.
+  dynamic "credit_specification" {
+    for_each = can(regex("^t[0-9]", var.instance_type)) ? [1] : []
+    content {
+      cpu_credits = "unlimited"
+    }
+  }
+
   # Spot (cost-optimized, matches the existing pattern). PERSISTENT + stop-on-interruption
   # makes the node stoppable — so the weekday-hours scheduler can stop/start it and a spot
   # reclaim stops (not terminates) it, preserving K3s + the Helm release on the EBS root.

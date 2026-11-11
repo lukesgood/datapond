@@ -103,7 +103,7 @@ catalogs (`docs/superpowers/specs/2026-11-09-trino-unified-engine-and-connectors
   holds stored release values from before 2.4 (`trino.enabled: false`) must re-supply its
   overrides once with `helm upgrade --reset-values -f values-prod-single.yaml -f
   <overrides>` — `DEPLOY_SINGLE_NODE.md` §5b has the exact steps. The node needs ~2 GiB
-  more memory for the Trino coordinator (m6i.xlarge is fine).
+  more memory for the Trino coordinator (m6i.xlarge or t3.xlarge is fine).
 - **`catalog.athenaOutputLocation`, `catalog.athenaWorkgroup`, `catalog.athenaDatabase`**
   are gone from the chart and ignored if still present in stored values. The backend env
   `FEATURE_ATHENA`, `ATHENA_*` and `QUERY_ENGINE` are no longer read: the engine is

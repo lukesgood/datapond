@@ -141,23 +141,30 @@ variable "route53_zone_id" {
 }
 
 variable "instance_type" {
-  # 4 vCPU / 16 GB — headroom over the t3.xlarge that ran foundation.
+  # 4 vCPU / 16 GB. t3.xlarge since 2026-11-11 (was m6i.xlarge).
+  #
+  # Why t3: the node is Spot, and the 07:30 KST start failed with
+  # InsufficientInstanceCapacity on several mornings (2026-09-08/09, 10-15, 10-16,
+  # 11-10, 11-11 — 1 h on 11-11), always m6i.xlarge in us-east-1b, the zone where
+  # m6i's Spot price ran ~40% above the others. On 2026-11-11 t3.xlarge scored 3/3
+  # on Spot placement in every us-east-1 zone, at ~$0.052–0.057/h in 1b against
+  # m6i's $0.120–0.132. The node averages ~2% CPU and 5 GB, far under t3.xlarge's
+  # 40%-per-vCPU baseline; credit mode is unlimited (ec2.tf), so a long sync bursts
+  # instead of throttling and costs a little only while it runs over the baseline.
+  # Pod CPU *requests* total ~3.4 vCPU, so a 2-vCPU type does not fit as is.
   #
   # Changing this on a running deployment means replacing the node, not editing it:
   # `ModifyInstanceAttribute` answers `Client.UnsupportedOperation — Modifying
   # 'instanceType' is not supported for spot instances`, and a dry run does NOT
-  # catch it (the same call returns DryRunOperation "would have succeeded"). Since
-  # use_spot keeps K3s and the Helm release on the instance's EBS root, a type
-  # change costs a rebuild — weigh it against what it buys.
-  #
-  # m6a.xlarge is the same spec at roughly half the spot price in us-east-1b
-  # ($0.075/h against m6i's $0.128/h) and scores the same on spot placement, so it
-  # is worth taking at the next rebuild. It is not worth a rebuild on its own: the
-  # morning-start delay that prompted the idea (seven retries over 30 minutes,
-  # 2026-09-08/09) resolved itself by 2026-09-11 with the type unchanged, which
-  # says the pressure was transient rather than a property of the type.
+  # catch it. The 2026-11-11 swap kept the cluster without a rebuild: stop → AMI of
+  # the node → keep the old root (DeleteOnTermination=false) → cancel the Spot
+  # request and terminate → run-instances from the AMI with the SAME private IP (K3s
+  # names the node after the hostname, ip-172-31-7-208; a new name would strand the
+  # pods and local-path volumes) → re-associate the EIP → `terraform state rm` +
+  # `import` the new id → targeted apply of the scheduler, its policy and the alarm.
+  # docs/DEPLOY_SINGLE_NODE.md §7b has the steps.
   type    = string
-  default = "m6i.xlarge"
+  default = "t3.xlarge"
 }
 
 variable "root_volume_encrypted" {
