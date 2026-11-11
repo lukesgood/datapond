@@ -42,7 +42,7 @@
 |---|---|
 | [UPGRADING.md](UPGRADING.md) | 기존 배포의 동작이 바뀌는 변경과 운영자 조치 사항 |
 | [DEPLOY_SINGLE_NODE.md](DEPLOY_SINGLE_NODE.md) | 현재 AWS EC2/K3s 레퍼런스 배포 절차 |
-| [OPERATIONS_PAUSE.md](OPERATIONS_PAUSE.md) | 라이브 환경 정지/재시작 런북 · **현재 상태: 가동 중 (2026-08-24 기동, Helm rev 59)** |
+| [OPERATIONS_PAUSE.md](OPERATIONS_PAUSE.md) | 라이브 환경 정지/재시작 런북 · **현재 상태: 평일 07:30–18:00 KST 가동 (2026-11-12, t3.xlarge Spot, release rev 10)** |
 | [AWS_MVP_RUNBOOK.md](AWS_MVP_RUNBOOK.md) | AWS RAG 경로 acceptance/smoke test |
 | [AWS_BEDROCK_SETUP.md](AWS_BEDROCK_SETUP.md) | Bedrock provider credential/model 설정 |
 | [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) | Aurora/S3/critical secret 복구 절차 |

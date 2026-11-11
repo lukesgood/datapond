@@ -1,4 +1,4 @@
-{{- if or (include "datapond.addonOn" (dict "root" $ "component" "trino")) (include "datapond.addonOn" (dict "root" $ "component" "polaris")) }}
+{{- if include "datapond.localWarehouse" $ }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

@@ -221,7 +221,7 @@ from ..connectors.base import (
 from ..connectors import trino_source as _trino_source
 from ..connectors.trino_source import TrinoSourceConfig, TrinoSourceConnector
 from ..connectors.storage import StorageConfig, S3Connector
-from ..connectors.vault import CredentialVault
+from ..connectors.vault import CredentialVault, LazyCredentialVault
 
 router = APIRouter(tags=["connectors"])
 
@@ -501,7 +501,7 @@ async def _persist_sync_job(pool, connection_id: str, table: str, target: str,
 
 # Credential vault instance
 
-vault = CredentialVault()
+vault = LazyCredentialVault()  # built on first use: the migration Job imports this module
 
 
 # API Endpoints

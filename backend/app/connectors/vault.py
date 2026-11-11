@@ -228,3 +228,20 @@ class SecureLogger:
         """Log error with masked credentials"""
         masked = CredentialVault.mask_credentials(credentials)
         logger.error(f"{message} | Config: {masked}")
+
+
+class LazyCredentialVault:
+    """A CredentialVault built on first use. A module that only *may* need the vault
+    (app.api.connectors, which the migration Job imports for its pool helper) holds one
+    of these, so importing it neither reads ENCRYPTION_KEY nor warns about its absence."""
+
+    def __init__(self):
+        self._vault = None
+
+    def _get(self) -> "CredentialVault":
+        if self._vault is None:
+            self._vault = CredentialVault()
+        return self._vault
+
+    def __getattr__(self, name):
+        return getattr(self._get(), name)

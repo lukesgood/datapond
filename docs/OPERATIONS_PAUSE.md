@@ -1,6 +1,9 @@
 # Operations — Live Environment Stop / Restart Runbook
 
-> **State as of 2026-08-31: RUNNING on a weekday schedule.** The EventBridge schedulers
+> **State as of 2026-11-12: RUNNING on a weekday schedule** (node `i-0048df494df9e5726`,
+> t3.xlarge Spot, release revision 10). The node was torn down 2026-10-19 and rebuilt
+> 2026-11-06 (`DISASTER_RECOVERY.md` §A.2), and its type changed 2026-11-11
+> (`DEPLOY_SINGLE_NODE.md` §7b). The EventBridge schedulers
 > are **ENABLED** again, so the node stops and starts on its own:
 >
 > | Schedule | Cron (Asia/Seoul) | Effect |
@@ -11,6 +14,9 @@
 > The environment is therefore **down outside 07:30–18:00 KST on weekdays, and all
 > weekend**. That is deliberate — it is a spot instance and evenings cost money for
 > nothing — but it means a health check outside those hours is not evidence of a fault.
+> A Spot start can also be refused for lack of capacity (`InsufficientInstanceCapacity`
+> in CloudTrail); the scheduler retries, and a manual `aws ec2 start-instances` works
+> once capacity returns.
 >
 > The same schedule is declared to the application in `values-prod-single.yaml` as
 > `backend.systemEvents.expectedStarts`, so Infrastructure → Events records the morning
@@ -42,7 +48,7 @@ identified was **demand**, not technology — so the live system was paused rath
 
 | Resource | Action | State after |
 |---|---|---|
-| EC2 node `i-0bbf886f0728f3e6e` (m6i.xlarge, **persistent spot, stop-behavior**) | `stop-instances` | stopped (restartable) |
+| EC2 node `i-0048df494df9e5726` (t3.xlarge, **persistent spot, stop-behavior**) | `stop-instances` | stopped (restartable) |
 | Aurora Serverless v2 cluster `datapond-pg` (aurora-postgresql, 0.5–4 ACU) | `stop-db-cluster` | stopped (data retained, **re-stop weekly** — caveat 1) |
 | EventBridge Scheduler `datapond-node-start` / `datapond-node-stop` | set **DISABLED** | won't auto-restart the node |
 
@@ -50,7 +56,7 @@ Commands (region `us-east-1`):
 
 ```bash
 R="--region us-east-1"
-aws ec2 stop-instances --instance-ids i-0bbf886f0728f3e6e $R
+aws ec2 stop-instances --instance-ids i-0048df494df9e5726 $R
 aws rds stop-db-cluster --db-cluster-identifier datapond-pg $R
 aws scheduler update-schedule --name datapond-node-start --state DISABLED ...  # re-supply required fields
 aws scheduler update-schedule --name datapond-node-stop  --state DISABLED ...
@@ -93,8 +99,8 @@ aws rds start-db-cluster --db-cluster-identifier datapond-pg $R
 aws rds describe-db-clusters --db-cluster-identifier datapond-pg $R --query "DBClusters[].Status" --output text
 
 # 2) Start the compute node (persistent spot resumes)
-aws ec2 start-instances --instance-ids i-0bbf886f0728f3e6e $R
-aws ec2 describe-instances --instance-ids i-0bbf886f0728f3e6e $R --query "Reservations[].Instances[].State.Name" --output text
+aws ec2 start-instances --instance-ids i-0048df494df9e5726 $R
+aws ec2 describe-instances --instance-ids i-0048df494df9e5726 $R --query "Reservations[].Instances[].State.Name" --output text
 
 # 3) (optional) re-enable the weekday start/stop automation
 #    aws scheduler update-schedule --name datapond-node-start --state ENABLED ... (re-supply required fields)
@@ -102,9 +108,9 @@ aws ec2 describe-instances --instance-ids i-0bbf886f0728f3e6e $R --query "Reserv
 
 # 4) Wait for k3s + pods to come up on the node, then verify
 #    (SSM on the node — same channel used for deploys)
-ID=$(aws ssm send-command --instance-ids i-0bbf886f0728f3e6e --document-name AWS-RunShellScript \
+ID=$(aws ssm send-command --instance-ids i-0048df494df9e5726 --document-name AWS-RunShellScript \
   --parameters 'commands=["kubectl -n datapond get pods -o wide"]' $R --query Command.CommandId --output text)
-sleep 15; aws ssm get-command-invocation --command-id "$ID" --instance-id i-0bbf886f0728f3e6e $R --query StandardOutputContent --output text
+sleep 15; aws ssm get-command-invocation --command-id "$ID" --instance-id i-0048df494df9e5726 $R --query StandardOutputContent --output text
 
 # 5) Confirm running image tags + health
 #    kubectl -n datapond get deploy backend frontend -o custom-columns=NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image
@@ -124,9 +130,9 @@ Notes on restart:
 | | Value |
 |---|---|
 | Region | `us-east-1` · Account `588738574974` (IAM user `okr-deployer`) |
-| EC2 node | `i-0bbf886f0728f3e6e` (m6i.xlarge, persistent spot) |
+| EC2 node | `i-0048df494df9e5726` (t3.xlarge, persistent spot; EIP `54.88.128.139`, private IP `172.31.7.208`) |
 | Aurora | cluster `datapond-pg` (Serverless v2, 0.5–4 ACU) |
-| Schedulers | `datapond-node-start`, `datapond-node-stop` (EventBridge Scheduler, DISABLED) |
+| Schedulers | `datapond-node-start`, `datapond-node-stop` (EventBridge Scheduler, ENABLED) · spot-recovery Lambda `datapond-spot-recovery` |
 | Bucket | `s3://datapond-iceberg` |
 | Domain | `datapond.csg.fitcloud.co.kr` |
 | Helm | release `datapond`, namespace `datapond` |

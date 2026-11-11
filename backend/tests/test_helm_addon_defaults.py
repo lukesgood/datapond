@@ -532,7 +532,9 @@ def test_a_rendered_addon_keeps_its_dependencies(profile):
         "jupyter": ("/jupyter", "datapond-jupyter", None),
         "mlflow": ("/mlflow", "datapond-mlflow", None),
         "spark": ("/spark", "datapond-spark", None),
-        "trino": ("/trino", "datapond-trino", "iceberg-warehouse-pvc"),
+        # Trino mounts the warehouse claim only off Glue (S3 warehouse); the
+        # claim-must-exist check for whatever is mounted follows the loop below.
+        "trino": ("/trino", "datapond-trino", None),
         "polaris": (None, "datapond-polaris", "iceberg-warehouse-pvc"),
         "risingwave": ("/risingwave", None, None),
         "openmetadata": ("/openmetadata", None, None),
@@ -555,6 +557,12 @@ def test_a_rendered_addon_keeps_its_dependencies(profile):
         if other:
             assert other in rendered, (
                 f"{label}: {component} renders but {other} does not")
+
+    # Every claim a pod mounts is rendered (the dependency the per-component table
+    # cannot state for Trino, whose warehouse claim depends on the catalog backend).
+    claims = set(re.findall(r"claimName: (\S+)", rendered))
+    pvcs = rendered_names(rendered, "PersistentVolumeClaim")
+    assert claims <= pvcs, f"{label}: mounted claims {sorted(claims - pvcs)} are not rendered"
 
     for component in sorted(ALL_ADDONS - expected):
         path, _, _ = DEPENDENCIES[component]
