@@ -125,6 +125,19 @@ The same answer shaped for `{{- if }}`: non-empty when on, empty when off.
 {{- end -}}
 
 {{/*
+Whether a local Iceberg warehouse volume is in use: Polaris and Jupyter write to it,
+and Trino does when its catalog is not Glue. With Glue the warehouse is S3
+(catalog.glueWarehouse) and the volume would sit empty. Non-empty when in use.
+*/}}
+{{- define "datapond.localWarehouse" -}}
+{{- $polaris := include "datapond.addonOn" (dict "root" . "component" "polaris") -}}
+{{- $jupyter := include "datapond.addonOn" (dict "root" . "component" "jupyter") -}}
+{{- $trino := include "datapond.addonOn" (dict "root" . "component" "trino") -}}
+{{- $glue := eq ((.Values.catalog | default dict).backend | default "polaris") "glue" -}}
+{{- if or $polaris $jupyter (and $trino (not $glue)) -}}on{{- end -}}
+{{- end -}}
+
+{{/*
 Whether MLflow's own UI is published at /mlflow. The MLflow server has no authentication,
 so a deployment can run the add-on and still keep its UI off the ingress
 (mlflow.ingress.enabled=false); the console's /api/mlflow routes reach it in-cluster

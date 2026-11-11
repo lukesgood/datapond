@@ -80,8 +80,10 @@ spec:
           mountPath: /etc/trino
         - name: trino-catalog
           mountPath: /etc/trino/catalog
+        {{- if include "datapond.localWarehouse" $ }}
         - name: iceberg-warehouse
           mountPath: /opt/iceberg/warehouse
+        {{- end }}
         {{- if .Values.trino.rls.enabled }}
         # RLS Layer 2: file-based access control rules (backend regenerates this CM)
         - name: trino-acl
@@ -126,9 +128,11 @@ spec:
           - secret:
               name: {{ include "datapond.trinoSourceCatalogsSecret" . }}
               optional: true
+      {{- if include "datapond.localWarehouse" $ }}
       - name: iceberg-warehouse
         persistentVolumeClaim:
           claimName: iceberg-warehouse-pvc
+      {{- end }}
       {{- if .Values.trino.rls.enabled }}
       - name: trino-acl
         configMap:
