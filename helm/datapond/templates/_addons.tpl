@@ -125,16 +125,16 @@ The same answer shaped for `{{- if }}`: non-empty when on, empty when off.
 {{- end -}}
 
 {{/*
-Whether a local Iceberg warehouse volume is in use: Polaris and Jupyter write to it,
-and Trino does when its catalog is not Glue. With Glue the warehouse is S3
-(catalog.glueWarehouse) and the volume would sit empty. Non-empty when in use.
+Whether a local Iceberg warehouse volume is in use: Jupyter mounts it, and Trino does
+when its catalog is not Glue. With Glue the warehouse is S3 (catalog.glueWarehouse) and
+the volume would sit empty — also when Polaris runs beside Glue (it keeps no files of its
+own; no Polaris pod mounts the claim). Non-empty when in use.
 */}}
 {{- define "datapond.localWarehouse" -}}
-{{- $polaris := include "datapond.addonOn" (dict "root" . "component" "polaris") -}}
 {{- $jupyter := include "datapond.addonOn" (dict "root" . "component" "jupyter") -}}
 {{- $trino := include "datapond.addonOn" (dict "root" . "component" "trino") -}}
 {{- $glue := eq ((.Values.catalog | default dict).backend | default "polaris") "glue" -}}
-{{- if or $polaris $jupyter (and $trino (not $glue)) -}}on{{- end -}}
+{{- if or $jupyter (and $trino (not $glue)) -}}on{{- end -}}
 {{- end -}}
 
 {{/*

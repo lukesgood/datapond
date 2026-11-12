@@ -34,3 +34,33 @@ warehouse, another catalog's — and Polaris refuses a table outside allowedLoca
 ,\"{{ $l }}\"
 {{- end -}}
 {{- end -}}
+
+{{/*
+Where Polaris keeps its metadata: the backend's database — Aurora (externalDatabase) on the
+AWS reference, the in-cluster PostgreSQL otherwise — with the backend's credentials from
+datapond-secrets. External connections use TLS like the backend's (externalDatabase.sslmode).
+*/}}
+{{- define "datapond.polarisDbHost" -}}
+{{- if (.Values.externalDatabase).enabled }}{{ .Values.externalDatabase.host }}{{ else }}{{ .Values.postgres.name }}{{ end -}}
+{{- end -}}
+
+{{- define "datapond.polarisDbPort" -}}
+{{- if (.Values.externalDatabase).enabled }}{{ .Values.externalDatabase.port | default 5432 }}{{ else }}{{ .Values.postgres.service.port }}{{ end -}}
+{{- end -}}
+
+{{- define "datapond.polarisJdbcUrl" -}}
+jdbc:postgresql://{{ include "datapond.polarisDbHost" . }}:{{ include "datapond.polarisDbPort" . }}/{{ .Values.polaris.database }}{{ if (.Values.externalDatabase).enabled }}?sslmode={{ .Values.externalDatabase.sslmode | default "require" }}{{ end }}
+{{- end -}}
+
+{{/* Env for a psql/pg_isready container: the user from the secret, TLS when external. */}}
+{{- define "datapond.polarisPsqlEnv" -}}
+- name: POSTGRES_USER
+  valueFrom:
+    secretKeyRef:
+      name: datapond-secrets
+      key: POSTGRES_USER
+{{- if (.Values.externalDatabase).enabled }}
+- name: PGSSLMODE
+  value: {{ .Values.externalDatabase.sslmode | default "require" | quote }}
+{{- end }}
+{{- end -}}
