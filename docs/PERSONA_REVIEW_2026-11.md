@@ -37,7 +37,7 @@ or a workaround; **Low** wording, polish.
 - **#2 fixed** (PR #260): Polaris signs tokens with one shared key; live connection test 6/6, `polaris_lake` back in Catalog and the schema tree. The second Polaris replica was then dropped (CPU requests had reached 95% of the node and a rolling update could not schedule); one replica with a 50m request.
 - **#3–#14 fixed** (PR #261), checked in the browser on the live console: v7 copy and tab title; Settings version `2.7.0-46e845d`; Export dialog (Plan: 24 register, 1 exists, locations listed — not applied) and Mirrors section; source catalogs follow their share list; target catalog shown per table (`→ polaris_lake`); catalog chips per catalog with correct counts; Lakehouse row on the dashboard; workflow says "2 catalogs".
 - **Fixed 2026-11-13** (PR #262, `2.7.0-2c484c4`): Last rows now come from each table's newest sync session (the cause was a single-table sync hiding every other table's count, not the target catalog) — checked live, every table shows its count; the last "Query Lab" mentions now say Analytics.
-- **Open:** non-admin roles still to be walked.
+- **Non-admin roles checked 2026-11-13** (API level, below).
 
 ## Worked as expected
 
@@ -52,3 +52,30 @@ or a workaround; **Low** wording, polish.
 
 - Non-admin roles (analyst, viewer, auditor accounts) — needs the owner to sign in as each.
 - Agents (keys, MCP), AI Gateway, Storage pages — not opened in this pass.
+
+## Non-admin roles (2026-11-13, API level)
+
+Checked on the live node with four temporary users (`persona-*`, deleted afterwards) and
+server-minted tokens — not by signing in to the console, which I do not do on this host. The
+menu column is what the console shows for each role's permissions and the live capabilities
+(`lib/nav-items.ts` rules). The catalog grant and the row filter were set temporarily and
+restored.
+
+| Check | analyst (business_analyst) | viewer | auditor | engineer (data_engineer) |
+|---|---|---|---|---|
+| Menu | Catalog, Analytics, Metrics, Experiments, Knowledge | Catalog, Analytics, Metrics, Knowledge | + AI Gateway, Governance | + Sources |
+| Lake ⋈ source-DB SELECT | 6,000 | 6,000 | 6,000 | 6,000 |
+| Write statement | 403 | 403 | 403 | passes the gate |
+| Sync a table | 403 | 403 | 403 | success (5 rows) |
+| Set a table's target catalog | 403 | 403 | 403 | 200 |
+| Catalog export / mirror list | 403 | 403 | 403 | 403 (admin only) |
+| RLS policies / audit export | 403 | 403 | 200 | 403 |
+| Edit catalog grants | 403 | 403 | 403 | 403 |
+| `polaris_lake` granted to business_analyst only | query 1,200; in schema tree | 403, catalog not named; hidden | 403; hidden | 403; hidden |
+| Row filter `status = 'delivered'` for viewer on orders | 6,000 | 2,953 | 6,000 | 6,000 |
+
+Every row matches the role matrix (`backend/app/permissions.py`). One decision for the owner:
+**catalog export and the mirror list are admin-only**, so a data engineer can choose a sync's
+target catalog but cannot move tables between catalogs or see mirror status. That is
+deliberate today (an export changes catalog registrations); widening it would need a
+`catalog:write`-style permission.
