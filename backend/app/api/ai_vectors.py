@@ -886,7 +886,7 @@ def _read_iceberg_docs(schema: str, table: str, text_column: str, limit: int,
                        catalog: Optional[str] = None) -> List[tuple]:
     """One document per row of <catalog>.<schema>.<table>.<text_column> — read through
     Trino (the one engine on every profile since 2.4), so this stays in lockstep with
-    Query Lab / AI SQL.
+    Analytics / AI SQL.
 
     The default catalog is read through the engine's own prefix; any other registry
     catalog through its engine catalog name."""

@@ -852,7 +852,7 @@ class LogQueryResponse(BaseModel):
 async def log_query_to_mlflow(request: LogQueryRequest):
     """
     Create an MLflow run from a SQL query execution.
-    Called from Query Lab to log queries, results, and metadata.
+    Called from Analytics to log queries, results, and metadata.
     """
     client = get_mlflow_client()
     try:

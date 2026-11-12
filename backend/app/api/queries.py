@@ -1,5 +1,5 @@
 """
-SQL Lab API - Query execution via Trino with history logging
+Analytics API - Query execution via Trino with history logging
 """
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
