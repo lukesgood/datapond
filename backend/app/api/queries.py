@@ -317,6 +317,11 @@ async def _refuse_hidden_catalog(user: dict, route: str, access=None, sql: str =
                "administrator for access to it.")
 
 
+async def _links_pool():
+    from app.api.connectors import get_db_pool
+    return await get_db_pool()
+
+
 async def _execute_query_impl(
     request: QueryExecuteRequest,
     db: Session = Depends(get_db),
@@ -399,6 +404,34 @@ async def _execute_query_impl(
             detail="Could not resolve table names against the catalog. "
                    "Qualify tables as <namespace>.<table> and retry.",
         )
+
+    # ── One writer per table (app/table_links.py) ─────────────────────────────
+    # A table registered in two catalogs by the catalog export has an owner and a
+    # mirror. A write through the mirror would fork it (a DROP through a Polaris mirror
+    # purges the owner's files); a read of the mirror would see an old snapshot under
+    # the mirror catalog's grant. So: writes to a mirror are refused, reads are routed
+    # to the owner — before the grant check and RLS, which then judge the owner table.
+    from app import table_links
+    from app.catalog_registry import default_entry
+    from app import catalog_registry as _reg
+    links = table_links.current()
+    # A mirror needs two lake catalogs; with one there is nothing to look up.
+    if sum(1 for e in _reg.entries() if e.kind in ("glue", "iceberg_rest", "polaris")) >= 2:
+        try:
+            links = await table_links.load(await _links_pool())
+        except Exception as e:      # no pool: the last links this process loaded still apply
+            logger.debug("[table-links] using cached links: %s", e)
+    if links:
+        default_catalog = default_entry().engine_catalog
+        try:
+            table_links.check_writes(effective_query, engine.rls_dialect, links, default_catalog)
+        except table_links.MirrorWriteRefused as e:
+            await security_audit.record(
+                actor=user, permission="query:write", route="/api/queries/execute",
+                method="POST", outcome="denied", reason=str(e))
+            raise HTTPException(status_code=409, detail=str(e))
+        effective_query = table_links.route_reads(effective_query, engine.rls_dialect, links,
+                                                  default_catalog)
 
     # ── Catalog grants: every table the statement names, after resolution ─────
     # Three parts name their catalog; two or one mean the default. A hidden catalog

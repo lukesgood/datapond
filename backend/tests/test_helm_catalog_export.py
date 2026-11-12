@@ -69,3 +69,12 @@ def test_polaris_feature_flags_for_in_place_registration_are_opt_in(tmp_path):
 def test_a_feature_key_that_is_not_an_identifier_is_refused(tmp_path):
     err = render(tmp_path, EXTRA + "  extraFeatures:\n    'BAD KEY\"': true\n", ok=False)
     assert "extraFeatures" in err
+
+
+def test_polaris_does_not_purge_files_on_drop_when_it_shares_locations(tmp_path):
+    """A table registered in place keeps its files where its owner wrote them; a DROP
+    through Polaris with purge on would delete the owner's data."""
+    dep = doc(render(tmp_path, None), "Deployment", "polaris")
+    assert '-Dpolaris.features."DROP_WITH_PURGE_ENABLED"=true' in dep, "own-files-only profiles keep purge"
+    dep = doc(render(tmp_path, EXTRA), "Deployment", "polaris")
+    assert '-Dpolaris.features."DROP_WITH_PURGE_ENABLED"=false' in dep

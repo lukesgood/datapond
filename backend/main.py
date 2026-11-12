@@ -452,6 +452,17 @@ async def startup():
     except Exception as e:
         logger.warning(f"[startup] connector checks not started: {e}")
 
+    # Mirror freshness (app/mirror_freshness.py) — re-points read-only mirrors that are
+    # behind their owner, reports ones committed to from outside. Leader-locked.
+    try:
+        if os.getenv("MIRROR_CHECK_ENABLED", "true").lower() in ("1", "true", "yes"):
+            from app.api.connectors import get_db_pool
+            from app.mirror_freshness import run as run_mirror_checks
+            app.state.mirror_checks_task = asyncio.create_task(run_mirror_checks(await get_db_pool()))
+            logger.info("[startup] mirror freshness checks started")
+    except Exception as e:
+        logger.warning(f"[startup] mirror freshness checks not started: {e}")
+
     # Audit retention (B4) — prunes security_audit_log/auth_audit_log through B3's
     # sanctioned prune_*_audit_log() functions on its own loop and its own advisory
     # lock key; see app/audit_retention.py's module docstring for why it is not

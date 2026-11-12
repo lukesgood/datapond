@@ -715,7 +715,9 @@ polaris:
     defaultBaseLocation: s3://iceberg/warehouse
     # Further s3:// locations every catalog accepts, for tables registered in place by
     # the catalog export (POST /api/catalogs/{name}/export) — e.g. the Glue warehouse
-    # you are leaving. Empty: each catalog accepts only its own base location.
+    # you are leaving. Empty: each catalog accepts only its own base location. Non-empty
+    # also turns off Polaris's purge-on-drop: a shared table's files belong to its owner.
+    # Keep it narrow: the export reports allowed_locations_needed (each table's parent).
     extraAllowedLocations: []
   # Extra Polaris feature flags, as KEY: value (rendered -Dpolaris.features."KEY"=value).
   # Registering tables that live outside a catalog's own layout (catalog export from Glue)

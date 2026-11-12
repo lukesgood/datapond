@@ -231,7 +231,7 @@ def safe_name(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_]", "_", str(name or "")).lower()
 
 
-def target_ref(source_table: str, target_table: Optional[str]) -> TableRef:
+def target_ref(source_table: str, target_table: Optional[str], catalog: Optional[str] = None) -> TableRef:
     """Where a sync of `source_table` ("schema.table") lands: catalog iceberg, the
     namespace the job names, the table's own name normalised. The routes build the
     default target as `datapond.default.<source_table>`, and a Trino source's table
@@ -246,4 +246,4 @@ def target_ref(source_table: str, target_table: Optional[str]) -> TableRef:
     else:
         target = target.rsplit(".", 1)[0] if "." in target else ""
     namespace = target_namespace(f"{target}.x") if target else "default"
-    return TableRef("iceberg", namespace, safe_name(src_table))
+    return TableRef(catalog or "iceberg", namespace, safe_name(src_table))
