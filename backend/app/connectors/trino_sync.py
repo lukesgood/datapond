@@ -85,6 +85,10 @@ def compatible(source_type: str, target_type: str) -> bool:
     src, dst = iceberg_type(source_type), iceberg_type(target_type)
     if src.startswith("decimal(") and dst == "double":
         return True
+    # A JSON source into a nested target written before 2.5 (pandas stored JSON objects as
+    # Arrow structs): Trino casts JSON to ROW/ARRAY/MAP, matching row fields by name.
+    if _is_jsonish(source_type) and dst.startswith(("row(", "array(", "map(")):
+        return True
     return src == dst or (src, dst) in _WIDENS
 
 
