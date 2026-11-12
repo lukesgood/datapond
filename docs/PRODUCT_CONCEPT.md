@@ -1,251 +1,179 @@
-# DataPond 제품 컨셉 — AI 에이전트·앱을 위한 Governed 데이터 도구 서버
+# DataPond 제품 컨셉 — 중소 규모를 위한 가벼운 개방형 레이크하우스
 
-**버전:** 6.0 · **상태:** 현재 제품 기준 · **갱신:** 2026-09-07 (트렌드 조정 반영)
+**버전:** 7.0 · **상태:** 현재 제품 기준 · **갱신:** 2026-11-12
 
-> **v6.0 승격 (2026-09-07):** `CONCEPT_RECONFIRMATION.md`의 v6 제안을 정본으로 올렸다. 결정과
-> 근거는 `POSITIONING_REVIEW.md`(§5에 2026-09 시장 트렌드 대조), 새 문장 기준의 기능·사용성
-> 적합도는 `POSITIONING_FIT_AUDIT.md`에 있다. v5.0("Portable AI Data Foundation")은 이 문서로 대체된다.
+> **v7.0 (2026-11-12):** 결정과 근거는 [`POSITIONING_V7.md`](POSITIONING_V7.md). v6.0("AI 에이전트·앱을
+> 위한 Governed 데이터 도구 서버")은 대체됐고, 그 기록은 `POSITIONING_REVIEW.md`와
+> `POSITIONING_FIT_AUDIT.md`에 남는다.
 
 ## 한 문장
 
-> **DataPond는 AI 에이전트와 애플리케이션이 회사의 문서와 테이블에 접근하는 governed 데이터
-> 도구 서버다. 인용 RAG와 governed SQL을 도구로 노출하고, 어떤 호출자가 어떤 컬렉션·행을
-> 읽을 수 있는지, 무엇이 인용되고 무엇이 마스킹됐는지, 얼마까지 쓸 수 있는지를 데이터 계층에서
-> 통제한다. AWS 위에서 바로 운영하고, 개방 계약 위에 있어 잠기지 않는다.**
-
-기본 경로는 **에이전트나 앱이 DataPond를 직접 호출하는 것**이다. REST/OpenAPI와 read 전용 MCP
-서버(`POST /api/mcp`)를 서비스 계정 키 또는 고객 IdP 토큰(OAuth 리소스 서버 모드, 기본 off)으로
-부른다. 조직에 에이전트 게이트웨이가 있으면 그 뒤에 타깃으로
-등록할 수도 있다. AWS는 가장 구체적인 레퍼런스 배포이지만 제품의 경계는 아니다.
-
-## 게이트웨이가 있어도 없어도
-
-기본 경로는 직접 호출이다. 에이전트마다 서비스 계정 키를 발급하면 호출자 단위 접근·감사·spend가
-그대로 붙는다. 첫 세그먼트의 파일럿은 대부분 이 단계에 있다.
-
-2026년 하반기 시장에서 "에이전트 도구 게이트웨이"(identity, 정책, 레지스트리, tool 호출 단위
-감사)는 플랫폼에 흡수되고 있다. AWS AgentCore Gateway, Databricks Unity AI Gateway, Snowflake
-Cortex AI Gateway, 그리고 Obot·Runlayer 같은 전문 게이트웨이가 그 층이다. DataPond는 그 층을
-만들지 않으며, 그 층을 전제하지도 않는다. 두 제품은 직교한다. 게이트웨이는 도구와 에이전트 사이의
-중앙 정책을, DataPond는 도구가 돌려주는 **데이터의 범위**를 다룬다. 조직에 게이트웨이가 있으면
-DataPond를 타깃으로 등록하면 되고(등록 절차는 how-to 문서), 없으면 직접 부르면 된다.
-
-| 게이트웨이가 하는 것 | DataPond가 하는 것 |
-|---|---|
-| 인바운드 OAuth/JWT, 에이전트 identity | 서비스 계정 키(직접 호출), 또는 고객 IdP access token(resource-server 모드, 게이트웨이 token exchange 포함 — 2026-09-28 구현) |
-| tool 단위 허용/거부 정책, rate limit | 그 tool이 **데이터의 어느 부분**을 돌려줄지: 컬렉션 멤버십, 행 필터, 컬럼 마스킹 |
-| 호출 단위 감사(principal, 정책, 지연) | 검색·답변 단위 감사: 어느 컬렉션, 무엇이 인용됐는지, 무엇이 마스킹됐는지 |
-| tool·그룹 단위 예산 알림 | 호출자 단위 spend 귀속과 예산 |
-| Guardrails로 프롬프트·응답 PII | 적재·검색·인용 시점의 데이터 PII, 한국형 식별자 |
-
-AWS는 AgentCore Gateway가 row-level 데이터 접근, RAG 인용·검색 거버넌스, 에이전트별 예산 상한을
-다루지 않는다고 스스로 명시한다. Databricks·Snowflake는 그것을 하지만 자기 플랫폼 안에서만 한다.
-DataPond의 자리는 그 사이다.
-
-게이트웨이 뒤 등록의 한계는 알고 있어야 한다. AgentCore Gateway는 OpenAPI·MCP 타깃에 token
-passthrough를 지원하지 않으므로 API key로 등록하면 게이트웨이 뒤의 모든 에이전트가 서비스 계정
-하나로 보인다. 호출자 단위를 유지하려면 에이전트당 서비스 계정·타깃을 두거나(지금 가능), 외부 OIDC
-access token을 API bearer로 받는 resource-server 모드와 token exchange가 필요하다(resource-server 모드는 2026-09-28 구현, 교환은 IdP·게이트웨이가 수행). 이
-모드는 게이트웨이 때문이 아니라 MCP 2026-07-28의 OAuth 정렬 때문에 어차피 필요하다.
+> **DataPond는 AWS를 쓰는 중소 규모 팀에게 가벼운 데이터레이크와 데이터 플랫폼을 주는 제품이다.
+> 데이터는 S3 API 저장소에 Apache Iceberg로, 테이블 목록은 Iceberg 카탈로그에, 쿼리는 분산 SQL
+> 엔진 Trino로 처리한다. 모든 계층이 개방 표준이라 저장소·카탈로그·엔진·모델을 바꿔도 데이터와
+> SQL은 그대로다. AI 검색과 에이전트 기능은 그 데이터 위의 활용 계층이다.**
 
 ## 해결하는 문제
 
-에이전트나 앱이 사내 데이터를 건드리기 시작하면 팀은 다음을 직접 조립하게 된다.
+규모가 크지 않은 팀이 데이터 플랫폼을 가지려 하면 두 길만 보인다.
 
-- 어떤 호출자가 어떤 컬렉션·테이블을 읽어도 되는가
-- 검색 결과와 답변에서 개인정보를 어떻게 가리는가
-- 누가 무엇을 언제 물었고 무엇을 받았는가를 어떻게 남기는가
-- 에이전트별로 모델 비용을 어떻게 귀속하고 막는가
-- 소스 데이터가 바뀌면 검색 인덱스는 언제 따라가는가
-- provider·모델·저장소가 바뀌어도 도구 계약은 그대로 유지되는가
+- **Databricks·Snowflake 같은 완성형 플랫폼.** 기능은 충분하지만 작은 팀에는 무겁고 비싸며, 데이터와
+  권한이 플랫폼 안에 묶인다.
+- **Athena, Glue, Lambda를 직접 조립.** 싸게 시작하지만 AWS에 묶이고, 외부 DB 연합 조회, 행 단위
+  통제, 운영 화면, 동기화 파이프라인을 팀이 계속 만들어야 한다.
 
-DataPond는 이 **호출자 단위 거버넌스가 붙은 데이터 도구 면**을 제품으로 제공한다. 에이전트
-프레임워크도, 분석 엔진 모음도 아니다. 에이전트는 사람보다 더 자주, 더 넓게, 더 예측 불가능하게
-데이터를 만지므로 거버넌스가 가장 절실한 소비자다.
+DataPond는 그 사이를 제품으로 채운다. **단일 노드에서 시작하는 레이크하우스**를 고객 AWS 계정 안에
+두고, 모든 데이터를 개방 형식으로 둬서 나중에 AWS 밖으로도 그대로 옮길 수 있게 한다.
 
 ## 핵심 가치
 
-### 1. 데이터 계층 거버넌스 (리드)
+### 1. 개방 레이크하우스 — 계층마다 교체 가능
 
-리드 메시지는 게이트웨이가 멈추는 지점 아래의 세 가지다.
+| 계층 | 개방 표준 | AWS 레퍼런스 | 교체 대상 | 상태 |
+|---|---|---|---|---|
+| 객체 저장소 | S3 API | Amazon S3 | MinIO 등 S3 호환 | Shipped (MinIO는 CI에서 매번 설치 검증) |
+| 테이블 | Apache Iceberg + Parquet | Iceberg | — | Shipped |
+| 카탈로그 | Glue · Iceberg REST | AWS Glue | Polaris 등 REST 카탈로그 | Shipped (카탈로그 여러 개 등록·조회·권한) |
+| 쿼리 엔진 | Trino | 클러스터 안 Trino 482 | 어느 Kubernetes에서나 같은 Trino | Shipped (2.4에서 Athena 제거) |
+| 앱 상태 | PostgreSQL + pgvector | Aurora PostgreSQL | 일반 PostgreSQL | Shipped |
+| 모델 | OpenAI 호환 (LiteLLM) | Bedrock | 다른 클라우드·로컬(Ollama) | Shipped |
+| 배포 | Helm · Kubernetes | EC2/K3s 단일 노드 | 다른 Kubernetes | Shipped (EKS 모듈은 로드맵) |
 
-1. **어떤 호출자가 어떤 컬렉션·청크·행을 읽을 수 있는가** (청크 규칙은 API로만 설정, UI는 아직 없음)
-2. **무엇이 인용됐고 무엇이 마스킹됐는가**
-3. **호출자별로 얼마까지 쓸 수 있는가** (보조 메시지. 토큰 지출의 큰 몫은 코딩 에이전트에 있고,
-   데이터 도구 호출의 spend는 그 일부다)
+**카탈로그 내보내기**(`POST /api/catalogs/{name}/export`, 2.6)는 한 카탈로그의 Iceberg 테이블을 데이터
+복사 없이 다른 카탈로그에 등록한다. Glue에서 REST 카탈로그로 떠나는 경로이며, 기본은 계획만 보여
+주고 `apply`일 때 등록한 뒤 양쪽 행 수를 비교한다. 상세는 [PORTABILITY.md](PORTABILITY.md).
 
-현재 구현된 것:
+### 2. 가볍게 시작, 필요할 때 확장
 
-- 서비스 계정 키(`dp_sk_…`)와 역할 ∩ 스코프로 좁혀지는 권한, 키 만료
-- 컬렉션 owner/admin/멤버(reader·editor) 애플리케이션 ACL
-- 테이블 RLS 행 필터와 컬럼 마스킹(SQL rewrite, `governance.rls.enabled`)
-- SQL 문장 종류 게이트: 쓰기 문장은 `query:write` 필요, 분류 실패 시 차단
-- 한국형 구조화 PII 마스킹: 적재 시, 검색 결과·인용에서 재마스킹
-- 권한 결정 감사(모든 거부 + 쓰기 허용), DB 트리거로 append-only, NDJSON export
-- 호출자 ID를 LiteLLM `end_user`로 전달해 서비스 계정별 usage/spend 조회
-- 성공한 search·rag·sql·query 호출의 append-only 도구 호출 감사(호출자, 컬렉션·테이블, hit 수, 인용 source, 마스킹 수), NDJSON export
+- **AWS 레퍼런스는 단일 노드다.** EC2 t3.xlarge Spot 한 대(K3s) + Aurora Serverless v2 + S3 + Glue.
+  평일 업무시간만 켜는 스케줄이 기본이다.
+- **Trino 워커로 확장한다**(`trino.workers.replicas`, 2.6). 워커가 붙으면 코디네이터는 계획만 하고
+  워커가 실행한다. 워커는 같은 카탈로그와 자격 증명을 읽는다.
+- 쓰지 않는 구성 요소는 아예 뜨지 않는다. 화면 메뉴도 실제로 켜진 기능만 보여 준다.
 
-아직 아닌 것(로드맵 표기 원칙):
+### 3. 데이터 계층 거버넌스
 
-- 호출자별 예산 **강제**(현재는 LiteLLM 가상 키 예산과 조회만)
-- 키에 컬렉션·테이블 범위를 직접 묶는 것(현재는 멤버십·RLS로 간접)
-- Production default-deny RLS, WORM 감사(앱 role이 테이블 owner)
-- NER 기반 PII, 호출자·컬렉션별 PII 정책
+- **카탈로그 권한:** 누가 어느 카탈로그를 쓸 수 있는지(사용자·역할). DB 소스 카탈로그의 권한은 그
+  소스의 공유 목록을 따른다.
+- **행 필터와 컬럼 마스킹:** SQL 실행 경로(`/queries/execute`)에서 적용. 선택적으로 Trino 파일 기반
+  접근 제어(Layer 2)에도 투영한다.
+- **개인정보:** 한국형 식별자(주민번호·휴대전화·사업자번호 등)를 적재 시점과 조회 시점에 가린다. DB
+  소스 동기화는 Trino `SELECT` 안에서 마스킹해서 원본 값이 레이크에 들어가지 않는다.
+- **감사:** 권한 결정과 도구 호출을 append-only로 남기고 NDJSON으로 내보낸다.
 
-### 2. 도구로서의 인용 RAG와 governed SQL
+### 4. 데이터 위의 AI
 
-- REST/OpenAPI와 MCP 2026-07-28(stateless HTTP) read 전용 서버(29개 read 액션, metric 조회 포함). 에이전트가 직접
-  붙는 경로이며, 조직에 게이트웨이가 있으면 `GET /api/tools/openapi.json`(anyOf 없는 3.0)이나 MCP
-  엔드포인트를 타깃으로 등록한다.
-- `/api/ai/search`, `/api/ai/rag`: pgvector HNSW 검색, 선택적 rerank, `[n]` 인용, 실패 시 hit만 반환
-- `/api/ai/sql` + `/api/queries/execute`: 자연어 → SQL 생성, 테이블 해석·RLS·마스킹·LIMIT를 거친 실행
-- `/api/api-surface`와 연결 가이드(Help → Integrate, `/help/integrate`): 실행 중인 라우트에서 생성된 엔드포인트 목록, MCP·게이트웨이 OpenAPI 안내, curl 예시
-- 텍스트·S3·Iceberg 소스 적재, `source_group` 단위 교체, 인프로세스 freshness 스케줄러
+레이크하우스 위에 얹는 활용 계층이다. 따로 팔리는 제품이 아니라 같은 데이터·같은 거버넌스를 쓴다.
 
-### 3. 잠기지 않음 (반대 제거)
+- Knowledge: 문서·S3·카탈로그 테이블을 적재해 pgvector 검색과 인용 답변.
+- 자연어 → SQL 생성과 거버넌스가 적용된 실행.
+- Metrics: 관리자가 승인한 버전 관리 지표를 결정적 SQL로 컴파일(모델 없이).
+- 에이전트용 read 전용 MCP 서버(`POST /api/mcp`)와 REST, 서비스 계정 키, 호출자별 비용 한도.
 
-이식성은 헤드라인이 아니라 구매 반대를 없애는 조건이다. 계약은 다음과 같다.
+## 남은 종속 지점
 
-| 경계 | 계약 |
-|---|---|
-| Object | S3 API |
-| State/vector | PostgreSQL + pgvector |
-| Table | Parquet + Apache Iceberg, 사용 시 |
-| Model | LiteLLM 논리 model name, OpenAI-compatible API |
-| Identity | JWT, LDAP, WebAuthn, OIDC |
-| Deployment | OCI image, Helm, Kubernetes |
-| Application | REST/OpenAPI |
-
-통합 export/import CLI와 자동 exit drill은 roadmap이다. 그 전까지 "portable"은 설계 계약이지 검증된
-절차가 아니다. 상세는 [PORTABILITY.md](PORTABILITY.md).
-
-### 4. AWS-Ready, Not AWS-Locked
-
-AWS single-node reference는 EC2/K3s, Aurora PostgreSQL Serverless v2 + pgvector, S3, Glue(+ in-cluster Trino),
-Bedrock via LiteLLM, ECR/IAM/Route53/Secrets Manager/CloudWatch를 실제 제공한다. EKS, EMR Serverless,
-S3 Tables, Lake Formation, AOSS, DataZone, Marketplace는 만들지 않으며 roadmap이다.
+| 지점 | 왜 종속인가 | 탈출 경로 | 상태 |
+|---|---|---|---|
+| Glue 카탈로그 (AWS 레퍼런스) | 테이블 목록이 Glue에 있다 | 카탈로그 내보내기로 REST 카탈로그에 등록 | 경로 Shipped, 라이브 Glue→Polaris 실이관은 미검증 |
+| Bedrock | 모델 호출 | LiteLLM 매핑 변경 (임베딩 모델이 바뀌면 재임베딩) | Shipped |
+| IAM 인스턴스 프로파일 | Trino·백엔드가 S3·Glue를 이 자격으로 호출 | S3 호환 저장소는 접근 키로 연결 | Shipped |
+| Terraform 모듈 | EC2/K3s·Aurora·Route53 | Helm 차트는 어느 Kubernetes에서나 동일 | AWS 모듈만 있음 |
 
 ## 제품 구조
 
 ```mermaid
 flowchart TB
-    AGENT[AI agents · apps] -- REST · MCP<br/>service account key or IdP token --> TOOLS
-    AGENT -. if the org runs one .-> GW[Agent gateway · optional<br/>AgentCore · Obot · Runlayer]
-    GW -. target .-> TOOLS
-
-    subgraph TOOLS[DataPond · governed data tool server]
-      RAG[search · rag · cited answer]
-      SQL[ai/sql · queries/execute]
-      GOV[caller ACL · RLS/mask · PII · audit · spend]
-      GATE[LiteLLM gateway]
-    end
-
-    OPS[Operator UI] --> TOOLS
-    TOOLS --> STORE[S3 / S3-compatible]
-    TOOLS --> VECTOR[PostgreSQL / Aurora + pgvector]
-    TOOLS --> MODEL[Bedrock / cloud / local]
-    TOOLS -. optional .-> PLANE[Trino over Glue / Polaris · add-ons]
+    SRC[DB 소스 · 파일 · S3 · REST] --> SYNC[동기화 · PII 마스킹]
+    SYNC --> LAKE[(S3 API 저장소<br/>Apache Iceberg)]
+    LAKE --- CAT[Iceberg 카탈로그<br/>Glue · Polaris · REST]
+    CAT --> TRINO[Trino<br/>코디네이터 + 선택적 워커]
+    SRC -. 연합 조회 src_* .-> TRINO
+    TRINO --> USE[Analytics · Metrics · Catalog]
+    GOV[카탈로그 권한 · 행/컬럼 통제 · PII · 감사] --- TRINO
+    TRINO --> AI[AI 계층: 검색 · 인용 답변 · 자연어 SQL · MCP]
+    AI --> LLM[LiteLLM<br/>Bedrock · 클라우드 · 로컬]
 ```
 
 ## 사용자와 주요 여정
 
-### Primary: 에이전트·AI 앱을 만드는 팀
+### Primary: 중소 규모 데이터팀
 
-- 에이전트나 앱이 사내 문서·테이블에 접근해야 하는데 권한·PII·감사·비용을 직접 만들 여력이 없다.
-- 고객 계정/VPC 안에서 작은 팀이 운영한다.
-- 첫 여정: **컬렉션 생성 → 적재 → 서비스 계정 키 발급 → 앱에서 `/ai/rag` 호출 → Governance·AI
-  Gateway에서 호출자별 접근·PII·spend 확인**.
+- AWS를 적극적으로 쓰고, Databricks를 쓰고 있거나 검토했지만 규모 대비 무겁다고 느끼는 팀.
+- 데이터 엔지니어 1–3명이 운영한다. 플랫폼 운영 전담 인력은 없다.
+- 첫 여정: **DB·파일 소스 연결 → Iceberg로 동기화 → Catalog에서 확인 → Analytics에서 SQL(레이크와
+  원본 DB 연합) → 카탈로그 권한·마스킹 설정 → 필요하면 Knowledge·에이전트로 AI 활용**.
 
-### Secondary: 운영자·플랫폼 팀
+### Secondary: AI 기능을 붙이려는 개발팀
 
-- 어떤 에이전트가 무엇에 접근하는지 한 화면에서 보고 끊고 싶다.
-- S3/Iceberg 테이블을 도구 면에 연결한다(Trino, Glue 또는 Polaris 카탈로그).
+- 같은 데이터에 검색·인용 답변·에이전트 접근을 열고 싶다. 서비스 계정 키, MCP, 호출자별 감사와
+  비용 한도를 쓴다.
 
 ### 첫 세그먼트
 
-AWS 위에서 사내 문서·테이블에 에이전트 접근을 열고 싶지만 **개인정보보호법 대응**이 걸리는 한국
-기업. 2026년 개인정보위 계획은 매출 10% 과징금, 2026년 6월부터 CEO 최종 책임, ISMS-P 강화다.
-AWS Summit Seoul 2026의 규제 환경 에이전트 세션은 책임 소재와 감사 투명성을 pain으로 짚었고
-파트너 제품은 언급되지 않았다. 이 세그먼트에 필요한 구체물은 다음 셋이다.
-
-- 주민번호·휴대전화·사업자번호 등 한국형 식별자의 적재·검색·인용 마스킹 증적
-- CEO 책임에 대응하는 호출자별 검색·답변 감사와 export
-- ISMS-P 심사에 낼 수 있는 NDJSON 증빙
-
-한국형 PII 마스킹과 AWS reference는 이미 있다. UI는 영어이고 한국어인 것은 운영 문서다(한국어 UI의
-필요 여부는 파트너 대화에서 확인). 의료·법률·금융 같은 규제 버티컬은 WORM
-감사와 default-deny가 갖춰진 뒤의 두 번째 단계다.
+AWS 위의 한국 중소·중견 기업 데이터팀. 개인정보보호법 대응(한국형 식별자 마스킹, 감사 증적)이
+걸리는 경우가 많아 이 부분이 차별점이 된다. 수요는 아직 검증되지 않았다(`POSITIONING_V7.md`).
 
 ## 메뉴 정보구조
 
 | 영역 | 메뉴 | 원칙 |
 |---|---|---|
-| Home | Dashboard | profile, core workflow, health |
-| Build AI | Knowledge, API | 모든 프로필에서 표시. API는 도구 면의 진입점 |
-| Data | Sources, Catalog, Analytics | adapter capability가 true일 때만 — Sources(`connectors`)는 Trino가 켜진 프로파일에서만: DB 소스(PostgreSQL·MySQL·SQL Server·Oracle·MongoDB)는 Trino 카탈로그 `src_<slug>`로 조회·동기화·연합되고, REST·custom Python·S3는 백엔드가 읽는다 (2.5) |
-| Add-ons | Transforms, Streaming, Notebooks, Experiments | 해당 add-on 활성화 시에만, 지원 티어 배지 |
-| Operate | AI Gateway, Governance, Storage, Infrastructure, Settings | 호출자·비용·정책 운영 |
+| Home | Dashboard | 프로필, 핵심 흐름, 상태 |
+| Lakehouse | Catalog, Analytics, Sources, Metrics | 카탈로그·쿼리 엔진이 켜졌을 때만. DB 소스(PostgreSQL·MySQL·SQL Server·Oracle·MongoDB)는 Trino 카탈로그 `src_<slug>`, REST·custom·S3는 백엔드가 읽는다 |
+| Pipelines | Transforms, Streaming | 해당 add-on을 켰을 때만, 지원 티어 배지 |
+| Data Science | Notebooks, Experiments | 해당 add-on을 켰을 때만, 지원 티어 배지 |
+| AI | Knowledge, Agents, AI Gateway | 모든 프로필 |
+| Operate | Governance, Storage, Infrastructure, Settings | 운영 |
 | Learn | Help | shipped/optional/roadmap 구분 |
+
+쿼리 엔진이 없는 프로필(Portable Core, Sovereign Core)은 Lakehouse 메뉴가 숨겨져 AI 영역이 앞에 온다.
 
 ## 배포 프로필
 
-앞세우는 세 개:
+- **AWS Single-Node Reference** (`values-prod-single.yaml`): 레이크하우스의 기준 배포. Terraform 기반
+  EC2/K3s + Aurora + S3 + Glue + Bedrock, 클러스터 안 Trino.
+- **Sovereign OSS Extended** (`values-onprem.yaml`): AWS 밖. MinIO + Polaris + Trino 등 자체 운영.
+- **Portable Core · AWS / Sovereign Core** (`values-foundation.yaml`, `values-sovereign-core.yaml`):
+  카탈로그·쿼리 엔진 없이 AI 계층만 쓰는 가벼운 시작점.
 
-- **Portable Core · AWS starter** (`values-foundation.yaml`): S3/Bedrock + in-cluster pgvector.
-- **Sovereign Core** (`values-sovereign-core.yaml`): AWS starter의 온프렘 쌍둥이 — in-cluster MinIO + Ollama, add-on 없음.
-- **AWS Single-Node Reference** (`values-prod-single.yaml`): Terraform 기반 Aurora/S3/Glue/Bedrock + 클러스터 내 Trino.
-
-나머지(`values-aws.yaml`, `values-onprem.yaml`, dev/quicktest/prod)는 compatibility·개발용이다.
 상세는 [DEPLOYMENT_PROFILES.md](DEPLOYMENT_PROFILES.md).
 
 ## 거버넌스 경계
 
-- 컬렉션 보안은 PostgreSQL native RLS가 아니라 application-level owner/admin/member ACL이다.
-- 테이블 RLS/마스킹은 SQL rewrite이며 `/queries/execute` 경로에 적용된다. `/ai/sql`은 생성만 한다.
-- 감사는 권한 결정과 도구 호출 두 축이다. 런타임 DB 역할은 두 테이블을 UPDATE/DELETE하지 못하지만,
-  스토리지 수준 WORM은 아니다.
-- 호출자별 예산은 강제된다(초과 시 402 + 감사 행). 전달 보장된 예산 알림은 아직 없다.
-- UI capability gate는 UX 경계이며 API authorization을 대체하지 않는다.
-- 게이트웨이 뒤 등록 시 호출자 단위가 약해지는 한계는 "게이트웨이가 있어도 없어도" 절에 있다.
-  청크 단위 호출자 필터는 컬렉션별 메타데이터 ↔ 사용자 속성 매칭 규칙이며 fail closed다.
+- 카탈로그 권한과 컬렉션 보안은 애플리케이션 수준 ACL이다. PostgreSQL native RLS가 아니다.
+- 행 필터·마스킹은 SQL rewrite이며 `/queries/execute` 경로에 적용된다. Trino에 직접 접속하는 클라이언트는
+  Layer 2(파일 기반 접근 제어)를 켰을 때만 같은 통제를 받는다. 기본은 꺼져 있다.
+- 감사 테이블은 런타임 DB 역할이 UPDATE/DELETE할 수 없지만 스토리지 수준 WORM은 아니다.
+- UI capability gate는 UX 경계이며 API 인가를 대체하지 않는다.
 
 ## 출구 전략
 
-S3 API로 접근 가능한 object, PostgreSQL dump/restore 가능한 state와 pgvector, Helm values의 adapter
-설정, LiteLLM logical model mapping, 활성화 시 Parquet/Iceberg metadata가 이동 가능한 자산이다.
-embedding model/dimension 변경 시 re-embedding, `ENCRYPTION_KEY` 없이는 credential 복호화 불가.
+객체는 S3 API, 테이블은 Iceberg, 카탈로그는 내보내기 경로, 앱 상태는 PostgreSQL dump/restore, 모델은
+LiteLLM 매핑 변경으로 옮긴다. `ENCRYPTION_KEY` 없이는 저장된 자격 증명을 복호화할 수 없다. 임베딩
+모델이나 차원이 바뀌면 재임베딩이 필요하다. 상세는 [PORTABILITY.md](PORTABILITY.md).
 
 ## Open Core 원칙
 
-Community에 남는 것: 데이터·metadata export와 provider 변경 경로, 도구 면과 adapter interface,
-S3/PostgreSQL/LiteLLM/Iceberg 표준 지원, 기본 access/PII/audit/spend 거버넌스.
+Community에 남는 것: 레이크하우스 코어(저장소·카탈로그·엔진 연결, 동기화, Catalog·Analytics),
+데이터·메타데이터 내보내기와 카탈로그 내보내기, 기본 권한·PII·감사, AI 계층의 기본 기능.
 
-Enterprise 후보: OIDC SSO(현재), 호출자별 예산 강제와 정책 팩, 감사 SIEM/WORM export, 다중 환경
-운영, SLA/support. 고객의 데이터를 이동시키는 기능은 상용 edition으로 잠그지 않는다.
+Enterprise 후보: OIDC SSO(현재), 정책 팩, 감사 SIEM/WORM export, 다중 환경 운영, SLA/지원.
+고객의 데이터를 옮기는 기능은 상용 edition으로 잠그지 않는다.
 
 ## 경쟁 기준
 
 | 대안 | 관계 | DataPond의 자리 |
 |---|---|---|
-| AWS AgentCore Gateway + Guardrails | **직교.** 있으면 타깃으로 등록, 없어도 무방 | 게이트웨이가 명시적으로 안 하는 row-level 접근, 인용·검색 감사, 호출자별 예산 |
-| Bedrock Managed Knowledge Base | 대체 가능한 retrieval | 컬렉션·행 단위 호출자 ACL, 인용 감사, provider·vector 교체, 온프렘 옵션 |
-| Databricks Unity AI Gateway / Snowflake Cortex AI Gateway | 같은 문제를 자기 플랫폼 안에서 해결 | 플랫폼 밖, 고객 계정·VPC 안, 개방 계약 |
-| Obot·Runlayer·Natoma 등 MCP 게이트웨이 | **직교.** identity·레지스트리·정책 층 | 데이터 계층 거버넌스. 있으면 그 뒤, 없으면 직접 |
-| 에이전트 프레임워크 + DIY 도구 | 자유도 | 반복되는 거버넌스 배관을 제품화, 운영 UI |
-
-DataPond는 게이트웨이, warehouse, 에이전트 프레임워크와 경쟁하지 않는다. **게이트웨이가 멈추는
-지점 아래, 에이전트가 데이터에 닿는 곳의 거버넌스**에서 경쟁한다. 이 자리는 12~18개월 안에
-AWS나 데이터 플랫폼이 채울 수 있으므로, 그 전에 파트너 1곳과 감사·MCP 두 조각을 갖추는 것이
-창을 쓰는 방법이다.
+| Databricks | 기능이 넓은 완성형 | 작은 팀에 맞는 크기와 비용, 고객 계정 안, Iceberg 기본 |
+| Athena + Glue 직접 조립 | 운영 없음, 쿼리당 과금 | 엔진·카탈로그 종속 없음, 외부 DB 연합, 행 단위 통제, 제품 UI |
+| EMR · Starburst · Dremio | 대규모 성능 | 단일 노드부터, 운영 인력 없이 |
+| Snowflake | 완성도 | 개방 형식, 데이터가 고객 버킷에 남음 |
 
 ## 하지 않을 것
 
-- **게이트웨이 기능:** 에이전트 레지스트리, SSO/SCIM 동기화, rug-pull 탐지, tool 단위 정책 엔진
-- 코딩 에이전트 토큰 spend 통제, spend를 리드 메시지로 쓰는 것
-- 온톨로지 Phase 1·GraphRAG (수요 게이트 유지)
-- add-on 추가, Databricks/Snowflake 비교표
-- 운영자용 어시스턴트 액션 추가
-- 규제 버티컬을 첫 파트너로 삼는 것
+- 핵심 경로를 AWS 전용 관리형 서비스로 바꾸는 것(Athena, Lake Formation 필수화 등)
+- 게이트웨이 기능: 에이전트 레지스트리, SSO/SCIM 동기화, tool 단위 정책 엔진
+- 대규모 HA 클러스터를 첫 목표로 삼는 것
+- Delta Lake 쓰기 (Iceberg가 테이블 형식이다)
 
 ## 상태 표기
 

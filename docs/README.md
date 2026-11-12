@@ -8,9 +8,10 @@
 
 | 문서 | 목적 |
 |---|---|
-| [PRODUCT_CONCEPT.md](PRODUCT_CONCEPT.md) | 대상 사용자, 가치 제안, 제품 경계, 경쟁 기준 (v6.0 — **현행 정본**) |
-| [POSITIONING_REVIEW.md](POSITIONING_REVIEW.md) | v5.0→v6.0 포지셔닝 문제 분석과 결정 기록 (2026-09-07) |
-| [POSITIONING_FIT_AUDIT.md](POSITIONING_FIT_AUDIT.md) | v6.0 문장 기준 기능·사용성 적합도 점검과 우선순위 (2026-09-07) |
+| [PRODUCT_CONCEPT.md](PRODUCT_CONCEPT.md) | 대상 사용자, 가치 제안, 제품 경계, 경쟁 기준 (v7.0 가벼운 개방형 레이크하우스 — **현행 정본**) |
+| [POSITIONING_V7.md](POSITIONING_V7.md) | v6.0→v7.0 결정: 왜 레이크하우스인가, 아직 검증되지 않은 것 (2026-11-12) |
+| [POSITIONING_REVIEW.md](POSITIONING_REVIEW.md) | v5.0→v6.0 결정 기록 (2026-09-07, **역사 기록** — v7으로 대체) |
+| [POSITIONING_FIT_AUDIT.md](POSITIONING_FIT_AUDIT.md) | v6.0 기준 적합도 점검 (2026-09-07, **역사 기록**) |
 | [MARKET_REVIEW_2026-10.md](MARKET_REVIEW_2026-10.md) | 메뉴·기능 점검과 시장성 재검토(경량 데이터레이크, 페르소나, 에어갭, 레드오션) — 미검증 판정과 권장 (2026-10-19) |
 | [PRODUCTIZATION_READINESS_ASSESSMENT.md](PRODUCTIZATION_READINESS_ASSESSMENT.md) | 현재 구현의 상품화 준비도, 출시 차단 요소, 개선 로드맵 |
 | [CONCEPT_RECONFIRMATION.md](CONCEPT_RECONFIRMATION.md) | v6 방향 제안 노트 (2026-07-27). 2026-09-07 v6.0으로 승격됨. 수요 게이트(§5)는 여전히 유효하다 |

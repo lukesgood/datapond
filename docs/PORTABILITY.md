@@ -2,7 +2,7 @@
 
 ## Goal
 
-DataPond should let an operator change storage, PostgreSQL hosting, model provider, catalog/query engine, or Kubernetes environment without rewriting the governed RAG product layer.
+DataPond is a lakehouse whose every layer is an open standard (`POSITIONING_V7.md`). An operator must be able to change object storage, the Iceberg catalog, where the Trino engine runs, PostgreSQL hosting, model provider, or Kubernetes environment without moving data through a proprietary format or rewriting SQL.
 
 Portability is a tested property, not an “open source” label. Running many OSS services can create another form of lock-in and operational cost.
 
@@ -13,7 +13,9 @@ Portability is a tested property, not an “open source” label. Running many O
 | Source/object data | S3 API | S3 copy/sync or compatible object migration |
 | App metadata | PostgreSQL | `pg_dump`/restore, snapshot/PITR where supported |
 | Vectors | pgvector columns | PostgreSQL backup/restore when embedding model is unchanged |
-| Tables | Parquet + Apache Iceberg | Copy objects, rewrite/register metadata as needed |
+| Tables | Parquet + Apache Iceberg | Stay in place; register in another catalog with the catalog export |
+| Catalog | Glue · Iceberg REST | `POST /api/catalogs/{name}/export` (Trino `register_table`, no data copy) |
+| Query engine | Trino SQL | The same Trino and SQL on every profile; nothing to translate |
 | Models | LiteLLM logical names | Change provider mapping and credentials |
 | Identity | JWT/LDAP/WebAuthn/OIDC | Reconfigure issuer/directory; export local state with PostgreSQL |
 | Deployment | OCI + Helm + Kubernetes | Apply profile/values to target cluster |
@@ -49,16 +51,17 @@ S3-compatible does not guarantee every lifecycle, IAM, versioning, or consistenc
 
 Store model name, provider/version, dimension, content hash, and embedding time with vector data when extending the schema.
 
-### Glue to Polaris (same Trino engine)
+### Glue to an Iceberg REST catalog (Polaris) — catalog export
 
-1. Copy or retain the same Iceberg object data.
-2. Export table namespace, metadata location, and property inventory.
-3. Register tables in the Iceberg REST/Polaris catalog.
-4. Rewrite warehouse URIs if object locations changed.
-5. Translate provider-specific SQL with SQLGlot where practical.
-6. Compare schema, snapshots, row counts, and representative queries.
+An Iceberg table's state lives in its metadata files in object storage; a catalog only records where the current metadata file is. The catalog export re-records that location in another catalog through Trino, so nothing is copied and the source is unchanged.
 
-The query engine is the same Trino on both sides, so SQL carries over unchanged; only the catalog moves. Provider-specific grants (Lake Formation) are control-plane state and require separate handling.
+1. Make the target catalog queryable by Trino: on OSS profiles it is the chart's Polaris; on the AWS reference, add it as `trino.extraCatalogs` (Iceberg REST) and register it under Settings → Data catalogs.
+2. Let the target accept the existing table locations. For Polaris set `polaris.storage.extraAllowedLocations` to the Glue warehouse (e.g. `s3://<bucket>/warehouse`) and enable, for the migration only, `polaris.extraFeatures` `ALLOW_UNSTRUCTURED_TABLE_LOCATION` and `ALLOW_EXTERNAL_TABLE_LOCATION` (a registered table lives outside the catalog's own layout; two Polaris catalogs sharing a store also need `ALLOW_OVERLAPPING_CATALOG_URLS`). These flags widen where a writer may put data — CVE-2026-42812 needs exactly this combination with broad allowed locations — so keep the locations narrow and turn the flags off afterwards. Trino's `iceberg.register-table-procedure.enabled=true` is set by the chart on every Iceberg catalog it renders.
+3. Plan: `POST /api/catalogs/AwsDataCatalog/export` with `{"target": "<new catalog>"}` (optionally `schema`, `tables`). Each table is `register`, `exists` (the target already has it, left alone) or `skip` (a view or unreadable table, with the reason).
+4. Apply: the same call with `"apply": true`. Each table is `registered` (row counts equal on both sides), `mismatch`, or `failed` with the engine's message; one failure does not stop the others. The call is audited as `catalog_exported`.
+5. Point users at the new catalog (make it the default under Settings → Data catalogs), and stop writing through the old one before you drop it: two catalogs committing to the same table would diverge.
+
+CI exercises steps 3–4 on every pull request between two Polaris catalogs on MinIO (`.github/scripts/multicatalog_check.py` §7). **A live Glue → Polaris move has not been run yet.** Provider-specific grants (Lake Formation) are not in Iceberg metadata and need separate handling; DataPond's own catalog grants are re-entered for the new catalog.
 
 ## Critical non-portable state
 
@@ -135,7 +138,8 @@ Data export, provider rebinding, and migration documentation belong in Community
 - versioned `datapond export/import`
 - provider conformance test suite
 - OpenLineage-compatible durable event export
-- Glue ↔ Iceberg REST registration automation
+- a live Glue → Polaris move recorded as an acceptance run (the export exists; the drill does not)
+- Delta Lake → Iceberg migration for teams leaving Databricks
 - embedding version migration workflow
 - automated quarterly exit drill
 - documented cross-cloud reference profile

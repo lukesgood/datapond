@@ -1,77 +1,74 @@
-# DataPond — Governed data tool server for AI agents and apps
+# DataPond — A lightweight, open lakehouse for small and mid-size teams on AWS
 
-> **Give agents and applications governed access to your documents and tables. Cited RAG and governed SQL as tools, governed at the data layer: which caller may read which collection or row; what was cited and what was masked; how much each caller may spend.**
+> **A data lake and data platform you can start on one node in your own AWS account: data in S3 as Apache Iceberg, tables in an Iceberg catalog, SQL through Trino. Every layer is an open standard, so storage, catalog, engine and models can change without your data or SQL changing. AI search and agents sit on top of the same governed data.**
 
-DataPond is an open-core data tool server for teams whose AI agents and applications need to reach company data. Agents call it **directly** with a service-account key, and if your organization runs an agent gateway (Amazon Bedrock AgentCore Gateway, Obot, Runlayer) DataPond can be registered behind it as a target. Either way it does the part gateways do not: ingestion and freshness, chunking and embeddings, pgvector retrieval with optional reranking, cited answers, governed SQL, per-caller collection and row access, PII masking on the data itself, audit, and per-caller model spend. Infrastructure stays behind open contracts. Every search, cited answer, SQL call and embedding writes a tool-call audit row, and per-caller budgets are enforced (an over-budget call is refused with 402 and audited).
+DataPond is an open-core lakehouse for teams that use AWS heavily, may use or have looked at Databricks, and find a full platform too heavy for their size. It lands data from databases, files, S3 and REST sources into Iceberg tables, catalogs them, and queries the lake and the source databases together through Trino — with catalog grants, row filters, column masking, Korean PII masking and audit applied at the data layer. **AWS is the reference deployment, not the product boundary**: the same Helm chart runs on S3-compatible storage, an Iceberg REST catalog (Polaris) and any Kubernetes.
 
-The tool surface is **REST/OpenAPI with service-account keys**, and a read-only MCP server at `POST /api/mcp` exposes the same 30 read actions as tools for agents that discover tools rather than being wired to them by hand. DataPond does not build gateway features (agent registry, SSO/SCIM sync, tool-level policy engines). **AWS is the current reference deployment, not the product boundary.** Run on native S3, Aurora PostgreSQL/pgvector, Glue + Trino, and Bedrock, or on PostgreSQL, S3-compatible storage, and local/cloud models through LiteLLM.
+Direction and its reasons: [docs/POSITIONING_V7.md](docs/POSITIONING_V7.md). Product concept: [docs/PRODUCT_CONCEPT.md](docs/PRODUCT_CONCEPT.md).
 
-Positioning decision and its evidence: [docs/POSITIONING_REVIEW.md](docs/POSITIONING_REVIEW.md). How well the current build fits it: [docs/POSITIONING_FIT_AUDIT.md](docs/POSITIONING_FIT_AUDIT.md).
+## Open by layer
 
-## Product model
+| Layer | Open standard | AWS reference | Can be replaced by | Status |
+|---|---|---|---|---|
+| Object storage | S3 API | Amazon S3 | MinIO or any S3-compatible store | Shipped (MinIO installed from nothing on every CI run) |
+| Tables | Apache Iceberg + Parquet | Iceberg | — | Shipped |
+| Catalog | Glue · Iceberg REST | AWS Glue | Polaris or another Iceberg REST catalog | Shipped; Glue exit path via catalog export (2.6) |
+| Query engine | Trino (distributed SQL) | In-cluster Trino 482 | The same Trino on any Kubernetes; add workers to scale | Shipped (Athena removed in 2.4) |
+| App state | PostgreSQL + pgvector | Aurora PostgreSQL | PostgreSQL | Shipped |
+| Models | OpenAI-compatible via LiteLLM | Bedrock | Other cloud or local (Ollama) models | Shipped |
+| Deployment | Helm · Kubernetes | EC2/K3s single node | Another Kubernetes | Shipped (EKS module is roadmap) |
 
-| Layer | Role | Current status |
-|---|---|---|
-| **Governed data tool server** | `/api/ai/search`, `/api/ai/rag`, `/api/ai/sql`, `/api/queries/execute` behind service-account keys; collection ACL, RLS/masking, PII, audit, per-caller spend; called directly, or registered behind an agent gateway if you run one | Shipped (REST and read-only MCP) |
-| **Knowledge core** | Ingestion, chunk replacement, freshness scheduler, pgvector retrieval, citations, operator UI | Shipped |
-| **Open contracts** | S3 API, PostgreSQL + pgvector, LiteLLM/OpenAI-compatible model boundary, REST, OIDC, Helm/Kubernetes | Shipped |
-| **AWS adapters** | S3, Aurora, Bedrock; Glue catalog + in-cluster Trino in the single-node reference | Shipped per profile |
-| **OSS add-ons** | Trino, Polaris, RisingWave, OpenMetadata, Airflow, Jupyter, MLflow, Spark | Optional and capability-gated |
-| **Future adapters** | EKS installer, EMR Serverless, S3 Tables, Lake Formation, AOSS, DataZone, Marketplace packaging | Roadmap |
-
-A disabled OSS component is simply absent. DataPond does **not** claim that Helm automatically provisions an AWS replacement.
+**Leaving Glue** is a call, not a project: `POST /api/catalogs/{name}/export` registers a catalog's Iceberg tables in another catalog without copying data (plan by default; `apply` registers and compares row counts on both sides). See [Portability](docs/PORTABILITY.md).
 
 ## Core workflow
 
 ```mermaid
 flowchart LR
-    SRC[Files · text · S3<br/>optional sources] --> ING[Ingest · chunk · mask PII]
-    ING --> VEC[PostgreSQL + pgvector]
-    VEC --> RET[Search · optional rerank]
-    RET --> RAG[Cited RAG answer]
-    AGENT[Agent / app<br/>service-account key] --> RET
-    AGENT --> SQL[Governed SQL]
-    GW[LiteLLM<br/>Bedrock · cloud · local] --> ING
-    GW --> RAG
-    GOV[Caller ACL · PII · audit · spend] --- RET
-    GOV --- SQL
+    SRC[Databases · files · S3 · REST] --> SYNC[Sync · mask PII]
+    SYNC --> LAKE[(S3-API storage<br/>Apache Iceberg)]
+    LAKE --- CAT[Iceberg catalog<br/>Glue · Polaris · REST]
+    CAT --> TRINO[Trino<br/>coordinator + optional workers]
+    SRC -. federated src_* .-> TRINO
+    TRINO --> USE[Analytics · Metrics · Catalog]
+    GOV[Catalog grants · row/column control · PII · audit] --- TRINO
+    TRINO --> AI[AI layer: search · cited answers · NL→SQL · MCP]
 ```
 
-1. **Connect** content directly to Knowledge, or enable a source/catalog adapter.
-2. **Organize** it in collections; share them with the people and service accounts that need them.
-3. **Ground** AI with chunking, embeddings, pgvector search, optional reranking, and citations.
-4. **Expose** search, cited answers, and governed SQL to your agent or app through a service-account key.
-5. **Govern** who called what, PII behavior, audit events, and per-caller model spend.
+1. **Connect** sources: PostgreSQL, MySQL, SQL Server, Oracle and MongoDB become Trino catalogs `src_<slug>`; REST, custom Python and S3 sources are read by the backend.
+2. **Land** them as Iceberg tables (full, incremental, or merge on key columns), with PII masked inside the sync so raw values never reach the lake.
+3. **Organize** in the catalog; register more catalogs and grant who may use each.
+4. **Query** the lake and the live sources together in Analytics, or through approved Metrics.
+5. **Add AI** on the same data: Knowledge search and cited answers, NL→SQL, and agents through MCP/REST with per-caller keys, audit and spend limits.
 
 ## Architecture
 
 ```mermaid
 flowchart TB
-    APP[AI apps and agents] --> CORE
-
-    subgraph CORE[Apache-2.0 Portable Core]
-      API[Tool surface: search · rag · sql · query]
-      PIPE[Ingest · embed · retrieve · rerank]
-      GOV[Caller access · PII · audit · spend]
-      UI[Operator UI]
+    subgraph CORE[Apache-2.0 core]
+      UI[Console]
+      API[FastAPI · REST/OpenAPI]
+      ING[Sources · sync · PII]
+      GOV[Catalog grants · RLS/masking · audit]
+      AIL[AI layer · Knowledge · MCP · spend]
     end
 
-    CORE --> OBJ[Object-store contract]
+    CORE --> ENGINE[Trino]
+    ENGINE --> CATALOG[Iceberg catalog contract]
+    ENGINE --> OBJ[S3 API contract]
     CORE --> DB[PostgreSQL/pgvector contract]
     CORE --> LLM[LiteLLM model contract]
-    CORE -. optional .-> DATA[Catalog · query · pipeline add-ons]
 
+    CATALOG --> GLUE[AWS Glue]
+    CATALOG --> REST[Polaris · Iceberg REST]
     OBJ --> S3[Amazon S3]
-    OBJ --> S3C[S3-compatible storage]
+    OBJ --> S3C[MinIO · S3-compatible]
     DB --> PG[PostgreSQL]
     DB --> AUR[Aurora PostgreSQL]
     LLM --> BR[Amazon Bedrock]
     LLM --> OTHER[Other cloud/local providers]
-    DATA --> AWS[Glue · Trino]
-    DATA --> OSS[Polaris · Trino · RisingWave · OpenMetadata · Airflow]
 ```
 
-The product domain does not require every component in the diagram. Runtime capability flags drive the UI, so optional modules are hidden when their backing adapter or add-on is not enabled.
+Optional add-ons (Airflow transforms, RisingWave streaming, Jupyter, MLflow, Spark, OpenMetadata) are capability-gated: a disabled one is absent, and the console shows only what a deployment runs.
 
 ## Deployment profiles
 
@@ -87,9 +84,19 @@ The product domain does not require every component in the diagram. Runtime capa
 
 See [Deployment Profiles](docs/DEPLOYMENT_PROFILES.md) before choosing a profile.
 
-## Quick start: Portable Core · AWS
+## Quick start
 
-Prerequisites: Kubernetes + Helm, access to an S3 bucket, and Bedrock model access/credentials. The profile runs PostgreSQL/pgvector in-cluster.
+**Lakehouse on AWS (the reference):** follow [Deploying the AWS Single-Node Reference](docs/DEPLOY_SINGLE_NODE.md) — Terraform for EC2/K3s, Aurora, S3 and Glue, then the Helm chart with `values-prod-single.yaml` (in-cluster Trino). Then:
+
+1. Open **Sources**, add a database (or **Add sample data**); the query engine restarts once (~1 min) to load its catalog.
+2. Sync a table into Iceberg; open **Catalog** to see it.
+3. In **Analytics**, query the lake and the source together: `SELECT … FROM iceberg.default.orders o JOIN src_<slug>.public.customers c ON …`.
+4. In **Governance**, set catalog grants, row filters and masks; review the audit log.
+5. Optionally, ground AI on the same data in **Knowledge**, and issue an agent key under **Agents**.
+
+**Off AWS:** `values-onprem.yaml` runs the same lakehouse on MinIO + Polaris + Trino.
+
+**AI only, no lakehouse:** `values-foundation.yaml` (S3 + Bedrock) or `values-sovereign-core.yaml` (MinIO + Ollama) run the Knowledge/RAG core with no catalog or engine:
 
 ```bash
 helm upgrade --install datapond helm/datapond \
@@ -97,34 +104,35 @@ helm upgrade --install datapond helm/datapond \
   --values helm/datapond/values-foundation.yaml
 ```
 
-Then:
-
-1. Sign in and open **Knowledge**.
-2. Create a collection and ingest text or an S3 source. (Database sources — PostgreSQL, MySQL, SQL Server, Oracle, MongoDB — are Trino catalogs and need a profile with Trino; REST, custom Python and S3 sources are read by the backend on every profile.)
-3. Test semantic search, then ask a cited RAG question.
-4. Open **API**, issue a service-account key with `knowledge:read` and `ai:generate`, and call `/api/ai/rag` from your app or agent using the curl sample shown there.
-5. Review **Governance** and **AI Gateway** for who called what, PII, usage, and spend.
-
-For the AWS infrastructure reference, follow [Deploying the AWS Single-Node Reference](docs/DEPLOY_SINGLE_NODE.md), not `values-aws.yaml`.
-
-Self-hosted instead of AWS? Use `values-sovereign-core.yaml` — the same core with in-cluster MinIO and Ollama instead of S3 and Bedrock. See [SOVEREIGN_CORE_PROFILE.md](docs/SOVEREIGN_CORE_PROFILE.md).
-
 ## Portability and exit strategy
 
 Portability is based on the data and protocol boundaries:
 
 - object data through the S3 API;
 - application state and vectors in PostgreSQL/pgvector;
-- Parquet + Apache Iceberg when table workflows are enabled;
+- Parquet + Apache Iceberg tables, registered in Glue or any Iceberg REST catalog (catalog export moves the registrations);
+- one SQL engine, Trino, on every profile with a catalog;
 - provider-neutral logical model names through LiteLLM;
 - containers, Helm, and Kubernetes for deployment;
 - local JWT/LDAP/passkeys and Enterprise OIDC for identity integration.
 
-Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider rebinding, and re-embedding when model dimensions change. A unified `datapond export/import` command and automated cross-provider exit drill are **roadmap**, not shipped functionality. See [Portability and Exit Strategy](docs/PORTABILITY.md).
+Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider rebinding, and re-embedding when model dimensions change. Catalog export (Glue → Iceberg REST) is shipped and exercised in CI between REST catalogs; a live Glue → Polaris move has not been run yet. A unified `datapond export/import` command and an automated cross-provider exit drill are **roadmap**. See [Portability and Exit Strategy](docs/PORTABILITY.md).
 
 ## Current product boundary
 
 ### Shipped
+
+Lakehouse:
+
+- Database sources (PostgreSQL, MySQL, SQL Server, Oracle, MongoDB) as Trino catalogs `src_<slug>`: browsed, federated in SQL, and synced into Iceberg by Trino (full as one atomic replace, incremental on a watermark, merge on key columns, new columns added), PII masked inside the sync
+- REST, custom Python and S3 sources read by the backend
+- Several Iceberg catalogs registered side by side (Glue, Polaris, Iceberg REST), with per-catalog grants
+- Catalog export: register a catalog's Iceberg tables in another catalog without copying data (2.6)
+- Trino on every profile with a catalog; optional workers (`trino.workers.replicas`, 2.6)
+- Analytics (SQL editor and saved dashboards) and governed Metrics
+- Row filters and column masking on the SQL path; optional Trino file-based access control (Layer 2)
+
+AI layer and governance:
 
 - Text, S3, and configured Iceberg-source ingestion into Knowledge
 - Chunk replacement by source group and scheduled freshness
@@ -151,8 +159,6 @@ Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider r
 
 ### Optional
 
-- Glue catalog + Trino data plane in the AWS single-node reference
-- Polaris/Trino catalog and query
 - RisingWave streaming (Experimental)
 - Airflow-backed SQL transforms deploy and run; the declarative pipeline builder on the
   same page is Preview and refuses to deploy
@@ -162,6 +168,9 @@ Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider r
 
 ### Roadmap or hardening
 
+- A live Glue → Polaris move with the catalog export (exercised in CI only between REST catalogs so far)
+- Delta Lake → Iceberg migration tooling for teams leaving Databricks
+- Trino worker autoscaling and a measured multi-worker performance profile
 - Live end-to-end acceptance of OAuth resource-server mode against a real IdP (shipped, off by default, not yet exercised live)
 - Keys bound directly to collections or tables (today: collection membership and RLS by service-account identity)
 - Production default-deny RLS and WORM audit under a separate database role
@@ -176,8 +185,8 @@ Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider r
 
 - [Active documentation index](docs/README.md)
 - [Product concept](docs/PRODUCT_CONCEPT.md)
-- [Positioning review and decision](docs/POSITIONING_REVIEW.md)
-- [Positioning fit audit](docs/POSITIONING_FIT_AUDIT.md)
+- [Positioning v7 decision](docs/POSITIONING_V7.md)
+- [Positioning v6 review and fit audit (history)](docs/POSITIONING_REVIEW.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Deployment profiles](docs/DEPLOYMENT_PROFILES.md)
 - [Portable Core profile](docs/FOUNDATION_PROFILE.md)
@@ -191,6 +200,6 @@ Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider r
 
 ## License and editions
 
-DataPond Community is Apache-2.0 except for [`/ee`](ee/README.md), which is commercially licensed. Community includes the portable core and the ability to move your data and provider configuration. Enterprise adds organization-level identity and operational capabilities such as OIDC SSO and future centrally managed policy/support features.
+DataPond Community is Apache-2.0 except for [`/ee`](ee/README.md), which is commercially licensed. Community includes the lakehouse core, the AI layer's basics, and the ability to move your data, catalog registrations and provider configuration. Enterprise adds organization-level identity and operational capabilities such as OIDC SSO and future centrally managed policy/support features.
 
 Review [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before enabling optional profiles; some upstream images use AGPL or source-available licenses.

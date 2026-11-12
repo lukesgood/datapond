@@ -37,44 +37,7 @@ spec:
         - containerPort: 8080
           name: http
           protocol: TCP
-        env:
-        {{- if .Values.storage.endpoint }}
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: datapond-secrets
-              key: SEAWEEDFS_S3_USER
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: datapond-secrets
-              key: SEAWEEDFS_S3_PASSWORD
-        {{- end }}
-        - name: AWS_REGION
-          value: "{{ .Values.storage.region | default "us-east-1" }}"
-        {{- if .Values.postgres.enabled }}
-        - name: POSTGRES_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: datapond-secrets
-              key: POSTGRES_PASSWORD
-        {{- end }}
-        {{- if (include "datapond.addonOn" (dict "root" $ "component" "polaris")) }}
-        - name: POLARIS_CLIENT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: datapond-secrets
-              key: POLARIS_CLIENT_SECRET
-        {{- end }}
-        {{- if .Values.trino.extraCatalogs }}
-        {{- include "datapond.trinoExtraCatalogs.env" . | trim | nindent 8 }}
-        {{- end }}
-        # Source-catalog passwords, referenced as ${ENV:SRC_<SLUG>_PASSWORD} from the
-        # projected catalog files. Optional: empty until the first source is added.
-        envFrom:
-        - secretRef:
-            name: {{ include "datapond.trinoSourceCredentialsSecret" . }}
-            optional: true
+        {{- include "datapond.trinoPodEnv" . | nindent 8 }}
         volumeMounts:
         - name: trino-config
           mountPath: /etc/trino
@@ -164,7 +127,8 @@ metadata:
 data:
   config.properties: |
     coordinator=true
-    node-scheduler.include-coordinator=true
+    {{- /* With workers the coordinator only plans; alone it also executes. */}}
+    node-scheduler.include-coordinator={{ if gt (int (dig "workers" "replicas" 0 .Values.trino)) 0 }}false{{ else }}true{{ end }}
     http-server.http.port=8080
     discovery.uri=http://localhost:8080
     query.max-memory=2GB
@@ -193,6 +157,122 @@ data:
     -XX:+ExplicitGCInvokesConcurrent
     -XX:+HeapDumpOnOutOfMemoryError
     -XX:+ExitOnOutOfMemoryError
+{{- $workers := int (dig "workers" "replicas" 0 .Values.trino) }}
+{{- if gt $workers 0 }}
+{{- $w := .Values.trino.workers }}
+---
+# Trino workers (trino.workers.replicas > 0): the same image, catalogs and credentials as
+# the coordinator, announcing themselves to it through its Service. Labelled
+# app: <trino>-worker so the coordinator Service does not route clients to them. The
+# backend restarts them with the coordinator when the source catalogs change
+# (TRINO_WORKER_DEPLOYMENT) — workers read catalog files only at startup too.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.trino.name }}-worker
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.trino.name }}-worker
+    app.kubernetes.io/name: {{ .Values.trino.name }}-worker
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: analytics
+spec:
+  replicas: {{ $workers }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: {{ .Values.trino.name }}-worker
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.trino.name }}-worker
+        version: {{ .Values.trino.image.tag | quote }}
+      {{- if .Values.trino.extraCatalogs }}
+      annotations:
+        checksum/catalogs: {{ include "datapond.trinoExtraCatalogs.files" . | sha256sum | quote }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ .Values.trino.serviceAccountName | default "datapond-trino" }}
+      containers:
+      - name: trino
+        image: "{{ .Values.trino.image.repository }}:{{ .Values.trino.image.tag }}"
+        imagePullPolicy: {{ .Values.trino.image.pullPolicy }}
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        {{- include "datapond.trinoPodEnv" . | nindent 8 }}
+        volumeMounts:
+        - name: trino-config
+          mountPath: /etc/trino
+        - name: trino-catalog
+          mountPath: /etc/trino/catalog
+        {{- if include "datapond.localWarehouse" $ }}
+        - name: iceberg-warehouse
+          mountPath: /opt/iceberg/warehouse
+        {{- end }}
+        resources:
+          {{- toYaml ($w.resources | default .Values.trino.resources) | nindent 10 }}
+        readinessProbe:
+          httpGet:
+            path: /v1/info
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /v1/info
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: trino-config
+        configMap:
+          name: {{ .Values.trino.name }}-worker-config
+      - name: trino-catalog
+        projected:
+          sources:
+          - configMap:
+              name: trino-catalog
+          - secret:
+              name: {{ include "datapond.trinoSourceCatalogsSecret" . }}
+              optional: true
+      {{- if include "datapond.localWarehouse" $ }}
+      - name: iceberg-warehouse
+        persistentVolumeClaim:
+          claimName: iceberg-warehouse-pvc
+      {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.trino.name }}-worker-config
+  namespace: {{ .Values.namespace }}
+data:
+  config.properties: |
+    coordinator=false
+    http-server.http.port=8080
+    discovery.uri=http://{{ .Values.trino.name }}:{{ .Values.trino.service.port }}
+    query.max-memory-per-node={{ $w.maxMemoryPerNode | default "1GB" }}
+  node.properties: |
+    node.environment=production
+    node.id=${ENV:HOSTNAME}
+    node.data-dir=/data/trino
+  jvm.config: |
+    -server
+    -Xmx{{ $w.heap | default "2G" }}
+    -XX:+UseG1GC
+    -XX:G1HeapRegionSize=32M
+    -XX:+UseGCOverheadLimit
+    -XX:+ExplicitGCInvokesConcurrent
+    -XX:+HeapDumpOnOutOfMemoryError
+    -XX:+ExitOnOutOfMemoryError
+{{- end }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -226,6 +306,10 @@ data:
     iceberg.jdbc-catalog.connection-user={{ .Values.postgres.auth.username }}
     iceberg.jdbc-catalog.connection-password=${ENV:POSTGRES_PASSWORD}
     {{- end }}
+    # Lets the catalog export (POST /api/catalogs/{name}/export) register another
+    # catalog's existing Iceberg tables here without copying data — the exit path off
+    # a provider catalog. Only an admin route calls it.
+    iceberg.register-table-procedure.enabled=true
     fs.native-s3.enabled=true
     {{- if .Values.storage.endpoint }}
     s3.endpoint=http://{{ .Values.storage.endpoint }}

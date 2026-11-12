@@ -2,35 +2,33 @@
 
 ## 1. Architectural intent
 
-DataPond separates a small, governed AI application layer from replaceable infrastructure. The core must remain useful without Trino, Spark, Airflow, OpenMetadata, Polaris, RisingWave, Jupyter, or MLflow.
+DataPond is a lightweight lakehouse (`PRODUCT_CONCEPT.md` v7): data in S3-API storage as Apache Iceberg, tables in an Iceberg catalog, one SQL engine (Trino), and a governed application layer over them. Each layer sits behind an open contract so it can be replaced without moving data or rewriting SQL. The AI layer (Knowledge/RAG, NL→SQL, MCP, spend) uses the same data and governance; it must also run alone, on profiles with no catalog or engine.
 
 ```mermaid
 flowchart TB
-    APPS[AI apps and agents] --> API
-
-    subgraph CORE[Portable Core]
+    subgraph APP[DataPond application]
+      UI[Next.js console]
       API[FastAPI · REST/OpenAPI]
-      UI[Next.js operator UI]
-      KNOW[Knowledge collections]
-      PIPE[Ingest · chunk · embed · retrieve · rerank]
-      GOV[Access · PII · audit · usage/spend]
-      SCHED[Freshness scheduler]
+      ING[Sources · sync · PII masking]
+      GOV[Catalog grants · RLS/masking · audit]
+      AIL[AI layer · Knowledge · NL→SQL · MCP · spend]
     end
 
-    CORE --> OBJ[ObjectStore]
-    CORE --> SQLDB[PostgreSQL/pgvector]
-    CORE --> LLM[ModelGateway]
-    CORE -. capability gated .-> DATA[Catalog/query/workload adapters]
+    APP --> ENGINE[Trino coordinator<br/>+ optional workers]
+    ENGINE --> CAT[Iceberg catalog]
+    ENGINE --> OBJ[S3 API]
+    ENGINE -. federated .-> SRCDB[Source databases<br/>src_* catalogs]
+    APP --> SQLDB[PostgreSQL/pgvector]
+    APP --> LLM[LiteLLM]
 
+    CAT --> GLUE[AWS Glue]
+    CAT --> REST[Polaris · Iceberg REST]
     OBJ --> S3[Amazon S3]
-    OBJ --> COMPAT[S3-compatible]
+    OBJ --> COMPAT[MinIO · S3-compatible]
     SQLDB --> PG[PostgreSQL]
     SQLDB --> AURORA[Aurora PostgreSQL]
-    LLM --> LITELLM[LiteLLM]
-    LITELLM --> BEDROCK[Bedrock]
-    LITELLM --> OTHER[cloud/local providers]
-    DATA --> AWS[Glue · Trino]
-    DATA --> OSS[Polaris · Trino · RisingWave · Airflow · OpenMetadata]
+    LLM --> BEDROCK[Bedrock]
+    LLM --> OTHER[cloud/local providers]
 ```
 
 ## 2. Portable Core
@@ -68,11 +66,11 @@ Knowledge collection authorization currently uses application-level owner/admin/
 
 ### Catalog and query
 
-- AWS reference: Glue catalog + Trino query (in-cluster; Athena removed in 2.4).
-- OSS extended: Polaris catalog + Trino query.
-- No adapter: Sources/Catalog/Analytics/Dashboards are capability-disabled.
-
-Catalog/query are optional because the core can ingest text and S3 sources directly into Knowledge.
+- One engine, Trino, on every profile that has a catalog (Athena removed in 2.4).
+- AWS reference: the Glue catalog. OSS profiles: Polaris (Iceberg REST). More catalogs register side by side (`data_catalogs`, kinds `glue`, `iceberg_rest`, `polaris`), each with its own grants.
+- **Catalog export** (`app/catalog_export.py`, `POST /api/catalogs/{name}/export`, 2.6): registers a catalog's Iceberg tables in another catalog through Trino's `register_table` procedure, without copying data — the Glue exit path. The chart enables the procedure on every Iceberg catalog it renders; a Polaris target must accept the source's location (`polaris.storage.extraAllowedLocations`).
+- **Workers** (`trino.workers.replicas`, 2.6): a worker Deployment reading the same catalogs and credentials; the coordinator then only plans. The backend restarts workers with the coordinator when source catalogs change and reports the engine ready only when both are back.
+- No catalog or engine: Lakehouse menus (Catalog, Analytics, Sources, Metrics) are capability-disabled and the AI layer runs alone.
 
 ### Sources (connectors)
 
@@ -160,23 +158,22 @@ Kubernetes runs core plus selected self-hosted object/model/data add-ons. This i
 
 Not currently provisioned as part of a maintained deployment:
 
-- EKS cluster/node groups
-- EMR Serverless
-- S3 Tables
-- Lake Formation
-- OpenSearch Serverless/AOSS
-- DataZone
+- EKS cluster/node groups and an HA reference topology
+- Trino worker autoscaling
+- EMR Serverless, S3 Tables, Lake Formation, OpenSearch Serverless/AOSS, DataZone
 - Marketplace packaging/billing
+- Delta Lake → Iceberg migration tooling
 - unified export/import CLI
 
-These may be future adapters. Historical design files do not change their current status.
+A managed AWS service may become an optional adapter; it may not become a required part of the core path (`POSITIONING_V7.md`). Historical design files do not change their current status.
 
 ## 9. Design rules
 
-1. Keep Knowledge/RAG functional with every data add-on disabled.
-2. Put provider-specific IDs and credentials behind adapter configuration.
-3. Prefer open data/protocol boundaries over bundling more services.
-4. Add a navigation capability only when its backend path is configured.
-5. Keep health and capability separate.
-6. Preserve backward-compatible profile filenames and API boolean keys.
-7. Require migration and live acceptance evidence before claiming a new provider as shipped.
+1. Keep every layer behind an open contract (S3 API, Iceberg, Iceberg catalog, Trino SQL, PostgreSQL, OpenAI-compatible models); no AWS-only service on the required path.
+2. Keep Knowledge/RAG functional with every data add-on disabled.
+3. Put provider-specific IDs and credentials behind adapter configuration.
+4. Prefer open data/protocol boundaries over bundling more services.
+5. Add a navigation capability only when its backend path is configured.
+6. Keep health and capability separate.
+7. Preserve backward-compatible profile filenames and API boolean keys.
+8. Require migration and live acceptance evidence before claiming a new provider as shipped.

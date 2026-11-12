@@ -263,6 +263,10 @@ spec:
           value: {{ include "datapond.trinoSourceCredentialsSecret" . | quote }}
         - name: TRINO_DEPLOYMENT
           value: {{ .Values.trino.name | quote }}
+        {{- if gt (int (dig "workers" "replicas" 0 .Values.trino)) 0 }}
+        - name: TRINO_WORKER_DEPLOYMENT
+          value: {{ printf "%s-worker" .Values.trino.name | quote }}
+        {{- end }}
         {{- end }}
         # Periodic source connection checks (app/connector_checks.py). They contact
         # customer systems on a schedule, so there is an off switch; `dig` for the

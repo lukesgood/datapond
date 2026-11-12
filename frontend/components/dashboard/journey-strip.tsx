@@ -1,12 +1,13 @@
 "use client"
 
 import Link from "next/link"
-import { ArrowDownToLine, Database, Sparkles, Plug, ShieldCheck } from "lucide-react"
+import { ArrowDownToLine, BarChart3, Database, Sparkles, Plug, ShieldCheck } from "lucide-react"
 import { useCapabilities } from "@/lib/capabilities"
-import { coreWorkflowSteps } from "@/lib/core-workflow"
+import { coreWorkflowSteps, type WorkflowStepKind } from "@/lib/core-workflow"
 
-const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  "01": ArrowDownToLine, "02": Database, "03": Sparkles, "04": Plug, "05": ShieldCheck,
+const ICONS: Record<WorkflowStepKind, React.ComponentType<{ className?: string }>> = {
+  connect: ArrowDownToLine, organize: Database, query: BarChart3, ground: Sparkles,
+  agent: Plug, govern: ShieldCheck, ai: Sparkles,
 }
 
 export function JourneyStrip() {
@@ -14,6 +15,7 @@ export function JourneyStrip() {
   const steps = coreWorkflowSteps({
     sourcesEnabled: caps.connectors === true,
     catalogEnabled: caps.catalog === true,
+    queryEnabled: caps.query === true,
     catalogBackend: typeof caps.catalog_backend === "string" && caps.catalog_backend !== "none"
       ? caps.catalog_backend
       : "collections",
@@ -43,7 +45,7 @@ export function JourneyStrip() {
                 </span>
                 <span className="min-w-0">
                   <span className="flex items-center gap-1.5 text-sm font-semibold group-hover:text-primary">
-                    {(() => { const Icon = ICONS[step.n]; return <Icon className="h-3.5 w-3.5 text-muted-foreground" /> })()}
+                    {(() => { const Icon = ICONS[step.kind]; return <Icon className="h-3.5 w-3.5 text-muted-foreground" /> })()}
                     {step.title}
                   </span>
                   <span className={`block truncate text-xs text-muted-foreground${step.cta ? "" : " capitalize"}`}>{step.sub}</span>

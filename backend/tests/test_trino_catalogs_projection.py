@@ -226,3 +226,36 @@ def test_project_holds_an_advisory_lock_around_the_patches(monkeypatch):
     assert out["changed"] is True
     assert len(calls) == 3 and "pg_advisory_lock(" in calls[0] and calls[1] == "rows" \
         and "pg_advisory_unlock(" in calls[2]
+
+
+def test_a_restart_also_restarts_the_workers_when_there_are_any(monkeypatch):
+    """Workers read the catalog files at startup too: a new source catalog on the
+    coordinator alone would fail every query scheduled on a worker."""
+    kube = FakeKube()
+    calls = []
+    kube.patch_deployment_annotation = lambda name, key, value: calls.append((name, key, value))
+    monkeypatch.setenv("TRINO_WORKER_DEPLOYMENT", "trino-worker")
+    tc.restart(kube, now="2026-11-12T01:00:00Z")
+    assert [c[0] for c in calls] == ["trino", "trino-worker"]
+    calls.clear()
+    monkeypatch.delenv("TRINO_WORKER_DEPLOYMENT")
+    tc.restart(kube, now="2026-11-12T01:00:00Z")
+    assert [c[0] for c in calls] == ["trino"]
+
+
+def test_the_engine_is_ready_only_when_the_workers_are_back_too(monkeypatch):
+    """With workers the coordinator only plans; a query before they return fails with
+    no nodes to run on, so 'ready' must wait for them."""
+    from datetime import datetime, timezone
+    states = {"trino": {"replicas": 1, "ready_replicas": 1, "updated_replicas": 1,
+                        "annotations": {"datapond.io/source-catalogs-restarted-at": "2026-11-12T01:00:00Z"}},
+              "trino-worker": {"replicas": 2, "ready_replicas": 1, "updated_replicas": 2, "annotations": {}}}
+    kube = FakeKube()
+    kube.deployment_status = lambda name: states[name]
+    monkeypatch.setenv("TRINO_WORKER_DEPLOYMENT", "trino-worker")
+    now = datetime(2026, 11, 12, 1, 1, 0, tzinfo=timezone.utc)
+    s = tc.engine_status(kube, now=now)
+    assert s["ready"] is False and s["restarting"] is True
+    states["trino-worker"]["ready_replicas"] = 2
+    s = tc.engine_status(kube, now=now)
+    assert s["ready"] is True and s["restarting"] is False

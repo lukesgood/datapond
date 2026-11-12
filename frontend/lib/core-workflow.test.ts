@@ -12,8 +12,8 @@ import { BOTTOM_ITEMS, NAV_SECTIONS } from "./nav-items.ts"
  *  backend CI (it did, on 2026-09-15, when per-step colours were removed and the
  *  parser's anchor disappeared). Both lists are data now, and the check runs where
  *  they live. */
-const LEAN = { sourcesEnabled: false, catalogEnabled: false, catalogBackend: "collections" }
-const FULL = { sourcesEnabled: true, catalogEnabled: true, catalogBackend: "glue" }
+const LEAN = { sourcesEnabled: false, catalogEnabled: false, queryEnabled: false, catalogBackend: "collections" }
+const FULL = { sourcesEnabled: true, catalogEnabled: true, queryEnabled: true, catalogBackend: "glue" }
 const navUrls = new Map([...NAV_SECTIONS.flatMap((s) => s.items), ...BOTTOM_ITEMS].map((i) => [i.url, i.title]))
 // The menu item a page sits under: its own entry, or the entry whose path it extends
 // (a guide at /help/integrate is under Help).
@@ -39,7 +39,7 @@ test("no menu item takes a name a workflow step already uses", () => {
 })
 
 test("the steps that do not branch point at the expected page", () => {
-  const byTitle = new Map(coreWorkflowSteps(FULL).map((s) => [s.title, s.href]))
+  const byTitle = new Map(coreWorkflowSteps(LEAN).map((s) => [s.title, s.href]))
   assert.equal(menuOf(byTitle.get("Ground")!), "Knowledge")
   // The integration guide, not a menu page of its own: what this step needs is how to
   // connect (MCP, the gateway document, the REST surface), which is documentation,
@@ -56,4 +56,35 @@ test("the two branching steps follow the adapters a deployment runs", () => {
   assert.equal(full.get("01"), "/connectors")
   assert.equal(lean.get("02"), "/knowledge")
   assert.equal(full.get("02"), "/catalog")
+})
+
+
+test("with a query engine the strip is the lakehouse path, AI last", () => {
+  // The product is a lightweight lakehouse first (docs/PRODUCT_CONCEPT.md v7): land
+  // data, catalog it, query it, govern it — then put AI on it.
+  const steps = coreWorkflowSteps(FULL)
+  assert.deepEqual(steps.map((s) => s.title), ["Connect", "Organize", "Query", "Govern", "Add AI"])
+  assert.deepEqual(steps.map((s) => s.href), ["/connectors", "/catalog", "/query", "/governance", "/knowledge"])
+})
+
+test("without a query engine the strip stays the knowledge path", () => {
+  assert.deepEqual(coreWorkflowSteps(LEAN).map((s) => s.title),
+    ["Connect", "Organize", "Ground", "Connect your agent", "Govern"])
+})
+
+test("every step names its icon kind", () => {
+  for (const inputs of [LEAN, FULL]) {
+    for (const s of coreWorkflowSteps(inputs)) assert.ok(s.kind, `${s.title} has no kind`)
+  }
+})
+
+test("the menu leads with the data platform and keeps AI in its own section", () => {
+  assert.equal(NAV_SECTIONS[0].label, "Lakehouse")
+  assert.deepEqual(NAV_SECTIONS[0].items.map((i) => i.title), ["Catalog", "Analytics", "Sources", "Metrics"])
+  const ai = NAV_SECTIONS.find((s) => s.label === "AI")
+  assert.ok(ai, "an AI section")
+  assert.deepEqual(ai!.items.map((i) => i.title), ["Knowledge", "Agents", "AI Gateway"])
+  const operate = NAV_SECTIONS.find((s) => s.label === "Operate")!
+  assert.deepEqual(operate.items.map((i) => i.title), ["Governance", "Storage", "Infrastructure", "Settings"])
+  assert.equal(NAV_SECTIONS.at(-1)!.label, "Operate")
 })

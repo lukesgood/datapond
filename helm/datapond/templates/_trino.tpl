@@ -110,6 +110,7 @@ for the Polaris client secret.
   {{- if $c.vendedCredentials }}
   iceberg.rest-catalog.vended-credentials-enabled=true
   {{- end }}
+  iceberg.register-table-procedure.enabled=true
   fs.native-s3.enabled=true
   {{- /* An S3-compatible store (MinIO) needs its endpoint and path-style addressing;
          AWS S3 (S3 Tables, Glue) needs neither, so both are opt-in per catalog. */}}
@@ -136,4 +137,50 @@ already carry across upgrades; only the backend writes them (rbac-backend.yaml).
 
 {{- define "datapond.trinoSourceCredentialsSecret" -}}
 {{- dig "sourceCatalogs" "credentialsSecret" "trino-source-credentials" (.Values.trino | default dict) -}}
+{{- end -}}
+
+{{/*
+The Trino container's environment, shared by the coordinator and the workers: object
+storage, catalog credentials and the projected source-catalog passwords. One definition,
+so a worker can never miss a credential the coordinator's catalogs reference.
+*/}}
+{{- define "datapond.trinoPodEnv" -}}
+env:
+{{- if .Values.storage.endpoint }}
+- name: AWS_ACCESS_KEY_ID
+  valueFrom:
+    secretKeyRef:
+      name: datapond-secrets
+      key: SEAWEEDFS_S3_USER
+- name: AWS_SECRET_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: datapond-secrets
+      key: SEAWEEDFS_S3_PASSWORD
+{{- end }}
+- name: AWS_REGION
+  value: "{{ .Values.storage.region | default "us-east-1" }}"
+{{- if .Values.postgres.enabled }}
+- name: POSTGRES_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: datapond-secrets
+      key: POSTGRES_PASSWORD
+{{- end }}
+{{- if (include "datapond.addonOn" (dict "root" $ "component" "polaris")) }}
+- name: POLARIS_CLIENT_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: datapond-secrets
+      key: POLARIS_CLIENT_SECRET
+{{- end }}
+{{- if .Values.trino.extraCatalogs }}
+{{- include "datapond.trinoExtraCatalogs.env" . | trim | nindent 0 }}
+{{- end }}
+# Source-catalog passwords, referenced as ${ENV:SRC_<SLUG>_PASSWORD} from the
+# projected catalog files. Optional: empty until the first source is added.
+envFrom:
+- secretRef:
+    name: {{ include "datapond.trinoSourceCredentialsSecret" . }}
+    optional: true
 {{- end -}}

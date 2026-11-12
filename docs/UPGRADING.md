@@ -3,6 +3,28 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2.6 (2026-11) — Lakehouse first: catalog export, Trino workers, menu
+
+Positioning v7 (`docs/POSITIONING_V7.md`): DataPond is a lightweight open lakehouse; the AI
+features are a layer on top of it. Nothing is removed and no migration is added.
+
+- **Catalog export.** `POST /api/catalogs/{name}/export` (admin) registers a catalog's
+  Iceberg tables in another catalog without copying data — plan by default, `apply: true`
+  to register and compare row counts. The chart now sets
+  `iceberg.register-table-procedure.enabled=true` on every Iceberg catalog it renders
+  (Trino restarts once on upgrade). A Polaris target must accept the source's location
+  (`polaris.storage.extraAllowedLocations`) and, for the migration only, the opt-in feature
+  flags in `polaris.extraFeatures`. Procedure and the security caveat: `PORTABILITY.md`.
+- **Trino workers.** `trino.workers.replicas` (default 0 — unchanged). With workers the
+  coordinator only plans (`node-scheduler.include-coordinator=false`); workers read the
+  same catalogs and credentials, are restarted with the coordinator when source catalogs
+  change, and `GET /api/connectors/engine` reports ready only when both are back. Sizing:
+  `trino.workers.heap`, `.maxMemoryPerNode`, `.resources`.
+- **Console menu.** Lakehouse (Catalog, Analytics, Sources, Metrics) leads; Knowledge,
+  Agents and AI Gateway move into an AI section; Operate keeps Governance, Storage,
+  Infrastructure and Settings. The dashboard's core workflow is Connect → Organize →
+  Query → Govern → Add AI on profiles with a query engine, and unchanged without one.
+
 ## 2.5 (2026-11) — Database sources are Trino catalogs
 
 A database connection is now a Trino catalog, and Trino does the reading and the

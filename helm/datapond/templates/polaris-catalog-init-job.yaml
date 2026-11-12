@@ -89,7 +89,7 @@ spec:
             -H "$AUTH" -H "Content-Type: application/json" -d "{
               \"catalog\":{\"name\":\"$CATALOG\",\"type\":\"INTERNAL\",
               \"properties\":{\"default-base-location\":\"$BASELOC\"},
-              \"storageConfigInfo\":{\"storageType\":\"S3\",\"allowedLocations\":[\"$BASELOC\"],
+              \"storageConfigInfo\":{\"storageType\":\"S3\",\"allowedLocations\":[\"$BASELOC\"{{ include "datapond.polarisExtraLocations" . }}],
               \"roleArn\":\"arn:aws:iam::000000000000:role/polaris\"{{ include "datapond.polarisS3Compat" . }}}}}")
           echo "  catalog -> $code"; [ "$code" = "201" ] || [ "$code" = "409" ] || { cat /tmp/o; exit 1; }
           {{- if .Values.storage.endpoint }}
@@ -132,7 +132,7 @@ spec:
               -H "$AUTH" -H "Content-Type: application/json" -d "{
                 \"catalog\":{\"name\":\"$N\",\"type\":\"INTERNAL\",
                 \"properties\":{\"default-base-location\":\"$LOC\"},
-                \"storageConfigInfo\":{\"storageType\":\"S3\",\"allowedLocations\":[\"$LOC\"],
+                \"storageConfigInfo\":{\"storageType\":\"S3\",\"allowedLocations\":[\"$LOC\"{{ include "datapond.polarisExtraLocations" . }}],
                 \"roleArn\":\"arn:aws:iam::000000000000:role/polaris\"{{ include "datapond.polarisS3Compat" . }}}}}")
             echo "  catalog $N -> $code"; [ "$code" = "201" ] || [ "$code" = "409" ] || { cat /tmp/o; exit 1; }
             {{- if .Values.storage.endpoint }}

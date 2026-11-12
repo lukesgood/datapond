@@ -34,6 +34,7 @@ rules:
       - valkey
       - postgres
       - trino
+      - {{ .Values.trino.name | default "trino" }}-worker
       - polaris
       - mlflow
       - jupyterlab

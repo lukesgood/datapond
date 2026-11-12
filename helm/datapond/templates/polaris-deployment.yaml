@@ -144,6 +144,12 @@ spec:
             -Dpolaris.features."SKIP_CREDENTIAL_SUBSCOPING_INDIRECTION"={{ if .Values.storage.endpoint }}false{{ else }}true{{ end }}
             -Dpolaris.features."ALLOW_EXTERNAL_CATALOG_CREDENTIAL_VENDING"=false
             -Dpolaris.features."SUPPORTED_CATALOG_STORAGE_TYPES"=["S3","GCS","AZURE","FILE"]
+            {{- range $k, $v := (.Values.polaris.extraFeatures | default dict) }}
+            {{- if not (regexMatch "^[A-Z][A-Z0-9_]*$" $k) }}
+            {{- fail (printf "polaris.extraFeatures: %q must be an UPPER_SNAKE Polaris feature key" $k) }}
+            {{- end }}
+            -Dpolaris.features."{{ $k }}"={{ $v }}
+            {{- end }}
             -Daws.s3UseArnRegion=false
             -Dsoftware.amazon.awssdk.http.service.impl=software.amazon.awssdk.http.apache.ApacheSdkHttpService
 

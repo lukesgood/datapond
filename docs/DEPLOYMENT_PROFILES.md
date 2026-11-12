@@ -2,15 +2,17 @@
 
 Helm profile names are retained for compatibility. Product role, actual topology, and enabled capabilities are defined here.
 
+The lakehouse (`PRODUCT_CONCEPT.md` v7) runs on the profiles with a catalog and Trino: the **AWS Single-Node Reference** on AWS, **Sovereign OSS Extended** off AWS. The Core profiles run the AI layer alone. Any profile with Trino can add workers with `trino.workers.replicas` (2.6); the coordinator then only plans.
+
 ## Selection summary
 
 | Profile | Choose when | Avoid when |
 |---|---|---|
-| Portable Core · AWS | You need the smallest S3/Bedrock governed RAG starter | You need Catalog/SQL workflows out of the box |
+| AWS Single-Node Reference | You want the lakehouse on AWS: Terraform + Helm, Glue + Trino | You require application-node HA or EKS |
+| Portable Core · AWS | You need only the AI layer (S3/Bedrock RAG) | You need the lakehouse |
 | Sovereign Core | You need the smallest self-hosted governed RAG starter with no external model provider (local-only gateway policy) | You need Catalog/SQL or any OSS add-on |
-| AWS Single-Node Reference | You want the current end-to-end AWS Terraform + Helm reference | You require application-node HA or EKS |
 | AWS Hybrid Extended | You already operate Kubernetes and want AWS endpoints on it, without the chart changing what add-ons that cluster already runs | You expect a lean or automatically provisioned EKS stack |
-| Sovereign OSS Extended | You need local control and are prepared to operate the add-ons | You want the lowest operational burden |
+| Sovereign OSS Extended | You want the lakehouse off AWS (MinIO + Polaris + Trino) and can operate it | You want the lowest operational burden |
 | Development/Quick Test | Local and integration validation | Production |
 | Self-Hosted Extended compatibility | You maintain the legacy full stack | New AWS deployments |
 

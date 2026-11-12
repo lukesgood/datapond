@@ -2,8 +2,8 @@ apiVersion: v2
 name: datapond
 description: A portable AI data foundation for governed RAG, with replaceable infrastructure adapters and optional OSS data add-ons
 type: application
-version: 2.5.0
-appVersion: "2.5.0"
+version: 2.6.0
+appVersion: "2.6.0"
 
 keywords:
   - ai-data-foundation

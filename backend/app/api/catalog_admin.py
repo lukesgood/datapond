@@ -391,6 +391,64 @@ async def probe(entry, timeout: float) -> dict:
             "latency_ms": int((time.monotonic() - started) * 1000)}
 
 
+class CatalogExport(BaseModel):
+    target: str
+    schema_: Optional[str] = Field(default=None, alias="schema")
+    tables: Optional[List[str]] = Field(default=None, max_length=500)
+    apply: bool = False
+    model_config = ConfigDict(populate_by_name=True)
+
+
+# Kinds whose tables are Iceberg tables Trino can register elsewhere. A source catalog
+# (trino_source) is a live database, not a lake catalog.
+_EXPORTABLE = {"glue", "iceberg_rest", "polaris"}
+
+
+def _exportable(name: str):
+    try:
+        entry = catalog_registry.resolve(name)
+    except catalog_registry.UnknownCatalog:
+        _bad(f"No catalog named '{name}'.", 404)
+    if entry.kind not in _EXPORTABLE:
+        _bad(f"'{entry.name}' is not an Iceberg lake catalog (kind {entry.kind}); only "
+             f"{', '.join(sorted(_EXPORTABLE))} catalogs can be exported.")
+    return entry
+
+
+@router.post("/catalogs/{name}/export")
+async def export_catalog(name: str, body: CatalogExport, admin: dict = Depends(require_admin)):
+    """Register this catalog's Iceberg tables in `target`, without copying data — the exit
+    path off a provider catalog (Glue → an Iceberg REST catalog). Plans by default;
+    `apply: true` registers each missing table and compares row counts on both sides.
+    Tables the target already has are left alone. See app/catalog_export.py for the
+    statements and the preconditions on the target catalog."""
+    from app import catalog_export as ce
+    await catalog_registry.load(await _pool())
+    src, dst = _exportable(name), _exportable(body.target)
+    if src.engine_catalog == dst.engine_catalog:
+        _bad("Source and target are the same catalog.")
+    try:
+        cur = ce._cursor()
+        items = await asyncio.to_thread(ce.plan, cur, src.engine_catalog, dst.engine_catalog,
+                                        body.schema_, body.tables)
+        if body.apply:
+            items = await asyncio.to_thread(ce.apply, cur, items, src.engine_catalog, dst.engine_catalog)
+    except ValueError as e:
+        _bad(str(e))
+    except Exception as e:
+        _bad(f"Query engine error: {str(e)[:300]}", 502)
+    rows = [i.as_dict() for i in items]
+    counts = {}
+    for i in items:
+        counts[i.action] = counts.get(i.action, 0) + 1
+    if body.apply:
+        await _audit(await _pool(), admin, "catalog_exported", src.name,
+                     {"target": dst.name, "schema": body.schema_, "registered": counts.get("registered", 0),
+                      "failed": counts.get("failed", 0), "mismatch": counts.get("mismatch", 0)})
+    return {"source": src.name, "target": dst.name, "applied": body.apply,
+            "summary": counts, "tables": rows}
+
+
 @router.post("/catalogs/{name}/test")
 async def test_catalog(name: str, admin: dict = Depends(require_admin)):
     """Try to list the catalog's namespaces within TEST_TIMEOUT_SECONDS. A disabled

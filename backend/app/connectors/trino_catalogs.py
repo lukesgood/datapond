@@ -163,10 +163,15 @@ def apply(desired: Desired, kube: KubeClient) -> bool:
 
 
 def restart(kube: KubeClient, now: Optional[str] = None) -> None:
-    """Bump the restart annotation; the Deployment's Recreate strategy does the rest."""
+    """Bump the restart annotation; the Deployment's Recreate strategy does the rest.
+    Workers (TRINO_WORKER_DEPLOYMENT, set when the chart runs any) read the catalog
+    files at startup too, so they restart with the coordinator."""
     _, _, deployment = _names()
     stamp = now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     kube.patch_deployment_annotation(deployment, RESTART_ANNOTATION, stamp)
+    workers = os.getenv("TRINO_WORKER_DEPLOYMENT")
+    if workers:
+        kube.patch_deployment_annotation(workers, RESTART_ANNOTATION, stamp)
 
 
 # How long after a projection an unready engine counts as "restarting" (the console
@@ -197,6 +202,14 @@ def engine_status(kube: KubeClient, now: Optional[datetime] = None) -> Dict:
     ready = int(st.get("ready_replicas") or 0) >= replicas and replicas > 0
     rolled = int(st.get("updated_replicas") or 0) >= replicas
     restarted_at = (st.get("annotations") or {}).get(RESTART_ANNOTATION)
+    workers = os.getenv("TRINO_WORKER_DEPLOYMENT")
+    if workers:
+        # With workers the coordinator only plans: a query before they are back has no
+        # node to run on, so the engine is ready when both are.
+        ws = kube.deployment_status(workers)
+        wn = int(ws.get("replicas") or 0)
+        ready = ready and int(ws.get("ready_replicas") or 0) >= wn
+        rolled = rolled and int(ws.get("updated_replicas") or 0) >= wn
     return {"engine": "trino", "ready": ready,
             "restarting": _recent(restarted_at, now) and not (ready and rolled),
             "restarted_at": restarted_at}
