@@ -88,3 +88,10 @@ test("the menu leads with the data platform and keeps AI in its own section", ()
   assert.deepEqual(operate.items.map((i) => i.title), ["Governance", "Storage", "Infrastructure", "Settings"])
   assert.equal(NAV_SECTIONS.at(-1)!.label, "Operate")
 })
+
+test("the Organize sub-label counts catalogs when there are several", () => {
+  const sub = (n?: number) => coreWorkflowSteps({ ...FULL, lakeCatalogCount: n }).find((s) => s.n === "02")!.sub
+  assert.equal(sub(), "glue catalog")
+  assert.equal(sub(1), "glue catalog")
+  assert.equal(sub(2), "2 catalogs")
+})

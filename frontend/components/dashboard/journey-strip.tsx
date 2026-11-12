@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { ArrowDownToLine, BarChart3, Database, Sparkles, Plug, ShieldCheck } from "lucide-react"
+import { useEffect, useState } from "react"
 import { useCapabilities } from "@/lib/capabilities"
 import { coreWorkflowSteps, type WorkflowStepKind } from "@/lib/core-workflow"
 
@@ -12,10 +13,19 @@ const ICONS: Record<WorkflowStepKind, React.ComponentType<{ className?: string }
 
 export function JourneyStrip() {
   const caps = useCapabilities()
+  const [lakeCatalogCount, setLakeCatalogCount] = useState(0)
+  useEffect(() => {
+    if (caps.catalog !== true) return
+    fetch("/api/catalogs").then(r => (r.ok ? r.json() : { catalogs: [] }))
+      .then(d => setLakeCatalogCount((d.catalogs ?? []).filter(
+        (c: { kind: string; enabled: boolean }) => c.enabled && c.kind !== "trino_source").length))
+      .catch(() => {})
+  }, [caps.catalog])
   const steps = coreWorkflowSteps({
     sourcesEnabled: caps.connectors === true,
     catalogEnabled: caps.catalog === true,
     queryEnabled: caps.query === true,
+    lakeCatalogCount,
     catalogBackend: typeof caps.catalog_backend === "string" && caps.catalog_backend !== "none"
       ? caps.catalog_backend
       : "collections",

@@ -34,6 +34,7 @@ function MetricsPage() {
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<MetricDetail | null>(null)
   const [editing, setEditing] = useState<"new" | "version" | null>(null)
+  const [showRetired, setShowRetired] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -80,6 +81,9 @@ function MetricsPage() {
     } catch (e) { toast(e instanceof Error ? e.message : "Retire failed", "error") }
   }
 
+  const retiredCount = metrics.filter(m => m.status === "retired").length
+  const visible = showRetired ? metrics : metrics.filter(m => m.status !== "retired")
+
   return (
     <div className="flex-1 space-y-4 p-6">
       <div className="flex items-center justify-between">
@@ -97,11 +101,17 @@ function MetricsPage() {
         <TabsContent value="metrics" className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
           <Card>
             <CardContent className="p-0">
-              {metrics.length === 0 ? (
-                <p className="p-6 text-sm text-muted-foreground">No metrics yet.</p>
+              {retiredCount > 0 && (
+                <label className="flex items-center gap-2 border-b px-4 py-2 text-xs text-muted-foreground">
+                  <input type="checkbox" checked={showRetired} onChange={e => setShowRetired(e.target.checked)} />
+                  Show retired ({retiredCount})
+                </label>
+              )}
+              {visible.length === 0 ? (
+                <p className="p-6 text-sm text-muted-foreground">{metrics.length === 0 ? "No metrics yet." : "No active metrics. Tick Show retired to see the rest."}</p>
               ) : (
                 <ul className="divide-y">
-                  {metrics.map(m => {
+                  {visible.map(m => {
                     const b = metricStatusBadge(m)
                     return (
                       <li key={m.name}>

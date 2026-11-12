@@ -20,11 +20,13 @@ export type WorkflowInputs = {
   catalogEnabled: boolean
   queryEnabled: boolean
   catalogBackend: string
+  /** Enabled lake catalogs; more than one replaces the backend name in the sub-label. */
+  lakeCatalogCount?: number
 }
 
 /** With a query engine the strip is the lakehouse path — land, catalog, query, govern,
  *  then AI on top. Without one (the RAG-only Portable Core) it is the knowledge path. */
-export function coreWorkflowSteps({ sourcesEnabled, catalogEnabled, queryEnabled, catalogBackend }: WorkflowInputs): WorkflowStep[] {
+export function coreWorkflowSteps({ sourcesEnabled, catalogEnabled, queryEnabled, catalogBackend, lakeCatalogCount = 0 }: WorkflowInputs): WorkflowStep[] {
   const connect: WorkflowStep = {
     n: "01",
     title: "Connect",
@@ -35,7 +37,9 @@ export function coreWorkflowSteps({ sourcesEnabled, catalogEnabled, queryEnabled
   const organize: WorkflowStep = {
     n: "02",
     title: "Organize",
-    sub: catalogEnabled ? `${catalogBackend} catalog` : "Knowledge collections",
+    sub: catalogEnabled
+      ? (lakeCatalogCount > 1 ? `${lakeCatalogCount} catalogs` : `${catalogBackend} catalog`)
+      : "Knowledge collections",
     href: catalogEnabled ? "/catalog" : "/knowledge",
     kind: "organize",
   }
