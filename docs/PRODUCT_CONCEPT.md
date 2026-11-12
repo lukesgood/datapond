@@ -74,7 +74,7 @@ DataPond는 그 사이를 제품으로 채운다. **단일 노드에서 시작�
 
 | 지점 | 왜 종속인가 | 탈출 경로 | 상태 |
 |---|---|---|---|
-| Glue 카탈로그 (AWS 레퍼런스) | 테이블 목록이 Glue에 있다 | 카탈로그 내보내기로 REST 카탈로그에 등록 | 경로 Shipped, 라이브 Glue→Polaris 실이관은 미검증 |
+| Glue 카탈로그 (AWS 레퍼런스) | 테이블 목록이 Glue에 있다 | 카탈로그 내보내기로 REST 카탈로그에 등록 | Shipped. 라이브 리허설(2026-11-12)에서 23개 테이블 등록·행 수 일치 확인, 상시 전환은 안 함 |
 | Bedrock | 모델 호출 | LiteLLM 매핑 변경 (임베딩 모델이 바뀌면 재임베딩) | Shipped |
 | IAM 인스턴스 프로파일 | Trino·백엔드가 S3·Glue를 이 자격으로 호출 | S3 호환 저장소는 접근 키로 연결 | Shipped |
 | Terraform 모듈 | EC2/K3s·Aurora·Route53 | Helm 차트는 어느 Kubernetes에서나 동일 | AWS 모듈만 있음 |

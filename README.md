@@ -116,7 +116,7 @@ Portability is based on the data and protocol boundaries:
 - containers, Helm, and Kubernetes for deployment;
 - local JWT/LDAP/passkeys and Enterprise OIDC for identity integration.
 
-Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider rebinding, and re-embedding when model dimensions change. Catalog export (Glue → Iceberg REST) is shipped and exercised in CI between REST catalogs; a live Glue → Polaris move has not been run yet. A unified `datapond export/import` command and an automated cross-provider exit drill are **roadmap**. See [Portability and Exit Strategy](docs/PORTABILITY.md).
+Today, exit procedures use normal S3 copy, PostgreSQL backup/restore, provider rebinding, and re-embedding when model dimensions change. Catalog export (Glue → Iceberg REST) is shipped, exercised in CI between REST catalogs, and was rehearsed live on 2026-11-12 (Glue → Polaris, 23 tables, row counts equal). A unified `datapond export/import` command and an automated cross-provider exit drill are **roadmap**. See [Portability and Exit Strategy](docs/PORTABILITY.md).
 
 ## Current product boundary
 
@@ -168,7 +168,7 @@ AI layer and governance:
 
 ### Roadmap or hardening
 
-- A live Glue → Polaris move with the catalog export (exercised in CI only between REST catalogs so far)
+- Running Polaris as the live default catalog (a live Glue → Polaris export was rehearsed on 2026-11-12: 23 tables registered, row counts equal, Glue untouched)
 - Delta Lake → Iceberg migration tooling for teams leaving Databricks
 - Trino worker autoscaling and a measured multi-worker performance profile
 - Live end-to-end acceptance of OAuth resource-server mode against a real IdP (shipped, off by default, not yet exercised live)

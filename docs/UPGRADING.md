@@ -12,7 +12,10 @@ features are a layer on top of it. Nothing is removed and no migration is added.
 `2.6.0-01a1ef2`). Verified on the node: Trino reloaded with `register-table-procedure`;
 Glue and source-catalog queries answer (6,000 each); the export refuses a source catalog
 and the same catalog with 400; no worker (none configured); the new menu is in the build.
-The export has not yet been run against a second lake catalog live (there is none).
+Same day, a live Glue → Polaris rehearsal registered all 23 `default` tables in a
+temporary Polaris (revisions 13–16; row counts equal, Glue untouched), then turned Polaris
+off again. It needed two chart fixes (#257 Polaris on the external database, #258 its
+catalog on native S3). Record: `PORTABILITY.md`.
 
 - **Catalog export.** `POST /api/catalogs/{name}/export` (admin) registers a catalog's
   Iceberg tables in another catalog without copying data — plan by default, `apply: true`

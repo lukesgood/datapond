@@ -61,7 +61,9 @@ An Iceberg table's state lives in its metadata files in object storage; a catalo
 4. Apply: the same call with `"apply": true`. Each table is `registered` (row counts equal on both sides), `mismatch`, or `failed` with the engine's message; one failure does not stop the others. The call is audited as `catalog_exported`.
 5. Point users at the new catalog (make it the default under Settings → Data catalogs), and stop writing through the old one before you drop it: two catalogs committing to the same table would diverge.
 
-CI exercises steps 3–4 on every pull request between two Polaris catalogs on MinIO (`.github/scripts/multicatalog_check.py` §7). **A live Glue → Polaris move has not been run yet.** Provider-specific grants (Lake Formation) are not in Iceberg metadata and need separate handling; DataPond's own catalog grants are re-entered for the new catalog.
+CI exercises steps 3–4 on every pull request between two Polaris catalogs on MinIO (`.github/scripts/multicatalog_check.py` §7).
+
+**Live rehearsal, 2026-11-12 (AWS Single-Node Reference).** Polaris was run beside Glue (metadata in Aurora, `polaris.catalogName: lake`, base location `s3://datapond-iceberg/polaris/lake`, `extraAllowedLocations: [s3://datapond-iceberg/warehouse]`, `extraFeatures` `ALLOW_UNSTRUCTURED_TABLE_LOCATION` + `ALLOW_EXTERNAL_TABLE_LOCATION`, Trino catalog `polaris_lake`). The export planned 23 of 23 tables of `AwsDataCatalog.default` as `register` (4 s) and registered all 23 with equal row counts on both sides (28 s; 6,000 orders, 30,000 page events, …). The same SQL answered through `/api/queries/execute` against `polaris_lake`, a join across the two catalogs worked, and every Glue table's current metadata file was unchanged afterwards. Polaris was then turned off again (registry entry removed, flags cleared) — Glue stays the live catalog. Left behind on purpose: the `polaris_catalog` database in Aurora (Polaris's own metadata, small). A later move should start from a fresh export rather than reuse it: the registrations there point at the metadata files of 2026-11-12. The rehearsal found two chart gaps, both fixed before it passed: Polaris assumed the in-cluster PostgreSQL (#257), and its catalog-init Job rendered only with MinIO (#258). Provider-specific grants (Lake Formation) are not in Iceberg metadata and need separate handling; DataPond's own catalog grants are re-entered for the new catalog.
 
 ## Critical non-portable state
 
@@ -138,7 +140,7 @@ Data export, provider rebinding, and migration documentation belong in Community
 - versioned `datapond export/import`
 - provider conformance test suite
 - OpenLineage-compatible durable event export
-- a live Glue → Polaris move recorded as an acceptance run (the export exists; the drill does not)
+- a recurring (scripted) Glue → Polaris acceptance drill; the one live rehearsal (2026-11-12) was run by hand
 - Delta Lake → Iceberg migration for teams leaving Databricks
 - embedding version migration workflow
 - automated quarterly exit drill
