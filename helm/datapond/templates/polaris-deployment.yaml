@@ -29,13 +29,13 @@ spec:
           - sh
           - -c
           - |
-            until pg_isready -h {{ .Values.postgres.name }} -p {{ .Values.postgres.service.port }} -U {{ .Values.postgres.auth.username }}; do
+            until pg_isready -h {{ include "datapond.polarisDbHost" . }} -p {{ include "datapond.polarisDbPort" . }} -U "$POSTGRES_USER"; do
               echo "Waiting for PostgreSQL..."
               sleep 2
             done
             echo "PostgreSQL ready. Waiting for Polaris schema bootstrap..."
             export PGPASSWORD="$POSTGRES_PASSWORD"
-            until psql -h {{ .Values.postgres.name }} -U {{ .Values.postgres.auth.username }} -d {{ .Values.polaris.database }} -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='principal_authentication_data'" | grep -q 1; do
+            until psql -h {{ include "datapond.polarisDbHost" . }} -p {{ include "datapond.polarisDbPort" . }} -U "$POSTGRES_USER" -d {{ .Values.polaris.database }} -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='principal_authentication_data'" | grep -q 1; do
               echo "Waiting for polaris-bootstrap Job to create schema..."
               sleep 3
             done
@@ -46,6 +46,7 @@ spec:
             secretKeyRef:
               name: datapond-secrets
               key: POSTGRES_PASSWORD
+        {{- include "datapond.polarisPsqlEnv" . | nindent 8 }}
 
       containers:
       - name: polaris
@@ -71,9 +72,12 @@ spec:
         - name: QUARKUS_DATASOURCE_DB_KIND
           value: "postgresql"
         - name: QUARKUS_DATASOURCE_JDBC_URL
-          value: "jdbc:postgresql://{{ .Values.postgres.name }}:{{ .Values.postgres.service.port }}/{{ .Values.polaris.database }}"
+          value: "{{ include "datapond.polarisJdbcUrl" . }}"
         - name: QUARKUS_DATASOURCE_USERNAME
-          value: "{{ .Values.postgres.auth.username }}"
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POSTGRES_USER
         - name: QUARKUS_DATASOURCE_PASSWORD
           valueFrom:
             secretKeyRef:
