@@ -717,6 +717,13 @@ polaris:
     # the catalog export (POST /api/catalogs/{name}/export) — e.g. the Glue warehouse
     # you are leaving. Empty: each catalog accepts only its own base location.
     extraAllowedLocations: []
+  # Extra Polaris feature flags, as KEY: value (rendered -Dpolaris.features."KEY"=value).
+  # Registering tables that live outside a catalog's own layout (catalog export from Glue)
+  # needs e.g. ALLOW_UNSTRUCTURED_TABLE_LOCATION / ALLOW_EXTERNAL_TABLE_LOCATION, and two
+  # Polaris catalogs sharing a location need ALLOW_OVERLAPPING_CATALOG_URLS. These widen
+  # where a writer may put data (see CVE-2026-42812): enable them only for a migration,
+  # with extraAllowedLocations kept narrow. Empty by default.
+  extraFeatures: {}
   # Further Polaris catalogs the catalog-init Job creates next to `catalogName`, each
   # with the same namespaces and grants and its own base location
   # s3://<warehouseBucket>/catalogs/<name>. Names are lowercase identifiers; add the

@@ -12,8 +12,9 @@ features are a layer on top of it. Nothing is removed and no migration is added.
   Iceberg tables in another catalog without copying data — plan by default, `apply: true`
   to register and compare row counts. The chart now sets
   `iceberg.register-table-procedure.enabled=true` on every Iceberg catalog it renders
-  (Trino restarts once on upgrade). A Polaris target must accept the source's location:
-  `polaris.storage.extraAllowedLocations`. Procedure: `PORTABILITY.md`.
+  (Trino restarts once on upgrade). A Polaris target must accept the source's location
+  (`polaris.storage.extraAllowedLocations`) and, for the migration only, the opt-in feature
+  flags in `polaris.extraFeatures`. Procedure and the security caveat: `PORTABILITY.md`.
 - **Trino workers.** `trino.workers.replicas` (default 0 — unchanged). With workers the
   coordinator only plans (`node-scheduler.include-coordinator=false`); workers read the
   same catalogs and credentials, are restarted with the coordinator when source catalogs

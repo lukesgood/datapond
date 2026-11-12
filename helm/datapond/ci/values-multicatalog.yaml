@@ -43,6 +43,12 @@ polaris:
     # catb also accepts the default catalog's location, so the catalog export check
     # can register an `iceberg` table in catb in place (multicatalog_check.py §7).
     extraAllowedLocations: ["s3://iceberg/warehouse"]
+  # Polaris refuses overlapping catalog locations and tables outside a catalog's layout
+  # unless told otherwise; the export check needs both, CI only.
+  extraFeatures:
+    ALLOW_OVERLAPPING_CATALOG_URLS: true
+    ALLOW_UNSTRUCTURED_TABLE_LOCATION: true
+    ALLOW_EXTERNAL_TABLE_LOCATION: true
 
 trino:
   enabled: true
