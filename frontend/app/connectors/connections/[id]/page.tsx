@@ -28,6 +28,7 @@ import { FREQ_OPTIONS, HOUR_OPTIONS, parseCron, cronToFreqHour, nextRun } from "
 import { useCapability } from "@/lib/capabilities"
 import { EngineRestartBanner } from "@/components/connectors/engine-restart-banner"
 import { isTrinoEngine } from "@/lib/engine-restart"
+import { lakeCatalogs, landsIn } from "@/lib/data-catalogs"
 
 type ConfigValue = string | number | boolean | null | undefined
 interface SchemaColumn { name: string; type: string }
@@ -41,6 +42,7 @@ interface ConnectorTable {
   partition_spec?: { column: string; transform: string }[] | null
   key_columns?: string[] | null
   pii_columns?: string[] | null
+  target_catalog?: string | null
 }
 interface RawTableConfig extends Partial<ConnectorTable> { name: string }
 interface JobsResponse { jobs?: Array<{ rows_synced?: number }> }
@@ -94,6 +96,15 @@ function TablesCard({
   const [saving, setSaving]             = useState(false)
   const [schemaColumns, setSchemaColumns] = useState<SchemaColumn[]>([])
   const [loadingSchema, setLoadingSchema] = useState(false)
+  // Lake catalogs a table can land in; "" = the default catalog.
+  const [lakes, setLakes] = useState<{ name: string; is_default: boolean }[]>([])
+  const [editTarget, setEditTarget] = useState("")
+  useEffect(() => {
+    fetch("/api/catalogs").then(r => (r.ok ? r.json() : { catalogs: [] }))
+      .then(d => setLakes(lakeCatalogs<{ name: string; is_default: boolean; kind: string; enabled: boolean }>(d.catalogs ?? [])))
+      .catch(() => setLakes([]))
+  }, [])
+  const defaultLake = lakes.find(c => c.is_default)?.name
 
   const filtered = tables.filter(t =>
     t.name.toLowerCase().includes(search.toLowerCase())
@@ -106,6 +117,7 @@ function TablesCard({
     setEditIncCol(t.incremental_column || "")
     setEditKeyCols((t.key_columns || []).join(", "))
     setEditPiiCols((t.pii_columns || []).join(", "))
+    setEditTarget(t.target_catalog || "")
     // Partition init: null/undefined = Auto, [] = None, [{...}] = first field
     const ps = t.partition_spec
     if (ps == null)            { setEditPartCol(""); setEditPartTransform("day") }
@@ -137,6 +149,7 @@ function TablesCard({
           incremental_column: editIncCol || null,
           key_columns: editKeyCols.split(",").map(s => s.trim()).filter(Boolean),
           pii_columns: editPiiCols.split(",").map(s => s.trim()).filter(Boolean),
+          target_catalog: editTarget,
         }),
       })
       await fetch(`/api/connectors/${connId}/sync-mode`, {
@@ -248,6 +261,11 @@ function TablesCard({
                           {incMisconfigured && (
                             <span className="text-2xs text-[var(--dp-warn-text)] block">⚠ no watermark column</span>
                           )}
+                          {landsIn(table.target_catalog, defaultLake) && (
+                            <span className="text-2xs text-muted-foreground/70 font-mono block truncate">
+                              → {table.target_catalog}
+                            </span>
+                          )}
                           {table.partition_spec && table.partition_spec.length > 0 && (
                             <span className="text-2xs text-muted-foreground/70 font-mono block truncate">
                               ⊞ {table.partition_spec.map(p => `${p.transform}(${p.column})`).join(", ")}
@@ -288,6 +306,18 @@ function TablesCard({
                     {/* Inline edit panel */}
                     {isEditing && (
                       <div className="px-10 pb-3 pt-1 bg-muted/20 border-t space-y-3">
+                        {lakes.length > 1 && (
+                          <div className="space-y-1">
+                            <label htmlFor={`tc-${table.name}`} className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Target catalog</label>
+                            <select id={`tc-${table.name}`} value={editTarget}
+                                    className="h-7 w-full rounded-md border bg-background px-2 text-xs"
+                                    onChange={e => setEditTarget(e.target.value)}>
+                              <option value="">Default ({defaultLake ?? "default catalog"})</option>
+                              {lakes.filter(c => !c.is_default).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                            </select>
+                            <p className="text-2xs text-muted-foreground">Which lake catalog the synced Iceberg table is created in.</p>
+                          </div>
+                        )}
                         <div className="grid grid-cols-2 gap-3">
                           <div className="space-y-1">
                             <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Sync Mode</label>
@@ -719,6 +749,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                 partition_spec: table.partition_spec ?? null,
                 key_columns: table.key_columns ?? null,
                 pii_columns: table.pii_columns ?? null,
+                target_catalog: table.target_catalog ?? null,
               }
         ))
       }

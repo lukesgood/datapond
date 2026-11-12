@@ -11,9 +11,13 @@ export const KIND_LABEL: Record<CatalogKind, string> = {
   polaris: "Polaris (in-cluster)",
 }
 
+/** Registry kinds: the three lake kinds plus `trino_source`, the catalog a Sources
+ *  connection owns (governed by that source's share list, not by catalog grants). */
+export type RegistryKind = CatalogKind | "trino_source"
+
 export interface DataCatalog {
   name: string
-  kind: CatalogKind
+  kind: RegistryKind
   engine_catalog: string
   config: Record<string, string | boolean>
   is_default: boolean
@@ -69,12 +73,13 @@ export function emptyForm(kind: CatalogKind = "iceberg_rest"): CatalogForm {
 }
 
 export function formFromCatalog(c: DataCatalog): CatalogForm {
-  const f = emptyForm(c.kind)
+  const lake = isLakeKind(c.kind) ? c.kind : undefined
+  const f = emptyForm(lake)
   f.name = c.name
   f.engine_catalog = c.engine_catalog
   f.is_default = c.is_default
   f.enabled = c.enabled
-  for (const key of KIND_FIELDS[c.kind]) {
+  for (const key of lake ? KIND_FIELDS[lake] : []) {
     const v = c.config?.[key]
     if (BOOL_FIELDS.has(key)) (f as unknown as Record<string, unknown>)[key] = v === true
     else if (typeof v === "string") (f as unknown as Record<string, unknown>)[key] = v
@@ -338,4 +343,19 @@ export function locationOf(c: DataCatalog): string {
     return parts.join(" · ") || "this account"
   }
   return cfg.warehouse ? `warehouse ${cfg.warehouse}` : ""
+}
+
+/** Iceberg lake catalogs (Glue, Iceberg REST, Polaris): the ones tables can be exported
+ *  to and synced into. */
+export function isLakeKind(kind: string): kind is CatalogKind {
+  return kind === "glue" || kind === "iceberg_rest" || kind === "polaris"
+}
+
+export function lakeCatalogs<T extends { kind: string; enabled: boolean }>(list: T[]): T[] {
+  return list.filter(c => c.enabled && isLakeKind(c.kind))
+}
+
+/** Where a table lands: null for the default catalog, else the catalog's name. */
+export function landsIn(targetCatalog: string | null | undefined, defaultName: string | undefined): string | null {
+  return targetCatalog && targetCatalog !== defaultName ? targetCatalog : null
 }
