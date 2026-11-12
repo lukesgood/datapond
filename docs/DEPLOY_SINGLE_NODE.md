@@ -673,6 +673,19 @@ encrypted credential already stored in Aurora becomes permanently unreadable. Ex
 RTO: ~30-60 min for an Aurora-only restore, ~2-4 h for a full node rebuild (Terraform
 apply + cloud-init + secrets re-seed + Helm install), per the DR doc's objectives table.
 
+### 7a. Polaris beside Glue (2.7)
+
+Since 2026-11-12 the reference runs Polaris next to Glue: `polaris.enabled: true`,
+`replicas: 2`, `catalogName: lake`, `storage.defaultBaseLocation:
+s3://datapond-iceberg/polaris/lake`, and a `trino.extraCatalogs` entry `polaris_lake` (Iceberg
+REST to `http://polaris.datapond.svc.cluster.local:8181/api/catalog`, the chart's Polaris
+client secret). Polaris keeps its metadata in Aurora (database `polaris_catalog`, created by
+the bootstrap Job) with the backend's credentials over TLS. Glue stays the default catalog.
+The values were set once with a manual `helm upgrade --reset-then-reuse-values -f <file>`
+from a staged chart; CD (`deploy-node-helm.sh`) keeps them. Register the catalog in DataPond
+once (`POST /api/catalogs`, kind `polaris`, engine catalog `polaris_lake`); syncs choose it
+with `target_catalog`. Rules for a table seen by both: `PORTABILITY.md` "Two catalogs at once".
+
 ### 7b. Changing the node's instance type (no rebuild)
 
 A Spot instance's type cannot be modified (`Client.UnsupportedOperation`), so a type

@@ -5,6 +5,16 @@ in the commit history; this file exists for the things an operator has to act on
 
 ## 2.7 (2026-11) — Two catalogs at once, one writer per table
 
+**Live AWS Single-Node Reference, 2026-11-12** (PR #259, release revisions 17–18, tag
+`2.7.0-0065885`): migration 0028 applied; the rehearsal-only Polaris metadata database was
+dropped and Polaris now runs **permanently beside Glue** — 2 replicas, metadata in Aurora,
+catalog `lake` at `s3://datapond-iceberg/polaris/lake`, Trino catalog `polaris_lake`, no
+shared locations and no location feature flags. Glue stays the default catalog (AWS
+services read it). Verified: a sync with `target_catalog: polaris_lake` landed
+`public.customers` (1,200 rows, equal to the source) in Polaris; a join across Polaris and
+Glue answers; Glue's tables are unchanged; no mirrors exist; a source catalog as a sync
+target is refused (400).
+
 - **Migration 0028** adds `catalog_table_links` (owner/mirror per table) and
   `connector_sync_jobs.target_catalog`. Run the migration Job (CD does).
 - **Export modes.** `POST /api/catalogs/{name}/export` takes `mode: mirror` (default — the
