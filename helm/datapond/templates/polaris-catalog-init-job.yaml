@@ -1,8 +1,11 @@
-{{- if and (include "datapond.addonOn" (dict "root" $ "component" "polaris")) .Values.minio.enabled }}
+{{- if and (include "datapond.addonOn" (dict "root" $ "component" "polaris")) (or .Values.minio.enabled (not .Values.storage.endpoint)) }}
 ---
-# Polaris catalog initialization (post-bootstrap). Gated on minio.enabled too:
-# the storage config below (MinIO base-location + placeholder roleArn) only makes
-# sense for the MinIO-backed profile. Real-S3 profiles need their own storage cfg.
+# Polaris catalog initialization (post-bootstrap). Renders for the MinIO-backed profile
+# (endpoint + path-style) and for native S3 (no endpoint: the region, and Polaris uses
+# the node's own credentials — SKIP_CREDENTIAL_SUBSCOPING_INDIRECTION in
+# polaris-deployment.yaml — so the role ARN is not assumed; polaris.storage.roleArn
+# overrides the placeholder). It rendered only with MinIO before 2.6, so Polaris beside
+# Glue started with no catalog.
 # The polaris-bootstrap Job only creates the metastore schema + root principal.
 # This Job creates the actual CATALOG, grants data privileges, and creates the
 # medallion namespaces — the steps required before Trino/clients can use Iceberg.
@@ -90,7 +93,7 @@ spec:
               \"catalog\":{\"name\":\"$CATALOG\",\"type\":\"INTERNAL\",
               \"properties\":{\"default-base-location\":\"$BASELOC\"},
               \"storageConfigInfo\":{\"storageType\":\"S3\",\"allowedLocations\":[\"$BASELOC\"{{ include "datapond.polarisExtraLocations" . }}],
-              \"roleArn\":\"arn:aws:iam::000000000000:role/polaris\"{{ include "datapond.polarisS3Compat" . }}}}}")
+              \"roleArn\":\"{{ include "datapond.polarisRoleArn" . }}\"{{ include "datapond.polarisS3Compat" . }}}}}")
           echo "  catalog -> $code"; [ "$code" = "201" ] || [ "$code" = "409" ] || { cat /tmp/o; exit 1; }
           {{- if .Values.storage.endpoint }}
           [ "$code" = "409" ] && sync_storage "$CATALOG" "$BASELOC"
@@ -133,7 +136,7 @@ spec:
                 \"catalog\":{\"name\":\"$N\",\"type\":\"INTERNAL\",
                 \"properties\":{\"default-base-location\":\"$LOC\"},
                 \"storageConfigInfo\":{\"storageType\":\"S3\",\"allowedLocations\":[\"$LOC\"{{ include "datapond.polarisExtraLocations" . }}],
-                \"roleArn\":\"arn:aws:iam::000000000000:role/polaris\"{{ include "datapond.polarisS3Compat" . }}}}}")
+                \"roleArn\":\"{{ include "datapond.polarisRoleArn" . }}\"{{ include "datapond.polarisS3Compat" . }}}}}")
             echo "  catalog $N -> $code"; [ "$code" = "201" ] || [ "$code" = "409" ] || { cat /tmp/o; exit 1; }
             {{- if .Values.storage.endpoint }}
             [ "$code" = "409" ] && sync_storage "$N" "$LOC"
