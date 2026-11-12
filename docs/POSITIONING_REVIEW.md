@@ -1,5 +1,7 @@
 # 포지셔닝 점검과 결정 — v6.0
 
+> **대체됨 (2026-11-12):** v7.0 "중소 규모를 위한 가벼운 개방형 레이크하우스"로 대체됐다 — [`POSITIONING_V7.md`](POSITIONING_V7.md). 이 문서는 v6.0 결정의 역사 기록이다.
+
 > 작성: 2026-09-07 · 상태: **결정 기록** · 근거: `CONCEPT_RECONFIRMATION.md`(v6 제안),
 > `UTILIZATION_PERSONA_ASSESSMENT.md`(2026-08-31), `PRODUCTIZATION_READINESS_ASSESSMENT.md`,
 > `ONTOLOGY_FEASIBILITY_REPORT.md`, 2026-07-20 이후 커밋 이력, `app/capabilities.py`와 사이드바 코드.

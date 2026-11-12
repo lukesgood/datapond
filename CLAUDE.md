@@ -4,27 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DataPond is a **governed data tool server for AI agents and applications**: cited RAG and governed SQL exposed as tools, with collection/row access, PII masking, retrieval-level audit, and model spend controlled per caller at the data layer. Agents call it directly over REST/OpenAPI or the read-only MCP server at `POST /api/mcp`; an agent gateway is optional, not assumed. The shipped core covers ingestion, chunk replacement, embeddings, pgvector retrieval, optional reranking, cited answers, service-account keys (scoped, expiring, rotatable, rate-limited), collection ACL, chunk-level caller filters, RLS/masking, PII controls, tool-call audit, and enforced per-caller budgets. Agents authenticate with a `dp_sk_` key or, when OAuth resource-server mode is configured, the customer's IdP access token (not yet exercised against a live IdP). AWS is the current reference adapter environment, not the product boundary.
+DataPond is a **lightweight, open lakehouse for small and mid-size teams on AWS** (positioning v7, 2026-11-12): data in S3-API storage as Apache Iceberg, tables in an Iceberg catalog (Glue or Iceberg REST/Polaris), one distributed SQL engine (Trino), and a governed application layer — sources and sync, catalog grants, row/column control, Korean PII masking, audit. Every layer is an open standard so storage, catalog, engine and models can change without moving data or rewriting SQL. The AI features (Knowledge/RAG with citations, NL→SQL, governed metrics, read-only MCP at `POST /api/mcp`, service-account keys, per-caller spend) are a layer on the same data, and still run alone on the Core profiles. AWS is the reference deployment, not the product boundary.
 
 Canonical product truth:
 - `README.md`
-- `docs/PRODUCT_CONCEPT.md`
+- `docs/PRODUCT_CONCEPT.md` (v7)
+- `docs/POSITIONING_V7.md` (the decision and what is not yet validated)
 - `docs/ARCHITECTURE.md`
 - `docs/DEPLOYMENT_PROFILES.md`
 - `docs/PORTABILITY.md`
-- `docs/POSITIONING_REVIEW.md` (why v6.0) and `docs/POSITIONING_FIT_AUDIT.md` (what still does not fit)
 
-`docs/superpowers/plans/` and `docs/superpowers/specs/` are historical implementation records, not current product claims.
+`docs/POSITIONING_REVIEW.md` and `docs/POSITIONING_FIT_AUDIT.md` are the v6.0 record (history). `docs/superpowers/plans/` and `docs/superpowers/specs/` are historical implementation records, not current product claims.
 
-Key positioning (v6.0 — governed tool layer, 2026-09-07):
-- **Target:** teams whose AI agents and applications need governed access to company documents and tables. First segment: Korean enterprises on AWS with personal-data obligations.
-- **Core value:** search, cited answers, and governed SQL as tools behind service-account keys, governed at the data layer (which caller reads which collection/row; what was cited and masked; per-caller spend). Orthogonal to agent gateways such as AgentCore Gateway: register behind one if the customer runs it, never require it. Portability is a lock-in objection remover, not the headline.
-- **Not doing:** gateway features (agent registry, SSO/SCIM sync, tool-level policy engine, rug-pull detection), coding-agent spend control, ontology Phase 1, more add-ons, more operator-assistant actions, regulated verticals as first partner.
-- **Portability:** S3 API, PostgreSQL + pgvector, LiteLLM/OpenAI-compatible model boundary, REST/OIDC, Helm/Kubernetes.
-- **AWS reference:** S3, Aurora, Glue, and Bedrock where the selected profile actually enables them; Trino runs in-cluster on every profile with a catalog (Athena removed in 2.4).
+Key positioning (v7.0 — lightweight open lakehouse, 2026-11-12):
+- **Target:** small and mid-size teams that use AWS heavily and may use or have considered Databricks but find it heavy for their size. First segment: Korean SMB/mid-market data teams on AWS with personal-data obligations. Demand is not yet validated.
+- **Core value:** start a lakehouse on one node in the customer's own account; keep data in open formats; query the lake and live source databases together through Trino; govern at the data layer.
+- **Lock-in minimisation:** S3 API (S3 or MinIO/S3-compatible), Apache Iceberg, Iceberg catalogs (Glue or REST; catalog export moves registrations without copying data), Trino on every profile with a catalog (workers via `trino.workers.replicas`), PostgreSQL, LiteLLM/OpenAI-compatible models, Helm/Kubernetes.
+- **Not doing:** AWS-only managed services on the required path (Athena, mandatory Lake Formation), gateway features (agent registry, SSO/SCIM sync, tool-level policy engine), large HA clusters as the first goal, Delta Lake writes.
+- **AWS reference:** S3, Aurora, Glue and Bedrock where the selected profile enables them; Trino runs in-cluster on every profile with a catalog (Athena removed in 2.4).
 - **Optional OSS add-ons:** Polaris, Trino, RisingWave, OpenMetadata, Airflow, Spark, Jupyter, and MLflow.
 
-Never claim that disabling an OSS component automatically provisions an AWS replacement. EKS, EMR Serverless, S3 Tables, Lake Formation, AOSS, DataZone, Marketplace packaging, and a unified export/import CLI remain roadmap until implementation and acceptance exist.
+Never claim that disabling an OSS component automatically provisions an AWS replacement. EKS, EMR Serverless, S3 Tables, Lake Formation, AOSS, DataZone, Marketplace packaging, a unified export/import CLI and Delta → Iceberg migration remain roadmap until implementation and acceptance exist.
 
 ## Architecture
 
@@ -42,7 +42,7 @@ LiteLLM logical model gateway (Bedrock, cloud, or local provider mapping)
 S3 API object storage (native S3 or compatible endpoint)
 ```
 
-Core navigation: Dashboard; Knowledge; Agents; AI Gateway; Governance; Storage; Services; System; Settings.
+Console navigation (2.6): Dashboard; Lakehouse (Catalog, Analytics, Sources, Metrics — capability-gated); Pipelines; Data Science; AI (Knowledge, Agents, AI Gateway); Operate (Governance, Storage, Infrastructure, Settings); Help.
 
 ### Adapter and add-on layer
 
@@ -137,7 +137,7 @@ kubectl top nodes
 
 ## Key URLs
 
-**Portable Core:** Dashboard · Knowledge · Agents (admins) · AI Gateway · Governance · Storage · Services · System · Settings are always present. Sources/Catalog/Analytics and add-on pages appear only when their runtime capability is explicitly true (`GET /api/capabilities`).
+**Always present:** Dashboard · Knowledge · Agents (admins) · AI Gateway · Governance · Storage · Infrastructure · Settings. Lakehouse pages (Catalog, Analytics, Sources, Metrics) and add-on pages appear only when their runtime capability is explicitly true (`GET /api/capabilities`).
 
 | Service | URL | Credentials |
 |---|---|---|
@@ -350,7 +350,8 @@ See `.claude/agents/pm-agent.md` for detailed spawning examples and coordination
 
 | Doc | Purpose |
 |-----|---------|
-| `README.md` | Public overview — governed tool layer for AI agents and apps |
+| `README.md` | Public overview — lightweight open lakehouse, AI layer on top |
+| `docs/POSITIONING_V7.md` | v7 decision: why the lakehouse, what is not validated yet |
 | `docs/README.md` | Active documentation index and status matrix |
 | `docs/PRODUCT_CONCEPT.md` | Product strategy, boundary, users, and open-core policy |
 | `docs/ARCHITECTURE.md` | Portable Core, adapters, add-ons, and capability semantics |
@@ -366,8 +367,9 @@ See `.claude/agents/pm-agent.md` for detailed spawning examples and coordination
 
 ## Current Status
 
-> **Direction (v6.0, 2026-09-07):** governed data tool server for AI agents and apps (v5.0 "Portable AI Data Foundation" superseded; see `docs/POSITIONING_REVIEW.md`). Where the build still does not fit: `docs/POSITIONING_FIT_AUDIT.md` §0. The pre-v6 completion log lives in `docs/archive/IMPLEMENTATION_LOG_2026H1.md`.
+> **Direction (v7.0, 2026-11-12):** lightweight open lakehouse for small and mid-size teams on AWS (v6.0 "governed data tool server" superseded; see `docs/POSITIONING_V7.md`). The pre-v6 completion log lives in `docs/archive/IMPLEMENTATION_LOG_2026H1.md`.
 
+- **Lakehouse (2.6):** catalog export `POST /api/catalogs/{name}/export` (Glue → Iceberg REST without copying data; CI-exercised between Polaris catalogs, no live Glue move yet); Trino workers `trino.workers.replicas`; console menu leads with Lakehouse, AI is its own section.
 - **Tool surface:** REST/OpenAPI, read-only MCP at `POST /api/mcp` (30 read actions, incl. `metric_list/describe/query/values`: admin-approved versioned metric definitions compiled to cited SQL), gateway OpenAPI at `GET /api/tools/openapi.json`.
 - **Caller identity:** service-account keys (scoped, expiring, rotatable, per-key rate limit), the console's HttpOnly session cookie (same-origin only on state-changing requests), and OAuth resource-server mode for IdP tokens (off by default; never exercised against a live IdP). A key or IdP token never passes `require_admin`/`require_human` and cannot set a password.
 - **Governance at the data layer:** collection ACL, chunk-level caller filters (`app/chunk_access.py`), SQL RLS/masking on `/queries/execute` (the catalog preview runs through it), per-caller/collection PII modes and sensitivity labels, tool-call audit (`tool_call_log`, incl. refused calls and `ai.embed`), enforced per-caller budgets (402).
