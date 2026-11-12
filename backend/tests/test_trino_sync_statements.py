@@ -145,3 +145,16 @@ def test_target_ref_strips_the_source_from_the_route_target_and_normalises_the_n
     assert s.target_ref("public.orders", "datapond.default.public.orders").sql() == "iceberg.default.orders"
     assert s.target_ref("orders", "datapond.default.orders").sql() == "iceberg.default.orders"
     assert s.target_ref("public.orders", "datapond.sales.orders").sql() == "iceberg.sales.orders"
+
+
+def test_a_json_source_loads_into_a_row_target_written_before_2_5():
+    """Live 2026-11-12: public.api_events refused 'payload' as 'changed type from row(...) to
+    varchar' every run since 11-10. The pandas path wrote JSON objects as nested rows; Trino
+    casts JSON to ROW/ARRAY/MAP by field name, so the load casts instead of stopping."""
+    row = 'row("flags" array(varchar), "client" varchar)'
+    assert s.compatible("json", row) is True
+    assert s.compatible("json", "array(varchar)") is True and s.compatible("json", "map(varchar, varchar)") is True
+    assert s.build_evolve(T, [("payload", row)], [("payload", "json")]) == []
+    (replace,) = s.build_full(T, S, [("payload", "json")], None, existing=[("payload", row)])
+    assert f'CAST("payload" AS {row}) AS "payload"' in replace
+    assert s.compatible("varchar(10)", row) is False, "text into a row is still a change"
