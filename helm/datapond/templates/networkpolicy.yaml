@@ -70,7 +70,7 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        values: [{{ .Values.backend.name }}, {{ (.Values.litellm).name | default "litellm" }}, {{ (.Values.trino).name | default "trino" }}]
+        values: [{{ .Values.backend.name }}, {{ (.Values.litellm).name | default "litellm" }}, {{ (.Values.trino).name | default "trino" }}{{ if gt (int (dig "workers" "replicas" 0 (.Values.trino | default dict))) 0 }}, {{ (.Values.trino).name | default "trino" }}-worker{{ end }}]
   policyTypes: [Egress]
   egress:
     - to:

@@ -588,6 +588,15 @@ trino:
       cpu: 2000m
       memory: 4Gi
 
+  # Worker pods beside the coordinator. 0 (default): one pod plans and executes, as the
+  # single-node reference runs. >0: the coordinator only plans and the workers execute;
+  # they read the same catalogs and credentials. Size each worker like the coordinator
+  # unless resources/heap are given.
+  workers:
+    replicas: 0
+    heap: 2G
+    maxMemoryPerNode: 1GB
+    resources: {}
   persistence:
     enabled: true
     size: 50Gi
@@ -704,6 +713,10 @@ polaris:
   storage:
     type: s3
     defaultBaseLocation: s3://iceberg/warehouse
+    # Further s3:// locations every catalog accepts, for tables registered in place by
+    # the catalog export (POST /api/catalogs/{name}/export) — e.g. the Glue warehouse
+    # you are leaving. Empty: each catalog accepts only its own base location.
+    extraAllowedLocations: []
   # Further Polaris catalogs the catalog-init Job creates next to `catalogName`, each
   # with the same namespaces and grants and its own base location
   # s3://<warehouseBucket>/catalogs/<name>. Names are lowercase identifiers; add the

@@ -87,6 +87,15 @@ eventually("Trino listing both catalogs",
            lambda: {DEFAULT, SECOND} <= {r[0] for r in trino("SHOW CATALOGS")}, seconds=240)
 log(f"trino has catalogs {DEFAULT} and {SECOND}")
 
+
+def workers():
+    rows = trino("SELECT count(*) FROM system.runtime.nodes WHERE coordinator = false AND state = 'active'")
+    return rows[0][0] >= 1
+
+
+eventually("a Trino worker joining the coordinator", workers, seconds=240)
+log("trino has an active worker; the coordinator only plans")
+
 # ── 1. register the second catalog through the admin API ─────────────────────
 status, body = call("POST", "/api/catalogs", {
     "name": SECOND, "kind": "polaris", "engine_catalog": SECOND,
@@ -174,4 +183,28 @@ flags = {c["name"]: c["is_default"] for c in b.get("catalogs", [])}
 if flags.get(DEFAULT) is not True or flags.get(SECOND) is not False:
     fail(f"registry flags wrong: {flags}")
 
-log("PASS: two catalogs listed, kept apart, resolved, queried and tested")
+# ── 7. catalog export: register a table of one catalog in the other, no copy ─
+# The exit path off a provider catalog (Glue → an Iceberg REST catalog) is this same
+# call; here REST → REST, both on MinIO. catb accepts iceberg's location through
+# polaris.storage.extraAllowedLocations (ci/values-multicatalog.yaml).
+trino(f"CREATE TABLE {DEFAULT}.raw.ci_export AS SELECT * FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c'), "
+      f"(4, 'd'), (5, 'e')) AS t(id, v)")
+EXPORT = {"target": SECOND, "schema": "raw", "tables": ["ci_export", "ci_orders"]}
+st, b = call("POST", f"/api/catalogs/{DEFAULT}/export", EXPORT)
+plan = {t["table"]: t["action"] for t in b.get("tables", [])} if st == 200 else None
+if plan != {"ci_export": "register", "ci_orders": "exists"} or b.get("applied") is not False:
+    fail(f"export plan -> {st} {b}")
+if "ci_export" in {r[0] for r in trino(f"SHOW TABLES FROM {SECOND}.raw", SECOND)}:
+    fail("the plan registered something")
+st, b = call("POST", f"/api/catalogs/{DEFAULT}/export", {**EXPORT, "apply": True})
+done = {t["table"]: t for t in b.get("tables", [])} if st == 200 else {}
+row = done.get("ci_export", {})
+if row.get("action") != "registered" or row.get("rows_source") != 5 or row.get("rows_target") != 5:
+    fail(f"export apply -> {st} {b}")
+got = trino(f"SELECT count(*), max(v) FROM {SECOND}.raw.ci_export", SECOND)[0]
+if list(got) != [5, "e"]:
+    fail(f"{SECOND}.raw.ci_export reads {got}, want [5, 'e']")
+log(f"export: {DEFAULT}.raw.ci_export registered in {SECOND} without copying (5 rows both sides); "
+    "ci_orders already there, left alone")
+
+log("PASS: two catalogs listed, kept apart, resolved, queried, tested and exported")

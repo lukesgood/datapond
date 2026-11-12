@@ -38,6 +38,11 @@ polaris:
     limits: { cpu: "1", memory: 1Gi }
   initNamespaces: [raw]
   extraCatalogNames: [catb]
+  storage:
+    defaultBaseLocation: s3://iceberg/warehouse
+    # catb also accepts the default catalog's location, so the catalog export check
+    # can register an `iceberg` table in catb in place (multicatalog_check.py §7).
+    extraAllowedLocations: ["s3://iceberg/warehouse"]
 
 trino:
   enabled: true
@@ -49,6 +54,16 @@ trino:
   persistence:
     enabled: true
     size: 2Gi
+  # One small worker: the coordinator then only plans, so every query in this job —
+  # the catalog checks, the source-catalog sync, the federation, the export — runs on
+  # a worker, including after the backend restarts both for a new source catalog.
+  workers:
+    replicas: 1
+    heap: 1G
+    maxMemoryPerNode: 300MB
+    resources:
+      requests: { cpu: 250m, memory: 1280Mi }
+      limits: { cpu: "1", memory: 1792Mi }
   extraCatalogs:
     - name: catb
       type: rest
