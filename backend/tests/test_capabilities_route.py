@@ -101,3 +101,17 @@ def test_a_caller_signed_in_by_the_session_cookie_gets_the_full_map(client, monk
     body = client.get("/api/capabilities", cookies={"datapond_token": "cookie-jwt"}).json()
     for key in PRIVATE_KEYS:
         assert key in body
+
+
+def test_a_signed_in_caller_gets_the_deployed_version_and_an_anonymous_one_does_not(client, monkeypatch):
+    """Settings showed a hard-coded 2.3.0 on a 2.7.0 deployment (persona review #7). The
+    chart passes its image tag as DATAPOND_VERSION; the version is deployment detail, so
+    only a signed-in caller sees it."""
+    import app.api.auth as auth
+
+    async def _accept(creds, request=None):
+        return {"id": "u1", "username": "someone", "role": "admin"}
+    monkeypatch.setattr(auth, "get_current_user", _accept)
+    monkeypatch.setenv("DATAPOND_VERSION", "2.7.0-0065885")
+    assert client.get("/api/capabilities", cookies={"datapond_token": "jwt"}).json()["version"] == "2.7.0-0065885"
+    assert "version" not in client.get("/api/capabilities").json()

@@ -677,6 +677,9 @@ async def get_capabilities(request: Request):
     from app.api.webauthn import webauthn_enabled
     caps["webauthn"] = webauthn_enabled()
     if await _caller_is_signed_in(request):
+        # The deployed build (the chart's image tag), for Settings — deployment detail,
+        # so signed-in callers only.
+        caps["version"] = os.environ.get("DATAPOND_VERSION", "") or None
         return caps
     return {key: caps[key] for key in PUBLIC_CAPABILITIES}
 

@@ -1876,7 +1876,7 @@ async def list_tables(connection_id: str, user: dict = Depends(require_user)):
         pool = await get_db_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT source_table, enabled, sync_mode, incremental_column, last_value, partition_spec, key_columns, pii_columns FROM connector_sync_jobs WHERE connection_id=$1",
+                "SELECT source_table, enabled, sync_mode, incremental_column, last_value, partition_spec, key_columns, pii_columns, target_catalog FROM connector_sync_jobs WHERE connection_id=$1",
                 uuid.UUID(connection_id)
             )
         config_map = {r['source_table']: r for r in rows}
@@ -1906,6 +1906,8 @@ async def list_tables(connection_id: str, user: dict = Depends(require_user)):
                 "partition_spec": part_spec,
                 "key_columns": _parse_key_columns(cfg['key_columns']) if cfg else None,
                 "pii_columns": _parse_key_columns(cfg['pii_columns']) if cfg else None,
+                # where the table lands; None = the default catalog
+                "target_catalog": (cfg['target_catalog'] if cfg and 'target_catalog' in cfg.keys() else None),
             }
 
         return {"tables": [_table_info(t) for t in tables]}
@@ -1926,7 +1928,11 @@ async def set_table_enabled(connection_id: str, table_name: str, body: dict,
         incremental_column  = body.get("incremental_column")   # None = don't change
         key_columns         = body.get("key_columns", "__keep__")  # list|[]|None; sentinel=don't change
         pii_columns         = body.get("pii_columns", "__keep__")  # list|["*"]|[]; sentinel=don't change
+        target_catalog      = body.get("target_catalog", "__keep__")  # name|""(default); sentinel=don't change
         pool = await get_db_pool()
+        resolved_target = None
+        if target_catalog != "__keep__" and target_catalog:
+            resolved_target = await _resolve_target_catalog(pool, connection_id, table_name, target_catalog)
         async with pool.acquire() as conn:
             existing = await conn.fetchval(
                 "SELECT id FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
@@ -1961,7 +1967,15 @@ async def set_table_enabled(connection_id: str, table_name: str, body: dict,
                     table_name, f"datapond.default.{table_name}",
                     enabled, incremental_column or None
                 )
-        return {"table": table_name, "enabled": enabled}
+            if target_catalog != "__keep__":
+                await conn.execute(
+                    "UPDATE connector_sync_jobs SET target_catalog=$1 WHERE connection_id=$2 AND source_table=$3",
+                    resolved_target, uuid.UUID(connection_id), table_name)
+            else:
+                resolved_target = await conn.fetchval(
+                    "SELECT target_catalog FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
+                    uuid.UUID(connection_id), table_name)
+        return {"table": table_name, "enabled": enabled, "target_catalog": resolved_target}
     except HTTPException:
         raise
     except Exception as e:
