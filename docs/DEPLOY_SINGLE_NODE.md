@@ -676,7 +676,8 @@ apply + cloud-init + secrets re-seed + Helm install), per the DR doc's objective
 ### 7a. Polaris beside Glue (2.7)
 
 Since 2026-11-12 the reference runs Polaris next to Glue: `polaris.enabled: true`,
-`replicas: 2`, `catalogName: lake`, `storage.defaultBaseLocation:
+`replicas: 1` with a 50m CPU request (two replicas filled the t3.xlarge node's CPU requests
+and blocked rolling updates; replicas share one token key, so more can run on a bigger node), `catalogName: lake`, `storage.defaultBaseLocation:
 s3://datapond-iceberg/polaris/lake`, and a `trino.extraCatalogs` entry `polaris_lake` (Iceberg
 REST to `http://polaris.datapond.svc.cluster.local:8181/api/catalog`, the chart's Polaris
 client secret). Polaris keeps its metadata in Aurora (database `polaris_catalog`, created by

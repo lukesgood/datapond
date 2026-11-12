@@ -31,6 +31,13 @@ or a workaround; **Low** wording, polish.
 | 16 | Platform admin | Infrastructure | Polaris reads **Healthy** while DataPond cannot list it (#2); service cards say "Version: Running"; the bar reads "7 / 11 healthy" counting configured adapters as not healthy. | Low |
 | 17 | Analyst | Analytics editor | Cmd+Enter ran the previous statement once ("Editor changed since run"); the Run button worked. | Low |
 
+## Status after the fix pass (2026-11-12, release `2.7.0-46e845d`)
+
+- **#1 fixed** (PR #260): a JSON source loads into a pre-2.5 nested target; live `public.api_events` synced 9,000 rows, `payload` filled for all.
+- **#2 fixed** (PR #260): Polaris signs tokens with one shared key; live connection test 6/6, `polaris_lake` back in Catalog and the schema tree. The second Polaris replica was then dropped (CPU requests had reached 95% of the node and a rolling update could not schedule); one replica with a 50m request.
+- **#3–#14 fixed** (PR #261), checked in the browser on the live console: v7 copy and tab title; Settings version `2.7.0-46e845d`; Export dialog (Plan: 24 register, 1 exists, locations listed — not applied) and Mirrors section; source catalogs follow their share list; target catalog shown per table (`→ polaris_lake`); catalog chips per catalog with correct counts; Lakehouse row on the dashboard; workflow says "2 catalogs".
+- **Open:** the connection table list shows "—" as Last rows for a table last synced into a non-default catalog (history shows 1,200); "SQL Lab"/"Query Lab" remain on the SQL Lab help page and Experiments; non-admin roles still to be walked.
+
 ## Worked as expected
 
 - Menu order (Lakehouse → Data Science → AI → Operate) and the dashboard workflow (Connect → Organize → Query → Govern → Add AI).
