@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import Link from "next/link"
+import { ExportDialog, MirrorsSection } from "@/components/settings/catalog-export"
 import { useToast } from "@/lib/toast"
 import { useConfirm } from "@/lib/confirm"
 import { usePermissions } from "@/lib/permissions"
@@ -16,7 +18,7 @@ import {
   KIND_FIELDS, KIND_LABEL, KINDS, OPEN_ACCESS, RESTRICT_NOTE, accessSummary, addGrant,
   deleteBlocked, disableBlocked, emptyForm, formFromCatalog, grantCandidates, grantKey,
   grantLabel, grantsChanged, grantsPayload, locationOf, removeGrant, testSummary,
-  toCreatePayload, toPatchPayload, validateForm,
+  toCreatePayload, toPatchPayload, validateForm, isLakeKind,
   type CatalogForm, type CatalogGrant, type CatalogKind, type DataCatalog, type FormErrors,
   type GrantCandidate, type TestResult,
 } from "@/lib/data-catalogs"
@@ -53,6 +55,8 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
   // Who may use each catalog — admins only (the grants routes need a signed-in admin).
   const [grants, setGrants] = useState<Record<string, CatalogGrant[] | "error">>({})
   const [access, setAccess] = useState<DataCatalog | null>(null)
+  const [exporting, setExporting] = useState<DataCatalog | null>(null)
+  const [mirrorsKey, setMirrorsKey] = useState(0)
 
   const loadGrants = useCallback(async (names: string[]) => {
     const pairs = await Promise.all(names.map(async n => {
@@ -153,7 +157,7 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{c.name}</span>
                       {c.is_default && <Badge className="text-2xs">Default</Badge>}
-                      <Badge variant="outline" className="text-2xs">{KIND_LABEL[c.kind] ?? c.kind}</Badge>
+                      <Badge variant="outline" className="text-2xs">{(c.kind === "trino_source" ? "Source database" : KIND_LABEL[c.kind])}</Badge>
                       {!c.enabled && <Badge variant="outline" className="text-2xs text-muted-foreground">Disabled</Badge>}
                       {c.has_secret && (
                         <span className="inline-flex items-center gap-1 text-2xs text-muted-foreground" title="A credential is stored">
@@ -167,7 +171,10 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
                           <button className="text-primary disabled:opacity-40" disabled={t === "running"}
                                   onClick={() => void test(c.name)}>Test</button>
                           <button className="text-primary" onClick={() => setEditing(c)}>Edit</button>
-                          {!c.is_default && c.enabled && (
+                          {isLakeKind(c.kind) && c.enabled && (
+                            <button className="text-primary" onClick={() => setExporting(c)}>Export…</button>
+                          )}
+                          {!c.is_default && c.enabled && c.kind !== "trino_source" && (
                             <button className="text-primary disabled:opacity-40" disabled={busy === c.name}
                                     onClick={() => void act(c.name, () => call(`/api/catalogs/${encodeURIComponent(c.name)}`,
                                       json("PATCH", { is_default: true })), `${c.name} is now the default`)}>
@@ -187,7 +194,16 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
                       )}
                     </div>
                     {locationOf(c) && <p className="truncate text-muted-foreground" title={locationOf(c)}>{locationOf(c)}</p>}
-                    {canEdit && source !== "env" && (
+                    {c.kind === "trino_source" && (
+                      <p className="flex items-center gap-1.5 text-muted-foreground">
+                        <Lock className="h-3 w-3 shrink-0" />
+                        <span>Access follows this source&apos;s share list.</span>
+                        <Link className="text-primary"
+                              href={c.config?.connection_id ? `/connectors/connections/${String(c.config.connection_id)}` : "/connectors"}>
+                          Open the connection</Link>
+                      </p>
+                    )}
+                    {canEdit && source !== "env" && c.kind !== "trino_source" && (
                       <p className="flex items-center gap-1.5 text-muted-foreground">
                         <Lock className="h-3 w-3 shrink-0" />
                         <span>Access: {grants[c.name] === undefined ? "…"
@@ -218,6 +234,7 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
               <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEditing("new")}>
                 <Plus className="h-3.5 w-3.5" />Add catalog</Button>
             )}
+            {canEdit && source !== "env" && <MirrorsSection refreshKey={mirrorsKey} />}
           </>
         )}
       </CardContent>
@@ -227,6 +244,10 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
           onClose={() => setEditing(null)}
           onSaved={async (msg) => { setEditing(null); toast(msg, "success"); await load() }}
         />
+      )}
+      {canEdit && exporting && (
+        <ExportDialog source={exporting} catalogs={rows} onClose={() => setExporting(null)}
+                      onApplied={() => setMirrorsKey(k => k + 1)} />
       )}
       {canEdit && access && (
         <AccessDialog

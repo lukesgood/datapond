@@ -73,7 +73,7 @@ export function AppSidebar() {
           </div>
           <div className="min-w-0 leading-tight">
             <h1 className="text-base font-bold tracking-tight">DataPond</h1>
-            <p className="text-2xs font-medium text-muted-foreground">Governed data tools for AI</p>
+            <p className="text-2xs font-medium text-muted-foreground">Lightweight, open lakehouse</p>
           </div>
         </div>
 

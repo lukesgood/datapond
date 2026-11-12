@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { useCapabilities } from "@/lib/capabilities"
+import { lakeCatalogs } from "@/lib/data-catalogs"
 import { useConfirm } from "@/lib/confirm"
 import { useToast } from "@/lib/toast"
 import { buildToolCallSection, windowParams } from "@/lib/compliance-report"
@@ -243,6 +244,22 @@ interface PreviewResult {
 
 type DefaultDenyState = "enabled" | "disabled" | "unknown"
 
+function CatalogSelect({ value, lakes, fallback, onChange }: {
+  value: string; lakes: { engine_catalog: string; is_default: boolean }[]; fallback: string
+  onChange: (v: string) => void
+}) {
+  const def = lakes.find(c => c.is_default)?.engine_catalog ?? fallback
+  return (
+    <select aria-label="Catalog" value={value} onChange={(e) => onChange(e.target.value)}
+            className="h-8 w-full rounded-md border bg-background px-2 text-sm">
+      <option value="">Catalog: default ({def})</option>
+      {lakes.filter(c => c.engine_catalog !== def).map(c => (
+        <option key={c.engine_catalog} value={c.engine_catalog}>{c.engine_catalog}</option>
+      ))}
+    </select>
+  )
+}
+
 function AccessControlTab() {
   const [policies, setPolicies] = useState<RlsPolicy[]>([])
   const [masks, setMasks] = useState<MaskPolicy[]>([])
@@ -252,7 +269,7 @@ function AccessControlTab() {
 
   // create-policy form
   const [form, setForm] = useState({
-    name: "", catalog_name: "iceberg", schema_name: "", table_name: "",
+    name: "", catalog_name: "", schema_name: "", table_name: "",
     filter_expression: "", role_names: "",
   })
   // create-mask form
@@ -260,10 +277,17 @@ function AccessControlTab() {
     name: string; catalog_name: string; schema_name: string; table_name: string
     column_name: string; masking_type: string; custom_expression: string; role_names: string
   }>({
-    name: "", catalog_name: "iceberg", schema_name: "", table_name: "",
+    name: "", catalog_name: "", schema_name: "", table_name: "",
     column_name: "", masking_type: "full", custom_expression: "", role_names: "",
   })
   const [maskErr, setMaskErr] = useState<string | null>(null)
+  // Lake catalogs the policy can target, by the name SQL uses for them.
+  const [lakes, setLakes] = useState<{ engine_catalog: string; is_default: boolean }[]>([])
+  useEffect(() => {
+    fetch("/api/catalogs").then(res => (res.ok ? res.json() : { catalogs: [] }))
+      .then(d => setLakes(lakeCatalogs<{ engine_catalog: string; is_default: boolean; kind: string; enabled: boolean }>(d.catalogs ?? [])))
+      .catch(() => setLakes([]))
+  }, [])
   // preview
   const [pvSql, setPvSql] = useState("SELECT * FROM sales.orders")
   const [pvRoles, setPvRoles] = useState("business_analyst")
@@ -317,7 +341,7 @@ function AccessControlTab() {
   const createPolicy = async () => {
     setErr(null)
     const body = {
-      name: form.name, catalog_name: form.catalog_name === "iceberg" ? queryCatalog : form.catalog_name, schema_name: form.schema_name,
+      name: form.name, catalog_name: form.catalog_name || queryCatalog, schema_name: form.schema_name,
       table_name: form.table_name, filter_expression: form.filter_expression,
       role_names: form.role_names.split(",").map((s) => s.trim()).filter(Boolean),
     }
@@ -353,7 +377,7 @@ function AccessControlTab() {
   const createMask = async () => {
     setMaskErr(null)
     const body = {
-      name: maskForm.name, catalog_name: maskForm.catalog_name === "iceberg" ? queryCatalog : maskForm.catalog_name, schema_name: maskForm.schema_name,
+      name: maskForm.name, catalog_name: maskForm.catalog_name || queryCatalog, schema_name: maskForm.schema_name,
       table_name: maskForm.table_name, column_name: maskForm.column_name,
       masking_type: maskForm.masking_type,
       custom_expression: maskForm.masking_type === "custom" ? maskForm.custom_expression : null,
@@ -430,6 +454,7 @@ function AccessControlTab() {
         <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2"><Lock className="h-4 w-4" />Add RLS Policy</CardTitle></CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-3">
           <Input placeholder="Policy name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <CatalogSelect value={form.catalog_name} lakes={lakes} fallback={queryCatalog} onChange={(v) => setForm({ ...form, catalog_name: v })} />
           <Input placeholder="schema (e.g. sales)" value={form.schema_name} onChange={(e) => setForm({ ...form, schema_name: e.target.value })} />
           <Input placeholder="table (e.g. orders)" value={form.table_name} onChange={(e) => setForm({ ...form, table_name: e.target.value })} />
           <Input className="md:col-span-2 font-mono text-xs" placeholder="filter (e.g. region = current_user_attribute('region'))" value={form.filter_expression} onChange={(e) => setForm({ ...form, filter_expression: e.target.value })} />
@@ -497,7 +522,8 @@ function AccessControlTab() {
                 <SelectItem value="custom">Custom expression</SelectItem>
               </SelectContent>
             </Select>
-            <Input placeholder="schema (e.g. sales)" value={maskForm.schema_name} onChange={(e) => setMaskForm({ ...maskForm, schema_name: e.target.value })} />
+            <CatalogSelect value={maskForm.catalog_name} lakes={lakes} fallback={queryCatalog} onChange={(v) => setMaskForm({ ...maskForm, catalog_name: v })} />
+          <Input placeholder="schema (e.g. sales)" value={maskForm.schema_name} onChange={(e) => setMaskForm({ ...maskForm, schema_name: e.target.value })} />
             <Input placeholder="table (e.g. customers)" value={maskForm.table_name} onChange={(e) => setMaskForm({ ...maskForm, table_name: e.target.value })} />
             <Input placeholder="column (e.g. email)" value={maskForm.column_name} onChange={(e) => setMaskForm({ ...maskForm, column_name: e.target.value })} />
             <Input placeholder="Roles to mask for (comma-separated)" value={maskForm.role_names} onChange={(e) => setMaskForm({ ...maskForm, role_names: e.target.value })} />
@@ -519,7 +545,7 @@ function AccessControlTab() {
               {masks.length === 0 && <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-6">No masking policies</TableCell></TableRow>}
               {masks.map((m) => (
                 <TableRow key={m.id}>
-                  <TableCell className="font-mono text-xs">{m.schema_name}.{m.table_name}.{m.column_name}</TableCell>
+                  <TableCell className="font-mono text-xs">{m.catalog_name ? `${m.catalog_name}.` : ""}{m.schema_name}.{m.table_name}.{m.column_name}</TableCell>
                   <TableCell><Badge variant="outline" className="text-2xs">{m.masking_type}</Badge></TableCell>
                   <TableCell>{m.roles.map((r) => <Badge key={r} variant="secondary" className="text-2xs mr-1">{r}</Badge>)}</TableCell>
                   <TableCell><Badge variant={m.enabled ? "secondary" : "outline"} className="text-2xs">{m.enabled ? "Active" : "Inactive"}</Badge></TableCell>

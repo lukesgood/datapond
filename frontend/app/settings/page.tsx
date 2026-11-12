@@ -25,7 +25,7 @@ import {
 } from "lucide-react"
 import { getUser } from "@/lib/auth"
 import NextLink from "next/link"
-import { useCapabilityStrict, useCapability } from "@/lib/capabilities"
+import { useCapabilityStrict, useCapability, useCapabilities } from "@/lib/capabilities"
 import { usePermissions, useHasPermission } from "@/lib/permissions"
 import { permissionState } from "@/lib/permission-state"
 import { PermissionUnknown } from "@/components/ui/permission-state"
@@ -108,6 +108,8 @@ function SettingsWorkspace() {
   const pipelinesEnabled = useCapability("pipelines")
   const experimentsEnabled = useCapability("experiments")
   const mlflowUiEnabled = useCapability("mlflow_ui")
+  const reportedVersion = useCapabilities().version
+  const version = typeof reportedVersion === "string" && reportedVersion ? reportedVersion : "unknown"
   const [services, setServices] = useState<ServiceSummary[]>([])
   const [stats, setStats]       = useState<DashboardStats | null>(null)
   const [loading, setLoading]   = useState(true)
@@ -185,7 +187,7 @@ function SettingsWorkspace() {
               sub: "cluster",    ok: !loading && (stats?.cpu_usage ?? 0) < 90,   warn: (stats?.cpu_usage ?? 0) >= 90 },
             { label: "Memory",     value: loading ? null : stats?.memory_usage != null ? `${stats.memory_usage.toFixed(0)}%` : "—",
               sub: "cluster",    ok: !loading && (stats?.memory_usage ?? 0) < 90, warn: (stats?.memory_usage ?? 0) >= 90 },
-            { label: "Version",    value: "2.3.0",            sub: "DataPond",      ok: true },
+            { label: "Version",    value: version,            sub: "DataPond",      ok: true },
           ].map(({ label, value, sub, ok, warn }: StatusCardItem) => (
             <Card key={label}>
               <CardContent className="p-4">

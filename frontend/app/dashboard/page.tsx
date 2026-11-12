@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { RefreshCw } from "lucide-react"
 import { ActivityPanel, type GlobalBudget } from "@/components/dashboard/activity-panel"
+import { LakehouseRow } from "@/components/dashboard/lakehouse-row"
 import { JourneyStrip } from "@/components/dashboard/journey-strip"
 import { PlatformStatusLine } from "@/components/dashboard/platform-status-line"
 import { Button } from "@/components/ui/button"
@@ -140,6 +141,8 @@ export default function DashboardPage() {
           />
         </div>
       )}
+
+      <LakehouseRow />
 
       <ActivityPanel canAudit={canAudit} canSpend={canSpend} actors={actors} totals={totals} spend={spend} budget={budget} />
 

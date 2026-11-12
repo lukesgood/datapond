@@ -23,7 +23,7 @@ const ARTICLES: Record<string, Doc> = {
   overview: {
     title: "Platform Overview",
     status: "Shipped",
-    summary: "DataPond is a governed data tool server for AI agents and applications: cited RAG and governed SQL as tools, with collection and row access, PII masking, retrieval-level audit, and per-caller spend controlled at the data layer. Storage, vector, model, catalog, and query providers are chosen by deployment profile, so the core is not tied to one cloud.",
+    summary: "DataPond is a lightweight, open lakehouse for small and mid-size teams on AWS: data in S3 as Apache Iceberg, tables in an Iceberg catalog, SQL through Trino. AI search, cited answers and agents sit on top of the same governed data. Each layer is an open standard, so storage, catalog, engine and models are chosen by deployment profile and the platform is not tied to one cloud.",
     points: [
       "Shipped core: collections, ingestion, chunk replacement, embeddings, pgvector retrieval, optional reranking, cited RAG answers, PII controls, access controls, and spend attribution.",
       "Portable contracts: S3 API, PostgreSQL + pgvector, LiteLLM/OpenAI-compatible model access, REST APIs, OIDC, Helm, and Kubernetes.",

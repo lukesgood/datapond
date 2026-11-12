@@ -11,18 +11,18 @@ import { startAuthentication } from "@simplewebauthn/browser"
 const FEATURES = [
   {
     icon: ShieldCheck,
-    title: "Governed RAG Core",
-    desc: "Ingest, chunk, embed, retrieve, rerank, and answer with collection access controls, PII masking, citations, and spend attribution.",
+    title: "Lakehouse on S3 and Iceberg",
+    desc: "Land databases, files and S3 data as Apache Iceberg tables, catalog them, and query the lake and your source databases together through Trino.",
   },
   {
     icon: Layers,
-    title: "Open by Contract",
-    desc: "S3-compatible objects, PostgreSQL + pgvector, and LiteLLM keep storage, vectors, and model providers replaceable.",
+    title: "Open by Layer",
+    desc: "S3 API storage, Iceberg tables, Glue or Iceberg REST catalogs, Trino and OpenAI-compatible models: each layer can be swapped without moving your data.",
   },
   {
     icon: Zap,
-    title: "AWS-Ready, Not AWS-Locked",
-    desc: "Use the AWS reference adapters or run the Portable Core with self-hosted OSS add-ons in infrastructure you control.",
+    title: "Governed, with AI on top",
+    desc: "Catalog grants, row filters, column masking and audit apply at the data layer, with cited search and agents on the same data.",
   },
 ]
 
@@ -264,20 +264,20 @@ export default function LoginPage() {
               </div>
               <span className="text-2xl font-bold tracking-tight text-white">DataPond</span>
             </div>
-            <p className="text-sm ml-12" style={{ color: "#7c93a3" }}>Governed data tools for AI agents</p>
+            <p className="text-sm ml-12" style={{ color: "#7c93a3" }}>Lightweight, open lakehouse</p>
           </div>
 
           {/* Hero */}
           <div className="space-y-6">
             <div>
               <h2 className="text-4xl font-bold text-white leading-tight mb-3">
-                Governed AI.<br />
+                Your lakehouse.<br />
                 <span style={{ background: "linear-gradient(90deg, #22d3ee, #818cf8)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
                   Without the lock-in.
                 </span>
               </h2>
               <p style={{ color: "#9fb3bf" }} className="text-base leading-relaxed max-w-sm">
-                Build production-oriented RAG and agent data flows on infrastructure you control — with portable storage, vector, and model contracts.
+                Start on one node in your own AWS account, keep your data in open formats, and add AI search and agents on top.
               </p>
             </div>
             <div className="space-y-4">
@@ -297,7 +297,7 @@ export default function LoginPage() {
           </div>
 
           <p className="text-xs" style={{ color: "#3f5561" }}>
-            © 2026 DataPond · Governed data tool server
+            © 2026 DataPond · Lightweight, open lakehouse
           </p>
         </div>
       </div>
@@ -313,7 +313,7 @@ export default function LoginPage() {
               <Layers className="h-6 w-6 text-white" />
             </div>
             <h1 className="text-2xl font-bold">DataPond</h1>
-            <p className="text-sm text-muted-foreground">Governed data tools for AI agents</p>
+            <p className="text-sm text-muted-foreground">Lightweight, open lakehouse</p>
           </div>
 
           <div className="space-y-1">

@@ -192,3 +192,18 @@ test("candidates merge service accounts and users, once each, minus those grante
     { id: BOT, label: "Nightly bot", service_account: true },
   ])
 })
+
+import { isLakeKind, landsIn, lakeCatalogs } from "./data-catalogs.ts"
+
+test("lake kinds exclude Trino sources", () => {
+  assert.ok(isLakeKind("polaris"))
+  assert.ok(!isLakeKind("trino_source"))
+  const list = [{ kind: "glue", enabled: true }, { kind: "trino_source", enabled: true }, { kind: "polaris", enabled: false }]
+  assert.equal(lakeCatalogs(list).length, 1)
+})
+
+test("a table lands in a named catalog only when it is not the default", () => {
+  assert.equal(landsIn(null, "lake"), null)
+  assert.equal(landsIn("lake", "lake"), null)
+  assert.equal(landsIn("polaris_lake", "lake"), "polaris_lake")
+})

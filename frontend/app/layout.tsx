@@ -14,8 +14,8 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" })
 
 export const metadata: Metadata = {
-  title: "DataPond — Governed data tool server",
-  description: "Cited RAG and governed SQL as tools for AI agents and apps, governed at the data layer: access, masking, audit, and per-caller spend.",
+  title: "DataPond — A lightweight, open lakehouse",
+  description: "A lightweight, open lakehouse for small and mid-size teams on AWS: S3 and Apache Iceberg, an Iceberg catalog, SQL through Trino, with AI search and agents on the same governed data.",
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

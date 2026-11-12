@@ -338,7 +338,7 @@ function ConnectorsPageInner() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Ingestion</h2>
+          <h2 className="text-2xl font-bold tracking-tight">Sources</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
             Batch ingestion — from external sources into Iceberg
           </p>
@@ -531,7 +531,7 @@ function ConnectorsPageInner() {
                             <code className="font-mono">{conn.catalog}</code>
                             <Link href={`/query?catalog=${encodeURIComponent(conn.catalog)}`}
                               className="hover:text-primary hover:underline">
-                              Query in SQL Lab
+                              Query in Analytics
                             </Link>
                           </span>
                         )}

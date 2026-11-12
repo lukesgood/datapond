@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/breadcrumb"
 import { Search, Database, FolderOpen, Layers, Share2, ChevronDown, ChevronRight } from "lucide-react"
 import dynamic from "next/dynamic"
+import { catalogTypeOf, inChip, namespaceChips, type RegistryEntry } from "@/lib/catalog-view"
 
 // reactflow pulls in a chunk we should not pay for unless the panel is opened.
 const RelationshipGraph = dynamic(
@@ -49,17 +50,20 @@ interface Table {
 const CATALOG_TYPE_META: Record<string, { label: string; color: string }> = {
   managed:  { label: "Managed",  color: "var(--dp-managed)" },
   external: { label: "External", color: "var(--dp-warn)" },
+  source:   { label: "Source DB", color: "var(--chart-4)" },
   foreign:  { label: "Foreign",  color: "var(--chart-2)" },
 }
 
 interface NamespaceInfo {
   name: string
+  catalog?: string
   properties?: Record<string, string>
 }
 
 interface CatalogData {
   tables: Table[]
   namespaces: NamespaceInfo[]
+  registry: RegistryEntry[]
 }
 
 interface CollectionOption { name: string }
@@ -101,9 +105,10 @@ function CatalogPageInner() {
       setLoading(true)
       setError(null)
 
-      const [tablesRes, namespacesRes] = await Promise.all([
+      const [tablesRes, namespacesRes, registryRes] = await Promise.all([
         fetch("/api/catalog/tables"),
         fetch("/api/catalog/namespaces"),
+        fetch("/api/catalogs").catch(() => null),
       ])
       if (!tablesRes.ok || !namespacesRes.ok) {
         throw new Error(`Catalog request failed (tables ${tablesRes.status}, namespaces ${namespacesRes.status})`)
@@ -111,7 +116,9 @@ function CatalogPageInner() {
       const tablesData = await tablesRes.json()
       const namespacesData = await namespacesRes.json()
 
+      const registryData = registryRes && registryRes.ok ? await registryRes.json().catch(() => ({})) : {}
       setData({
+        registry: registryData.catalogs || [],
         tables: tablesData.tables || [],
         namespaces: namespacesData.namespaces || [],
       })
@@ -136,17 +143,14 @@ function CatalogPageInner() {
       table.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       table.namespace.toLowerCase().includes(searchQuery.toLowerCase())
 
-    const matchesNamespace =
-      selectedNamespace === "all" || table.namespace === selectedNamespace
+    const matchesNamespace = inChip(selectedNamespace, table)
 
     return matchesSearch && matchesNamespace
   })
 
   // Count tables per namespace
-  const namespaceCounts = data?.tables.reduce((acc, table) => {
-    acc[table.namespace] = (acc[table.namespace] || 0) + 1
-    return acc
-  }, {} as Record<string, number>)
+  const chips = namespaceChips(data?.tables ?? [], data?.namespaces ?? [])
+  const selectedChip = chips.find(c => c.key === selectedNamespace)
 
   // Catalog-type distribution (managed/external/foreign) for the summary breakdown —
   // scannable "what's in here" metadata without eagerly loading any columns.
@@ -326,19 +330,19 @@ function CatalogPageInner() {
           >
             All ({totalTables})
           </Badge>
-          {data?.namespaces.map((namespace) => (
+          {chips.map((chip) => (
             <Badge
-              key={namespace.name}
+              key={chip.key}
               role="button"
               tabIndex={0}
-              aria-pressed={selectedNamespace === namespace.name}
-              aria-label={`Filter to namespace ${namespace.name} (${namespaceCounts?.[namespace.name] || 0} tables)`}
-              variant={selectedNamespace === namespace.name ? "default" : "outline"}
+              aria-pressed={selectedNamespace === chip.key}
+              aria-label={`Filter to namespace ${chip.label} (${chip.count} tables)`}
+              variant={selectedNamespace === chip.key ? "default" : "outline"}
               className="cursor-pointer px-3 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-              onClick={() => setSelectedNamespace(namespace.name)}
-              onKeyDown={onFilterKeyDown(namespace.name)}
+              onClick={() => setSelectedNamespace(chip.key)}
+              onKeyDown={onFilterKeyDown(chip.key)}
             >
-              {namespace.name} ({namespaceCounts?.[namespace.name] || 0})
+              {chip.label} ({chip.count})
             </Badge>
           ))}
         </div>
@@ -366,7 +370,7 @@ function CatalogPageInner() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="dp-num text-2xl font-bold tabular-nums">{data?.namespaces.length || 0}</div>
+            <div className="dp-num text-2xl font-bold tabular-nums">{chips.length}</div>
           </CardContent>
         </Card>
 
@@ -419,7 +423,7 @@ function CatalogPageInner() {
       {/* Tables Grid */}
       <div>
         <h3 className="text-xl font-semibold mb-4 flex items-baseline gap-2">
-          {selectedNamespace === "all" ? "All Tables" : `Tables in ${selectedNamespace}`}
+          {selectedNamespace === "all" ? "All Tables" : `Tables in ${selectedChip?.label ?? selectedNamespace}`}
           <span className="text-sm font-normal text-muted-foreground tabular-nums">
             {isFiltered
               ? `${filteredTables?.length ?? 0} of ${totalTables} shown`
@@ -434,7 +438,7 @@ function CatalogPageInner() {
                 name={table.name}
                 namespace={table.namespace}
                 catalog={table.catalog}
-                catalogType={table.catalog_type}
+                catalogType={catalogTypeOf(table, data?.registry ?? [])}
                 tableType={table.table_type}
                 lastUpdated={table.last_updated}
                 onSendToKnowledge={sendToKnowledgeAccess === "allowed" ? () => setSendTable(table) : undefined}

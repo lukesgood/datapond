@@ -105,6 +105,8 @@ spec:
           value: "production"
         # Product/profile metadata is informational and non-secret. It powers
         # truthful runtime labels without changing any feature toggle.
+        - name: DATAPOND_VERSION
+          value: {{ .Values.backend.image.tag | default .Chart.AppVersion | quote }}
         - name: DATAPOND_PROFILE_ID
           value: {{ .Values.product.profile.id | quote }}
         - name: DATAPOND_PROFILE_LABEL
