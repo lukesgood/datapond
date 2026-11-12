@@ -2,6 +2,7 @@
 
 import { use, useCallback, useEffect, useState, useRef } from "react"
 import { useToast } from "@/lib/toast"
+import { latestRowsByTable } from "@/lib/sync-table-rows"
 import { useConfirm } from "@/lib/confirm"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -1056,13 +1057,8 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
-  // Latest job rows per table from history (most recent session)
-  const latestTableRows = new Map<string, number>()
-  if (sessions[0]?.tables) {
-    for (const t of sessions[0].tables) {
-      if (t.rows != null) latestTableRows.set(t.table, t.rows)
-    }
-  }
+  // Rows per table from the newest session that synced it (lib/sync-table-rows.ts)
+  const latestTableRows = latestRowsByTable(sessions)
 
   // Filter: hide sensitive values AND ingestion metadata stored in config by old wizard
   const SENSITIVE = ["password", "secret", "key", "token"]

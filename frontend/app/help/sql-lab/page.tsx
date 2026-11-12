@@ -78,7 +78,7 @@ export default function SqlLabHelpPage() {
             <div>
               <h3 className="font-semibold">Navigate to Analytics</h3>
               <p className="text-sm text-muted-foreground">
-                Click &quot;Query Lab&quot; in the sidebar or visit{" "}
+                Click &quot;Analytics&quot; in the sidebar or visit{" "}
                 <Link href="/query" className="text-primary hover:underline">
                   /query
                 </Link>

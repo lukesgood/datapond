@@ -371,7 +371,7 @@ class QueryBody(BaseModel):
 
 @router.post("/semantic/metrics/{name}/query")
 async def query(name: str, body: QueryBody, user: dict = Depends(require_permission("query:run"))):
-    """The console's way to metric.query (SQL Lab's "Query as metric"). Same service,
+    """The console's way to metric.query (Analytics' "Query as metric"). Same service,
     same single `metric.query` audit row as the MCP tool."""
     return await service.run_metric_query(user, metric=name, by=body.by, period=body.period,
                                           grain=body.grain, where=body.where,

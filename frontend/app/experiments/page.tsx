@@ -1027,7 +1027,7 @@ function ExperimentsPageInner() {
                 <Clock className="h-10 w-10 text-muted-foreground/20 mb-3" />
                 <p className="text-sm text-muted-foreground">No runs yet</p>
                 <p className="text-xs text-muted-foreground/60 mt-1 max-w-xs">
-                  No runs in this experiment yet. Use the MLflow SDK in a notebook or the Query Lab to log runs.
+                  No runs in this experiment yet. Use the MLflow SDK in a notebook, or log a query result from Analytics.
                 </p>
               </div>
             ) : (
