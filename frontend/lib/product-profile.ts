@@ -42,7 +42,7 @@ export function getProductProfile(caps: Capabilities): ProductProfile {
       : {
           id: "portable-core",
           label: "Portable Core",
-          description: "Governed RAG core with replaceable infrastructure contracts.",
+          description: "Lightweight open lakehouse core with replaceable infrastructure layers.",
         }
 
   const adapters = [
