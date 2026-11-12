@@ -84,6 +84,18 @@ spec:
               name: datapond-secrets
               key: POSTGRES_PASSWORD
 
+        # ── Token signing: one symmetric key for every replica ─────
+        # The default keys are generated per process, so with replicas > 1 a token from
+        # one replica is refused by another (401). Env, not -D: the key stays out of the
+        # process arguments.
+        - name: POLARIS_AUTHENTICATION_TOKEN_BROKER_TYPE
+          value: "symmetric-key"
+        - name: POLARIS_AUTHENTICATION_TOKEN_BROKER_SYMMETRIC_KEY_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: datapond-secrets
+              key: POLARIS_TOKEN_KEY
+
         # ── Auth: internal token broker, OIDC disabled ────────────
         - name: QUARKUS_OIDC_TENANT_ENABLED
           value: "false"

@@ -76,3 +76,19 @@ def test_the_catalog_is_created_on_native_s3_too(tmp_path):
     assert env["CATALOG"]["value"] == "lake" and env["BASELOC"]["value"] == "s3://b/polaris"
     assert '\\"region\\":\\"us-east-1\\"' in script, script[:2000]
     assert "endpoint" not in script.split("storageConfigInfo")[1][:300]
+
+
+def test_every_polaris_replica_signs_tokens_with_one_shared_key(tmp_path):
+    """Default token keys are per process: with two replicas a token issued by one was
+    refused by the other — DataPond's Polaris browser answered 401 on the live node
+    (2026-11-12). A symmetric key from datapond-secrets, the same for every replica."""
+    out = render(tmp_path, GLUE_POLARIS + "\n", values="values-prod-single.yaml")
+    env = _env(_get(out, "Deployment", "polaris")["spec"]["template"]["spec"]["containers"][0])
+    assert env["POLARIS_AUTHENTICATION_TOKEN_BROKER_TYPE"]["value"] == "symmetric-key"
+    ref = env["POLARIS_AUTHENTICATION_TOKEN_BROKER_SYMMETRIC_KEY_SECRET"]["valueFrom"]["secretKeyRef"]
+    assert ref == {"name": "datapond-secrets", "key": "POLARIS_TOKEN_KEY"}
+    secret = next(d for d in _docs(out) if d["kind"] == "Secret" and d["metadata"]["name"] == "datapond-secrets")
+    data = secret.get("stringData") or secret.get("data") or {}
+    assert len(str(data.get("POLARIS_TOKEN_KEY", ""))) >= 32
+    java_opts = env.get("JAVA_OPTS_APPEND", {}).get("value", "")
+    assert "symmetric-key.secret" not in java_opts, "the key never sits in the JVM arguments"
