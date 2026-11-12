@@ -12,12 +12,18 @@
 {{- define "datapond.polarisS3Compat" -}}
 {{- if .Values.storage.endpoint -}}
 ,\"endpoint\":\"http://{{ .Values.storage.endpoint }}\",\"pathStyleAccess\":true,\"stsUnavailable\":true
+{{- else -}}
+,\"region\":\"{{ .Values.storage.region | default "us-east-1" }}\"
 {{- end -}}
+{{- end -}}
+
+{{- define "datapond.polarisRoleArn" -}}
+{{- (.Values.polaris.storage | default dict).roleArn | default "arn:aws:iam::000000000000:role/polaris" -}}
 {{- end -}}
 
 {{- /* The same storage config as a JSON object, for updating a catalog that exists. */ -}}
 {{- define "datapond.polarisStorageUpdate" -}}
-{\"storageType\":\"S3\",\"allowedLocations\":[\"$1\"{{ include "datapond.polarisExtraLocations" . }}],\"roleArn\":\"arn:aws:iam::000000000000:role/polaris\"{{ include "datapond.polarisS3Compat" . }}}
+{\"storageType\":\"S3\",\"allowedLocations\":[\"$1\"{{ include "datapond.polarisExtraLocations" . }}],\"roleArn\":\"{{ include "datapond.polarisRoleArn" . }}\"{{ include "datapond.polarisS3Compat" . }}}
 {{- end -}}
 
 {{/*

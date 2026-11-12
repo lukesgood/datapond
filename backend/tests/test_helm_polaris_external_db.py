@@ -62,3 +62,17 @@ def test_the_in_cluster_path_is_unchanged(tmp_path):
     out = render(tmp_path, None)
     env = _env(_get(out, "Deployment", "polaris")["spec"]["template"]["spec"]["containers"][0])
     assert env["QUARKUS_DATASOURCE_JDBC_URL"]["value"] == "jdbc:postgresql://postgres:5432/polaris_catalog"
+
+
+def test_the_catalog_is_created_on_native_s3_too(tmp_path):
+    """The catalog-init Job rendered only with MinIO, so Polaris beside Glue started with
+    no catalog ("Unable to find warehouse", live rehearsal 2026-11-12). On native S3 it
+    sends the region and uses the node's credentials (credential subscoping is skipped
+    without an endpoint)."""
+    out = render(tmp_path, GLUE_POLARIS.replace("  enabled: true\n", "  enabled: true\n  catalogName: lake\n", 1), values="values-prod-single.yaml")
+    job = _get(out, "Job", "polaris-catalog-init")
+    script = " ".join(job["spec"]["template"]["spec"]["containers"][0]["command"])
+    env = _env(job["spec"]["template"]["spec"]["containers"][0])
+    assert env["CATALOG"]["value"] == "lake" and env["BASELOC"]["value"] == "s3://b/polaris"
+    assert '\\"region\\":\\"us-east-1\\"' in script, script[:2000]
+    assert "endpoint" not in script.split("storageConfigInfo")[1][:300]
