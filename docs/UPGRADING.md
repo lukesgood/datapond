@@ -8,6 +8,12 @@ in the commit history; this file exists for the things an operator has to act on
 Positioning v7 (`docs/POSITIONING_V7.md`): DataPond is a lightweight open lakehouse; the AI
 features are a layer on top of it. Nothing is removed and no migration is added.
 
+**Live AWS Single-Node Reference: deployed 2026-11-12** (PR #256, release revision 12, tag
+`2.6.0-01a1ef2`). Verified on the node: Trino reloaded with `register-table-procedure`;
+Glue and source-catalog queries answer (6,000 each); the export refuses a source catalog
+and the same catalog with 400; no worker (none configured); the new menu is in the build.
+The export has not yet been run against a second lake catalog live (there is none).
+
 - **Catalog export.** `POST /api/catalogs/{name}/export` (admin) registers a catalog's
   Iceberg tables in another catalog without copying data — plan by default, `apply: true`
   to register and compare row counts. The chart now sets
