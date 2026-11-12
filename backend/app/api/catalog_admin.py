@@ -233,6 +233,34 @@ async def list_catalogs(user: dict = Depends(require_user)):
                          if access.allows(e)]}
 
 
+_LIST_LINKS = """SELECT mirror_catalog || '.' || mirror_schema || '.' || mirror_table AS mirror,
+                        owner_catalog || '.' || owner_schema || '.' || owner_table AS owner,
+                        location, mirror_metadata_file, status, detail, checked_at, refreshed_at
+                   FROM catalog_table_links ORDER BY 1"""
+
+
+async def _list_links(pool) -> list:
+    async with pool.acquire() as c:
+        rows = await c.fetch(_LIST_LINKS)
+    return [{k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in dict(r).items()} for r in rows]
+
+
+@router.get("/catalogs/mirrors")
+async def list_mirrors(admin: dict = Depends(require_admin)):
+    """Tables registered in two catalogs by the export: owner, read-only mirror, and the
+    last freshness check (fresh, diverged, error). See app/table_links.py."""
+    return {"mirrors": await _list_links(await _pool())}
+
+
+@router.post("/catalogs/mirrors/check")
+async def check_mirrors(admin: dict = Depends(require_admin)):
+    """Run the mirror freshness check now (app/mirror_freshness.py): re-point mirrors that
+    are behind their owner, report any committed to from outside."""
+    from app import mirror_freshness
+    results = await mirror_freshness.check_all(await _pool())
+    return {"results": [r.as_dict() for r in results]}
+
+
 @router.post("/catalogs", status_code=201)
 async def create_catalog(body: CatalogCreate, admin: dict = Depends(require_admin)):
     name = _check_ident("name", body.name)
@@ -396,6 +424,9 @@ class CatalogExport(BaseModel):
     schema_: Optional[str] = Field(default=None, alias="schema")
     tables: Optional[List[str]] = Field(default=None, max_length=500)
     apply: bool = False
+    # mirror: the source stays the owner and the target is a read-only mirror (default).
+    # move: the target becomes the owner and the source a read-only mirror.
+    mode: Literal["mirror", "move"] = "mirror"
     model_config = ConfigDict(populate_by_name=True)
 
 
@@ -413,6 +444,36 @@ def _exportable(name: str):
         _bad(f"'{entry.name}' is not an Iceberg lake catalog (kind {entry.kind}); only "
              f"{', '.join(sorted(_EXPORTABLE))} catalogs can be exported.")
     return entry
+
+
+_LINK_UPSERT = """INSERT INTO catalog_table_links
+    (mirror_catalog, mirror_schema, mirror_table, owner_catalog, owner_schema, owner_table,
+     location, mirror_metadata_file, status, refreshed_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'fresh',now())
+    ON CONFLICT (mirror_catalog, mirror_schema, mirror_table) DO UPDATE SET
+      owner_catalog = EXCLUDED.owner_catalog, owner_schema = EXCLUDED.owner_schema,
+      owner_table = EXCLUDED.owner_table, location = EXCLUDED.location,
+      mirror_metadata_file = EXCLUDED.mirror_metadata_file, status = 'fresh',
+      detail = NULL, refreshed_at = now()"""
+
+
+async def _record_links(pool, items, src: str, dst: str, mode: str) -> None:
+    """One owner/mirror link per registered table (app/table_links.py): mirror mode keeps
+    the source as owner, move makes the target the owner. A failure to record is logged
+    loudly — the table is registered either way, and an unrecorded mirror is unguarded."""
+    from app import table_links
+    try:
+        async with pool.acquire() as c:
+            for it in items:
+                if it.action != "registered":
+                    continue
+                s, t = it.schema.lower(), it.table.lower()
+                mirror, owner = ((dst, s, t), (src, s, t)) if mode == "mirror" else ((src, s, t), (dst, s, t))
+                await c.execute(_LINK_UPSERT, *mirror, *owner, it.location, it.metadata_file)
+    except Exception as e:
+        logger.error("[catalogs] export registered tables but recording their owner/mirror "
+                     "links failed — the mirrors are NOT guarded until re-exported: %s", e)
+    table_links.invalidate()
 
 
 @router.post("/catalogs/{name}/export")
@@ -442,11 +503,16 @@ async def export_catalog(name: str, body: CatalogExport, admin: dict = Depends(r
     for i in items:
         counts[i.action] = counts.get(i.action, 0) + 1
     if body.apply:
+        await _record_links(await _pool(), items, src.engine_catalog, dst.engine_catalog, body.mode)
         await _audit(await _pool(), admin, "catalog_exported", src.name,
-                     {"target": dst.name, "schema": body.schema_, "registered": counts.get("registered", 0),
+                     {"target": dst.name, "schema": body.schema_, "mode": body.mode,
+                      "registered": counts.get("registered", 0),
                       "failed": counts.get("failed", 0), "mismatch": counts.get("mismatch", 0)})
-    return {"source": src.name, "target": dst.name, "applied": body.apply,
-            "summary": counts, "tables": rows}
+    # The prefixes a Polaris target must accept (polaris.storage.extraAllowedLocations):
+    # each table's parent directory — narrower than the whole warehouse.
+    needed = sorted({i.location.rsplit("/", 1)[0] for i in items if i.location})
+    return {"source": src.name, "target": dst.name, "applied": body.apply, "mode": body.mode,
+            "summary": counts, "allowed_locations_needed": needed, "tables": rows}
 
 
 @router.post("/catalogs/{name}/test")

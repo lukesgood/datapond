@@ -128,6 +128,7 @@ Lakehouse:
 - REST, custom Python and S3 sources read by the backend
 - Several Iceberg catalogs registered side by side (Glue, Polaris, Iceberg REST), with per-catalog grants
 - Catalog export: register a catalog's Iceberg tables in another catalog without copying data (2.6)
+- Two catalogs at once, one writer per table (2.7): writes and DROPs through a read-only mirror are refused, its reads run against the owner (owner's grants and policies), stale mirrors are re-pointed, outside commits are reported; syncs pick their target catalog
 - Trino on every profile with a catalog; optional workers (`trino.workers.replicas`, 2.6)
 - Analytics (SQL editor and saved dashboards) and governed Metrics
 - Row filters and column masking on the SQL path; optional Trino file-based access control (Layer 2)

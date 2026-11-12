@@ -183,6 +183,20 @@ st, b = count("SELECT count(*) FROM iceberg.default.orders")
 if st != 200 or int(b["rows"][0][0]) != 2 * WANT:
     fail(f"iceberg.default.orders after full + incremental append -> {st} {b}")
 
+# ── 4c. a sync into the second lake catalog (target_catalog), remembered per table ──
+st, b = call("POST", f"/api/connectors/{CONN}/sync",
+             {"source_table": TABLE, "sync_mode": "full", "target_catalog": "catb"})
+if st != 200 or str(b.get("status", "")).lower() not in ("success", "completed"):
+    fail(f"sync into catb -> {st} {b}")
+st, b = count("SELECT count(*) FROM catb.default.orders")
+if st != 200 or int(b["rows"][0][0]) != WANT:
+    fail(f"catb.default.orders after a sync with target_catalog=catb -> {st} {b}")
+log(f"sync with target_catalog=catb: catb.default.orders has {WANT} rows")
+st, b = call("POST", f"/api/connectors/{CONN}/sync", {"source_table": TABLE, "sync_mode": "full",
+                                                      "target_catalog": CATALOG})
+if st != 400:
+    fail(f"a source catalog as a sync target should be refused with 400, got {st} {b}")
+
 # ── 5. federation: the live source answers through its catalog ───────────────
 FED = f"SELECT count(*) FROM {CATALOG}.public.orders"
 st, b = count(FED)

@@ -68,7 +68,9 @@ trino:
     heap: 1G
     maxMemoryPerNode: 300MB
     resources:
-      requests: { cpu: 250m, memory: 1280Mi }
+      # Requests kept small so the single kind node always has room to schedule the
+      # rest (postgres stayed Pending on 2026-11-12 runs); limits unchanged.
+      requests: { cpu: 100m, memory: 768Mi }
       limits: { cpu: "1", memory: 1792Mi }
   extraCatalogs:
     - name: catb

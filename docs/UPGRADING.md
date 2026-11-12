@@ -3,6 +3,24 @@
 Changes that alter behaviour for people already using a deployment. Everything else is
 in the commit history; this file exists for the things an operator has to act on.
 
+## 2.7 (2026-11) — Two catalogs at once, one writer per table
+
+- **Migration 0028** adds `catalog_table_links` (owner/mirror per table) and
+  `connector_sync_jobs.target_catalog`. Run the migration Job (CD does).
+- **Export modes.** `POST /api/catalogs/{name}/export` takes `mode: mirror` (default — the
+  source stays the owner, the target is a read-only mirror) or `move` (the target becomes
+  the owner). Applied exports record the links; the response lists
+  `allowed_locations_needed` (each table's parent prefix) for a Polaris target.
+- **Guards.** Writes and DROPs through a mirror get 409 naming the owner; reads of a mirror
+  run against the owner (its grants and policies). `GET /api/catalogs/mirrors`,
+  `POST /api/catalogs/mirrors/check`; a background check every `MIRROR_CHECK_SECONDS`
+  (default 300; `MIRROR_CHECK_ENABLED=false` turns it off) re-points stale mirrors and marks
+  outside commits `diverged`.
+- **Sync target.** `POST /connectors/{id}/sync` accepts `target_catalog` (lake catalogs only),
+  remembered per table; omitted keeps the default catalog.
+- **Polaris** no longer purges files on DROP when it shares locations
+  (`polaris.storage.extraAllowedLocations` set).
+
 ## 2.6 (2026-11) — Lakehouse first: catalog export, Trino workers, menu
 
 Positioning v7 (`docs/POSITIONING_V7.md`): DataPond is a lightweight open lakehouse; the AI

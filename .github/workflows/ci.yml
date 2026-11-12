@@ -627,6 +627,9 @@ jobs:
         run: |
           kubectl -n datapond get pods,jobs,pvc -o wide || true
           kubectl -n datapond describe pods | tail -150 || true
+          # Why anything is still Pending (the scheduler's reason and the node's room).
+          kubectl -n datapond get events --field-selector reason=FailedScheduling -o wide || true
+          kubectl describe node | grep -A12 'Allocated resources' || true
           kubectl -n datapond logs job/polaris-catalog-init --tail=80 || true
           kubectl -n datapond logs deploy/polaris --tail=80 || true
           kubectl -n datapond logs deploy/trino --tail=120 || true

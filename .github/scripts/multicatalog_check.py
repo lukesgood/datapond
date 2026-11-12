@@ -207,4 +207,44 @@ if list(got) != [5, "e"]:
 log(f"export: {DEFAULT}.raw.ci_export registered in {SECOND} without copying (5 rows both sides); "
     "ci_orders already there, left alone")
 
-log("PASS: two catalogs listed, kept apart, resolved, queried, tested and exported")
+# ── 8. one writer per table: the export left catb.raw.ci_export a read-only mirror ──
+def q(sql):
+    return call("POST", "/api/queries/execute", {"query": sql, "save_history": False})
+
+
+for bad in (f"INSERT INTO {SECOND}.raw.ci_export VALUES (6, 'f')", f"DROP TABLE {SECOND}.raw.ci_export"):
+    st, b = q(bad)
+    if st != 409 or f"{DEFAULT}.raw.ci_export" not in str(b.get("detail")):
+        fail(f"a write through the mirror should be refused with 409 naming the owner: {bad} -> {st} {b}")
+log("mirror: INSERT and DROP through catb refused (409), owner named")
+st, b = q(f"INSERT INTO {DEFAULT}.raw.ci_export VALUES (6, 'f')")
+if st != 200:
+    fail(f"a write to the owner -> {st} {b}")
+st, b = q(f"SELECT count(*) FROM {SECOND}.raw.ci_export")
+if st != 200 or int(b["rows"][0][0]) != 6:
+    fail(f"a read of the mirror through DataPond should see the owner's 6 rows: {st} {b}")
+raw = trino(f"SELECT count(*) FROM {SECOND}.raw.ci_export", SECOND)[0][0]
+if raw != 5:
+    fail(f"the raw mirror should still be at the exported snapshot (5), reads {raw}")
+log("mirror: DataPond reads route to the owner (6 rows); the raw mirror is behind (5)")
+st, b = call("POST", "/api/catalogs/mirrors/check")
+res = {r["mirror"]: r for r in b.get("results", [])} if st == 200 else {}
+if res.get(f"{SECOND}.raw.ci_export", {}).get("refreshed") is not True:
+    fail(f"the freshness check should re-point the mirror: {st} {b}")
+raw = trino(f"SELECT count(*) FROM {SECOND}.raw.ci_export", SECOND)[0][0]
+if raw != 6:
+    fail(f"after the re-point the raw mirror should read 6, reads {raw}")
+log("mirror: freshness check re-pointed catb.raw.ci_export at the owner's snapshot (6 rows, no copy)")
+# a commit made through the mirror from outside DataPond: reported, not overwritten
+trino(f"INSERT INTO {SECOND}.raw.ci_export VALUES (7, 'outside')", SECOND)
+st, b = call("POST", "/api/catalogs/mirrors/check")
+res = {r["mirror"]: r for r in b.get("results", [])} if st == 200 else {}
+if res.get(f"{SECOND}.raw.ci_export", {}).get("status") != "diverged":
+    fail(f"an outside commit on the mirror should be reported as diverged: {st} {b}")
+st, b = call("GET", "/api/catalogs/mirrors")
+if st != 200 or not any(m["mirror"] == f"{SECOND}.raw.ci_export" and m["status"] == "diverged"
+                        for m in b.get("mirrors", [])):
+    fail(f"GET /api/catalogs/mirrors should show the divergence: {st} {b}")
+log("mirror: an outside commit through catb was reported as diverged, not overwritten")
+
+log("PASS: two catalogs listed, kept apart, resolved, queried, tested, exported and guarded")

@@ -156,3 +156,32 @@ def test_a_pre_2_5_target_with_wider_columns_is_loaded_with_casts_not_refused():
     assert st.status == SyncStatus.SUCCESS, st.error_message
     load = next(x for x in c._last_cursor.executed if x.startswith("CREATE OR REPLACE"))
     assert 'CAST("id" AS bigint) AS "id"' in load and 'CAST("score" AS double) AS "score"' in load
+
+
+def test_a_sync_writes_into_the_target_catalog_it_is_given():
+    c = _connector({"source_columns": [("id", "integer", "NO")], "target_columns": [], "load": [(3,)]})
+    c.target_catalog = "polaris_lake"
+    st = asyncio.run(c.sync_to_iceberg("public.orders", "default.orders", SyncMode.FULL))
+    assert st.status == SyncStatus.SUCCESS, st.error_message
+    ex = [" ".join(x.split()) for x in c._last_cursor.executed]
+    assert any(x.startswith('CREATE OR REPLACE TABLE "polaris_lake"."default"."orders"') for x in ex)
+    assert ex[1].startswith("SELECT column_name, data_type FROM polaris_lake.information_schema.columns")
+    assert st.metadata["iceberg_table"] == "polaris_lake.default.orders"
+
+
+def test_a_sync_into_a_mirror_fails_before_writing():
+    """A mirror is written through its owner only (app/table_links.py)."""
+    from app import table_links
+    table_links.set_links(table_links.Links.from_rows([{
+        "mirror_catalog": "iceberg", "mirror_schema": "default", "mirror_table": "orders",
+        "owner_catalog": "polaris_lake", "owner_schema": "default", "owner_table": "orders"}]))
+    try:
+        c = _connector({"source_columns": [("id", "integer", "NO")], "target_columns": [], "load": [(3,)]})
+        st = asyncio.run(c.sync_to_iceberg("public.orders", "default.orders", SyncMode.FULL))
+        assert st.status == SyncStatus.FAILED
+        assert "mirror" in st.error_message and "polaris_lake.default.orders" in st.error_message
+        cur = getattr(c, "_last_cursor", None)
+        assert cur is None or not any(x.lstrip().startswith(("CREATE", "INSERT", "MERGE", "ALTER"))
+                                      for x in cur.executed), "refused before anything was written"
+    finally:
+        table_links.set_links(table_links.Links())

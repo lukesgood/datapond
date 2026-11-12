@@ -70,6 +70,7 @@ Knowledge collection authorization currently uses application-level owner/admin/
 - AWS reference: the Glue catalog. OSS profiles: Polaris (Iceberg REST). More catalogs register side by side (`data_catalogs`, kinds `glue`, `iceberg_rest`, `polaris`), each with its own grants.
 - **Catalog export** (`app/catalog_export.py`, `POST /api/catalogs/{name}/export`, 2.6): registers a catalog's Iceberg tables in another catalog through Trino's `register_table` procedure, without copying data — the Glue exit path. The chart enables the procedure on every Iceberg catalog it renders; a Polaris target must accept the source's location (`polaris.storage.extraAllowedLocations`).
 - **Workers** (`trino.workers.replicas`, 2.6): a worker Deployment reading the same catalogs and credentials; the coordinator then only plans. The backend restarts workers with the coordinator when source catalogs change and reports the engine ready only when both are back.
+- **One writer per table** (`app/table_links.py`, `app/mirror_freshness.py`, 2.7): a table registered in two catalogs has an owner and a read-only mirror. The execute path refuses writes to a mirror and routes its reads to the owner (before the grant check and RLS); syncs choose a `target_catalog` and may not write a mirror; a leader-locked check re-points stale mirrors and reports outside commits as `diverged`.
 - No catalog or engine: Lakehouse menus (Catalog, Analytics, Sources, Metrics) are capability-disabled and the AI layer runs alone.
 
 ### Sources (connectors)

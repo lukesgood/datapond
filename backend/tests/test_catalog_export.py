@@ -128,8 +128,26 @@ def client(monkeypatch):
         return reg
     monkeypatch.setattr(catalog_registry, "load", _load)
 
+    links = []
+
+    class _Conn:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def execute(self, sql, *args):
+            assert "INSERT INTO catalog_table_links" in sql
+            links.append(args)
+            return "INSERT 0 1"
+
+    class _Pool:
+        def acquire(self):
+            return _Conn()
+
     async def _pool():
-        return object()
+        return _Pool()
     monkeypatch.setattr(catalog_admin, "_pool", _pool)
     audits = []
 
@@ -147,7 +165,7 @@ def client(monkeypatch):
     app.dependency_overrides[auth.require_user] = _user
     app.dependency_overrides[auth.require_admin] = _user
     c = TestClient(app)
-    c.cur, c.audits = cur, audits
+    c.cur, c.audits, c.links = cur, audits, links
     return c
 
 
@@ -171,3 +189,47 @@ def test_the_route_refuses_a_source_catalog_and_the_same_catalog(client):
     assert r.status_code == 400
     r = client.post("/api/catalogs/nope/export", json={"target": "lake"})
     assert r.status_code == 404
+
+
+def test_apply_records_the_target_as_a_read_only_mirror_by_default(client):
+    r = client.post("/api/catalogs/AwsDataCatalog/export", json={"target": "lake", "apply": True})
+    assert r.status_code == 200, r.text
+    (row,) = client.links
+    # mirror catalog/schema/table, owner catalog/schema/table, location, metadata file
+    assert row[:6] == ("catb", "raw", "orders", "iceberg", "raw", "orders")
+    assert row[6] == "s3://lake/warehouse/raw/orders-1a2b" and row[7] == "00003-9f.metadata.json"
+    assert r.json()["mode"] == "mirror"
+
+
+def test_move_makes_the_target_the_owner_and_the_source_the_mirror(client):
+    r = client.post("/api/catalogs/AwsDataCatalog/export", json={"target": "lake", "apply": True, "mode": "move"})
+    assert r.status_code == 200, r.text
+    (row,) = client.links
+    assert row[:6] == ("iceberg", "raw", "orders", "catb", "raw", "orders")
+
+
+def test_a_plan_records_no_link(client):
+    client.post("/api/catalogs/AwsDataCatalog/export", json={"target": "lake"})
+    assert client.links == []
+
+
+def test_the_plan_names_the_locations_a_target_must_allow(client):
+    r = client.post("/api/catalogs/AwsDataCatalog/export", json={"target": "lake"})
+    assert r.json()["allowed_locations_needed"] == ["s3://lake/warehouse/raw"]
+
+
+def test_the_mirror_list_and_an_on_demand_check_are_admin_routes(client, monkeypatch):
+    from app import mirror_freshness as mf
+    from app.api import catalog_admin
+
+    async def _check_all(pool, cursor_factory=None):
+        return [mf.Result(mirror="catb.raw.orders", owner="iceberg.raw.orders", status="fresh", refreshed=True)]
+    monkeypatch.setattr(mf, "check_all", _check_all)
+
+    async def _list(pool):
+        return [{"mirror": "catb.raw.orders", "owner": "iceberg.raw.orders", "status": "fresh"}]
+    monkeypatch.setattr(catalog_admin, "_list_links", _list)
+    r = client.get("/api/catalogs/mirrors")
+    assert r.status_code == 200 and r.json()["mirrors"][0]["owner"] == "iceberg.raw.orders"
+    r = client.post("/api/catalogs/mirrors/check")
+    assert r.status_code == 200 and r.json()["results"][0]["refreshed"] is True

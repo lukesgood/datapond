@@ -65,6 +65,21 @@ CI exercises steps 3–4 on every pull request between two Polaris catalogs on M
 
 **Live rehearsal, 2026-11-12 (AWS Single-Node Reference).** Polaris was run beside Glue (metadata in Aurora, `polaris.catalogName: lake`, base location `s3://datapond-iceberg/polaris/lake`, `extraAllowedLocations: [s3://datapond-iceberg/warehouse]`, `extraFeatures` `ALLOW_UNSTRUCTURED_TABLE_LOCATION` + `ALLOW_EXTERNAL_TABLE_LOCATION`, Trino catalog `polaris_lake`). The export planned 23 of 23 tables of `AwsDataCatalog.default` as `register` (4 s) and registered all 23 with equal row counts on both sides (28 s; 6,000 orders, 30,000 page events, …). The same SQL answered through `/api/queries/execute` against `polaris_lake`, a join across the two catalogs worked, and every Glue table's current metadata file was unchanged afterwards. Polaris was then turned off again (registry entry removed, flags cleared) — Glue stays the live catalog. Left behind on purpose: the `polaris_catalog` database in Aurora (Polaris's own metadata, small). A later move should start from a fresh export rather than reuse it: the registrations there point at the metadata files of 2026-11-12. The rehearsal found two chart gaps, both fixed before it passed: Polaris assumed the in-cluster PostgreSQL (#257), and its catalog-init Job rendered only with MinIO (#258). Provider-specific grants (Lake Formation) are not in Iceberg metadata and need separate handling; DataPond's own catalog grants are re-entered for the new catalog.
 
+### Two catalogs at once — one writer per table
+
+Several lake catalogs can be registered side by side (e.g. Glue for tables AWS services read, Polaris for new data); queries join across them. The rule that keeps this safe: **each table has one owner catalog it is written through.** A table registered in a second catalog by the export is a **read-only mirror** (`mode: mirror`, the default; `mode: move` makes the target the owner and the source the mirror). The links live in `catalog_table_links` (migration 0028; `GET /api/catalogs/mirrors`).
+
+| Risk | Guard (2.7) |
+|---|---|
+| A write through the mirror forks the table | `/queries/execute` refuses INSERT/UPDATE/DELETE/MERGE/CREATE AS/ALTER/DROP/TRUNCATE on a mirror with 409 naming the owner; a sync whose target is a mirror fails before writing |
+| A DROP through a Polaris mirror deletes the owner's files | the same refusal, and Polaris's purge-on-drop is off whenever it shares locations (`extraAllowedLocations` set) |
+| A mirror read bypasses the owner's grants or sees old data | DataPond routes reads of a mirror to the owner table, so the owner's catalog grant, row filters and masks apply and the data is current |
+| A mirror falls behind for engines outside DataPond | the freshness check (every `MIRROR_CHECK_SECONDS`, default 300, leader-locked; or `POST /api/catalogs/mirrors/check`) re-points the mirror at the owner's current snapshot — unregister + register, no copy |
+| Someone commits through the mirror from outside DataPond | the check marks it `diverged`, logs an error and writes an audit row; it is never overwritten |
+| A sync lands in the wrong catalog | `target_catalog` per sync (request or remembered per table); lake catalogs only |
+
+Not guarded: an outside engine writing to the mirror is detected afterwards, not refused — restrict writes on the mirror side (Polaris principal roles, Glue IAM/Lake Formation) for that. CI exercises every guard above in the kind job (`multicatalog_check.py` §8, `trino_connector_check.py` §4c).
+
 ## Critical non-portable state
 
 - `ENCRYPTION_KEY`: mandatory to decrypt stored credentials.

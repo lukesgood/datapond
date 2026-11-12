@@ -315,9 +315,13 @@ class TrinoSourceConnector(BaseConnector):
 
     # ── sync: Trino copies the source into Iceberg ───────────────────────────
 
+    # The Iceberg catalog a sync writes into (engine name); None is the engine default.
+    # The routes set it per table (connector_sync_jobs.target_catalog).
+    target_catalog: Optional[str] = None
+
     def _target(self, source_table: str, target_table: Optional[str]):
         from . import trino_sync
-        return trino_sync.target_ref(source_table, target_table)
+        return trino_sync.target_ref(source_table, target_table, self.target_catalog)
 
     def _source_columns(self, cur, schema: str, name: str):
         cur.execute(
@@ -357,6 +361,13 @@ class TrinoSourceConnector(BaseConnector):
         schema, name = self._split(source_table)
         source = TableRef(self.catalog, schema, name)
         target = self._target(source_table, target_table)
+        # One writer per table (app/table_links.py): a mirror is written through its owner.
+        from app import table_links
+        owner = table_links.current().owner_of(
+            (target.catalog.lower(), target.namespace.lower(), target.table.lower()))
+        if owner:
+            raise RuntimeError(str(table_links.MirrorWriteRefused(
+                (target.catalog, target.namespace, target.table), owner)))
         if incremental_column:
             _ident(incremental_column)
 

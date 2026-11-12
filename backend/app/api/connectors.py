@@ -287,6 +287,9 @@ class SyncRequest(BaseModel):
     target_table: Optional[str] = None
     sync_mode: SyncMode = SyncMode.FULL
     incremental_column: Optional[str] = None
+    # Iceberg catalog to write into (registry or engine name); remembered per table.
+    # Omitted: the table's last target, else the default catalog.
+    target_catalog: Optional[str] = None
 
 
 class SyncStatusResponse(BaseModel):
@@ -401,10 +404,54 @@ INGEST_QUALITY_GATE = (os.getenv("INGEST_QUALITY_GATE", "off").strip().lower()
                        in ("on", "true", "1", "yes"))
 
 
-async def _sync_with_retry(connector, on_retry=None, **kwargs):
+async def _resolve_target_catalog(pool, connection_id: str, table: str,
+                                  requested: Optional[str]) -> Optional[str]:
+    """The engine catalog a sync of `table` writes into: the requested one (registry or
+    engine name), else the one this job last used, else None (the engine default). Only
+    Iceberg lake catalogs qualify; anything else is a 400."""
+    from app import catalog_registry
+    if requested:
+        try:
+            entry = catalog_registry.resolve(requested)
+        except catalog_registry.UnknownCatalog:
+            raise HTTPException(status_code=400, detail=f"No catalog named '{requested}'.")
+        if entry.kind not in ("glue", "iceberg_rest", "polaris"):
+            raise HTTPException(status_code=400, detail=(
+                f"'{entry.name}' is not an Iceberg lake catalog (kind {entry.kind}); a sync "
+                "writes into a lake catalog."))
+        return entry.engine_catalog
+    try:
+        async with pool.acquire() as conn:
+            return await conn.fetchval(
+                "SELECT target_catalog FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
+                uuid.UUID(connection_id), table)
+    except Exception:            # a database before migration 0028
+        return None
+
+
+async def _remember_target_catalog(pool, connection_id: str, table: str, catalog: Optional[str]) -> None:
+    if not catalog:
+        return
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE connector_sync_jobs SET target_catalog=$1 WHERE connection_id=$2 AND source_table=$3",
+                catalog, uuid.UUID(connection_id), table)
+    except Exception as e:
+        logger.warning("[sync] target catalog for %s not remembered: %s", table, e)
+
+
+async def _sync_with_retry(connector, on_retry=None, target_catalog: Optional[str] = None, **kwargs):
     """connector.sync_to_iceberg를 일시 장애 시 지수 백오프로 재시도(최대 INGEST_MAX_RETRIES).
     overwrite/upsert는 멱등이라 재시도 안전. append(키 없는 증분)는 부분쓰기 후 재시도 시 중복
     위험이 있어 재시도 횟수를 작게 유지(키 설정 권장). 최종 SyncJobStatus 반환."""
+    # Python-engine connectors write through PyIceberg into the default catalog and ignore it.
+    connector.target_catalog = target_catalog
+    try:
+        from app import table_links
+        await table_links.load(await get_db_pool())     # the mirror guard in the sync reads these
+    except Exception:
+        pass
     attempt = 0
     while True:
         status = await connector.sync_to_iceberg(**kwargs)
@@ -2158,6 +2205,7 @@ async def sync_stream(connection_id: str, sync_mode: str = "full",
                 try:
                     status = await _sync_with_retry(
                         connector, on_retry=on_retry,
+                        target_catalog=await _resolve_target_catalog(pool, connection_id, table, None),
                         source_table=table, target_table=target,
                         sync_mode=table_mode,          # ← per-table mode
                         incremental_column=incremental_column,
@@ -2604,8 +2652,11 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
                         last_value = stored_val
                     else:
                         table_mode = SyncMode.FULL  # incremental with no column → full load
+                table_target_catalog = await _resolve_target_catalog(
+                    pool, connection_id, table, request.target_catalog)
                 status = await _sync_with_retry(
                     connector,
+                    target_catalog=table_target_catalog,
                     source_table=table,
                     target_table=target,
                     sync_mode=table_mode,
@@ -2626,6 +2677,8 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
                     new_last_value = status.metadata.get("max_value")
                 job_id = await _persist_sync_job(pool, connection_id, table, target,
                                                  request.sync_mode, status, new_last_value)
+                if request.target_catalog:
+                    await _remember_target_catalog(pool, connection_id, table, table_target_catalog)
             # Update last_sync_at on connection
             async with pool.acquire() as conn:
                 await conn.execute(
@@ -2664,8 +2717,11 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
                 last_value = stored_val
             else:
                 table_mode = SyncMode.FULL  # incremental with no column → full load
+        table_target_catalog = await _resolve_target_catalog(
+            pool, connection_id, source_table, request.target_catalog)
         status = await _sync_with_retry(
             connector,
+            target_catalog=table_target_catalog,
             source_table=source_table,
             target_table=target_table,
             sync_mode=table_mode,
@@ -2682,6 +2738,8 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
             new_last_value = status.metadata.get("max_value")
         job_id = await _persist_sync_job(pool, connection_id, source_table, target_table,
                                          request.sync_mode, status, new_last_value)
+        if request.target_catalog:
+            await _remember_target_catalog(pool, connection_id, source_table, table_target_catalog)
         # Update last_sync_at on connection
         async with pool.acquire() as conn:
             await conn.execute(
