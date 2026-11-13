@@ -34,6 +34,9 @@ target is refused (400).
   `data_engineer` role opens the catalog export and `GET`/`POST /api/catalogs/mirrors…` (they
   were admin-only). Console: Export… and Mirrors appear for those roles, also on the Catalog
   page. Creating, editing, defaulting and granting catalogs stay admin-only.
+- **Migration 0029** adds the audit event types `catalog_exported`, `catalog_mirror_diverged`,
+  `sync_target_recreated` and `sync_jobs_pruned`; until it ran, those audit rows were dropped
+  silently (the insert is best-effort). Run the migration Job (CD does).
 - **A PII column you name is never stored in the clear (2026-11-13).** Masking replaced only
   values that match a pattern (resident number, phone, email, card…), so a named column such
   as `full_name` passed through. A column listed by name in a table's PII columns is now

@@ -23,7 +23,7 @@ def _load():
 
 def test_the_highest_revision_is_known():
     stems = sorted(p.stem for p in VERSIONS.glob("*.py") if re.fullmatch(r"\d{4}_[a-z0-9_]+", p.stem))
-    assert stems[-1] == "0028_catalog_table_links"      # the pin moves with the newest revision
+    assert stems[-1] == "0029_more_audit_event_types"      # the pin moves with the newest revision
 
 
 def test_it_chains_from_0024():
