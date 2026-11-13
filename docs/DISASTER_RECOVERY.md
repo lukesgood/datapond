@@ -16,6 +16,8 @@ profiles use their configured object store/PostgreSQL and require an equivalent 
   encrypted stored credentials (connector secrets, provider keys). Aurora backup = data + vectors.
 - **S3 (`datapond-iceberg`)** — Iceberg tables + RAG source docs. Versioned; noncurrent versions culled after 90d.
 - **`datapond-secrets` (K8s)** — `ENCRYPTION_KEY`, `JWT_SECRET`, `INTERNAL_API_KEY`, `ADMIN_PASSWORD`. Helm-generated, preserved across upgrades via in-cluster lookup. **Not durable across a cluster loss** → mirrored to Secrets Manager (below).
+- **Catalogs (2.7).** Glue holds the default catalog's table registrations (AWS-managed). **Polaris** (beside Glue since 2026-11-12) keeps its catalog, principals and table registrations in the Aurora database `polaris_catalog` — restored with Aurora. DataPond's catalog registry, catalog grants and owner/mirror links (`data_catalogs`, `catalog_grants`, `catalog_table_links`) are in the app DB. Table data and Iceberg metadata files are in S3 either way.
+- **Polaris secrets in `datapond-secrets`** — `POLARIS_CLIENT_SECRET` (the principal Trino and the backend authenticate as; Polaris stores it hashed in `polaris_catalog`) and `POLARIS_TOKEN_KEY` (the key every Polaris replica signs tokens with). **Neither is in the Secrets Manager vault today.**
 
 ## ⚠️ Restore ordering (critical)
 `ENCRYPTION_KEY` decrypts credentials STORED IN Aurora. If the cluster is lost and
@@ -129,6 +131,23 @@ kubectl -n datapond annotate secret datapond-secrets \
 # (APP_DB_PASSWORD, DEPLOY_SINGLE_NODE "app DB user") must be reset with ALTER ROLE and re-added.
 # THEN helm upgrade — lookup-preserve keeps these exact values.
 ```
+
+### B.1 Polaris after a cluster loss
+
+`POLARIS_TOKEN_KEY` can simply be regenerated (Helm does it when the key is missing): it only
+signs short-lived tokens. `POLARIS_CLIENT_SECRET` cannot: a new random value no longer matches
+the hash in `polaris_catalog`, and Trino's `polaris_lake` catalog and DataPond's Polaris browser
+answer 401. Two ways back:
+
+1. **Keep the old secret.** Before the cluster is lost, copy `POLARIS_CLIENT_SECRET` into the
+   vault next to `ENCRYPTION_KEY`, and re-seed it in step B like the others (recommended; not
+   done yet on the reference — tracked as an open item).
+2. **Start Polaris's metadata over.** Drop the `polaris_catalog` database; the bootstrap Job
+   recreates it with the new secret and an empty catalog `lake`. Then re-register tables:
+   mirrors of Glue tables with the catalog export (`POST /api/catalogs/AwsDataCatalog/export`),
+   and tables Polaris owned with `CALL polaris_lake.system.register_table(...)` at their latest
+   `metadata/*.metadata.json` under `s3://datapond-iceberg/polaris/lake/` (the data is still
+   there; only the registrations are lost). Remove stale rows from `catalog_table_links`.
 
 ### C. S3 — recover a deleted/overwritten object
 ```bash

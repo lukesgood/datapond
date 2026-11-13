@@ -1,5 +1,7 @@
 # DataPond 페르소나 기반 활용 가능성 평가
 
+> **기록 (현황 2026-11-13):** 2026-08-31, v6 시점의 페르소나 평가다. v7 페르소나 기준의 라이브 검증은 [`PERSONA_REVIEW_2026-11.md`](PERSONA_REVIEW_2026-11.md).
+
 > 평가 시각: 2026-08-31 KST  
 > 평가 대상: 현재 작업 트리의 Portable Core, AWS Single-Node Reference, optional OSS add-on 및 Enterprise 경계  
 > 평가 방식: README·활성 문서와 실제 코드·테스트·Helm·CI/CD·공개 live reference의 교차 검증

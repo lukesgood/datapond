@@ -1,5 +1,7 @@
 # LLM-Assisted Ontology — Feasibility & Value Validation Report
 
+> **기록 (현황 2026-11-13):** 연구 기록이다. 온톨로지 Phase 1+ 와 GraphRAG는 보류 상태 그대로이며([`ONTOLOGY_GRAPHRAG_REVIEW.md`](ONTOLOGY_GRAPHRAG_REVIEW.md)), v7 방향에서 우선순위가 아니다.
+
 > **Status: research / decision record — NOT a shipped capability.** DataPond today ships
 > pgvector RAG + LiteLLM gateway + PII masking + audit + RLS. Everything below is a set of
 > PoC experiments run to decide whether an ontology / concept layer is worth building and

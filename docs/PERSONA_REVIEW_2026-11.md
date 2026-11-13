@@ -68,13 +68,13 @@ restored.
 | Write statement | 403 | 403 | 403 | passes the gate |
 | Sync a table | 403 | 403 | 403 | success (5 rows) |
 | Set a table's target catalog | 403 | 403 | 403 | 200 |
-| Catalog export / mirror list | 403 | 403 | 403 | 403 (admin only) |
+| Catalog export / mirror list | 403 | 403 | 403 | 403 (admin only at the time; opened to data engineers by PR #263) |
 | RLS policies / audit export | 403 | 403 | 200 | 403 |
 | Edit catalog grants | 403 | 403 | 403 | 403 |
 | `polaris_lake` granted to business_analyst only | query 1,200; in schema tree | 403, catalog not named; hidden | 403; hidden | 403; hidden |
 | Row filter `status = 'delivered'` for viewer on orders | 6,000 | 2,953 | 6,000 | 6,000 |
 
-Every row matches the role matrix (`backend/app/permissions.py`). One decision for the owner:
+Every row matches the role matrix (`backend/app/permissions.py`). **Owner decision (2026-11-13): open export and mirrors to data engineers** — done as the `catalog:write` permission (PR #263). The question as it stood:
 **catalog export and the mirror list are admin-only**, so a data engineer can choose a sync's
 target catalog but cannot move tables between catalogs or see mirror status. That is
 deliberate today (an export changes catalog registrations); widening it would need a
