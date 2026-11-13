@@ -25,7 +25,7 @@ def test_it_chains_from_0025_below_the_newest_revision():
     assert m.revision == "0026_sample_db_role"
     assert m.down_revision == "0025_glue_engine_catalog_trino"
     stems = sorted(p.stem for p in PY.parent.glob("*.py") if re.fullmatch(r"\d{4}_[a-z0-9_]+", p.stem))
-    assert stems[-1] == "0028_catalog_table_links"
+    assert stems[-1] == "0029_more_audit_event_types"
 
 
 def test_the_statement_creates_or_rotates_the_login_role():
