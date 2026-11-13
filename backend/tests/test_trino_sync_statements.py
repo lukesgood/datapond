@@ -47,7 +47,8 @@ def test_full_sync_is_one_atomic_replace_with_casts_and_masks():
     leaves them in place (review finding 3; DELETE + INSERT left a window of none)."""
     (replace,) = s.build_full(T, S, COLS, pii_columns=["email"], partition_spec=[{"column": "ts", "transform": "day"}])
     assert replace.startswith('CREATE OR REPLACE TABLE "iceberg"."default"."orders" '
-                              """WITH (partitioning = ARRAY['day("ts")']) AS SELECT "id" AS "id", regexp_replace(""")
+                              """WITH (partitioning = ARRAY['day("ts")']) AS SELECT "id" AS "id", CASE WHEN "email" IS NULL""")
+    assert "regexp_replace(" in replace and "'[개인정보]'" in replace, "a named PII column: pattern mask, else redacted"
     assert 'CAST("flag" AS integer) AS "flag"' in replace
     assert 'json_format(CAST("doc" AS JSON)) AS "doc"' in replace
     assert 'CAST("ts" AS timestamp(6)) AS "ts"' in replace and '"amt" AS "amt"' in replace
@@ -158,3 +159,17 @@ def test_a_json_source_loads_into_a_row_target_written_before_2_5():
     (replace,) = s.build_full(T, S, [("payload", "json")], None, existing=[("payload", row)])
     assert f'CAST("payload" AS {row}) AS "payload"' in replace
     assert s.compatible("varchar(10)", row) is False, "text into a row is still a change"
+
+
+def test_a_column_named_as_personal_is_never_stored_in_the_clear():
+    """Live 2026-11-13: full_name was declared a PII column but stayed raw — masking only
+    replaces values that match a pattern, and a name matches none. A column the user names
+    is masked by pattern and, when nothing matched, replaced whole. '*' (every text column)
+    stays pattern-only, or every string column would be blanked."""
+    expr = s.column_expr("full_name", "varchar(100)", pii=True, redact=True)
+    assert "CASE WHEN" in expr and "'[개인정보]'" in expr and "regexp_replace" in expr
+    assert expr.endswith('AS "full_name"')
+    (named,) = s.build_full(T, S, [("full_name", "varchar(100)"), ("tier", "varchar(20)")], ["full_name"])
+    assert "'[개인정보]'" in named and named.count("CASE WHEN") == 1
+    (star,) = s.build_full(T, S, [("full_name", "varchar(100)"), ("tier", "varchar(20)")], ["*"])
+    assert "'[개인정보]'" not in star and star.count("regexp_replace") > 0

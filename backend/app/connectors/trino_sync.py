@@ -92,13 +92,23 @@ def compatible(source_type: str, target_type: str) -> bool:
     return src == dst or (src, dst) in _WIDENS
 
 
-def column_expr(name: str, trino_type: str, *, pii: bool, target_type: Optional[str] = None) -> str:
+REDACTED = "[개인정보]"
+
+
+def column_expr(name: str, trino_type: str, *, pii: bool, target_type: Optional[str] = None,
+                redact: bool = False) -> str:
     """One SELECT-list item: the column cast to what Iceberg holds — the target's existing
-    type when the table already has the column — masked when PII."""
+    type when the table already has the column — masked when PII. With `redact` (a column
+    the user named as personal), a value no pattern matched is replaced whole: a name or an
+    address matches no pattern and would otherwise be stored in the clear."""
     from app.guardrails import pii_ko
     col = quote(name)
     target = iceberg_type(target_type) if target_type else iceberg_type(trino_type)
-    if pii:
+    if pii and redact:
+        masked = pii_ko.mask_sql(col)
+        expr = (f"CASE WHEN {col} IS NULL THEN NULL WHEN {masked} = CAST({col} AS VARCHAR) "
+                f"THEN '{REDACTED}' ELSE {masked} END")
+    elif pii:
         expr = pii_ko.mask_sql(col)
     elif target == "varchar" and _is_jsonish(trino_type):
         expr = f"json_format(CAST({col} AS JSON))"
@@ -120,6 +130,14 @@ def pii_set(columns: Sequence[Column], pii_columns: Optional[Iterable[str]]) -> 
     if wanted == ["*"]:
         return text_cols
     return {n for n in wanted if n in text_cols}
+
+
+def redact_set(columns: Sequence[Column], pii_columns: Optional[Iterable[str]]) -> Set[str]:
+    """The PII columns named one by one (not via '*'): never stored in the clear."""
+    wanted = list(pii_columns or [])
+    if not wanted or wanted == ["*"]:
+        return set()
+    return pii_set(columns, wanted)
 
 
 _TRANSFORMS = {"identity", "year", "month", "day", "hour", "bucket", "truncate"}
@@ -160,9 +178,10 @@ def build_create(target: TableRef, columns: Sequence[Column], partition_spec: Op
 
 
 def _select(source: TableRef, columns: Sequence[Column], pii: Set[str],
-            existing: Optional[Sequence[Column]] = None) -> str:
+            existing: Optional[Sequence[Column]] = None, redact: Optional[Set[str]] = None) -> str:
     have = {n: t for n, t in (existing or [])}
-    exprs = ", ".join(column_expr(n, t, pii=(n in pii), target_type=have.get(n)) for n, t in columns)
+    exprs = ", ".join(column_expr(n, t, pii=(n in pii), target_type=have.get(n), redact=(n in (redact or set())))
+                      for n, t in columns)
     return f"SELECT {exprs} FROM {qualified(source)}"
 
 
@@ -175,7 +194,7 @@ def build_full(target: TableRef, source: TableRef, columns: Sequence[Column],
     snapshot stays in the table's history."""
     partitioning = partition_clause(partition_spec)
     head = f"CREATE OR REPLACE TABLE {qualified(target)}" + (f" {partitioning}" if partitioning else "")
-    return [f"{head} AS {_select(source, columns, pii_set(columns, pii_columns), existing)}"]
+    return [f"{head} AS {_select(source, columns, pii_set(columns, pii_columns), existing, redact_set(columns, pii_columns))}"]
 
 
 def _is_textual(trino_type: str) -> bool:
@@ -192,7 +211,7 @@ def build_incremental(target: TableRef, source: TableRef, columns: Sequence[Colu
     every row, no predicate. The watermark is stored as text and the client binds text as
     varchar, which Trino does not coerce to a timestamp or a number: the parameter is
     CAST to the watermark column's own type (a textual column binds as it is)."""
-    select = _select(source, columns, pii_set(columns, pii_columns), existing)
+    select = _select(source, columns, pii_set(columns, pii_columns), existing, redact_set(columns, pii_columns))
     params: list = []
     if last_value is not None:
         wm_type = next((t for n, t in columns if n == column), None)

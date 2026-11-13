@@ -77,7 +77,7 @@ def test_full_sync_runs_introspect_create_replace_and_counts_rows():
     assert ex[1].startswith("SELECT column_name, data_type FROM iceberg.information_schema.columns")
     assert ex[2] == 'CREATE SCHEMA IF NOT EXISTS "iceberg"."default"'
     assert ex[3].startswith('CREATE TABLE IF NOT EXISTS "iceberg"."default"."orders" ("id" integer, "email" varchar)')
-    assert ex[4].startswith('CREATE OR REPLACE TABLE "iceberg"."default"."orders" AS SELECT "id" AS "id", regexp_replace(')
+    assert ex[4].startswith('CREATE OR REPLACE TABLE "iceberg"."default"."orders" AS SELECT "id" AS "id", CASE WHEN "email" IS NULL')
     assert len(ex) == 5, "one load statement: the replace is the only commit"
     assert not any(x.startswith(("ALTER", "DELETE")) for x in ex), "a fresh table has nothing to evolve"
     assert st.metadata["iceberg_table"] == "iceberg.default.orders" and st.metadata["max_value"] is None

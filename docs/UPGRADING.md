@@ -34,6 +34,11 @@ target is refused (400).
   `data_engineer` role opens the catalog export and `GET`/`POST /api/catalogs/mirrors…` (they
   were admin-only). Console: Export… and Mirrors appear for those roles, also on the Catalog
   page. Creating, editing, defaulting and granting catalogs stay admin-only.
+- **A PII column you name is never stored in the clear (2026-11-13).** Masking replaced only
+  values that match a pattern (resident number, phone, email, card…), so a named column such
+  as `full_name` passed through. A column listed by name in a table's PII columns is now
+  pattern-masked and, when no pattern matched, replaced whole with `[개인정보]`. `*` (every text
+  column) stays pattern-only. Takes effect on each table's next sync; a full sync rewrites it.
 - **Polaris token key.** Every Polaris replica signs tokens with `POLARIS_TOKEN_KEY` (generated
   in `datapond-secrets`, lookup-preserved); before this, two replicas refused each other's
   tokens (401). On the AWS reference Polaris runs one replica with a 50m CPU request.
