@@ -233,3 +233,13 @@ def test_the_mirror_list_and_an_on_demand_check_are_admin_routes(client, monkeyp
     assert r.status_code == 200 and r.json()["mirrors"][0]["owner"] == "iceberg.raw.orders"
     r = client.post("/api/catalogs/mirrors/check")
     assert r.status_code == 200 and r.json()["results"][0]["refreshed"] is True
+
+
+def test_export_and_mirrors_need_catalog_write_not_admin(client):
+    """A data engineer (catalog:write) may export and see mirrors; a viewer may not.
+    The routes declare the permission so the route inventory can see it."""
+    from app.api import catalog_admin
+    for route in catalog_admin.router.routes:
+        if route.path in ("/catalogs/{name}/export", "/catalogs/mirrors", "/catalogs/mirrors/check"):
+            guards = [getattr(d.call, "__datapond_authorization__", None) for d in route.dependant.dependencies]
+            assert "catalog:write" in guards, (route.path, guards)

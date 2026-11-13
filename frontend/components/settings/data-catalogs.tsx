@@ -20,8 +20,7 @@ import {
   grantLabel, grantsChanged, grantsPayload, locationOf, removeGrant, testSummary,
   toCreatePayload, toPatchPayload, validateForm, isLakeKind,
   type CatalogForm, type CatalogGrant, type CatalogKind, type DataCatalog, type FormErrors,
-  type GrantCandidate, type TestResult,
-} from "@/lib/data-catalogs"
+  type GrantCandidate, type TestResult, canExportCatalogs } from "@/lib/data-catalogs"
 
 async function call(url: string, init?: RequestInit) {
   const r = await fetch(url, init)
@@ -42,6 +41,9 @@ const json = (method: string, payload: unknown): RequestInit => ({
  *  edit; everyone with catalog:read sees the list. A catalog is queryable only when
  *  the query engine knows its engine catalog name — see docs/DEPLOYMENT_PROFILES.md. */
 export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
+  // Export and mirrors follow catalog:write (admins and data engineers), not canEdit.
+  const { permissions } = usePermissions()
+  const canExport = canEdit || canExportCatalogs(permissions)
   const { toast } = useToast()
   const confirm = useConfirm()
   const [rows, setRows] = useState<DataCatalog[]>([])
@@ -166,6 +168,11 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
                       <span className="text-muted-foreground">
                         engine catalog <code className="font-mono">{c.engine_catalog}</code>
                       </span>
+                      {!canEdit && canExport && isLakeKind(c.kind) && c.enabled && (
+                        <span className="ml-auto flex items-center gap-2">
+                          <button className="text-primary" onClick={() => setExporting(c)}>Export…</button>
+                        </span>
+                      )}
                       {canEdit && (
                         <span className="ml-auto flex items-center gap-2">
                           <button className="text-primary disabled:opacity-40" disabled={t === "running"}
@@ -234,7 +241,7 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
               <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEditing("new")}>
                 <Plus className="h-3.5 w-3.5" />Add catalog</Button>
             )}
-            {canEdit && source !== "env" && <MirrorsSection refreshKey={mirrorsKey} />}
+            {canExport && source !== "env" && <MirrorsSection refreshKey={mirrorsKey} />}
           </>
         )}
       </CardContent>
@@ -245,7 +252,7 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
           onSaved={async (msg) => { setEditing(null); toast(msg, "success"); await load() }}
         />
       )}
-      {canEdit && exporting && (
+      {canExport && exporting && (
         <ExportDialog source={exporting} catalogs={rows} onClose={() => setExporting(null)}
                       onApplied={() => setMirrorsKey(k => k + 1)} />
       )}

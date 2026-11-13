@@ -105,3 +105,13 @@ def test_unknown_roles_fall_back_to_viewer(role):
 
 def test_role_matching_is_case_and_space_insensitive():
     assert permissions_for("  Admin ") == permissions_for("admin")
+
+
+def test_data_engineer_can_move_tables_between_catalogs_and_others_cannot():
+    """catalog:write — the catalog export and the mirror list/check (owner decision
+    2026-11-13). A data engineer picks a sync's target catalog, so they also move tables
+    between catalogs; it changes catalog registrations, so nobody else gets it."""
+    assert "catalog:write" in ALL_PERMISSIONS
+    assert has_permission("data_engineer", "catalog:write")
+    for role in ("viewer", "business_analyst", "auditor", "ai_engineer", "data_scientist"):
+        assert not has_permission(role, "catalog:write"), role
