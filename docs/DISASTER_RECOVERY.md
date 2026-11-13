@@ -17,7 +17,7 @@ profiles use their configured object store/PostgreSQL and require an equivalent 
 - **S3 (`datapond-iceberg`)** — Iceberg tables + RAG source docs. Versioned; noncurrent versions culled after 90d.
 - **`datapond-secrets` (K8s)** — `ENCRYPTION_KEY`, `JWT_SECRET`, `INTERNAL_API_KEY`, `ADMIN_PASSWORD`. Helm-generated, preserved across upgrades via in-cluster lookup. **Not durable across a cluster loss** → mirrored to Secrets Manager (below).
 - **Catalogs (2.7).** Glue holds the default catalog's table registrations (AWS-managed). **Polaris** (beside Glue since 2026-11-12) keeps its catalog, principals and table registrations in the Aurora database `polaris_catalog` — restored with Aurora. DataPond's catalog registry, catalog grants and owner/mirror links (`data_catalogs`, `catalog_grants`, `catalog_table_links`) are in the app DB. Table data and Iceberg metadata files are in S3 either way.
-- **Polaris secrets in `datapond-secrets`** — `POLARIS_CLIENT_SECRET` (the principal Trino and the backend authenticate as; Polaris stores it hashed in `polaris_catalog`) and `POLARIS_TOKEN_KEY` (the key every Polaris replica signs tokens with). **Neither is in the Secrets Manager vault today.**
+- **Polaris secrets in `datapond-secrets`** — `POLARIS_CLIENT_SECRET` (the principal Trino and the backend authenticate as; Polaris stores it hashed in `polaris_catalog`) and `POLARIS_TOKEN_KEY` (the key every Polaris replica signs tokens with). Both are in the Secrets Manager vault since 2026-11-13 (the other three keys were checked against the cluster the same day and matched).
 
 ## ⚠️ Restore ordering (critical)
 `ENCRYPTION_KEY` decrypts credentials STORED IN Aurora. If the cluster is lost and
@@ -119,6 +119,8 @@ kubectl -n datapond create secret generic datapond-secrets \
   --from-literal=ENCRYPTION_KEY="$(echo "$vals" | jq -r .ENCRYPTION_KEY)" \
   --from-literal=JWT_SECRET="$(echo "$vals" | jq -r .JWT_SECRET)" \
   --from-literal=INTERNAL_API_KEY="$(echo "$vals" | jq -r .INTERNAL_API_KEY)" \
+  --from-literal=POLARIS_CLIENT_SECRET="$(echo "$vals" | jq -r .POLARIS_CLIENT_SECRET)" \
+  --from-literal=POLARIS_TOKEN_KEY="$(echo "$vals" | jq -r .POLARIS_TOKEN_KEY)" \
   --dry-run=client -o yaml | kubectl apply -f -
 # On a FRESH cluster the Secret is now hand-created, and `helm install` refuses to adopt an
 # object without Helm ownership metadata ("invalid ownership metadata ... missing key
@@ -139,9 +141,7 @@ signs short-lived tokens. `POLARIS_CLIENT_SECRET` cannot: a new random value no 
 the hash in `polaris_catalog`, and Trino's `polaris_lake` catalog and DataPond's Polaris browser
 answer 401. Two ways back:
 
-1. **Keep the old secret.** Before the cluster is lost, copy `POLARIS_CLIENT_SECRET` into the
-   vault next to `ENCRYPTION_KEY`, and re-seed it in step B like the others (recommended; not
-   done yet on the reference — tracked as an open item).
+1. **Keep the old secret** (the normal path). It is in the vault; step B re-seeds it with the others.
 2. **Start Polaris's metadata over.** Drop the `polaris_catalog` database; the bootstrap Job
    recreates it with the new secret and an empty catalog `lake`. Then re-register tables:
    mirrors of Glue tables with the catalog export (`POST /api/catalogs/AwsDataCatalog/export`),
