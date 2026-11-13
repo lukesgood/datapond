@@ -13,7 +13,7 @@ product:
   profile:
     id: sovereign-oss-extended
     label: Sovereign OSS Extended
-    description: Self-hosted Portable Core with local model, storage, catalog, and data add-ons.
+    description: "Self-hosted lakehouse: MinIO + Iceberg, Polaris catalog, Trino, local models, optional data add-ons."
     maturity: community
     topology: self-hosted-kubernetes
 

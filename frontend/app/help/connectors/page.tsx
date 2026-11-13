@@ -51,21 +51,21 @@ const QUICK_START: Step[] = [
     title: { en: "Wait for the engine restart", ko: "엔진 재시작 대기" },
     body: {
       en: "A new database source becomes a Trino catalog named src_<slug>. Trino restarts to load it, which takes about one minute. Queries and syncs resume on their own.",
-      ko: "새 데이터베이스 소스는 src_<slug>라는 Trino catalog가 됩니다. 이를 불러오기 위해 Trino가 재시작되며 약 1분 걸립니다. 쿼리와 동기화는 재시작 후 자동으로 다시 동작합니다.",
+      ko: "새 데이터베이스 소스는 src_<slug>라는 Trino 카탈로그가 됩니다. 이를 불러오기 위해 Trino가 재시작되며 약 1분 걸립니다. 쿼리와 동기화는 재시작 후 자동으로 다시 동작합니다.",
     },
   },
   {
     title: { en: "Browse, then sync tables into Iceberg", ko: "탐색하고 Iceberg로 동기화" },
     body: {
       en: "Pick the tables to copy, choose a sync mode and a Target catalog, then click Sync Now. You can also skip the copy and query the source live from Analytics.",
-      ko: "복사할 테이블을 고르고 동기화 모드와 Target catalog를 정한 뒤 Sync Now를 누릅니다. 복사하지 않고 Analytics에서 소스를 바로 조회할 수도 있습니다.",
+      ko: "복사할 테이블을 고르고 동기화 모드와 Target 카탈로그를 정한 뒤 Sync Now를 누릅니다. 복사하지 않고 Analytics에서 소스를 바로 조회할 수도 있습니다.",
     },
   },
   {
     title: { en: "Check the sync history", ko: "동기화 이력 확인" },
     body: {
       en: "Open the source to see each run, its row counts and any error. The synced table appears in Catalog under the target catalog.",
-      ko: "소스를 열면 실행별 행 수와 오류를 볼 수 있습니다. 동기화된 테이블은 Catalog의 대상 catalog 아래에 나타납니다.",
+      ko: "소스를 열면 실행별 행 수와 오류를 볼 수 있습니다. 동기화된 테이블은 Catalog의 대상 카탈로그 아래에 나타납니다.",
     },
   },
 ]
@@ -73,7 +73,7 @@ const QUICK_START: Step[] = [
 const KINDS: (Block & { icon: "db" | "sample" | "backend" | "stream" })[] = [
   {
     icon: "db",
-    title: { en: "Database sources (Trino catalogs)", ko: "데이터베이스 소스 (Trino catalog)" },
+    title: { en: "Database sources (Trino catalogs)", ko: "데이터베이스 소스 (Trino 카탈로그)" },
     body: {
       en: "PostgreSQL, MySQL, SQL Server, Oracle and MongoDB are mounted in Trino as src_<slug>. You browse them in Catalog, join them with lake tables in Analytics, and copy them into Iceberg with a sync. The copy runs inside Trino as INSERT … SELECT or MERGE.",
       ko: "PostgreSQL, MySQL, SQL Server, Oracle, MongoDB는 Trino에 src_<slug>로 연결됩니다. Catalog에서 탐색하고, Analytics에서 lake 테이블과 조인하고, 동기화로 Iceberg에 복사할 수 있습니다. 복사는 Trino 안에서 INSERT … SELECT 또는 MERGE로 실행됩니다.",
@@ -94,7 +94,7 @@ const KINDS: (Block & { icon: "db" | "sample" | "backend" | "stream" })[] = [
     title: { en: "REST, custom Python and S3 sources", ko: "REST, 커스텀 Python, S3 소스" },
     body: {
       en: "These are read by the DataPond backend, not by Trino. S3 and S3-compatible storage (such as MinIO) support CSV, JSON/JSONL and Parquet with prefix discovery. They are not Trino catalogs, so they do not appear as src_<slug>.",
-      ko: "Trino가 아니라 DataPond 백엔드가 읽는 소스입니다. S3와 S3 호환 스토리지(MinIO 등)는 prefix 탐색과 함께 CSV, JSON/JSONL, Parquet을 지원합니다. Trino catalog가 아니므로 src_<slug>로 나타나지 않습니다.",
+      ko: "Trino가 아니라 DataPond 백엔드가 읽는 소스입니다. S3와 S3 호환 스토리지(MinIO 등)는 prefix 탐색과 함께 CSV, JSON/JSONL, Parquet을 지원합니다. Trino 카탈로그가 아니므로 src_<slug>로 나타나지 않습니다.",
     },
     badges: [{ en: "S3 API", ko: "S3 API" }, { en: "CSV / JSON / Parquet", ko: "CSV / JSON / Parquet" }],
   },
@@ -135,10 +135,10 @@ const MODES: { name: string; body: L }[] = [
 
 const SYNC_DETAILS: { title: L; body: L }[] = [
   {
-    title: { en: "Target catalog", ko: "Target catalog" },
+    title: { en: "Target catalog", ko: "Target 카탈로그" },
     body: {
       en: "Each table has its own Target catalog: the lake catalog (Glue or Polaris) that receives the Iceberg table. The choice is remembered for the next sync. Source catalogs cannot be a target; leaving it empty uses the default catalog.",
-      ko: "테이블마다 Target catalog를 정합니다. Iceberg 테이블을 받을 lake catalog(Glue 또는 Polaris)입니다. 선택은 다음 동기화에도 기억됩니다. 소스 catalog는 대상이 될 수 없고, 비워 두면 기본 catalog를 씁니다.",
+      ko: "테이블마다 Target 카탈로그를 정합니다. Iceberg 테이블을 받을 레이크 카탈로그(Glue 또는 Polaris)입니다. 선택은 다음 동기화에도 기억됩니다. 소스 카탈로그는 대상이 될 수 없고, 비워 두면 기본 카탈로그를 씁니다.",
     },
   },
   {
@@ -192,7 +192,7 @@ const FAQ: { q: L; a: L }[] = [
     q: { en: "Who can see or sync a source?", ko: "소스는 누가 보고 동기화할 수 있나요?" },
     a: {
       en: "Access to a source is its share list: the owner plus the members added as readers or editors. Readers can browse and query; editors can also change and sync it. The share list is also the grant list of the source's catalog, so Analytics honours it. Creating sources and syncing need a role such as admin or data_engineer.",
-      ko: "소스 접근 권한은 공유 목록으로 정해집니다. 소유자와 reader 또는 editor로 추가된 멤버입니다. reader는 탐색과 조회, editor는 변경과 동기화도 할 수 있습니다. 공유 목록은 해당 소스 catalog의 grant와 같아서 Analytics에도 그대로 적용됩니다. 소스 생성과 동기화에는 admin, data_engineer 같은 역할이 필요합니다.",
+      ko: "소스 접근 권한은 공유 목록으로 정해집니다. 소유자와 읽기 권한자 또는 편집 권한자로 추가된 멤버입니다. 읽기 권한자는 탐색과 조회, 편집 권한자는 변경과 동기화도 할 수 있습니다. 공유 목록은 해당 소스 카탈로그의 권한과 같아서 Analytics에도 그대로 적용됩니다. 소스 생성과 동기화에는 admin, data_engineer 같은 역할이 필요합니다.",
     },
   },
   {
@@ -210,10 +210,10 @@ const FAQ: { q: L; a: L }[] = [
     },
   },
   {
-    q: { en: "Can I keep the same table in two catalogs?", ko: "같은 테이블을 두 catalog에 둘 수 있나요?" },
+    q: { en: "Can I keep the same table in two catalogs?", ko: "같은 테이블을 두 카탈로그에 둘 수 있나요?" },
     a: {
       en: "Sync into one catalog. To make the table visible in a second catalog without copying data, use Export from Catalog; the second catalog gets a read-only mirror (one writer per table).",
-      ko: "한 catalog로 동기화하세요. 데이터 복사 없이 다른 catalog에서도 보이게 하려면 Catalog의 Export를 사용합니다. 두 번째 catalog에는 읽기 전용 mirror가 생깁니다(테이블당 writer는 하나).",
+      ko: "한 카탈로그로 동기화하세요. 데이터 복사 없이 다른 카탈로그에서도 보이게 하려면 Catalog의 Export를 사용합니다. 두 번째 카탈로그에는 읽기 전용 미러가 생깁니다(테이블당 writer는 하나).",
     },
   },
 ]
@@ -251,7 +251,7 @@ const TROUBLE: { title: L; body: L }[] = [
     title: { en: "Write to a table was refused (409)", ko: "테이블 쓰기가 거부되었습니다 (409)" },
     body: {
       en: "The target table is a mirror of a table owned by another catalog. The error names the owner; sync into the owner catalog instead.",
-      ko: "대상 테이블이 다른 catalog가 소유한 테이블의 mirror입니다. 오류에 소유자가 표시되므로 소유자 catalog로 동기화하세요.",
+      ko: "대상 테이블이 다른 카탈로그가 소유한 테이블의 미러입니다. 오류에 소유자가 표시되므로 소유자 카탈로그로 동기화하세요.",
     },
   },
 ]
@@ -265,11 +265,11 @@ export default function ConnectorsHelpPage() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink href="/dashboard">Home</BreadcrumbLink>
+            <BreadcrumbLink href="/dashboard">{t({ en: "Home", ko: "홈" })}</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbLink href="/help">Guides</BreadcrumbLink>
+            <BreadcrumbLink href="/help">{t({ en: "Guides", ko: "가이드" })}</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
@@ -411,7 +411,7 @@ export default function ConnectorsHelpPage() {
             <p className="text-sm text-muted-foreground">
               {t({
                 en: "A source has an owner, readers and editors. That list decides who can browse, query and sync it, and it is the same as the grants on the source's catalog. Change it from the source's share dialog.",
-                ko: "소스에는 소유자, reader, editor가 있습니다. 이 목록이 탐색, 조회, 동기화 권한을 정하며 소스 catalog의 grant와 같습니다. 소스의 공유 대화상자에서 바꿀 수 있습니다.",
+                ko: "소스에는 소유자, 읽기 권한자, 편집 권한자가 있습니다. 이 목록이 탐색, 조회, 동기화 권한을 정하며 소스 카탈로그의 권한과 같습니다. 소스의 공유 대화상자에서 바꿀 수 있습니다.",
               })}
             </p>
           </div>

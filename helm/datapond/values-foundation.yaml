@@ -18,7 +18,7 @@ product:
   profile:
     id: portable-core-aws
     label: Portable Core · AWS
-    description: Lean governed RAG core using S3 and Bedrock with in-cluster pgvector.
+    description: "AI layer only (no catalog or engine): S3 + Bedrock RAG with in-cluster pgvector."
     maturity: supported-starter
     topology: kubernetes
 

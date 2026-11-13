@@ -18,7 +18,7 @@ product:
   profile:
     id: aws-single-node
     label: AWS Single-Node Reference
-    description: Portable Core on EC2/K3s with Aurora, S3, Glue and Bedrock adapters; Trino in-cluster.
+    description: "Lakehouse on one EC2/K3s node: S3 + Iceberg, Glue (default) and Polaris catalogs, Trino in-cluster, Aurora, Bedrock."
     maturity: reference
     topology: ec2-k3s-single-node
 

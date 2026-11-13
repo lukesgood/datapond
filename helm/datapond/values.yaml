@@ -7,7 +7,7 @@ product:
   profile:
     id: oss-extended
     label: OSS Extended
-    description: Portable Core with the full set of optional self-hosted data add-ons.
+    description: Self-hosted lakehouse with the full set of optional data add-ons.
     maturity: community
     topology: kubernetes
 

@@ -64,9 +64,9 @@ export function GuideHeader({ crumb, title, subtitle, Icon, iconBox, iconColor }
     <>
       <Breadcrumb>
         <BreadcrumbList>
-          <BreadcrumbItem><BreadcrumbLink href="/dashboard">Home</BreadcrumbLink></BreadcrumbItem>
+          <BreadcrumbItem><BreadcrumbLink href="/dashboard">{t({ en: "Home", ko: "홈" })}</BreadcrumbLink></BreadcrumbItem>
           <BreadcrumbSeparator />
-          <BreadcrumbItem><BreadcrumbLink href="/help">Guides</BreadcrumbLink></BreadcrumbItem>
+          <BreadcrumbItem><BreadcrumbLink href="/help">{t({ en: "Guides", ko: "가이드" })}</BreadcrumbLink></BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem><BreadcrumbPage>{t(crumb)}</BreadcrumbPage></BreadcrumbItem>
         </BreadcrumbList>

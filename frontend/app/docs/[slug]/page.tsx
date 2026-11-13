@@ -53,7 +53,7 @@ const ARTICLES: Record<string, Doc> = {
     },
     points: [
       { en: "Open Sources and connect a database, or add the sample data. Adding a database source registers a Trino catalog and restarts the engine for about a minute.", ko: "Sources에서 데이터베이스를 연결하거나 샘플 데이터를 추가합니다. 데이터베이스 소스를 추가하면 Trino 카탈로그가 등록되고 엔진이 1분 정도 재시작됩니다." },
-      { en: "Sync a table into Iceberg. Pick the sync mode and the Target catalog; PII is masked inside the sync.", ko: "테이블을 Iceberg로 동기화합니다. 동기화 방식과 Target catalog를 고르면, PII는 동기화 중에 마스킹됩니다." },
+      { en: "Sync a table into Iceberg. Pick the sync mode and the Target catalog; PII is masked inside the sync.", ko: "테이블을 Iceberg로 동기화합니다. 동기화 방식과 Target 카탈로그를 고르면, PII는 동기화 중에 마스킹됩니다." },
       { en: "Open Analytics and query the table by its three-part name, catalog.schema.table. Chart the result or save it to a dashboard.", ko: "Analytics에서 catalog.schema.table 형식의 세 부분 이름으로 테이블을 조회합니다. 결과는 차트로 만들거나 대시보드에 저장할 수 있습니다." },
       { en: "Then set grants in Governance, define a Metric, and add AI: Knowledge, or an agent through MCP.", ko: "그다음 Governance에서 권한을 설정하고, Metric을 정의하고, Knowledge나 MCP로 연결한 에이전트 같은 AI를 더합니다." },
       { en: "AI-only profile (no engine): create a Knowledge collection, ingest text or S3 objects, test semantic search, then ask a cited question.", ko: "AI 전용 프로파일(엔진 없음): Knowledge 컬렉션을 만들어 텍스트나 S3 객체를 수집하고, 의미 검색을 확인한 뒤 인용이 붙는 질문을 해봅니다." },
@@ -235,7 +235,7 @@ const ARTICLES: Record<string, Doc> = {
     points: [
       { en: "PostgreSQL, MySQL, SQL Server, Oracle and MongoDB each become a Trino catalog src_<slug>. Adding one restarts the engine for about a minute.", ko: "PostgreSQL, MySQL, SQL Server, Oracle, MongoDB는 각각 Trino 카탈로그 src_<slug>가 됩니다. 추가하면 엔진이 1분 정도 재시작됩니다." },
       { en: "Sync modes: full (one atomic replace), incremental on a watermark column, and merge on key columns. New columns are added, and compatible type widening is handled.", ko: "동기화 방식: full(한 번에 원자적으로 교체), 워터마크 컬럼 기반 incremental, 키 컬럼 기반 merge. 새 컬럼은 추가되고, 호환되는 타입 확장은 처리됩니다." },
-      { en: "PII is masked inside the sync SELECT. Each table has a Target catalog, which is remembered for the next sync.", ko: "PII는 동기화 SELECT 안에서 마스킹됩니다. 테이블마다 Target catalog를 지정하며, 다음 동기화에도 기억됩니다." },
+      { en: "PII is masked inside the sync SELECT. Each table has a Target catalog, which is remembered for the next sync.", ko: "PII는 동기화 SELECT 안에서 마스킹됩니다. 테이블마다 Target 카탈로그를 지정하며, 다음 동기화에도 기억됩니다." },
       { en: "Who can use a source is its share list (owner plus members), which is also the grant list of its catalog. The two sample SQL sources connect as the read-only datapond_sample role.", ko: "소스를 쓸 수 있는 사람은 공유 목록(소유자와 멤버)이며, 이는 해당 카탈로그의 권한 목록과 같습니다. SQL 샘플 소스 두 개는 읽기 전용 datapond_sample 역할로 연결됩니다." },
       { en: "REST, custom Python and S3 sources are read by the backend, not by Trino.", ko: "REST, 커스텀 Python, S3 소스는 Trino가 아니라 백엔드가 읽습니다." },
     ],
@@ -271,7 +271,7 @@ const ARTICLES: Record<string, Doc> = {
       { en: "Owner and mirror: a table seen by two catalogs has an owner and a read-only mirror. Writes and DROPs against a mirror are refused with a 409 that names the owner.", ko: "소유자와 미러: 두 카탈로그에서 보이는 테이블에는 소유자와 읽기 전용 미러가 있습니다. 미러에 대한 쓰기와 DROP은 소유자를 알려 주는 409로 거부됩니다." },
       { en: "Reads of a mirror run against the owner, so the owner's grants and policies apply. Stale mirrors are re-pointed every 5 minutes, and commits made outside DataPond are flagged diverged.", ko: "미러를 읽으면 소유자 쪽에서 실행되므로 소유자의 권한과 정책이 적용됩니다. 오래된 미러는 5분마다 다시 연결되고, DataPond 밖에서 커밋된 변경은 diverged로 표시됩니다." },
       { en: "Export: Settings → Data catalogs → Export… (also on the Catalog page) registers a catalog's Iceberg tables in another catalog without copying data. Review the plan, then apply.", ko: "내보내기: Settings → Data catalogs → Export…(Catalog 페이지에도 있음)는 한 카탈로그의 Iceberg 테이블을 데이터 복사 없이 다른 카탈로그에 등록합니다. 계획을 검토한 뒤 적용합니다." },
-      { en: "Mode mirror keeps the source catalog as owner; mode move makes the target the owner. The Mirrors list shows fresh, diverged or error, with Check now.", ko: "mirror 모드는 원본 카탈로그가 소유자로 남고, move 모드는 대상 카탈로그가 소유자가 됩니다. Mirrors 목록에는 fresh, diverged, error 상태가 표시되며 Check now로 즉시 확인할 수 있습니다." },
+      { en: "Mode mirror keeps the source catalog as owner; mode move makes the target the owner. The Mirrors list shows fresh, diverged or error, with Check now.", ko: "미러 모드는 원본 카탈로그가 소유자로 남고, move 모드는 대상 카탈로그가 소유자가 됩니다. Mirrors 목록에는 fresh, diverged, error 상태가 표시되며 Check now로 즉시 확인할 수 있습니다." },
       { en: "Export and Mirrors need the catalog:write permission, which admins and data engineers have. Adding, editing and granting catalogs stays admin-only. Syncs choose a catalog with target_catalog.", ko: "Export와 Mirrors에는 catalog:write 권한이 필요하며, admin과 data_engineer가 갖고 있습니다. 카탈로그 추가·수정·권한 부여는 관리자 전용입니다. 동기화는 target_catalog로 카탈로그를 고릅니다." },
     ],
     related: [{ label: { en: "Catalog", ko: "Catalog" }, href: "/catalog", capability: "catalog" }, { label: { en: "Settings", ko: "Settings" }, href: "/settings" }, { label: { en: "Exit strategy", ko: "이전 전략" }, href: "/docs/exit-strategy" }],
@@ -299,7 +299,7 @@ const ARTICLES: Record<string, Doc> = {
       ko: "거버넌스는 데이터 계층에서 적용되므로 콘솔, SQL, 에이전트 모두에 똑같이 적용됩니다.",
     },
     points: [
-      { en: "Catalog grants decide who reads a catalog. Row filters and column masks are policies on catalog + schema + table, enforced on the SQL path (Analytics, previews, queries). Trino Layer 2 is optional.", ko: "카탈로그 권한이 카탈로그를 읽을 수 있는 사람을 정합니다. 행 필터와 컬럼 마스크는 catalog + schema + table 단위 정책이며 SQL 경로(Analytics, 미리보기, 쿼리)에서 강제됩니다. Trino Layer 2는 선택 사항입니다." },
+      { en: "Catalog grants decide who reads a catalog. Row filters and column masks are policies on catalog + schema + table, enforced on the SQL path (Analytics, previews, queries). Trino Layer 2 is optional.", ko: "카탈로그 권한이 카탈로그를 읽을 수 있는 사람을 정합니다. 행 필터와 컬럼 마스크는 카탈로그 + schema + table 단위 정책이며 SQL 경로(Analytics, 미리보기, 쿼리)에서 강제됩니다. Trino Layer 2는 선택 사항입니다." },
       { en: "Korean PII masking runs during sync and ingestion and again at retrieval, with sensitivity labels and per-caller or per-collection modes.", ko: "한국형 PII 마스킹은 동기화·수집 중과 검색 시점에 모두 적용되며, 민감도 라벨과 호출자별·컬렉션별 모드를 지원합니다." },
       { en: "Audit: tool calls (including refused ones), the query log, access decisions, and NDJSON export.", ko: "감사: 거부된 호출을 포함한 도구 호출, 쿼리 로그, 접근 결정 기록, NDJSON 내보내기를 제공합니다." },
       { en: "Roles: admin, data_engineer, ai_engineer, data_scientist, business_analyst, auditor and viewer. A service-account key or IdP token never passes admin checks.", ko: "역할: admin, data_engineer, ai_engineer, data_scientist, business_analyst, auditor, viewer. 서비스 계정 키나 IdP 토큰은 관리자 권한 검사를 통과하지 못합니다." },
