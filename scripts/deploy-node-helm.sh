@@ -36,6 +36,14 @@ echo "== deploying $TAG from ECR =="
 #   repos, ingress domain, catalog, RLS, …) while picking up new chart defaults; only
 #   override the image tags. pullPolicy IfNotPresent + an immutable SHA tag ⇒ the node
 #   pulls this exact tag from ECR the first time and caches it.
+# Pre-check (scripts/preflight.py): a rolling update needs CPU-request room for one more
+# pod of the largest Deployment. On 2026-11-12 it had none and helm waited out its timeout
+# ("context deadline exceeded") with the new backend Pending; fail fast with the reason.
+PREFLIGHT="$(dirname "$0")/preflight.py"
+if [ -f "$PREFLIGHT" ] && [ "${DATAPOND_SKIP_PREFLIGHT:-}" != "1" ]; then
+  python3 "$PREFLIGHT" node --namespace "$NS"
+fi
+
 helm -n "$NS" upgrade "$RELEASE" "$CHART" \
   --reset-then-reuse-values \
   --set-string backend.image.tag="$TAG" \

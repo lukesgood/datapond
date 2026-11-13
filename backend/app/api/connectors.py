@@ -221,6 +221,7 @@ from ..connectors.base import (
 from ..connectors import trino_source as _trino_source
 from ..connectors.trino_source import TrinoSourceConfig, TrinoSourceConnector
 from ..connectors.storage import StorageConfig, S3Connector
+from app.sync_diagnosis import diagnose
 from ..connectors.vault import CredentialVault, LazyCredentialVault
 
 router = APIRouter(tags=["connectors"])
@@ -2818,6 +2819,67 @@ async def get_sync_status(connection_id: str, user: dict = Depends(require_user)
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
+def _with_diagnosis(tables: list) -> list:
+    """Each failed table's error, named with what to do (app/sync_diagnosis.py)."""
+    out = []
+    for t in tables or []:
+        t = dict(t)
+        t["diagnosis"] = diagnose(t.get("error")) if t.get("error") else None
+        out.append(t)
+    return out
+
+
+def _is_trino_backed(connector) -> bool:
+    from app.connectors.trino_source import TrinoSourceConnector
+    return isinstance(connector, TrinoSourceConnector)
+
+
+def _drop_target_table(ref) -> None:
+    from app.api.trino_util import trino_conn
+    from app.catalog_export import ident
+    cur = trino_conn(timeout=120).cursor()
+    cur.execute(f"DROP TABLE IF EXISTS {ident(ref.catalog)}.{ident(ref.namespace)}.{ident(ref.table)}")
+    cur.fetchall()
+
+
+@router.post("/connectors/{connection_id}/tables/{table_name}/recreate",
+             dependencies=[Depends(require_permission("connector:write"))])
+async def recreate_table(connection_id: str, table_name: str, user: dict = Depends(require_user)):
+    """Drop a synced table's lake target and run a full sync — the fix for a source column
+    whose type changed in a way Iceberg cannot alter in place (app/sync_diagnosis.py).
+    Refused for a read-only mirror. Audited as sync_target_recreated."""
+    from app import table_links
+    from app.connectors import trino_sync
+    await require_access(CONNECTOR, connection_id, user, write=True)
+    connector = await _get_connector_instance(connection_id)
+    if not _is_trino_backed(connector):
+        raise HTTPException(status_code=400, detail="Only database sources (Trino catalogs) can be recreated.")
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        stored = await conn.fetchval(
+            "SELECT target_table FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
+            uuid.UUID(connection_id), table_name)
+    catalog = await _resolve_target_catalog(pool, connection_id, table_name, None)
+    ref = trino_sync.target_ref(table_name, stored or f"datapond.default.{table_name}", catalog)
+    owner = table_links.current().owner_of((ref.catalog.lower(), ref.namespace.lower(), ref.table.lower()))
+    if owner:
+        raise HTTPException(status_code=409, detail=str(table_links.MirrorWriteRefused(
+            (ref.catalog, ref.namespace, ref.table), owner)))
+    await asyncio.to_thread(_drop_target_table, ref)
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO auth_audit_log (event_type, user_id, user_email, resource, action, result, details)
+                   VALUES ($1,$2,$3,$4,'recreate_table','success',$5)""",
+                "sync_target_recreated", uuid.UUID(user["id"]) if user.get("id") else None,
+                user.get("username"), ref.sql(), json.dumps({"connection_id": connection_id, "source_table": table_name}))
+    except Exception as e:
+        logger.warning("[sync] recreate audit skipped: %s", e)
+    result = await trigger_sync(connection_id, SyncRequest(source_table=table_name, sync_mode=SyncMode.FULL), user)
+    return {**result, "recreated": ref.sql()}
+
+
 @router.get("/connectors/{connection_id}/history")
 async def get_sync_history(connection_id: str, limit: int = 20,
                            user: dict = Depends(require_user)):
@@ -2849,7 +2911,8 @@ async def get_sync_history(connection_id: str, limit: int = 20,
                 "rows_processed": row['rows_processed'] or 0,
                 "rows_failed": row['rows_failed'] or 0,
                 "error_message": row['error_message'],
-                "tables": meta.get("tables", []),
+                "tables": _with_diagnosis(meta.get("tables", [])),
+                "diagnosis": diagnose(row['error_message']),
                 "duration_ms": meta.get("duration_ms"),
                 "sync_mode": meta.get("sync_mode", "full"),
             })

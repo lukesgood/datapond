@@ -673,6 +673,21 @@ encrypted credential already stored in Aurora becomes permanently unreadable. Ex
 RTO: ~30-60 min for an Aurora-only restore, ~2-4 h for a full node rebuild (Terraform
 apply + cloud-init + secrets re-seed + Helm install), per the DR doc's objectives table.
 
+### 6d. Pre-check before an install or a deploy
+
+`scripts/preflight.py` reports the failures we hit live before they happen:
+
+```bash
+# before an install or a node type change (your workstation, AWS CLI)
+python3 scripts/preflight.py aws --region us-east-1 --instance-type t3.xlarge --az-id use1-az1
+# on the node: CPU-request headroom for a rolling update (deploy-node-helm.sh runs this first)
+sudo python3 scripts/preflight.py node
+```
+
+It checks the Spot placement score in the node's zone, the Spot vCPU quota and Bedrock model
+listing, and on the node whether one more pod of the largest rolling Deployment still fits.
+A `fail` stops the deploy with the reason; `DATAPOND_SKIP_PREFLIGHT=1` overrides it.
+
 ### 7a. Polaris beside Glue (2.7)
 
 Since 2026-11-12 the reference runs Polaris next to Glue: `polaris.enabled: true`,
