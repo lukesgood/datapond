@@ -1,5 +1,7 @@
 # DataPond 상품화 준비도 평가
 
+> **기록 (현황 2026-11-13):** v5–v6 시점의 상품화 준비도 평가다. 이후 Trino 단일 엔진(2.4), DB 소스의 Trino 카탈로그화(2.5), 카탈로그 내보내기·워커(2.6), 두 카탈로그 동시 사용 보호(2.7)가 들어왔다. 현재 경계는 [`PRODUCT_CONCEPT.md`](PRODUCT_CONCEPT.md) v7과 루트 README.
+
 > 평가일: 2026-08-24  
 > 평가 대상: 현재 저장소의 Portable Core, AWS Single-Node Reference, optional OSS add-on, Enterprise 경계  
 > 평가 방식: README 제품 계약과 코드·테스트·Helm·Terraform·CI/CD·운영 문서의 정적 대조 및 로컬 검증

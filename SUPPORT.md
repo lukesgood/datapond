@@ -57,7 +57,14 @@ probe only — there is no live acceptance for them yet; a type-mapping or diale
 there is a bug we want to hear about, not a configuration we can promise. The SQLAlchemy
 URL type and the pandas sync path are gone.
 
-The optional OSS add-ons (Airflow, Spark, Polaris, RisingWave, OpenMetadata, Jupyter,
+**Iceberg catalogs** (2.6–2.7): Glue, and Polaris as the chart deploys it (in-cluster, its
+metadata in the deployment's PostgreSQL/Aurora; beside Glue on the AWS reference since
+2026-11-12), plus other Iceberg REST catalogs registered under Settings → Data catalogs. The
+catalog export and the one-writer-per-table guards (`docs/PORTABILITY.md`) are supported for
+those catalogs; writes made to a mirror by an engine outside DataPond are detected, not
+prevented.
+
+The other optional OSS add-ons (Airflow, Spark, RisingWave, OpenMetadata, Jupyter,
 MLflow) are configuration around upstream projects. We will help with how the chart
 wires them; we are not in a position to support those projects themselves.
 

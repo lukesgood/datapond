@@ -30,6 +30,13 @@ target is refused (400).
   remembered per table; omitted keeps the default catalog.
 - **Polaris** no longer purges files on DROP when it shares locations
   (`polaris.storage.extraAllowedLocations` set).
+- **`catalog:write` (2026-11-13, PR #263).** A new permission held by admins and the
+  `data_engineer` role opens the catalog export and `GET`/`POST /api/catalogs/mirrors…` (they
+  were admin-only). Console: Export… and Mirrors appear for those roles, also on the Catalog
+  page. Creating, editing, defaulting and granting catalogs stay admin-only.
+- **Polaris token key.** Every Polaris replica signs tokens with `POLARIS_TOKEN_KEY` (generated
+  in `datapond-secrets`, lookup-preserved); before this, two replicas refused each other's
+  tokens (401). On the AWS reference Polaris runs one replica with a 50m CPU request.
 
 ## 2.6 (2026-11) — Lakehouse first: catalog export, Trino workers, menu
 

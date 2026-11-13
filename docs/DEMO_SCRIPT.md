@@ -1,5 +1,44 @@
 # Demo script — one collection, two agents, two different answers
 
+> **v7 order (2026-11-13).** Lead with **Part A — the lakehouse** below (about 10 minutes),
+> then run the original agent demo as **Part B — the AI layer on the same data** (everything
+> from "## 0. What you need" on). Part A needs a profile with Trino and a catalog (the AWS
+> Single-Node Reference); Part B runs on any profile.
+
+## Part A — the lakehouse (10 minutes)
+
+Signed in as an administrator, on a deployment with the sample sources added (Sources →
+**Sample sources**). Each step names what the audience should notice.
+
+1. **Dashboard.** The Lakehouse row: lake catalogs and tables, sources with their last sync,
+   stale sources, today's queries. The workflow strip reads Connect → Organize → Query →
+   Govern → Add AI. *One node, in your own AWS account.*
+2. **Sources → Sample E-Commerce DB.** A live PostgreSQL is a Trino catalog
+   (`src_sample_e_commerce_db`). Open a table's settings: sync mode, key columns, PII
+   columns, **Target catalog**. Sync one table and watch the history row appear. *PII is
+   masked inside the sync — raw values never reach the lake.*
+3. **Catalog.** Two lake catalogs (Glue, Polaris) and the source catalogs, filtered by
+   catalog and namespace; open a table for preview, column statistics and completeness.
+   *Data in S3 as Apache Iceberg; the catalog is replaceable.*
+4. **Analytics.** Join the lake with the live source in one statement, e.g.
+   `SELECT o.status, count(*) FROM iceberg.default.orders o JOIN
+   src_sample_e_commerce_db.public.customers c ON o.customer_id = c.id GROUP BY 1` — a
+   chart appears. *One engine, Trino, for the lake and the source databases.*
+5. **Governance.** Add a row filter for a role (catalog, schema, table, expression); show
+   that the same SELECT returns fewer rows for that role. Open the audit trail. *Control at
+   the data layer, the same on every profile.*
+6. **Settings → Data catalogs → Export… (Plan only).** Plan an export from Glue to Polaris:
+   every table "register", nothing copied, the locations Polaris must allow. Do not apply in a
+   demo. *Leaving Glue is a call, not a project* — and the Mirrors section shows how a table
+   seen by two catalogs keeps one writer.
+
+Questions this part should raise, and where the answers are: cost and size
+(`DEPLOYMENT_PROFILES.md`), lock-in (`PORTABILITY.md`), what is not validated yet
+(`POSITIONING_V7.md`).
+
+## Part B — the AI layer on the same data
+
+
 A 15-minute customer demo of what DataPond does that an agent gateway does not: the
 same question, asked by two agents against the same collection, returns different
 chunks; an agent over its budget is refused; every call is on the record. An optional

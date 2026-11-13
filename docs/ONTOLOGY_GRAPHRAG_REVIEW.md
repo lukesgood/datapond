@@ -1,5 +1,7 @@
 # 온톨로지·GraphRAG 적용 필요성 검토
 
+> **기록 (현황 2026-11-13):** 2026-10-15–16 결정 기록이다. 결정(SQL 의미 정의 착수, GraphRAG·Cube 보류)은 바뀌지 않았다. 당시의 "수요 게이트" 언급은 v6 기준이며, 현재 방향은 [`POSITIONING_V7.md`](POSITIONING_V7.md).
+
 > 작성: 2026-10-15 · 상태: **결정 기록** · 근거: `ONTOLOGY_FEASIBILITY_REPORT.md`(자체 실험 5종),
 > `CONCEPT_RECONFIRMATION.md` §5(수요 게이트), `POSITIONING_REVIEW.md` §3.4, RFI-260916 내부참조(저장소 밖 보관).
 > 계기: 외부 대화에서 "DataPond에 시맨틱 레이어·온톨로지·GraphRAG를 붙이자"는 제안을 검토했다.
