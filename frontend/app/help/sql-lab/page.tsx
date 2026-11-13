@@ -32,14 +32,14 @@ const QUICK_START: { title: L; body: L }[] = [
     title: { en: "Open Analytics", ko: "Analytics 열기" },
     body: {
       en: "Go to Lakehouse → Analytics. The editor runs Trino SQL, and the schema tree on the left lists every catalog you may use.",
-      ko: "Lakehouse → Analytics로 이동합니다. 편집기는 Trino SQL을 실행하며, 왼쪽 스키마 트리에 사용할 수 있는 모든 catalog가 나옵니다.",
+      ko: "Lakehouse → Analytics로 이동합니다. 편집기는 Trino SQL을 실행하며, 왼쪽 스키마 트리에 사용할 수 있는 모든 카탈로그가 나옵니다.",
     },
   },
   {
     title: { en: "Find a table and write a query", ko: "테이블을 찾아 쿼리 작성" },
     body: {
       en: "Expand a catalog, schema and table in the tree to see columns, and click a name to insert it. Always use the full name catalog.schema.table.",
-      ko: "트리에서 catalog, schema, 테이블을 펼쳐 컬럼을 확인하고, 이름을 눌러 편집기에 넣습니다. 항상 catalog.schema.table 전체 이름을 쓰세요.",
+      ko: "트리에서 카탈로그, schema, 테이블을 펼쳐 컬럼을 확인하고, 이름을 눌러 편집기에 넣습니다. 항상 catalog.schema.table 전체 이름을 쓰세요.",
     },
   },
   {
@@ -57,7 +57,7 @@ const FEATURES: { icon: "code" | "ai" | "history" | "share" | "shield"; title: L
     title: { en: "Editor and schema tree", ko: "편집기와 스키마 트리" },
     body: {
       en: "Trino SQL with a tree of every catalog the caller may use: lake catalogs and source catalogs (src_<slug>).",
-      ko: "호출자가 쓸 수 있는 모든 catalog(lake catalog와 src_<slug> source catalog)가 트리로 나오는 Trino SQL 편집기입니다.",
+      ko: "호출자가 쓸 수 있는 모든 카탈로그(레이크 카탈로그와 src_<slug> 소스 카탈로그)가 트리로 나오는 Trino SQL 편집기입니다.",
     },
   },
   {
@@ -99,7 +99,7 @@ const RULES: { title: L; body: L }[] = [
     title: { en: "Three-part names", ko: "세 부분 이름" },
     body: {
       en: "Use catalog.schema.table. A bare table name resolves only in lake catalogs; tables in a source catalog need the qualified name.",
-      ko: "catalog.schema.table을 사용하세요. 이름만 쓰는 방식은 lake catalog에서만 해석되고, source catalog의 테이블은 전체 이름이 필요합니다.",
+      ko: "catalog.schema.table을 사용하세요. 이름만 쓰는 방식은 레이크 카탈로그에서만 해석되고, 소스 카탈로그의 테이블은 전체 이름이 필요합니다.",
     },
   },
   {
@@ -110,17 +110,17 @@ const RULES: { title: L; body: L }[] = [
     },
   },
   {
-    title: { en: "Mirrors are read through their owner", ko: "mirror는 owner를 통해 읽습니다" },
+    title: { en: "Mirrors are read through their owner", ko: "미러는 소유자를 통해 읽습니다" },
     body: {
       en: "If a table is a mirror (see Catalog → Export), the query runs against the owner and uses the owner's grants and policies. Writes to a mirror are refused with 409.",
-      ko: "테이블이 mirror라면(Catalog → Export 참고) 쿼리는 owner를 대상으로 실행되며 owner의 grant와 정책이 적용됩니다. mirror에 쓰면 409로 거부됩니다.",
+      ko: "테이블이 미러라면(Catalog → Export 참고) 쿼리는 소유자를 대상으로 실행되며 소유자의 권한과 정책이 적용됩니다. 미러에 쓰면 409로 거부됩니다.",
     },
   },
   {
-    title: { en: "Catalog access", ko: "catalog 접근 권한" },
+    title: { en: "Catalog access", ko: "카탈로그 접근 권한" },
     body: {
       en: "You see only catalogs you were granted. A source catalog follows the source's share list.",
-      ko: "grant를 받은 catalog만 보입니다. source catalog는 해당 소스의 공유 목록을 따릅니다.",
+      ko: "권한을 받은 카탈로그만 보입니다. 소스 카탈로그는 해당 소스의 공유 목록을 따릅니다.",
     },
   },
 ]
@@ -155,14 +155,14 @@ const FAQ: { q: L; a: L }[] = [
     q: { en: "Which SQL dialect is it?", ko: "어떤 SQL 방언인가요?" },
     a: {
       en: "Trino SQL, for every catalog. DataPond runs one engine, so the same query works on Glue, Polaris and source catalogs.",
-      ko: "모든 catalog에서 Trino SQL입니다. DataPond는 엔진이 하나라서 같은 쿼리가 Glue, Polaris, source catalog에서 똑같이 동작합니다.",
+      ko: "모든 카탈로그에서 Trino SQL입니다. DataPond는 엔진이 하나라서 같은 쿼리가 Glue, Polaris, 소스 카탈로그에서 똑같이 동작합니다.",
     },
   },
   {
     q: { en: "Can I share a query or a result?", ko: "쿼리나 결과를 공유할 수 있나요?" },
     a: {
       en: "Save the result as a chart on a dashboard and share the dashboard with your team. Dashboard viewers see data through their own grants and masks.",
-      ko: "결과를 차트로 만들어 대시보드에 저장하고 팀과 공유하세요. 대시보드를 보는 사람은 자신의 grant와 마스킹이 적용된 데이터를 봅니다.",
+      ko: "결과를 차트로 만들어 대시보드에 저장하고 팀과 공유하세요. 대시보드를 보는 사람은 자신의 권한과 마스킹이 적용된 데이터를 봅니다.",
     },
   },
   {
@@ -179,14 +179,14 @@ const TROUBLE: { title: L; body: L }[] = [
     title: { en: "Table not found", ko: "테이블을 찾을 수 없음" },
     body: {
       en: "Use the three-part name. A source table needs its src_<slug> prefix, and you need a grant on that catalog. After adding a source, wait about one minute for Trino to restart.",
-      ko: "세 부분 이름을 쓰세요. 소스 테이블은 src_<slug> 접두어가 필요하고 해당 catalog에 grant가 있어야 합니다. 소스를 추가한 직후라면 Trino 재시작을 위해 1분쯤 기다리세요.",
+      ko: "세 부분 이름을 쓰세요. 소스 테이블은 src_<slug> 접두어가 필요하고 해당 카탈로그에 권한이 있어야 합니다. 소스를 추가한 직후라면 Trino 재시작을 위해 1분쯤 기다리세요.",
     },
   },
   {
     title: { en: "Permission denied on a write", ko: "쓰기에서 권한 거부" },
     body: {
       en: "Your role lacks query:write, or the table is a mirror owned by another catalog. Ask an admin, or write to the owner table named in the error.",
-      ko: "역할에 query:write가 없거나 다른 catalog가 소유한 mirror 테이블입니다. 관리자에게 요청하거나 오류에 나온 owner 테이블에 쓰세요.",
+      ko: "역할에 query:write가 없거나 다른 카탈로그가 소유한 미러 테이블입니다. 관리자에게 요청하거나 오류에 나온 소유자 테이블에 쓰세요.",
     },
   },
   {
@@ -214,11 +214,11 @@ export default function SqlLabHelpPage() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink href="/dashboard">Home</BreadcrumbLink>
+            <BreadcrumbLink href="/dashboard">{t({ en: "Home", ko: "홈" })}</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbLink href="/help">Guides</BreadcrumbLink>
+            <BreadcrumbLink href="/help">{t({ en: "Guides", ko: "가이드" })}</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>

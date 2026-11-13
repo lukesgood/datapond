@@ -24,7 +24,7 @@ product:
   profile:
     id: sovereign-core
     label: Sovereign Core
-    description: Self-hosted Portable Core with local model and storage, no data add-ons.
+    description: "AI layer only, self-hosted: MinIO + local models, no catalog, engine or add-ons."
     maturity: supported-starter
     topology: self-hosted-kubernetes
 
