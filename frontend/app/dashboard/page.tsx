@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { RefreshCw } from "lucide-react"
 import { ActivityPanel, type GlobalBudget } from "@/components/dashboard/activity-panel"
+import { OpsStatusLine } from "@/components/dashboard/ops-status-line"
 import { LakehouseRow } from "@/components/dashboard/lakehouse-row"
 import { JourneyStrip } from "@/components/dashboard/journey-strip"
 import { PlatformStatusLine } from "@/components/dashboard/platform-status-line"
@@ -121,6 +122,8 @@ export default function DashboardPage() {
 
   return (
     <div className="flex-1 space-y-6 p-8 pt-6">
+      <OpsStatusLine />
+
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-primary">Overview</p>

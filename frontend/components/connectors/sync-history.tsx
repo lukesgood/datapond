@@ -7,6 +7,9 @@ import {
   CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight,
   Database, Rows3, Timer,
 } from "lucide-react"
+import { OpsActionButtons } from "@/components/dashboard/ops-actions"
+import { usePermissions } from "@/lib/permissions"
+import { diagnosisActions, type Diagnosis } from "@/lib/ops-status"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -24,6 +27,7 @@ export interface SyncTableResult {
   status: "pending" | "running" | "success" | "failed"
   rows?: number
   error?: string
+  diagnosis?: Diagnosis | null
   steps?: SyncTableStep[]   // live sub-steps from iceberg_writer
 }
 
@@ -45,6 +49,9 @@ export interface SyncSession {
 interface SyncHistoryProps {
   sessions: SyncSession[]
   onDismissLive?: () => void
+  /** Called after a recreate or retry from a failed table, to reload history. */
+  onChanged?: () => void
+  connectionId?: string
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -101,7 +108,10 @@ function ErrorDetail({ error }: { error: string }) {
 
 // ── Session Row ────────────────────────────────────────────────────────────────
 
-function SessionRow({ session, defaultOpen }: { session: SyncSession; defaultOpen?: boolean }) {
+function SessionRow({ session, defaultOpen, connectionId, onChanged }: {
+  session: SyncSession; defaultOpen?: boolean; connectionId?: string; onChanged?: () => void
+}) {
+  const { permissions } = usePermissions()
   // Failed sessions auto-expand so errors are immediately visible
   const [open, setOpen] = useState(defaultOpen ?? session.status === "failed")
   const pct = progressPct(session.tables)
@@ -256,6 +266,18 @@ function SessionRow({ session, defaultOpen }: { session: SyncSession; defaultOpe
               {t.status === "failed" && t.error && (
                 <ErrorDetail error={t.error} />
               )}
+              {t.status === "failed" && t.diagnosis && (
+                <div className="ml-5 px-2 pb-2 space-y-1.5">
+                  <p className="text-xs font-medium">{t.diagnosis.title}</p>
+                  <p className="text-2xs text-muted-foreground">{t.diagnosis.detail}</p>
+                  <p className="text-xs">{t.diagnosis.advice}</p>
+                  {connectionId && (
+                    <OpsActionButtons
+                      actions={diagnosisActions(connectionId, t.table, t.diagnosis, permissions)}
+                      onDone={onChanged} />
+                  )}
+                </div>
+              )}
 
               {/* Row 4: completed steps summary (success, expanded) */}
               {t.status === "success" && t.steps && t.steps.length > 0 && (
@@ -284,7 +306,7 @@ function SessionRow({ session, defaultOpen }: { session: SyncSession; defaultOpe
 
 const DEFAULT_VISIBLE = 5
 
-export function SyncHistory({ sessions }: SyncHistoryProps) {
+export function SyncHistory({ sessions, connectionId, onChanged }: SyncHistoryProps) {
   const [showAll, setShowAll] = useState(false)
   const liveSession  = sessions.find(s => s.isLive)
   const pastSessions = sessions.filter(s => !s.isLive)
@@ -310,12 +332,12 @@ export function SyncHistory({ sessions }: SyncHistoryProps) {
 
         {/* Live session always on top, always open */}
         {liveSession && (
-          <SessionRow key="live" session={liveSession} defaultOpen={true} />
+          <SessionRow key="live" session={liveSession} defaultOpen={true} connectionId={connectionId} onChanged={onChanged} />
         )}
 
         {/* Past sessions — collapsed after DEFAULT_VISIBLE */}
         {visiblePast.map(s => (
-          <SessionRow key={s.id} session={s} />
+          <SessionRow key={s.id} session={s} connectionId={connectionId} onChanged={onChanged} />
         ))}
 
         {/* Show more / less toggle */}
