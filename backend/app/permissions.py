@@ -27,6 +27,7 @@ from typing import Dict, FrozenSet, Optional
 
 ALL_PERMISSIONS: FrozenSet[str] = frozenset({
     "catalog:read",       # browse the catalog
+    "catalog:write",      # export a catalog's tables into another catalog; mirrors
     "query:run",          # run a statement that only reads
     "query:write",        # run one that changes data or schema (INSERT/DDL/…)
     "dashboard:write",    # save and delete dashboards
@@ -56,6 +57,9 @@ ROLE_PERMISSIONS: Dict[str, FrozenSet[str]] = {
     "data_engineer": frozenset(_READ_BASELINE | {
         "query:run", "query:write", "connector:read", "connector:write",
         "pipeline:write", "workbench:read", "workbench:write",
+        # Picks a sync's target catalog, so also moves tables between catalogs (export)
+        # and watches the mirrors that leaves (owner decision 2026-11-13).
+        "catalog:write",
     }),
 
     # The product's stated target user — AI application teams — had no role at all.

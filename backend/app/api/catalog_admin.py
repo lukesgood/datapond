@@ -246,14 +246,14 @@ async def _list_links(pool) -> list:
 
 
 @router.get("/catalogs/mirrors")
-async def list_mirrors(admin: dict = Depends(require_admin)):
+async def list_mirrors(admin: dict = Depends(require_permission("catalog:write"))):
     """Tables registered in two catalogs by the export: owner, read-only mirror, and the
     last freshness check (fresh, diverged, error). See app/table_links.py."""
     return {"mirrors": await _list_links(await _pool())}
 
 
 @router.post("/catalogs/mirrors/check")
-async def check_mirrors(admin: dict = Depends(require_admin)):
+async def check_mirrors(admin: dict = Depends(require_permission("catalog:write"))):
     """Run the mirror freshness check now (app/mirror_freshness.py): re-point mirrors that
     are behind their owner, report any committed to from outside."""
     from app import mirror_freshness
@@ -477,7 +477,8 @@ async def _record_links(pool, items, src: str, dst: str, mode: str) -> None:
 
 
 @router.post("/catalogs/{name}/export")
-async def export_catalog(name: str, body: CatalogExport, admin: dict = Depends(require_admin)):
+async def export_catalog(name: str, body: CatalogExport,
+                         admin: dict = Depends(require_permission("catalog:write"))):
     """Register this catalog's Iceberg tables in `target`, without copying data — the exit
     path off a provider catalog (Glue → an Iceberg REST catalog). Plans by default;
     `apply: true` registers each missing table and compares row counts on both sides.

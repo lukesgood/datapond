@@ -359,3 +359,9 @@ export function lakeCatalogs<T extends { kind: string; enabled: boolean }>(list:
 export function landsIn(targetCatalog: string | null | undefined, defaultName: string | undefined): string | null {
   return targetCatalog && targetCatalog !== defaultName ? targetCatalog : null
 }
+
+/** Whether the caller may export a catalog's tables into another and watch the mirrors:
+ *  `catalog:write` (admins and data engineers), the same permission the API checks. */
+export function canExportCatalogs(permissions: Set<string>): boolean {
+  return permissions.has("catalog:write")
+}

@@ -207,3 +207,12 @@ test("a table lands in a named catalog only when it is not the default", () => {
   assert.equal(landsIn("lake", "lake"), null)
   assert.equal(landsIn("polaris_lake", "lake"), "polaris_lake")
 })
+
+import { canExportCatalogs } from "./data-catalogs.ts"
+
+test("export and mirrors open to whoever holds catalog:write, not only admins", () => {
+  // Owner decision 2026-11-13: data engineers move tables between catalogs too.
+  assert.equal(canExportCatalogs(new Set(["catalog:write"])), true)
+  assert.equal(canExportCatalogs(new Set(["catalog:read", "query:run"])), false)
+  assert.equal(canExportCatalogs(new Set()), false)
+})
