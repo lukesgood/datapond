@@ -10,6 +10,7 @@ import {
 import { OpsActionButtons } from "@/components/dashboard/ops-actions"
 import { usePermissions } from "@/lib/permissions"
 import { diagnosisActions, type Diagnosis } from "@/lib/ops-status"
+import { latestAttemptKeys } from "@/lib/sync-table-rows"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -108,8 +109,9 @@ function ErrorDetail({ error }: { error: string }) {
 
 // ── Session Row ────────────────────────────────────────────────────────────────
 
-function SessionRow({ session, defaultOpen, connectionId, onChanged }: {
+function SessionRow({ session, defaultOpen, connectionId, onChanged, actionable }: {
   session: SyncSession; defaultOpen?: boolean; connectionId?: string; onChanged?: () => void
+  actionable?: Set<string>
 }) {
   const { permissions } = usePermissions()
   // Failed sessions auto-expand so errors are immediately visible
@@ -273,7 +275,7 @@ function SessionRow({ session, defaultOpen, connectionId, onChanged }: {
                   <p className="text-xs">{t.diagnosis.advice}</p>
                   {connectionId && (
                     <OpsActionButtons
-                      actions={diagnosisActions(connectionId, t.table, t.diagnosis, permissions)}
+                      actions={(!actionable || actionable.has(`${session.id}|${t.table}`)) ? diagnosisActions(connectionId, t.table, t.diagnosis, permissions) : []}
                       onDone={onChanged} />
                   )}
                 </div>
@@ -307,6 +309,8 @@ function SessionRow({ session, defaultOpen, connectionId, onChanged }: {
 const DEFAULT_VISIBLE = 5
 
 export function SyncHistory({ sessions, connectionId, onChanged }: SyncHistoryProps) {
+  // Diagnosis actions only on each table's newest attempt (a later run may have fixed it).
+  const actionable = latestAttemptKeys(sessions)
   const [showAll, setShowAll] = useState(false)
   const liveSession  = sessions.find(s => s.isLive)
   const pastSessions = sessions.filter(s => !s.isLive)
@@ -337,7 +341,7 @@ export function SyncHistory({ sessions, connectionId, onChanged }: SyncHistoryPr
 
         {/* Past sessions — collapsed after DEFAULT_VISIBLE */}
         {visiblePast.map(s => (
-          <SessionRow key={s.id} session={s} connectionId={connectionId} onChanged={onChanged} />
+          <SessionRow key={s.id} session={s} connectionId={connectionId} onChanged={onChanged} actionable={actionable} />
         ))}
 
         {/* Show more / less toggle */}
