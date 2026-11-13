@@ -750,6 +750,19 @@ async def rls_coverage(user: Optional[dict] = Depends(_get_current_user)):
     return out
 
 
+@router.get("/governance/pii-evidence", dependencies=[Depends(require_permission("governance:read"))])
+async def pii_evidence(format: str = "json", refresh: bool = False):
+    """Per synced table: columns masked at sync time and a sample scan of the lake table for
+    raw personal data (app/pii_evidence.py). `format=ndjson` downloads it for an audit file."""
+    from fastapi.responses import PlainTextResponse
+    from app import pii_evidence as pe
+    data = await pe.collect(force=refresh)
+    if format == "ndjson":
+        return PlainTextResponse(pe.to_ndjson(data), media_type="application/x-ndjson",
+                                 headers={"Content-Disposition": 'attachment; filename="pii-evidence.ndjson"'})
+    return data
+
+
 @router.get("/governance/rls/policies", dependencies=[Depends(require_permission("governance:read"))])
 async def list_rls_policies():
     """List RLS policies with their role mappings.

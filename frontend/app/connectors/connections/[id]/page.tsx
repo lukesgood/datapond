@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import type { Diagnosis } from "@/lib/ops-status"
 import { SyncHistory, SyncSession } from "@/components/connectors/sync-history"
 import { SourceAccessPanel } from "@/components/connectors/access-panel"
 import {
@@ -58,7 +59,8 @@ interface RawSyncSession {
   sync_mode?: string
   error_message?: string
   error?: string
-  tables?: Array<{ table: string; status: "pending" | "running" | "success" | "failed"; rows?: number; error?: string }>
+  tables?: Array<{ table: string; status: "pending" | "running" | "success" | "failed"; rows?: number; error?: string; diagnosis?: Diagnosis | null }>
+  diagnosis?: Diagnosis | null
 }
 interface QualityWarning { severity: string; message: string }
 interface NullCheck { null_rate: number; status: string }
@@ -713,6 +715,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         status: table.status,
         rows: table.rows,
         error: table.error,
+        diagnosis: table.diagnosis,
       })),
       isLive: false,
     })))
@@ -1386,7 +1389,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
 
       {/* ── Sync History: run results (effect) ── */}
       {(liveSession || sessions.length > 0) && (
-        <SyncHistory sessions={allSessions} />
+        <SyncHistory sessions={allSessions} connectionId={id} onChanged={() => { fetchHistory(); fetchConnector() }} />
       )}
 
       {/* ── Data Quality ── */}

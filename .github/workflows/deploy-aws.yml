@@ -66,7 +66,7 @@ jobs:
           docker push $REG/datapond-frontend:${{ steps.tag.outputs.tag }}
       - name: Bundle chart + deploy script → S3 (for the node to helm-upgrade)
         run: |
-          tar czf /tmp/bundle.tgz helm/datapond scripts/deploy-node-helm.sh
+          tar czf /tmp/bundle.tgz helm/datapond scripts/deploy-node-helm.sh scripts/preflight.py
           aws s3 cp /tmp/bundle.tgz "s3://${{ vars.DEPLOY_BUCKET }}/deploy/bundle-${{ steps.tag.outputs.tag }}.tgz"
 
   deploy:

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { PiiEvidenceSection } from "@/components/governance/pii-evidence"
 import { ToolCallsTab } from "@/components/governance/tool-calls-tab"
 import {
   Table,
@@ -1233,6 +1234,8 @@ export default function GovernancePage() {
 
         {/* ── Tab 3: Data Protection ───────────────────────────────────── */}
         <TabsContent value="data-protection" className="mt-4 space-y-4">
+          <PiiEvidenceSection />
+
           {/* Summary cards */}
           <div className="grid grid-cols-2 gap-4">
             <Card>

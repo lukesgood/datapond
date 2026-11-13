@@ -29,3 +29,15 @@ test("no history means no counts", () => {
   assert.equal(latestRowsByTable([]).size, 0)
   assert.equal(latestRowsByTable([{}]).size, 0)
 })
+
+import { latestAttemptKeys } from "./sync-table-rows.ts"
+
+test("actions are offered only on each table's newest attempt", () => {
+  // an older failure that a later run fixed must not keep offering "Recreate"
+  const keys = latestAttemptKeys([
+    { id: "s3", tables: [{ table: "public.api_events" }] },
+    { id: "s2", tables: [{ table: "public.orders" }] },
+    { id: "s1", tables: [{ table: "public.api_events" }, { table: "public.orders" }, { table: "public.users" }] },
+  ])
+  assert.deepEqual([...keys].sort(), ["s1|public.users", "s2|public.orders", "s3|public.api_events"])
+})

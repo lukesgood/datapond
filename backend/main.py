@@ -543,6 +543,8 @@ app.include_router(source_members_router, prefix="/api")
 app.include_router(mcp_router, prefix="/api")
 # The feed the sample REST connector calls — see app/api/sample_api.py.
 app.include_router(sample_api_router, prefix="/api")
+from app.api.ops import router as ops_router
+app.include_router(ops_router, prefix="/api")
 
 from app.service_registry import service_registry as _service_registry_pure
 

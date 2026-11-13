@@ -16,3 +16,18 @@ export function latestRowsByTable(sessions: SessionTables[]): Map<string, number
   }
   return rows
 }
+
+/** "sessionId|table" for each table's newest attempt (sessions newest first). Diagnosis
+ *  actions appear only there: an older failure a later run fixed offers nothing. */
+export function latestAttemptKeys(sessions: Array<{ id: string; tables?: Array<{ table: string }> }>): Set<string> {
+  const seen = new Set<string>()
+  const keys = new Set<string>()
+  for (const s of sessions) {
+    for (const t of s.tables ?? []) {
+      if (seen.has(t.table)) continue
+      seen.add(t.table)
+      keys.add(`${s.id}|${t.table}`)
+    }
+  }
+  return keys
+}
