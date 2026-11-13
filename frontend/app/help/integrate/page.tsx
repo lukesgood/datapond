@@ -1,36 +1,18 @@
 "use client"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
 import { Plug } from "lucide-react"
-import Link from "next/link"
 import { Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { EndpointsCard, GatewayCard, McpCard } from "@/components/connect/agent-reference"
 import { CollectionSnippets } from "@/components/connect/collection-snippets"
-
-// What a key needs, by what the agent does. Tables also follow the account's role and
-// any row filters or masks; a catalog with grants also needs one for the account.
-const SCOPES: { use: string; scopes: string[] }[] = [
-  { use: "Search and cited answers", scopes: ["knowledge:read", "ai:generate"] },
-  { use: "Approved metrics", scopes: ["catalog:read", "query:run"] },
-  { use: "Governed SQL", scopes: ["catalog:read", "query:run"] },
-  { use: "SQL written by the model (generate_sql)", scopes: ["catalog:read", "ai:generate"] },
-]
-
-const link = "text-primary hover:underline"
+import { GuideHeader, Rich, SectionCard } from "@/components/help/ai-ops-guide"
+import { useHelpLocale } from "@/components/help/locale"
+import {
+  INTEGRATE, INTEGRATE_AUDIT, INTEGRATE_CALL, INTEGRATE_SCOPES,
+} from "@/lib/help-ai-ops"
 
 /** The one place that says how an application or agent connects: the steps, then the
- *  reference (MCP, the gateway document, the REST surface) read from the running
- *  server. It used to be split between this guide and an "API & MCP" menu page that
- *  was the same reference plus a second copy of the service-account manager. */
+ *  reference (MCP, the gateway document, the REST surface) read from the running server. */
 export default function IntegrateHelpPage() {
   return (
     <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading…</div>}>
@@ -40,107 +22,42 @@ export default function IntegrateHelpPage() {
 }
 
 function IntegrateGuide() {
+  const { t } = useHelpLocale()
   // Opened from a collection's Members tab: its calls, with its name filled in.
   const collection = useSearchParams().get("collection")
+  const [create, key, grant] = INTEGRATE.sections
   return (
     <div className="flex-1 space-y-6 p-8 pt-6 max-w-5xl">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/dashboard">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/help">Guides</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Integrate</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+      <GuideHeader crumb={INTEGRATE.crumb} title={INTEGRATE.title} subtitle={t(INTEGRATE.subtitle)}
+        Icon={Plug} iconBox="bg-purple-500/10" iconColor="text-purple-500" />
 
-      <div className="flex items-start gap-4">
-        <div className="inline-flex p-3 rounded-lg bg-purple-500/10">
-          <Plug className="h-8 w-8 text-purple-500" />
+      <SectionCard s={create} />
+
+      <SectionCard s={key}>
+        <div className="divide-y rounded-md border text-sm">
+          {INTEGRATE_SCOPES.map((s) => (
+            <div key={s.use.en} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+              <span>{t(s.use)}</span>
+              <span className="flex gap-1.5">
+                {s.scopes.map((scope) => (
+                  <code key={scope} className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{scope}</code>
+                ))}
+              </span>
+            </div>
+          ))}
         </div>
-        <div>
-          <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-primary">Guide</p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight">Connect an application or agent</h1>
-          <p className="mt-2 text-muted-foreground">
-            One identity per agent, a scoped key, then MCP, REST or an agent gateway. Every
-            call is governed and audited as that agent.
-          </p>
-        </div>
-      </div>
+      </SectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>1. Create an agent</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            <Link href="/agents" className={link}>Agents → New agent</Link>
-            {" "}(administrators). One account per agent or application, so access, audit and
-            spend stay per agent.
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>2. Issue a scoped, expiring key</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Issue key → tick the scopes for what the agent does → choose an expiry (90 days
-            by default). The key is shown once; store it as DATAPOND_KEY.
-          </p>
-          <div className="divide-y rounded-md border text-sm">
-            {SCOPES.map(s => (
-              <div key={s.use} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-                <span>{s.use}</span>
-                <span className="flex gap-1.5">
-                  {s.scopes.map(scope => (
-                    <code key={scope} className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{scope}</code>
-                  ))}
-                </span>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>3. Grant what it may read</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-            <li>
-              Collections and catalogs: the agent&apos;s page, under{" "}
-              <Link href="/agents" className={link}>Agents</Link> → Data access. Collections can also be
-              shared from <Link href="/knowledge" className={link}>Knowledge</Link> → the collection → Members.
-            </li>
-            <li>
-              A catalog with grants needs one for the agent (or its role) —{" "}
-              <Link href="/settings?tab=catalogs" className={link}>Settings → Data catalogs</Link> lists them all.
-            </li>
-            <li>
-              Rows and columns: row filters and masks under{" "}
-              <Link href="/governance" className={link}>Governance</Link> apply to its SQL and
-              metrics.
-            </li>
-          </ul>
-        </CardContent>
-      </Card>
+      <SectionCard s={grant} />
 
       <div className="space-y-3">
-        <h2 className="text-lg font-semibold tracking-tight">4. Call it</h2>
+        <h2 className="text-lg font-semibold tracking-tight">{t(INTEGRATE_CALL.title)}</h2>
+        <p className="text-sm text-muted-foreground"><Rich text={t(INTEGRATE_CALL.intro)} /></p>
+        <p className="text-sm text-muted-foreground"><Rich text={t(INTEGRATE_CALL.oauth)} /></p>
         {collection && (
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">
-              Calls for the collection <code className="rounded bg-muted px-1 font-mono text-xs">{collection}</code>:
+              {t(INTEGRATE_CALL.collection)} <code className="rounded bg-muted px-1 font-mono text-xs">{collection}</code>:
             </p>
             <CollectionSnippets name={collection} />
           </div>
@@ -150,20 +67,7 @@ function IntegrateGuide() {
         <EndpointsCard />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>5. See what it did</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            The agent&apos;s page under <Link href="/agents" className={link}>Agents</Link> shows
-            its recent calls, its model spend and its cap. Every call — what it read, cited
-            and masked, and what was refused — is also in{" "}
-            <Link href="/governance" className={link}>Governance → Tool calls</Link>, next to
-            every other caller.
-          </p>
-        </CardContent>
-      </Card>
+      <SectionCard s={INTEGRATE_AUDIT} />
     </div>
   )
 }

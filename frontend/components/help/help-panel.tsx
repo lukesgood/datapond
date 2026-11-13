@@ -11,28 +11,31 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import Link from "next/link"
+import { useHelpLocale } from "@/components/help/locale"
+import type { L } from "@/lib/help-locale"
 
 interface HelpSection {
-  title: string
-  content: string
+  title: L | string
+  content: L | string
 }
 
 interface HelpPanelProps {
   isOpen: boolean
   onClose: () => void
-  title: string
+  title: L | string
   sections: HelpSection[]
-  quickLinks?: Array<{ label: string; href: string }>
+  quickLinks?: Array<{ label: L | string; href: string }>
 }
 
 export function HelpPanel({ isOpen, onClose, title, sections, quickLinks = [] }: HelpPanelProps) {
+  const { t } = useHelpLocale()
   const [searchQuery, setSearchQuery] = useState("")
-  const [openSections, setOpenSections] = useState<string[]>([sections[0]?.title])
+  const [openSections, setOpenSections] = useState<string[]>(sections[0] ? [t(sections[0].title)] : [])
 
   const filteredSections = sections.filter(
     section =>
-      section.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      section.content.toLowerCase().includes(searchQuery.toLowerCase())
+      t(section.title).toLowerCase().includes(searchQuery.toLowerCase()) ||
+      t(section.content).toLowerCase().includes(searchQuery.toLowerCase())
   )
 
   const toggleSection = (sectionTitle: string) => {
@@ -60,7 +63,7 @@ export function HelpPanel({ isOpen, onClose, title, sections, quickLinks = [] }:
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <HelpCircle className="h-5 w-5 text-primary" />
-              <h2 className="text-lg font-semibold">{title}</h2>
+              <h2 className="text-lg font-semibold">{t(title)}</h2>
             </div>
             <Button variant="ghost" size="icon" onClick={onClose}>
               <X className="h-4 w-4" />
@@ -71,7 +74,7 @@ export function HelpPanel({ isOpen, onClose, title, sections, quickLinks = [] }:
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Search help..."
+              placeholder={t({ en: "Search help...", ko: "도움말 검색..." })}
               className="pl-9"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -84,7 +87,7 @@ export function HelpPanel({ isOpen, onClose, title, sections, quickLinks = [] }:
           {/* Quick Links */}
           {quickLinks.length > 0 && (
             <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-muted-foreground">Quick Links</h3>
+              <h3 className="text-sm font-semibold text-muted-foreground">{t({ en: "Quick Links", ko: "바로가기" })}</h3>
               <div className="space-y-1">
                 {quickLinks.map((link, idx) => (
                   <Link
@@ -93,7 +96,7 @@ export function HelpPanel({ isOpen, onClose, title, sections, quickLinks = [] }:
                     className="flex items-center gap-2 text-sm text-primary hover:underline"
                   >
                     <ExternalLink className="h-3 w-3" />
-                    {link.label}
+                    {t(link.label)}
                   </Link>
                 ))}
               </div>
@@ -104,25 +107,25 @@ export function HelpPanel({ isOpen, onClose, title, sections, quickLinks = [] }:
           <div className="space-y-2">
             {filteredSections.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                No results found for &quot;{searchQuery}&quot;
+                {t({ en: "No results found for", ko: "검색 결과가 없습니다:" })} &quot;{searchQuery}&quot;
               </div>
             ) : (
               filteredSections.map((section, idx) => (
                 <Collapsible
                   key={idx}
-                  open={openSections.includes(section.title)}
-                  onOpenChange={() => toggleSection(section.title)}
+                  open={openSections.includes(t(section.title))}
+                  onOpenChange={() => toggleSection(t(section.title))}
                 >
                   <CollapsibleTrigger className="flex items-center justify-between w-full p-3 text-left hover:bg-muted rounded-lg transition-colors">
-                    <span className="font-medium">{section.title}</span>
+                    <span className="font-medium">{t(section.title)}</span>
                     <Badge variant="outline" className="ml-2">
-                      {openSections.includes(section.title) ? "−" : "+"}
+                      {openSections.includes(t(section.title)) ? "−" : "+"}
                     </Badge>
                   </CollapsibleTrigger>
                   <CollapsibleContent className="px-3 pt-2 pb-3">
                     <div className="prose prose-sm dark:prose-invert max-w-none">
                       <p className="text-sm text-muted-foreground whitespace-pre-line">
-                        {section.content}
+                        {t(section.content)}
                       </p>
                     </div>
                   </CollapsibleContent>
@@ -135,9 +138,9 @@ export function HelpPanel({ isOpen, onClose, title, sections, quickLinks = [] }:
         {/* Footer */}
         <div className="border-t p-4 bg-muted/30">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>Need more help?</span>
+            <span>{t({ en: "Need more help?", ko: "도움이 더 필요하신가요?" })}</span>
             <Link href="/help" className="text-primary hover:underline">
-              View all guides
+              {t({ en: "View all guides", ko: "모든 가이드 보기" })}
             </Link>
           </div>
         </div>
@@ -147,10 +150,11 @@ export function HelpPanel({ isOpen, onClose, title, sections, quickLinks = [] }:
 }
 
 export function HelpButton({ onClick }: { onClick: () => void }) {
+  const { t } = useHelpLocale()
   return (
     <Button variant="outline" size="sm" onClick={onClick}>
       <HelpCircle className="h-4 w-4 mr-2" />
-      Help
+      {t({ en: "Help", ko: "도움말" })}
     </Button>
   )
 }
