@@ -18,7 +18,7 @@ import { SourceAccessPanel } from "@/components/connectors/access-panel"
 import {
   ChevronLeft, RefreshCw, Database, Rows3, Trash2,
   AlertTriangle, Pencil, X, Check, BarChart2, Calendar,
-  Clock, Zap, Search, PlugZap,
+  Clock, Zap, Search, PlugZap, Pause, Play,
 } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
@@ -843,6 +843,33 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
     }
   }
 
+  // Not in use: a paused source leaves the Overview checklist and the background check.
+  const [pausing, setPausing] = useState(false)
+  const handlePauseToggle = async () => {
+    if (!connector) return
+    const resume = connector.status === "paused"
+    if (!resume) {
+      const ok = await confirmDialog({
+        title: `Pause ${connector.name}?`,
+        message: "Pause a source you are not using: it leaves the Overview checklist and the background connection check until you resume it. Its lake tables stay as they are, and Sync Now still works.",
+        confirmText: "Pause source",
+      })
+      if (!ok) return
+    }
+    setPausing(true)
+    try {
+      const res = await fetch(`/api/connectors/${id}/${resume ? "resume" : "pause"}`, { method: "POST" })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.detail ?? `HTTP ${res.status}`)
+      toast(resume ? `Resumed ${connector.name}` : `Paused ${connector.name}`, "success")
+      await fetchConnector()
+    } catch (err) {
+      toast(`${resume ? "Resume" : "Pause"} failed: ${err instanceof Error ? err.message : String(err)}`, "error")
+    } finally {
+      setPausing(false)
+    }
+  }
+
   const handleSyncNow = async () => {
     setSyncing(true)
     setSyncedOk(false)
@@ -1181,6 +1208,12 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
             title={engineRestarting ? "The query engine is restarting; Sync is available when it is back." : undefined}>
             <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
             {syncing ? "Syncing…" : "Sync Now"}
+          </Button>
+          <Button variant="outline" onClick={() => void handlePauseToggle()} disabled={pausing}
+            title={connector.status === "paused" ? "Put this source back in use" : "Not using this source? Take it off the Overview checklist"}>
+            {connector.status === "paused"
+              ? <><Play className="h-4 w-4 mr-2" />{pausing ? "Resuming…" : "Resume"}</>
+              : <><Pause className="h-4 w-4 mr-2" />{pausing ? "Pausing…" : "Pause"}</>}
           </Button>
           <Button variant="outline" onClick={handleDelete} disabled={deleting}>
             <Trash2 className="h-4 w-4 mr-2" />
