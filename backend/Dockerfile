@@ -10,6 +10,8 @@ WORKDIR /app
 # `apt-get upgrade` takes the Debian security fixes the base image predates; gcc (and
 # linux-libc-dev with it) is only needed to build wheels, not to run. setuptools/wheel are
 # upgraded because the base image's copies carry known CVEs (weekly image scan, #273).
+# pip is removed last: nothing runs it at runtime, and its vendored pkg_resources is pinned
+# to setuptools 70.3.0 in pip/_vendor/vendor.txt (CVE-2025-47273).
 COPY backend/requirements.txt .
 RUN apt-get update \
     && apt-get upgrade -y \
@@ -17,6 +19,7 @@ RUN apt-get update \
     && pip install --no-cache-dir --upgrade pip setuptools wheel \
     && pip install --no-cache-dir -r requirements.txt \
     && apt-get purge -y --auto-remove gcc \
+    && python -m pip uninstall -y pip \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/ .
