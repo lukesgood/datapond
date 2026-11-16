@@ -137,6 +137,36 @@ jobs:
           path: sbom.cdx.json
           retention-days: 90
 
+  image-scan:
+    # Builds the shipped images and scans them like the weekly job scans the deployed ones:
+    # OS packages and every transitive dependency, which the fs scan above cannot see.
+    # A fixable HIGH/CRITICAL fails the PR, so a fix for #273-style findings is proven
+    # before it ships and a regression cannot merge.
+    name: Image scan (built images)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            build: docker build -f backend/Dockerfile --target enterprise -t scan/backend:ci .
+          - name: frontend
+            build: docker build -f frontend/Dockerfile -t scan/frontend:ci frontend/
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ${{ matrix.name }}
+        run: ${{ matrix.build }}
+      - name: Trivy (image)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: scan/${{ matrix.name }}:ci
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: "1"
+
   acceptance:
     name: Portable Core acceptance (deployed target)
     runs-on: ubuntu-latest
