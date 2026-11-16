@@ -1,0 +1,116 @@
+# Weekly security scan — keeps the patch policy (SUPPORT.md "Security fixes": CRITICAL 7 days,
+# HIGH 30 days) honest in weeks when no code changes and ci.yml's Trivy job never runs.
+#
+#   repo    Trivy over the repository's dependency files (same scope as ci.yml).
+#   images  Trivy over the newest backend and frontend images in ECR — the ones deployed,
+#           since deploy-aws.yml pushes then rolls the node. Image scans see every OS package
+#           and transitive dependency, which the repository scan cannot. Each image's
+#           CycloneDX SBOM is kept for 90 days.
+#
+# A HIGH or CRITICAL finding with a fix available fails the run and opens (or comments on)
+# one issue labelled `security-scan`; the patch-policy clock starts then.
+#
+# Needs the AWS_CD_ROLE_ARN role with read access to the two ECR repos
+# (terraform/github-oidc.tf, statement EcrReadForScan). That role trusts `main` only, which
+# is where scheduled runs execute.
+name: Weekly security scan
+
+on:
+  schedule:
+    - cron: "0 0 * * 1"   # Monday 00:00 UTC = 09:00 KST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write   # OIDC to assume AWS_CD_ROLE_ARN (ECR read)
+  issues: write     # open the finding issue
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  repo:
+    name: Repository dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy (fs)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: "1"
+
+  images:
+    name: Deployed images
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        repo: [datapond-backend, datapond-frontend]
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_CD_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+      - id: image
+        name: Newest pushed image
+        run: |
+          TAG=$(aws ecr describe-images --repository-name "${{ matrix.repo }}" \
+            --query 'sort_by(imageDetails,&imagePushedAt)[-1].imageTags[0]' --output text)
+          echo "ref=${{ steps.ecr.outputs.registry }}/${{ matrix.repo }}:$TAG" >> "$GITHUB_OUTPUT"
+          echo "Scanning ${{ matrix.repo }}:$TAG" >> "$GITHUB_STEP_SUMMARY"
+          docker pull -q "${{ steps.ecr.outputs.registry }}/${{ matrix.repo }}:$TAG"
+      - name: SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: cyclonedx
+          output: sbom-${{ matrix.repo }}.cdx.json
+      - name: Keep the SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.repo }}
+          path: sbom-${{ matrix.repo }}.cdx.json
+          retention-days: 90
+      - name: Trivy (image)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.image.outputs.ref }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: "1"
+
+  report:
+    name: Open an issue on findings
+    needs: [repo, images]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create security-scan -R "$GITHUB_REPOSITORY" --color B60205 \
+            --description "Weekly security scan finding" 2>/dev/null || true
+          OPEN=$(gh issue list -R "$GITHUB_REPOSITORY" --label security-scan --state open \
+            --json number -q '.[0].number')
+          BODY="The weekly security scan found HIGH or CRITICAL vulnerabilities with a fix available: $RUN_URL
+
+          Patch policy (SUPPORT.md): fixed image within 7 days for CRITICAL, 30 days for HIGH."
+          if [ -n "$OPEN" ]; then
+            gh issue comment "$OPEN" -R "$GITHUB_REPOSITORY" --body "$BODY"
+          else
+            gh issue create -R "$GITHUB_REPOSITORY" --label security-scan \
+              --title "Security scan: fixable HIGH/CRITICAL findings ($(date -u +%F))" --body "$BODY"
+          fi
