@@ -15,6 +15,7 @@ and what it is for — because a route docstring is written for whoever maintain
 The document lists only the tools the requesting credential can call, so fetching it
 with an agent's key yields exactly that agent's tool set.
 """
+from app.route_walk import app_routes
 import copy
 from dataclasses import dataclass
 from typing import Iterable, List, Optional
@@ -143,7 +144,7 @@ def _json_schema(content: Optional[dict], components: dict) -> dict:
 
 def _permission_of(app, path: str, method: str) -> Optional[str]:
     from app.api.api_surface import _permission
-    for route in app.routes:
+    for route in app_routes(app):
         if getattr(route, "path", None) == path and method.upper() in getattr(route, "methods", ()):
             return _permission(route)
     return None

@@ -1289,12 +1289,26 @@ def _cache_sweep(now: float) -> None:
 
     Called on write rather than on a timer, so it runs under the traffic that causes
     the growth. Insertion order is age order here: an entry is only ever written once
-    per TTL, never updated in place.
+    per TTL, and `_cache_put` re-inserts rather than updating in place.
     """
-    for digest in [d for d, (_, at) in _KEY_CACHE.items() if (now - at) > _KEY_CACHE_TTL]:
+    # Oldest first, so expiry stops at the first live entry: O(expired), not O(cache)
+    # per write — a full scan on every write was what a token spray cost.
+    while _KEY_CACHE:
+        digest, (_, at) = next(iter(_KEY_CACHE.items()))
+        if (now - at) <= _KEY_CACHE_TTL:
+            break
         _KEY_CACHE.pop(digest, None)
     while len(_KEY_CACHE) > _KEY_CACHE_MAX:
         _KEY_CACHE.pop(next(iter(_KEY_CACHE)), None)
+
+
+def _cache_put(digest: str, resolved, now: float) -> None:
+    """Write at the newest end. Popping first keeps insertion order equal to age order
+    when two requests resolve the same digest at once (a plain assignment would update
+    it in place, at its old position)."""
+    _KEY_CACHE.pop(digest, None)
+    _KEY_CACHE[digest] = (resolved, now)
+    _cache_sweep(now)
 
 
 def _cache_get(digest: str):
@@ -1362,8 +1376,7 @@ async def _resolve_api_key(raw_key: str) -> Optional[dict]:
                     effective_permissions(row["role"], list(row["scopes"] or []))),
             }
     now = time.monotonic()
-    _KEY_CACHE[digest] = (resolved, now)
-    _cache_sweep(now)
+    _cache_put(digest, resolved, now)
     if resolved:
         # Best-effort usage stamp; never let bookkeeping fail a request.
         try:

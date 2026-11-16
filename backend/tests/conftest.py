@@ -6,6 +6,23 @@ against a fake connection pool, not a stand-in for record() itself. See
 tests/test_tool_call_counting.py for the original of this pattern; tests/test_mcp_server.py
 reuses it so the two do not drift.
 """
+import os
+
+# Unit tests never reach a real query engine or cache. The in-cluster default host
+# (trino.datapond.svc.cluster.local) can take a 30 s connect timeout to fail on a
+# workstation — one test spent 30 s in governance._scan_pii_tables, and a background
+# quality check logged after the run. Point every Trino setting at a closed local port
+# so an unmocked call fails at once, the way an unreachable engine does. setdefault:
+# an environment that names a real engine (acceptance runs) keeps it.
+for _var in ("TRINO_HOST", "TRINO_SERVICE_HOST"):
+    os.environ.setdefault(_var, "127.0.0.1")
+for _var in ("TRINO_PORT", "TRINO_SERVICE_PORT"):
+    os.environ.setdefault(_var, "9")
+# Same for Valkey (webauthn's challenge store waited out a 2 s connect per call on the
+# in-cluster default before falling back to its in-process store).
+os.environ.setdefault("VALKEY_HOST", "127.0.0.1")
+os.environ.setdefault("VALKEY_PORT", "9")
+
 from typing import List
 
 # Positional order of tool_call_log._INSERT's column list — this is what lets a test

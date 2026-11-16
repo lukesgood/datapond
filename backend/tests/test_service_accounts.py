@@ -9,6 +9,7 @@ A service account is a `users` row, so roles, RLS context, audit, collection
 ownership, and spend attribution all keep working unchanged. This module is only the
 credential.
 """
+from app.route_walk import api_routes, app_routes
 import pytest
 
 from app.service_accounts import (
@@ -274,11 +275,35 @@ def test_the_key_cache_cannot_be_grown_without_bound(monkeypatch):
     asyncio = _fake_pool(monkeypatch, lookups)
     auth._KEY_CACHE.clear()
     try:
-        for i in range(auth._KEY_CACHE_MAX * 3):
-            asyncio.run(auth._resolve_api_key(f"dp_sk_{i}"))
+        async def spray():   # one event loop: 12k asyncio.run() calls took ~15 s on their own
+            for i in range(auth._KEY_CACHE_MAX * 3):
+                await auth._resolve_api_key(f"dp_sk_{i}")
+        asyncio.run(spray())
         assert len(auth._KEY_CACHE) <= auth._KEY_CACHE_MAX, (
             f"{len(auth._KEY_CACHE)} entries retained from "
             f"{auth._KEY_CACHE_MAX * 3} distinct tokens")
+    finally:
+        auth._KEY_CACHE.clear()
+
+
+def test_the_sweep_expires_from_the_oldest_end_and_a_rewrite_moves_to_the_newest(monkeypatch):
+    """The sweep ran over every entry on every write — O(cache) per request, which is
+    what a token spray costs. Entries are in age order, so expiry only has to look at
+    the front; a digest written again must move to the back to keep that order."""
+    from app.api import auth
+    auth._KEY_CACHE.clear()
+    try:
+        ttl = auth._KEY_CACHE_TTL
+        auth._KEY_CACHE["old1"] = (None, 0.0)
+        auth._KEY_CACHE["old2"] = (None, 1.0)
+        auth._KEY_CACHE["new"] = (None, ttl + 5.0)
+        auth._cache_sweep(ttl + 5.5)
+        assert list(auth._KEY_CACHE) == ["new"]
+
+        auth._cache_put("a", None, 10.0)
+        auth._cache_put("b", None, 11.0)
+        auth._cache_put("a", None, 12.0)          # concurrent second write of the same digest
+        assert list(auth._KEY_CACHE)[-2:] == ["b", "a"]
     finally:
         auth._KEY_CACHE.clear()
 
@@ -331,9 +356,7 @@ def test_the_routes_that_manage_users_and_settings_ask_for_those_permissions():
 
     def _permissions_on(path: str, method: str) -> set:
         declared = set()
-        for route in main.app.routes:
-            if not isinstance(route, routing.APIRoute):
-                continue
+        for route in api_routes(main.app):
             if route.path != path or method not in route.methods:
                 continue
             for dependency in route.dependant.dependencies:

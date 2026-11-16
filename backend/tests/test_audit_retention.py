@@ -25,6 +25,7 @@ live cluster — B3's tests and this file both stop at "the SQL says what it sho
 A live proof belongs in an acceptance/integration run against a real PostgreSQL
 instance.
 """
+from app.route_walk import app_routes
 import ast
 import asyncio
 import inspect
@@ -499,7 +500,7 @@ def test_the_export_route_exists_and_requires_audit_read():
     import main
 
     matches = [
-        route for route in main.app.routes
+        route for route in app_routes(main.app)
         if getattr(route, "path", None) == "/api/audit/export"
         and "GET" in getattr(route, "methods", set())
     ]

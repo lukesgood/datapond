@@ -1,4 +1,4 @@
-fastapi==0.136.3   # last release before routers stopped flattening into app.routes (0.137 _IncludedRouter); our route inventories walk app.routes
+fastapi==0.163.1   # routes are walked through app/route_walk.py (0.137+ keeps included routers as _IncludedRouter)
 starlette==1.10.0   # pinned: security fixes CVE-2024-47874 / CVE-2026-48818 / CVE-2026-54283 (weekly image scan, #273)
 uvicorn[standard]==0.27.0
 pydantic==2.14.3

@@ -11,6 +11,7 @@ This reads the module instead: every name passed to include_router must be bound
 module level. It catches exactly the failure that occurred, deterministically and
 anywhere, without waiting for the larger refactor.
 """
+from app.route_walk import app_routes
 import ast
 from pathlib import Path
 
@@ -86,7 +87,7 @@ def test_the_application_imports_outside_a_cluster():
 def test_every_route_group_is_mounted():
     import main
 
-    paths = {r.path for r in main.app.routes}
+    paths = {r.path for r in app_routes(main.app)}
     for path in ("/api/capabilities", "/api/queries/execute", "/api/service-accounts",
                  "/api/catalog/relationships", "/api/me/permissions",
                  "/api/chat", "/api/chat/actions"):

@@ -21,6 +21,7 @@ duplicates if a broader-but-wrong filter were used instead. Restricting to
 `isinstance(route, APIRoute)` keeps the test to exactly this application's
 declared API surface.
 """
+from app.route_walk import api_routes, app_routes
 from collections import Counter
 
 from fastapi.routing import APIRoute
@@ -28,9 +29,7 @@ from fastapi.routing import APIRoute
 
 def _declared_pairs():
     import main
-    for route in main.app.routes:
-        if not isinstance(route, APIRoute):
-            continue
+    for route in api_routes(main.app):
         for method in route.methods:
             yield method, route.path
 

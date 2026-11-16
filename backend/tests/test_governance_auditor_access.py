@@ -22,6 +22,7 @@ file's first two tests police for GET routes, just on a POST that those tests ne
 walk. B1 recorded all three in `OPEN_BY_DESIGN` rather than widen its own scope; B5
 is that follow-up, and its tests are appended below.
 """
+from app.route_walk import app_routes
 import asyncio
 import inspect
 
@@ -32,7 +33,7 @@ MUTATING = {"POST", "PATCH", "DELETE"}
 
 
 def _governance_routes():
-    for route in main.app.routes:
+    for route in app_routes(main.app):
         if not hasattr(route, "dependant") or not hasattr(route, "endpoint"):
             continue
         if not route.path.startswith("/api/governance"):

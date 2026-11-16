@@ -7,6 +7,7 @@ it, and teaches whoever is looking that the product is lying to them.
 The dataset was inline in the sample-db route, which is where it stopped being
 checkable — five tables of DDL and INSERT text inside a request handler.
 """
+from app.route_walk import app_routes
 from app.sample_data import (
     DATASET,
     JOIN_QUERIES,
@@ -237,7 +238,7 @@ def test_seeding_the_sample_database_requires_a_write_permission():
     """
     import main
 
-    route = next(r for r in main.app.routes
+    route = next(r for r in app_routes(main.app)
                  if getattr(r, "path", "") == "/api/connectors/sample-db")
     markers = [getattr(d.call, "__datapond_authorization__", None)
                for d in route.dependant.dependencies]

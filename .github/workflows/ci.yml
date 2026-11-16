@@ -563,12 +563,24 @@ jobs:
 
           T = asyncio.run(token())
 
+          import time, urllib.error
+
           def call(method, path, body=None):
-              req = urllib.request.Request('http://localhost:8000' + path, method=method,
-                  data=json.dumps(body).encode() if body is not None else None,
-                  headers={'Authorization': 'Bearer ' + T, 'Content-Type': 'application/json'})
-              with urllib.request.urlopen(req, timeout=300) as r:
-                  return json.load(r)
+              # 502/503 while the local model is still loading behind LiteLLM is a not-yet,
+              # not a failure (failed once on main, 2026-11-12: 502 on the first embed).
+              # Up to ~5 minutes; any other error fails at once.
+              for attempt in range(20):
+                  req = urllib.request.Request('http://localhost:8000' + path, method=method,
+                      data=json.dumps(body).encode() if body is not None else None,
+                      headers={'Authorization': 'Bearer ' + T, 'Content-Type': 'application/json'})
+                  try:
+                      with urllib.request.urlopen(req, timeout=300) as r:
+                          return json.load(r)
+                  except urllib.error.HTTPError as err:
+                      if err.code not in (502, 503) or attempt == 19:
+                          raise
+                      print(f'{path}: HTTP {err.code}, retrying in 15 s', flush=True)
+                      time.sleep(15)
 
           ready = json.load(urllib.request.urlopen('http://localhost:8000/health/ready', timeout=10))
           assert ready['ready'] is True, ready

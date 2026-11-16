@@ -13,6 +13,7 @@ the same text retrieves itself and different text does not, which is the only pr
 retrieval tests actually rely on. A random vector would make the suite flaky; a real
 model would make it slow, costly, and dependent on a credential the point is to avoid.
 """
+from app.route_walk import app_routes
 import pytest
 
 from app.testing.mock_model import chat_completion, embedding_vector, rerank
@@ -103,7 +104,7 @@ def test_the_gateway_refuses_to_start_without_being_asked():
 
 def test_it_answers_the_three_paths_the_backend_uses():
     from app.testing.mock_gateway import app
-    paths = {r.path for r in app.routes}
+    paths = {r.path for r in app_routes(app)}
     assert {"/v1/chat/completions", "/v1/embeddings", "/v1/rerank"} <= paths
 
 

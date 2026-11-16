@@ -19,6 +19,7 @@ the token's role claim — "the DB round-trip is slow", "we already checked this
 upstream", whatever the reasoning — fails the suite instead of shipping to a
 customer and being discovered the same way this one was: live, with DDL.
 """
+from app.route_walk import app_routes
 import asyncio
 import re
 import uuid
@@ -179,7 +180,7 @@ _REQUIRE_PERMISSION_OR_INTERNAL_GUARD_PREFIX = "require_permission_or_internal."
 
 
 def _all_routes():
-    return [r for r in main.app.routes if hasattr(r, "dependant")]
+    return [r for r in app_routes(main.app) if hasattr(r, "dependant")]
 
 
 def test_every_permission_marked_write_shaped_reaches_require_user():

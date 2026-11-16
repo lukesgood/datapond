@@ -26,6 +26,7 @@ variable, a registry lookup, `getattr`, or a background task started with
 which is this repo's common shape. That covers every spend path in the application
 today and every one that has gone wrong so far.
 """
+from app.route_walk import api_routes, app_routes
 import ast
 from pathlib import Path
 
@@ -143,9 +144,7 @@ def _spending_routes():
 
     spending = _spending_functions()
     out = []
-    for route in main.app.routes:
-        if not isinstance(route, routing.APIRoute):
-            continue
+    for route in api_routes(main.app):
         endpoint = route.endpoint
         key = (getattr(endpoint, "__module__", ""), getattr(endpoint, "__name__", ""))
         if key in spending:

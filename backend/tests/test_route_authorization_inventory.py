@@ -8,6 +8,7 @@ list for the handful that genuinely cannot have one.
 The exception list is the point. A route may only skip authorization by being added
 here, in a commit someone reviews, with a reason. It cannot skip by omission.
 """
+from app.route_walk import app_routes
 import pytest
 
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
@@ -71,7 +72,7 @@ def _authorization_of(route) -> set:
 
 def _mutating_routes():
     import main
-    for route in main.app.routes:
+    for route in app_routes(main.app):
         methods = getattr(route, "methods", set()) & MUTATING
         if not methods or not hasattr(route, "dependant"):
             continue
