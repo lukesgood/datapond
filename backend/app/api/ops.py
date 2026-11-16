@@ -88,6 +88,10 @@ async def _count_queries(pool, user):
         return None
 
 
+def _now():
+    return datetime.now(timezone.utc)
+
+
 def _engine():
     from app.connectors import trino_catalogs
     if not trino_catalogs.enabled():
@@ -109,7 +113,7 @@ async def ops_status(user: dict = Depends(require_user)):
     catalogs = await _load_catalogs(user) if "catalog:read" in perms else []
     engine = await asyncio.to_thread(_engine)
     out = summarize(syncs, names, stale=stale, engine=engine, catalogs=catalogs, mirrors=mirrors,
-                    queries_24h=await _count_queries(pool, user), now=datetime.now(timezone.utc))
+                    queries_24h=await _count_queries(pool, user), now=_now())
     if "connector:read" not in perms:
         out.pop("syncs", None)
     return out

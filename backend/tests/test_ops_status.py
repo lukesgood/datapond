@@ -91,6 +91,7 @@ def test_the_route_gathers_only_what_the_caller_may_see(monkeypatch):
     monkeypatch.setattr(ops, "_count_queries", _queries)
     monkeypatch.setattr(ops, "_engine", lambda: None)
     monkeypatch.setattr(ops, "_pool", _pool)
+    monkeypatch.setattr(ops, "_now", lambda: NOW)   # the fixtures are relative to NOW, not today
 
     viewer = {"id": "u1", "role": "viewer"}
     monkeypatch.setattr(ops, "_permissions", lambda u: {"catalog:read", "query:run"})
