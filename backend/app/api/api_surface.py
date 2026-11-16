@@ -15,6 +15,7 @@ EXTRA_ROUTES. The deployment serves 218 paths; the ones an application integrate
 against are the knowledge and generation surface, and putting the operational and
 administrative routes in front of a developer would bury it.
 """
+from app.route_walk import app_routes
 from typing import Any, Dict, List, Optional
 
 PREFIX = "/api/ai/"
@@ -86,7 +87,7 @@ def _body_schema(route) -> Optional[dict]:
 def build_api_surface(app) -> List[dict]:
     """One entry per (path, method) an application can call."""
     out = []
-    for route in app.routes:
+    for route in app_routes(app):
         path = getattr(route, "path", "")
         if not hasattr(route, "dependant"):
             continue

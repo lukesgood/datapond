@@ -7,6 +7,7 @@ convince. Everything here runs through the connector code a real sync uses, with
 network and the object store replaced — not through a re-derivation of what the
 connector probably does.
 """
+from app.route_walk import app_routes
 import asyncio
 import datetime as dt
 import threading
@@ -292,7 +293,7 @@ def test_the_bearer_exemption_is_exactly_the_feed_route():
     import main
     from app.api.sample_api import FX_RATES_PATH
     assert "/api" + FX_RATES_PATH in main.AUTH_EXEMPT
-    assert any(getattr(r, "path", None) == "/api" + FX_RATES_PATH for r in main.app.routes)
+    assert any(getattr(r, "path", None) == "/api" + FX_RATES_PATH for r in app_routes(main.app))
 
 
 # ── finance database ──────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@
 sources can be stale — app/api/ops.py) and the background check (app/connector_checks.py),
 and a check result never un-pauses it (connectors._record_check). Until 2.7 nothing could
 set the status; the live checklist carried five unused sample sources for days."""
+from app.route_walk import app_routes
 import asyncio
 import json
 
@@ -92,7 +93,7 @@ def test_both_routes_need_connector_write():
     from main import app
     want = {f"/api/connectors/{{connection_id}}/{v}" for v in ("pause", "resume")}
     found = {}
-    for r in app.routes:
+    for r in app_routes(app):
         if getattr(r, "path", None) in want:
             found[r.path] = [getattr(d.call, "__datapond_authorization__", None) for d in r.dependant.dependencies]
     assert set(found) == want

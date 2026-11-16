@@ -6,6 +6,7 @@ unmasked rows by asking for a preview instead of a query. And the Trino reader
 formatted namespace and table straight into SQL, so the same call — or the MCP tool
 that describes a table — could carry a UNION into another table.
 """
+from app.route_walk import app_routes
 import asyncio
 
 import pytest
@@ -39,7 +40,7 @@ def _markers(route):
 
 def _route(path):
     import main
-    return next(r for r in main.app.routes if getattr(r, "path", None) == path)
+    return next(r for r in app_routes(main.app) if getattr(r, "path", None) == path)
 
 
 @pytest.mark.parametrize("path", [
