@@ -121,6 +121,21 @@ jobs:
           exit-code: "1"
           # Both dependency files are picked up automatically by fs-mode's
           # lockfile detection (backend/requirements.txt, frontend/package-lock.json).
+      # SBOM for security reviews (docs/SECURITY_REVIEW_PACK.md): every dependency the
+      # backend and frontend ship, as CycloneDX, kept as a build artifact for 90 days.
+      - name: SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: cyclonedx
+          output: sbom.cdx.json
+      - name: Keep the SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          retention-days: 90
 
   acceptance:
     name: Portable Core acceptance (deployed target)

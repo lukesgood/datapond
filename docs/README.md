@@ -23,6 +23,9 @@
 | [MCP.md](MCP.md) | MCP 서버 — 도구 목록, 인증, 감사, 한계 |
 | [DEMO_SCRIPT.md](DEMO_SCRIPT.md) | 데모 진행 순서 — 레이크하우스 경로, 그다음 AI 계층 |
 | [DESIGN_PARTNER_QUESTIONS.md](DESIGN_PARTNER_QUESTIONS.md) | 디자인 파트너 인터뷰 질문지 — 질문마다 그 답으로 정할 결정 |
+| [MIGRATION_ASSESSMENT.md](MIGRATION_ASSESSMENT.md) | 이전 진단 리포트: 고객 계정 읽기 전용 스캔 → 형식별 이전 경로·공수·비용 (`scripts/assess.py`) |
+| [SECURITY_REVIEW_PACK.md](SECURITY_REVIEW_PACK.md) | 보안 심사 자료: 암호화·접근 통제·감사·개인정보·취약점/SBOM, 알려진 한계까지 근거 위치와 함께 |
+| [QUICKSIGHT.md](QUICKSIGHT.md) | QuickSight 연결 두 경로(Athena 경유 — 지금 가능 / Trino 직접 — 로드맵)와 거버넌스 차이 |
 | [DEMAND_VALIDATION_PERSONAS_2026-11.md](DEMAND_VALIDATION_PERSONAS_2026-11.md) | 수요 검증 — 합성 페르소나 인터뷰 6건(대조군 2): 반복된 조건, 가격 감, 가설 업데이트, 실제 인터뷰 질문 (2026-11-16, **수요 증거 아님**) |
 | [DESIGN_THINKING_2026-11.md](DESIGN_THINKING_2026-11.md) | 디자인 씽킹: 대상 고객의 "첫 주" — 공감·정의·아이디어·저충실도 프로토타입 3개·가설 검증 계획 (2026-11-13) |
 | [PERSONA_REVIEW_2026-11.md](PERSONA_REVIEW_2026-11.md) | 라이브 콘솔 페르소나 검증(관리자 화면 + 비관리자 역할 API)과 수정 결과 (2026-11-12–13) |
