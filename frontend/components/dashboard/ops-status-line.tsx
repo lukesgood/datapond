@@ -1,18 +1,15 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { AlertTriangle, CheckCircle2, ChevronDown, Info, Loader2, RefreshCw } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import Link from "next/link"
+import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, Info } from "lucide-react"
 import { OpsActionButtons } from "@/components/dashboard/ops-actions"
 import { usePermissions } from "@/lib/permissions"
-import { useToast } from "@/lib/toast"
 import {
-  ageLabel, groupIssues, headline, issueView, parseOpsStatus, statusFacts,
-  type OpsAction, type OpsStatus, type StaleIssue,
+  headline, issueView, parseOpsStatus, staleSummary, statusFacts, type OpsAction, type OpsStatus,
 } from "@/lib/ops-status"
 
 const COLLAPSED_KEY = "datapond.dashboard.checklist.collapsed"
-const STALE_PREVIEW = 3
 
 function checkedAt(iso: string): string {
   const d = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`)
@@ -46,80 +43,21 @@ function IssueRow({ title, detail, advice, tone, actions, onDone }: {
   )
 }
 
-/** Every stale source in one block: one compact line each, a few shown, "Sync all". */
-function StaleGroup({ items, canSync, onDone }: { items: StaleIssue[]; canSync: boolean; onDone: () => void }) {
-  const { permissions } = usePermissions()
-  const { toast } = useToast()
-  const [showAll, setShowAll] = useState(false)
-  const [progress, setProgress] = useState<number | null>(null)
-  const shown = showAll ? items : items.slice(0, STALE_PREVIEW)
-  const hidden = items.length - shown.length
-
-  // One at a time: the reference runs on a single node, and each sync is a Trino job.
-  const syncAll = async () => {
-    const failed: string[] = []
-    for (let i = 0; i < items.length; i++) {
-      setProgress(i + 1)
-      try {
-        const res = await fetch(`/api/connectors/${encodeURIComponent(items[i].connection_id)}/sync`, {
-          method: "POST", credentials: "include",
-          headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
-        })
-        if (!res.ok) failed.push(items[i].source)
-      } catch {
-        failed.push(items[i].source)
-      }
-    }
-    setProgress(null)
-    const ok = items.length - failed.length
-    toast(failed.length
-      ? `${ok} of ${items.length} synced. Failed: ${failed.join(", ")}`
-      : `Synced ${items.length} source${items.length === 1 ? "" : "s"}`, failed.length ? "error" : "success")
-    onDone()
-  }
-
+/** Stale sources are not urgent: one line, and the list lives on Sources. */
+function StaleLink({ text }: { text: string }) {
   return (
-    <li className="px-4 py-2.5">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: "var(--dp-warn)" }} aria-hidden />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">
-            {items.length === 1 ? "1 source has" : `${items.length} sources have`} not synced recently
-          </p>
-          <p className="text-xs text-muted-foreground">Their lake tables may be out of date.</p>
-        </div>
-        {canSync && items.length > 1 && (
-          <Button variant="outline" size="sm" disabled={progress !== null} onClick={() => void syncAll()}>
-            {progress !== null
-              ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />Syncing {progress} of {items.length}…</>
-              : <><RefreshCw className="mr-1 h-3.5 w-3.5" />Sync all {items.length}</>}
-          </Button>
-        )}
-      </div>
-      <ul className="mt-2 ml-8 divide-y rounded-md border bg-muted/30">
-        {shown.map((item) => {
-          const v = issueView(item, permissions)
-          return (
-            <li key={item.connection_id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5">
-              <span className="min-w-0 flex-1 truncate text-sm">{item.source}</span>
-              <span className="text-xs tabular-nums text-muted-foreground">{ageLabel(item.hours)}</span>
-              <OpsActionButtons actions={v.actions} onDone={onDone} />
-            </li>
-          )
-        })}
-      </ul>
-      {items.length > STALE_PREVIEW && (
-        <button type="button" onClick={() => setShowAll((s) => !s)}
-                className="mt-1.5 ml-8 text-xs font-medium text-primary hover:underline">
-          {showAll ? "Show fewer" : `Show ${hidden} more`}
-        </button>
-      )}
-    </li>
+    <Link href="/connectors?filter=stale"
+          className="inline-flex items-center gap-1.5 text-sm text-[var(--dp-warn-text)] hover:underline">
+      <span className="h-2 w-2 rounded-full" style={{ background: "var(--dp-warn)" }} aria-hidden />
+      {text}
+      <span className="inline-flex items-center gap-0.5 font-medium">· Review in Sources<ArrowRight className="h-3.5 w-3.5" aria-hidden /></span>
+    </Link>
   )
 }
 
-/** Top of Overview: one quiet line when healthy; otherwise a compact checklist, each item
- *  with its fix. Collapsible, and the choice is remembered in this browser. */
+/** Top of Overview: what needs action now — failures and outages, each with its fix, in a
+ *  collapsible card (remembered per browser). Stale sources are one line linking to
+ *  Sources; with nothing urgent the whole thing is one quiet line. */
 export function OpsStatusLine() {
   const { permissions } = usePermissions()
   const [status, setStatus] = useState<OpsStatus | null>(null)
@@ -143,16 +81,18 @@ export function OpsStatusLine() {
   const head = headline(status)
   const facts = statusFacts(status)
   const when = checkedAt(status.checked_at)
-  const groups = groupIssues(status.issues)
+  const urgent = status.issues.filter((i) => i.kind !== "stale_source")
+  const stale = staleSummary(status.issues)
   const reload = () => void load()
 
-  if (groups.length === 0) {
+  if (urgent.length === 0) {
     return (
       <section aria-label="Operations status" className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
         <span className="inline-flex items-center gap-2 font-medium">
           <CheckCircle2 className="h-4 w-4" style={{ color: "var(--dp-good)" }} aria-hidden />
           {head.label}
         </span>
+        {stale && <StaleLink text={stale} />}
         {facts.map((f) => <span key={f} className="text-muted-foreground">{f}</span>)}
         {when && <span className="ml-auto text-xs text-muted-foreground">checked {when}</span>}
       </section>
@@ -180,14 +120,12 @@ export function OpsStatusLine() {
 
       {!collapsed && (
         <ul id="ops-checklist" className="divide-y border-t">
-          {groups.map((g, i) => {
-            if (g.kind === "stale") {
-              return <StaleGroup key="stale" items={g.items} canSync={permissions.has("connector:write")} onDone={reload} />
-            }
-            const v = issueView(g.issue, permissions)
+          {urgent.map((issue, i) => {
+            const v = issueView(issue, permissions)
             return <IssueRow key={i} title={v.title} detail={v.detail} advice={v.advice} tone={v.tone}
                              actions={v.actions} onDone={reload} />
           })}
+          {stale && <li className="px-4 py-2.5"><StaleLink text={stale} /></li>}
         </ul>
       )}
     </section>

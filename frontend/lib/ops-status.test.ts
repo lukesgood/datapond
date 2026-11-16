@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { ageLabel, diagnosisActions, groupIssues, headline, issueView, parseOpsStatus, statusFacts, type Diagnosis, type OpsIssue } from "./ops-status.ts"
+import { ageLabel, diagnosisActions, groupIssues, headline, issueView, parseOpsStatus, staleSummary, statusFacts, type Diagnosis, type OpsIssue } from "./ops-status.ts"
 
 const diag = (action: string): Diagnosis => ({ code: "x", action, title: "T", detail: "D", advice: "A" })
 const writer = new Set(["connector:write", "connector:read"])
@@ -40,9 +40,9 @@ test("an undiagnosed failure still links to the connection with the raw error", 
   assert.equal(v.actions[0].type, "link")
 })
 
-test("stale source offers Sync now and Pause only to writers", () => {
+test("stale source offers Sync now only to writers", () => {
   const issue: OpsIssue = { kind: "stale_source", connection_id: "c1", source: "S", hours: 30 }
-  assert.deepEqual(issueView(issue, writer).actions.map((a) => a.label), ["Sync now", "Open connection", "Pause"])
+  assert.deepEqual(issueView(issue, writer).actions.map((a) => a.label), ["Sync now", "Open connection"])
   assert.deepEqual(issueView(issue, reader).actions.map((a) => a.label), ["Open connection"])
 })
 
@@ -114,19 +114,22 @@ test("one query is singular", () => {
   assert.deepEqual(statusFacts(s), ["1 query today"])
 })
 
-// ── pausing an unused source ────────────────────────────────────────────────────
+// ── Overview shows only what needs action; staleness is one line ──────────────
 
-test("a stale source offers Pause to writers only", () => {
-  const issue = stale("a", 100)
-  const w = issueView(issue, writer).actions
-  assert.deepEqual(w.find((a) => a.type === "pause"), { type: "pause", label: "Pause", connectionId: "a", source: "Source a" })
-  assert.equal(issueView(issue, reader).actions.some((a) => a.type === "pause"), false)
+test("staleness alone is not 'to check': the headline counts failures and outages only", () => {
+  const base = { state: "attention" as const, queries_24h: null, checked_at: "t" }
+  assert.deepEqual(headline({ ...base, issues: [stale("a", 50), stale("b", 90)] }), { label: "Healthy", tone: "good" })
+  assert.equal(headline({ ...base, issues: [stale("a", 50), { kind: "engine_restarting" }] }).label, "1 to check")
 })
 
-test("paused sources are counted in the facts, not listed", () => {
+test("the stale line names how many and says where to look", () => {
+  assert.equal(staleSummary([stale("a", 50)]), "1 source has not synced in over a day")
+  assert.equal(staleSummary([stale("a", 50), stale("b", null)]), "2 sources have not synced in over a day")
+  assert.equal(staleSummary([]), null)
+})
+
+test("paused sources are not an Overview fact (they live on Sources)", () => {
   const s = { state: "ok" as const, queries_24h: null, issues: [], checked_at: "x",
               syncs: { window_hours: 24, tables_ok: 3, tables_failed: 0, paused_sources: 5 } }
-  assert.deepEqual(statusFacts(s), ["3 tables synced ok (24h)", "5 paused sources"])
-  assert.deepEqual(statusFacts({ ...s, syncs: { ...s.syncs, paused_sources: 1 } })[1], "1 paused source")
-  assert.equal(statusFacts({ ...s, syncs: { ...s.syncs, paused_sources: 0 } }).length, 1)
+  assert.deepEqual(statusFacts(s), ["3 tables synced ok (24h)"])
 })

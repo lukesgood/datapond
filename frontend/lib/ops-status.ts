@@ -34,7 +34,6 @@ export type OpsAction =
   | { type: "recreate"; label: string; connectionId: string; table: string }
   | { type: "sync"; label: string; connectionId: string; table?: string }
   | { type: "link"; label: string; href: string }
-  | { type: "pause"; label: string; connectionId: string; source: string }
 
 export type IssueView = {
   tone: "warn" | "info"
@@ -121,8 +120,6 @@ export function issueView(issue: OpsIssue, perms: Set<string>): IssueView {
       const actions: OpsAction[] = []
       if (perms.has("connector:write")) actions.push({ type: "sync", label: "Sync now", connectionId: issue.connection_id })
       actions.push({ type: "link", label: "Open connection", href: connectionHref(issue.connection_id) })
-      // Not in use: pausing takes it off this list until someone resumes it.
-      if (perms.has("connector:write")) actions.push({ type: "pause", label: "Pause", connectionId: issue.connection_id, source: issue.source })
       return {
         tone: "warn",
         title: `${issue.source} has not synced`,
@@ -133,11 +130,17 @@ export function issueView(issue: OpsIssue, perms: Set<string>): IssueView {
   }
 }
 
+/** Overview counts what needs action now — failures and outages. A source that has not
+ *  synced in a while is one line pointing to Sources, not an item "to check". */
 export function headline(status: OpsStatus): { label: string; tone: "good" | "warn" } {
-  const n = status.issues.length
-  return status.state === "ok" && n === 0
-    ? { label: "Healthy", tone: "good" }
-    : { label: `${n} to check`, tone: "warn" }
+  const n = status.issues.filter((i) => i.kind !== "stale_source").length
+  return n === 0 ? { label: "Healthy", tone: "good" } : { label: `${n} to check`, tone: "warn" }
+}
+
+export function staleSummary(items: OpsIssue[]): string | null {
+  const n = items.filter((i) => i.kind === "stale_source").length
+  if (n === 0) return null
+  return `${n} ${n === 1 ? "source has" : "sources have"} not synced in over a day`
 }
 
 /** Only the facts the caller was sent (syncs need connector:read; queries may be null). */
@@ -146,8 +149,6 @@ export function statusFacts(status: OpsStatus): string[] {
   if (status.syncs) {
     const { tables_ok: ok, tables_failed: failed, window_hours: h } = status.syncs
     facts.push(`${ok} table${ok === 1 ? "" : "s"} synced ok${failed ? ` · ${failed} failed` : ""} (${h}h)`)
-    const p = status.syncs.paused_sources ?? 0
-    if (p > 0) facts.push(`${p} paused source${p === 1 ? "" : "s"}`)
   }
   if (status.queries_24h != null) {
     const q = status.queries_24h
