@@ -21,13 +21,15 @@ import {
   Plus, RefreshCw, Database, Search, MoreHorizontal,
   Trash2, HardDrive, Radio, Cloud, AlertCircle, Plug,
   Rows3, ShieldAlert, TrendingUp, TableProperties,
-  ArrowRight, ArrowDownToLine, Layers, BarChart2, Zap,
+  ArrowRight, ArrowDownToLine, Layers, BarChart2, Zap, Pause, Play, Loader2,
 } from "lucide-react"
 import Link from "next/link"
 import { parseCron, nextRun } from "@/lib/schedule"
 import { CapabilityGate } from "@/lib/capabilities"
 import { describeCheck } from "@/lib/source-check"
 import { EngineRestartBanner } from "@/components/connectors/engine-restart-banner"
+import { usePermissions } from "@/lib/permissions"
+import { filterSources, isStale, parseSourceFilter, sourceCounts, type SourceFilter } from "@/lib/source-freshness"
 
 interface Connection {
   id: string
@@ -194,6 +196,21 @@ function ConnectorsPageInner() {
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [activeTab, setActiveTab] = useState("connections")
   const [checkedAt, setCheckedAt] = useState(() => Date.now())
+  // All / Stale / Paused — Overview's stale line links here with ?filter=stale.
+  const [filter, setFilter] = useState<SourceFilter>("all")
+  const [syncingStale, setSyncingStale] = useState<number | null>(null)
+  const { permissions } = usePermissions()
+  const canWrite = permissions.has("connector:write")
+  useEffect(() => {
+    const t = window.setTimeout(() => setFilter(parseSourceFilter(window.location.search)), 0)
+    return () => window.clearTimeout(t)
+  }, [])
+  const chooseFilter = (f: SourceFilter) => {
+    setFilter(f)
+    const url = new URL(window.location.href)
+    if (f === "all") url.searchParams.delete("filter"); else url.searchParams.set("filter", f)
+    window.history.replaceState(null, "", url.toString())
+  }
 
   const fetchConnections = useCallback(async () => {
     try {
@@ -276,6 +293,45 @@ function ConnectorsPageInner() {
     }
   }
 
+  // Not in use: a paused source leaves the Overview stale line and the background check.
+  const handlePause = async (id: string, name: string, resume: boolean) => {
+    if (!resume && !(await confirm({
+      title: `Pause ${name}?`,
+      message: "Pause a source you are not using: it is no longer reported as stale on Overview and skips the background connection check until you resume it. Its lake tables stay as they are, and Sync Now still works.",
+      confirmText: "Pause source",
+    }))) return
+    setActionLoading(id)
+    try {
+      const res = await fetch(`/api/connectors/${id}/${resume ? "resume" : "pause"}`, { method: "POST" })
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`
+        try { const d = await res.json(); if (d?.detail) msg = d.detail } catch {}
+        toast(`${resume ? "Resume" : "Pause"} failed: ${msg}`, "error")
+      } else {
+        toast(resume ? `Resumed ${name}` : `Paused ${name}`, "success")
+        await fetchConnections()
+      }
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  // One at a time: the reference runs on a single node, and each sync is a Trino job.
+  const syncAllStale = async (ids: { id: string; name: string }[]) => {
+    const failed: string[] = []
+    for (let i = 0; i < ids.length; i++) {
+      setSyncingStale(i + 1)
+      try {
+        const res = await fetch(`/api/connectors/${ids[i].id}/sync`, { method: "POST" })
+        if (!res.ok) failed.push(ids[i].name)
+      } catch { failed.push(ids[i].name) }
+    }
+    setSyncingStale(null)
+    toast(failed.length ? `${ids.length - failed.length} of ${ids.length} synced. Failed: ${failed.join(", ")}`
+                        : `Synced ${ids.length} source${ids.length === 1 ? "" : "s"}`, failed.length ? "error" : "success")
+    await fetchConnections()
+  }
+
   // ── Marketplace state ──────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("")
   const [marketCat, setMarketCat] = useState("all")
@@ -324,10 +380,10 @@ function ConnectorsPageInner() {
   const totalLastRows = Array.from(connStats.values()).reduce((s, c) => s + (c.lastRows ?? 0), 0)
   const rates = Array.from(connStats.values()).map(c => c.successRate).filter((r): r is number => r !== null)
   const avgSuccessRate = rates.length > 0 ? Math.round(rates.reduce((a, b) => a + b, 0) / rates.length) : null
-  const staleSources = connections.filter(c => {
-    if (!c.last_sync_at) return true
-    return checkedAt - new Date(c.last_sync_at).getTime() > 86_400_000 // > 24h
-  }).length
+  const counts = sourceCounts(connections, checkedAt)
+  const staleSources = counts.stale
+  const visible = filterSources(connections, filter, checkedAt)
+  const staleList = filterSources(connections, "stale", checkedAt)
 
   return (
     <div className="flex-1 space-y-5 px-6 py-5">
@@ -389,7 +445,7 @@ function ConnectorsPageInner() {
             {
               label: "Stale Sources",
               value: staleSources,
-              sub: staleSources === 0 ? "all sources up to date" : "last sync > 24h ago",
+              sub: staleSources === 0 ? "all sources up to date" : "last sync > 24h ago · paused not counted",
               icon: ShieldAlert,
               color: staleSources > 0 ? "text-[var(--dp-warn-text)]" : "text-[var(--dp-good-text)]",
               highlight: staleSources > 0,
@@ -445,6 +501,9 @@ function ConnectorsPageInner() {
                   <span className="font-semibold">{errorCount}</span> error
                 </span>
               )}
+              {counts.paused > 0 && (
+                <span className="text-muted-foreground"><span className="font-semibold">{counts.paused}</span> paused</span>
+              )}
             </div>
             {connections.length > 0 && (
               <button
@@ -456,6 +515,32 @@ function ConnectorsPageInner() {
               </button>
             )}
           </div>
+
+          {/* All / Stale / Paused */}
+          {connections.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter sources">
+              {(["all", "stale", "paused"] as const).map(f => (
+                <Button key={f} size="sm" variant={filter === f ? "secondary" : "ghost"}
+                        className="h-7 text-xs" aria-pressed={filter === f} onClick={() => chooseFilter(f)}>
+                  {f === "all" ? "All" : f === "stale" ? "Stale" : "Paused"}
+                  <span className="ml-1 tabular-nums text-muted-foreground">{counts[f]}</span>
+                </Button>
+              ))}
+              {filter === "stale" && staleList.length > 0 && canWrite && (
+                <Button size="sm" variant="outline" className="ml-auto h-7 text-xs" disabled={syncingStale !== null}
+                        onClick={() => void syncAllStale(staleList.map(c => ({ id: c.id, name: c.name })))}>
+                  {syncingStale !== null
+                    ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />Syncing {syncingStale} of {staleList.length}…</>
+                    : <><RefreshCw className="mr-1 h-3.5 w-3.5" />Sync all {staleList.length} stale</>}
+                </Button>
+              )}
+              {filter === "stale" && (
+                <p className="basis-full text-xs text-muted-foreground">
+                  Active sources with no sync in over a day. Not using one? Pause it from its menu — it stops being reported until you resume it.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Onboarding panel — collapsible */}
           {showOnboarding && (
@@ -506,7 +591,13 @@ function ConnectorsPageInner() {
                     </TableRow>
                   ))
                 ) : (
-                  connections.map(conn => (
+                  visible.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
+                        {filter === "stale" ? "No stale sources." : "No paused sources."}
+                      </TableCell>
+                    </TableRow>
+                  ) : visible.map(conn => (
                     <TableRow
                       key={conn.id}
                       className={`group transition-colors hover:bg-muted/40 ${actionLoading === conn.id ? "opacity-50" : ""}`}
@@ -557,8 +648,7 @@ function ConnectorsPageInner() {
                         {(() => {
                           // Surface staleness (>24h / never) inline so the platform "Stale Sources"
                           // metric maps back to the specific row responsible for it.
-                          const stale = conn.status !== "pending" &&
-                            (!conn.last_sync_at || checkedAt - new Date(conn.last_sync_at).getTime() > 86_400_000)
+                          const stale = isStale(conn, checkedAt)
                           return (
                             <span className="inline-flex items-center gap-1.5">
                               {stale && (
@@ -618,6 +708,13 @@ function ConnectorsPageInner() {
                             <DropdownMenuItem onClick={() => handleSync(conn.id)}>
                               <RefreshCw className="h-3.5 w-3.5 mr-2" />Sync Now
                             </DropdownMenuItem>
+                            {canWrite && (
+                              <DropdownMenuItem onClick={() => void handlePause(conn.id, conn.name, conn.status === "paused")}>
+                                {conn.status === "paused"
+                                  ? <><Play className="h-3.5 w-3.5 mr-2" />Resume</>
+                                  : <><Pause className="h-3.5 w-3.5 mr-2" />Pause (not in use)</>}
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="text-destructive"

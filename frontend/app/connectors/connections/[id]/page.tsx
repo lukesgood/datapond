@@ -843,7 +843,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
     }
   }
 
-  // Not in use: a paused source leaves the Overview checklist and the background check.
+  // Not in use: a paused source is not reported as stale and skips the background check.
   const [pausing, setPausing] = useState(false)
   const handlePauseToggle = async () => {
     if (!connector) return
@@ -851,7 +851,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
     if (!resume) {
       const ok = await confirmDialog({
         title: `Pause ${connector.name}?`,
-        message: "Pause a source you are not using: it leaves the Overview checklist and the background connection check until you resume it. Its lake tables stay as they are, and Sync Now still works.",
+        message: "Pause a source you are not using: it is no longer reported as stale on Overview and skips the background connection check until you resume it. Its lake tables stay as they are, and Sync Now still works.",
         confirmText: "Pause source",
       })
       if (!ok) return
@@ -1210,7 +1210,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
             {syncing ? "Syncing…" : "Sync Now"}
           </Button>
           <Button variant="outline" onClick={() => void handlePauseToggle()} disabled={pausing}
-            title={connector.status === "paused" ? "Put this source back in use" : "Not using this source? Take it off the Overview checklist"}>
+            title={connector.status === "paused" ? "Put this source back in use" : "Not using this source? Stop reporting it as stale"}>
             {connector.status === "paused"
               ? <><Play className="h-4 w-4 mr-2" />{pausing ? "Resuming…" : "Resume"}</>
               : <><Pause className="h-4 w-4 mr-2" />{pausing ? "Pausing…" : "Pause"}</>}

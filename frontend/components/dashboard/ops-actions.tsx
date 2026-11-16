@@ -25,27 +25,6 @@ export function OpsActionButtons({ actions, onDone }: { actions: OpsAction[]; on
 
   const run = async (action: OpsAction, key: string) => {
     if (action.type === "link") return
-    if (action.type === "pause") {
-      const ok = await confirm({
-        title: `Pause ${action.source}?`,
-        message: "It leaves this checklist and the background connection check until someone resumes it from its connection page. Its lake tables stay as they are, and you can still sync it by hand.",
-        confirmText: "Pause source",
-      })
-      if (!ok) return
-      setBusy(key)
-      try {
-        const res = await fetch(`/api/connectors/${encodeURIComponent(action.connectionId)}/pause`, {
-          method: "POST", credentials: "include",
-        })
-        if (!res.ok) toast(`Pause failed: ${await errorText(res)}`, "error")
-        else { toast(`Paused ${action.source}. Resume it from its connection page.`, "success"); onDone?.() }
-      } catch (err) {
-        toast(`Pause failed: ${err instanceof Error ? err.message : String(err)}`, "error")
-      } finally {
-        setBusy(null)
-      }
-      return
-    }
     if (action.type === "recreate") {
       const ok = await confirm({
         title: "Recreate target table?",
@@ -96,7 +75,7 @@ export function OpsActionButtons({ actions, onDone }: { actions: OpsAction[]; on
           )
         }
         return (
-          <Button key={key} variant={a.type === "recreate" ? "destructive" : a.type === "pause" ? "ghost" : "outline"} size="sm"
+          <Button key={key} variant={a.type === "recreate" ? "destructive" : "outline"} size="sm"
                   disabled={busy !== null} onClick={() => void run(a, key)}>
             {busy === key && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
             {busy === key ? "Working…" : a.label}
