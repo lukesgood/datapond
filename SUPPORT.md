@@ -34,7 +34,8 @@ When a published vulnerability affects a dependency or image DataPond ships, a f
 released within **7 days for CRITICAL** and **30 days for HIGH** severity, counted from the
 later of the day a fixed upstream version is available and the day we learn of it. CI scans
 every change with Trivy (HIGH and CRITICAL fail the build) and keeps a CycloneDX SBOM of each
-run. Report a suspected vulnerability privately to the maintainers rather than in a public
+run; a weekly scan (Mondays) re-checks the dependencies and the deployed images, so a newly
+published vulnerability is found even in a week with no changes. Report a suspected vulnerability privately to the maintainers rather than in a public
 issue. (Policy confirmed 2026-11-16; `docs/SECURITY_REVIEW_PACK.md`.)
 
 `docs/UPGRADING.md` records every change that alters behaviour for an existing

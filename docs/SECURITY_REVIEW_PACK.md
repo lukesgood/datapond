@@ -68,7 +68,8 @@
 | 항목 | 상태 | 내용 | 근거 |
 |---|---|---|---|
 | 의존성 취약점 스캔 | ✅ | 모든 PR과 main에서 Trivy(HIGH·CRITICAL 발견 시 실패, 기준선 0). | `.github/workflows/ci.yml` |
-| SBOM | 🟡 | 모든 CI 실행에서 CycloneDX 1.6 SBOM 생성·90일 보관(빌드 아티팩트 `sbom-cyclonedx`, 2026-11-16 실행 기준 구성요소 188개). 프런트엔드는 lockfile 기준 운영 의존성 전체, **백엔드는 `requirements.txt`에 선언된 패키지만**(간접 의존성 제외). 이미지 기준 SBOM은 계획. | 같은 파일 |
+| 정기 스캔 | ✅ | 매주 월요일 09:00 KST: 저장소 의존성과 **배포 중인 이미지**(ECR 최신 백엔드·프런트엔드, OS 패키지·간접 의존성 포함)를 Trivy로 검사. 수정 가능한 HIGH·CRITICAL이 있으면 `security-scan` 이슈를 열고 패치 정책 기한이 시작된다. | `.github/workflows/security-weekly.yml` |
+| SBOM | ✅ | 모든 CI 실행에서 CycloneDX 1.6 SBOM 생성·90일 보관(빌드 아티팩트 `sbom-cyclonedx`, 2026-11-16 실행 기준 구성요소 188개). 프런트엔드는 lockfile 기준 운영 의존성 전체, **백엔드는 `requirements.txt`에 선언된 패키지만**(간접 의존성 제외). **이미지 기준 SBOM**(OS 패키지·간접 의존성 전체)은 주간 스캔이 이미지별로 생성·90일 보관(`sbom-datapond-backend`, `sbom-datapond-frontend`). | `ci.yml`, `security-weekly.yml` |
 | 라이선스 | ✅ | 직접 의존성 라이선스 게이트, 선택 add-on 라이선스 고지. | CI `license-gate`, `THIRD_PARTY_NOTICES.md` |
 | 배포 무결성 | ✅ | CI 통과 커밋만 main에 머지, 불변 이미지 태그, 배포 전 사전 점검(노드 자원). | `scripts/preflight.py` |
 | 패치 정책 | ✅ | **확정(2026-11-16):** 공개된 취약점이 DataPond가 배포하는 의존성·이미지에 영향을 주면, CRITICAL은 7일, HIGH는 30일 안에 수정 이미지를 배포한다(기준 시점: 수정 버전이 공개되거나 우리가 인지한 날 중 늦은 날). 장기 지원 브랜치 없음 — 최신 이미지로 업그레이드해 받는다. | `SUPPORT.md` "Security fixes" |
@@ -84,7 +85,7 @@
 
 ## 9. 고객이 요청할 수 있는 추가 자료
 
-- 최신 SBOM(CycloneDX JSON), 최신 Trivy 결과 — CI 아티팩트.
+- 최신 SBOM(CycloneDX JSON, 저장소·이미지별), 최신 Trivy 결과 — CI·주간 스캔 아티팩트.
 - 아키텍처·데이터 흐름도 — `docs/ARCHITECTURE.md`.
 - 개인정보 증적 NDJSON, 감사 로그 NDJSON 샘플 — 고객 PoC 환경에서 생성.
 - 재해 복구 절차와 실측 기록 — `docs/DISASTER_RECOVERY.md`.

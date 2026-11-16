@@ -202,6 +202,17 @@ data "aws_iam_policy_document" "cd" {
     resources = [aws_ecr_repository.backend.arn, aws_ecr_repository.frontend.arn]
   }
   statement {
+    # The weekly security scan (.github/workflows/security-weekly.yml) pulls the newest
+    # deployed images to scan them with every transitive dependency. Read only.
+    sid = "EcrReadForScan"
+    actions = [
+      "ecr:DescribeImages",
+      "ecr:BatchGetImage",
+      "ecr:GetDownloadUrlForLayer",
+    ]
+    resources = [aws_ecr_repository.backend.arn, aws_ecr_repository.frontend.arn]
+  }
+  statement {
     sid       = "StageChartBundle"
     actions   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
     resources = ["arn:aws:s3:::${local.deploy_bucket_name}/deploy/*"]
