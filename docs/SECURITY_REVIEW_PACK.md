@@ -68,7 +68,7 @@
 | 항목 | 상태 | 내용 | 근거 |
 |---|---|---|---|
 | 의존성 취약점 스캔 | ✅ | 모든 PR과 main에서 Trivy(HIGH·CRITICAL 발견 시 실패, 기준선 0). | `.github/workflows/ci.yml` |
-| SBOM | ✅ | 모든 CI 실행에서 CycloneDX SBOM 생성·90일 보관(빌드 아티팩트 `sbom-cyclonedx`). | 같은 파일 |
+| SBOM | 🟡 | 모든 CI 실행에서 CycloneDX 1.6 SBOM 생성·90일 보관(빌드 아티팩트 `sbom-cyclonedx`, 2026-11-16 실행 기준 구성요소 188개). 프런트엔드는 lockfile 기준 운영 의존성 전체, **백엔드는 `requirements.txt`에 선언된 패키지만**(간접 의존성 제외). 이미지 기준 SBOM은 계획. | 같은 파일 |
 | 라이선스 | ✅ | 직접 의존성 라이선스 게이트, 선택 add-on 라이선스 고지. | CI `license-gate`, `THIRD_PARTY_NOTICES.md` |
 | 배포 무결성 | ✅ | CI 통과 커밋만 main에 머지, 불변 이미지 태그, 배포 전 사전 점검(노드 자원). | `scripts/preflight.py` |
 | 패치 정책 | ⬜ | **초안(확정 전):** CRITICAL 7일, HIGH 30일 안에 수정 이미지 배포. 장기 지원 브랜치 없음 — 최신 이미지로 업그레이드해 받는다. | `SUPPORT.md` (정책 확정 시 갱신) |
