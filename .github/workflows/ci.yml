@@ -166,6 +166,12 @@ jobs:
           ignore-unfixed: true
           format: table
           exit-code: "1"
+      - name: Where each finding lives
+        if: failure()
+        run: |
+          trivy image --quiet --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --format json \
+            scan/${{ matrix.name }}:ci | jq -r '.Results[] | .Target as $t | .Vulnerabilities[]? |
+            "\($t)  \(.PkgName) \(.InstalledVersion)  \(.PkgPath // "-")  \(.VulnerabilityID)"'
 
   acceptance:
     name: Portable Core acceptance (deployed target)
@@ -525,6 +531,15 @@ jobs:
             --set-string frontend.image.tag=ci \
             --set frontend.image.pullPolicy=Never \
             --wait --timeout 25m
+      - name: Pod state on failure
+        if: failure()
+        run: |
+          kubectl -n datapond get pods -o wide || true
+          kubectl -n datapond get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl -n datapond get pods --no-headers | awk '$2 !~ /^([0-9]+)\/\1$/ || $3 != "Running" {print $1}'); do
+            echo "=== $p"; kubectl -n datapond describe pod "$p" | tail -25
+            kubectl -n datapond logs "$p" --all-containers --tail=60 || true
+          done
 
       - name: Nothing is allowed to leave the cluster
         run: |
