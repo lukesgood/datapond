@@ -70,7 +70,7 @@ def test_the_route_gathers_only_what_the_caller_may_see(monkeypatch):
 
     async def _syncs(pool):
         seen.append("syncs")
-        return SYNCS, NAMES, []
+        return SYNCS, NAMES, [], 2
 
     async def _mirrors(pool):
         seen.append("mirrors")
@@ -103,3 +103,4 @@ def test_the_route_gathers_only_what_the_caller_may_see(monkeypatch):
     out = asyncio.run(ops.ops_status(user={"id": "u2", "role": "data_engineer"}))
     assert set(seen) == {"syncs", "mirrors", "catalogs"}
     assert out["syncs"]["tables_failed"] == 1 and any(i["kind"] == "mirror" for i in out["issues"])
+    assert out["syncs"]["paused_sources"] == 2   # paused sources are counted, never listed

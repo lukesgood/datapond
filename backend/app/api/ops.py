@@ -51,7 +51,8 @@ async def _load_syncs(pool):
     cutoff = datetime.now(timezone.utc) - timedelta(hours=WINDOW_HOURS)
     stale = [{"connection_id": str(c["id"]), "name": c["name"], "last_sync_at": _aware(c["last_sync_at"])}
              for c in conns if c["status"] == "active" and c["last_sync_at"] and _aware(c["last_sync_at"]) < cutoff]
-    return syncs, names, stale
+    paused = sum(1 for c in conns if c["status"] == "paused")
+    return syncs, names, stale, paused
 
 
 async def _load_mirrors(pool):
@@ -106,9 +107,9 @@ def _engine():
 async def ops_status(user: dict = Depends(require_user)):
     perms = _permissions(user)
     pool = await _pool()
-    syncs, names, stale = ([], {}, [])
+    syncs, names, stale, paused = ([], {}, [], 0)
     if "connector:read" in perms:
-        syncs, names, stale = await _load_syncs(pool)
+        syncs, names, stale, paused = await _load_syncs(pool)
     mirrors = await _load_mirrors(pool) if "catalog:write" in perms else []
     catalogs = await _load_catalogs(user) if "catalog:read" in perms else []
     engine = await asyncio.to_thread(_engine)
@@ -116,4 +117,6 @@ async def ops_status(user: dict = Depends(require_user)):
                     queries_24h=await _count_queries(pool, user), now=_now())
     if "connector:read" not in perms:
         out.pop("syncs", None)
+    else:
+        out["syncs"]["paused_sources"] = paused   # counted, never listed: pausing is a person's choice
     return out

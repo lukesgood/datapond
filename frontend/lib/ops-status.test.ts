@@ -40,9 +40,9 @@ test("an undiagnosed failure still links to the connection with the raw error", 
   assert.equal(v.actions[0].type, "link")
 })
 
-test("stale source offers Sync now only to writers", () => {
+test("stale source offers Sync now and Pause only to writers", () => {
   const issue: OpsIssue = { kind: "stale_source", connection_id: "c1", source: "S", hours: 30 }
-  assert.deepEqual(issueView(issue, writer).actions.map((a) => a.label), ["Sync now", "Open connection"])
+  assert.deepEqual(issueView(issue, writer).actions.map((a) => a.label), ["Sync now", "Open connection", "Pause"])
   assert.deepEqual(issueView(issue, reader).actions.map((a) => a.label), ["Open connection"])
 })
 
@@ -112,4 +112,21 @@ test("ages read as hours under two days, then days", () => {
 test("one query is singular", () => {
   const s = { state: "ok" as const, queries_24h: 1, issues: [], checked_at: "2026-11-16T00:00:00Z" }
   assert.deepEqual(statusFacts(s), ["1 query today"])
+})
+
+// ── pausing an unused source ────────────────────────────────────────────────────
+
+test("a stale source offers Pause to writers only", () => {
+  const issue = stale("a", 100)
+  const w = issueView(issue, writer).actions
+  assert.deepEqual(w.find((a) => a.type === "pause"), { type: "pause", label: "Pause", connectionId: "a", source: "Source a" })
+  assert.equal(issueView(issue, reader).actions.some((a) => a.type === "pause"), false)
+})
+
+test("paused sources are counted in the facts, not listed", () => {
+  const s = { state: "ok" as const, queries_24h: null, issues: [], checked_at: "x",
+              syncs: { window_hours: 24, tables_ok: 3, tables_failed: 0, paused_sources: 5 } }
+  assert.deepEqual(statusFacts(s), ["3 tables synced ok (24h)", "5 paused sources"])
+  assert.deepEqual(statusFacts({ ...s, syncs: { ...s.syncs, paused_sources: 1 } })[1], "1 paused source")
+  assert.equal(statusFacts({ ...s, syncs: { ...s.syncs, paused_sources: 0 } }).length, 1)
 })

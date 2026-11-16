@@ -2880,6 +2880,45 @@ async def recreate_table(connection_id: str, table_name: str, user: dict = Depen
     return {**result, "recreated": ref.sql()}
 
 
+async def _set_paused(connection_id: str, paused: bool, user: dict) -> Dict[str, Any]:
+    await require_access(CONNECTOR, connection_id, user, write=True)
+    status = ConnectionStatus.PAUSED.value if paused else ConnectionStatus.ACTIVE.value
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT id, name, status FROM connector_connections WHERE id=$1",
+                                  uuid.UUID(str(connection_id)))
+        if row is None:
+            raise HTTPException(status_code=404, detail="Connection not found")
+        await conn.execute("UPDATE connector_connections SET status=$2, updated_at=now() WHERE id=$1",
+                           uuid.UUID(str(connection_id)), status)
+        try:
+            await conn.execute(
+                """INSERT INTO auth_audit_log (event_type, user_id, user_email, resource, action, result, details)
+                   VALUES ($1,$2,$3,$4,$5,'success',$6)""",
+                "connector_paused" if paused else "connector_resumed",
+                uuid.UUID(user["id"]) if user.get("id") else None, user.get("username"),
+                row["name"], "pause" if paused else "resume",
+                json.dumps({"connection_id": str(connection_id), "previous_status": row["status"]}))
+        except Exception as e:
+            logger.warning("[connectors] pause audit skipped: %s", e)
+    return {"id": str(connection_id), "name": row["name"], "status": status}
+
+
+@router.post("/connectors/{connection_id}/pause", dependencies=[Depends(require_permission("connector:write"))])
+async def pause_connection(connection_id: str, user: dict = Depends(require_user)):
+    """Mark a source as not in use: it leaves the Overview checklist and the background
+    connection check, and stays paused until someone resumes it. Syncing it by hand still
+    works. Audited as connector_paused."""
+    return await _set_paused(connection_id, True, user)
+
+
+@router.post("/connectors/{connection_id}/resume", dependencies=[Depends(require_permission("connector:write"))])
+async def resume_connection(connection_id: str, user: dict = Depends(require_user)):
+    """Put a paused source back in use (active; the next check sets its real state).
+    Audited as connector_resumed."""
+    return await _set_paused(connection_id, False, user)
+
+
 @router.get("/connectors/{connection_id}/history")
 async def get_sync_history(connection_id: str, limit: int = 20,
                            user: dict = Depends(require_user)):
