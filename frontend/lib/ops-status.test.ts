@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { diagnosisActions, headline, issueView, parseOpsStatus, statusFacts, type Diagnosis, type OpsIssue } from "./ops-status.ts"
+import { ageLabel, diagnosisActions, groupIssues, headline, issueView, parseOpsStatus, statusFacts, type Diagnosis, type OpsIssue } from "./ops-status.ts"
 
 const diag = (action: string): Diagnosis => ({ code: "x", action, title: "T", detail: "D", advice: "A" })
 const writer = new Set(["connector:write", "connector:read"])
@@ -75,4 +75,41 @@ test("parse rejects junk", () => {
   assert.equal(parseOpsStatus(null), null)
   assert.equal(parseOpsStatus({ state: "weird" }), null)
   assert.deepEqual(parseOpsStatus({ state: "ok", issues: [1, { kind: "engine_restarting" }] })?.issues, [{ kind: "engine_restarting" }])
+})
+
+// ── dashboard checklist: grouped, compact ───────────────────────────────────────
+
+const stale = (id: string, hours: number | null): OpsIssue =>
+  ({ kind: "stale_source", connection_id: id, source: `Source ${id}`, hours })
+
+test("stale sources become one group, other issues stay single and come first", () => {
+  const failed: OpsIssue = { kind: "sync_failed", connection_id: "c9", source: "Shop", table: "orders" }
+  const groups = groupIssues([stale("a", 68), failed, stale("b", 142), { kind: "engine_restarting" }])
+  assert.deepEqual(groups.map((g) => g.kind), ["single", "single", "stale"])
+  const g = groups[2]
+  assert.equal(g.kind, "stale")
+  if (g.kind === "stale") {
+    // longest-stale first: the most overdue is what to look at
+    assert.deepEqual(g.items.map((i) => i.connection_id), ["b", "a"])
+  }
+})
+
+test("a lone stale source still groups, and never-synced sorts first", () => {
+  const groups = groupIssues([stale("a", 5), stale("n", null)])
+  assert.equal(groups.length, 1)
+  if (groups[0].kind === "stale") assert.deepEqual(groups[0].items.map((i) => i.connection_id), ["n", "a"])
+  assert.deepEqual(groupIssues([]), [])
+})
+
+test("ages read as hours under two days, then days", () => {
+  assert.equal(ageLabel(null), "never synced")
+  assert.equal(ageLabel(1), "1 hour ago")
+  assert.equal(ageLabel(47), "47 hours ago")
+  assert.equal(ageLabel(68), "3 days ago")
+  assert.equal(ageLabel(142), "6 days ago")
+})
+
+test("one query is singular", () => {
+  const s = { state: "ok" as const, queries_24h: 1, issues: [], checked_at: "2026-11-16T00:00:00Z" }
+  assert.deepEqual(statusFacts(s), ["1 query today"])
 })

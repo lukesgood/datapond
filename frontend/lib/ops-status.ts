@@ -144,8 +144,34 @@ export function statusFacts(status: OpsStatus): string[] {
     const { tables_ok: ok, tables_failed: failed, window_hours: h } = status.syncs
     facts.push(`${ok} table${ok === 1 ? "" : "s"} synced ok${failed ? ` · ${failed} failed` : ""} (${h}h)`)
   }
-  if (status.queries_24h != null) facts.push(`${status.queries_24h.toLocaleString("en-US")} queries today`)
+  if (status.queries_24h != null) {
+    const q = status.queries_24h
+    facts.push(`${q.toLocaleString("en-US")} ${q === 1 ? "query" : "queries"} today`)
+  }
   return facts
+}
+
+export type StaleIssue = Extract<OpsIssue, { kind: "stale_source" }>
+
+/** Checklist layout: every stale source in one group (most overdue first, never-synced
+ *  at the top), after the single issues — failures and outages read before staleness. */
+export type IssueGroup = { kind: "single"; issue: OpsIssue } | { kind: "stale"; items: StaleIssue[] }
+
+export function groupIssues(issues: OpsIssue[]): IssueGroup[] {
+  const stale = issues.filter((i): i is StaleIssue => i.kind === "stale_source")
+  const out: IssueGroup[] = issues.filter((i) => i.kind !== "stale_source").map((issue) => ({ kind: "single", issue }))
+  if (stale.length) {
+    const age = (i: StaleIssue) => (i.hours == null ? Infinity : i.hours)
+    out.push({ kind: "stale", items: [...stale].sort((a, b) => age(b) - age(a)) })
+  }
+  return out
+}
+
+/** "47 hours ago" under two days, then whole days. */
+export function ageLabel(hours: number | null | undefined): string {
+  if (hours == null) return "never synced"
+  if (hours < 48) return `${hours} hour${hours === 1 ? "" : "s"} ago`
+  return `${Math.round(hours / 24)} days ago`
 }
 
 /** Tolerant parse: anything unexpected becomes null so the line simply does not render. */
