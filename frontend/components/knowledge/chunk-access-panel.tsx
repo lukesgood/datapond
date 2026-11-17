@@ -109,7 +109,7 @@ export function ChunkAccessPanel({ name, initial, canEdit, onChange }: {
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">
-          The collection&apos;s owner or an administrator can change this rule.
+          The collection&apos;s owner, an editor, or an administrator can change this rule.
         </p>
       )}
 

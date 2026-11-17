@@ -275,6 +275,9 @@ function AccessControlTab() {
   const [defaultDeny, setDefaultDeny] = useState<DefaultDenyState>("unknown")
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
+  // A failed create is the form's error, not the tab's: sharing `err` replaced the
+  // whole tab (forms, lists, simulator) with the message and no way back.
+  const [createErr, setCreateErr] = useState<string | null>(null)
 
   // create-policy form
   const [form, setForm] = useState({
@@ -348,7 +351,7 @@ function AccessControlTab() {
   const queryCatalog = typeof caps.query_catalog === "string" && caps.query_catalog ? caps.query_catalog : "iceberg"
 
   const createPolicy = async () => {
-    setErr(null)
+    setCreateErr(null)
     const body = {
       name: form.name, catalog_name: form.catalog_name || queryCatalog, schema_name: form.schema_name,
       table_name: form.table_name, filter_expression: form.filter_expression,
@@ -357,8 +360,13 @@ function AccessControlTab() {
     const r = await fetch("/api/governance/rls/policies", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     })
-    if (r.ok) { setForm({ ...form, name: "", schema_name: "", table_name: "", filter_expression: "", role_names: "" }); load() }
-    else setErr((await r.json().catch(() => ({})))?.detail ?? "Failed to create")
+    if (r.ok) {
+      toast(`Policy ${form.name} created`, "success")
+      setForm({ ...form, name: "", schema_name: "", table_name: "", filter_expression: "", role_names: "" }); load()
+    } else {
+      const d = await r.json().catch(() => ({}))
+      setCreateErr(typeof d?.detail === "string" ? d.detail : `Could not create the policy (HTTP ${r.status})`)
+    }
   }
 
   const confirm = useConfirm()
@@ -380,7 +388,9 @@ function AccessControlTab() {
   }
   const deletePolicy = async (id: string) => {
     if (!(await confirm({ title: "Delete policy", message: "Delete this RLS policy?", destructive: true, confirmText: "Delete" }))) return
-    await fetch(`/api/governance/rls/policies/${id}`, { method: "DELETE" }); load()
+    const r = await fetch(`/api/governance/rls/policies/${id}`, { method: "DELETE" })
+    toast(r.ok ? "Policy deleted" : `Could not delete the policy (HTTP ${r.status})`, r.ok ? "success" : "error")
+    load()
   }
 
   const createMask = async () => {
@@ -400,7 +410,9 @@ function AccessControlTab() {
   }
   const deleteMask = async (id: string) => {
     if (!(await confirm({ title: "Delete masking policy", message: "Delete this column masking policy?", destructive: true, confirmText: "Delete" }))) return
-    await fetch(`/api/governance/masking/policies/${id}`, { method: "DELETE" }); load()
+    const r = await fetch(`/api/governance/masking/policies/${id}`, { method: "DELETE" })
+    toast(r.ok ? "Masking policy deleted" : `Could not delete the masking policy (HTTP ${r.status})`, r.ok ? "success" : "error")
+    load()
   }
   const runPreview = async () => {
     let attrs: Record<string, unknown> = {}
@@ -470,6 +482,7 @@ function AccessControlTab() {
           <Input placeholder="Roles to apply (comma-separated, e.g. business_analyst)" value={form.role_names} onChange={(e) => setForm({ ...form, role_names: e.target.value })} />
           <div className="md:col-span-3">
             <Button size="sm" onClick={createPolicy} disabled={!form.name || !form.schema_name || !form.table_name || !form.filter_expression}>Create policy</Button>
+            {createErr && <span role="alert" aria-live="polite" className="ml-3 text-xs text-destructive">{createErr}</span>}
           </div>
         </CardContent>
       </Card>
@@ -604,6 +617,11 @@ export default function GovernancePage() {
   const [auditItems, setAuditItems] = useState<AuditLogItem[]>([])
   const [auditTotal, setAuditTotal] = useState(0)
   const [auditOffset, setAuditOffset] = useState(0)
+  // Bumped by Refresh so the effect refetches page one even when the offset is
+  // already 0. Refresh used to fetch on its own and leave the offset where "Load
+  // more" had put it, so the next "Load more" asked for an offset it already had
+  // and nothing happened.
+  const [auditReload, setAuditReload] = useState(0)
   const [auditLoading, setAuditLoading] = useState(true)
   const [eventTypeFilter, setEventTypeFilter] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
@@ -785,7 +803,7 @@ export default function GovernancePage() {
         .finally(() => setAuditLoading(false))
     }, 0)
     return () => window.clearTimeout(request)
-  }, [eventTypeFilter, auditOffset])
+  }, [eventTypeFilter, auditOffset, auditReload])
 
   // Unified activity stream — re-fetch when source filter changes
   useEffect(() => {
@@ -928,16 +946,8 @@ export default function GovernancePage() {
             <Button
               variant="outline"
               size="icon"
-              onClick={() => {
-                setAuditLoading(true)
-                const qs = new URLSearchParams({ limit: "50", offset: "0" })
-                if (eventTypeFilter !== "all") qs.set("event_type", eventTypeFilter)
-                fetch(`/api/governance/audit-log?${qs}`)
-                  .then((r) => r.json())
-                  .then((d) => { setAuditItems(d.items ?? []); setAuditTotal(d.total ?? 0) })
-                  .catch(() => {})
-                  .finally(() => setAuditLoading(false))
-              }}
+              aria-label="Refresh query log"
+              onClick={() => { setAuditOffset(0); setAuditReload((n) => n + 1) }}
             >
               <RefreshCw className="h-4 w-4" />
             </Button>

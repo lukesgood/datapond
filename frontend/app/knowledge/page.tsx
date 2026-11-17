@@ -26,12 +26,14 @@ import { useConfirm } from "@/lib/confirm"
 import { ErrorBox, EmptyState } from "@/components/ui/error-box"
 import { useCapability } from "@/lib/capabilities"
 import { usePermissions } from "@/lib/permissions"
-import { mayAskQuestions, mayIngest, mayWriteCollection } from "@/lib/knowledge-actions"
+import { mayAskQuestions, mayIngest, mayWriteCollection, type MemberRole } from "@/lib/knowledge-actions"
 
 interface Collection {
   name: string; embed_model: string; dim: number
   description: string | null; chunks: number; created_at: string | null
   owner_id: string | null
+  /** The viewer's own member grant on this collection (from the list API). */
+  member_role?: MemberRole | null
   chunk_access?: StoredChunkRule
   sources?: number; index?: string | null; last_ingested?: string | null
 }
@@ -185,7 +187,7 @@ export default function KnowledgePage() {
                     </div>
                     {/* DELETE /ai/collections/{name} is knowledge:write alone — it
                         embeds nothing, so mayWriteCollection, not mayIngest. */}
-                    {!!me && mayWriteCollection({ owner_id: c.owner_id }, { id: me.id, role, permissions }) && (
+                    {!!me && mayWriteCollection({ owner_id: c.owner_id, member_role: c.member_role }, { id: me.id, role, permissions }) && (
                       <button aria-label={`Delete collection ${c.name}`} onClick={e => { e.stopPropagation(); deleteCol(c.name, load, confirm, toast) }}
                         className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
                     )}
@@ -215,6 +217,7 @@ export default function KnowledgePage() {
           {sel ? <Workspace key={sel} name={sel} onChange={load}
                             empty={(cols.find(c => c.name === sel)?.chunks ?? 0) === 0}
                             ownerId={cols.find(c => c.name === sel)?.owner_id ?? null}
+                            memberRole={cols.find(c => c.name === sel)?.member_role ?? null}
                             chunkAccess={cols.find(c => c.name === sel)?.chunk_access ?? null} />
             : <Card><CardContent>
                 <EmptyState
@@ -337,11 +340,11 @@ function CreateCollection({ onCreated }: { onCreated: () => void }) {
   )
 }
 
-function Workspace({ name, onChange, empty, ownerId, chunkAccess }: { name: string; onChange: () => void; empty: boolean; ownerId: string | null; chunkAccess: StoredChunkRule }) {
+function Workspace({ name, onChange, empty, ownerId, memberRole, chunkAccess }: { name: string; onChange: () => void; empty: boolean; ownerId: string | null; memberRole: MemberRole | null; chunkAccess: StoredChunkRule }) {
   const ontologyOn = useCapability("ontology")
   const viewer = getUser()
   const { role, permissions } = usePermissions()
-  const canEditRule = !!viewer && mayWriteCollection({ owner_id: ownerId }, { id: viewer.id, role, permissions })
+  const canEditRule = !!viewer && mayWriteCollection({ owner_id: ownerId, member_role: memberRole }, { id: viewer.id, role, permissions })
   return (
     <Card>
       <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2">
@@ -369,8 +372,8 @@ function Workspace({ name, onChange, empty, ownerId, chunkAccess }: { name: stri
             <TabsTrigger value="compare"><ArrowDownWideNarrow className="h-3.5 w-3.5 mr-1" />Compare</TabsTrigger></TabsList>
           <TabsContent value="search"><SearchPanel name={name} /></TabsContent>
           <TabsContent value="composition"><CompositionPanel name={name} onChange={onChange} /></TabsContent>
-          <TabsContent value="ingest"><IngestPanel name={name} ownerId={ownerId} onChange={onChange} /></TabsContent>
-          <TabsContent value="schedule"><SchedulePanel name={name} ownerId={ownerId} /></TabsContent>
+          <TabsContent value="ingest"><IngestPanel name={name} ownerId={ownerId} memberRole={memberRole} onChange={onChange} /></TabsContent>
+          <TabsContent value="schedule"><SchedulePanel name={name} ownerId={ownerId} memberRole={memberRole} /></TabsContent>
           <TabsContent value="members"><MembersPanel name={name} ownerId={ownerId} /></TabsContent>
           <TabsContent value="access"><ChunkAccessPanel name={name} initial={chunkAccess} canEdit={canEditRule} onChange={onChange} /></TabsContent>
           {/* Deliberately in Knowledge rather than a page of its own: concepts change
@@ -390,18 +393,18 @@ interface ScheduleState {
   last_refresh_status: string | null
 }
 
-function SchedulePanel({ name, ownerId }: { name: string; ownerId: string | null }) {
+function SchedulePanel({ name, ownerId, memberRole }: { name: string; ownerId: string | null; memberRole: MemberRole | null }) {
   const viewer = getUser()
   const { role, permissions } = usePermissions()
   // Same gate ingest-source uses (B1: knowledge:write + _collection_id(write=True),
   // plus ai:generate since the final-review fix) — schedule is the recurring form of
   // the same action, and arming it commits the deployment to unattended spend.
-  const canSchedule = !!viewer && mayIngest({ owner_id: ownerId }, { id: viewer.id, role, permissions })
+  const canSchedule = !!viewer && mayIngest({ owner_id: ownerId, member_role: memberRole }, { id: viewer.id, role, permissions })
   // Cancelling is DELETE .../schedule, which is knowledge:write alone. Someone who
   // may write this collection but may not spend must still be able to turn off a
   // schedule that is spending — gating the off switch on ai:generate would be
   // exactly backwards.
-  const canCancelSchedule = !!viewer && mayWriteCollection({ owner_id: ownerId }, { id: viewer.id, role, permissions })
+  const canCancelSchedule = !!viewer && mayWriteCollection({ owner_id: ownerId, member_role: memberRole }, { id: viewer.id, role, permissions })
   const { toast } = useToast()
   const confirm = useConfirm()
   const [state, setState] = useState<ScheduleState | null>(null)
@@ -637,7 +640,7 @@ function SearchPanel({ name }: { name: string }) {
   )
 }
 
-function IngestPanel({ name, ownerId, onChange }: { name: string; ownerId: string | null; onChange: () => void }) {
+function IngestPanel({ name, ownerId, memberRole, onChange }: { name: string; ownerId: string | null; memberRole: MemberRole | null; onChange: () => void }) {
   const catalogEnabled = useCapability("catalog")
   const viewer = getUser()
   const { role, permissions } = usePermissions()
@@ -646,7 +649,7 @@ function IngestPanel({ name, ownerId, onChange }: { name: string; ownerId: strin
   // knowledge:write + ai:generate — same gate, whichever sub-tab is used, since
   // B1 moved ingest-source off require_admin and the final-review fix put the
   // spend permission on it and on schedule, where E1 had already put it on ingest.
-  const canIngest = !!viewer && mayIngest({ owner_id: ownerId }, { id: viewer.id, role, permissions })
+  const canIngest = !!viewer && mayIngest({ owner_id: ownerId, member_role: memberRole }, { id: viewer.id, role, permissions })
   const { toast } = useToast()
   const [tab, setTab] = useState<"text" | "source">("text")
   const [text, setText] = useState(""); const [src, setSrc] = useState("")

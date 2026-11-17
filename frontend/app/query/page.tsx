@@ -955,6 +955,18 @@ function QueryPageInner() {
                 </div>
               )}
 
+              {/* ran, returned nothing — was a blank pane: hasResults needs a row, and
+                  the idle block needs no results, so neither showed */}
+              {!isRunning && queryStatus !== "error" && results && results.rows.length === 0 && (
+                <div className="flex h-full items-center justify-center flex-col gap-1">
+                  <p className="text-sm font-medium">The query ran and returned no rows.</p>
+                  <p className="text-xs text-muted-foreground">
+                    {results.columns.length} column{results.columns.length === 1 ? "" : "s"}
+                    {typeof results.execution_time_ms === "number" ? ` · ${results.execution_time_ms} ms` : ""}
+                  </p>
+                </div>
+              )}
+
               {/* results */}
               {hasResults && (
                 chartType === "table" ? (
