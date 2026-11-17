@@ -502,4 +502,6 @@ def test_list_unchanged(monkeypatch):
     assert "attributes" not in d["accounts"][0] and "rate_limit_per_minute" not in d
     assert [len(a["keys"]) for a in d["accounts"]] == [1, 0]
     assert set(d) == {"accounts", "oauth", "assignable_roles", "grantable_permissions",
-                      "presets"}
+                      "presets", "role_permissions", "pii_default"}
+    assert set(d["role_permissions"]) == set(d["assignable_roles"])
+    assert "settings:write" not in d["role_permissions"]["data_engineer"]

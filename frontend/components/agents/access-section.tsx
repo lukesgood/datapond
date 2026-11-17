@@ -27,20 +27,21 @@ export function AccessSection({ agent, onChange }: { agent: AgentDetail; onChang
   const all = useJson<{ collections: CollectionInfo[] }>("/api/ai/collections")
 
   return (
-    <Section title="Data access" icon={<Database className="h-4 w-4 text-primary" />}
+    <Section id="access" title="Data access" icon={<Database className="h-4 w-4 text-primary" />}
              description="A key still needs the scope (knowledge:read, ai:generate…) to use what is granted here.">
       <PiiGuardrail agent={agent} onChange={onChange} />
-      <Collections agent={agent} mine={mine} all={all} />
-      {catalogs && <Catalogs agent={agent} />}
+      <Collections agent={agent} mine={mine} all={all} onChange={onChange} />
+      {catalogs && <Catalogs agent={agent} onChange={onChange} />}
       <Attributes agent={agent} mine={mine.data?.collections ?? null} rules={all.data?.collections ?? null} onChange={onChange} />
     </Section>
   )
 }
 
-function Collections({ agent, mine, all }: {
+function Collections({ agent, mine, all, onChange }: {
   agent: AgentDetail
   mine: ReturnType<typeof useJson<{ collections: AccountCollection[] }>>
   all: ReturnType<typeof useJson<{ collections: CollectionInfo[] }>>
+  onChange: () => void
 }) {
   const { toast } = useToast()
   const [pick, setPick] = useState("")
@@ -61,6 +62,7 @@ function Collections({ agent, mine, all }: {
       toast(`${agent.username} can now ${role === "editor" ? "edit" : "read"} ${pick}`, "success")
       setPick("")
       mine.reload()
+      onChange()
     } finally { setBusy(false) }
   }
 
@@ -70,6 +72,7 @@ function Collections({ agent, mine, all }: {
       const res = await fetch(`${members(name)}?username=${encodeURIComponent(agent.username)}`, { method: "DELETE" })
       if (!res.ok) { toast(await errorText(res, "Could not remove access"), "error"); return }
       mine.reload()
+      onChange()
     } finally { setBusy(false) }
   }
 
@@ -126,7 +129,7 @@ function Collections({ agent, mine, all }: {
   )
 }
 
-function Catalogs({ agent }: { agent: AgentDetail }) {
+function Catalogs({ agent, onChange }: { agent: AgentDetail; onChange: () => void }) {
   const { toast } = useToast()
   const list = useJson<{ catalogs: CatalogRow[] }>(`/api/service-accounts/${agent.id}/catalogs`)
   const [busy, setBusy] = useState(false)
@@ -153,6 +156,7 @@ function Catalogs({ agent }: { agent: AgentDetail }) {
       const res = await fetch(`/api/catalogs/${encodeURIComponent(catalog)}/grants/user/${agent.id}`, { method })
       if (!res.ok) { toast(await errorText(res, "Could not change the grant"), "error"); return }
       list.reload()
+      onChange()
     } finally { setBusy(false) }
   }
 

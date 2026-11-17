@@ -141,6 +141,14 @@ def test_a_preset_sets_role_and_pii_mode_and_issues_the_first_key(monkeypatch):
     assert set(key["permissions"]) == set(p.scopes)
 
 
+def test_the_first_key_lifetime_can_be_chosen_or_left_open(monkeypatch):
+    conn = _install(monkeypatch)
+    _create(name="a", preset="metrics_reader", key_expires_in_days=None)
+    assert conn.keys[0][5] is None, "null issues a key that never expires"
+    with pytest.raises(Exception):
+        sar.ServiceAccountCreate(name="b", preset="metrics_reader", key_expires_in_days=0)
+
+
 def test_without_a_preset_nothing_changes(monkeypatch):
     conn = _install(monkeypatch)
     out = _create(name="custom", role="viewer")

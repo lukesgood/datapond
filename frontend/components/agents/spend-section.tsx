@@ -15,7 +15,7 @@ type Cap = { max_budget: number | null; spend: number; blocked: boolean }
 
 /** What this agent has cost and its cap. The gateway sees the DataPond user id on
  *  every model call, so the agent's spend is exactly its own. */
-export function SpendSection({ accountId }: { accountId: string }) {
+export function SpendSection({ accountId, onChange }: { accountId: string; onChange?: () => void }) {
   const usage = useJson<Usage>(`/api/service-accounts/${accountId}/usage`)
   const cap = useJson<Cap>(`/api/settings/ai/budgets/${encodeURIComponent(accountId)}`)
   const { toast } = useToast()
@@ -41,12 +41,13 @@ export function SpendSection({ accountId }: { accountId: string }) {
       toast(max === null ? "Cap cleared" : "Cap saved", "success")
       setDraft(null)
       cap.reload()
+      onChange?.()
     } finally { setBusy(false) }
   }
 
   const current = cap.data?.max_budget ?? null
   return (
-    <Section title="Spend" icon={<Wallet className="h-4 w-4 text-primary" />}
+    <Section id="spend" title="Spend" icon={<Wallet className="h-4 w-4 text-primary" />}
              description="A call over the cap is refused (402).">
       {usage.loading ? <Loading what="spend" /> : usage.data?.unavailable ? (
         <p className="text-xs text-muted-foreground">Spend is unavailable: the model gateway could not be read.</p>

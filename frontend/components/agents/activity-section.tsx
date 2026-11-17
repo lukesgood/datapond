@@ -26,7 +26,7 @@ export function ActivitySection({ accountId }: { accountId: string }) {
     `/api/audit/tool-calls?actor_id=${encodeURIComponent(accountId)}&since=${encodeURIComponent(since)}&limit=50`)
 
   return (
-    <Section title="Activity" icon={<Activity className="h-4 w-4 text-primary" />}
+    <Section id="activity" title="Activity" icon={<Activity className="h-4 w-4 text-primary" />}
              description="Calls with a disabled or revoked key are refused before the caller is known and do not appear here.">
       <div className="flex gap-1">
         {(Object.keys(WINDOWS) as (keyof typeof WINDOWS)[]).map(w => (

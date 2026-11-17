@@ -3,11 +3,12 @@ import { AlertCircle, Loader2 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
 /** A titled card for one section of the agent page. */
-export function Section({ title, icon, description, children }: {
-  title: string; icon?: ReactNode; description?: ReactNode; children: ReactNode
+export function Section({ id, title, icon, description, children }: {
+  id?: string; title: string; icon?: ReactNode; description?: ReactNode; children: ReactNode
 }) {
   return (
-    <Card>
+    // scroll-mt: the section shortcuts at the top of the page land on the heading.
+    <Card id={id} className="scroll-mt-6">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">{icon}{title}</CardTitle>
         {description && <CardDescription>{description}</CardDescription>}

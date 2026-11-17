@@ -14,7 +14,7 @@ import {
   DEFAULT_EXPIRY_DAYS, EXPIRY_OPTIONS, choosableScopes, defaultScopes, describeKey, keyRequestBody,
 } from "@/lib/service-account-keys"
 import { type OAuthMode, oauthLinkView } from "@/lib/service-account-oauth"
-import type { AgentDetail, AgentKey } from "@/lib/agents"
+import { PERMISSION_TEXT, type AgentDetail, type AgentKey } from "@/lib/agents"
 import { Section } from "./section"
 
 /** Keys, scopes, expiry, rotation and the OAuth client of one agent. A key is shown
@@ -107,9 +107,10 @@ export function KeysSection({ agent, onChange }: { agent: AgentDetail; onChange:
 
   return (
     <Section
+      id="keys"
       title="Access keys"
       icon={<KeyRound className="h-4 w-4 text-primary" />}
-      description={`${a.rate_limit_per_minute} requests/min per key, per replica`}
+      description={`${a.rate_limit_per_minute} requests/min per key, per replica — one setting for every key on this deployment.`}
     >
       {issued && (
         <Card className="border-primary">
@@ -162,12 +163,16 @@ export function KeysSection({ agent, onChange }: { agent: AgentDetail; onChange:
           <div className="space-y-1">
             <p className="text-xs font-medium">Scopes — the key can never do more than the account&apos;s role</p>
             {choosableScopes(a.grantable_permissions, a.permissions).map(scope => (
-              <label key={scope} className="flex items-center gap-2 text-xs">
+              <label key={scope} className="flex items-start gap-2 text-xs">
                 <Checkbox
+                  className="mt-0.5"
                   checked={keyScopes.includes(scope)}
                   onCheckedChange={v => setKeyScopes(prev => v ? [...prev, scope] : prev.filter(s => s !== scope))}
                 />
-                <code className="font-mono">{scope}</code>
+                <span>
+                  <code className="font-mono">{scope}</code>
+                  {PERMISSION_TEXT[scope] && <span className="block text-muted-foreground">{PERMISSION_TEXT[scope]}</span>}
+                </span>
               </label>
             ))}
             {keyScopes.length === 0 && (

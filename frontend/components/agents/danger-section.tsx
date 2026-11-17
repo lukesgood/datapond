@@ -40,7 +40,7 @@ export function DangerSection({ agent, onChange }: { agent: AgentDetail; onChang
   }
 
   return (
-    <Section title="Danger zone" icon={<AlertTriangle className="h-4 w-4 text-destructive" />}>
+    <Section id="danger" title="Danger zone" icon={<AlertTriangle className="h-4 w-4 text-destructive" />}>
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
         <div>
           <p className="font-medium">{agent.is_active ? "Disable this agent" : "Enable this agent"}</p>
