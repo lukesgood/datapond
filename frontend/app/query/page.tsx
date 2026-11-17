@@ -246,7 +246,7 @@ function QueryPageInner() {
       if (data.needs_input) {
         toast(data.explanation || "The assistant needs more detail to write this query", "info")
       } else if (!data.has_ai) {
-        toast("Configure an AI provider in Settings → AI to enable AI SQL generation", "info")
+        toast("Configure a model in AI Gateway → Models to enable AI SQL generation", "info")
       } else if (data.validated === false) {
         toast("Generated SQL did not pass catalog validation — review before running", "error")
       }
