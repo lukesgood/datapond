@@ -163,7 +163,8 @@ export function SettingsPanel({ c, piiDefault, canEdit, canLower, onChange, onDe
           </div>
         )}
 
-        <div className="border-t pt-4">
+        <div className="space-y-2 border-t pt-4">
+          <Label>Which chunks each caller sees</Label>
           <ChunkAccessPanel name={c.name} initial={c.chunk_access ?? null} canEdit={canEdit} onChange={onChange} />
         </div>
 
@@ -179,15 +180,15 @@ export function SettingsPanel({ c, piiDefault, canEdit, canLower, onChange, onDe
       </div>
 
       <ExplainRail label="What these settings do">
-        <RailSection title={`Applies: ${eff}`}>
-          {PII_TEXT[eff]}{reason ? ` (${reason})` : ""} A caller held to a stricter mode still gets theirs.
+        <RailSection title={`Applies: ${eff}${reason ? ` — ${reason}` : ""}`}>
+          {PII_TEXT[eff]} A caller held to a stricter mode still gets theirs.
         </RailSection>
         <RailSection title={label ? `Label: ${label}` : "No label"}>
           {label ? SENSITIVITY_TEXT[label] : "Nothing beyond the PII mode and the deployment's egress policy."}
         </RailSection>
         {current && (
-          <RailSection title="Split">
-            {current.hint}. Applies to what you ingest next; chunks already stored keep their split.
+          <RailSection title={`Split: ${current.label}`}>
+            For {current.hint}. Applies to what you ingest next; chunks already stored keep their split.
           </RailSection>
         )}
         {blocked && (
