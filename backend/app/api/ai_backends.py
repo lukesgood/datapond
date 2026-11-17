@@ -262,6 +262,29 @@ async def gateway_status():
                 "egress_policy": policy, "detail": _short(str(e), 150)}
 
 
+def backend_role(model_name: Optional[str], model: str, info: dict) -> str:
+    """What a registered model is for: generation, embedding or rerank.
+
+    Only a generation model can be the active default — the console offered "Set
+    Active" on the embedding model too, and one click would have pointed Ask AI, cited
+    answers and the assistant at a model that cannot write text. LiteLLM's mode is
+    trusted first, then the deployment's configured names, then the model id."""
+    mode = str(info.get("mode") or "").lower()
+    if mode in ("embedding", "rerank"):
+        return mode
+    if model_name and model_name == os.getenv("AI_EMBED_MODEL", "embed"):
+        return "embedding"
+    rerank = os.getenv("AI_RERANK_MODEL", "")
+    if model_name and rerank and model_name == rerank:
+        return "rerank"
+    low = (model or "").lower()
+    if "rerank" in low:
+        return "rerank"
+    if "embed" in low:
+        return "embedding"
+    return "generation"
+
+
 @router.get("/settings/ai/backends", dependencies=[Depends(require_admin)])
 async def list_backends():
     """List provider backends registered in the LiteLLM gateway."""
@@ -289,6 +312,7 @@ async def list_backends():
             "provider": provider,
             "api_base": params.get("api_base"),
             "is_active": name == active,
+            "role": backend_role(name, model_str, info),
         })
     return {"backends": backends, "active": active}
 
@@ -340,8 +364,30 @@ async def set_active(body: ActivePatch):
     """Set the active default backend (model_name) used by AI SQL."""
     if not body.model_name.strip():
         raise HTTPException(400, "model_name is required.")
+    url, key = _gateway()
+    role = await _role_of_registered_model(url, key, body.model_name.strip())
+    if role not in (None, "generation"):
+        raise HTTPException(
+            400, f"'{body.model_name.strip()}' is an {role} model; only a generation model "
+                 "can be the default for Ask AI, cited answers and the assistant.")
     await _set_active_model(body.model_name.strip())
     return {"success": True, "active": body.model_name.strip()}
+
+
+async def _role_of_registered_model(url: str, key: str, model_name: str) -> Optional[str]:
+    """The role of a registered model_name, or None when the gateway cannot say (then
+    the request is allowed, as before: an unreachable gateway is not a reason to block)."""
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get(f"{url}/model/info", headers=_headers(key))
+            r.raise_for_status()
+            for m in r.json().get("data", []):
+                if m.get("model_name") == model_name:
+                    return backend_role(model_name, (m.get("litellm_params") or {}).get("model", ""),
+                                        m.get("model_info") or {})
+    except Exception:
+        return None
+    return None
 
 
 async def _provider_of_registered_model(url: str, key: str, model_name: str) -> Optional[str]:

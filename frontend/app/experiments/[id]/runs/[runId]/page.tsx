@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/breadcrumb"
 import { RunDetails } from "@/components/mlflow/run-details"
 import { ArrowLeft, GitBranch } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useState, use } from "react"
 import { useRouter } from "next/navigation"
 
 interface Experiment {
@@ -39,10 +39,11 @@ interface MlflowRun {
 }
 
 export default function RunDetailPage({
-  params,
+  params: paramsPromise,
 }: {
-  params: { id: string; runId: string }
+  params: Promise<{ id: string; runId: string }>
 }) {
+  const params = use(paramsPromise)
   const router = useRouter()
   const [run, setRun] = useState<MlflowRun | null>(null)
   const [experiment, setExperiment] = useState<Experiment | null>(null)

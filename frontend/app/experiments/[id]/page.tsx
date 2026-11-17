@@ -39,7 +39,7 @@ import {
   BarChart3,
 } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState, use } from "react"
 import { useRouter } from "next/navigation"
 import { serviceUrls } from "@/lib/urls"
 import { cn } from "@/lib/utils"
@@ -74,7 +74,10 @@ interface CompareData {
   diff_params?: string[]
 }
 
-export default function ExperimentDetailPage({ params }: { params: { id: string } }) {
+// `params` is a Promise in this Next version; reading `.id` off it gave "undefined",
+// which the backend passed to MLflow and the page printed MLflow's raw SQL error.
+export default function ExperimentDetailPage({ params: paramsPromise }: { params: Promise<{ id: string }> }) {
+  const params = use(paramsPromise)
   const router = useRouter()
   const [experiment, setExperiment] = useState<Experiment | null>(null)
   const [runs, setRuns] = useState<Run[]>([])

@@ -44,6 +44,8 @@ interface Backend {
   provider: string
   api_base?: string | null
   is_active: boolean
+  /** What the model is for. Only a generation model can be the active default. */
+  role?: "generation" | "embedding" | "rerank"
 }
 
 interface GatewayStatus {
@@ -189,6 +191,12 @@ export function AiBackends() {
   }
 
   const setActive = async (b: Backend) => {
+    // Deployment-wide: every feature that asks for the default switches at once.
+    if (!(await confirm({
+      title: `Make ${b.model_name} the default?`,
+      message: `Ask AI, cited answers and the assistant switch to ${b.model} immediately, for everyone. Embeddings are not affected.`,
+      confirmText: "Make default",
+    }))) return
     setBusy(b.model_name); setActionErr(null)
     try {
       const res = await fetch("/api/settings/ai/active", {
@@ -313,6 +321,9 @@ export function AiBackends() {
                         <Badge variant="secondary" className="h-5 text-2xs">
                           {PROVIDERS[b.provider]?.label || b.provider}
                         </Badge>
+                        {b.role && b.role !== "generation" && (
+                          <Badge variant="outline" className="h-5 text-2xs">{b.role}</Badge>
+                        )}
                       </div>
                       <p className="text-2xs text-muted-foreground font-mono mt-1 truncate">
                         {b.model}{b.api_base ? ` · ${b.api_base}` : ""}
@@ -326,15 +337,16 @@ export function AiBackends() {
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <Button variant="outline" size="sm" className="h-7 text-xs gap-1"
+                        title="Sends one short request to the model — billed like any call"
                         disabled={t?.testing} onClick={() => testBackend(b)}>
                         {t?.testing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
                         Test
                       </Button>
-                      {!b.is_active && (
+                      {!b.is_active && (b.role ?? "generation") === "generation" && (
                         <Button variant="outline" size="sm" className="h-7 text-xs gap-1"
                           disabled={busy === b.model_name} onClick={() => setActive(b)}>
                           {busy === b.model_name ? <Loader2 className="h-3 w-3 animate-spin" /> : <Star className="h-3 w-3" />}
-                          Set Active
+                          Make default
                         </Button>
                       )}
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
