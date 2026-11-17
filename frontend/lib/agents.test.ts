@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { attrFromText, attrRows, attrToText, buildAttributes, grantWarning, revokeWarning, agentStatus, joinAgentRows, lastUsed, viaLabel, type Agent, type AgentKey } from "./agents.ts"
+import { createAgentBody, effectivePiiMode, piiModeNote, type AgentPreset, attrFromText, attrRows, attrToText, buildAttributes, grantWarning, revokeWarning, agentStatus, joinAgentRows, lastUsed, viaLabel, type Agent, type AgentKey } from "./agents.ts"
 
 const NOW = new Date("2026-10-16T00:00:00Z")
 const DAY = 86_400_000
@@ -99,4 +99,41 @@ test("attributes: a number that is edited becomes text; a list toggle turns text
   assert.equal(attrFromText("4", false, 3), "4")
   assert.deepEqual(attrFromText("a\nb", true, "a"), ["a", "b"])
   assert.deepEqual(buildAttributes([{ key: " k ", text: "v", isList: false }, { key: " ", text: "x", isList: false }]), { k: "v" })
+})
+
+// ── presets and PII mode ─────────────────────────────────────────────────────
+
+const PRESET: AgentPreset = {
+  id: "knowledge_assistant", label: "Document Q&A", description: "",
+  role: "ai_engineer", scopes: ["knowledge:read", "ai:generate"], pii_mode: "mask",
+}
+
+test("pii: the stricter of own and deployment applies, null inherits", () => {
+  assert.equal(effectivePiiMode(null, "mask"), "mask")
+  assert.equal(effectivePiiMode("block", "mask"), "block")
+  assert.equal(effectivePiiMode("off", "mask"), "mask")
+  assert.equal(effectivePiiMode("mask", "off"), "mask")
+  assert.equal(effectivePiiMode("bogus" as never, "mask"), "mask")
+})
+
+test("pii: a looser own mode is called out, an equal or stricter one is not", () => {
+  assert.match(piiModeNote("off", "mask") ?? "", /only make it stricter/)
+  assert.equal(piiModeNote("mask", "mask"), null)
+  assert.equal(piiModeNote("block", "mask"), null)
+  assert.equal(piiModeNote(null, "block"), null)
+})
+
+test("create body: a preset sends its id and leaves role and pii to the backend", () => {
+  assert.deepEqual(createAgentBody(" bot ", "", { preset: PRESET }, "mask", false),
+    { name: "bot", preset: "knowledge_assistant" })
+})
+
+test("create body: a changed pii mode is sent with the preset, including null", () => {
+  assert.deepEqual(createAgentBody("bot", "d", { preset: PRESET }, null, true),
+    { name: "bot", description: "d", preset: "knowledge_assistant", pii_mode: null })
+})
+
+test("create body: custom sends role and pii mode", () => {
+  assert.deepEqual(createAgentBody("bot", "", { role: "viewer" }, "block", false),
+    { name: "bot", role: "viewer", pii_mode: "block" })
 })

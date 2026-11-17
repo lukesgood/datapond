@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useCapability } from "@/lib/capabilities"
 import { useToast } from "@/lib/toast"
-import { attrRows, buildAttributes, grantWarning, revokeWarning, viaLabel, type AgentDetail, type AttrRow } from "@/lib/agents"
+import { attrRows, buildAttributes, effectivePiiMode, grantWarning, PII_MODE_TEXT, piiModeNote, revokeWarning, viaLabel, type AgentDetail, type AttrRow, type PiiMode } from "@/lib/agents"
 import { useConfirm } from "@/lib/confirm"
 import { isInvalidRule, isRule, type StoredChunkRule } from "@/lib/chunk-rule"
 import { Loading, Section, SectionError, errorText } from "./section"
@@ -29,6 +29,7 @@ export function AccessSection({ agent, onChange }: { agent: AgentDetail; onChang
   return (
     <Section title="Data access" icon={<Database className="h-4 w-4 text-primary" />}
              description="A key still needs the scope (knowledge:read, ai:generate…) to use what is granted here.">
+      <PiiGuardrail agent={agent} onChange={onChange} />
       <Collections agent={agent} mine={mine} all={all} />
       {catalogs && <Catalogs agent={agent} />}
       <Attributes agent={agent} mine={mine.data?.collections ?? null} rules={all.data?.collections ?? null} onChange={onChange} />
@@ -265,6 +266,53 @@ function Attributes({ agent, mine, rules, onChange }: {
           {invalid.map(c => c.name).join(", ")} has a chunk rule that no longer parses and returns nothing to anyone.
         </p>
       )}
+    </div>
+  )
+}
+
+/** The agent's own PII guardrail (users.pii_mode). It can only tighten the deployment
+ *  default, so the line under the picker says what actually applies. */
+function PiiGuardrail({ agent, onChange }: { agent: AgentDetail; onChange: () => void }) {
+  const { toast } = useToast()
+  const [busy, setBusy] = useState(false)
+  const own = agent.pii_mode ?? null
+  const deployment: PiiMode = agent.pii_default ?? "mask"
+  const applied = effectivePiiMode(own, deployment)
+  const note = piiModeNote(own, deployment)
+
+  const save = async (value: PiiMode | null) => {
+    if (value === own || busy) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/auth/users/${agent.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pii_mode: value }),
+      })
+      if (!res.ok) { toast(await errorText(res, "Could not change the PII guardrail"), "error"); return }
+      toast(value ? `PII guardrail set to ${value}` : "PII guardrail inherits the deployment default", "success")
+      onChange()
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <h4 className="text-xs font-medium">PII guardrail</h4>
+      <div className="flex items-center gap-2">
+        <select aria-label="PII guardrail" value={own ?? ""} disabled={busy}
+                onChange={e => void save((e.target.value || null) as PiiMode | null)}
+                className="h-8 rounded-md border bg-background px-2 text-xs">
+          <option value="">Inherit ({deployment})</option>
+          <option value="mask">mask</option>
+          <option value="block">block</option>
+          {own === "off" && <option value="off">off</option>}
+        </select>
+        <Badge variant="secondary" className="text-2xs">applies: {applied}</Badge>
+      </div>
+      <p className="text-2xs text-muted-foreground">
+        {PII_MODE_TEXT[applied]}. Applies to every request this agent&apos;s keys make; a
+        collection&apos;s own mode can tighten it further. Other replicas pick up a change within 30 seconds.
+      </p>
+      {note && <p className="text-2xs text-[var(--dp-warn-text)]">{note}</p>}
     </div>
   )
 }

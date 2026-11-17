@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.api.auth import _KEY_CACHE, _get_pool, forget_cached_keys_for, record_auth_event, require_admin
+from app.agent_presets import PRESETS, get_preset, valid_pii_mode
 from app.permissions import ASSIGNABLE_ROLES, permissions_for
 from app.service_accounts import NEVER_FOR_SERVICE_ACCOUNTS, effective_permissions, generate_key
 
@@ -28,6 +29,15 @@ class ServiceAccountCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=64)
     role: str = "ai_engineer"
     description: Optional[str] = None
+    # A purpose preset (app/agent_presets.py): sets the role and PII mode and issues
+    # the first key with the preset's scopes, so the agent is usable on creation.
+    preset: Optional[str] = None
+    # None inherits the deployment default. Overrides the preset's when given.
+    pii_mode: Optional[str] = None
+
+
+# A preset's first key lives as long as the console's default for a new key.
+PRESET_KEY_DAYS = 90
 
 
 class ApiKeyRotate(BaseModel):
@@ -53,7 +63,8 @@ async def _account_rows(conn, where_id: Optional[str] = None, *,
     """Service accounts with their keys, in the shape both reads return: all of them
     (`where_id` None) or one. One builder, so the list and the single read cannot
     drift. Key material is never returned."""
-    attrs = ", COALESCE(attributes, '{}'::jsonb) AS attributes" if with_attributes else ""
+    attrs = (", COALESCE(attributes, '{}'::jsonb) AS attributes, pii_mode"
+             if with_attributes else "")
     if where_id is None:
         accounts = await conn.fetch(
             f"""SELECT id, username, display_name, role, is_active, created_at,
@@ -105,6 +116,7 @@ async def _account_rows(conn, where_id: Optional[str] = None, *,
                 except Exception:
                     attrs_value = {}
             row["attributes"] = attrs_value
+            row["pii_mode"] = a.get("pii_mode") if hasattr(a, "get") else a["pii_mode"]
         rows.append(row)
     return rows
 
@@ -115,6 +127,7 @@ def _account_options() -> dict:
     return {"oauth": {"enabled": oauth_rs.enabled(),
                       "issuer": oauth_rs.config().issuer if oauth_rs.enabled() else None},
             "assignable_roles": [r for r in ASSIGNABLE_ROLES if r != "admin"],
+            "presets": [p.as_dict() for p in PRESETS],
             "grantable_permissions": sorted(
                 set().union(*(permissions_for(r) for r in ASSIGNABLE_ROLES))
                 - set(NEVER_FOR_SERVICE_ACCOUNTS))}
@@ -133,7 +146,9 @@ async def list_service_accounts(admin: dict = Depends(require_admin)):
 async def get_service_account(account_id: str, admin: dict = Depends(require_admin)):
     """One service account, in the list's shape plus its attributes (the values chunk
     rules read), so a page about one agent does not fetch every account and user.
-    The per-key rate limit is deployment-wide; it is shown, not set, here."""
+    The per-key rate limit is deployment-wide; it is shown, not set, here. So is the
+    deployment's PII mode, which the account's own `pii_mode` can only tighten."""
+    from app.guardrails import pii_ko
     from app.rate_limit import api_key_limiter
     try:
         uuid.UUID(account_id)
@@ -145,7 +160,8 @@ async def get_service_account(account_id: str, admin: dict = Depends(require_adm
     if not rows:
         raise HTTPException(status_code=404, detail="Unknown service account.")
     return {**rows[0], **_account_options(),
-            "rate_limit_per_minute": api_key_limiter().per_minute}
+            "rate_limit_per_minute": api_key_limiter().per_minute,
+            "pii_default": pii_ko.env_mode()}
 
 
 _ACCOUNT_COLLECTIONS_SQL = """
@@ -223,6 +239,24 @@ async def account_catalogs(account_id: str):
 
 @router.post("/service-accounts", status_code=201)
 async def create_service_account(body: ServiceAccountCreate, admin: dict = Depends(require_admin)):
+    preset = None
+    if body.preset is not None:
+        preset = get_preset(body.preset)
+        if preset is None:
+            raise HTTPException(status_code=400, detail=f"Unknown preset '{body.preset}'")
+        # The preset names the role. A different role sent alongside it is a client
+        # that thinks it is getting one thing and would silently get another.
+        if "role" in body.model_fields_set and body.role != preset.role:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Preset '{preset.id}' uses role '{preset.role}', not '{body.role}'. "
+                       "Send one or the other.")
+        body = body.model_copy(update={"role": preset.role})
+    pii_mode = body.pii_mode if "pii_mode" in body.model_fields_set else (
+        preset.pii_mode if preset else None)
+    if not valid_pii_mode(pii_mode):
+        raise HTTPException(status_code=400,
+                            detail="pii_mode must be one of off, mask, block, or null.")
     if body.role not in ASSIGNABLE_ROLES:
         raise HTTPException(status_code=400, detail=f"Unknown role '{body.role}'")
     # The listing above offers every assignable role except this one, and the handler
@@ -239,13 +273,23 @@ async def create_service_account(body: ServiceAccountCreate, admin: dict = Depen
     pool = await _get_pool()
     try:
         async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """INSERT INTO users
-                       (id, email, username, display_name, role, is_active, auth_method)
-                   VALUES (gen_random_uuid(), $1, $2, $3, $4, true, 'service')
-                   RETURNING id""",
-                f"{username}@service.datapond.local", username,
-                body.description or body.name, body.role)
+            # One transaction: an agent created from a preset without its key would be
+            # a half-made thing the admin did not ask for.
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    """INSERT INTO users
+                           (id, email, username, display_name, role, is_active,
+                            auth_method, pii_mode)
+                       VALUES (gen_random_uuid(), $1, $2, $3, $4, true, 'service', $5)
+                       RETURNING id""",
+                    f"{username}@service.datapond.local", username,
+                    body.description or body.name, body.role, pii_mode)
+                issued = None
+                if preset is not None:
+                    issued = await _insert_key(conn, str(row["id"]), f"{username} key",
+                                               list(preset.scopes), PRESET_KEY_DAYS)
+    except HTTPException:
+        raise
     except Exception as e:
         if "unique" in str(e).lower() or "duplicate" in str(e).lower():
             raise HTTPException(status_code=409, detail=f"'{username}' already exists")
@@ -253,8 +297,39 @@ async def create_service_account(body: ServiceAccountCreate, admin: dict = Depen
         raise HTTPException(status_code=500, detail="Could not create the service account")
 
     await record_auth_event("user_created", user_id=admin.get("id"),
-                            result="success", details={"service_account": username})
-    return {"id": str(row["id"]), "username": username, "role": body.role}
+                            result="success",
+                            details={"service_account": username, "preset": body.preset,
+                                     "pii_mode": pii_mode})
+    out = {"id": str(row["id"]), "username": username, "role": body.role,
+           "pii_mode": pii_mode}
+    if issued is not None:
+        key, prefix, expires = issued
+        await record_auth_event("api_key_created", user_id=admin.get("id"), result="success",
+                                details={"account": str(row["id"]),
+                                         "key_name": f"{username} key", "preset": preset.id})
+        out["key"] = {
+            "key": key, "key_prefix": prefix, "expires_at": expires,
+            "scopes": list(preset.scopes),
+            "permissions": sorted(effective_permissions(preset.role, list(preset.scopes))),
+            "warning": "Copy this key now — it is not stored and cannot be shown again.",
+        }
+    return out
+
+
+async def _insert_key(conn, account_id: str, name: str, scopes: List[str],
+                      expires_in_days: Optional[int]):
+    """Store a new key's hash; returns (plaintext, prefix, expires_at). The plaintext
+    exists only in the caller's response."""
+    key, prefix, digest = generate_key()
+    expires = None
+    if expires_in_days:
+        expires = await conn.fetchval(
+            "SELECT NOW() + ($1 || ' days')::interval", str(expires_in_days))
+    await conn.execute(
+        """INSERT INTO api_keys (user_id, name, key_prefix, key_hash, scopes, expires_at)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6)""",
+        account_id, name, prefix, digest, list(scopes or []), expires)
+    return key, prefix, expires
 
 
 @router.post("/service-accounts/{account_id}/keys", status_code=201)
@@ -276,15 +351,8 @@ async def create_api_key(account_id: str, body: ApiKeyCreate,
                 detail=("None of the requested scopes are held by this account's role "
                         f"({acct['role']}), so the key would grant nothing."))
 
-        key, prefix, digest = generate_key()
-        expires = None
-        if body.expires_in_days:
-            expires = await conn.fetchval(
-                "SELECT NOW() + ($1 || ' days')::interval", str(body.expires_in_days))
-        await conn.execute(
-            """INSERT INTO api_keys (user_id, name, key_prefix, key_hash, scopes, expires_at)
-               VALUES ($1::uuid, $2, $3, $4, $5, $6)""",
-            account_id, body.name, prefix, digest, list(body.scopes or []), expires)
+        key, prefix, expires = await _insert_key(
+            conn, account_id, body.name, list(body.scopes or []), body.expires_in_days)
 
     await record_auth_event("api_key_created", user_id=admin.get("id"), result="success",
                             details={"account": account_id, "key_name": body.name})
