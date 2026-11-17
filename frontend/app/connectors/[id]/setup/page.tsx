@@ -26,6 +26,16 @@ interface TablesResponse { tables?: Array<string | RemoteTable> }
 interface CreatedConnection { id: string; engine_restarting?: boolean; catalog?: string | null }
 
 const MANUAL = "manual"
+
+/** The catalog name the backend will give this source (connectors/trino_source.py
+ *  source_slug): NFKD-folded ASCII, lowercase, runs of other characters → "_", at most
+ *  32 characters. A name with no ASCII letters or digits gets a hash there instead. */
+function sourceSlug(name: string): string | null {
+  const folded = name.normalize("NFKD").replace(/[^\x00-\x7f]/g, "")
+  const body = folded.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "")
+  if (!body) return null
+  return `src_${body}`.slice(0, 32).replace(/_+$/, "")
+}
 const isTimeLike = (c: { name: string; type: string }) =>
   /timestamp|date/i.test(c.type) || /updated_at|created_at|modified/.test(c.name)
 
@@ -116,7 +126,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
   const freqOpt = FREQ_OPTIONS.find(f => f.id === effectiveFreq)
   const cron = freqOpt ? freqOpt.buildCron(hour) : null
   const trino = isTrinoEngine(id)
-  const slug = `src_${name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")}`
+  const slug = sourceSlug(name)
   const ready = testStatus === "success" && name.trim().length > 0 && enabled.length > 0
   const filtered = tables.filter(t => t.name.toLowerCase().includes(tableSearch.toLowerCase()))
 
@@ -198,7 +208,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                 <div className="space-y-1.5">
                   <Label htmlFor="src-name">Name</Label>
                   <Input id="src-name" value={name} onChange={e => setName(e.target.value)} maxLength={100} />
-                  {trino && <p className="text-xs text-muted-foreground">Queryable as <code className="font-mono">{slug}</code></p>}
+                  {trino && slug && <p className="text-xs text-muted-foreground">Queryable as <code className="font-mono">{slug}</code> (with a <code className="font-mono">_2</code> suffix if that name is taken)</p>}
                 </div>
                 <ConnectionForm
                   fields={connector.fields}
@@ -340,7 +350,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
               </h3>
             </div>
             <ul className="space-y-1.5 text-sm">
-              {trino && <li>✓ Live queries through <code className="font-mono text-xs">{slug}</code> in Analytics</li>}
+              {trino && <li>✓ Live queries through {slug ? <code className="font-mono text-xs">{slug}</code> : "its own catalog"} in Analytics</li>}
               {enabled.length > 0 && <li>✓ {incremental.length} fetch only changed rows; {enabled.length - incremental.length} read the whole table each time</li>}
               {connector.fields.some(f => f.type === "password") && <li>✓ Credentials stored encrypted; never shown again</li>}
               {syncNow && !trino && <li>✓ First sync starts right away; you watch it on the source page</li>}

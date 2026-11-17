@@ -113,7 +113,7 @@ function TablesCard({
                   <th scope="col" className="w-12 py-2 font-medium">Sync</th>
                   <th scope="col" className="py-2 font-medium">Table</th>
                   <th scope="col" className="py-2 font-medium">Mode</th>
-                  <th scope="col" className="py-2 text-right font-medium">Last rows</th>
+                  <th scope="col" className="py-2 pr-6 text-right font-medium">Last rows</th>
                   <th scope="col" className="py-2 font-medium">Masked</th>
                   <th scope="col" className="py-2"><span className="sr-only">Settings</span></th>
                 </tr>
@@ -141,7 +141,7 @@ function TablesCard({
                       <td className="py-2 text-xs">
                         {mode === "incremental" ? <>Changed rows{table.incremental_column && <span className="text-muted-foreground"> · {table.incremental_column}</span>}</> : "Full refresh"}
                       </td>
-                      <td className="py-2 text-right font-mono text-xs">{rows != null ? rows.toLocaleString() : "—"}</td>
+                      <td className="py-2 pr-6 text-right font-mono text-xs">{rows != null ? rows.toLocaleString() : "—"}</td>
                       <td className="py-2 font-mono text-xs">{table.pii_columns?.length ? table.pii_columns.join(", ") : <span className="text-muted-foreground">—</span>}</td>
                       <td className="py-2 text-right">
                         <Button size="sm" variant={on ? "secondary" : "outline"} className="h-7 text-xs"
