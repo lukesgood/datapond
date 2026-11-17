@@ -769,6 +769,85 @@ async def pii_evidence(format: str = "json", refresh: bool = False):
     return data
 
 
+
+async def _policy_names(table: str) -> dict:
+    """id → name for a policy table. The loaders (app/rls/loader.py) carry what
+    enforcement needs and no name, so the lists showed policies by table alone and a
+    person could not tell two policies on one table apart. Best effort: a failure
+    leaves names out, never the list."""
+    if table not in ("rls_policies", "column_masking_policies"):
+        raise ValueError(table)
+    try:
+        pool = await _rls_loader._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(f"SELECT id, name FROM {table}")
+        return {str(r["id"]): r["name"] for r in rows}
+    except Exception as e:
+        logger.warning("policy names (%s) failed: %s", table, e)
+        return {}
+
+
+MASKING_TYPES = {"full", "partial_email", "partial_ssn", "partial_phone", "hash", "null", "custom"}
+
+
+def mask_update(body: dict, current_type: Optional[str] = None) -> dict:
+    """The columns a masking-policy PATCH changes, validated. Masking had no update at
+    all — the UI said "edit = delete + recreate", and a mask could not even be turned
+    off without deleting it."""
+    out = {}
+    if "enabled" in body:
+        if not isinstance(body["enabled"], bool):
+            raise HTTPException(400, "enabled must be true or false")
+        out["enabled"] = body["enabled"]
+    if "masking_type" in body:
+        if body["masking_type"] not in MASKING_TYPES:
+            raise HTTPException(400, f"masking_type must be one of {sorted(MASKING_TYPES)}")
+        out["masking_type"] = body["masking_type"]
+    if "custom_expression" in body:
+        expr = body["custom_expression"]
+        if expr is not None and not isinstance(expr, str):
+            raise HTTPException(400, "custom_expression must be text")
+        out["custom_expression"] = (expr or "").strip() or None
+    if "description" in body:
+        out["description"] = body["description"]
+    kind = out.get("masking_type", current_type)
+    becomes_custom = out.get("masking_type") == "custom" and current_type != "custom"
+    clears_expr = "custom_expression" in out and out["custom_expression"] is None
+    if kind == "custom" and (clears_expr or (becomes_custom and "custom_expression" not in out)):
+        raise HTTPException(400, "A custom mask needs an expression")
+    if kind != "custom" and "masking_type" in out:
+        out["custom_expression"] = None
+    return out
+
+
+def role_lists(body: dict) -> Optional[tuple]:
+    """(applies, exempt) role-name lists when the PATCH body names either, else None.
+    A role named in both is exempt — the stricter reading would be "applies", but
+    create already resolves the clash this way (ON CONFLICT … SET is_exempt = true)."""
+    if "role_names" not in body and "exempt_role_names" not in body:
+        return None
+    def names(key):
+        v = body.get(key) or []
+        if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
+            raise HTTPException(400, f"{key} must be a list of role names")
+        return [x.strip() for x in v if x.strip()]
+    exempt = names("exempt_role_names")
+    applies = [r for r in names("role_names") if r not in exempt]
+    return applies, exempt
+
+
+async def _replace_roles(conn, link_table: str, policy_id, applies: list, exempt: list) -> None:
+    if link_table not in ("rls_policy_roles", "masking_policy_roles"):
+        raise ValueError(link_table)
+    await conn.execute(f"DELETE FROM {link_table} WHERE policy_id = $1", policy_id)
+    for rn, ex in [(r, False) for r in applies] + [(r, True) for r in exempt]:
+        await conn.execute(
+            f"""INSERT INTO {link_table} (policy_id, role_id, is_exempt)
+                SELECT $1, id, $3 FROM roles WHERE name = $2
+                ON CONFLICT (policy_id, role_id) DO UPDATE SET is_exempt = EXCLUDED.is_exempt""",
+            policy_id, rn, ex)
+
+
 @router.get("/governance/rls/policies", dependencies=[Depends(require_permission("governance:read"))])
 async def list_rls_policies():
     """List RLS policies with their role mappings.
@@ -777,9 +856,10 @@ async def list_rls_policies():
     policy definitions is a governance read, not something only `admin` may do.
     """
     pols = await _rls_loader.load_policies()
+    names = await _policy_names("rls_policies")
     return [
         {
-            "id": p.id, "catalog_name": p.catalog, "schema_name": p.schema,
+            "id": p.id, "name": names.get(str(p.id)), "catalog_name": p.catalog, "schema_name": p.schema,
             "table_name": p.table, "filter_expression": p.filter_expression,
             "priority": p.priority, "enabled": p.enabled,
             "roles": [r for r, ex in p.role_map.items() if not ex],
@@ -823,25 +903,33 @@ async def create_rls_policy(body: RlsPolicyIn, user: Optional[dict] = Depends(_g
 
 @router.patch("/governance/rls/policies/{policy_id}", dependencies=[Depends(require_permission("governance:write"))])
 async def update_rls_policy(policy_id: str, body: dict, user: Optional[dict] = Depends(_get_current_user)):
-    """Update enabled / filter_expression / priority of an RLS policy."""
+    """Update enabled / filter_expression / priority / description of an RLS policy,
+    and its roles (`role_names`, `exempt_role_names` — each replaces the list)."""
     admin = await _require_admin(user)
     if "filter_expression" in body:
         _validate_bool_expr(body["filter_expression"])
+    if "priority" in body and (not isinstance(body["priority"], int) or isinstance(body["priority"], bool)):
+        raise HTTPException(status_code=400, detail="priority must be a whole number")
+    roles = role_lists(body)
     import uuid as _uuid
     sets, vals, idx = [], [], 1
     for col in ("filter_expression", "priority", "enabled", "description"):
         if col in body:
             sets.append(f"{col} = ${idx}"); vals.append(body[col]); idx += 1
-    if not sets:
+    if not sets and roles is None:
         raise HTTPException(status_code=400, detail="No fields to update")
-    vals.append(_uuid.UUID(policy_id))
+    pid = _uuid.UUID(policy_id)
+    vals.append(pid)
     pool = await _rls_loader._get_pool()
     async with pool.acquire() as conn:
-        res = await conn.execute(
-            f"UPDATE rls_policies SET {', '.join(sets)}, updated_at = NOW() WHERE id = ${idx}", *vals)
-        await _audit_policy_event(conn, admin, "rls_policy_updated", policy_id, None)
-    if res == "UPDATE 0":
-        raise HTTPException(status_code=404, detail="Policy not found")
+        async with conn.transaction():
+            res = await conn.execute(
+                f"UPDATE rls_policies SET {', '.join(sets + ['updated_at = NOW()'])} WHERE id = ${idx}", *vals)
+            if res == "UPDATE 0":
+                raise HTTPException(status_code=404, detail="Policy not found")
+            if roles is not None:
+                await _replace_roles(conn, "rls_policy_roles", pid, *roles)
+            await _audit_policy_event(conn, admin, "rls_policy_updated", policy_id, None)
     return {"message": "RLS policy updated"}
 
 
@@ -865,9 +953,10 @@ async def list_mask_policies():
     Gated on `governance:read`, matching the RLS policy list above.
     """
     masks = await _rls_loader.load_masks()
+    names = await _policy_names("column_masking_policies")
     return [
         {
-            "id": m.id, "catalog_name": m.catalog, "schema_name": m.schema,
+            "id": m.id, "name": names.get(str(m.id)), "catalog_name": m.catalog, "schema_name": m.schema,
             "table_name": m.table, "column_name": m.column, "masking_type": m.masking_type,
             "custom_expression": m.custom_expression, "enabled": m.enabled,
             "roles": [r for r, ex in m.role_map.items() if not ex],
@@ -879,9 +968,8 @@ async def list_mask_policies():
 @router.post("/governance/masking/policies", dependencies=[Depends(require_permission("governance:write"))])
 async def create_mask_policy(body: MaskPolicyIn, user: Optional[dict] = Depends(_get_current_user)):
     admin = await _require_admin(user)
-    valid = {"full", "partial_email", "partial_ssn", "partial_phone", "hash", "null", "custom"}
-    if body.masking_type not in valid:
-        raise HTTPException(status_code=400, detail=f"masking_type must be one of {sorted(valid)}")
+    if body.masking_type not in MASKING_TYPES:
+        raise HTTPException(status_code=400, detail=f"masking_type must be one of {sorted(MASKING_TYPES)}")
     pool = await _rls_loader._get_pool()
     import uuid as _uuid
     async with pool.acquire() as conn:
@@ -901,6 +989,34 @@ async def create_mask_policy(body: MaskPolicyIn, user: Optional[dict] = Depends(
                        SELECT $1, id, false FROM roles WHERE name = $2 ON CONFLICT DO NOTHING""", mid, rn)
             await _audit_policy_event(conn, admin, "masking_policy_created", str(mid), body.name)
     return {"id": str(mid), "message": "Masking policy created"}
+
+
+@router.patch("/governance/masking/policies/{policy_id}", dependencies=[Depends(require_permission("governance:write"))])
+async def update_mask_policy(policy_id: str, body: dict, user: Optional[dict] = Depends(_get_current_user)):
+    """Turn a column mask on or off, change how it masks, or replace its roles."""
+    admin = await _require_admin(user)
+    import uuid as _uuid
+    pid = _uuid.UUID(policy_id)
+    pool = await _rls_loader._get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            current = await conn.fetchval(
+                "SELECT masking_type FROM column_masking_policies WHERE id = $1 FOR UPDATE", pid)
+            if current is None:
+                raise HTTPException(status_code=404, detail="Policy not found")
+            cols = mask_update(body, current)
+            roles = role_lists(body)
+            if not cols and roles is None:
+                raise HTTPException(status_code=400, detail="No fields to update")
+            if cols:
+                sets = [f"{c} = ${i}" for i, c in enumerate(cols, start=1)]
+                await conn.execute(
+                    f"UPDATE column_masking_policies SET {', '.join(sets + ['updated_at = NOW()'])} WHERE id = ${len(cols) + 1}",
+                    *cols.values(), pid)
+            if roles is not None:
+                await _replace_roles(conn, "masking_policy_roles", pid, *roles)
+            await _audit_policy_event(conn, admin, "masking_policy_updated", policy_id, None)
+    return {"message": "Masking policy updated"}
 
 
 @router.delete("/governance/masking/policies/{policy_id}", dependencies=[Depends(require_permission("governance:write"))])
