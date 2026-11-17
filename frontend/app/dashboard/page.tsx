@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { RefreshCw } from "lucide-react"
 import { ActivityPanel, type GlobalBudget } from "@/components/dashboard/activity-panel"
 import { OpsStatusLine } from "@/components/dashboard/ops-status-line"
@@ -14,7 +14,7 @@ import {
   activitySentence, activityTotals, actorsFrom, platformStatus, spendFromBudgetAlerts, startOfLocalDay,
   type ActorSummary, type ServiceState,
 } from "@/lib/dashboard-activity"
-import { useHasPermission } from "@/lib/permissions"
+import { useHasPermission, usePermissions } from "@/lib/permissions"
 
 interface CollectionSummary { chunks?: number }
 interface CollectionsResponse { collections?: CollectionSummary[] }
@@ -33,6 +33,12 @@ export default function DashboardPage() {
   const canSpend = useHasPermission("spend:read")
   const canKnowledge = useHasPermission("knowledge:read")
   const canManage = useHasPermission("service:manage")
+  const { loaded: permissionsLoaded, error: permissionsError } = usePermissions()
+  // Each fetch takes a number; only the latest may write. A fetch started before the
+  // permissions arrived (every permission false, so the audit and spend sources were
+  // skipped) could finish after the real one and overwrite it: the first visit showed
+  // "Caller activity could not be loaded" and "Not measured" until the next 30 s tick.
+  const latest = useRef(0)
 
   const [actors, setActors] = useState<ActorSummary[] | null>(null)
   const [spend, setSpend] = useState<unknown>(null)
@@ -46,6 +52,7 @@ export default function DashboardPage() {
   const [refreshing, setRefreshing] = useState(false)
 
   const fetchData = useCallback(async () => {
+    const mine = ++latest.current
     setRefreshing(true)
     const since = encodeURIComponent(startOfLocalDay(new Date()).toISOString())
     const when = (allowed: boolean, url: string) => (allowed ? fetchJson(url) : Promise.resolve(SKIPPED))
@@ -57,6 +64,7 @@ export default function DashboardPage() {
       when(canKnowledge, "/api/ai/collections"),
       fetchJson("/api/storage/overview"),
     ])
+    if (mine !== latest.current) return
     const failed: string[] = []
     const value = (r: PromiseSettledResult<unknown>) => (r.status === "fulfilled" ? r.value : undefined)
 
@@ -96,10 +104,13 @@ export default function DashboardPage() {
   }, [canAudit, canSpend, canKnowledge])
 
   useEffect(() => {
+    // Wait for the permissions (or their failure) before asking: until then every
+    // permission reads false and the page would ask for less than the viewer may see.
+    if (!permissionsLoaded && !permissionsError) return
     const initial = window.setTimeout(() => void fetchData(), 0)
     const interval = window.setInterval(() => void fetchData(), 30000)
     return () => { window.clearTimeout(initial); window.clearInterval(interval) }
-  }, [fetchData])
+  }, [fetchData, permissionsLoaded, permissionsError])
 
   if (loading) {
     return (

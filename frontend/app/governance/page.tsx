@@ -74,9 +74,13 @@ interface StatCardProps {
   colorClass: string
   bgClass: string
   loading: boolean
+  /** Set when the number could not be read: the card says so and offers a retry,
+   *  instead of an em dash that looks like "not measured". */
+  error?: string | null
+  onRetry?: () => void
 }
 
-function StatCard({ label, value, icon, colorClass, bgClass, loading }: StatCardProps) {
+function StatCard({ label, value, icon, colorClass, bgClass, loading, error, onRetry }: StatCardProps) {
   return (
     <Card>
       <CardContent className="pt-5 pb-4">
@@ -85,6 +89,10 @@ function StatCard({ label, value, icon, colorClass, bgClass, loading }: StatCard
             <p className="text-sm text-muted-foreground">{label}</p>
             {loading ? (
               <Skeleton className="h-8 w-16 mt-1" />
+            ) : error ? (
+              <p className="mt-2 text-xs text-destructive">
+                Could not load{onRetry && <> · <button className="underline" onClick={onRetry}>Retry</button></>}
+              </p>
             ) : (
               /* An em dash, not 0, when the number is absent. `?? 0` made three
                  different situations look identical: measured zero, a stats fetch
@@ -589,6 +597,8 @@ export default function GovernancePage() {
   // stats
   const [stats, setStats] = useState<GovernanceStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(true)
+  const [statsError, setStatsError] = useState<string | null>(null)
+  const [piiError, setPiiError] = useState<string | null>(null)
 
   // audit log
   const [auditItems, setAuditItems] = useState<AuditLogItem[]>([])
@@ -717,19 +727,35 @@ export default function GovernancePage() {
     }
   }
 
-  useEffect(() => {
-    fetch("/api/governance/stats")
-      .then((r) => r.json())
+  // The query count is one COUNT; the PII scan walks the catalog (seconds, uncached).
+  // Asking stats for both held "Queries today" blank until the scan finished, and ran
+  // the same scan twice — pii-report below already does it. So stats skips it, and the
+  // PII card counts the columns pii-report found.
+  const loadStats = useCallback(() => {
+    setStatsLoading(true); setStatsError(null)
+    fetch("/api/governance/stats?include_pii=false")
+      .then(async (r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then(setStats)
-      .catch(() => {})
+      .catch((e) => setStatsError(e instanceof Error ? e.message : "failed"))
       .finally(() => setStatsLoading(false))
+  }, [])
 
+  const loadPii = useCallback(() => {
+    setPiiLoading(true); setPiiError(null)
     fetch("/api/governance/pii-report")
-      .then((r) => r.json())
+      .then(async (r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then((d) => { setPiiTables(d.tables ?? []); setPiiScanned(!!d.scanned) })
-      .catch(() => {})
+      .catch((e) => setPiiError(e instanceof Error ? e.message : "failed"))
       .finally(() => setPiiLoading(false))
+  }, [])
 
+  useEffect(() => {
+    // Deferred a tick, like the audit log below: the loaders set state.
+    const t = window.setTimeout(() => { loadStats(); loadPii() }, 0)
+    return () => window.clearTimeout(t)
+  }, [loadStats, loadPii])
+
+  useEffect(() => {
     fetch("/api/governance/ai-safety")
       .then((r) => r.json())
       .then((d) => {
@@ -827,14 +853,18 @@ export default function GovernancePage() {
           colorClass="text-[var(--chart-1)]"
           bgClass="bg-[var(--chart-1)]/10"
           loading={statsLoading}
+          error={statsError}
+          onRetry={loadStats}
         />
         <StatCard
           label="PII detections"
-          value={stats?.pii_detections ?? null}
+          value={piiScanned ? piiColumnCount : null}
           icon={<ShieldAlert className="h-5 w-5" />}
           colorClass="text-[var(--dp-warn-text)]"
           bgClass="bg-[var(--dp-warn)]/10"
-          loading={statsLoading}
+          loading={piiLoading}
+          error={piiError}
+          onRetry={loadPii}
         />
       </div>
 

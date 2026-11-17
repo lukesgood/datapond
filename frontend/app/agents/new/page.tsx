@@ -167,7 +167,7 @@ function Form({ opts, onCreated }: { opts: Options; onCreated: (c: Created) => v
                 return (
                   <button key={id} type="button" role="radio" aria-checked={on} onClick={() => setChoice(id)}
                           className={`flex min-h-[76px] flex-col gap-1 rounded-lg border p-3 text-left transition-colors ${on
-                            ? "border-primary bg-primary/5 ring-1 ring-primary" : "bg-background hover:bg-muted/50"}`}>
+                            ? "border-primary bg-primary/5 ring-1 ring-primary" : "bg-card hover:border-primary/50"}`}>
                     <span className="flex items-center gap-2 text-sm font-semibold">
                       <span aria-hidden className={`h-3.5 w-3.5 shrink-0 rounded-full border bg-background ${on ? "border-[4px] border-primary" : "border-muted-foreground/50"}`} />
                       {p ? p.label : "Custom"}

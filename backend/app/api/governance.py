@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, date, timezone
 from typing import List, Optional, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
@@ -318,7 +318,8 @@ def _iso(dt) -> str:
 
 @router.get("/governance/stats", response_model=GovernanceStats,
             dependencies=[Depends(require_permission("governance:read"))])
-def get_governance_stats(db: Session = Depends(get_db)):
+def get_governance_stats(db: Session = Depends(get_db),
+                         include_pii: bool = Query(True)):
     """
     Return high-level governance statistics.
 
@@ -343,9 +344,14 @@ def get_governance_stats(db: Session = Depends(get_db)):
             or 0
         )
 
-        pii_tables = _scan_pii_tables()  # None if no scan ran
-        pii_detections = (None if pii_tables is None
-                          else sum(len(t.pii_columns) for t in pii_tables))
+        # The scan walks the catalog table by table — seconds when uncached. The
+        # console reads it from /governance/pii-report instead and asks for the count
+        # alone, so its "Queries today" card is not held up by an unrelated scan.
+        pii_detections = None
+        if include_pii:
+            pii_tables = _scan_pii_tables()  # None if no scan ran
+            pii_detections = (None if pii_tables is None
+                              else sum(len(t.pii_columns) for t in pii_tables))
 
         return GovernanceStats(
             queries_today=queries_today,

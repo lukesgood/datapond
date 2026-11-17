@@ -153,6 +153,15 @@ class ModelTransitionRequest(BaseModel):
 # Helper Functions
 # ============================================================================
 
+def _mlflow_detail(e: Exception) -> str:
+    """What the console shows when MLflow refuses. MLflow's message can carry its
+    tracking database's SQL and parameters (a bad id surfaced the whole SELECT on the
+    experiment page), so the caller gets MLflow's error code and the log gets the rest."""
+    logger.warning("[mlflow] %s", e)
+    code = getattr(e, "error_code", None) or "INTERNAL_ERROR"
+    return f"MLflow refused the request ({code}). The backend log has the details."
+
+
 def get_mlflow_client() -> "MlflowClient":
     """Get MLflow client instance.
 
@@ -241,7 +250,7 @@ async def list_experiments():
         ]
 
     except MlflowException as e:
-        raise HTTPException(status_code=500, detail=f"MLflow error: {str(e)}")
+        raise HTTPException(status_code=500, detail=_mlflow_detail(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -284,7 +293,7 @@ async def create_experiment(request: ExperimentCreateRequest):
     except MlflowException as e:
         if "already exists" in str(e).lower():
             raise HTTPException(status_code=409, detail=f"Experiment '{request.name}' already exists")
-        raise HTTPException(status_code=500, detail=f"MLflow error: {str(e)}")
+        raise HTTPException(status_code=500, detail=_mlflow_detail(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -322,7 +331,7 @@ async def get_experiment(experiment_id: str):
     except MlflowException as e:
         if "does not exist" in str(e).lower():
             raise HTTPException(status_code=404, detail=f"Experiment {experiment_id} not found")
-        raise HTTPException(status_code=500, detail=f"MLflow error: {str(e)}")
+        raise HTTPException(status_code=500, detail=_mlflow_detail(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -392,7 +401,7 @@ async def list_experiment_runs(
         return [run_to_dict(run) for run in runs]
 
     except MlflowException as e:
-        raise HTTPException(status_code=500, detail=f"MLflow error: {str(e)}")
+        raise HTTPException(status_code=500, detail=_mlflow_detail(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -426,7 +435,7 @@ async def get_run(run_id: str):
     except MlflowException as e:
         if "does not exist" in str(e).lower():
             raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-        raise HTTPException(status_code=500, detail=f"MLflow error: {str(e)}")
+        raise HTTPException(status_code=500, detail=_mlflow_detail(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -473,7 +482,7 @@ async def get_run_metrics(run_id: str):
     except MlflowException as e:
         if "does not exist" in str(e).lower():
             raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-        raise HTTPException(status_code=500, detail=f"MLflow error: {str(e)}")
+        raise HTTPException(status_code=500, detail=_mlflow_detail(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -508,7 +517,7 @@ async def list_run_artifacts(run_id: str, path: str = ""):
     except MlflowException as e:
         if "does not exist" in str(e).lower():
             raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-        raise HTTPException(status_code=500, detail=f"MLflow error: {str(e)}")
+        raise HTTPException(status_code=500, detail=_mlflow_detail(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -559,7 +568,7 @@ async def search_runs(request: SearchRunsRequest):
     except MlflowException as e:
         if "invalid" in str(e).lower():
             raise HTTPException(status_code=400, detail=f"Invalid search query: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"MLflow error: {str(e)}")
+        raise HTTPException(status_code=500, detail=_mlflow_detail(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -664,7 +673,7 @@ async def list_registered_models(max_results: int = Query(100, ge=1, le=1000)):
         ]
 
     except MlflowException as e:
-        raise HTTPException(status_code=500, detail=f"MLflow error: {str(e)}")
+        raise HTTPException(status_code=500, detail=_mlflow_detail(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -714,7 +723,7 @@ async def get_registered_model(name: str):
     except MlflowException as e:
         if "does not exist" in str(e).lower() or "not found" in str(e).lower():
             raise HTTPException(status_code=404, detail=f"Model '{name}' not found")
-        raise HTTPException(status_code=500, detail=f"MLflow error: {str(e)}")
+        raise HTTPException(status_code=500, detail=_mlflow_detail(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -755,7 +764,7 @@ async def list_model_versions(name: str):
         ]
 
     except MlflowException as e:
-        raise HTTPException(status_code=500, detail=f"MLflow error: {str(e)}")
+        raise HTTPException(status_code=500, detail=_mlflow_detail(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -818,7 +827,7 @@ async def transition_model_version_stage(
     except MlflowException as e:
         if "does not exist" in str(e).lower() or "not found" in str(e).lower():
             raise HTTPException(status_code=404, detail=f"Model version '{name}/{version}' not found")
-        raise HTTPException(status_code=500, detail=f"MLflow error: {str(e)}")
+        raise HTTPException(status_code=500, detail=_mlflow_detail(e))
     except HTTPException:
         raise
     except Exception as e:
