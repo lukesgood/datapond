@@ -9,6 +9,7 @@ import { useEffect, useState, useSyncExternalStore } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Loader2, Play, Terminal } from "lucide-react"
+import { useConfirm } from "@/lib/confirm"
 
 type Endpoint = {
   path: string
@@ -158,6 +159,7 @@ function EndpointRow({ e, origin }: { e: Endpoint; origin: string }) {
   const [body, setBody] = useState(() => JSON.stringify(e.example ?? {}, null, 2))
   const [res, setRes] = useState<{ status: number; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  const confirm = useConfirm()
 
   const base = origin || "https://your-deployment"
   const hasBody = e.method !== "GET" && e.method !== "DELETE"
@@ -165,6 +167,14 @@ function EndpointRow({ e, origin }: { e: Endpoint; origin: string }) {
   const templated = path !== e.path
 
   const run = async () => {
+    // Anything but GET changes data, and runs with the signed-in person's session —
+    // an administrator's, on this page. It used to run on one click.
+    if (e.method !== "GET" && !(await confirm({
+      title: `Send ${e.method} ${e.path}?`,
+      message: "This request runs for real, as you, and can change or delete data. Copy the curl instead to try it with an agent's key.",
+      confirmText: `Send ${e.method}`,
+      destructive: e.method === "DELETE",
+    }))) return
     setBusy(true); setRes(null)
     try {
       const r = await fetch(e.path, {

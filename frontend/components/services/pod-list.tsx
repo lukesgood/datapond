@@ -122,8 +122,6 @@ export function PodList({
                     <TableHead>Status</TableHead>
                     <TableHead>Name</TableHead>
                     <TableHead className="text-center">Restarts</TableHead>
-                    <TableHead>CPU</TableHead>
-                    <TableHead>Memory</TableHead>
                     <TableHead>Age</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -146,14 +144,6 @@ export function PodList({
                         >
                           {pod.restarts}
                         </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {pod.cpu_usage ? `${pod.cpu_usage.toFixed(1)}%` : "N/A"}
-                      </TableCell>
-                      <TableCell>
-                        {pod.memory_usage
-                          ? `${pod.memory_usage.toFixed(1)}%`
-                          : "N/A"}
                       </TableCell>
                       <TableCell>{pod.age}</TableCell>
                       <TableCell>

@@ -20,6 +20,8 @@ interface LogsViewerProps {
   isStreaming: boolean
   onToggleStream: (streaming: boolean) => void
   canStream?: boolean
+  /** Empties the view (the pod's logs are untouched). The button did nothing before. */
+  onClear?: () => void
 }
 
 type LogLevel = "all" | "error" | "warn" | "info"
@@ -28,6 +30,7 @@ export function LogsViewer({
   logs,
   isStreaming,
   onToggleStream,
+  onClear,
   canStream = true,
 }: LogsViewerProps) {
   const [searchTerm, setSearchTerm] = useState("")
@@ -80,7 +83,10 @@ export function LogsViewer({
   const highlightSearch = (log: string) => {
     if (!searchTerm) return log
 
-    const parts = log.split(new RegExp(`(${searchTerm})`, "gi"))
+    // Escaped: the search box is plain text, and a "(" typed into it used to throw
+    // inside render and take the whole page down.
+    const escaped = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const parts = log.split(new RegExp(`(${escaped})`, "gi"))
     return parts.map((part, i) =>
       part.toLowerCase() === searchTerm.toLowerCase() ? (
         <span key={i} className="bg-[var(--dp-warn)] text-black">
@@ -197,10 +203,9 @@ export function LogsViewer({
             <Button
               variant="outline"
               size="icon-sm"
-              onClick={() => {
-                // Parent should handle clearing logs
-              }}
-              aria-label="Clear logs" title="Clear logs"
+              onClick={onClear}
+              disabled={!onClear}
+              aria-label="Clear the log view" title="Clear the log view"
             >
               <Trash2 className="h-4 w-4" />
             </Button>

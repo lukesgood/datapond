@@ -259,13 +259,9 @@ export default function ServiceDetailPage() {
     }
   }
 
+  // PodList asks before calling this; asking again here made every delete a
+  // two-dialog affair with different wording.
   const handleDeletePod = async (podName: string) => {
-    if (!(await confirm({
-      title: "Delete pod",
-      message: `Delete pod "${podName}"? Kubernetes will recreate it from the deployment.`,
-      confirmText: "Delete",
-      destructive: true,
-    }))) return
     try {
       const response = await fetch(`/api/services/${serviceId}/pods/${podName}`, {
         method: "DELETE",
@@ -603,6 +599,7 @@ export default function ServiceDetailPage() {
               isStreaming={isStreaming}
               onToggleStream={toggleLogStreaming}
               canStream={isAdmin}
+              onClear={() => setLogs([])}
             />
           )}
         </TabsContent>
@@ -742,7 +739,12 @@ export default function ServiceDetailPage() {
               min="0"
               max="10"
               value={scaleValue}
-              onChange={(e) => setScaleValue(parseInt(e.target.value) || 1)}
+              // 0 is a real choice (take it offline; the confirm says so). `|| 1` turned
+              // it into 1, and nothing kept the value inside the input's 0–10.
+              onChange={(e) => {
+                const n = Number.parseInt(e.target.value, 10)
+                setScaleValue(Number.isFinite(n) ? Math.min(10, Math.max(0, n)) : 0)
+              }}
             />
             <p className="text-xs text-muted-foreground mt-2">
               Current replicas: {service.replicas ?? "unknown"}
