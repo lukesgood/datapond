@@ -482,6 +482,7 @@ def test_get_one_shape(monkeypatch):
     assert d["rate_limit_per_minute"] == api_key_limiter().per_minute
     assert set(d) >= {"permissions", "oauth", "assignable_roles", "grantable_permissions"}
     assert "admin" not in d["assignable_roles"]
+    assert d["pii_mode"] is None and d["pii_default"] in ("off", "mask", "block")
 
 
 def test_get_one_404_for_human_and_missing(monkeypatch):
@@ -500,4 +501,5 @@ def test_list_unchanged(monkeypatch):
     assert [a["id"] for a in d["accounts"]] == [_ACCT, other]
     assert "attributes" not in d["accounts"][0] and "rate_limit_per_minute" not in d
     assert [len(a["keys"]) for a in d["accounts"]] == [1, 0]
-    assert set(d) == {"accounts", "oauth", "assignable_roles", "grantable_permissions"}
+    assert set(d) == {"accounts", "oauth", "assignable_roles", "grantable_permissions",
+                      "presets"}

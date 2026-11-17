@@ -1138,6 +1138,16 @@ async def update_user(user_id: str, body: dict, admin: dict = Depends(require_pe
     if "attributes" in body and isinstance(body["attributes"], dict):
         # RLS attributes (department / region / clearance / ...). Whole-object replace.
         updates.append(f"attributes = ${idx}::jsonb"); values.append(json.dumps(body["attributes"])); idx += 1
+    if "pii_mode" in body:
+        # The caller's PII guardrail. Null inherits the deployment default; a value can
+        # only tighten it (guardrails/pii_ko.strictest), so `off` cannot unmask. Refused
+        # rather than skipped when invalid: an operator who set `blok` must hear about
+        # it, not keep the old mode while believing the new one holds.
+        from app.agent_presets import valid_pii_mode
+        if not valid_pii_mode(body["pii_mode"]):
+            raise HTTPException(status_code=400,
+                                detail="pii_mode must be one of off, mask, block, or null.")
+        updates.append(f"pii_mode = ${idx}"); values.append(body["pii_mode"]); idx += 1
 
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
@@ -1188,9 +1198,9 @@ async def update_user(user_id: str, body: dict, admin: dict = Depends(require_pe
                     """INSERT INTO user_roles (user_id, role_id)
                        SELECT $1, id FROM roles WHERE name = $2 ON CONFLICT DO NOTHING""",
                     uuid.UUID(user_id), body["role"])
-    if "is_active" in body or "role" in body:
-        # A service account's key identity is cached per replica (role and is_active
-        # are read when it is resolved); this replica applies the change now.
+    if "is_active" in body or "role" in body or "pii_mode" in body:
+        # A service account's key identity is cached per replica (role, is_active and
+        # pii_mode are read when it is resolved); this replica applies the change now.
         forget_cached_keys_for(user_id)
     return {"message": "User updated"}
 
@@ -1352,7 +1362,7 @@ async def _resolve_api_key(raw_key: str) -> Optional[dict]:
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 """SELECT k.id AS key_id, k.key_hash, k.status, k.scopes, k.expires_at,
-                          u.id, u.username, u.role, u.is_active
+                          u.id, u.username, u.role, u.is_active, u.pii_mode
                      FROM api_keys k JOIN users u ON u.id = k.user_id
                     WHERE k.key_hash = $1""",
                 digest,
@@ -1375,6 +1385,12 @@ async def _resolve_api_key(raw_key: str) -> Optional[dict]:
                 "permissions": sorted(
                     effective_permissions(row["role"], list(row["scopes"] or []))),
             }
+            # The account's own PII mode, applied by AuthMiddleware like a person's.
+            # This path never read it, so a mode set on a service account held for
+            # console logins (it has none) and for nothing an agent actually sent.
+            mode = row.get("pii_mode") if hasattr(row, "get") else None
+            if mode:
+                resolved["pii_mode"] = mode
     now = time.monotonic()
     _cache_put(digest, resolved, now)
     if resolved:

@@ -82,6 +82,60 @@ export type AgentDetail = Agent & {
   assignable_roles: string[]
   grantable_permissions: string[]
   rate_limit_per_minute: number
+  /** The agent's own PII guardrail; null inherits `pii_default`. */
+  pii_mode?: PiiMode | null
+  /** The deployment's PII_GUARDRAIL_MODE, which `pii_mode` can only tighten. */
+  pii_default?: PiiMode
+}
+
+// ── purpose presets and the PII guardrail ────────────────────────────────────
+
+export type PiiMode = "off" | "mask" | "block"
+
+/** GET /api/service-accounts `presets`: what an agent is for, and the role, first-key
+ *  scopes and PII mode that serve it. The backend owns the list. */
+export interface AgentPreset {
+  id: string; label: string; description: string
+  role: string; scopes: string[]; pii_mode: PiiMode | null
+}
+
+const STRICTNESS: Record<PiiMode, number> = { off: 0, mask: 1, block: 2 }
+
+/** What applies to this agent's requests: the stricter of its own mode and the
+ *  deployment default, as the backend resolves it (guardrails/pii_ko.strictest). */
+export function effectivePiiMode(own: PiiMode | null | undefined, deployment: PiiMode): PiiMode {
+  if (!own || !(own in STRICTNESS)) return deployment
+  return STRICTNESS[own] > STRICTNESS[deployment] ? own : deployment
+}
+
+export const PII_MODE_TEXT: Record<PiiMode, string> = {
+  off: "off — text passes unchanged",
+  mask: "mask — Korean PII is masked before the model and in answers",
+  block: "block — a request carrying PII is refused",
+}
+
+/** A mode the agent holds that changes nothing, because the deployment is already as
+ *  strict or stricter. Said out loud so `off` is never read as "unmasked". */
+export function piiModeNote(own: PiiMode | null | undefined, deployment: PiiMode): string | null {
+  if (!own) return null
+  if (STRICTNESS[own] <= STRICTNESS[deployment] && own !== deployment)
+    return `The deployment already applies ${deployment}; a caller's mode can only make it stricter.`
+  return null
+}
+
+/** The body for POST /api/service-accounts. A preset brings its role; pii_mode is sent
+ *  only when the admin changed it from the preset's, so the backend owns the default. */
+export function createAgentBody(
+  name: string, description: string,
+  choice: { preset: AgentPreset } | { role: string },
+  pii: PiiMode | null, piiTouched: boolean,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = { name: name.trim() }
+  if (description.trim()) body.description = description.trim()
+  if ("preset" in choice) body.preset = choice.preset.id
+  else body.role = choice.role
+  if (piiTouched || !("preset" in choice)) body.pii_mode = pii
+  return body
 }
 
 // ── catalog grants ───────────────────────────────────────────────────────────
