@@ -98,9 +98,7 @@ jupyter:
   persistence:
     enabled: true
     size: 10Gi
-  env:
-    - name: JUPYTER_ENABLE_LAB
-      value: "yes"
+  env: []   # extra env; the template already sets JUPYTER_ENABLE_LAB (no duplicates: Helm 4 refuses them)
   auth:
     token: "jupyter"   # known dev token (explicit-wins; docs reference it)
 
