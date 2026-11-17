@@ -481,6 +481,13 @@ async def list_collections(user: dict = Depends(require_user),
     if off:
         args.append(off); paging += f" OFFSET ${len(args)}"
 
+    # This viewer's own member grant per collection, so the console can tell an editor
+    # from a reader. Without it every write check fell back to "owner or admin" and an
+    # editor was told the collection was read-only although the API would accept them.
+    row_args = [*args, _uid(user)]
+    member_role_sql = (f"(SELECT m.role FROM ai_collection_members m "
+                       f"WHERE m.collection_id = col.id AND m.user_id = ${len(row_args)}) AS member_role")
+
     async with pool.acquire() as c:
         total = await c.fetchval(f"SELECT COUNT(*) FROM ai_collections col {clause}",
                                  *args[:len(where)])
@@ -490,14 +497,14 @@ async def list_collections(user: dict = Depends(require_user),
         # for the rows this page returns.
         rows = await c.fetch(f"""
             SELECT col.name, col.embed_model, col.dim, col.description, col.created_at,
-                   col.owner_id, col.chunk_access,
+                   col.owner_id, col.chunk_access, {member_role_sql},
                    (SELECT COUNT(*) FROM ai_chunks ch WHERE ch.collection_id = col.id) AS chunks,
                    (SELECT COUNT(DISTINCT ch.source) FROM ai_chunks ch WHERE ch.collection_id = col.id) AS sources,
                    (SELECT MAX(ch.created_at) FROM ai_chunks ch WHERE ch.collection_id = col.id) AS last_ingested
             FROM ai_collections col
             {clause}
             ORDER BY col.created_at DESC{paging}
-        """, *args)
+        """, *row_args)
     return {"total": total, "collections": [
         {"name": r["name"], "embed_model": r["embed_model"], "dim": r["dim"],
          "description": r["description"], "chunks": r["chunks"],
@@ -505,6 +512,7 @@ async def list_collections(user: dict = Depends(require_user),
          "last_ingested": r["last_ingested"].isoformat() if r["last_ingested"] else None,
          "owner_id": str(r["owner_id"]) if r["owner_id"] else None,
          "chunk_access": _stored_rule(r["chunk_access"]),
+         "member_role": (r.get("member_role") if hasattr(r, "get") else None),
          "created_at": r["created_at"].isoformat() if r["created_at"] else None}
         for r in rows
     ]}

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { CapabilityGate } from "@/lib/capabilities"
+import { engineCatalogOf, tableSelectSql } from "@/lib/catalog-sql"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -70,6 +71,19 @@ function TableDetailPageInner() {
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const previewRequested = useRef(false)
+  const [attempt, setAttempt] = useState(0)
+  // The engine name of ?catalog= (e.g. polaris_lake), for a three-part name in Analytics.
+  const [engineCatalog, setEngineCatalog] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!catalogParam) return
+    let cancelled = false
+    fetch("/api/catalogs")
+      .then(r => (r.ok ? r.json() : { catalogs: [] }))
+      .then(d => { if (!cancelled) setEngineCatalog(engineCatalogOf(d.catalogs ?? [], catalogParam)) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [catalogParam])
 
   useEffect(() => {
     const fetchTableDetail = async () => {
@@ -86,7 +100,7 @@ function TableDetailPageInner() {
       }
     }
     fetchTableDetail()
-  }, [namespace, tableName, catalogQs])
+  }, [namespace, tableName, catalogQs, attempt])
 
   const loadPreview = async () => {
     if (preview) return
@@ -157,7 +171,8 @@ function TableDetailPageInner() {
         </Breadcrumb>
 
         <div role="alert" aria-live="polite">
-          <ErrorBox msg={error || "Table not found"} />
+          <ErrorBox msg={error || "Table not found"}
+                    action={<button className="text-xs underline" onClick={() => setAttempt(a => a + 1)}>Retry</button>} />
         </div>
       </div>
     )
@@ -275,7 +290,10 @@ function TableDetailPageInner() {
             <TabsTrigger value="metadata">Metadata</TabsTrigger>
           </TabsList>
           <button
-            onClick={() => router.push(`/query?sql=${encodeURIComponent(`SELECT * FROM ${namespace}.${tableName} LIMIT 100`)}`)}
+            // A table from another catalog needs its engine catalog, or Analytics reads the
+            // default catalog's table of the same name. Disabled until that name is known.
+            disabled={!!catalogParam && !engineCatalog}
+            onClick={() => router.push(`/query?sql=${encodeURIComponent(tableSelectSql(namespace, tableName, catalogParam ? engineCatalog : null))}`)}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             <ExternalLink className="h-3.5 w-3.5" />Open in Analytics
