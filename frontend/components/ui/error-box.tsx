@@ -26,7 +26,7 @@ export function ErrorBox({ msg, action, className = "" }: {
       {looksLikeNoModel(msg) && (
         <div className="pl-6">
           An embedding or LLM model may not be configured — register one under{" "}
-          <Link href="/settings" className="underline font-medium">Settings → AI</Link>.
+          <Link href="/ai" className="underline font-medium">AI Gateway → Models</Link>.
         </div>
       )}
     </div>

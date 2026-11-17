@@ -243,9 +243,6 @@ export function AiBackends() {
       {/* Gateway status banner */}
       <GatewayBanner status={status} loading={loading} onRefresh={load} />
 
-      {/* Token & cost usage */}
-      <UsagePanel />
-
       {/* Toolbar */}
       <div className="flex items-center justify-between">
         <div>
@@ -559,8 +556,9 @@ export function UsagePanel() {
   const [u, setU] = useState<Usage | null>(null)
   const [ba, setBa] = useState<BudgetAlerts | null>(null)
   const [loading, setLoading] = useState(true)
+  const [failed, setFailed] = useState<string | null>(null)
   const load = useCallback(() => {
-    setLoading(true)
+    setLoading(true); setFailed(null)
     // Budget alerts are best-effort — a failure here must never blank the usage panel.
     fetch("/api/settings/ai/budget-alerts")
       .then(r => (r.ok ? r.json() : null)).then(setBa).catch(() => setBa(null))
@@ -568,7 +566,14 @@ export function UsagePanel() {
     // became `u`, passed the `if (!u)` check below, and crashed rendering on
     // formatUsd(u.total_spend) before the session-expired overlay could show.
     fetch("/api/settings/ai/usage")
-      .then(r => (r.ok ? r.json() : null)).then(setU).catch(() => {}).finally(() => setLoading(false))
+      .then(async r => {
+        if (r.ok) return r.json()
+        const d = await r.json().catch(() => ({}))
+        throw new Error(typeof d.detail === "string" ? d.detail : `HTTP ${r.status}`)
+      })
+      .then(setU)
+      .catch(e => { setU(null); setFailed(e instanceof Error ? e.message : "Could not read usage") })
+      .finally(() => setLoading(false))
   }, [])
   useEffect(() => {
     const timer = setTimeout(() => { void load() }, 0)
@@ -576,7 +581,13 @@ export function UsagePanel() {
   }, [load])
 
   if (loading) return <Skeleton className="h-32 rounded-lg" />
-  if (!u) return null
+  // A failed read used to make the whole card disappear, which read as "no spend".
+  if (!u) return (
+    <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm">
+      <span>Usage could not be read{failed ? `: ${failed}` : ""}.</span>
+      <Button size="sm" variant="outline" onClick={load}>Retry</Button>
+    </div>
+  )
   // Per-key alerts come from the endpoint (same /key/list source the usage summary uses),
   // so this replaces — not duplicates — the old client-side u.keys filter.
   const keyAlerts = ba?.alerts ?? []
