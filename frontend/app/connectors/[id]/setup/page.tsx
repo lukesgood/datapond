@@ -2,79 +2,45 @@
 
 import { useState, use } from "react"
 import { useRouter } from "next/navigation"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import Link from "next/link"
+import { ChevronLeft, Loader2, Search } from "lucide-react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ChoiceGroup } from "@/components/ui/choice-group"
+import { ExplainRail, RailAttention, RailSection } from "@/components/ui/explain-rail"
+import { PageHeader } from "@/components/ui/page-header"
 import { ConnectionForm } from "@/components/connectors/connection-form"
 import { getConnector } from "@/lib/connectors"
 import { useCapability } from "@/lib/capabilities"
-import {
-  ChevronLeft, ChevronRight, Loader2, CheckCircle2,
-  Database, RefreshCw, Clock, Zap, AlertCircle, Search,
-} from "lucide-react"
-import Link from "next/link"
+import { isTrinoEngine } from "@/lib/engine-restart"
+import { useToast } from "@/lib/toast"
+import { FREQ_OPTIONS, HOUR_OPTIONS, parseCron } from "@/lib/schedule"
 
-// ── Constants ──────────────────────────────────────────────────────────────────
-
-const STEPS = [
-  { id: 1, name: "Connection", description: "Configure and test source connection" },
-  { id: 2, name: "Tables",     description: "Choose tables and incremental columns" },
-  { id: 3, name: "Schedule",   description: "Set sync mode and frequency" },
-]
-
-const FREQUENCY_TO_CRON: Record<string, string> = {
-  "15min":  "*/15 * * * *",
-  hourly:   "0 * * * *",
-  daily:    "0 2 * * *",
-  weekly:   "0 2 * * 1",
-}
-
-// ── Types ──────────────────────────────────────────────────────────────────────
-
-interface RemoteTable {
-  name: string
-  schema?: string
-  row_count?: number
-  columns?: { name: string; type: string; nullable: boolean }[]
-}
-
-interface TableConfig {
-  enabled: boolean
-  incremental_column: string   // "" = none
-}
-
+interface RemoteTable { name: string; row_count?: number; columns?: { name: string; type: string; nullable: boolean }[] }
+interface TableConfig { enabled: boolean; incremental_column: string }   // "" = whole table each time
 type ConfigValue = string | number | boolean | null | undefined
-interface IntrospectedTable {
-  name: string
-  row_count?: number
-  columns?: { name: string; type: string; nullable: boolean }[]
-}
-interface TablesResponse { tables?: Array<string | IntrospectedTable> }
-interface CreatedConnection { id: string
-  engine_restarting?: boolean
-}
+interface TablesResponse { tables?: Array<string | RemoteTable> }
+interface CreatedConnection { id: string; engine_restarting?: boolean; catalog?: string | null }
 
-// ── Component ──────────────────────────────────────────────────────────────────
+const MANUAL = "manual"
+const isTimeLike = (c: { name: string; type: string }) =>
+  /timestamp|date/i.test(c.type) || /updated_at|created_at|modified/.test(c.name)
 
+/** Add a source on one page: connect, pick tables, choose how they stay fresh. It was
+ *  a three-step wizard in a 672 px column; the steps now sit one under the other, and
+ *  the right column says what will be created as the choices change. Nothing is
+ *  persisted until Create, so leaving the page leaves nothing behind. */
 export default function ConnectorSetupPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
   const connector = getConnector(id)
-  // Foundation profile has no Airflow — recurring schedules never execute there.
-  // Gate the schedule picker so the wizard doesn't promise a DAG that won't run.
   const pipelinesEnabled = useCapability("pipelines")
+  const { toast } = useToast()
 
-  // ── Step state ───────────────────────────────────────────────────────────────
-  const [currentStep, setCurrentStep] = useState(1)
-
-  // Step 1
-  const [connectionName, setConnectionName] = useState(`${connector?.name || ""} Connection`)
+  const [name, setName] = useState(`${connector?.name || ""} source`)
   const [config, setConfig] = useState<Record<string, ConfigValue>>(() => {
     const d: Record<string, ConfigValue> = {}
     connector?.fields.forEach(f => { if (f.default !== undefined) d[f.name] = f.default })
@@ -82,642 +48,316 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
   })
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "success" | "error">("idle")
   const [testMessage, setTestMessage] = useState("")
-  const [createdId, setCreatedId] = useState<string | null>(null)
-  const [engineRestarting, setEngineRestarting] = useState(false)
 
-  // Step 2
   const [loadingTables, setLoadingTables] = useState(false)
+  const [tablesError, setTablesError] = useState<string | null>(null)
   const [tables, setTables] = useState<RemoteTable[]>([])
   const [tableSearch, setTableSearch] = useState("")
   const [tableConfigs, setTableConfigs] = useState<Record<string, TableConfig>>({})
 
-  // Step 3
-  const [syncMode, setSyncMode] = useState<"full" | "incremental">("full")
-  const [syncFrequency, setSyncFrequency] = useState("manual")
-  const [syncImmediately, setSyncImmediately] = useState(true)  // Fix #6: opt-in
-
-  // A profile without pipelines always behaves as Manual, even if capabilities
-  // finish loading after a recurring option was selected.
-  const effectiveSyncFrequency = pipelinesEnabled ? syncFrequency : "manual"
+  const [freq, setFreq] = useState<string>(MANUAL)
+  const [hour, setHour] = useState(2)
+  const [syncNow, setSyncNow] = useState(true)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
-  // ── Derived ──────────────────────────────────────────────────────────────────
+  const pureConfig = () => Object.fromEntries(
+    Object.entries(config).filter(([k]) => !["sync_frequency", "sync_mode", "selected_tables"].includes(k)))
 
-  const enabledTables = Object.entries(tableConfigs).filter(([, c]) => c.enabled).map(([name]) => name)
-  const filteredTables = tables.filter(t => t.name.toLowerCase().includes(tableSearch.toLowerCase()))
-  const hasIncrementalColumns = enabledTables.some(name => tableConfigs[name]?.incremental_column)
+  const loadTables = async () => {
+    setLoadingTables(true); setTablesError(null)
+    try {
+      const res = await fetch("/api/connectors/introspect", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connector_type: id, config: pureConfig(), include_schema: true }),
+      })
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `HTTP ${res.status}`) }
+      const data: TablesResponse = await res.json()
+      const list: RemoteTable[] = (data.tables ?? []).map(t => (typeof t === "string" ? { name: t } : t))
+      setTables(list)
+      // Default: every table, fetching changed rows by its most likely column when one exists.
+      const defaults: Record<string, TableConfig> = {}
+      list.forEach(t => {
+        const guess = (t.columns ?? []).find(c => /updated_at|modified/.test(c.name)) ?? null
+        defaults[t.name] = { enabled: true, incremental_column: guess?.name ?? "" }
+      })
+      setTableConfigs(defaults)
+    } catch (e) {
+      setTablesError(e instanceof Error ? e.message : "Could not list tables")
+      setTables([]); setTableConfigs({})
+    } finally { setLoadingTables(false) }
+  }
 
-  // ── Handlers ──────────────────────────────────────────────────────────────────
-
-  const handleTestConnection = async () => {
+  const test = async () => {
     setTestStatus("testing"); setTestMessage("")
     try {
       const res = await fetch("/api/connectors/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ connector_type: id, config }),
       })
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
       if (res.ok && data.success) {
-        setTestStatus("success")
-        setTestMessage(data.message || "Connection successful!")
+        setTestStatus("success"); setTestMessage(data.message || "Connected")
+        void loadTables()
       } else {
-        setTestStatus("error")
-        setTestMessage(data.detail || data.message || "Connection failed")
+        setTestStatus("error"); setTestMessage(data.detail || data.message || "Connection failed")
       }
     } catch (e) {
-      setTestStatus("error")
-      setTestMessage(e instanceof Error ? e.message : "Connection failed")
+      setTestStatus("error"); setTestMessage(e instanceof Error ? e.message : "Connection failed")
     }
   }
 
-  // Store only pure DB connection config (no ingestion metadata)
-  const pureConfig = () => Object.fromEntries(
-    Object.entries(config).filter(([key]) => !["sync_frequency", "sync_mode", "selected_tables"].includes(key))
-  )
+  const setTable = (t: string, patch: Partial<TableConfig>) =>
+    setTableConfigs(prev => ({ ...prev, [t]: { ...prev[t], ...patch } }))
 
-  // When advancing from Step 1 → 2: introspect tables directly from the entered
-  // config. No connection is persisted here — deferring creation to Finish is what
-  // prevents an orphan connection being left behind if the user closes the tab or
-  // navigates away mid-wizard.
-  const handleToStep2 = async () => {
-    setCreateError(null)
-    setLoadingTables(true)
-    setCurrentStep(2)
-    try {
-      const res = await fetch("/api/connectors/introspect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connector_type: id, config: pureConfig(), include_schema: true }),
-      })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.detail || "Failed to list tables")
+  const enabled = Object.entries(tableConfigs).filter(([, c]) => c.enabled)
+  const incremental = enabled.filter(([, c]) => c.incremental_column)
+  const effectiveFreq = pipelinesEnabled ? freq : MANUAL
+  const freqOpt = FREQ_OPTIONS.find(f => f.id === effectiveFreq)
+  const cron = freqOpt ? freqOpt.buildCron(hour) : null
+  const trino = isTrinoEngine(id)
+  const slug = `src_${name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")}`
+  const ready = testStatus === "success" && name.trim().length > 0 && enabled.length > 0
+  const filtered = tables.filter(t => t.name.toLowerCase().includes(tableSearch.toLowerCase()))
+
+  const create = async () => {
+    if (!ready || creating) return
+    setCreating(true); setCreateError(null)
+    const step = async (url: string, method: string, body: unknown, what: string) => {
+      const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        throw new Error(`${what}: ${typeof d.detail === "string" ? d.detail : `HTTP ${r.status}`}`)
       }
-      const data: TablesResponse = await res.json()
-      const remoteTables: RemoteTable[] = (data.tables ?? []).map((table) =>
-        typeof table === "string"
-          ? { name: table }
-          : { name: table.name, row_count: table.row_count, columns: table.columns }
-      )
-      setTables(remoteTables)
-
-      // Default: all tables enabled, no incremental column
-      const defaults: Record<string, TableConfig> = {}
-      remoteTables.forEach(t => { defaults[t.name] = { enabled: true, incremental_column: "" } })
-      setTableConfigs(defaults)
-    } catch (e) {
-      setCreateError(e instanceof Error ? e.message : "Failed to list tables")
-      setTables([])
-      setTableConfigs({})
-    } finally {
-      setLoadingTables(false)
+      return r
     }
-  }
-
-  // Back from Step 2 → simply return to Step 1. Nothing was persisted, so there is
-  // no orphan connection to discard.
-  const handleBackFromStep2 = () => {
-    setTables([])
-    setTableConfigs({})
-    setCurrentStep(1)
-  }
-
-  // Finalize: create the connection now, then apply table config, schedule, sync mode
-  const handleFinish = async () => {
-    setCreating(true)
-    setCreateError(null)
+    let createdId: string | null = null
     try {
-      // Create the connection only now — this is the single point where a record
-      // is persisted, so abandoning the wizard earlier leaves nothing behind.
-      let connectionId = createdId
-      if (!connectionId) {
-        const res = await fetch("/api/connectors/create", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: connectionName, connector_type: id, config: pureConfig() }),
-        })
-        if (!res.ok) {
-          const d = await res.json()
-          throw new Error(d.detail || "Failed to create connection")
+      const res = await step("/api/connectors/create", "POST", { name: name.trim(), connector_type: id, config: pureConfig() }, "Could not create the source")
+      const created: CreatedConnection = await res.json()
+      createdId = created.id
+      for (const [t, c] of Object.entries(tableConfigs)) {
+        await step(`/api/connectors/${createdId}/tables/${encodeURIComponent(t)}/enabled`, "PATCH",
+          { enabled: c.enabled, incremental_column: c.incremental_column || null }, `Could not save ${t}`)
+        if (c.enabled) {
+          await step(`/api/connectors/${createdId}/sync-mode`, "PATCH",
+            { sync_mode: c.incremental_column ? "incremental" : "full", table_name: t }, `Could not set the sync mode of ${t}`)
         }
-        const created: CreatedConnection = await res.json()
-        connectionId = created.id
-        setCreatedId(created.id)
-        setEngineRestarting(!!created.engine_restarting)
       }
-      const createdId2 = connectionId
-      // 1. Apply table enabled state + incremental columns in one pass
-      await Promise.all(Object.entries(tableConfigs).map(([tbl, cfg]) =>
-        fetch(`/api/connectors/${createdId2}/tables/${tbl}/enabled`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            enabled: cfg.enabled,
-            incremental_column: cfg.incremental_column || null,
-          }),
-        })
-      ))
-
-      // 2. Set sync mode for all tables
-      await fetch(`/api/connectors/${createdId2}/sync-mode`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sync_mode: syncMode }),
-      })
-
-      // 3. Apply schedule
-      const cron = FREQUENCY_TO_CRON[effectiveSyncFrequency]
-      if (cron) {
-        await fetch(`/api/connectors/${createdId2}/schedule`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ schedule: cron }),
-        })
+      if (cron) await step(`/api/connectors/${createdId}/schedule`, "PATCH", { schedule: cron }, "Could not set the schedule")
+      // The first sync runs on the server for as long as it takes; the source page shows
+      // it live. Waiting for it here held "Finishing…" for the whole sync.
+      if (syncNow && !created.engine_restarting) {
+        void fetch(`/api/connectors/${createdId}/sync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
       }
-
-      // 4. Fix #6: Trigger initial sync only if user opted in
-      if (syncImmediately) {
-        await fetch(`/api/connectors/${createdId2}/sync`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sync_mode: syncMode }),
-        })
-      }
-
-      // A Trino-backed source restarts the engine to load its catalog; the detail page
-      // shows the restart banner and holds Sync until it is back.
-      router.push(`/connectors/connections/${createdId2}${engineRestarting ? "?engine=restarting" : ""}`)
+      // From the response, not from state set during this same click (it was always false).
+      router.push(`/connectors/connections/${createdId}${created.engine_restarting ? "?engine=restarting" : ""}`)
     } catch (e) {
-      setCreateError(e instanceof Error ? e.message : "Failed to finalize")
+      const msg = e instanceof Error ? e.message : "Setup failed"
+      if (createdId) {
+        // The source exists; say what did not apply and finish on its page.
+        toast(`${msg}. The source was created — finish its setup here.`, "error")
+        router.push(`/connectors/connections/${createdId}`)
+        return
+      }
+      setCreateError(msg)
       setCreating(false)
     }
   }
 
-  const canProceed = () => {
-    // Require both a name and a passing test before creating a connection — an
-    // empty name would persist a nameless record.
-    if (currentStep === 1) return testStatus === "success" && connectionName.trim().length > 0
-    if (currentStep === 2) return enabledTables.length > 0
-    return true
-  }
-
   if (!connector) {
     return (
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold">Connector not found</h2>
-          <Button className="mt-4" render={<Link href="/connectors" />}>Back to Marketplace</Button>
-        </div>
+      <div className="mx-auto max-w-xl space-y-3 px-6 py-16 text-center">
+        <h2 className="text-xl font-bold">Unknown source type</h2>
+        <Button render={<Link href="/connectors?tab=marketplace" />}>Choose a source type</Button>
       </div>
     )
   }
 
+  const createLabel = syncNow && !trino ? "Create and sync" : "Create source"
+
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto">
-      <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+    <div className="flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-6xl space-y-5 px-6 py-6">
+        <Link href="/connectors?tab=marketplace" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+          <ChevronLeft className="h-3.5 w-3.5" />Sources
+        </Link>
+        <PageHeader title={`Add a ${connector.name} source`}
+                    description="Connect, pick tables, choose how they stay fresh. Nothing is created until you press Create." />
 
-        {/* Header */}
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" className="shrink-0" aria-label="Back to connectors"
-            render={<Link href="/connectors" />}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <div className="min-w-0">
-            <h2 className="text-xl font-bold truncate">Set up {connector.name}</h2>
-            <p className="text-sm text-muted-foreground truncate">{connector.description}</p>
-          </div>
-        </div>
-
-        {/* Progress Steps */}
-        <div className="flex items-center">
-          {STEPS.map((step, index) => (
-            <div key={step.id} className="flex items-center flex-1 min-w-0">
-              <div className="flex items-center gap-2 shrink-0">
-                <div className={`flex h-8 w-8 items-center justify-center rounded-full border-2 text-sm font-medium shrink-0 ${
-                  currentStep > step.id
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : currentStep === step.id
-                      ? "border-primary text-primary"
-                      : "border-muted-foreground/30 text-muted-foreground"
-                }`}>
-                  {currentStep > step.id ? <CheckCircle2 className="h-4 w-4" /> : step.id}
+        <div className="flex flex-wrap items-start gap-6">
+          <div className="min-w-0 flex-[3_1_560px] space-y-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-base">Connection</CardTitle>
+                  {testStatus === "success" && <span className="text-xs font-semibold text-[var(--dp-good-text)]">Connected{tables.length ? ` · ${tables.length} tables` : ""}</span>}
                 </div>
-                <span className={`text-sm font-medium hidden sm:block ${
-                  currentStep >= step.id ? "text-foreground" : "text-muted-foreground"
-                }`}>{step.name}</span>
-              </div>
-              {index < STEPS.length - 1 && (
-                <div className={`flex-1 h-0.5 mx-2 ${currentStep > step.id ? "bg-primary" : "bg-muted-foreground/20"}`} />
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Error banner — suppressed on Step 2 where the tables card shows a
-            contextual error + Retry in place, so the message isn't doubled. */}
-        {createError && !(currentStep === 2 && tables.length === 0) && (
-          <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-            <AlertCircle className="h-4 w-4 shrink-0" />{createError}
-          </div>
-        )}
-
-        {/* ── Step 1: Connection ── */}
-        {currentStep === 1 && (
-          <Card>
-            <CardHeader className="pb-4">
-              <CardTitle className="text-base">Connection Details</CardTitle>
-              <CardDescription>Configure and test your data source connection</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <div className="space-y-2">
-                <Label htmlFor="connection-name">Connection Name</Label>
-                <Input
-                  id="connection-name"
-                  value={connectionName}
-                  onChange={e => setConnectionName(e.target.value)}
-                  placeholder="My Database Connection"
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="src-name">Name</Label>
+                  <Input id="src-name" value={name} onChange={e => setName(e.target.value)} maxLength={100} />
+                  {trino && <p className="text-xs text-muted-foreground">Queryable as <code className="font-mono">{slug}</code></p>}
+                </div>
+                <ConnectionForm
+                  fields={connector.fields}
+                  values={config}
+                  onChange={(n, v) => { setConfig(prev => ({ ...prev, [n]: v })); if (testStatus !== "idle") setTestStatus("idle") }}
+                  onTest={test}
+                  testStatus={testStatus}
+                  testMessage={testMessage}
                 />
-              </div>
-              <ConnectionForm
-                fields={connector.fields}
-                values={config}
-                onChange={(name, value) => {
-                  setConfig(prev => ({ ...prev, [name]: value }))
-                  if (testStatus !== "idle") { setTestStatus("idle"); setTestMessage("") }
-                }}
-                onTest={handleTestConnection}
-                testStatus={testStatus}
-                testMessage={testMessage}
-              />
-            </CardContent>
-          </Card>
-        )}
+              </CardContent>
+            </Card>
 
-        {/* ── Step 2: Tables ── */}
-        {currentStep === 2 && (
-          <Card>
-            <CardHeader className="pb-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base">Select Tables</CardTitle>
-                  <CardDescription className="mt-0.5">
-                    Choose tables to sync. For Incremental mode, set the watermark column.
-                  </CardDescription>
+            <Card className={testStatus === "success" ? "" : "opacity-60"}>
+              <CardHeader className="pb-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <CardTitle className="text-base">
+                    Tables {tables.length > 0 && <span className="font-normal text-muted-foreground">· {enabled.length} of {tables.length} selected</span>}
+                  </CardTitle>
+                  {tables.length > 0 && (
+                    <div className="flex items-center gap-3 text-xs">
+                      <button type="button" className="text-primary hover:underline"
+                              onClick={() => { const all = enabled.length < tables.length; tables.forEach(t => setTable(t.name, { enabled: all })) }}>
+                        {enabled.length < tables.length ? "Select all" : "Select none"}
+                      </button>
+                      {tables.length > 5 && (
+                        <span className="relative">
+                          <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                          <Input value={tableSearch} onChange={e => setTableSearch(e.target.value)} placeholder="Filter" aria-label="Filter tables" className="h-8 w-36 pl-7 text-xs" />
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
-                {tables.length > 5 && (
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                    <Input
-                      value={tableSearch}
-                      onChange={e => setTableSearch(e.target.value)}
-                      placeholder="Filter…"
-                      className="pl-8 h-8 text-xs w-36"
-                    />
+              </CardHeader>
+              <CardContent>
+                {testStatus !== "success" ? (
+                  <p className="text-sm text-muted-foreground">Test the connection to list its tables.</p>
+                ) : loadingTables ? (
+                  <div className="space-y-2">{[0, 1, 2].map(i => <Skeleton key={i} className="h-8" />)}</div>
+                ) : tablesError ? (
+                  <div className="space-y-2 text-sm">
+                    <p className="text-destructive">Could not list tables: {tablesError}</p>
+                    <Button size="sm" variant="outline" onClick={() => void loadTables()}>Retry</Button>
+                  </div>
+                ) : tables.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">The source is reachable but exposes no tables to sync.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[480px] text-sm">
+                      <thead><tr className="border-b text-left text-xs text-muted-foreground">
+                        <th scope="col" className="w-12 py-2 font-medium">Sync</th>
+                        <th scope="col" className="py-2 font-medium">Table</th>
+                        <th scope="col" className="py-2 font-medium">Fetch changed rows by</th>
+                      </tr></thead>
+                      <tbody>
+                        {filtered.map(t => {
+                          const cfg = tableConfigs[t.name] ?? { enabled: false, incremental_column: "" }
+                          const cols = t.columns ?? []
+                          const time = cols.filter(isTimeLike), rest = cols.filter(c => !isTimeLike(c))
+                          return (
+                            <tr key={t.name} className={`border-b last:border-0 ${cfg.enabled ? "" : "text-muted-foreground"}`}>
+                              <td className="py-1.5"><input type="checkbox" checked={cfg.enabled} aria-label={`Sync ${t.name}`}
+                                                           onChange={e => setTable(t.name, { enabled: e.target.checked })} /></td>
+                              <td className="py-1.5"><span className="font-mono text-xs">{t.name}</span>{cols.length > 0 && <span className="text-xs text-muted-foreground"> · {cols.length} columns</span>}</td>
+                              <td className="py-1.5">
+                                <select value={cfg.incremental_column} disabled={!cfg.enabled} aria-label={`Changed-rows column for ${t.name}`}
+                                        onChange={e => setTable(t.name, { incremental_column: e.target.value })}
+                                        className="h-8 max-w-[240px] rounded-md border bg-background px-2 text-xs disabled:opacity-50">
+                                  <option value="">Whole table each time</option>
+                                  {time.length > 0 && <optgroup label="Recommended">{time.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}</optgroup>}
+                                  {rest.length > 0 && <optgroup label="All columns">{rest.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}</optgroup>}
+                                </select>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 )}
-              </div>
-              {tables.length > 0 && (
-                <div className="flex items-center gap-3 mt-2">
-                  <Badge variant="secondary" className="text-xs">
-                    {enabledTables.length}/{tables.length} selected
-                  </Badge>
-                  <button
-                    className="text-xs text-primary hover:underline"
-                    onClick={() => {
-                      const allEnabled = tables.every(t => tableConfigs[t.name]?.enabled)
-                      setTableConfigs(prev => {
-                        const next = { ...prev }
-                        tables.forEach(t => { next[t.name] = { ...next[t.name], enabled: !allEnabled } })
-                        return next
-                      })
-                    }}
-                  >
-                    {tables.every(t => tableConfigs[t.name]?.enabled) ? "Deselect all" : "Select all"}
-                  </button>
-                </div>
-              )}
-            </CardHeader>
-            <CardContent>
-              {loadingTables ? (
-                <div className="space-y-2">
-                  {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
-                </div>
-              ) : tables.length === 0 ? (
-                // Distinguish a failed introspection (recoverable, offer retry) from a
-                // source that genuinely exposes no tables — never let an error read as "empty".
-                createError ? (
-                  <div className="text-center py-8">
-                    <AlertCircle className="h-8 w-8 mx-auto mb-2 text-destructive/60" />
-                    <p className="text-sm font-medium text-destructive">Couldn&apos;t list tables</p>
-                    <p className="text-xs text-muted-foreground mt-1">{createError}</p>
-                    <Button variant="outline" size="sm" className="mt-3" onClick={handleToStep2}>
-                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" />Retry
-                    </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3"><CardTitle className="text-base">Keep it fresh</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                {pipelinesEnabled ? (
+                  <div className="flex flex-wrap items-end gap-4">
+                    <ChoiceGroup label="How often" value={freq} onChange={setFreq}
+                      options={[{ label: "Manual", value: MANUAL }, ...FREQ_OPTIONS.map(f => ({ label: f.label, value: f.id as string }))]} />
+                    {freqOpt?.hasTime && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="src-hour">At</Label>
+                        <select id="src-hour" value={hour} onChange={e => setHour(Number(e.target.value))}
+                                className="h-8 rounded-md border bg-background px-2 text-sm">
+                          {HOUR_OPTIONS.map(h => <option key={h.value} value={h.value}>{h.label}</option>)}
+                        </select>
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Database className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                    <p className="text-sm">No tables found in this connection</p>
-                    <p className="text-xs opacity-70 mt-1">The source is reachable but exposes no tables to sync.</p>
-                  </div>
-                )
-              ) : (
-                <div className="space-y-px">
-                  {/* Header */}
-                  <div className="grid grid-cols-[auto_1fr_1fr] gap-3 px-3 pb-2 text-2xs font-medium uppercase tracking-wide text-muted-foreground border-b">
-                    <span className="w-8">Sync</span>
-                    <span>Table</span>
-                    <span>Incremental Column <span className="normal-case font-normal">(optional)</span></span>
-                  </div>
-
-                  {filteredTables.length === 0 ? (
-                    <p className="text-xs text-muted-foreground text-center py-6">
-                      No tables match &quot;{tableSearch}&quot;
-                    </p>
-                  ) : filteredTables.map(table => {
-                    const cfg = tableConfigs[table.name] ?? { enabled: true, incremental_column: "" }
-                    const tsColumns = table.columns?.filter(c =>
-                      c.type.toLowerCase().includes("timestamp") ||
-                      c.type.toLowerCase().includes("date") ||
-                      c.name.includes("updated_at") ||
-                      c.name.includes("created_at") ||
-                      c.name.includes("modified")
-                    ) ?? []
-                    const allColumns = table.columns ?? []
-
-                    return (
-                      <div key={table.name}
-                        className={`grid grid-cols-[auto_1fr_1fr] gap-3 items-center px-3 py-2.5 rounded transition-colors ${
-                          cfg.enabled ? "hover:bg-muted/30" : "opacity-40"
-                        }`}>
-                        {/* Toggle */}
-                        <div className="w-8">
-                          <Switch
-                            checked={cfg.enabled}
-                            onCheckedChange={v => setTableConfigs(prev => ({
-                              ...prev, [table.name]: { ...prev[table.name], enabled: v }
-                            }))}
-                            className="scale-75"
-                          />
-                        </div>
-
-                        {/* Table name + row count */}
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <Database className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                            <span className="font-mono text-xs font-medium truncate">{table.name}</span>
-                          </div>
-                          {table.columns && (
-                            <p className="text-2xs text-muted-foreground ml-5">
-                              {table.columns.length} columns
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Incremental column selector */}
-                        {cfg.enabled ? (
-                          <Select
-                            value={cfg.incremental_column || "__none__"}
-                            onValueChange={v => setTableConfigs(prev => ({
-                              ...prev, [table.name]: { ...prev[table.name], incremental_column: (v === "__none__" ? "" : (v ?? "")) }
-                            }))}
-                          >
-                            <SelectTrigger className="h-7 text-xs">
-                              <SelectValue placeholder="None (full sync)" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__none__" className="text-xs text-muted-foreground">
-                                None (full sync)
-                              </SelectItem>
-                              {/* Recommended columns first */}
-                              {tsColumns.length > 0 && (
-                                <>
-                                  <div className="px-2 py-1 text-2xs font-medium text-muted-foreground uppercase tracking-wide">
-                                    Recommended
-                                  </div>
-                                  {tsColumns.map(c => (
-                                    <SelectItem key={c.name} value={c.name} className="text-xs">
-                                      {c.name}
-                                      <span className="ml-1 text-muted-foreground font-mono text-2xs">{c.type}</span>
-                                    </SelectItem>
-                                  ))}
-                                </>
-                              )}
-                              {/* All other columns */}
-                              {allColumns.filter(c => !tsColumns.find(t => t.name === c.name)).length > 0 && (
-                                <>
-                                  <div className="px-2 py-1 text-2xs font-medium text-muted-foreground uppercase tracking-wide">
-                                    All columns
-                                  </div>
-                                  {allColumns.filter(c => !tsColumns.find(t => t.name === c.name)).map(c => (
-                                    <SelectItem key={c.name} value={c.name} className="text-xs">
-                                      {c.name}
-                                      <span className="ml-1 text-muted-foreground font-mono text-2xs">{c.type}</span>
-                                    </SelectItem>
-                                  ))}
-                                </>
-                              )}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <span className="text-2xs text-muted-foreground/50">skipped</span>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ── Step 3: Schedule ── */}
-        {currentStep === 3 && (
-          <Card>
-            <CardHeader className="pb-4">
-              <CardTitle className="text-base">Sync Configuration</CardTitle>
-              <CardDescription>Set how and when data is synced to Iceberg</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              {/* Sync Mode */}
-              <div className="space-y-3">
-                <Label className="text-xs text-muted-foreground uppercase tracking-wide">Sync Mode</Label>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {[
-                    {
-                      value: "full",
-                      icon: RefreshCw,
-                      label: "Full Refresh",
-                      desc: "Replace all data on every sync. Simple and reliable.",
-                      note: "",
-                    },
-                    {
-                      value: "incremental",
-                      icon: Zap,
-                      label: "Incremental",
-                      desc: "Only sync new or changed records since last run.",
-                      note: hasIncrementalColumns
-                        ? `${Object.values(tableConfigs).filter(c => c.enabled && c.incremental_column).length} tables configured`
-                        : "No watermark columns set in Step 2",
-                      noteColor: hasIncrementalColumns ? "text-[var(--dp-good-text)]" : "text-[var(--dp-warn-text)]",
-                    },
-                  ].map(opt => (
-                    <button
-                      key={opt.value}
-                      onClick={() => setSyncMode(opt.value as "full" | "incremental")}
-                      className={`text-left p-4 rounded-lg border-2 transition-colors ${
-                        syncMode === opt.value
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:border-muted-foreground/40"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <opt.icon className={`h-4 w-4 ${syncMode === opt.value ? "text-primary" : "text-muted-foreground"}`} />
-                        <span className="text-sm font-medium">{opt.label}</span>
-                        {syncMode === opt.value && <CheckCircle2 className="h-3.5 w-3.5 text-primary ml-auto" />}
-                      </div>
-                      <p className="text-xs text-muted-foreground">{opt.desc}</p>
-                      {opt.note && <p className={`text-2xs mt-1 font-medium ${opt.noteColor}`}>{opt.note}</p>}
-                    </button>
-                  ))}
-                </div>
-                {syncMode === "incremental" && !hasIncrementalColumns && (
-                  <div className="flex items-start gap-2 rounded-md bg-[var(--dp-warn)]/10 border border-[var(--dp-warn)]/20 px-3 py-2 text-xs text-[var(--dp-warn-text)]">
-                    <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                    No watermark columns were set in Step 2. Incremental sync will behave like Full Refresh until columns are configured.
-                  </div>
-                )}
-              </div>
-
-              <Separator />
-
-              {/* Schedule */}
-              <div className="space-y-3">
-                <Label className="text-xs text-muted-foreground uppercase tracking-wide">Schedule</Label>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {[
-                    { value: "manual",  icon: Clock,     label: "Manual",         cron: "",              desc: "Trigger syncs manually" },
-                    { value: "15min",   icon: Zap,       label: "Every 15 min",   cron: "*/15 * * * *",  desc: "Near real-time updates" },
-                    { value: "hourly",  icon: Clock,     label: "Hourly",         cron: "0 * * * *",     desc: "Fresh data every hour" },
-                    { value: "daily",   icon: Clock,     label: "Daily at 2am",   cron: "0 2 * * *",     desc: "Recommended for batch" },
-                    { value: "weekly",  icon: Clock,     label: "Weekly",         cron: "0 2 * * 1",     desc: "Low-frequency sources" },
-                  ].filter(opt => pipelinesEnabled || opt.value === "manual").map(opt => (
-                    <button
-                      key={opt.value}
-                      onClick={() => setSyncFrequency(opt.value)}
-                      className={`text-left px-3 py-2.5 rounded-lg border transition-colors ${
-                        effectiveSyncFrequency === opt.value
-                          ? "border-primary bg-primary/5 text-primary"
-                          : "border-border hover:border-muted-foreground/40"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">{opt.label}</span>
-                        {opt.cron && <span className="font-mono text-2xs text-muted-foreground">{opt.cron}</span>}
-                      </div>
-                      <p className="text-2xs text-muted-foreground mt-0.5">{opt.desc}</p>
-                    </button>
-                  ))}
-                </div>
-                {!pipelinesEnabled ? (
-                  <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                    Scheduled sync requires the Airflow pipelines component (not enabled
-                    on this profile). Trigger syncs manually with Sync Now.
-                  </p>
-                ) : effectiveSyncFrequency !== "manual" && (
-                  <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-[var(--dp-good-text)]" />
-                    Airflow DAG will be created automatically
+                  <p className="text-sm text-muted-foreground">
+                    Syncs run when you press Sync now. Recurring schedules need the pipelines component, which this deployment does not run.
                   </p>
                 )}
-              </div>
+                {trino ? (
+                  <p className="border-t pt-3 text-sm text-muted-foreground">
+                    The first sync waits for the query engine to load the new catalog (~1 min); run it from the source page.
+                  </p>
+                ) : (
+                  <label className="flex items-center gap-2 border-t pt-3 text-sm font-medium">
+                    <input type="checkbox" checked={syncNow} onChange={e => setSyncNow(e.target.checked)} />
+                    Run the first sync right after creating
+                  </label>
+                )}
+              </CardContent>
+            </Card>
 
-              <Separator />
-
-              {/* Summary */}
-              <div className="rounded-lg border bg-muted/30 p-4 space-y-2 text-sm">
-                <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground mb-3">Summary</p>
-                {[
-                  ["Connection",  connectionName],
-                  ["Connector",   connector.name],
-                  ["Tables",      `${enabledTables.length} of ${tables.length} selected`],
-                  ["With watermark", `${Object.values(tableConfigs).filter(c => c.enabled && c.incremental_column).length} tables`],
-                  ["Sync Mode",   syncMode === "full" ? "Full Refresh" : "Incremental"],
-                  ["Schedule",    effectiveSyncFrequency === "manual" ? "Manual" : `${effectiveSyncFrequency} (${FREQUENCY_TO_CRON[effectiveSyncFrequency]})`],
-                ].map(([label, value]) => (
-                  <div key={label} className="flex items-center justify-between">
-                    <span className="text-muted-foreground">{label}</span>
-                    <span className="font-medium">{value}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Fix #6: Sync immediately option */}
-              <div className="flex items-center gap-2 pt-1">
-                <Switch
-                  checked={syncImmediately}
-                  onCheckedChange={setSyncImmediately}
-                  id="sync-now"
-                />
-                <label htmlFor="sync-now" className="text-sm cursor-pointer">
-                  Sync immediately after creation
-                </label>
+            {createError && <p role="alert" className="text-sm text-destructive">{createError}</p>}
+            <div className="flex flex-wrap items-center gap-3">
+              <Button onClick={create} disabled={!ready || creating}>
+                {creating && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}{createLabel}
+              </Button>
+              <Button variant="ghost" render={<Link href="/connectors" />}>Cancel</Button>
+              {!ready && (
                 <span className="text-xs text-muted-foreground">
-                  {syncImmediately ? "First sync will run now" : "Sync manually or wait for schedule"}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Navigation */}
-        <div className="flex items-center justify-between">
-          {/* Fix #3: Back from step2 discards orphan connection */}
-          <Button
-            variant="outline" size="sm"
-            onClick={currentStep === 2 ? handleBackFromStep2 : () => setCurrentStep(p => p - 1)}
-            disabled={currentStep === 1 || creating}
-          >
-            <ChevronLeft className="h-4 w-4 mr-1" />Back
-          </Button>
-
-          <span className="text-xs text-muted-foreground sm:hidden">{currentStep} / {STEPS.length}</span>
-
-          {currentStep === 1 ? (
-            <div className="flex items-center gap-3">
-              {/* Tell the user why Next is blocked instead of leaving a dead button */}
-              {!canProceed() && (
-                <span className="text-xs text-muted-foreground hidden sm:inline">
-                  {!connectionName.trim() ? "Name your connection" : "Test the connection to continue"}
+                  {!name.trim() ? "Name the source." : testStatus !== "success" ? "Test the connection first." : "Select at least one table."}
                 </span>
               )}
-              <Button size="sm" onClick={handleToStep2} disabled={!canProceed()}>
-                Next<ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
             </div>
-          ) : currentStep === 2 ? (
-            <div className="flex items-center gap-3">
-              {!canProceed() && (
-                <span className="text-xs text-muted-foreground hidden sm:inline">
-                  Select at least one table
-                </span>
-              )}
-              <Button size="sm" onClick={() => setCurrentStep(3)} disabled={!canProceed()}>
-                Next<ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
+          </div>
+
+          <ExplainRail label="What this source will do">
+            <div>
+              <p className="text-xs text-muted-foreground">This source will</p>
+              <h3 className="mt-0.5 text-lg font-bold">
+                {enabled.length > 0 ? `Copy ${enabled.length} table${enabled.length === 1 ? "" : "s"} into the lake` : `Connect ${connector.name}`}
+                {cron ? `, ${parseCron(cron).toLowerCase()}` : enabled.length > 0 ? ", when you sync" : ""}
+              </h3>
             </div>
-          ) : (
-            <Button size="sm" onClick={handleFinish} disabled={creating}>
-              {creating
-                ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Finishing…</>
-                : <><CheckCircle2 className="h-4 w-4 mr-1.5" />Create & Start Sync</>}
-            </Button>
-          )}
+            <ul className="space-y-1.5 text-sm">
+              {trino && <li>✓ Live queries through <code className="font-mono text-xs">{slug}</code> in Analytics</li>}
+              {enabled.length > 0 && <li>✓ {incremental.length} fetch only changed rows; {enabled.length - incremental.length} read the whole table each time</li>}
+              {connector.fields.some(f => f.type === "password") && <li>✓ Credentials stored encrypted; never shown again</li>}
+              {syncNow && !trino && <li>✓ First sync starts right away; you watch it on the source page</li>}
+            </ul>
+            {trino && (
+              <RailAttention title="The query engine restarts (~1 min)">
+                To add the new catalog. Analytics is unavailable meanwhile; sync from the source page once it is back.
+              </RailAttention>
+            )}
+            <RailSection title="Not set yet">
+              Columns to mask before loading — set them per table on the source page before the first sync if these tables hold personal data.
+            </RailSection>
+            {connector.fields.filter(f => f.type === "boolean" && f.help).map(f => (
+              <RailSection key={f.name} title={f.label}>{f.help}</RailSection>
+            ))}
+          </ExplainRail>
         </div>
-
       </div>
     </div>
   )

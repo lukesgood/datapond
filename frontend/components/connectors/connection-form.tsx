@@ -50,8 +50,9 @@ export function ConnectionForm({
     if (typeof value === "boolean" || typeof value === "number") return false
     return !(typeof value === "string" && value.trim() !== "")
   }
+  const shown = fields.filter((field) => !field.showIf || field.showIf(values))
   // Every required field must be filled before the connection can be tested.
-  const missing = fields.filter((field) => field.required && isEmpty(field))
+  const missing = shown.filter((field) => field.required && isEmpty(field))
   const canTest = missing.length === 0
   const hasSecret = fields.some((field) => field.type === "password")
 
@@ -60,14 +61,16 @@ export function ConnectionForm({
       {/* Two-column grid: half-width fields (host+port, username+password) pair on
           one row; everything else spans the full width. Stacks on narrow widths. */}
       <div className="grid grid-cols-2 gap-4">
-        {fields.map((field) => {
+        {shown.map((field) => {
           const reveal = revealed[field.name]
           return (
           <div key={field.name} className={`space-y-2 ${field.half ? "col-span-2 sm:col-span-1" : "col-span-2"}`}>
-            <Label htmlFor={field.name}>
-              {field.label}
-              {field.required && <span className="text-destructive ml-1">*</span>}
-            </Label>
+            {field.type !== "boolean" && (
+              <Label htmlFor={field.name}>
+                {field.label}
+                {field.required && <span className="text-destructive ml-1">*</span>}
+              </Label>
+            )}
 
             {field.type === "textarea" ? (
               <Textarea
@@ -126,9 +129,9 @@ export function ConnectionForm({
                   checked={toChecked(values[field.name] || field.default || false)}
                   onCheckedChange={(checked) => onChange(field.name, checked)}
                 />
-                <Label htmlFor={field.name} className="cursor-pointer">
-                  {field.help || "Enable"}
-                </Label>
+                {/* The switch is named by its label; the help (often the driver
+                    setting it maps to) goes underneath like every other field's. */}
+                <Label htmlFor={field.name} className="cursor-pointer">{field.label}</Label>
               </div>
             ) : field.type === "select" ? (
               <Select
@@ -148,7 +151,7 @@ export function ConnectionForm({
               </Select>
             ) : null}
 
-            {field.help && field.type !== "boolean" && (
+            {field.help && (
               <p className="text-xs text-muted-foreground">{field.help}</p>
             )}
           </div>

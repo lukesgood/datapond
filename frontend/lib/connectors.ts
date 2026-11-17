@@ -12,6 +12,9 @@ export interface ConnectorField {
   // Render at half width so two related fields (host+port, username+password)
   // pair on one row instead of each taking a full-width line.
   half?: boolean
+  /** Show the field only when this holds for the current values (e.g. an auth header
+   *  only for api_key). A hidden field is never required. */
+  showIf?: (values: Record<string, unknown>) => boolean
 }
 
 export interface Connector {
@@ -251,13 +254,16 @@ export const availableConnectors: Connector[] = [
         name: "auth_value",
         label: "Auth Value",
         type: "password",
-        placeholder: "token / user:password / api_key_value"
+        placeholder: "token / user:password / api_key_value",
+        // Only with an auth type: it showed (and was sent) for "none" too.
+        showIf: v => (v.auth_type ?? "none") !== "none",
       },
       {
         name: "auth_header",
         label: "Auth Header Name",
         type: "text",
         default: "Authorization",
+        showIf: v => v.auth_type === "api_key",
         help: "The header that carries the key when Auth Type is api_key"
       },
       {
