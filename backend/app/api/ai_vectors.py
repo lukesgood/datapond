@@ -49,6 +49,7 @@ from app.ai_budget import assert_within_cap, is_budget_refusal, refuse_over_budg
 from app.api.ai_backends import (egress_policy, is_external_provider,
                                  provider_of_model, require_local_only)
 from app import sensitivity
+from app import collection_protection as protection
 from app.knowledge_access import may_read, may_write
 from app.runtime import component_secret
 from app.guardrails import injection
@@ -315,6 +316,11 @@ class CollectionUpdate(BaseModel):
     chunk_preset: Optional[str] = None
     chunk_size: Optional[int] = None
     chunk_overlap: Optional[int] = None
+    # Explicit null means "inherit the deployment default" / "no label", so these are
+    # read from model_fields_set, not from "is not None". Lowering either needs
+    # governance:write (app/collection_protection.py).
+    pii_mode: Optional[str] = None
+    sensitivity: Optional[str] = None
 
 
 class Document(BaseModel):
@@ -384,6 +390,12 @@ async def embed(req: EmbedRequest, user: dict = Depends(require_user)):
     await _log("ok", len(vecs))
     return {"model": _embed_model(), "dim": len(vecs[0]) if vecs else EMBED_DIM(),
             "embeddings": vecs, "pii_masked": found}
+
+
+def _held(user: dict) -> set:
+    """The caller's permissions: a key's own set (role narrowed by scopes) or the role's."""
+    from app.chat.authz import held_permissions
+    return held_permissions(user)
 
 
 def _uid(user: dict):
@@ -497,7 +509,7 @@ async def list_collections(user: dict = Depends(require_user),
         # for the rows this page returns.
         rows = await c.fetch(f"""
             SELECT col.name, col.embed_model, col.dim, col.description, col.created_at,
-                   col.owner_id, col.chunk_access, {member_role_sql},
+                   col.owner_id, col.chunk_access, col.pii_mode, col.sensitivity, {member_role_sql},
                    (SELECT COUNT(*) FROM ai_chunks ch WHERE ch.collection_id = col.id) AS chunks,
                    (SELECT COUNT(DISTINCT ch.source) FROM ai_chunks ch WHERE ch.collection_id = col.id) AS sources,
                    (SELECT MAX(ch.created_at) FROM ai_chunks ch WHERE ch.collection_id = col.id) AS last_ingested
@@ -505,7 +517,8 @@ async def list_collections(user: dict = Depends(require_user),
             {clause}
             ORDER BY col.created_at DESC{paging}
         """, *row_args)
-    return {"total": total, "collections": [
+    from app.guardrails import pii_ko
+    return {"total": total, "pii_default": pii_ko.env_mode(), "collections": [
         {"name": r["name"], "embed_model": r["embed_model"], "dim": r["dim"],
          "description": r["description"], "chunks": r["chunks"],
          "sources": r["sources"], "index": "HNSW · cosine",
@@ -513,6 +526,8 @@ async def list_collections(user: dict = Depends(require_user),
          "owner_id": str(r["owner_id"]) if r["owner_id"] else None,
          "chunk_access": _stored_rule(r["chunk_access"]),
          "member_role": (r.get("member_role") if hasattr(r, "get") else None),
+         "pii_mode": (r.get("pii_mode") if hasattr(r, "get") else None),
+         "sensitivity": (r.get("sensitivity") if hasattr(r, "get") else None),
          "created_at": r["created_at"].isoformat() if r["created_at"] else None}
         for r in rows
     ]}
@@ -1452,6 +1467,16 @@ async def update_collection(name: str, body: CollectionUpdate,
     fields, values = [], []
     if body.description is not None:
         fields.append("description"); values.append(body.description)
+    sets_pii = "pii_mode" in body.model_fields_set
+    sets_label = "sensitivity" in body.model_fields_set
+    if sets_pii and not protection.valid_pii_mode(body.pii_mode):
+        raise HTTPException(400, "pii_mode must be one of off, mask, block, or null.")
+    if sets_label and not protection.valid_sensitivity(body.sensitivity):
+        raise HTTPException(400, f"sensitivity must be one of {', '.join(sensitivity.LABELS)}, or null.")
+    if sets_pii:
+        fields.append("pii_mode"); values.append(body.pii_mode)
+    if sets_label:
+        fields.append("sensitivity"); values.append(body.sensitivity)
     if body.chunk_preset or body.chunk_size is not None or body.chunk_overlap is not None:
         try:
             size, overlap = resolve_chunking(body.chunk_preset, body.chunk_size,
@@ -1466,6 +1491,19 @@ async def update_collection(name: str, body: CollectionUpdate,
     pool = await get_db_pool()
     async with pool.acquire() as c:
         coll_id = await _collection_id(c, name, user, write=True)
+        if sets_pii or sets_label:
+            cur = await c.fetchrow(
+                "SELECT pii_mode, sensitivity FROM ai_collections WHERE id = $1", coll_id)
+            lowering = ((sets_pii and protection.lowers_pii(cur["pii_mode"], body.pii_mode))
+                        or (sets_label and protection.lowers_sensitivity(cur["sensitivity"], body.sensitivity)))
+            if lowering and "governance:write" not in _held(user):
+                raise HTTPException(
+                    403, "Lowering a collection's PII mode or sensitivity needs governance:write. "
+                         "Raising it is always allowed.")
+            logger.info("[collections] %s protection change by %s: pii %s -> %s, label %s -> %s",
+                        name, user.get("username"), cur["pii_mode"],
+                        body.pii_mode if sets_pii else cur["pii_mode"], cur["sensitivity"],
+                        body.sensitivity if sets_label else cur["sensitivity"])
         assignments = ", ".join(f"{f} = ${i + 2}" for i, f in enumerate(fields))
         await c.execute(f"UPDATE ai_collections SET {assignments} WHERE id = $1",
                         coll_id, *values)
