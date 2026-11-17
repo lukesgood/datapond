@@ -89,6 +89,13 @@ _OVERVIEW_TTL_SEC = int(os.getenv("STORAGE_OVERVIEW_TTL_SEC", "30"))
 _overview_cache: dict = {"data": None, "ts": 0.0}
 
 
+def _invalidate_overview() -> None:
+    """Forget the cached overview after a write on this replica. Without it a bucket
+    created, deleted or uploaded to stayed out of the console for up to the TTL, right
+    after a toast said it had happened."""
+    _overview_cache["data"], _overview_cache["ts"] = None, 0.0
+
+
 def _scan_bucket(s3, b) -> BucketStat:
     """단일 버킷 객체 집계 — 병렬 워커에서 실행."""
     name = b["Name"]
@@ -220,6 +227,7 @@ async def create_bucket(bucket_name: str):
     try:
         s3 = get_s3_client()
         s3.create_bucket(Bucket=bucket_name)
+        _invalidate_overview()
         return {"message": f"Bucket '{bucket_name}' created", "bucket": bucket_name}
     except ClientError as e:
         code = e.response["Error"]["Code"]
@@ -234,6 +242,7 @@ async def delete_bucket(bucket_name: str):
     try:
         s3 = get_s3_client()
         s3.delete_bucket(Bucket=bucket_name)
+        _invalidate_overview()
         return {"message": f"Bucket '{bucket_name}' deleted"}
     except ClientError as e:
         code = e.response["Error"]["Code"]
@@ -255,6 +264,7 @@ async def put_object(bucket: str, key: str, request: Request):
     try:
         s3 = get_s3_client()
         s3.put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type)
+        _invalidate_overview()
         return {"message": f"Uploaded '{key}' to '{bucket}'", "bucket": bucket, "key": key, "size_bytes": len(body)}
     except ClientError as e:
         code = e.response["Error"]["Code"]

@@ -153,7 +153,7 @@ export default function StoragePage() {
   const { toast } = useToast()
   const confirm = useConfirm()
   const handleDeleteBucket = async (name: string) => {
-    if (!(await confirm({ title: "Delete bucket", message: `This deletes the "${name}" bucket. This cannot be undone.`, destructive: true, confirmText: "Delete" }))) return
+    if (!(await confirm({ title: "Delete bucket", message: `Delete the "${name}" bucket? Only an empty bucket can be deleted — remove its objects first. This cannot be undone.`, destructive: true, confirmText: "Delete" }))) return
     setActionError(null)
     try {
       const res = await fetch(`/api/storage/buckets/${encodeURIComponent(name)}`, { method: "DELETE" })
