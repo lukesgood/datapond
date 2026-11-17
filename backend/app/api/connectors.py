@@ -1546,7 +1546,7 @@ async def get_connection(connection_id: str, user: dict = Depends(require_user))
         async with pool.acquire() as conn:
             row = await conn.fetchrow('''
                 SELECT id, name, connector_type, status, created_at, last_sync_at, schedule,
-                       owner_id, last_checked_at, last_check_message
+                       owner_id, last_checked_at, last_check_message, catalog
                 FROM connector_connections
                 WHERE id = $1
             ''', uuid.UUID(connection_id))
@@ -1563,6 +1563,9 @@ async def get_connection(connection_id: str, user: dict = Depends(require_user))
             "last_sync_at": iso_utc(row['last_sync_at']) if row['last_sync_at'] else None,
             "schedule": row['schedule'],
             "owner_id": str(row['owner_id']) if row['owner_id'] else None,
+            # The Trino catalog this source is queryable as (src_<slug>), as the list
+            # already returns, so the source page can link straight to Analytics.
+            "catalog": row.get('catalog') if hasattr(row, 'get') else None,
             **_check_fields(row),
         }
 

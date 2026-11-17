@@ -7,7 +7,6 @@ import { useConfirm } from "@/lib/confirm"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
@@ -15,9 +14,13 @@ import { Label } from "@/components/ui/label"
 import type { Diagnosis } from "@/lib/ops-status"
 import { SyncHistory, SyncSession } from "@/components/connectors/sync-history"
 import { SourceAccessPanel } from "@/components/connectors/access-panel"
+import { TableSettingsPanel, type SourceTable } from "@/components/connectors/table-settings-panel"
+import { ExplainRail, RailAttention, RailSection } from "@/components/ui/explain-rail"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { useHasPermission } from "@/lib/permissions"
 import {
-  ChevronLeft, RefreshCw, Database, Rows3, Trash2,
-  AlertTriangle, Pencil, X, Check, BarChart2, Calendar,
+  ChevronLeft, RefreshCw, Database, Trash2,
+  AlertTriangle, Pencil, X, Check, Calendar,
   Clock, Zap, Search, PlugZap, Pause, Play,
 } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -33,19 +36,7 @@ import { isTrinoEngine } from "@/lib/engine-restart"
 import { lakeCatalogs, landsIn } from "@/lib/data-catalogs"
 
 type ConfigValue = string | number | boolean | null | undefined
-interface SchemaColumn { name: string; type: string }
-interface ConnectorTable {
-  name: string
-  enabled: boolean
-  sync_mode?: string
-  incremental_column?: string | null
-  last_value?: string | null
-  effective_mode?: string
-  partition_spec?: { column: string; transform: string }[] | null
-  key_columns?: string[] | null
-  pii_columns?: string[] | null
-  target_catalog?: string | null
-}
+type ConnectorTable = SourceTable
 interface RawTableConfig extends Partial<ConnectorTable> { name: string }
 interface JobsResponse { jobs?: Array<{ rows_synced?: number }> }
 interface RawSyncSession {
@@ -75,422 +66,94 @@ interface QualityCheck {
   null_checks?: Record<string, NullCheck>
 }
 
-// ── Tables Card (full-width, searchable) ──────────────────────────────────────
+// ── Tables: the list; one table's settings open in the right column ──────────
 function TablesCard({
-  tables, latestTableRows, togglingTable, onToggle, connId, onSaved, streamingEnabled,
+  tables, latestTableRows, togglingTable, onToggle, selected, onSelect, canEdit, defaultLake,
 }: {
   tables: ConnectorTable[]
   latestTableRows: Map<string, number>
   togglingTable: string | null
   onToggle: (name: string, enabled: boolean) => void
-  connId: string
-  onSaved?: () => void | Promise<void>
-  streamingEnabled: boolean
+  selected: string | null
+  onSelect: (name: string | null) => void
+  canEdit: boolean
+  defaultLake?: string
 }) {
-  const [search, setSearch]             = useState("")
-  const [editingTable, setEditingTable] = useState<string | null>(null)
-  const [editMode, setEditMode]         = useState("full")
-  const [editIncCol, setEditIncCol]     = useState("")
-  const [editKeyCols, setEditKeyCols]   = useState("")   // comma-separated PK (incremental upsert)
-  const [editPiiCols, setEditPiiCols]   = useState("")   // comma-separated masking columns (* = all)
-  // Partition: editPartCol "" = Auto (inferred), "__none__" = unpartitioned, other = column name
-  const [editPartCol, setEditPartCol]   = useState("")
-  const [editPartTransform, setEditPartTransform] = useState("day")
-  const [saving, setSaving]             = useState(false)
-  const [schemaColumns, setSchemaColumns] = useState<SchemaColumn[]>([])
-  const [loadingSchema, setLoadingSchema] = useState(false)
-  // Lake catalogs a table can land in; "" = the default catalog.
-  const [lakes, setLakes] = useState<{ name: string; is_default: boolean }[]>([])
-  const [editTarget, setEditTarget] = useState("")
-  useEffect(() => {
-    fetch("/api/catalogs").then(r => (r.ok ? r.json() : { catalogs: [] }))
-      .then(d => setLakes(lakeCatalogs<{ name: string; is_default: boolean; kind: string; enabled: boolean }>(d.catalogs ?? [])))
-      .catch(() => setLakes([]))
-  }, [])
-  const defaultLake = lakes.find(c => c.is_default)?.name
-
-  const filtered = tables.filter(t =>
-    t.name.toLowerCase().includes(search.toLowerCase())
-  )
+  const [search, setSearch] = useState("")
+  const filtered = tables.filter(t => t.name.toLowerCase().includes(search.toLowerCase()))
   const enabledCount = tables.filter(t => t.enabled).length
-
-  const startEdit = async (t: typeof tables[0]) => {
-    setEditingTable(t.name)
-    setEditMode(t.sync_mode || "full")
-    setEditIncCol(t.incremental_column || "")
-    setEditKeyCols((t.key_columns || []).join(", "))
-    setEditPiiCols((t.pii_columns || []).join(", "))
-    setEditTarget(t.target_catalog || "")
-    // Partition init: null/undefined = Auto, [] = None, [{...}] = first field
-    const ps = t.partition_spec
-    if (ps == null)            { setEditPartCol(""); setEditPartTransform("day") }
-    else if (ps.length === 0)  { setEditPartCol("__none__"); setEditPartTransform("day") }
-    else                       { setEditPartCol(ps[0].column); setEditPartTransform(ps[0].transform || "day") }
-    setSchemaColumns([])
-    // Load column list for watermark dropdown
-    setLoadingSchema(true)
-    try {
-      const res = await fetch(`/api/connectors/${connId}/schema/${t.name}`)
-      if (res.ok) {
-        const data: { columns?: SchemaColumn[] } = await res.json()
-        setSchemaColumns(data.columns ?? [])
-      }
-    } catch {}
-    finally { setLoadingSchema(false) }
-    setEditIncCol(t.incremental_column || "")
-  }
-
-  const saveEdit = async () => {
-    if (!editingTable) return
-    setSaving(true)
-    try {
-      await fetch(`/api/connectors/${connId}/tables/${editingTable}/enabled`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          enabled: tables.find(t => t.name === editingTable)?.enabled ?? true,
-          incremental_column: editIncCol || null,
-          key_columns: editKeyCols.split(",").map(s => s.trim()).filter(Boolean),
-          pii_columns: editPiiCols.split(",").map(s => s.trim()).filter(Boolean),
-          target_catalog: editTarget,
-        }),
-      })
-      await fetch(`/api/connectors/${connId}/sync-mode`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sync_mode: editMode, table_name: editingTable }),
-      })
-      // Save partition spec: Auto→null, None→[], Column→[{column,transform}]
-      const partitionSpec =
-        editPartCol === ""        ? null :
-        editPartCol === "__none__" ? [] :
-        [{ column: editPartCol, transform: editPartTransform }]
-      await fetch(`/api/connectors/${connId}/tables/${editingTable}/partition`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ partition_spec: partitionSpec }),
-      })
-      // Refetch in place instead of a full page reload (no flash / state loss)
-      await onSaved?.()
-    } finally {
-      setSaving(false)
-      setEditingTable(null)
-    }
-  }
 
   return (
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Database className="h-4 w-4" />Tables
-              {tables.length > 0 && (
-                <Badge variant="secondary" className="text-xs font-normal">
-                  {enabledCount}/{tables.length} enabled
-                </Badge>
-              )}
-            </CardTitle>
-            <CardDescription className="mt-0.5">Toggle to include/exclude from sync · Query in Iceberg</CardDescription>
-          </div>
+          <CardTitle className="text-base">
+            Tables {tables.length > 0 && <span className="font-normal text-muted-foreground">· {enabledCount} synced of {tables.length}</span>}
+          </CardTitle>
           {tables.length > 5 && (
             <div className="relative shrink-0">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Filter tables…"
-                className="pl-8 h-8 text-xs w-48"
-              />
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter tables"
+                     aria-label="Filter tables" className="h-8 w-48 pl-8 text-xs" />
             </div>
           )}
         </div>
       </CardHeader>
       <CardContent className="pt-0">
         {tables.length === 0 ? (
-          <div className="flex flex-col items-center py-8 gap-2 text-muted-foreground">
-            <Database className="h-8 w-8 opacity-30" />
-            <p className="text-sm">No tables found</p>
-            <p className="text-xs opacity-60">Click Sync Now to discover tables</p>
+          <div className="flex flex-col items-center gap-1 py-8 text-muted-foreground">
+            <p className="text-sm">No tables yet</p>
+            <p className="text-xs">Sync now to discover this source&apos;s tables.</p>
           </div>
         ) : (
-          <div>
-            {/* Header row */}
-            <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-2 px-2 pb-1.5 text-2xs font-medium uppercase tracking-wide text-muted-foreground border-b">
-              <span className="w-8">Sync</span>
-              <span>Table</span>
-              <span className="text-right w-20">Last Rows</span>
-              <span className="w-28">Mode</span>
-              <span className="w-20" />
-            </div>
-            {/* Table rows */}
-            <div className="divide-y">
-              {filtered.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-4">No tables match &quot;{search}&quot;</p>
-              ) : filtered.map(table => {
-                const rows = latestTableRows.get(table.name)
-                const mode = table.sync_mode || "full"
-                const incCol = table.incremental_column
-                const lastVal = table.last_value
-                const isEditing = editingTable === table.name
-                // Fix #1: incremental set but no column → warn
-                const incMisconfigured = mode === "incremental" && !incCol
-
-                return (
-                  <div key={table.name} className={`${table.enabled ? "" : "opacity-50"}`}>
-                    {/* Main row */}
-                    <div className={`grid grid-cols-[auto_1fr_auto_auto_auto] gap-2 items-center px-2 py-2 group transition-colors ${
-                      table.enabled ? "hover:bg-muted/30" : "hover:bg-muted/10"
-                    }`}>
-                      <div className="w-8 flex items-center justify-center">
-                        <Switch
-                          checked={table.enabled}
-                          disabled={togglingTable === table.name}
-                          onCheckedChange={v => onToggle(table.name, v)}
-                          className="scale-75"
-                        />
-                      </div>
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <Database className={`h-3.5 w-3.5 shrink-0 ${table.enabled ? "text-muted-foreground" : "text-muted-foreground/40"}`} />
-                        <div className="min-w-0">
-                          <span className={`font-mono text-xs truncate block ${!table.enabled ? "line-through text-muted-foreground/50" : ""}`}>
-                            {table.name}
-                          </span>
-                          {incCol && (
-                            <span className="text-2xs text-primary/70 font-mono block truncate">
-                              ↑ {incCol}{lastVal ? ` · last: ${String(lastVal).slice(0,16)}` : " · no watermark yet"}
-                            </span>
-                          )}
-                          {incMisconfigured && (
-                            <span className="text-2xs text-[var(--dp-warn-text)] block">⚠ no watermark column</span>
-                          )}
-                          {landsIn(table.target_catalog, defaultLake) && (
-                            <span className="text-2xs text-muted-foreground/70 font-mono block truncate">
-                              → {table.target_catalog}
-                            </span>
-                          )}
-                          {table.partition_spec && table.partition_spec.length > 0 && (
-                            <span className="text-2xs text-muted-foreground/70 font-mono block truncate">
-                              ⊞ {table.partition_spec.map(p => `${p.transform}(${p.column})`).join(", ")}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <span className="text-xs text-right text-muted-foreground w-20 font-mono">
-                        {rows != null ? rows.toLocaleString() : "—"}
-                      </span>
-                      {/* Mode badge — clickable to edit */}
-                      <button
-                        onClick={() => isEditing ? setEditingTable(null) : startEdit(table)}
-                        className={`w-28 text-left`}
-                      >
-                        <span className={`text-2xs px-1.5 py-0.5 rounded font-medium border ${
-                          incMisconfigured       ? "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)] border-[var(--dp-warn)]/20" :
-                          mode === "incremental" ? "bg-primary/10 text-primary border-primary/20" :
-                          "bg-muted text-muted-foreground border-transparent"
-                        }`}>
-                          {incMisconfigured ? "⚠ incremental" : mode}
-                          {incCol && !incMisconfigured ? ` · ${incCol}` : ""}
-                        </span>
-                      </button>
-                      <div className="w-20 flex items-center justify-end gap-1">
-                        {table.enabled ? (
-                          <button
-                            onClick={() => isEditing ? setEditingTable(null) : startEdit(table)}
-                            className="text-2xs text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity">
-                            {isEditing ? "Cancel" : "Edit"}
-                          </button>
-                        ) : (
-                          <span className="text-2xs text-muted-foreground/40">skipped</span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Inline edit panel */}
-                    {isEditing && (
-                      <div className="px-10 pb-3 pt-1 bg-muted/20 border-t space-y-3">
-                        {lakes.length > 1 && (
-                          <div className="space-y-1">
-                            <label htmlFor={`tc-${table.name}`} className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Target catalog</label>
-                            <select id={`tc-${table.name}`} value={editTarget}
-                                    className="h-7 w-full rounded-md border bg-background px-2 text-xs"
-                                    onChange={e => setEditTarget(e.target.value)}>
-                              <option value="">Default ({defaultLake ?? "default catalog"})</option>
-                              {lakes.filter(c => !c.is_default).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                            </select>
-                            <p className="text-2xs text-muted-foreground">Which lake catalog the synced Iceberg table is created in.</p>
-                          </div>
-                        )}
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="space-y-1">
-                            <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Sync Mode</label>
-                            <Select value={editMode} onValueChange={v => { setEditMode(v ?? "full"); if (v !== "incremental") setEditIncCol("") }}>
-                              <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="full" className="text-xs">Full Refresh</SelectItem>
-                                <SelectItem value="incremental" className="text-xs">Incremental</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-                              Watermark Column
-                              {editMode !== "incremental" && <span className="ml-1 font-normal normal-case">(incremental only)</span>}
-                            </label>
-                            {schemaColumns.length > 0 && editMode === "incremental" ? (
-                              <Select
-                                value={editIncCol || "__none__"}
-                                onValueChange={v => setEditIncCol(v === "__none__" ? "" : (v ?? ""))}
-                              >
-                                <SelectTrigger className="h-7 text-xs">
-                                  <SelectValue placeholder="Select column…" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="__none__" className="text-xs text-muted-foreground">None</SelectItem>
-                                  {/* Recommended: timestamp/date columns first */}
-                                  {schemaColumns.filter(c =>
-                                    c.type.toLowerCase().includes("timestamp") ||
-                                    c.type.toLowerCase().includes("date") ||
-                                    c.name.includes("updated_at") || c.name.includes("created_at") || c.name.includes("modified")
-                                  ).length > 0 && (
-                                    <>
-                                      <div className="px-2 py-1 text-2xs text-muted-foreground uppercase tracking-wide font-medium">Recommended</div>
-                                      {schemaColumns.filter(c =>
-                                        c.type.toLowerCase().includes("timestamp") || c.type.toLowerCase().includes("date") ||
-                                        c.name.includes("updated_at") || c.name.includes("created_at") || c.name.includes("modified")
-                                      ).map(c => (
-                                        <SelectItem key={c.name} value={c.name} className="text-xs">
-                                          {c.name} <span className="text-muted-foreground font-mono ml-1">{c.type}</span>
-                                        </SelectItem>
-                                      ))}
-                                      <div className="px-2 py-1 text-2xs text-muted-foreground uppercase tracking-wide font-medium">All Columns</div>
-                                    </>
-                                  )}
-                                  {schemaColumns.filter(c =>
-                                    !c.type.toLowerCase().includes("timestamp") && !c.type.toLowerCase().includes("date") &&
-                                    !c.name.includes("updated_at") && !c.name.includes("created_at") && !c.name.includes("modified")
-                                  ).map(c => (
-                                    <SelectItem key={c.name} value={c.name} className="text-xs">
-                                      {c.name} <span className="text-muted-foreground font-mono ml-1">{c.type}</span>
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <Input
-                                value={editIncCol}
-                                onChange={e => setEditIncCol(e.target.value)}
-                                placeholder={
-                                  editMode !== "incremental" ? "—" :
-                                  loadingSchema ? "Loading columns…" : "e.g. updated_at"
-                                }
-                                disabled={editMode !== "incremental" || loadingSchema}
-                                className="h-7 text-xs font-mono"
-                              />
-                            )}
-                          </div>
-                        </div>
-                        {editMode === "incremental" && !editIncCol && (
-                          <p className="text-2xs text-[var(--dp-warn-text)] flex items-center gap-1">
-                            ⚠ No watermark column set — incremental will load all rows on first run
-                          </p>
-                        )}
-                        {/* Incremental upsert PK — when set, merges instead of appending (updates changed rows, prevents duplicates) */}
-                        <div className="space-y-1 pt-1">
-                          <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-                            Key Columns (upsert PK)
-                            {editMode !== "incremental" && <span className="ml-1 font-normal normal-case">(incremental only)</span>}
-                          </label>
-                          <Input
-                            value={editKeyCols}
-                            onChange={e => setEditKeyCols(e.target.value)}
-                            placeholder={editMode !== "incremental" ? "—" : "e.g. id  (leave blank to append)"}
-                            disabled={editMode !== "incremental"}
-                            className="h-7 text-xs font-mono"
-                          />
-                          {editMode === "incremental" && editKeyCols.trim() && (
-                            <p className="text-2xs text-[var(--dp-good-text)]">merge by [{editKeyCols.split(",").map(s=>s.trim()).filter(Boolean).join(", ")}] — updates changed rows, prevents duplicates</p>
-                          )}
-                        </div>
-                        {/* PII masking — masks sensitive columns before load (sovereignty/compliance). Applies to all sync modes */}
-                        <div className="space-y-1 pt-1 border-t">
-                          <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-                            PII Masking Columns
-                          </label>
-                          <Input
-                            value={editPiiCols}
-                            onChange={e => setEditPiiCols(e.target.value)}
-                            placeholder="e.g. email, phone  ·  * = all string columns  (leave blank to disable)"
-                            className="h-7 text-xs font-mono"
-                          />
-                          {editPiiCols.trim() && (
-                            <p className="text-2xs text-[var(--dp-good-text)]">
-                              Masked before load: {editPiiCols.trim() === "*" ? "all string columns" : `[${editPiiCols.split(",").map(s=>s.trim()).filter(Boolean).join(", ")}]`} (SSN/phone/card/email, etc.)
-                            </p>
-                          )}
-                        </div>
-                        {/* Partitioning (Iceberg) */}
-                        <div className="grid grid-cols-2 gap-3 pt-1 border-t">
-                          <div className="space-y-1">
-                            <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Partition Column</label>
-                            <Select value={editPartCol || "__auto__"} onValueChange={v => setEditPartCol(v === "__auto__" ? "" : (v ?? ""))}>
-                              <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="__auto__" className="text-xs">Auto (day, on timestamp column)</SelectItem>
-                                <SelectItem value="__none__" className="text-xs text-muted-foreground">None (unpartitioned)</SelectItem>
-                                {schemaColumns.map(c => (
-                                  <SelectItem key={c.name} value={c.name} className="text-xs">
-                                    {c.name} <span className="text-muted-foreground font-mono ml-1">{c.type}</span>
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-                              Transform {(editPartCol === "" || editPartCol === "__none__") && <span className="font-normal normal-case">(when a column is selected)</span>}
-                            </label>
-                            <Select value={editPartTransform} onValueChange={v => setEditPartTransform(v ?? "day")}>
-                              <SelectTrigger className="h-7 text-xs" disabled={editPartCol === "" || editPartCol === "__none__"}><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="day" className="text-xs">day (daily)</SelectItem>
-                                <SelectItem value="month" className="text-xs">month (monthly)</SelectItem>
-                                <SelectItem value="year" className="text-xs">year (yearly)</SelectItem>
-                                <SelectItem value="identity" className="text-xs">identity (value as-is)</SelectItem>
-                                <SelectItem value="bucket" className="text-xs">bucket (16-way hash)</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-                        <p className="text-2xs text-muted-foreground">
-                          Partitioning applies when a new table is created. Existing tables pick it up on the next full sync (recreate).
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <Button size="sm" className="h-6 text-xs" onClick={saveEdit} disabled={saving}>
-                            {saving ? "Saving…" : "Save"}
-                          </Button>
-                          <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setEditingTable(null)}>
-                            Cancel
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* CDC callout — only when the Streaming/RisingWave component is enabled on this profile */}
-        {streamingEnabled && (
-          <div className="mt-3 flex items-start gap-2 rounded-md bg-muted/40 border px-3 py-2 text-xs text-muted-foreground">
-            <Zap className="h-3.5 w-3.5 shrink-0 mt-0.5 text-primary/60" />
-            <span>
-              Real-time CDC (Change Data Capture) is available via{" "}
-              <Link href="/streaming" className="text-primary underline underline-offset-2">Streaming</Link>
-              {" "}— captures every INSERT/UPDATE/DELETE with sub-second latency.
-            </span>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[520px] text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs text-muted-foreground">
+                  <th scope="col" className="w-12 py-2 font-medium">Sync</th>
+                  <th scope="col" className="py-2 font-medium">Table</th>
+                  <th scope="col" className="py-2 font-medium">Mode</th>
+                  <th scope="col" className="py-2 text-right font-medium">Last rows</th>
+                  <th scope="col" className="py-2 font-medium">Masked</th>
+                  <th scope="col" className="py-2"><span className="sr-only">Settings</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0 && (
+                  <tr><td colSpan={6} className="py-4 text-center text-xs text-muted-foreground">No tables match &quot;{search}&quot;</td></tr>
+                )}
+                {filtered.map(table => {
+                  const rows = latestTableRows.get(table.name)
+                  const mode = table.sync_mode || "full"
+                  const noWatermark = mode === "incremental" && !table.incremental_column
+                  const on = selected === table.name
+                  return (
+                    <tr key={table.name} className={`border-b last:border-0 ${on ? "bg-primary/5" : ""} ${table.enabled ? "" : "text-muted-foreground"}`}>
+                      <td className="py-2">
+                        <Switch checked={table.enabled} disabled={!canEdit || togglingTable === table.name}
+                                aria-label={`Sync ${table.name}`} onCheckedChange={v => onToggle(table.name, v)} className="scale-75" />
+                      </td>
+                      <td className="py-2">
+                        <span className="font-mono text-xs">{table.name}</span>
+                        {landsIn(table.target_catalog, defaultLake) && <span className="block text-xs text-muted-foreground">→ {table.target_catalog}</span>}
+                        {noWatermark && <span className="block text-xs text-[var(--dp-warn-text)]">no changed-since column — reads the whole table</span>}
+                      </td>
+                      <td className="py-2 text-xs">
+                        {mode === "incremental" ? <>Changed rows{table.incremental_column && <span className="text-muted-foreground"> · {table.incremental_column}</span>}</> : "Full refresh"}
+                      </td>
+                      <td className="py-2 text-right font-mono text-xs">{rows != null ? rows.toLocaleString() : "—"}</td>
+                      <td className="py-2 font-mono text-xs">{table.pii_columns?.length ? table.pii_columns.join(", ") : <span className="text-muted-foreground">—</span>}</td>
+                      <td className="py-2 text-right">
+                        <Button size="sm" variant={on ? "secondary" : "outline"} className="h-7 text-xs"
+                                onClick={() => onSelect(on ? null : table.name)}>
+                          {on ? "Close" : canEdit ? "Edit" : "View"}
+                        </Button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </CardContent>
@@ -634,6 +297,7 @@ interface Connector {
   id: string; name: string; connector_type: string
   status: string; created_at: string; last_sync_at: string | null
   last_checked_at?: string | null; last_check_message?: string | null
+  catalog?: string | null
 }
 
 export default function ConnectionDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -642,6 +306,17 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const pipelinesEnabled = useCapability("pipelines")
   const streamingEnabled = useCapability("streaming")
   const catalogEnabled = useCapability("catalog")
+  // The routes that change a source (sync, pause, edit, tables, delete) need
+  // connector:write; only "check connection" is open to every reader.
+  const canWrite = useHasPermission("connector:write")
+  const [selectedTable, setSelectedTable] = useState<string | null>(null)
+  const [lakes, setLakes] = useState<{ name: string; is_default: boolean }[]>([])
+  useEffect(() => {
+    fetch("/api/catalogs").then(r => (r.ok ? r.json() : { catalogs: [] }))
+      .then(d => setLakes(lakeCatalogs<{ name: string; is_default: boolean; kind: string; enabled: boolean }>(d.catalogs ?? [])))
+      .catch(() => setLakes([]))
+  }, [])
+  const defaultLake = lakes.find(c => c.is_default)?.name
 
   const [connector, setConnector]         = useState<Connector | null>(null)
   // The engine restarts when a Trino-backed source is created or re-configured; the
@@ -673,7 +348,8 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const [editName, setEditName]           = useState("")
   const [editConnectorType, setEditConnectorType] = useState("")
   const [saving, setSaving]               = useState(false)
-  const [saveMessage, setSaveMessage]     = useState<string | null>(null)
+  // Typed outcome: the colour used to depend on whether the text contained "success".
+  const [saveMessage, setSaveMessage]     = useState<{ ok: boolean; text: string } | null>(null)
   const [testing, setTesting]             = useState(false)
   const [testResult, setTestResult]       = useState<{ success: boolean; message: string } | null>(null)
 
@@ -1011,7 +687,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
       setEditName(data.name); setEditConnectorType(data.connector_type)
       setEditConfig(data.config ?? {}); setEditing(true)
       setSaveMessage(null); setTestResult(null)
-    } catch (err) { setSaveMessage(err instanceof Error ? err.message : "Failed") }
+    } catch (err) { setSaveMessage({ ok: false, text: err instanceof Error ? err.message : "Failed" }) }
   }
 
   const handleTestEdit = async (): Promise<void> => {
@@ -1042,19 +718,20 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         body: JSON.stringify({ name: editName, config: editConfig }),
       })
       if (!res.ok) { const e = await res.json(); throw new Error(e.detail ?? "Save failed") }
-      setSaveMessage("Saved successfully."); setEditing(false)
+      setSaveMessage({ ok: true, text: "Connection saved." }); setEditing(false)
       await fetchConnector()
-    } catch (err) { setSaveMessage(err instanceof Error ? err.message : "Save failed.") }
+    } catch (err) { setSaveMessage({ ok: false, text: err instanceof Error ? err.message : "Save failed." }) }
     finally { setSaving(false) }
   }
 
   const handleTableToggle = async (tableName: string, enabled: boolean) => {
     setTogglingTable(tableName)
     try {
-      await fetch(`/api/connectors/${id}/tables/${tableName}/enabled`, {
+      const r = await fetch(`/api/connectors/${id}/tables/${encodeURIComponent(tableName)}/enabled`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled }),
       })
+      if (!r.ok) { toast(`Could not ${enabled ? "include" : "exclude"} ${tableName} (HTTP ${r.status})`, "error"); return }
       setTables(prev => prev.map(t => t.name === tableName ? { ...t, enabled } : t))
     } finally { setTogglingTable(null) }
   }
@@ -1164,61 +841,69 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   if (!connector) return null
 
   return (
-    <div className="flex-1 space-y-4 p-8 pt-6">
+    <div className="mx-auto max-w-7xl space-y-4 px-6 py-6">
 
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" aria-label="Back to connectors" render={<Link href="/connectors" />}><ChevronLeft className="h-4 w-4" /></Button>
-        <div className="flex-1">
-          <h2 className="text-3xl font-bold tracking-tight">{connector.name}</h2>
-          <div className="flex items-center gap-2 mt-1">
-            <Badge variant="outline" className="capitalize">{connector.connector_type}</Badge>
-            <Badge variant={connector.status === "active" ? "default"
-              : connector.status === "error" ? "destructive" : "secondary"}>{connector.status}</Badge>
+      <Link href="/connectors" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        <ChevronLeft className="h-3.5 w-3.5" />Sources
+      </Link>
+      {/* Header: name and state on the left; one primary action, the rest in a menu.
+          It was seven equal-weight buttons in a row, Delete among them. */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-2xl font-bold tracking-tight">{connector.name}</h2>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+            <span className="capitalize">{connector.connector_type.replace(/_/g, " ")}</span>
+            {connector.catalog && <><span>·</span><span>queryable as <code className="font-mono text-xs">{connector.catalog}</code></span></>}
+            <span>·</span>
+            <span className={connector.status === "error" ? "text-destructive" : connector.status === "paused" ? "" : "text-[var(--dp-good-text)]"}>{connector.status}</span>
             {(() => {
               const check = describeCheck(connector.last_checked_at, Date.now())
-              return (
-                <span className={`text-xs ${check.stale ? "text-[var(--dp-warn-text)]" : "text-muted-foreground"}`}>
-                  {check.text}
-                </span>
-              )
+              return <span className={check.stale ? "text-[var(--dp-warn-text)]" : ""}>· {check.text}</span>
             })()}
-          </div>
+          </p>
           {connector.last_check_message && (
-            <p className={`mt-1 text-xs break-words ${connector.status === "error"
-              ? "text-destructive" : "text-muted-foreground"}`}>
+            <p className={`mt-1 break-words text-xs ${connector.status === "error" ? "text-destructive" : "text-muted-foreground"}`}>
               {connector.last_check_message}
             </p>
           )}
         </div>
-        <div className="flex gap-2">
-          {catalogEnabled && (
-            <Button variant="outline" render={<Link href="/catalog" />}>
-              <Database className="h-4 w-4 mr-2" />Catalog
+        <div className="flex flex-wrap items-center gap-2">
+          {connector.catalog ? (
+            <Button variant="outline" size="sm" render={<Link href={`/query?catalog=${encodeURIComponent(connector.catalog)}`} />}>Query in Analytics</Button>
+          ) : catalogEnabled && (
+            <Button variant="outline" size="sm" render={<Link href="/catalog" />}>Open Catalog</Button>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger>
+              <Button variant="outline" size="sm" aria-label="More actions for this source">More ▾</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleCheck} disabled={checking}>
+                <PlugZap className="mr-2 h-3.5 w-3.5" />{checking ? "Checking…" : "Check connection"}
+              </DropdownMenuItem>
+              {canWrite && (
+                <>
+                  <DropdownMenuItem onClick={startEdit} disabled={editing}><Pencil className="mr-2 h-3.5 w-3.5" />Edit connection</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void handlePauseToggle()} disabled={pausing}>
+                    {connector.status === "paused"
+                      ? <><Play className="mr-2 h-3.5 w-3.5" />Resume</>
+                      : <><Pause className="mr-2 h-3.5 w-3.5" />Pause (not in use)</>}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem className="text-destructive" onClick={handleDelete} disabled={deleting}>
+                    <Trash2 className="mr-2 h-3.5 w-3.5" />{deleting ? "Deleting…" : "Delete source"}
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {canWrite && (
+            <Button size="sm" onClick={handleSyncNow} disabled={syncing || engineRestarting}
+              title={engineRestarting ? "The query engine is restarting; Sync is available when it is back." : undefined}>
+              <RefreshCw className={`mr-1.5 h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
+              {syncing ? "Syncing…" : "Sync now"}
             </Button>
           )}
-          <Button variant="outline" onClick={handleCheck} disabled={checking}>
-            <PlugZap className={`h-4 w-4 mr-2 ${checking ? "animate-pulse" : ""}`} />
-            {checking ? "Checking…" : "Check connection"}
-          </Button>
-          <Button variant="outline" onClick={startEdit} disabled={editing}>
-            <Pencil className="h-4 w-4 mr-2" />Edit
-          </Button>
-          <Button variant="outline" onClick={handleSyncNow} disabled={syncing || engineRestarting}
-            title={engineRestarting ? "The query engine is restarting; Sync is available when it is back." : undefined}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
-            {syncing ? "Syncing…" : "Sync Now"}
-          </Button>
-          <Button variant="outline" onClick={() => void handlePauseToggle()} disabled={pausing}
-            title={connector.status === "paused" ? "Put this source back in use" : "Not using this source? Stop reporting it as stale"}>
-            {connector.status === "paused"
-              ? <><Play className="h-4 w-4 mr-2" />{pausing ? "Resuming…" : "Resume"}</>
-              : <><Pause className="h-4 w-4 mr-2" />{pausing ? "Pausing…" : "Pause"}</>}
-          </Button>
-          <Button variant="outline" onClick={handleDelete} disabled={deleting}>
-            <Trash2 className="h-4 w-4 mr-2" />
-            {deleting ? "Deleting…" : "Delete"}
-          </Button>
         </div>
       </div>
 
@@ -1247,79 +932,24 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         </div>
       )}
       {saveMessage && (
-        <div className={`text-sm px-1 ${saveMessage.includes("success") ? "text-[var(--dp-good-text)]" : "text-destructive"}`}>
-          {saveMessage}
+        <div role={saveMessage.ok ? "status" : "alert"} className={`text-sm px-1 ${saveMessage.ok ? "text-[var(--dp-good-text)]" : "text-destructive"}`}>
+          {saveMessage.text}
         </div>
       )}
 
-      {/* Stats — uniform height via items-stretch */}
-      <div className="grid gap-3 md:grid-cols-4">
-        {/* 1. Tables */}
-        <Card className="flex flex-col">
-          <CardHeader className="pb-2 flex-1">
-            <CardDescription className="flex items-center gap-1.5"><Database className="h-3.5 w-3.5" />Tables</CardDescription>
-            <CardTitle className="text-2xl">
-              {tables.length > 0
-                ? <>{tables.filter(t => t.enabled).length}<span className="text-sm font-normal text-muted-foreground">/{tables.length}</span></>
-                : "—"}
-            </CardTitle>
-            <p className="text-2xs text-muted-foreground mt-0.5">
-              {tables.length > 0 ? `${tables.filter(t => !t.enabled).length} excluded` : "Sync to discover"}
-            </p>
-          </CardHeader>
-        </Card>
-        {/* 2. Last Sync Rows */}
-        <Card className="flex flex-col">
-          <CardHeader className="pb-2 flex-1">
-            <CardDescription className="flex items-center gap-1.5"><Rows3 className="h-3.5 w-3.5" />Last Sync Rows</CardDescription>
-            <CardTitle className="text-2xl">{lastRunRows != null ? lastRunRows.toLocaleString() : "—"}</CardTitle>
-            <p className="text-2xs text-muted-foreground mt-0.5">
-              {lastRunRows != null ? "rows ingested" : "no data yet"}
-            </p>
-          </CardHeader>
-        </Card>
-        {/* 3. Success Rate */}
-        <Card className={`flex flex-col ${successRate !== null && successRate < 80 ? "border-destructive/30" : ""}`}>
-          <CardHeader className="pb-2 flex-1">
-            <CardDescription className="flex items-center gap-1.5">
-              <BarChart2 className="h-3.5 w-3.5" />Success Rate
-            </CardDescription>
-            <CardTitle className={`text-2xl ${successRate !== null && successRate < 80 ? "text-destructive" : ""}`}>
-              {successRate !== null ? `${successRate}%` : "—"}
-            </CardTitle>
-            <p className="text-2xs text-muted-foreground mt-0.5">
-              {recentSessions.length > 0 ? `last ${recentSessions.length} syncs` : "no history"}
-            </p>
-            {/* Per-run outcome strip (oldest→newest) — encodes the rate as form+color
-                so a run of recent failures is visible at a glance, not just the % */}
-            {recentSessions.length > 0 && (
-              <div className="flex gap-0.5 mt-1.5" aria-hidden="true">
-                {[...recentSessions].reverse().map((s, i) => (
-                  <div
-                    key={i}
-                    title={s.status}
-                    className={`h-1.5 flex-1 rounded-sm ${
-                      s.status === "success" ? "bg-[var(--dp-good)]" :
-                      s.status === "failed" ? "bg-destructive" :
-                      "bg-muted-foreground/30"
-                    }`}
-                  />
-                ))}
-              </div>
-            )}
-          </CardHeader>
-        </Card>
-        {/* 4. Data Freshness */}
-        <Card className={`flex flex-col ${freshnessStale ? "border-[var(--dp-warn)]/40" : ""}`}>
-          <CardHeader className="pb-2 flex-1">
-            <CardDescription className="flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5" />Data Freshness</CardDescription>
-            <CardTitle className={`text-xl ${freshnessStale ? "text-[var(--dp-warn-text)]" : ""}`}>{freshnessLabel}</CardTitle>
-            <p className="text-2xs text-muted-foreground mt-0.5">
-              {connector.last_sync_at ? formatDateTime(connector.last_sync_at) : "never synced"}
-            </p>
-          </CardHeader>
-        </Card>
-      </div>
+      <div className="flex flex-wrap items-start gap-5">
+      <div className="min-w-0 flex-[3_1_560px] space-y-4">
+      {/* ── Tables first: they are what this source is for ── */}
+      <TablesCard
+        tables={tables}
+        latestTableRows={latestTableRows}
+        togglingTable={togglingTable}
+        onToggle={handleTableToggle}
+        selected={selectedTable}
+        onSelect={setSelectedTable}
+        canEdit={canWrite}
+        defaultLake={defaultLake}
+      />
 
       {/* ── Main 2-column layout — direct card children, no wrapper divs ── */}
       <div className="grid gap-4 md:grid-cols-[1fr_300px]">
@@ -1408,17 +1038,6 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
            Above Tables deliberately: "whose source is this, and who else can touch
            it" is a question about the connector itself, not about one sync run. */}
       <SourceAccessPanel kind="connectors" id={id} />
-
-      {/* ── Tables: defines sync scope (cause) ── */}
-      <TablesCard
-        tables={tables}
-        latestTableRows={latestTableRows}
-        togglingTable={togglingTable}
-        onToggle={handleTableToggle}
-        connId={id}
-        onSaved={fetchConnector}
-        streamingEnabled={streamingEnabled}
-      />
 
       {/* ── Sync History: run results (effect) ── */}
       {(liveSession || sessions.length > 0) && (
@@ -1538,6 +1157,60 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           </CardContent>
         </Card>
       )}
+      </div>{/* end left column */}
+
+      {selectedTable && tables.find(t => t.name === selectedTable) ? (
+        <TableSettingsPanel
+          key={selectedTable}
+          connId={id}
+          table={tables.find(t => t.name === selectedTable) as ConnectorTable}
+          lakes={lakes}
+          defaultLake={defaultLake}
+          canEdit={canWrite}
+          onSaved={async () => { await fetchConnector(); setSelectedTable(null) }}
+          onClose={() => setSelectedTable(null)}
+        />
+      ) : (
+        <ExplainRail label="This source at a glance">
+          <RailSection title="Last syncs">
+            {recentSessions.length > 0 ? (
+              <>
+                <div className="mt-1 flex gap-0.5" role="img" aria-label={`Last ${recentSessions.length} syncs: ${recentSessions.filter(x => x.status === "success").length} succeeded`}>
+                  {[...recentSessions].reverse().map((x, i) => (
+                    <span key={i} title={x.status} className={`h-3 flex-1 rounded-sm ${x.status === "success" ? "bg-[var(--dp-good)]" : x.status === "failed" ? "bg-destructive" : "bg-muted-foreground/30"}`} />
+                  ))}
+                </div>
+                <p className="mt-1">{successRate}% succeeded · {lastRunRows != null ? `${lastRunRows.toLocaleString()} rows last time` : "no rows yet"}</p>
+              </>
+            ) : "Never synced."}
+          </RailSection>
+          <RailSection title="Freshness">
+            <span className={freshnessStale ? "text-[var(--dp-warn-text)]" : ""}>{freshnessLabel}</span>
+            {connector.last_sync_at && <> · {formatDateTime(connector.last_sync_at)}</>}
+          </RailSection>
+          <RailSection title="Tables">
+            {tables.length > 0
+              ? `${tables.filter(t => t.enabled).length} of ${tables.length} synced · ${tables.filter(t => t.pii_columns?.length).length} with masked columns`
+              : "None discovered yet."}
+          </RailSection>
+          {tables.some(t => t.enabled && (t.sync_mode || "full") === "incremental" && !t.incremental_column) && (
+            <RailAttention title="Changed-rows sync without a column">
+              {tables.filter(t => t.enabled && (t.sync_mode || "full") === "incremental" && !t.incremental_column).map(t => t.name).join(", ")} read the whole table on every run.
+            </RailAttention>
+          )}
+          {tables.length > 0 && !tables.some(t => t.pii_columns?.length) && (
+            <RailAttention title="No columns masked">
+              If these tables hold personal data, choose the columns to mask before loading (Edit a table).
+            </RailAttention>
+          )}
+          {streamingEnabled && (
+            <p className="text-xs text-muted-foreground">
+              Need every change within seconds? <Link href="/streaming" className="text-primary hover:underline">Stream it with CDC</Link>.
+            </p>
+          )}
+        </ExplainRail>
+      )}
+      </div>{/* end two columns */}
     </div>
   )
 }

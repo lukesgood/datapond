@@ -229,7 +229,7 @@ export const availableConnectors: Connector[] = [
     name: "REST API",
     category: "saas",
     icon: "/connectors/rest.svg",
-    description: "HTTP/HTTPS REST API에서 데이터 수집. JSON 응답, 인증 헤더, 페이지네이션 지원",
+    description: "Pull JSON from an HTTP API, with an auth header and a path to the records",
     supported: true,
     features: ["Bearer Token", "Basic Auth", "API Key", "JSON Path"],
     fields: [
@@ -258,14 +258,14 @@ export const availableConnectors: Connector[] = [
         label: "Auth Header Name",
         type: "text",
         default: "Authorization",
-        help: "api_key 방식일 때 사용할 헤더 이름"
+        help: "The header that carries the key when Auth Type is api_key"
       },
       {
         name: "data_path",
         label: "Data Path (JSONPath)",
         type: "text",
         placeholder: "data.items",
-        help: "응답 JSON에서 배열 데이터가 있는 경로"
+        help: "Where the list of records is in the JSON response"
       }
     ]
   },
@@ -274,17 +274,17 @@ export const availableConnectors: Connector[] = [
     name: "Custom Python",
     category: "saas",
     icon: "/connectors/python.svg",
-    description: "Python 코드로 어떤 소스든 직접 연결. fetch_data() 함수가 dict 리스트를 반환하면 됩니다",
+    description: "Connect any source with Python: define fetch_data() and return a list of dicts",
     supported: true,
-    features: ["완전 커스텀", "모든 Python 라이브러리", "사내 API"],
+    features: ["Any source", "Any Python library", "Internal APIs"],
     fields: [
       {
         name: "code",
         label: "Python Code",
         type: "textarea",
         required: true,
-        placeholder: "def fetch_data():\n    # 데이터를 가져와서 반환\n    return [{\"id\": 1, \"name\": \"example\"}]",
-        help: "fetch_data() 함수를 정의하세요. dict 리스트를 반환해야 합니다."
+        placeholder: "def fetch_data():\n    # fetch the records and return them\n    return [{\"id\": 1, \"name\": \"example\"}]",
+        help: "Define fetch_data(); it must return a list of dicts."
       }
     ]
   }

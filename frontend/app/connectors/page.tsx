@@ -19,7 +19,7 @@ import { SampleSourcesPanel } from "@/components/connectors/sample-sources-panel
 import { availableConnectors } from "@/lib/connectors"
 import {
   Plus, RefreshCw, Database, Search, MoreHorizontal,
-  Trash2, HardDrive, Radio, Cloud, AlertCircle, Plug,
+  Trash2, HardDrive, Radio, Cloud, AlertCircle, Plug, Code2,
   Rows3, ShieldAlert, TrendingUp, TableProperties,
   ArrowRight, ArrowDownToLine, Layers, BarChart2, Zap, Pause, Play, Loader2,
 } from "lucide-react"
@@ -751,6 +751,8 @@ function ConnectorsPageInner() {
                 { id: "database", label: "Databases", icon: Database },
                 { id: "storage", label: "Storage", icon: HardDrive },
                 { id: "streaming", label: "Streaming", icon: Radio },
+                // REST API and Custom Python are "saas" and had no button: only All showed them.
+                { id: "saas", label: "APIs & code", icon: Code2 },
               ].map(({ id, label, icon: Icon }) => (
                 <Button
                   key={id}

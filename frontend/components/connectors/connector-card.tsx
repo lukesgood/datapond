@@ -32,7 +32,7 @@ export function ConnectorCard({ connector }: ConnectorCardProps) {
               variant="secondary"
               className={`mt-1 text-2xs h-4 px-1.5 ${categoryColors[connector.category]}`}
             >
-              {connector.category}
+              {connector.category === "saas" ? "API / code" : connector.category}
             </Badge>
           </div>
         </div>
