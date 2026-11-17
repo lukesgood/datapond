@@ -181,9 +181,11 @@ backend:
       cpu: 1000m
       memory: 1Gi
 
-  env:
-    - name: ENVIRONMENT
-      value: "production"
+  # Extra env for the backend container, appended after the template's own. Never
+  # repeat a name the template sets (ENVIRONMENT, DATABASE_URL, …): server-side apply
+  # (Helm 4) refuses a Deployment with duplicate env names, and this list used to carry
+  # ENVIRONMENT, which the template already sets — every fresh install failed.
+  env: []
     # NOTE: DATABASE_URL and REDIS_URL are constructed in backend-deployment.yaml from
     # POSTGRES_HOST/PORT/etc (externalDatabase-aware). Do NOT hardcode DATABASE_URL here —
     # a static "@postgres:5432" entry is appended AFTER the constructed one and overrides it,
@@ -335,9 +337,7 @@ jupyter:
     enabled: true
     size: 20Gi
 
-  env:
-    - name: JUPYTER_ENABLE_LAB
-      value: "yes"
+  env: []   # extra env; the template already sets JUPYTER_ENABLE_LAB (no duplicates: Helm 4 refuses them)
 
   auth:
     # JupyterLab token. Empty ⇒ Helm generates & preserves (retrieve:
