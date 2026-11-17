@@ -1057,6 +1057,38 @@ async def reset_password(body: ResetPasswordRequest):
 
 # ── User management endpoints ──────────────────────────────────────────────────
 
+PASSWORD_MIN_LENGTH = 6
+PASSWORD_HASH = "bcrypt, cost 12"     # _hash_password above
+
+
+def security_config() -> dict:
+    """What sign-in actually does on this deployment, read from the code and env that
+    enforce it. Settings → Security listed hard-coded claims instead ("admin / viewer
+    roles" with seven roles live; "24h JWT expiry" whatever JWT_EXPIRE_HOURS said)."""
+    from app import oauth_rs
+    from app.rate_limit import _int_env
+    return {
+        "session_hours": TOKEN_EXPIRE_HOURS,
+        "session_cookie": "HttpOnly, SameSite=Lax, Secure over HTTPS",
+        "password_hash": PASSWORD_HASH,
+        "password_min_length": PASSWORD_MIN_LENGTH,
+        "first_login_change": True,
+        "login_lockout": {
+            "max_failures": _int_env("LOGIN_MAX_FAILURES", 5),
+            "lockout_seconds": _int_env("LOGIN_LOCKOUT_SECONDS", 60),
+            "max_lockout_seconds": _int_env("LOGIN_LOCKOUT_MAX_SECONDS", 900),
+        },
+        "roles": [{"name": r, "description": ROLE_LABELS.get(r, ""), "permissions": len(ROLE_PERMISSIONS.get(r, ()))}
+                  for r in ASSIGNABLE_ROLES],
+        "oauth_resource_server": oauth_rs.enabled(),
+    }
+
+
+@router.get("/auth/security-config")
+async def get_security_config(admin: dict = Depends(require_permission("user:manage"))):
+    return security_config()
+
+
 @router.get("/auth/users")
 async def list_users(admin: dict = Depends(require_permission("user:manage"))):
     """Admin: list all users."""

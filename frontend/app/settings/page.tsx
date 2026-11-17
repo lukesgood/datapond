@@ -1,85 +1,50 @@
 "use client"
 
-import { useEffect, useState, useCallback, useSyncExternalStore, Suspense } from "react"
+import { useEffect, useState, useSyncExternalStore, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useToast } from "@/lib/toast"
-import { ErrorBox } from "@/components/ui/error-box"
-import { useConfirm } from "@/lib/confirm"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import NextLink from "next/link"
+import { CheckCircle2, Copy, ShieldCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { ErrorBox } from "@/components/ui/error-box"
+import { PageHeader } from "@/components/ui/page-header"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DataCatalogs } from "@/components/settings/data-catalogs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import {
-  Server,
-  CheckCircle2, RefreshCw, Copy, Info, ShieldCheck,
-  Trash2,
-  Eye, EyeOff, UserPlus, KeyRound, Shield, UserX, UserCheck, SlidersHorizontal,
-  Link,
-} from "lucide-react"
-import { getUser } from "@/lib/auth"
-import NextLink from "next/link"
+import { People } from "@/components/settings/people"
 import { useCapabilityStrict, useCapability, useCapabilities } from "@/lib/capabilities"
-import { usePermissions, useHasPermission } from "@/lib/permissions"
+import { usePermissions } from "@/lib/permissions"
 import { permissionState } from "@/lib/permission-state"
 import { PermissionUnknown } from "@/components/ui/permission-state"
-import { roleOptions } from "@/lib/user-roles"
 
-// ── Constants ──────────────────────────────────────────────────────────────────
-
-// Access URLs (path-hosted services). OpenMetadata / MinIO / Trino are NOT
-// listed: their web UIs don't support sub-path hosting, so they 404 under /<svc>
-// on every profile — use a subdomain or port-forward for those admin UIs.
-// MLflow/Airflow paths keep a trailing slash: their gunicorn frontend emits a
-// 308 add-slash redirect with an absolute http:// URL (the proxy hop drops
-// X-Forwarded-Proto), which downgrades the click to http. Linking the slashed
-// form skips that redirect — /mlflow/ → 200, /airflow/ → relative 302.
-// `cap` gates a row behind a platform capability — dead links for disabled
-// optional components are hidden unless their runtime capability is explicitly true.
-const ACCESS_URL_DEFS = [
-  { service: "Management UI",  path: "",                  cred: undefined },
-  { service: "Backend API",    path: "/api/health",       cred: undefined },
-  { service: "JupyterLab",     path: "/jupyter",          cred: undefined,          cap: "notebooks" },
-  { service: "Airflow",        path: "/airflow/",         cred: undefined,          cap: "pipelines" },
+// Path-hosted services. OpenMetadata / MinIO / Trino are not listed: their web UIs
+// don't support sub-path hosting. MLflow/Airflow keep a trailing slash to skip an
+// http:// add-slash redirect. `cap` hides a link unless its capability is true.
+const SERVICE_URLS = [
+  { service: "Console", path: "" },
+  { service: "Backend API", path: "/api/health" },
+  { service: "JupyterLab", path: "/jupyter", cap: "notebooks" },
+  { service: "Airflow", path: "/airflow/", cap: "pipelines" },
   // mlflow_ui, not experiments: MLflow has no authentication, so a deployment can run
   // experiments with its UI kept off the ingress, and then this link would be dead.
-  { service: "MLflow",         path: "/mlflow/",          cred: undefined,          cap: "mlflow_ui" },
-]
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
+  { service: "MLflow", path: "/mlflow/", cap: "mlflow_ui" },
+] as const
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   return (
-    <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0"
-      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500) }}>
+    <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" aria-label={`Copy ${text}`}
+      onClick={() => { void navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500) }}>
       {copied ? <CheckCircle2 className="h-3 w-3 text-[var(--dp-good-text)]" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
     </Button>
   )
 }
 
-interface ServiceSummary {
-  name: string
-  status: "healthy" | "unhealthy" | "unknown" | "managed"
-  description?: string
-  version?: string
-}
-interface DashboardStats { cpu_usage?: number; memory_usage?: number }
-interface StatusCardItem { label: string; value: string | null; sub: string; ok: boolean; warn?: boolean }
-
 const subscribeToClient = () => () => {}
 
-// ── Main page ──────────────────────────────────────────────────────────────────
-
-// ?tab=<value> opens that tab. "service" is gone: service accounts moved to /agents, and
-// old links to ?tab=service are sent there.
-const TABS = ["overview", "users", "security", "catalogs"]
+// ?tab=<value> opens that tab. Old names still work: "users" → people, "overview" →
+// urls; "service" went to /agents when service accounts moved there.
+const TABS = ["people", "catalogs", "security", "urls"] as const
+const ALIASES: Record<string, string> = { users: "people", overview: "urls" }
 
 export default function SettingsPage() {
   return (
@@ -93,69 +58,26 @@ function SettingsWorkspace() {
   const asked = useSearchParams().get("tab")
   const router = useRouter()
   useEffect(() => { if (asked === "service") router.replace("/agents") }, [asked, router])
-  const initialTab = asked && TABS.includes(asked) ? asked : "overview"
-  // Fail-closed: only render passkey management when the backend explicitly
-  // reports webauthn=true. A /api/capabilities fetch error must not show the
-  // secure-context-sensitive passkey UI (mirrors the login page's strict gate).
-  const webauthnEnabled = useCapabilityStrict("webauthn")
-  // Fail-closed like webauthn above — only claim SSO is active when the backend
-  // confirms it (EE image + OIDC_ENABLED). Avoids the Security Status card
-  // asserting a state we haven't verified.
-  const ssoEnabled = useCapabilityStrict("sso")
-  const rlsEnabled = useCapabilityStrict("rls")
-  // Capability gates for profile-dependent access URLs / cards
-  const notebooksEnabled = useCapability("notebooks")
-  const pipelinesEnabled = useCapability("pipelines")
-  const experimentsEnabled = useCapability("experiments")
-  const mlflowUiEnabled = useCapability("mlflow_ui")
-  const reportedVersion = useCapabilities().version
-  const version = typeof reportedVersion === "string" && reportedVersion ? reportedVersion : "unknown"
-  const [services, setServices] = useState<ServiceSummary[]>([])
-  const [stats, setStats]       = useState<DashboardStats | null>(null)
-  const [loading, setLoading]   = useState(true)
-  // Render browser-only values after hydration without effect-driven state.
-  const mounted = useSyncExternalStore(subscribeToClient, () => true, () => false)
+  const resolved = asked ? ALIASES[asked] ?? asked : null
+  const tab = resolved && (TABS as readonly string[]).includes(resolved) ? resolved : "people"
+  const setTab = (v: string) => router.replace(v === "people" ? "/settings" : `/settings?tab=${v}`, { scroll: false })
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [svcRes, statRes] = await Promise.all([
-        fetch("/api/services"),
-        fetch("/api/dashboard/stats"),
-      ])
-      if (svcRes.ok)  setServices(await svcRes.json())
-      if (statRes.ok) setStats(await statRes.json())
-    } finally { setLoading(false) }
-  }, [])
-
-  useEffect(() => {
-    const initial = window.setTimeout(() => void load(), 0)
-    return () => window.clearTimeout(initial)
-  }, [load])
-
-  // Settings is platform administration — admin only. Personal credentials
-  // (password, passkeys) live on /account, available to every user. Every tab this
-  // page composes (Users, Security, Data catalogs) is itself admin-only
-  // on the backend, so this reads the role rather than a fabricated permission name
-  // — sourced from /api/me/permissions rather than the token in localStorage.
+  // Settings is platform administration — admin only (every tab's API is). Personal
+  // credentials live on /account.
   const { role, loaded, error, refetch } = usePermissions()
   const isAdmin = role === "admin"
   const access = permissionState({ loaded, error, allowed: isAdmin })
-  const healthCheckedServices = services.filter(s => s.status !== "managed")
-  const healthy = healthCheckedServices.filter(s => s.status === "healthy").length
 
   if (access !== "allowed") {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-3 p-16 text-center">
-        {access === "unknown" ? (
-          <PermissionUnknown onRetry={refetch} />
-        ) : (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-16 text-center">
+        {access === "unknown" ? <PermissionUnknown onRetry={refetch} /> : (
           <>
             <ShieldCheck className="h-6 w-6 text-muted-foreground" />
-            <h2 className="text-lg font-semibold">Admin permission required</h2>
+            <h2 className="text-lg font-semibold">Needs an administrator</h2>
             <p className="max-w-md text-sm text-muted-foreground">
               Settings is for platform administration. Manage your own password and passkeys in{" "}
-              <a className="font-medium text-primary hover:underline" href="/account">Account</a>.
+              <NextLink className="font-medium text-primary hover:underline" href="/account">Account</NextLink>.
             </p>
           </>
         )}
@@ -164,723 +86,134 @@ function SettingsWorkspace() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="max-w-5xl mx-auto px-6 py-6 space-y-5">
-
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
-            <p className="text-sm text-muted-foreground mt-0.5">DataPond platform configuration and administration</p>
-          </div>
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={load} disabled={loading}>
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-        </div>
-
-        {/* Status strip */}
-        <div className="grid grid-cols-4 gap-3">
-          {[
-            { label: "Workloads",  value: loading ? null : `${healthy}/${healthCheckedServices.length}`, sub: "observed healthy", ok: !loading && healthCheckedServices.length > 0 && healthy === healthCheckedServices.length },
-            { label: "CPU",        value: loading ? null : stats?.cpu_usage != null ? `${stats.cpu_usage.toFixed(0)}%` : "—",
-              sub: "cluster",    ok: !loading && (stats?.cpu_usage ?? 0) < 90,   warn: (stats?.cpu_usage ?? 0) >= 90 },
-            { label: "Memory",     value: loading ? null : stats?.memory_usage != null ? `${stats.memory_usage.toFixed(0)}%` : "—",
-              sub: "cluster",    ok: !loading && (stats?.memory_usage ?? 0) < 90, warn: (stats?.memory_usage ?? 0) >= 90 },
-            { label: "Version",    value: version,            sub: "DataPond",      ok: true },
-          ].map(({ label, value, sub, ok, warn }: StatusCardItem) => (
-            <Card key={label}>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-muted-foreground">{label}</span>
-                  <span className={`h-2 w-2 rounded-full ${ok ? "bg-[var(--dp-good)]" : warn ? "bg-destructive" : "bg-[var(--dp-warn)]"}`} />
-                </div>
-                {loading && value === null
-                  ? <Skeleton className="h-7 w-16 mt-1" />
-                  : <div className={`text-2xl font-bold ${warn ? "text-destructive" : ""}`}>{value}</div>}
-                <div className="text-2xs text-muted-foreground mt-0.5">{sub}</div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        {/* Tabs */}
-        <Tabs defaultValue={initialTab}>
-          <TabsList className="h-9">
-            <TabsTrigger value="overview"  className="text-xs">Overview</TabsTrigger>
-            <TabsTrigger value="users"     className="text-xs">Users</TabsTrigger>
-            <TabsTrigger value="security"  className="text-xs">Security</TabsTrigger>
-            <TabsTrigger value="catalogs"  className="text-xs">Data catalogs</TabsTrigger>
-          </TabsList>
-
-          {/* ── Overview ── */}
-          <TabsContent value="overview" className="mt-5 space-y-5">
-            {/* Live service health lives on the Infrastructure (Services) page — this
-                tab keeps only genuine config/reference, not a duplicated status grid. */}
-            <NextLink href="/services"
-              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-              View live workload and node status in Infrastructure →
-            </NextLink>
-
-            {/* Access URLs */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Link className="h-4 w-4 text-muted-foreground" />Access URLs
-                </CardTitle>
-                <CardDescription>Service endpoints and credentials</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="divide-y">
-                  {ACCESS_URL_DEFS.filter(({ cap }) =>
-                    cap === "notebooks" ? notebooksEnabled :
-                    cap === "pipelines" ? pipelinesEnabled :
-                    cap === "mlflow_ui" ? mlflowUiEnabled :
-                    cap === "experiments" ? experimentsEnabled : true
-                  ).map(({ service, path, cred }) => {
-                    const url = mounted
-                      ? `${window.location.protocol}//${window.location.host}${path}`
-                      : path
-                    return (
-                      <div key={service} className="flex items-center gap-3 py-2.5 text-sm">
-                        <span className="text-muted-foreground w-28 shrink-0 text-xs">{service}</span>
-                        <div className="flex items-center gap-1 flex-1 min-w-0">
-                          <a href={url} target="_blank" rel="noreferrer"
-                            className="text-xs font-mono text-primary hover:underline truncate">{url}</a>
-                          <CopyButton text={url} />
-                        </div>
-                        {cred && (
-                          <code className="text-2xs text-muted-foreground shrink-0 bg-muted px-1.5 py-0.5 rounded">{cred}</code>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* ── Users ── */}
-          <TabsContent value="users" className="mt-5">
-            <UserManagement />
-          </TabsContent>
-
-
-          {/* ── Security ── */}
-          <TabsContent value="security" className="mt-5 space-y-5">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-muted-foreground" />Security Status
-                </CardTitle>
-                <CardDescription>Current security configuration</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="divide-y">
-                  {[
-                    { label: "Authentication",       status: "ok",      note: "JWT-based login enabled" },
-                    { label: "Role-based Access",    status: "ok",      note: "admin / viewer roles" },
-                    { label: "API Protection",       status: "ok",      note: "Bearer token required" },
-                    { label: "Password Hashing",     status: "ok",      note: "bcrypt (rounds=12)" },
-                    { label: "Session Expiry",       status: "ok",      note: "24h JWT expiry" },
-                    { label: "First-login Policy",   status: "ok",      note: "Forced password change" },
-                    // TLS is derived from the actual page origin so this row cannot
-                    // drift from deployments that terminate TLS at different ingress
-                    // controllers, load balancers, or reverse proxies.
-                    !mounted ? { label: "TLS/HTTPS", status: "ok", note: "Checking…" }
-                      : window.location.protocol === "https:"
-                        ? { label: "TLS/HTTPS", status: "ok",      note: "HTTPS active" }
-                        : { label: "TLS/HTTPS", status: "pending", note: "HTTP only — configure TLS at the ingress or proxy" },
-                    // LDAP/AD + OIDC SSO both ship in the image; gate the "Active" claim
-                    // on the real /api/capabilities flag (mirrors PasskeyManager below)
-                    // rather than asserting a state that may not be configured on every
-                    // install. Never falls back to "planned" — the feature is built.
-                    ssoEnabled
-                      ? { label: "LDAP / SSO", status: "ok",        note: "OIDC SSO active (LDAP/AD also available)" }
-                      : { label: "LDAP / SSO", status: "available", note: "Shipped — LDAP/AD + OIDC SSO (opt-in via env config)" },
-                    webauthnEnabled
-                      ? { label: "MFA", status: "ok",        note: "Passkey / WebAuthn active" }
-                      : { label: "MFA", status: "available", note: "Shipped — Passkey/WebAuthn (requires HTTPS)" },
-                    { label: "Audit Log",            status: "ok",        note: "auth_audit_log + AI spend logs" },
-                    { label: "Column Masking",       status: "available", note: "Shipped; enforcement depends on configured policies" },
-                    rlsEnabled
-                      ? { label: "Row-level Security", status: "ok",        note: "RLS engine enabled for this profile" }
-                      : { label: "Row-level Security", status: "available", note: "Shipped; disabled in the active profile" },
-                  ].map(({ label, status, note }) => (
-                    <div key={label} className="flex items-center gap-3 py-2.5 text-sm">
-                      <span className={`h-2 w-2 rounded-full shrink-0 ${
-                        status === "ok"        ? "bg-[var(--dp-good)]" :
-                        status === "pending"   ? "bg-[var(--dp-warn)]" :
-                        status === "available" ? "bg-blue-400"  : "bg-muted-foreground/30"}`} />
-                      <span className="flex-1">{label}</span>
-                      <span className="text-xs text-muted-foreground">{note}</span>
-                      {status === "ok"        && <Badge variant="secondary" className="text-2xs h-4 px-1.5 bg-[var(--dp-good)]/10 text-[var(--dp-good-text)] border-0">Active</Badge>}
-                      {status === "pending"   && <Badge variant="secondary" className="text-2xs h-4 px-1.5 bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)] border-0">Pending</Badge>}
-                      {status === "available" && <Badge variant="secondary" className="text-2xs h-4 px-1.5 bg-primary/10 text-primary border-0">Available</Badge>}
-                      {status === "planned"   && <Badge variant="secondary" className="text-2xs h-4 px-1.5">Planned</Badge>}
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Per-user passkeys moved to the /account page (personal credential,
-                not platform administration). */}
-
-            {/* Network isolation */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Server className="h-4 w-4 text-muted-foreground" />Infrastructure Security
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="divide-y">
-                  {[
-                    { label: "Application Credential Encryption", note: "Verify ENCRYPTION_KEY backup and rotation" },
-                    { label: "Kubernetes Secret Encryption",      note: "Cluster responsibility; not asserted by DataPond" },
-                    { label: "Network Isolation",                 note: "Enable and verify NetworkPolicies for your cluster" },
-                    { label: "Runtime Hardening",                 note: "Apply your Kubernetes distribution security baseline" },
-                    { label: "Image Supply Chain",                note: "Pin, scan, and approve images before production" },
-                  ].map(({ label, note }) => (
-                    <div key={label} className="flex items-center gap-3 py-2.5 text-sm">
-                      <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                      <span className="flex-1">{label}</span>
-                      <span className="text-xs text-muted-foreground">{note}</span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="catalogs" className="mt-5">
-            <DataCatalogs canEdit={isAdmin} />
-          </TabsContent>
-
-        </Tabs>
-
-        {/* User Management (moved outside tabs for clean separation) */}
-      </div>
+    <div className="mx-auto max-w-[1400px] flex-1 space-y-5 p-8 pt-6">
+      <PageHeader title="Settings"
+        description={<>People, catalogs and sign-in. Workload health is in <NextLink href="/services" className="text-primary hover:underline">Infrastructure</NextLink>; agents and models have their own menus.</>} />
+      <Tabs value={tab} onValueChange={v => setTab(String(v))}>
+        <TabsList>
+          <TabsTrigger value="people">People</TabsTrigger>
+          <TabsTrigger value="catalogs">Data catalogs</TabsTrigger>
+          <TabsTrigger value="security">Sign-in &amp; security</TabsTrigger>
+          <TabsTrigger value="urls">Service URLs</TabsTrigger>
+        </TabsList>
+        <TabsContent value="people" className="mt-5"><People /></TabsContent>
+        <TabsContent value="catalogs" className="mt-5"><DataCatalogs canEdit /></TabsContent>
+        <TabsContent value="security" className="mt-5"><SecurityPanel /></TabsContent>
+        <TabsContent value="urls" className="mt-5"><ServiceUrls /></TabsContent>
+      </Tabs>
     </div>
   )
 }
 
-// ── User Management ────────────────────────────────────────────────────────────
-
-interface UserRecord {
-  id: string; username: string; email: string; display_name: string
-  // Any of app/permissions.py's seven roles, not just "admin" | "viewer" — the
-  // console can assign every role the API accepts (PATCH /auth/users/{id}).
-  role: string; is_active: boolean
-  require_password_change: boolean; created_at: string | null
-  last_activity_at: string | null
-  attributes?: Record<string, string>
+function ServiceUrls() {
+  const caps = {
+    notebooks: useCapability("notebooks"),
+    pipelines: useCapability("pipelines"),
+    mlflow_ui: useCapability("mlflow_ui"),
+  }
+  const mounted = useSyncExternalStore(subscribeToClient, () => true, () => false)
+  const reported = useCapabilities().version
+  const version = typeof reported === "string" && reported ? reported : "unknown"
+  return (
+    <div className="max-w-3xl space-y-3">
+      <div className="divide-y rounded-xl border bg-card">
+        {SERVICE_URLS.filter(s => !("cap" in s) || caps[s.cap]).map(({ service, path }) => {
+          const url = mounted ? `${window.location.protocol}//${window.location.host}${path}` : path
+          return (
+            <div key={service} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+              <span className="w-28 shrink-0 text-xs text-muted-foreground">{service}</span>
+              <a href={url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate font-mono text-xs text-primary hover:underline">{url}</a>
+              <CopyButton text={url} />
+            </div>
+          )
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        DataPond {version}. Add-on UIs sign in with their own credentials; OpenMetadata, MinIO and Trino need a subdomain or port-forward.
+      </p>
+    </div>
+  )
 }
 
-// Pure formatting, not a role description — "data_scientist" -> "Data Scientist" —
-// so the closed role select stays one short word wide regardless of how long the
-// server's descriptive label is. See lib/user-roles.ts for the actual label/description.
-function roleTitle(role: string): string {
-  return role.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+interface SecurityConfig {
+  session_hours: number; session_cookie: string; password_hash: string; password_min_length: number
+  first_login_change: boolean
+  login_lockout: { max_failures: number; lockout_seconds: number; max_lockout_seconds: number }
+  roles: { name: string; description: string; permissions: number }[]
+  oauth_resource_server: boolean
 }
 
-function UserManagement() {
-  // getUser() stays the identity source here (username, id, for "this row is you"
-  // and the My Profile dialog) — never the access decision. list_users/update_user/
-  // delete_user (backend/app/api/auth.py) are all `require_permission("user:manage")`,
-  // so that is what gates the management UI, sourced from /api/me/permissions like
-  // the parent page's own admin gate rather than the token in localStorage. The
-  // parent SettingsPage already refuses anyone but an admin before this component
-  // ever mounts, so in practice this is always true — it names the actual route
-  // dependency anyway, rather than re-deriving it from role.
-  const currentUser = getUser()
-  const isAdmin     = useHasPermission("user:manage")
-
-  // Server-described roles, not a hard-coded admin/viewer pair — see
-  // frontend/lib/user-roles.ts. /api/me/permissions is one fetch shared with the
-  // sidebar's permission gate (frontend/lib/permissions.tsx), so this list can never
-  // disagree with what PATCH /auth/users/{id} actually accepts.
-  const { assignableRoles } = usePermissions()
-  const roleSelectOptions = roleOptions(assignableRoles)
-
-  const [users, setUsers]         = useState<UserRecord[]>([])
-  const [loading, setLoading]     = useState(true)
-
-  const [showCreate, setShowCreate]   = useState(false)
-  const [newUsername, setNewUsername] = useState("")
-  const [newPassword, setNewPassword] = useState("")
-  const [newDisplayName, setNewDisplayName] = useState("")
-  const [newRole, setNewRole]         = useState<string>("viewer")
-  const [showNewPw, setShowNewPw]     = useState(false)
-  const [creating, setCreating]       = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
-
-  const [resetTarget, setResetTarget] = useState<UserRecord | null>(null)
-  const [resetPw, setResetPw]         = useState("")
-  // RLS attributes editor (department / region / clearance) — see docs/RLS_DESIGN.md
-  const [attrTarget, setAttrTarget]   = useState<UserRecord | null>(null)
-  const [attrDept, setAttrDept]       = useState("")
-  const [attrRegion, setAttrRegion]   = useState("")
-  const [attrClear, setAttrClear]     = useState("")
-  const [showResetPw, setShowResetPw] = useState(false)
-  const [resetting, setResetting]     = useState(false)
-  const [resetError, setResetError]   = useState<string | null>(null)
-
-  const [showProfile, setShowProfile] = useState(false)
-  const [profileName, setProfileName] = useState("")
-  const [ownPw, setOwnPw]             = useState("")
-  const [ownCurrentPw, setOwnCurrentPw] = useState("")
-  const [showOwnPw, setShowOwnPw]     = useState(false)
-  const [savingProfile, setSavingProfile] = useState(false)
-  const [profileMsg, setProfileMsg]   = useState<string | null>(null)
-
-  const fetchUsers = useCallback(async () => {
-    if (!isAdmin) { setLoading(false); return }
-    setLoading(true)
-    try {
-      const res = await fetch("/api/auth/users")
-      if (res.ok) setUsers(await res.json())
-    } finally { setLoading(false) }
-  }, [isAdmin])
+/** What sign-in does here, as the server reports it. It was a hard-coded list that
+ *  still said "admin / viewer roles" with seven roles live. */
+function SecurityPanel() {
+  const sso = useCapabilityStrict("sso")
+  const webauthn = useCapabilityStrict("webauthn")
+  const rls = useCapabilityStrict("rls")
+  const mounted = useSyncExternalStore(subscribeToClient, () => true, () => false)
+  const [cfg, setCfg] = useState<SecurityConfig | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
-    const initial = window.setTimeout(() => void fetchUsers(), 0)
-    return () => window.clearTimeout(initial)
-  }, [fetchUsers])
+    let cancelled = false
+    fetch("/api/auth/security-config")
+      .then(async r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+      .then(d => { if (!cancelled) { setCfg(d); setErr(null) } })
+      .catch(e => { if (!cancelled) setErr(e instanceof Error ? e.message : "Could not read") })
+    return () => { cancelled = true }
+  }, [attempt])
 
-  const { toast } = useToast()
-  const notify = (text: string, ok = true) => toast(text, ok ? "success" : "error")
-
-  const handleCreate = async () => {
-    if (!newUsername || !newPassword) return
-    const overwriting = users.some(u => u.username === newUsername)
-    if (overwriting) {
-      const ok = await confirmDialog({
-        title: "User already exists",
-        message: `A user named '${newUsername}' already exists. Continuing will reset their password — they won't be created as a new user.`,
-        destructive: true,
-        confirmText: "Reset password",
-      })
-      if (!ok) return
-    }
-    setCreating(true); setCreateError(null)
-    try {
-      const r = await fetch("/api/auth/setup", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: newUsername, password: newPassword, display_name: newDisplayName || undefined }),
-      })
-      if (!r.ok) { const d = await r.json(); throw new Error(d.detail) }
-      // POST /api/auth/setup always creates the account as 'viewer' — it has no
-      // role field of its own — so any other choice, not just admin, needs this
-      // follow-up PATCH. Before the console offered seven roles this only mattered
-      // for admin, because viewer was the only other option and needed no patch.
-      if (newRole !== "viewer") {
-        const list: UserRecord[] = await (await fetch("/api/auth/users")).json()
-        const created = list.find(u => u.username === newUsername)
-        if (created) await fetch(`/api/auth/users/${created.id}`, {
-          method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role: newRole }),
-        })
-      }
-      setShowCreate(false); setNewUsername(""); setNewPassword(""); setNewDisplayName(""); setNewRole("viewer")
-      notify(overwriting
-        ? `Password reset for existing user '${newUsername}'`
-        : `User '${newUsername}' created — must change password on first login`)
-      fetchUsers()
-    } catch (e) { setCreateError(e instanceof Error ? e.message : "Failed") }
-    finally { setCreating(false) }
-  }
-
-  const handleResetPassword = async () => {
-    if (!resetTarget || !resetPw) return
-    setResetting(true); setResetError(null)
-    try {
-      const r = await fetch("/api/auth/setup", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: resetTarget.username, password: resetPw }),
-      })
-      if (!r.ok) { const d = await r.json(); throw new Error(d.detail) }
-      setResetTarget(null); setResetPw("")
-      notify(`Password reset for '${resetTarget.username}'`)
-    } catch (e) { setResetError(e instanceof Error ? e.message : "Failed") }
-    finally { setResetting(false) }
-  }
-
-  const handleToggleActive = async (u: UserRecord) => {
-    await fetch(`/api/auth/users/${u.id}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ is_active: !u.is_active }),
-    })
-    notify(`${u.username} ${!u.is_active ? "activated" : "deactivated"}`)
-    fetchUsers()
-  }
-
-  const confirmDialog = useConfirm()
-  // Any of the seven roles, not a two-way toggle — see lib/user-roles.ts. Admin is
-  // still confirmed on the way in and on the way out: it is the one role that grants
-  // user management and every collection, so granting or removing it keeps the same
-  // confirm step handleToggleRole used to have for its only transition.
-  const handleRoleChange = async (u: UserRecord, role: string) => {
-    if (role === u.role) return
-    if (role === "admin" || u.role === "admin") {
-      const promoting = role === "admin"
-      const ok = await confirmDialog({
-        title: promoting ? "Promote to admin" : "Remove admin access",
-        message: promoting
-          ? `Grant '${u.username}' full admin access — including user management, governance policies, and all collections.`
-          : `Remove admin access from '${u.username}'. They'll be given the '${role}' role instead.`,
-        destructive: promoting,
-        confirmText: promoting ? "Promote to admin" : "Change role",
-      })
-      if (!ok) return
-    }
-    await fetch(`/api/auth/users/${u.id}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role }),
-    })
-    notify(`${u.username} role changed to ${role}`)
-    fetchUsers()
-  }
-  const handleDelete = async (u: UserRecord) => {
-    if (!(await confirmDialog({ title: "Delete user", message: `Delete user '${u.username}'. This cannot be undone.`, destructive: true, confirmText: "Delete" }))) return
-    const r = await fetch(`/api/auth/users/${u.id}`, { method: "DELETE" })
-    if (r.ok) { notify(`User '${u.username}' deleted`); fetchUsers() }
-    else notify("Failed to delete user", false)
-  }
-
-  const openAttrs = (u: UserRecord) => {
-    const a = u.attributes || {}
-    setAttrDept(a.department || ""); setAttrRegion(a.region || ""); setAttrClear(a.clearance || "")
-    setAttrTarget(u)
-  }
-  const saveAttributes = async () => {
-    if (!attrTarget) return
-    const attributes: Record<string, string> = { ...(attrTarget.attributes || {}) }
-    const setOrDel = (k: string, v: string) => { if (v.trim()) attributes[k] = v.trim(); else delete attributes[k] }
-    setOrDel("department", attrDept); setOrDel("region", attrRegion); setOrDel("clearance", attrClear)
-    const r = await fetch(`/api/auth/users/${attrTarget.id}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ attributes }),
-    })
-    if (r.ok) { notify(`${attrTarget.username} attributes updated`); setAttrTarget(null); fetchUsers() }
-    else notify("Failed to update attributes", false)
-  }
-
-  const handleSaveProfile = async () => {
-    setSavingProfile(true); setProfileMsg(null)
-    try {
-      if (profileName !== currentUser?.display_name) {
-        await fetch("/api/auth/me", {
-          method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ display_name: profileName }),
-        })
-      }
-      if (ownPw) {
-        const r = await fetch("/api/auth/change-password", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ current_password: ownCurrentPw, new_password: ownPw }),
-        })
-        if (!r.ok) { const d = await r.json(); throw new Error(d.detail) }
-        setOwnPw(""); setOwnCurrentPw("")
-      }
-      // Confirm via toast — the dialog closes here, so an inline success line
-      // would never be seen. profileMsg is reserved for errors (dialog stays open).
-      notify("Profile updated"); setShowProfile(false)
-    } catch (e) { setProfileMsg(e instanceof Error ? e.message : "Failed to update profile") }
-    finally { setSavingProfile(false) }
-  }
+  const https = mounted && window.location.protocol === "https:"
+  const rows: [string, string, "ok" | "warn" | "info"][] = cfg ? [
+    ["Session", `${cfg.session_hours} h, in a cookie (${cfg.session_cookie})`, "ok"],
+    ["Passwords", `${cfg.password_hash}; at least ${cfg.password_min_length} characters${cfg.first_login_change ? "; changed at first sign-in" : ""}`, "ok"],
+    ["Failed sign-ins", `${cfg.login_lockout.max_failures} failures lock the account for ${cfg.login_lockout.lockout_seconds} s, doubling up to ${Math.round(cfg.login_lockout.max_lockout_seconds / 60)} min`, "ok"],
+    ["HTTPS", !mounted ? "Checking…" : https ? "This page is served over HTTPS" : "This page is served over plain HTTP: configure TLS at the ingress", https ? "ok" : "warn"],
+    ["Single sign-on", sso ? "OIDC sign-in is on" : "Off. LDAP/AD and OIDC are set by environment variables", sso ? "ok" : "info"],
+    ["Passkeys", webauthn ? "On: each person adds theirs in Account" : "Off (needs HTTPS and WEBAUTHN settings)", webauthn ? "ok" : "info"],
+    ["IdP tokens for tools", cfg.oauth_resource_server ? "Accepted (OAuth resource-server mode)" : "Off: tools use agent keys", "info"],
+    ["Row and column policies", rls ? "Enforced on the query API" : "Not enforced on this deployment", rls ? "ok" : "warn"],
+  ] : []
 
   return (
-    <div className="space-y-4">
-
-      {/* Toolbar */}
-      <div className="flex items-center gap-2">
-        {isAdmin && (
-          <Button size="sm" onClick={() => setShowCreate(true)}>
-            <UserPlus className="h-4 w-4 mr-1.5" />New User
-          </Button>
-        )}
-        <Button size="sm" variant="outline"
-          onClick={() => { setProfileName(currentUser?.display_name || ""); setOwnPw(""); setOwnCurrentPw(""); setProfileMsg(null); setShowProfile(true) }}>
-          <KeyRound className="h-4 w-4 mr-1.5" />My Profile
-        </Button>
-        {isAdmin && (
-          <Button size="sm" variant="ghost" className="ml-auto" onClick={fetchUsers}
-            disabled={loading} aria-label="Refresh users" title="Refresh users">
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          </Button>
+    <div className="flex flex-wrap items-start gap-5">
+      <div className="min-w-0 flex-[3_1_480px] space-y-4">
+        {err ? <div role="alert"><ErrorBox msg={`Could not read the sign-in settings: ${err}`} action={<Button size="sm" variant="outline" onClick={() => setAttempt(a => a + 1)}>Retry</Button>} /></div>
+          : !cfg ? <Skeleton className="h-64" /> : (
+          <>
+            <div className="divide-y rounded-xl border bg-card">
+              {rows.map(([label, note, tone]) => (
+                <div key={label} className="flex items-start gap-3 px-4 py-2.5 text-sm">
+                  <span aria-hidden className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${tone === "ok" ? "bg-[var(--dp-good)]" : tone === "warn" ? "bg-[var(--dp-warn)]" : "bg-muted-foreground/40"}`} />
+                  <span className="w-44 shrink-0 font-medium">{label}</span>
+                  <span className="text-muted-foreground">{note}</span>
+                </div>
+              ))}
+            </div>
+            <div className="rounded-xl border bg-card">
+              <h3 className="border-b px-4 py-2.5 text-sm font-semibold">Roles · {cfg.roles.length}</h3>
+              <ul className="divide-y">
+                {cfg.roles.map(r => (
+                  <li key={r.name} className="flex gap-3 px-4 py-2 text-sm">
+                    <span className="w-36 shrink-0 font-mono text-xs">{r.name}</span>
+                    <span className="flex-1 text-xs text-muted-foreground">{r.description}</span>
+                    <span className="dp-num shrink-0 text-xs text-muted-foreground">{r.permissions} permissions</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </>
         )}
       </div>
-
-      {/* Users table */}
-      {isAdmin && (
-        <Card>
-          <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/40 border-b">
-                <tr>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">User</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Role</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Status</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground hidden md:table-cell">Joined</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground hidden lg:table-cell">Last activity</th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {loading ? (
-                  [...Array(2)].map((_,i) => (
-                    <tr key={i}><td colSpan={5} className="px-4 py-3"><Skeleton className="h-8 w-full" /></td></tr>
-                  ))
-                ) : users.filter(u => u.username).map(u => (
-                  <tr key={u.id} className={`hover:bg-muted/20 transition-colors ${!u.is_active ? "opacity-50" : ""}`}>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2.5">
-                        <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                          <span className="text-2xs font-semibold text-primary">
-                            {(u.display_name || u.username || "?")[0].toUpperCase()}
-                          </span>
-                        </div>
-                        <div>
-                          <p className="font-medium text-sm leading-tight">
-                            {u.display_name || u.username}
-                            {u.id === currentUser?.id && <span className="ml-1.5 text-2xs text-muted-foreground">(you)</span>}
-                          </p>
-                          <p className="text-2xs text-muted-foreground">@{u.username}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      {u.id === currentUser?.id ? (
-                        // A person can't change their own role here — same rule the
-                        // old toggle button enforced by hiding itself for this row.
-                        <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-2xs gap-1">
-                          {u.role === "admin" && <Shield className="h-2.5 w-2.5" />}
-                          {u.role}
-                        </Badge>
-                      ) : (
-                        <Select value={u.role} onValueChange={v => v && handleRoleChange(u, v)}>
-                          <SelectTrigger className="h-7 w-auto min-w-[8rem] text-xs" aria-label={`Role for ${u.username}`}>
-                            {/* Rendered independently of each item's (longer) body, so
-                                the closed trigger stays one short word regardless of
-                                how much detail the open list shows. */}
-                            <SelectValue>{(value: string) => roleTitle(value)}</SelectValue>
-                          </SelectTrigger>
-                          <SelectContent>
-                            {roleSelectOptions.map(o => (
-                              <SelectItem key={o.value} value={o.value} className="text-xs">
-                                <div className="flex flex-col items-start gap-0.5 py-0.5 max-w-xs">
-                                  <span className="whitespace-normal">{o.label}</span>
-                                  <span className="text-2xs text-muted-foreground font-normal">{o.description}</span>
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {u.is_active
-                        ? <span className="flex items-center gap-1 text-[var(--dp-good-text)] text-xs"><CheckCircle2 className="h-3.5 w-3.5" />Active</span>
-                        : <span className="flex items-center gap-1 text-muted-foreground text-xs"><UserX className="h-3.5 w-3.5" />Inactive</span>}
-                      {u.require_password_change && (
-                        <span className="text-2xs text-[var(--dp-warn-text)] block mt-0.5">Must change password</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground hidden md:table-cell">
-                      {u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}
-                    </td>
-                    {/* Sourced from auth_audit_log, not users.last_login_at — that
-                        column is written by nothing, so it would always read "never". */}
-                    <td className="px-4 py-3 text-xs text-muted-foreground hidden lg:table-cell">
-                      {u.last_activity_at ? new Date(u.last_activity_at).toLocaleString() : "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      {u.id !== currentUser?.id && (
-                        <div className="flex items-center justify-end gap-0.5">
-                          <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Reset password" title="Reset password"
-                            onClick={() => { setResetTarget(u); setResetPw(""); setResetError(null) }}>
-                            <KeyRound className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7"
-                            aria-label="RLS attributes (department/region/clearance)" title="RLS attributes (department/region/clearance)"
-                            onClick={() => openAttrs(u)}>
-                            <SlidersHorizontal className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7"
-                            title={u.is_active ? "Deactivate" : "Activate"}
-                            onClick={() => handleToggleActive(u)}>
-                            {u.is_active ? <UserX className="h-3.5 w-3.5" /> : <UserCheck className="h-3.5 w-3.5" />}
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
-                            aria-label="Delete user" title="Delete user" onClick={() => handleDelete(u)}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ── Create User ── */}
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Create New User</DialogTitle></DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Username <span className="text-destructive">*</span></Label>
-                <Input value={newUsername} onChange={e => setNewUsername(e.target.value)} placeholder="username" autoFocus />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Display Name</Label>
-                <Input value={newDisplayName} onChange={e => setNewDisplayName(e.target.value)} placeholder="Full Name" />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Initial Password <span className="text-destructive">*</span></Label>
-              <div className="relative">
-                <Input type={showNewPw ? "text" : "password"} value={newPassword}
-                  onChange={e => setNewPassword(e.target.value)} placeholder="Min 6 characters" className="pr-9" />
-                <button type="button" onClick={() => setShowNewPw(v => !v)} tabIndex={-1}
-                  aria-label={showNewPw ? "Hide password" : "Show password"}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                  {showNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-              <p className="text-2xs text-muted-foreground">User must change password on first login</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Role</Label>
-              <Select value={newRole} onValueChange={v => setNewRole(v || "viewer")}>
-                <SelectTrigger className="h-9"><SelectValue>{(value: string) => roleTitle(value)}</SelectValue></SelectTrigger>
-                <SelectContent>
-                  {roleSelectOptions.map(o => (
-                    <SelectItem key={o.value} value={o.value}>
-                      <div className="flex flex-col items-start gap-0.5 py-0.5 max-w-xs">
-                        <span className="whitespace-normal">{o.label}</span>
-                        <span className="text-2xs text-muted-foreground font-normal">{o.description}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {createError && <ErrorBox msg={createError} />}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={!newUsername || !newPassword || creating}>
-              {creating ? "Creating…" : "Create User"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Reset Password ── */}
-      <Dialog open={!!resetTarget} onOpenChange={o => !o && setResetTarget(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Reset Password — @{resetTarget?.username}</DialogTitle></DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="space-y-1.5">
-              <Label className="text-xs">New Password <span className="text-destructive">*</span></Label>
-              <div className="relative">
-                <Input type={showResetPw ? "text" : "password"} value={resetPw}
-                  onChange={e => setResetPw(e.target.value)} placeholder="Min 6 characters" className="pr-9" autoFocus />
-                <button type="button" onClick={() => setShowResetPw(v => !v)} tabIndex={-1}
-                  aria-label={showResetPw ? "Hide password" : "Show password"}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                  {showResetPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-              <p className="text-2xs text-muted-foreground">User will be prompted to change password on next login</p>
-            </div>
-            {resetError && <ErrorBox msg={resetError} />}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setResetTarget(null)}>Cancel</Button>
-            <Button onClick={handleResetPassword} disabled={!resetPw || resetting}>
-              {resetting ? "Resetting…" : "Reset Password"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── RLS Attributes (department / region / clearance) ── */}
-      <Dialog open={!!attrTarget} onOpenChange={o => !o && setAttrTarget(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>RLS Attributes — @{attrTarget?.username}</DialogTitle></DialogHeader>
-          <div className="space-y-3 py-2">
-            <p className="text-2xs text-muted-foreground">
-              Referenced by row-level security (RLS) policies via <code>current_user_attribute(...)</code>. Leave blank to remove an attribute.
-            </p>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Department</Label>
-              <Input value={attrDept} onChange={e => setAttrDept(e.target.value)} placeholder="e.g. sales" autoFocus />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Region</Label>
-              <Input value={attrRegion} onChange={e => setAttrRegion(e.target.value)} placeholder="e.g. us-east" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Clearance</Label>
-              <Input value={attrClear} onChange={e => setAttrClear(e.target.value)} placeholder="e.g. confidential" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAttrTarget(null)}>Cancel</Button>
-            <Button onClick={saveAttributes}>Save</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── My Profile ── */}
-      <Dialog open={showProfile} onOpenChange={setShowProfile}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>My Profile</DialogTitle></DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="rounded-lg bg-muted/40 px-3 py-2.5 text-xs">
-              <p className="text-muted-foreground">Account: <span className="font-medium text-foreground">@{currentUser?.username}</span></p>
-              <p className="text-muted-foreground mt-0.5">Role: <span className="font-medium text-foreground capitalize">{currentUser?.role}</span></p>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Display Name</Label>
-              <Input value={profileName} onChange={e => setProfileName(e.target.value)} placeholder="Your full name" autoFocus />
-            </div>
-            <Separator />
-            <div className="space-y-1.5">
-              <Label className="text-xs">New Password <span className="text-muted-foreground font-normal">(leave blank to keep current)</span></Label>
-              <div className="relative">
-                <Input type={showOwnPw ? "text" : "password"} value={ownPw}
-                  onChange={e => setOwnPw(e.target.value)} placeholder="New password (optional)" className="pr-9" />
-                <button type="button" onClick={() => setShowOwnPw(v => !v)} tabIndex={-1}
-                  aria-label={showOwnPw ? "Hide password" : "Show password"}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                  {showOwnPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-              {ownPw && (
-                <Input type="password" value={ownCurrentPw} autoComplete="current-password"
-                  onChange={e => setOwnCurrentPw(e.target.value)} placeholder="Current password"
-                  aria-label="Current password" />
-              )}
-            </div>
-            {profileMsg && <ErrorBox msg={profileMsg} />}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowProfile(false)}>Cancel</Button>
-            <Button onClick={handleSaveProfile} disabled={savingProfile}>
-              {savingProfile ? "Saving…" : "Save Changes"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <aside aria-label="Not covered here" className="min-w-0 flex-[2_1_300px] space-y-3 rounded-xl border bg-muted/40 p-5 text-sm">
+        <h4 className="font-semibold">Your responsibility, not reported here</h4>
+        <ul className="list-disc space-y-1 pl-4 text-muted-foreground">
+          <li>Backing up and rotating ENCRYPTION_KEY</li>
+          <li>Kubernetes secret encryption at rest</li>
+          <li>NetworkPolicies and runtime hardening</li>
+          <li>Pinning and scanning images before production</li>
+        </ul>
+      </aside>
     </div>
   )
 }
