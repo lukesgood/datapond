@@ -1544,11 +1544,18 @@ async def get_connection(connection_id: str, user: dict = Depends(require_user))
     try:
         pool = await get_db_pool()
         async with pool.acquire() as conn:
+            # `catalog` is not a column: it is the engine catalog of the source's
+            # data_catalogs row, joined exactly as the list does. Selecting it as a
+            # column made this route 500 for every source (2026-11-17, PR #285).
             row = await conn.fetchrow('''
-                SELECT id, name, connector_type, status, created_at, last_sync_at, schedule,
-                       owner_id, last_checked_at, last_check_message, catalog
-                FROM connector_connections
-                WHERE id = $1
+                SELECT c.id, c.name, c.connector_type, c.status, c.created_at,
+                       c.last_sync_at, c.schedule, c.owner_id,
+                       c.last_checked_at, c.last_check_message,
+                       d.engine_catalog AS catalog
+                FROM connector_connections c
+                LEFT JOIN data_catalogs d
+                  ON d.kind = 'trino_source' AND d.config->>'connection_id' = c.id::text
+                WHERE c.id = $1
             ''', uuid.UUID(connection_id))
 
         if not row:
