@@ -67,23 +67,6 @@ export function CompositionPanel({ name, onChange }: { name: string; onChange?: 
 
   const top = Math.max(...c.sources.map(s => s.chunks), 1)
 
-  const saveDescription = async (value: string) => {
-    setBusy(true)
-    try {
-      const r = await fetch(`/api/ai/collections/${encodeURIComponent(name)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description: value }),
-      })
-      if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-      await load(); onChange?.()
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Could not save")
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const removeSource = async (source: string, chunks: number) => {
     const ok = await confirm({
       title: "Remove this source",
@@ -172,35 +155,11 @@ export function CompositionPanel({ name, onChange }: { name: string; onChange?: 
         ))}
       </div>
 
-      {canEdit && <DescriptionField value={c.description ?? ""} busy={busy} onSave={saveDescription} />}
-
       <p className="text-2xs text-muted-foreground">
         A scheduled source is replaced whole on each refresh; the rest stay until
         someone removes them. That is why an old date means different things on
         different rows.
       </p>
-    </div>
-  )
-}
-
-
-/** Describing what a collection holds is the thing most likely to be wrong later —
- *  it is written before anything is ingested. Editing it needed a delete-and-recreate
- *  before this, which loses every chunk to fix a sentence. */
-function DescriptionField({ value, busy, onSave }: {
-  value: string; busy: boolean; onSave: (v: string) => void
-}) {
-  const [draft, setDraft] = useState(value)
-  const dirty = draft.trim() !== value.trim()
-  return (
-    <div className="flex items-center gap-2">
-      <input value={draft} onChange={e => setDraft(e.target.value)}
-             placeholder="What this collection holds…"
-             className="h-8 flex-1 rounded-md border bg-background px-2 text-xs" />
-      <button onClick={() => onSave(draft.trim())} disabled={!dirty || busy}
-              className="shrink-0 rounded-md border px-2 py-1 text-2xs disabled:opacity-40 hover:bg-muted/40">
-        Save
-      </button>
     </div>
   )
 }

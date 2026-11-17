@@ -3,20 +3,21 @@
 import { useEffect, useState, useCallback } from "react"
 import { useToast } from "@/lib/toast"
 import Link from "next/link"
-import { Sparkles, Plus, Trash2, Search, MessageSquare, Database, Upload, AlertCircle, Loader2, FileText, ShieldCheck, Clock, Users, CheckCircle2, ArrowDownWideNarrow, BookMarked, Layers, GitBranch } from "lucide-react"
+import { Sparkles, Plus, Trash2, Search, MessageSquare, Database, Upload, AlertCircle, Loader2, FileText, ShieldCheck, Clock, Users, CheckCircle2, ArrowDownWideNarrow, GitBranch } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { ConceptsPanel } from "@/components/knowledge/concepts-panel"
 import { ComparePanel } from "@/components/knowledge/compare-panel"
 import { Markdown } from "@/components/ui/markdown"
 import { CompositionPanel } from "@/components/knowledge/composition-panel"
 import { LineagePanel } from "@/components/knowledge/lineage-panel"
 import { MembersPanel } from "@/components/knowledge/members-panel"
-import { ChunkAccessPanel } from "@/components/knowledge/chunk-access-panel"
+import { SettingsPanel } from "@/components/knowledge/settings-panel"
+import { PageHeader } from "@/components/ui/page-header"
+import { effectivePii, type PiiMode, type Sensitivity } from "@/lib/collection-protection"
 import type { StoredChunkRule } from "@/lib/chunk-rule"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -34,6 +35,8 @@ interface Collection {
   owner_id: string | null
   /** The viewer's own member grant on this collection (from the list API). */
   member_role?: MemberRole | null
+  pii_mode?: PiiMode | null
+  sensitivity?: Sensitivity | null
   chunk_access?: StoredChunkRule
   sources?: number; index?: string | null; last_ingested?: string | null
 }
@@ -49,7 +52,7 @@ function timeAgo(iso: string | null | undefined): string {
 }
 interface Hit { source: string | null; content: string; score: number; rerank_score?: number }
 interface ChunkPreset { name: string; label: string; hint: string; chunk_size: number; chunk_overlap: number }
-interface CollectionsResponse { collections?: Collection[]; total?: number }
+interface CollectionsResponse { collections?: Collection[]; total?: number; pii_default?: PiiMode }
 interface AiStatusResponse { egress_policy?: string }
 interface CatalogColumn { name: string; type: string }
 interface CatalogResponse {
@@ -57,8 +60,8 @@ interface CatalogResponse {
 }
 
 export default function KnowledgePage() {
-  const { toast } = useToast()
   const catalogEnabled = useCapability("catalog")
+  const ontologyOn = useCapability("ontology")
   const [cols, setCols] = useState<Collection[]>([])
   const [loading, setLoading] = useState(true)
   const [sel, setSel] = useState<string | null>(null)
@@ -70,15 +73,9 @@ export default function KnowledgePage() {
   const [filter, setFilter] = useState("")
   const [total, setTotal] = useState(0)
   const [egress, setEgress] = useState<string>("")
+  const [piiDefault, setPiiDefault] = useState<PiiMode>("mask")
   const [err, setErr] = useState<string | null>(null)
   const me = getUser()
-  // DELETE /ai/collections/{name} resolves through the same _collection_id(destroy=True)
-  // -> may_write gate as ingest/schedule (B1) — an editor grant deletes too, same as it
-  // always implicitly did for an owner. This used to gate on getUser()'s admin role
-  // plus a hand-rolled owner comparison, sourced from the token in localStorage and
-  // missing the editor-membership case mayIngest already knows about.
-  const { role, permissions } = usePermissions()
-  const confirm = useConfirm()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -90,6 +87,7 @@ export default function KnowledgePage() {
       const list = d.collections ?? []
       setCols(list)
       setTotal(d.total ?? list.length)
+      if (d.pii_default) setPiiDefault(d.pii_default)
       // Keep the selection when it survives the filter; otherwise fall to the first
       // match, so typing never leaves the workspace showing something not in the list.
       setSel(s => s && list.some(c => c.name === s) ? s : (list[0]?.name ?? null))
@@ -115,26 +113,21 @@ export default function KnowledgePage() {
   }, [])
 
   return (
-    <div className="p-6 space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" /> Knowledge
-          </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Vector collections & RAG over your data — embeddings and chat run through the
-            governed LiteLLM gateway (PII-masked at ingest{egress === "local-only" ? ", no data egress" : ""}).
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="mx-auto max-w-7xl space-y-5 px-6 py-6">
+      <PageHeader
+        title="Knowledge"
+        description="Document collections people and agents search, with cited answers."
+        actions={<>
           {egress && (
-            <Badge variant="outline" className={egress === "local-only" ? "border-[var(--dp-good)]/30 text-[var(--dp-good-text)]" : ""}>
-              AI egress: {egress}
-            </Badge>
+            <span className={`text-xs ${egress === "local-only" ? "text-[var(--dp-good-text)]" : "text-muted-foreground"}`}
+                  title="Where models may run (ai.egressPolicy)">
+              {egress === "local-only" ? "Local models only" : "Cloud models allowed"}
+            </span>
           )}
+          {ontologyOn && <Link href="/knowledge/concepts" className="text-xs text-primary hover:underline">Vocabulary</Link>}
           <CreateCollection onCreated={load} />
-        </div>
-      </div>
+        </>}
+      />
 
       {err && (
         <div className="flex items-center gap-2 rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/5 px-4 py-2.5 text-xs text-[var(--dp-warn-text)]">
@@ -185,19 +178,16 @@ export default function KnowledgePage() {
                           ? <Badge variant="outline" className="text-2xs">other</Badge>
                           : null}
                     </div>
-                    {/* DELETE /ai/collections/{name} is knowledge:write alone — it
-                        embeds nothing, so mayWriteCollection, not mayIngest. */}
-                    {!!me && mayWriteCollection({ owner_id: c.owner_id, member_role: c.member_role }, { id: me.id, role, permissions }) && (
-                      <button aria-label={`Delete collection ${c.name}`} onClick={e => { e.stopPropagation(); deleteCol(c.name, load, confirm, toast) }}
-                        className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
-                    )}
                   </div>
                   <div className="dp-num text-2xs text-muted-foreground mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
                     <span>{c.chunks} vectors</span>·<span>{c.embed_model} ({c.dim}d)</span>
                     {c.sources != null && <><span>·</span><span>{c.sources} sources</span></>}
                   </div>
                   <div className="text-2xs text-muted-foreground/70 mt-0.5 flex flex-wrap gap-x-2 items-center">
-                    <Badge variant="outline" className="text-2xs gap-0.5"><Database className="h-2.5 w-2.5" />{c.index || "HNSW · cosine"}</Badge>
+                    {/* What protects this collection, not the index type (every collection
+                        is HNSW · cosine, so that badge said nothing). */}
+                    <Badge variant="outline" className="text-2xs">PII {effectivePii(piiDefault, c.pii_mode ?? null, c.sensitivity ?? null)}</Badge>
+                    {c.sensitivity && <Badge variant="outline" className="text-2xs">{c.sensitivity}</Badge>}
                     <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />Last ingested {timeAgo(c.last_ingested)}</span>
                   </div>
                   {c.description && <div className="text-2xs text-muted-foreground mt-0.5 truncate">{c.description}</div>}
@@ -214,11 +204,8 @@ export default function KnowledgePage() {
 
         {/* Selected collection workspace */}
         <div>
-          {sel ? <Workspace key={sel} name={sel} onChange={load}
-                            empty={(cols.find(c => c.name === sel)?.chunks ?? 0) === 0}
-                            ownerId={cols.find(c => c.name === sel)?.owner_id ?? null}
-                            memberRole={cols.find(c => c.name === sel)?.member_role ?? null}
-                            chunkAccess={cols.find(c => c.name === sel)?.chunk_access ?? null} />
+          {sel && cols.find(c => c.name === sel) ? <Workspace key={sel} collection={cols.find(c => c.name === sel) as Collection}
+                            onChange={load} piiDefault={piiDefault} onDeleted={() => { setSel(null); void load() }} />
             : <Card><CardContent>
                 <EmptyState
                   icon={Sparkles}
@@ -254,13 +241,6 @@ export default function KnowledgePage() {
       </Card>
     </div>
   )
-}
-
-async function deleteCol(name: string, after: () => void, confirm: ReturnType<typeof useConfirm>, notify?: ReturnType<typeof useToast>["toast"]) {
-  if (!(await confirm({ title: "Delete collection", message: `This deletes "${name}" and all its chunks. This cannot be undone.`, destructive: true, confirmText: "Delete" }))) return
-  await fetch(`/api/ai/collections/${encodeURIComponent(name)}`, { method: "DELETE" })
-  notify?.(`Collection "${name}" deleted`, "success")
-  after()
 }
 
 function CreateCollection({ onCreated }: { onCreated: () => void }) {
@@ -340,46 +320,53 @@ function CreateCollection({ onCreated }: { onCreated: () => void }) {
   )
 }
 
-function Workspace({ name, onChange, empty, ownerId, memberRole, chunkAccess }: { name: string; onChange: () => void; empty: boolean; ownerId: string | null; memberRole: MemberRole | null; chunkAccess: StoredChunkRule }) {
-  const ontologyOn = useCapability("ontology")
+function Workspace({ collection, onChange, piiDefault, onDeleted }: {
+  collection: Collection; onChange: () => void; piiDefault: PiiMode; onDeleted: () => void
+}) {
   const viewer = getUser()
   const { role, permissions } = usePermissions()
-  const canEditRule = !!viewer && mayWriteCollection({ owner_id: ownerId, member_role: memberRole }, { id: viewer.id, role, permissions })
+  const name = collection.name
+  const ownerId = collection.owner_id
+  const memberRole = collection.member_role ?? null
+  const canEdit = !!viewer && mayWriteCollection({ owner_id: ownerId, member_role: memberRole }, { id: viewer.id, role, permissions })
+  const canLower = permissions.has("governance:write")
+  const empty = collection.chunks === 0
   return (
     <Card>
-      <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2">
-        <Database className="h-4 w-4" />{name}</CardTitle>
-        <CardDescription>Ingest documents, then search or ask with RAG.</CardDescription></CardHeader>
+      <CardHeader className="pb-1">
+        <CardTitle className="text-base">{name}</CardTitle>
+        <CardDescription>
+          {collection.owner_id === null ? "Shared with everyone" : viewer && collection.owner_id === viewer.id ? "You own it" : memberRole ? `You are a ${memberRole}` : "Owned by someone else"}
+          {" · "}{collection.chunks.toLocaleString()} chunks
+        </CardDescription>
+      </CardHeader>
       <CardContent>
-        {/* An empty collection has nothing to search — open on Ingest so the first step is obvious. */}
-        <Tabs defaultValue={empty ? "ingest" : "search"}>
-          {/* More tabs than a narrow workspace fits (the assistant panel alone takes 360px):
-              wrap to a second row rather than push the card past the page edge — the grid
-              column above is minmax(0,1fr) for the same reason. A scrolling row showed
-              scrollbars and hid the last tab. */}
-          <TabsList className="max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto [&>[data-slot=tabs-trigger]]:h-7 [&>[data-slot=tabs-trigger]]:flex-none">
-            <TabsTrigger value="search"><Search className="h-3.5 w-3.5 mr-1" />Search / RAG</TabsTrigger>
-            <TabsTrigger value="composition"><Layers className="h-3.5 w-3.5 mr-1" />Composition</TabsTrigger>
-            <TabsTrigger value="ingest"><Upload className="h-3.5 w-3.5 mr-1" />Ingest</TabsTrigger>
-            <TabsTrigger value="schedule"><Clock className="h-3.5 w-3.5 mr-1" />Schedule</TabsTrigger>
-            <TabsTrigger value="members"><Users className="h-3.5 w-3.5 mr-1" />Members</TabsTrigger>
-            <TabsTrigger value="access"><ShieldCheck className="h-3.5 w-3.5 mr-1" />Chunk access</TabsTrigger>
-            {/* Only when the deployment has the capability. Without the flag every
-                concepts call 404s, so an always-present tab would greet everyone with
-                an error for a feature they have not turned on. The Concepts toggle in
-                Search is gated the same way. */}
-            {ontologyOn && <TabsTrigger value="concepts"><BookMarked className="h-3.5 w-3.5 mr-1" />Concepts</TabsTrigger>}
-            <TabsTrigger value="compare"><ArrowDownWideNarrow className="h-3.5 w-3.5 mr-1" />Compare</TabsTrigger></TabsList>
-          <TabsContent value="search"><SearchPanel name={name} /></TabsContent>
-          <TabsContent value="composition"><CompositionPanel name={name} onChange={onChange} /></TabsContent>
-          <TabsContent value="ingest"><IngestPanel name={name} ownerId={ownerId} memberRole={memberRole} onChange={onChange} /></TabsContent>
-          <TabsContent value="schedule"><SchedulePanel name={name} ownerId={ownerId} memberRole={memberRole} /></TabsContent>
-          <TabsContent value="members"><MembersPanel name={name} ownerId={ownerId} /></TabsContent>
-          <TabsContent value="access"><ChunkAccessPanel name={name} initial={chunkAccess} canEdit={canEditRule} onChange={onChange} /></TabsContent>
-          {/* Deliberately in Knowledge rather than a page of its own: concepts change
-              what Search returns, so the cause belongs next to the effect. */}
-          {ontologyOn && <TabsContent value="concepts"><ConceptsPanel /></TabsContent>}
-          <TabsContent value="compare"><ComparePanel name={name} /></TabsContent>
+        {/* Four tabs instead of eight: ask it, feed it, who can reach it, how it is set
+            up. An empty collection opens on Sources, where the first step is. */}
+        <Tabs defaultValue={empty ? "sources" : "ask"}>
+          <TabsList className="justify-start">
+            <TabsTrigger value="ask"><Search className="mr-1 h-3.5 w-3.5" />Ask</TabsTrigger>
+            <TabsTrigger value="sources"><Upload className="mr-1 h-3.5 w-3.5" />Sources</TabsTrigger>
+            <TabsTrigger value="access"><Users className="mr-1 h-3.5 w-3.5" />Access</TabsTrigger>
+            <TabsTrigger value="settings"><ShieldCheck className="mr-1 h-3.5 w-3.5" />Settings</TabsTrigger>
+          </TabsList>
+          <TabsContent value="ask" className="space-y-4">
+            <SearchPanel name={name} />
+            <details className="rounded-lg border p-3">
+              <summary className="cursor-pointer text-sm font-medium">Compare two retrieval settings</summary>
+              <ComparePanel name={name} />
+            </details>
+          </TabsContent>
+          <TabsContent value="sources" className="space-y-6">
+            <section><h3 className="pt-3 text-sm font-semibold">What it holds</h3><CompositionPanel name={name} onChange={onChange} /></section>
+            <section className="border-t"><h3 className="pt-4 text-sm font-semibold">Add documents</h3><IngestPanel name={name} ownerId={ownerId} memberRole={memberRole} onChange={onChange} /></section>
+            <section className="border-t"><h3 className="pt-4 text-sm font-semibold">Keep it fresh</h3><SchedulePanel name={name} ownerId={ownerId} memberRole={memberRole} /></section>
+          </TabsContent>
+          <TabsContent value="access"><MembersPanel name={name} ownerId={ownerId} /></TabsContent>
+          <TabsContent value="settings">
+            <SettingsPanel c={collection} piiDefault={piiDefault} canEdit={canEdit} canLower={canLower}
+                           onChange={onChange} onDeleted={onDeleted} />
+          </TabsContent>
         </Tabs>
       </CardContent>
     </Card>

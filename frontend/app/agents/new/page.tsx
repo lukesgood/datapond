@@ -8,6 +8,7 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { PermissionGate } from "@/components/ui/permission-state"
+import { ChoiceGroup } from "@/components/ui/choice-group"
 import { SectionError } from "@/components/agents/section"
 import { useJson } from "@/components/agents/use-json"
 import {
@@ -40,27 +41,6 @@ const EXPIRY: { label: string; days: number | null }[] = [
   { label: "30 days", days: 30 }, { label: "90 days", days: 90 },
   { label: "1 year", days: 365 }, { label: "Never", days: null },
 ]
-
-/** A choice among a few options, as a row of toggle buttons (radio semantics). */
-function Choice<T>({ label, options, value, onChange }: {
-  label: string; options: { label: string; value: T }[]; value: T; onChange: (v: T) => void
-}) {
-  return (
-    <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1.5">
-      {options.map(o => {
-        const on = o.value === value
-        return (
-          <button key={o.label} type="button" role="radio" aria-checked={on} onClick={() => onChange(o.value)}
-                  className={`h-8 rounded-md border px-3 text-xs transition-colors ${on
-                    ? "border-primary bg-primary/10 font-semibold text-primary"
-                    : "bg-background hover:bg-muted"}`}>
-            {o.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
 
 function NewAgent() {
   const opts = useJson<Options>("/api/service-accounts")
@@ -197,7 +177,7 @@ function Form({ opts, onCreated }: { opts: Options; onCreated: (c: Created) => v
           <section className="space-y-4 rounded-xl border bg-card p-5">
             <div className="space-y-2">
               <h3 className="text-sm font-semibold">PII guardrail</h3>
-              <Choice<PiiMode | null> label="PII guardrail" value={own}
+              <ChoiceGroup<PiiMode | null> label="PII guardrail" value={own}
                 options={[{ label: `Inherit (${deployment})`, value: null }, { label: "mask", value: "mask" }, { label: "block", value: "block" }]}
                 onChange={v => { setPii(v); setPiiTouched(true) }} />
               <p className="text-xs text-muted-foreground">Can only make the deployment default stricter.</p>
@@ -205,7 +185,7 @@ function Form({ opts, onCreated }: { opts: Options; onCreated: (c: Created) => v
             {preset && (
               <div className="space-y-2 border-t pt-4">
                 <h3 className="text-sm font-semibold">First key expires</h3>
-                <Choice<number | null> label="First key expires" value={keyDays}
+                <ChoiceGroup<number | null> label="First key expires" value={keyDays}
                   options={EXPIRY.map(e => ({ label: e.label, value: e.days }))} onChange={setKeyDays} />
                 <p className="text-xs text-muted-foreground">You can rotate it, or issue more keys, on the agent&apos;s page.</p>
               </div>

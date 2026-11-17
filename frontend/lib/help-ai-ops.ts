@@ -98,10 +98,10 @@ export const KNOWLEDGE: Guide = {
     {
       title: l("7. Share it: members and chunk access rules", "7. 공유하기: 멤버와 청크 접근 규칙"),
       paras: [
-        l("A collection has an owner. Admins see everything; anyone else needs a grant under Members, as `reader` or `editor`. Service accounts are granted the same way, by their `svc-…` username.",
-          "컬렉션에는 소유자가 있습니다. 관리자는 모두 볼 수 있고, 그 외에는 Members에서 `reader` 또는 `editor`로 권한을 받아야 합니다. 서비스 계정도 `svc-…` 사용자 이름으로 같은 방식으로 부여합니다."),
-        l("Inside a shared collection you can narrow what each caller retrieves with a chunk access rule: a chunk's metadata value must match one of the caller's attributes (for example a department). The rule runs in the vector query itself, before the top-k cut, and fails closed: a chunk without the label and a caller without the attribute both see nothing. Admins are held to it too.",
-          "공유된 컬렉션 안에서도 청크 접근 규칙으로 호출자별 검색 범위를 좁힐 수 있습니다. 청크의 메타데이터 값이 호출자의 속성(예: 부서) 중 하나와 일치해야 합니다. 규칙은 상위 k개를 자르기 전에 벡터 쿼리 안에서 적용되며, 닫힌 방향으로 동작합니다. 라벨이 없는 청크와 속성이 없는 호출자는 아무것도 보지 못합니다. 관리자에게도 똑같이 적용됩니다."),
+        l("A collection has an owner. Admins see everything; anyone else needs a grant on the collection's Access tab, as `reader` or `editor`. Service accounts are granted the same way, by their `svc-…` username.",
+          "컬렉션에는 소유자가 있습니다. 관리자는 모두 볼 수 있고, 그 외에는 컬렉션의 Access 탭에서 `reader` 또는 `editor`로 권한을 받아야 합니다. 서비스 계정도 `svc-…` 사용자 이름으로 같은 방식으로 부여합니다."),
+        l("Inside a shared collection you can narrow what each caller retrieves with a chunk access rule: a chunk's metadata value must match one of the caller's attributes (for example a department). The rule runs in the vector query itself, before the top-k cut, and fails closed: a chunk without the label and a caller without the attribute both see nothing. Admins are held to it too. It is set on the collection's Settings tab, next to its PII mode and sensitivity label — raising either is open to anyone who may edit the collection; lowering needs governance:write.",
+          "공유된 컬렉션 안에서도 청크 접근 규칙으로 호출자별 검색 범위를 좁힐 수 있습니다. 청크의 메타데이터 값이 호출자의 속성(예: 부서) 중 하나와 일치해야 합니다. 규칙은 상위 k개를 자르기 전에 벡터 쿼리 안에서 적용되며, 닫힌 방향으로 동작합니다. 라벨이 없는 청크와 속성이 없는 호출자는 아무것도 보지 못합니다. 관리자에게도 똑같이 적용됩니다. 이 규칙은 컬렉션의 Settings 탭에서 PII 모드·민감도와 함께 설정합니다. 보호 수준을 높이는 것은 편집 권한이 있으면 누구나 할 수 있고, 낮추려면 governance:write가 필요합니다."),
         l("Collection access is an application-level owner/admin/shared ACL. It is not database-native row security.",
           "컬렉션 접근 제어는 애플리케이션 수준의 소유자·관리자·공유 ACL입니다. 데이터베이스 자체의 행 수준 보안이 아닙니다."),
       ],
@@ -109,8 +109,8 @@ export const KNOWLEDGE: Guide = {
     {
       title: l("8. Optional: widen a query with concepts", "8. 선택: 개념으로 질의 넓히기"),
       paras: [
-        l("The Concepts tab defines a term and its synonyms (refund alongside 환불, 반품, 환급). The Concepts toggle above the search box expands a query with them before retrieval, and the results panel shows which concepts fired.",
-          "Concepts 탭에서 용어와 동의어를 정의합니다(refund와 환불, 반품, 환급). 검색창 위의 Concepts 토글을 켜면 검색 전에 질의를 이 용어로 확장하고, 결과 패널에 적용된 개념이 표시됩니다."),
+        l("Knowledge → Vocabulary defines a term and its synonyms (refund alongside 환불, 반품, 환급). The Concepts toggle above the search box expands a query with them before retrieval, and the results panel shows which concepts fired.",
+          "Knowledge → Vocabulary에서 용어와 동의어를 정의합니다(refund와 환불, 반품, 환급). 검색창 위의 Concepts 토글을 켜면 검색 전에 질의를 이 용어로 확장하고, 결과 패널에 적용된 개념이 표시됩니다."),
         l("It is off by default and does nothing until you add concepts. This is deliberate term expansion, not an inference engine: it widens recall for vocabulary your documents and your users spell differently.",
           "기본값은 꺼짐이며 개념을 추가하기 전에는 아무 일도 하지 않습니다. 추론 엔진이 아니라 의도적인 용어 확장입니다. 문서와 사용자가 서로 다르게 쓰는 표현의 재현율을 높여 줍니다."),
       ],
