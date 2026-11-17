@@ -82,6 +82,7 @@ WRITE_ROUTES = {
     ("PATCH", "/api/governance/rls/policies/{policy_id}"),
     ("DELETE", "/api/governance/rls/policies/{policy_id}"),
     ("POST", "/api/governance/masking/policies"),
+    ("PATCH", "/api/governance/masking/policies/{policy_id}"),
     ("DELETE", "/api/governance/masking/policies/{policy_id}"),
     ("POST", "/api/governance/rls/trino-rules/apply"),
 }
