@@ -141,3 +141,17 @@ export function displayId(text: string, sole: string | null): string {
   const escaped = sole.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
   return text.replace(new RegExp(`(^|[\\s=(])${escaped}\\.`, "g"), "$1")
 }
+
+/** The graph node for a catalog table. Ids name the catalog by either of its names
+ *  (or not at all, in older histories), so every name the catalog answers to is tried,
+ *  case-insensitively. */
+export function findNodeId(graph: RelGraph, catalogNames: string[], namespace: string, table: string): string | null {
+  const names = new Set(catalogNames.filter(Boolean).map(n => n.toLowerCase()))
+  const ns = namespace.toLowerCase(), t = table.toLowerCase()
+  for (const n of graph.nodes) {
+    const id = splitTableId(n.id)
+    if (id.namespace.toLowerCase() !== ns || id.table.toLowerCase() !== t) continue
+    if (id.catalog === null || names.size === 0 || names.has(id.catalog.toLowerCase())) return n.id
+  }
+  return null
+}
