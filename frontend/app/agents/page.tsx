@@ -216,7 +216,9 @@ function NewAgentDialog({ roles, presets, onClose }: {
   if (created?.key) {
     const k = created.key
     return (
-      <Dialog open onOpenChange={() => { /* must leave through the button: the key is shown once */ }}>
+      // Closing (X, Escape, outside click) also goes to the agent: the account exists,
+      // and staying on the list would hide what was just created.
+      <Dialog open onOpenChange={o => { if (!o) router.push(`/agents/${created.id}`) }}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Agent created — copy its key</DialogTitle></DialogHeader>
           <div className="space-y-3 text-sm">
@@ -225,7 +227,9 @@ function NewAgentDialog({ roles, presets, onClose }: {
               <code className="font-mono">Authorization: Bearer &lt;key&gt;</code>.
             </p>
             <div className="flex items-center gap-2">
-              <code className="flex-1 truncate rounded border bg-muted px-2 py-1.5 font-mono text-xs">{k.key}</code>
+              {/* min-w-0: a flex child is otherwise as wide as the 50-character key,
+                  and pushes the row (and the footer button) out of the dialog. */}
+              <code className="min-w-0 flex-1 truncate rounded border bg-muted px-2 py-1.5 font-mono text-xs">{k.key}</code>
               <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
                       onClick={() => { void navigator.clipboard.writeText(k.key); setCopied(true) }}>
                 {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
@@ -302,11 +306,11 @@ function NewAgentDialog({ roles, presets, onClose }: {
                     onChange={e => { setPii((e.target.value || null) as PiiMode | null); setPiiTouched(true) }}
                     className="h-9 w-full rounded-md border bg-background px-2 text-sm">
               <option value="">Inherit the deployment default</option>
-              <option value="mask">{PII_MODE_TEXT.mask}</option>
-              <option value="block">{PII_MODE_TEXT.block}</option>
+              <option value="mask">mask</option>
+              <option value="block">block</option>
             </select>
             <p className="text-2xs text-muted-foreground">
-              Can only make the deployment default stricter. Cannot sign in to the console, and never holds{" "}
+              {pii ? `${PII_MODE_TEXT[pii]}. ` : ""}Can only make the deployment default stricter. Cannot sign in to the console, and never holds{" "}
               <code className="font-mono">user:manage</code> or <code className="font-mono">settings:write</code>.
             </p>
           </div>
