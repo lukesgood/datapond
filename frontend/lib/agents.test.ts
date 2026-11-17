@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { createAgentBody, effectivePiiMode, piiModeNote, type AgentPreset, attrFromText, attrRows, attrToText, buildAttributes, grantWarning, revokeWarning, agentStatus, joinAgentRows, lastUsed, viaLabel, type Agent, type AgentKey } from "./agents.ts"
+import { agentAttention, keyPermissions, describeAccess, createAgentBody, effectivePiiMode, piiModeNote, type AgentPreset, attrFromText, attrRows, attrToText, buildAttributes, grantWarning, revokeWarning, agentStatus, joinAgentRows, lastUsed, viaLabel, type Agent, type AgentKey } from "./agents.ts"
 
 const NOW = new Date("2026-10-16T00:00:00Z")
 const DAY = 86_400_000
@@ -136,4 +136,54 @@ test("create body: a changed pii mode is sent with the preset, including null", 
 test("create body: custom sends role and pii mode", () => {
   assert.deepEqual(createAgentBody("bot", "", { role: "viewer" }, "block", false),
     { name: "bot", role: "viewer", pii_mode: "block" })
+})
+
+test("describe: a read-only Q&A agent", () => {
+  const d = describeAccess(["knowledge:read", "ai:generate"])
+  assert.equal(d.can.length, 2)
+  assert.ok(d.cannot.includes("Run SQL or read metrics"))
+  assert.ok(d.cannot.includes("Change any data, source or setting"))
+  assert.ok(!d.cannot.some(c => c.startsWith("Call models")))
+})
+
+test("describe: a writer is not told it cannot change data; unknown perms are skipped", () => {
+  const d = describeAccess(["connector:write", "made:up"])
+  assert.equal(d.can.length, 1)
+  assert.ok(!d.cannot.includes("Change any data, source or setting"))
+  assert.equal(d.cannot.at(-1), "Sign in to the console, manage users or change settings")
+})
+
+// ── summary rail ─────────────────────────────────────────────────────────────
+
+const detail = (over: Partial<Agent> = {}) => ({ ...agent(over), permissions: ["catalog:read", "knowledge:read", "ai:generate", "query:run"] })
+
+test("key permissions: scopes intersect the role; an unscoped key gets the role; dead keys count for nothing", () => {
+  assert.deepEqual(keyPermissions(detail({ keys: [key({ scopes: ["knowledge:read", "made:up"] })] }), NOW), ["knowledge:read"])
+  assert.equal(keyPermissions(detail({ keys: [key({ scopes: [] })] }), NOW).length, 4)
+  assert.deepEqual(keyPermissions(detail({ keys: [key({ status: "revoked" }), key({ expires_at: iso(-1) })] }), NOW), [])
+})
+
+test("attention: disabled and keyless short-circuit", () => {
+  assert.equal(agentAttention(detail({ is_active: false }), NOW, [], [])[0].tone, "bad")
+  assert.match(agentAttention(detail({ keys: [] }), NOW, [], [])[0].text, /No active key/)
+})
+
+test("attention: knowledge without a collection, catalog grant without the scope, expiring keys", () => {
+  const a = detail({ keys: [key({ scopes: ["knowledge:read"], expires_at: iso(5) })] })
+  const t = agentAttention(a, NOW, [], [{ catalog: "c", via: "user" }]).map(x => x.text).join(" | ")
+  assert.match(t, /expires by/)
+  assert.match(t, /No collection granted/)
+  assert.match(t, /no key has catalog:read/)
+})
+
+test("attention: nothing to say while sources load, or when all is well", () => {
+  const a = detail({ keys: [key({ scopes: ["knowledge:read", "catalog:read"] })] })
+  assert.deepEqual(agentAttention(a, NOW, null, null), [])
+  assert.deepEqual(agentAttention(a, NOW, [{ name: "x", access: "reader" }], [{ catalog: "c", via: "user" }]), [])
+})
+
+test("create body: key lifetime goes with a preset only, null included", () => {
+  assert.equal(createAgentBody("b", "", { preset: PRESET }, null, false, null).key_expires_in_days, null)
+  assert.equal(createAgentBody("b", "", { preset: PRESET }, null, false, 30).key_expires_in_days, 30)
+  assert.ok(!("key_expires_in_days" in createAgentBody("b", "", { role: "viewer" }, null, false, 30)))
 })

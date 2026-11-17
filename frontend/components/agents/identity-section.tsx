@@ -45,7 +45,7 @@ export function IdentitySection({ agent, onChange }: { agent: AgentDetail; onCha
   const nameChanged = name.trim() !== (agent.display_name ?? "") && name.trim() !== ""
 
   return (
-    <Section title="Identity" icon={<UserRound className="h-4 w-4 text-primary" />}>
+    <Section id="identity" title="Identity" icon={<UserRound className="h-4 w-4 text-primary" />}>
       <div className="grid gap-3 text-xs sm:grid-cols-2">
         <div className="space-y-1">
           <label htmlFor="agent-display" className="text-muted-foreground">Display name</label>

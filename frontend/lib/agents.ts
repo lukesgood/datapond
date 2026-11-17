@@ -129,12 +129,15 @@ export function createAgentBody(
   name: string, description: string,
   choice: { preset: AgentPreset } | { role: string },
   pii: PiiMode | null, piiTouched: boolean,
+  keyDays?: number | null,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = { name: name.trim() }
   if (description.trim()) body.description = description.trim()
   if ("preset" in choice) body.preset = choice.preset.id
   else body.role = choice.role
   if (piiTouched || !("preset" in choice)) body.pii_mode = pii
+  // Only a preset issues a key; null asks for one that never expires.
+  if ("preset" in choice && keyDays !== undefined) body.key_expires_in_days = keyDays
   return body
 }
 
@@ -187,4 +190,90 @@ export function buildAttributes(rows: AttrRow[]): Record<string, unknown> {
 
 export function attrRows(attrs: Record<string, unknown> | undefined): AttrRow[] {
   return Object.entries(attrs ?? {}).map(([key, v]) => ({ key, text: attrToText(v), isList: attrIsList(v), original: v }))
+}
+
+// ── what a new agent will be able to do ──────────────────────────────────────
+// The create page explains a choice before it is made. Permissions are named for the
+// system; these say what each lets the agent do, in the words an admin would use.
+
+export const PERMISSION_TEXT: Record<string, string> = {
+  "catalog:read": "Browse tables and schemas in the catalog",
+  "catalog:write": "Move tables between catalogs",
+  "query:run": "Run read-only SQL, including approved metrics",
+  "query:write": "Change data or schema with SQL",
+  "dashboard:write": "Save and delete dashboards",
+  "knowledge:read": "Search the Knowledge collections it is granted",
+  "knowledge:write": "Create collections and add documents",
+  "ai:generate": "Call models for cited answers and NL→SQL (billed to this agent)",
+  "connector:read": "See sources and when they last synced",
+  "connector:write": "Create, edit and run source syncs",
+  "pipeline:write": "Edit transforms and streaming jobs",
+  "workbench:read": "Browse notebooks and experiments",
+  "workbench:write": "Run notebooks and change experiments",
+  "governance:read": "Read row/column policies and PII reports",
+  "governance:write": "Change row/column policies",
+  "audit:read": "Read the audit log",
+  "spend:read": "See model usage and cost",
+  "service:manage": "Operate infrastructure and storage",
+}
+
+const WRITES = ["query:write", "knowledge:write", "connector:write", "catalog:write",
+  "pipeline:write", "dashboard:write", "workbench:write", "governance:write", "service:manage"]
+
+/** Plain-language can / cannot lists for a set of permissions. "Cannot" names only the
+ *  limits an admin weighs when choosing (SQL, model spend, Knowledge, writes) plus the
+ *  ones that hold for every agent, rather than every permission it lacks. */
+export function describeAccess(perms: string[]): { can: string[]; cannot: string[] } {
+  const held = new Set(perms)
+  const can = perms.filter(p => p in PERMISSION_TEXT).sort().map(p => PERMISSION_TEXT[p])
+  const cannot: string[] = []
+  if (!held.has("query:run")) cannot.push("Run SQL or read metrics")
+  if (!held.has("knowledge:read")) cannot.push("Read Knowledge collections")
+  if (!held.has("ai:generate")) cannot.push("Call models, so it never adds model spend")
+  if (!WRITES.some(w => held.has(w))) cannot.push("Change any data, source or setting")
+  cannot.push("Sign in to the console, manage users or change settings")
+  return { can, cannot }
+}
+
+// ── the agent page's summary rail ────────────────────────────────────────────
+
+function liveKeys(a: Agent, now: Date): AgentKey[] {
+  return a.keys.filter(k => k.status === "active"
+    && (k.expires_at === null || new Date(k.expires_at).getTime() > now.getTime()))
+}
+
+/** What the agent's live keys can actually do: each key's scopes, or the whole role for
+ *  a key with none (as the backend's intersection does), unioned. */
+export function keyPermissions(a: Agent & { permissions: string[] }, now: Date): string[] {
+  const out = new Set<string>()
+  for (const k of liveKeys(a, now)) {
+    const held = new Set(a.permissions)
+    for (const p of (k.scopes.length ? k.scopes : a.permissions)) if (held.has(p)) out.add(p)
+  }
+  return [...out].sort()
+}
+
+export interface Attention { tone: "bad" | "warn"; text: string }
+
+/** Gaps between what was set up and what will work. `collections`/`catalogs` are null
+ *  while loading or when they failed, and then say nothing rather than guess. */
+export function agentAttention(
+  a: Agent & { permissions: string[] }, now: Date,
+  collections: { name: string; access: string }[] | null,
+  catalogs: { catalog: string; via: string | null }[] | null,
+): Attention[] {
+  if (!a.is_active) return [{ tone: "bad", text: "Disabled: every key is refused." }]
+  const live = liveKeys(a, now)
+  if (live.length === 0) return [{ tone: "warn", text: "No active key: it cannot call anything yet." }]
+  const out: Attention[] = []
+  if (live.every(k => k.expires_at !== null && new Date(k.expires_at).getTime() - now.getTime() <= EXPIRY_WARN_MS)) {
+    const last = live.map(k => k.expires_at as string).sort().at(-1) as string
+    out.push({ tone: "warn", text: `Every key expires by ${last.slice(0, 10)}. Rotate or issue one before then.` })
+  }
+  const perms = new Set(keyPermissions(a, now))
+  if (perms.has("knowledge:read") && collections !== null && collections.length === 0)
+    out.push({ tone: "warn", text: "No collection granted: Knowledge searches return nothing." })
+  if (!perms.has("catalog:read") && catalogs?.some(c => c.via === "user"))
+    out.push({ tone: "warn", text: "Catalog grants have no effect: no key has catalog:read." })
+  return out
 }

@@ -34,10 +34,9 @@ class ServiceAccountCreate(BaseModel):
     preset: Optional[str] = None
     # None inherits the deployment default. Overrides the preset's when given.
     pii_mode: Optional[str] = None
-
-
-# A preset's first key lives as long as the console's default for a new key.
-PRESET_KEY_DAYS = 90
+    # Lifetime of a preset's first key; null issues one that never expires. Ignored
+    # without a preset (no key is issued).
+    key_expires_in_days: Optional[int] = Field(default=90, ge=1, le=3650)
 
 
 class ApiKeyRotate(BaseModel):
@@ -124,10 +123,16 @@ async def _account_rows(conn, where_id: Optional[str] = None, *,
 def _account_options() -> dict:
     """What the console offers when creating or editing an account."""
     from app import oauth_rs
+    from app.guardrails import pii_ko
+    assignable = [r for r in ASSIGNABLE_ROLES if r != "admin"]
     return {"oauth": {"enabled": oauth_rs.enabled(),
                       "issuer": oauth_rs.config().issuer if oauth_rs.enabled() else None},
-            "assignable_roles": [r for r in ASSIGNABLE_ROLES if r != "admin"],
+            "assignable_roles": assignable,
+            # What a key with no scopes gets under each role, so the console can say
+            # what a custom agent will be able to do before it exists.
+            "role_permissions": {r: sorted(effective_permissions(r, [])) for r in assignable},
             "presets": [p.as_dict() for p in PRESETS],
+            "pii_default": pii_ko.env_mode(),
             "grantable_permissions": sorted(
                 set().union(*(permissions_for(r) for r in ASSIGNABLE_ROLES))
                 - set(NEVER_FOR_SERVICE_ACCOUNTS))}
@@ -148,7 +153,6 @@ async def get_service_account(account_id: str, admin: dict = Depends(require_adm
     rules read), so a page about one agent does not fetch every account and user.
     The per-key rate limit is deployment-wide; it is shown, not set, here. So is the
     deployment's PII mode, which the account's own `pii_mode` can only tighten."""
-    from app.guardrails import pii_ko
     from app.rate_limit import api_key_limiter
     try:
         uuid.UUID(account_id)
@@ -160,8 +164,7 @@ async def get_service_account(account_id: str, admin: dict = Depends(require_adm
     if not rows:
         raise HTTPException(status_code=404, detail="Unknown service account.")
     return {**rows[0], **_account_options(),
-            "rate_limit_per_minute": api_key_limiter().per_minute,
-            "pii_default": pii_ko.env_mode()}
+            "rate_limit_per_minute": api_key_limiter().per_minute}
 
 
 _ACCOUNT_COLLECTIONS_SQL = """
@@ -287,7 +290,7 @@ async def create_service_account(body: ServiceAccountCreate, admin: dict = Depen
                 issued = None
                 if preset is not None:
                     issued = await _insert_key(conn, str(row["id"]), f"{username} key",
-                                               list(preset.scopes), PRESET_KEY_DAYS)
+                                               list(preset.scopes), body.key_expires_in_days)
     except HTTPException:
         raise
     except Exception as e:

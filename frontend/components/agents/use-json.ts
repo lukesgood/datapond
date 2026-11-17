@@ -8,11 +8,13 @@ type State<T> = { data: T | null; error: string | null; status: number | null; l
  *  on its own, so one slow or broken source never blanks the page: `error` is the
  *  server's `detail` when it sent one, and `reload` is the section's retry. Old data
  *  stays while a reload runs, so a save does not flash the section empty. */
-export function useJson<T>(url: string) {
-  const [state, setState] = useState<State<T>>({ data: null, error: null, status: null, loading: true })
+export function useJson<T>(url: string | null, rev = 0) {
+  // A null url fetches nothing: a section whose source is switched off.
+  const [state, setState] = useState<State<T>>({ data: null, error: null, status: null, loading: url !== null })
   const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
+    if (url === null) return
     let cancelled = false
     fetch(url)
       .then(async r => {
@@ -28,7 +30,8 @@ export function useJson<T>(url: string) {
         if (!cancelled) setState(s => ({ ...s, error: e instanceof Error ? e.message : "Could not load", status: null, loading: false }))
       })
     return () => { cancelled = true }
-  }, [url, attempt])
+    // `rev` lets a parent ask every source to reload after a change elsewhere on the page.
+  }, [url, attempt, rev])
 
   const reload = useCallback(() => setAttempt(n => n + 1), [])
   return { ...state, reload }
