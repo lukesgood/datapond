@@ -202,7 +202,11 @@ function ConnectorsPageInner() {
   const { permissions } = usePermissions()
   const canWrite = permissions.has("connector:write")
   useEffect(() => {
-    const t = window.setTimeout(() => setFilter(parseSourceFilter(window.location.search)), 0)
+    const t = window.setTimeout(() => {
+      setFilter(parseSourceFilter(window.location.search))
+      // "‹ Sources" on the add-source page comes back to the source types (?tab=marketplace).
+      if (new URLSearchParams(window.location.search).get("tab") === "marketplace") setActiveTab("marketplace")
+    }, 0)
     return () => window.clearTimeout(t)
   }, [])
   const chooseFilter = (f: SourceFilter) => {
