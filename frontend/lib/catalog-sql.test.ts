@@ -20,3 +20,10 @@ test("engine catalog lookup", () => {
   assert.equal(engineCatalogOf(cats, "lake2"), null)
   assert.equal(engineCatalogOf(cats, "missing"), null)
 })
+
+test("engine catalog lookup by the engine name, as table cards link", () => {
+  const cats = [{ name: "AwsDataCatalog", engine_catalog: "iceberg" }, { name: "polaris", engine_catalog: "polaris_lake" }]
+  assert.equal(engineCatalogOf(cats, "iceberg"), "iceberg")
+  assert.equal(engineCatalogOf(cats, "POLARIS_LAKE"), "polaris_lake")
+  assert.equal(engineCatalogOf(cats, "awsdatacatalog"), "iceberg")
+})

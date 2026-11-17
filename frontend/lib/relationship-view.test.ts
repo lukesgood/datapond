@@ -9,7 +9,7 @@
  */
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { hubs, neighbours, egoLayout, searchTables, type RelGraph } from "./relationship-view.ts"
+import { hubs, neighbours, egoLayout, searchTables, findNodeId, type RelGraph } from "./relationship-view.ts"
 
 const g: RelGraph = {
   nodes: [
@@ -107,4 +107,16 @@ test("with one catalog, names drop it; with several, they keep it", async () => 
 test("only a leading catalog is dropped, not a namespace that shares its name", async () => {
   const { displayId } = await import("./relationship-view.ts")
   assert.equal(displayId("sales.sales.orders", "sales"), "sales.orders")
+})
+
+test("findNodeId matches either catalog name, or a two-part id", () => {
+  const g = { nodes: [
+    { id: "awsdatacatalog.default.orders", query_count: 1, columns: [] },
+    { id: "polaris_lake.default.orders", query_count: 1, columns: [] },
+    { id: "public.users", query_count: 1, columns: [] },
+  ], edges: [] }
+  assert.equal(findNodeId(g, ["AwsDataCatalog", "iceberg"], "default", "orders"), "awsdatacatalog.default.orders")
+  assert.equal(findNodeId(g, ["polaris", "polaris_lake"], "default", "orders"), "polaris_lake.default.orders")
+  assert.equal(findNodeId(g, ["x"], "public", "users"), "public.users")
+  assert.equal(findNodeId(g, ["x"], "default", "orders"), null)
 })

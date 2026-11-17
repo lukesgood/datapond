@@ -1,7 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import NextLink from "next/link"
+import dynamic from "next/dynamic"
+import { Search, Database, Share2 } from "lucide-react"
 import { CapabilityGate } from "@/lib/capabilities"
 import { getUser } from "@/lib/auth"
 import { usePermissions } from "@/lib/permissions"
@@ -9,196 +11,148 @@ import { permissionState } from "@/lib/permission-state"
 import { PermissionUnknown } from "@/components/ui/permission-state"
 import { mayIngest } from "@/lib/knowledge-actions"
 import { ErrorBox, EmptyState } from "@/components/ui/error-box"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { TableCard } from "@/components/catalog/table-card"
-import { DataCatalogs } from "@/components/settings/data-catalogs"
-import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { Loader2, Sparkles, Clock } from "lucide-react"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
-import { Search, Database, FolderOpen, Layers, Share2, ChevronDown, ChevronRight } from "lucide-react"
-import dynamic from "next/dynamic"
+import { Button, buttonVariants } from "@/components/ui/button"
+import { PageHeader } from "@/components/ui/page-header"
+import { ExplainRail, RailSection } from "@/components/ui/explain-rail"
+import { SendToKnowledgePanel, TableRail, type CatalogTable } from "@/components/catalog/table-rail"
 import { catalogTypeOf, inChip, namespaceChips, type RegistryEntry } from "@/lib/catalog-view"
+import { findNodeId, soleCatalog, type RelGraph } from "@/lib/relationship-view"
 
-// reactflow pulls in a chunk we should not pay for unless the panel is opened.
+// reactflow pulls in a chunk we should not pay for unless the map is opened.
 const RelationshipGraph = dynamic(
   () => import("@/components/catalog/relationship-graph").then(m => m.RelationshipGraph),
   { ssr: false },
 )
 
-interface Table {
-  name: string
-  namespace: string
-  catalog: string
-  catalog_type: string
-  table_type: string
-  last_updated?: string
+interface Table extends CatalogTable { catalog_type: string }
+interface NamespaceInfo { name: string; catalog?: string }
+interface Registry extends RegistryEntry { is_default?: boolean; enabled?: boolean }
+interface CatalogData { tables: Table[]; namespaces: NamespaceInfo[]; registry: Registry[] }
+
+const TYPE_LABEL: Record<string, string> = { managed: "Managed", external: "External", source: "Source database", foreign: "Foreign" }
+
+function updated(ts?: string) {
+  if (!ts) return "—"
+  const d = new Date(ts)
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
 
-// Catalog-type colors mirror the per-card badge palette in table-card.tsx so the
-// summary breakdown and the individual cards read as the same encoding.
-const CATALOG_TYPE_META: Record<string, { label: string; color: string }> = {
-  managed:  { label: "Managed",  color: "var(--dp-managed)" },
-  external: { label: "External", color: "var(--dp-warn)" },
-  source:   { label: "Source DB", color: "var(--chart-4)" },
-  foreign:  { label: "Foreign",  color: "var(--chart-2)" },
-}
+const tableKey = (t: CatalogTable) => `${t.catalog}\u0000${t.namespace}\u0000${t.name}`
 
-interface NamespaceInfo {
-  name: string
-  catalog?: string
-  properties?: Record<string, string>
-}
-
-interface CatalogData {
-  tables: Table[]
-  namespaces: NamespaceInfo[]
-  registry: RegistryEntry[]
-}
-
-interface CollectionOption { name: string }
-interface CollectionsResponse { collections?: CollectionOption[] }
-interface CatalogColumn { name: string; type: string }
-
+/** Browse every table the engine can query: catalog and namespace on the left, the
+ *  tables in the middle, the selected table on the right. It opened on a relationship
+ *  graph that filled the screen with "Finding relationships…", embedded the admin
+ *  Data catalogs panel, and showed tables as cards below the fold. */
 function CatalogPageInner() {
-  // Open. The card held 29 observed relationships on the live deployment and showed
-  // a collapsed header with no hint of them, so the feature read as missing rather
-  // than as hidden — which is exactly how it was reported. It still collapses.
-  const [showGraph, setShowGraph] = useState(true)
-  const [showCatalogs, setShowCatalogs] = useState(false)
   const [data, setData] = useState<CatalogData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [selectedNamespace, setSelectedNamespace] = useState<string>("all")
-  const [sendTable, setSendTable] = useState<Table | null>(null)
-  // "Send to Knowledge" drives ingest-source/schedule — knowledge:write, not admin,
-  // since B1 moved both off require_admin so ai_engineer (which holds
-  // knowledge:write but not admin) could reach them from the Knowledge page. This
-  // used to gate on getUser()'s admin role instead, which was stale as of that
-  // move: an ai_engineer could already send a table to Knowledge from the Knowledge
-  // page's Ingest tab and get refused here for the identical action, depending only
-  // on which page they started from. mayIngest (lib/knowledge-actions.ts) is the
-  // one decision both pages now share; a brand-new collection has no owner yet, so
-  // this asks about one the viewer would own themselves — the case every
-  // knowledge:write holder can always reach via "create new" in the dialog below.
-  // ingest-source also requires ai:generate (it embeds the table's rows); mayIngest
-  // carries that, so this stays one shared decision rather than two drifting ones.
+  const [query, setQuery] = useState("")
+  const [catalog, setCatalog] = useState("all")
+  const [chip, setChip] = useState("all")
+  const [selected, setSelected] = useState<string | null>(null)
+  const [sending, setSending] = useState(false)
+  const [showMap, setShowMap] = useState(false)
+  const [graph, setGraph] = useState<RelGraph | null>(null)
+
+  // Send to Knowledge drives ingest-source / schedule: knowledge:write plus
+  // ai:generate, which mayIngest checks — the same decision the Knowledge page makes.
   const viewer = getUser()
   const { role, permissions, loaded: permsLoaded, error: permsError, refetch: refetchPerms } = usePermissions()
-  const canSendToKnowledge = !!viewer &&
-    mayIngest({ owner_id: viewer.id }, { id: viewer.id, role, permissions })
-  const sendToKnowledgeAccess = permissionState({ loaded: permsLoaded, error: permsError, allowed: canSendToKnowledge })
+  const canSend = !!viewer && mayIngest({ owner_id: viewer.id }, { id: viewer.id, role, permissions })
+  const sendAccess = permissionState({ loaded: permsLoaded, error: permsError, allowed: canSend })
 
   const fetchData = useCallback(async () => {
+    setLoading(true); setError(null)
     try {
-      setLoading(true)
-      setError(null)
-
       const [tablesRes, namespacesRes, registryRes] = await Promise.all([
         fetch("/api/catalog/tables"),
         fetch("/api/catalog/namespaces"),
         fetch("/api/catalogs").catch(() => null),
       ])
       if (!tablesRes.ok || !namespacesRes.ok) {
-        throw new Error(`Catalog request failed (tables ${tablesRes.status}, namespaces ${namespacesRes.status})`)
+        throw new Error(`The catalog could not be read (tables HTTP ${tablesRes.status}, namespaces HTTP ${namespacesRes.status})`)
       }
       const tablesData = await tablesRes.json()
       const namespacesData = await namespacesRes.json()
-
-      const registryData = registryRes && registryRes.ok ? await registryRes.json().catch(() => ({})) : {}
-      setData({
-        registry: registryData.catalogs || [],
-        tables: tablesData.tables || [],
-        namespaces: namespacesData.namespaces || [],
-      })
-    } catch (requestError) {
-      console.error("Failed to fetch catalog data:", requestError)
+      const registryData = registryRes?.ok ? await registryRes.json().catch(() => ({})) : {}
+      setData({ tables: tablesData.tables ?? [], namespaces: namespacesData.namespaces ?? [], registry: registryData.catalogs ?? [] })
+    } catch (e) {
       setData(null)
-      setError(requestError instanceof Error ? requestError.message : "Failed to load catalog data")
-    } finally {
-      setLoading(false)
-    }
+      setError(e instanceof Error ? e.message : "The catalog could not be read")
+    } finally { setLoading(false) }
   }, [])
 
   useEffect(() => {
-    const initial = window.setTimeout(() => void fetchData(), 0)
-    return () => window.clearTimeout(initial)
+    const t = window.setTimeout(() => void fetchData(), 0)
+    return () => window.clearTimeout(t)
   }, [fetchData])
 
-  // Filter tables based on search and namespace
-  const filteredTables = data?.tables.filter((table) => {
-    const matchesSearch =
-      searchQuery === "" ||
-      table.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      table.namespace.toLowerCase().includes(searchQuery.toLowerCase())
+  // Query history, for "Joined with" in the rail. Advisory: a failure leaves it empty.
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/catalog/relationships?days=30")
+      .then(r => (r.ok ? r.json() : { nodes: [], edges: [] }))
+      .then((g: RelGraph) => { if (!cancelled) setGraph(g) })
+      .catch(() => { if (!cancelled) setGraph({ nodes: [], edges: [] }) })
+    return () => { cancelled = true }
+  }, [])
 
-    const matchesNamespace = inChip(selectedNamespace, table)
+  const tables = useMemo(() => data?.tables ?? [], [data])
+  const registry = useMemo(() => data?.registry ?? [], [data])
+  const catalogs = useMemo(() => {
+    const engines = [...new Set(tables.map(t => t.catalog))]
+    return engines.map(e => {
+      const r = registry.find(x => x.engine_catalog === e)
+      return { engine: e, label: r ? (r.name === e ? e : `${r.name} (${e})`) : e, isDefault: !!r?.is_default,
+               count: tables.filter(t => t.catalog === e).length }
+    }).sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.label.localeCompare(b.label))
+  }, [tables, registry])
 
-    return matchesSearch && matchesNamespace
-  })
-
-  // Count tables per namespace
-  const chips = namespaceChips(data?.tables ?? [], data?.namespaces ?? [])
-  const selectedChip = chips.find(c => c.key === selectedNamespace)
-
-  // Catalog-type distribution (managed/external/foreign) for the summary breakdown —
-  // scannable "what's in here" metadata without eagerly loading any columns.
-  const typeCounts = data?.tables.reduce((acc, table) => {
-    const key = table.catalog_type || "managed"
-    acc[key] = (acc[key] || 0) + 1
-    return acc
-  }, {} as Record<string, number>)
-  const typeSegments = Object.entries(typeCounts ?? {}).sort((a, b) => b[1] - a[1])
-
-  const totalTables = data?.tables.length ?? 0
-  const isFiltered = searchQuery !== "" || selectedNamespace !== "all"
-  const clearFilters = () => { setSearchQuery(""); setSelectedNamespace("all") }
-  // Keyboard activation for the namespace filter pills (Badge renders a span).
-  const onFilterKeyDown = (ns: string) => (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedNamespace(ns) }
+  const inCatalog = useCallback((t: { catalog?: string }) => catalog === "all" || (t.catalog ?? "") === catalog, [catalog])
+  const chips = useMemo(() => namespaceChips(tables.filter(inCatalog), (data?.namespaces ?? []).filter(inCatalog)), [tables, data, inCatalog])
+  const scoped = tables.filter(t => inCatalog(t) && inChip(chip, t))
+  const needle = query.trim().toLowerCase()
+  const shown = needle ? scoped.filter(t => t.name.toLowerCase().includes(needle) || t.namespace.toLowerCase().includes(needle)) : scoped
+  const current = tables.find(t => tableKey(t) === selected) ?? null
+  const typeOf = (t: Table) => catalogTypeOf(t, registry)
+  const sole = graph ? soleCatalog(graph) : null
+  const nodeFor = (t: Table) => {
+    if (!graph) return null
+    const r = registry.find(x => x.engine_catalog === t.catalog)
+    return findNodeId(graph, [t.catalog, r?.name ?? ""], t.namespace, t.name)
   }
+
+  const pickCatalog = (c: string) => { setCatalog(c); setChip("all"); setSelected(null); setSending(false) }
+  const pickChip = (k: string) => { setChip(k); setSelected(null); setSending(false) }
+  const select = (t: Table) => { setSelected(tableKey(t)); setSending(false) }
+
+  const header = (
+    <PageHeader
+      title="Catalog"
+      description="Every table the lakehouse can query, by catalog and namespace."
+      actions={
+        <>
+          <Button size="sm" variant="outline" aria-expanded={showMap} onClick={() => setShowMap(v => !v)}>
+            <Share2 className="mr-1.5 h-3.5 w-3.5" />{showMap ? "Hide relationship map" : "Relationship map"}
+          </Button>
+          {role === "admin" && (
+            <NextLink href="/settings?tab=catalogs" className={buttonVariants({ size: "sm", variant: "outline" })}>Manage catalogs</NextLink>
+          )}
+        </>
+      }
+    />
+  )
 
   if (loading) {
     return (
       <div className="flex-1 space-y-4 p-8 pt-6">
-        {/* Breadcrumb skeleton */}
-        <Skeleton className="h-5 w-[200px]" />
-
-        {/* Header skeleton */}
-        <div className="space-y-2">
-          <Skeleton className="h-8 w-[150px]" />
-          <Skeleton className="h-4 w-[300px]" />
-        </div>
-
-        {/* Search and filters skeleton */}
-        <div className="flex gap-4">
-          <Skeleton className="h-8 w-[300px]" />
-          <Skeleton className="h-8 w-[150px]" />
-        </div>
-
-        {/* Stats skeleton */}
-        <div className="grid gap-4 md:grid-cols-3">
-          {[...Array(3)].map((_, i) => (
-            <Skeleton key={i} className="h-[120px]" />
-          ))}
-        </div>
-
-        {/* Tables grid skeleton */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {[...Array(8)].map((_, i) => (
-            <Skeleton key={i} className="h-[140px]" />
-          ))}
+        {header}
+        <div className="flex gap-5">
+          <Skeleton className="h-[420px] w-56" />
+          <Skeleton className="h-[420px] flex-1" />
         </div>
       </div>
     )
@@ -207,268 +161,142 @@ function CatalogPageInner() {
   if (error || !data) {
     return (
       <div className="flex-1 space-y-4 p-8 pt-6">
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem><BreadcrumbLink href="/dashboard">Home</BreadcrumbLink></BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem><BreadcrumbPage>Catalog</BreadcrumbPage></BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Data Catalog</h2>
-          <p className="text-muted-foreground">Browse and explore tables registered in the catalog</p>
-        </div>
+        {header}
         <div role="alert" aria-live="polite">
-          <ErrorBox
-            msg={error ?? "Catalog data is unavailable"}
-            action={<Button size="sm" variant="outline" onClick={fetchData}>Retry</Button>}
-          />
+          <ErrorBox msg={error ?? "The catalog could not be read"} action={<Button size="sm" variant="outline" onClick={fetchData}>Retry</Button>} />
         </div>
       </div>
     )
   }
 
+  const navItem = (key: string, label: string, count: number, active: boolean, onClick: () => void, mono = false) => (
+    <button key={key} type="button" onClick={onClick} aria-current={active ? "true" : undefined}
+            className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors ${active ? "bg-primary/10 font-semibold text-primary" : "hover:bg-muted"}`}>
+      <span className={`truncate ${mono ? "font-mono text-xs" : ""}`}>{label}</span>
+      <span className="dp-num shrink-0 text-xs text-muted-foreground">{count}</span>
+    </button>
+  )
+
+  const typeCounts = Object.entries(tables.reduce<Record<string, number>>((acc, t) => {
+    const k = typeOf(t); acc[k] = (acc[k] ?? 0) + 1; return acc
+  }, {})).sort((a, b) => b[1] - a[1])
+
   return (
-    <div className="flex-1 space-y-4 p-8 pt-6">
-      {/* Breadcrumb */}
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/dashboard">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Catalog</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+    <div className="mx-auto max-w-[1400px] flex-1 space-y-4 p-8 pt-6">
+      {header}
+      {sendAccess === "unknown" && <PermissionUnknown onRetry={refetchPerms} />}
 
-      {/* Page Header */}
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight">Data Catalog</h2>
-        <p className="text-muted-foreground">
-          Browse and explore tables registered in the catalog
-        </p>
-        {sendToKnowledgeAccess === "denied" && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Sending a table to Knowledge (RAG) needs the knowledge:write and ai:generate permissions — ask an administrator for access.
-          </p>
-        )}
-        {sendToKnowledgeAccess === "unknown" && (
-          <div className="mt-1">
-            <PermissionUnknown onRetry={refetchPerms} />
-          </div>
-        )}
-      </div>
+      {showMap && (
+        <section aria-label="Relationship map" className="rounded-xl border bg-card p-4">
+          <RelationshipGraph days={30} />
+        </section>
+      )}
 
-      {/* Relationships — mined from query history, not inferred */}
-      <Card>
-        <CardHeader
-          className="cursor-pointer select-none py-3"
-          onClick={() => setShowGraph(v => !v)}
-        >
-          <CardTitle className="flex items-center gap-2 text-sm font-medium">
-            {showGraph ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-            <Share2 className="h-4 w-4 text-muted-foreground" />
-            Table relationships
-            <span className="ml-1 text-xs font-normal text-muted-foreground">
-              from joins people actually ran
-            </span>
-          </CardTitle>
-        </CardHeader>
-        {showGraph && (
-          <CardContent>
-            <RelationshipGraph days={30} />
-          </CardContent>
-        )}
-      </Card>
+      {tables.length === 0 ? (
+        <div className="rounded-xl border bg-card">
+          <EmptyState icon={Database} title="No tables yet"
+            hint="Add a source and sync it, and its tables appear here."
+            action={<NextLink href="/connectors" className={buttonVariants({ size: "sm" })}>Go to Sources</NextLink>} />
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-start gap-5">
+          <nav aria-label="Catalogs and namespaces" className="w-full space-y-4 lg:w-56 lg:shrink-0">
+            {catalogs.length > 1 && (
+              <div className="space-y-1">
+                <p className="px-2.5 text-xs font-medium text-muted-foreground">Catalog</p>
+                {navItem("all", "All catalogs", tables.length, catalog === "all", () => pickCatalog("all"))}
+                {catalogs.map(c => navItem(c.engine, c.isDefault ? `${c.label} · default` : c.label, c.count, catalog === c.engine, () => pickCatalog(c.engine), true))}
+              </div>
+            )}
+            <div className="space-y-1">
+              <p className="px-2.5 text-xs font-medium text-muted-foreground">Namespace</p>
+              {navItem("all", "All", tables.filter(inCatalog).length, chip === "all", () => pickChip("all"))}
+              {chips.map(c => navItem(c.key, c.label, c.count, chip === c.key, () => pickChip(c.key), true))}
+            </div>
+          </nav>
 
-      {/* Which catalogs are read — edited by admins in Settings → Data catalogs */}
-      <div>
-        <div className="flex items-center gap-3 text-xs">
-          <button
-            type="button"
-            aria-expanded={showCatalogs}
-            className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
-            onClick={() => setShowCatalogs(v => !v)}
-          >
-            {showCatalogs ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-            Data catalogs
-          </button>
-          {role === "admin" && (
-            <NextLink href="/settings" className="text-primary hover:underline">Manage in Settings</NextLink>
+          <section aria-label="Tables" className="min-w-0 flex-[3_1_420px] space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative min-w-[220px] flex-1">
+                <Search aria-hidden className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input aria-label="Search tables" placeholder="Search tables" value={query} onChange={e => setQuery(e.target.value)} className="pl-8" />
+              </div>
+              <p className="dp-num text-xs text-muted-foreground">{shown.length === scoped.length ? `${shown.length} tables` : `${shown.length} of ${scoped.length} tables`}</p>
+            </div>
+            {shown.length === 0 ? (
+              <div className="rounded-xl border bg-card">
+                <EmptyState icon={Search} title="No tables match"
+                  hint={`Nothing in this namespace matches "${query}".`}
+                  action={<Button size="sm" variant="outline" onClick={() => setQuery("")}>Clear search</Button>} />
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border bg-card">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
+                      <th className="px-4 py-2 font-medium">Table</th>
+                      <th className="px-4 py-2 font-medium">Namespace</th>
+                      <th className="px-4 py-2 font-medium">Type</th>
+                      <th className="px-4 py-2 pr-6 text-right font-medium">Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shown.map(t => {
+                      const on = tableKey(t) === selected
+                      return (
+                        <tr key={tableKey(t)} aria-selected={on}
+                            className={`cursor-pointer border-b last:border-0 ${on ? "bg-primary/5" : "hover:bg-muted/30"}`}
+                            onClick={() => select(t)}>
+                          <td className="px-4 py-2">
+                            <button type="button" className="text-left font-medium hover:underline focus-visible:underline focus-visible:outline-none"
+                                    onClick={e => { e.stopPropagation(); select(t) }}>{t.name}</button>
+                          </td>
+                          <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
+                            {catalogs.length > 1 && catalog === "all" ? `${t.catalog}.` : ""}{t.namespace}
+                          </td>
+                          <td className="px-4 py-2 text-xs">{TYPE_LABEL[typeOf(t)] ?? typeOf(t)}</td>
+                          <td className="dp-num px-4 py-2 pr-6 text-right text-xs text-muted-foreground">{updated(t.last_updated)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {current && sending ? (
+            <SendToKnowledgePanel key={tableKey(current)} table={current} onClose={() => setSending(false)} />
+          ) : current ? (
+            <TableRail key={tableKey(current)} table={current} typeLabel={TYPE_LABEL[typeOf(current)] ?? typeOf(current)}
+              graph={graph} graphNode={nodeFor(current)} sole={sole}
+              canSend={sendAccess === "allowed"} onSend={() => setSending(true)} onClose={() => setSelected(null)} />
+          ) : (
+            <ExplainRail label="About the catalog">
+              <RailSection title={`${tables.length} tables in ${catalogs.length} catalog${catalogs.length === 1 ? "" : "s"}`}>
+                <ul className="space-y-0.5">
+                  {typeCounts.map(([k, n]) => <li key={k} className="flex justify-between"><span>{TYPE_LABEL[k] ?? k}</span><span className="dp-num text-foreground">{n}</span></li>)}
+                </ul>
+              </RailSection>
+              <RailSection title="Choose a table">
+                Its row count, columns, and the tables people join it to appear here, with Open in Analytics
+                {sendAccess === "allowed" ? " and Send to Knowledge." : "."}
+              </RailSection>
+              {typeCounts.some(([k]) => k === "source") && (
+                <RailSection title="Source database tables">
+                  Read live from the source through the engine, not copied. Sync one from Sources to keep a copy in the lake.
+                </RailSection>
+              )}
+              {sendAccess === "denied" && (
+                <p className="text-xs text-muted-foreground">Sending a table to Knowledge needs knowledge:write and ai:generate.</p>
+              )}
+              {role === "admin" && (
+                <p className="text-xs text-muted-foreground">Which catalogs are read, and exports between them, are set in <NextLink href="/settings?tab=catalogs" className="text-primary hover:underline">Settings → Data catalogs</NextLink>.</p>
+              )}
+            </ExplainRail>
           )}
         </div>
-        {showCatalogs && (
-          <div className="mt-2">
-            <DataCatalogs canEdit={false} />
-          </div>
-        )}
-      </div>
-
-      {/* Search and Filters */}
-      <div className="flex flex-col gap-4 sm:flex-row">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search tables..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-8"
-          />
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <Badge
-            role="button"
-            tabIndex={0}
-            aria-pressed={selectedNamespace === "all"}
-            aria-label={`Show all namespaces (${totalTables} tables)`}
-            variant={selectedNamespace === "all" ? "default" : "outline"}
-            className="cursor-pointer px-3 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-            onClick={() => setSelectedNamespace("all")}
-            onKeyDown={onFilterKeyDown("all")}
-          >
-            All ({totalTables})
-          </Badge>
-          {chips.map((chip) => (
-            <Badge
-              key={chip.key}
-              role="button"
-              tabIndex={0}
-              aria-pressed={selectedNamespace === chip.key}
-              aria-label={`Filter to namespace ${chip.label} (${chip.count} tables)`}
-              variant={selectedNamespace === chip.key ? "default" : "outline"}
-              className="cursor-pointer px-3 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-              onClick={() => setSelectedNamespace(chip.key)}
-              onKeyDown={onFilterKeyDown(chip.key)}
-            >
-              {chip.label} ({chip.count})
-            </Badge>
-          ))}
-        </div>
-      </div>
-
-      {/* Statistics Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Total Tables</CardTitle>
-              <Database className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="dp-num text-2xl font-bold tabular-nums">{totalTables}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Namespaces</CardTitle>
-              <FolderOpen className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="dp-num text-2xl font-bold tabular-nums">{chips.length}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Table Types</CardTitle>
-              <Layers className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            {totalTables > 0 && typeSegments.length > 0 ? (
-              <>
-                {/* Stacked share bar. With a single type it is a solid block conveying
-                    nothing, so show the breakdown alone in that case. */}
-                {typeSegments.length > 1 && (
-                <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted" aria-hidden="true">
-                  {typeSegments.map(([type, count]) => (
-                    <div
-                      key={type}
-                      className="h-full"
-                      style={{
-                        width: `${(count / totalTables) * 100}%`,
-                        backgroundColor: CATALOG_TYPE_META[type]?.color ?? "var(--muted-foreground)",
-                      }}
-                    />
-                  ))}
-                </div>
-                )}
-                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-                  {typeSegments.map(([type, count]) => (
-                    <span key={type} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{ backgroundColor: CATALOG_TYPE_META[type]?.color ?? "var(--muted-foreground)" }}
-                      />
-                      {CATALOG_TYPE_META[type]?.label ?? type}
-                      <span className="dp-num font-medium tabular-nums text-foreground">{count}</span>
-                    </span>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">No tables yet</p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Tables Grid */}
-      <div>
-        <h3 className="text-xl font-semibold mb-4 flex items-baseline gap-2">
-          {selectedNamespace === "all" ? "All Tables" : `Tables in ${selectedChip?.label ?? selectedNamespace}`}
-          <span className="text-sm font-normal text-muted-foreground tabular-nums">
-            {isFiltered
-              ? `${filteredTables?.length ?? 0} of ${totalTables} shown`
-              : `${filteredTables?.length ?? 0} shown`}
-          </span>
-        </h3>
-        {filteredTables && filteredTables.length > 0 ? (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {filteredTables.map((table) => (
-              <TableCard
-                key={`${table.catalog}.${table.namespace}.${table.name}`}
-                name={table.name}
-                namespace={table.namespace}
-                catalog={table.catalog}
-                catalogType={catalogTypeOf(table, data?.registry ?? [])}
-                tableType={table.table_type}
-                lastUpdated={table.last_updated}
-                onSendToKnowledge={sendToKnowledgeAccess === "allowed" ? () => setSendTable(table) : undefined}
-              />
-            ))}
-          </div>
-        ) : (
-          <Card>
-            <CardContent>
-              {(data?.tables.length || 0) === 0 ? (
-                <EmptyState
-                  icon={Database}
-                  title="No tables yet"
-                  hint="Connect a data source and sync it from Sources, and Iceberg tables will appear here."
-                  action={<Button size="sm" render={<NextLink href="/connectors" />}>Go to Sources</Button>}
-                />
-              ) : (
-                <EmptyState
-                  icon={Search}
-                  title="No tables match your filters"
-                  hint={`None of the ${totalTables} table${totalTables !== 1 ? "s" : ""} in the catalog match the current search or namespace filter.`}
-                  action={<Button size="sm" variant="outline" onClick={clearFilters}>Clear filters</Button>}
-                />
-              )}
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
-      {sendTable && <SendToKnowledgeDialog key={`${sendTable.namespace}.${sendTable.name}`} table={sendTable} onClose={() => setSendTable(null)} />}
+      )}
     </div>
   )
 }
@@ -478,121 +306,5 @@ export default function CatalogPage() {
     <CapabilityGate capability="catalog">
       <CatalogPageInner />
     </CapabilityGate>
-  )
-}
-
-// ── Send a catalog table to a RAG collection (embed a text column) ────────────────
-
-function SendToKnowledgeDialog({ table, onClose }: { table: Table; onClose: () => void }) {
-  const [collections, setCollections] = useState<CollectionOption[]>([])
-  const [collection, setCollection] = useState("")
-  const [newName, setNewName] = useState("")
-  const [cols, setCols] = useState<CatalogColumn[]>([])
-  const [col, setCol] = useState("")
-  const [sched, setSched] = useState("")  // "" = one-off, else cron preset
-  const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
-  const [err, setErr] = useState<string | null>(null)
-  // On success, remember the target collection so we can offer a link into
-  // Knowledge instead of dead-ending the dialog on Close.
-  const [done, setDone] = useState<string | null>(null)
-
-  useEffect(() => {
-    fetch("/api/ai/collections").then(r => r.json() as Promise<CollectionsResponse>)
-      .then(d => { const options = d.collections ?? []; setCollections(options); if (options[0]) setCollection(options[0].name) })
-      .catch(() => setCollections([]))
-    const qs = new URLSearchParams({
-      ...(table.catalog ? { catalog: table.catalog } : {}),
-      schema: table.namespace,
-      table: table.name,
-    })
-    fetch(`/api/catalog/columns?${qs}`).then(r => r.json() as Promise<CatalogColumn[]>)
-      .then(payload => { const columns = Array.isArray(payload) ? payload : []; setCols(columns); setCol(columns.find(column => /char|text|string/i.test(column.type))?.name ?? columns[0]?.name ?? "") })
-      .catch(() => setCols([]))
-  }, [table])
-
-  const submit = async () => {
-    const target = (collection === "__new__" ? newName : collection).trim()
-    if (!target || !col) { setErr("Select a collection and a text column."); return }
-    setBusy(true); setErr(null); setMsg(null); setDone(null)
-    try {
-      // ensure collection exists (idempotent)
-      await fetch("/api/ai/collections", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: target, description: `From ${table.namespace}.${table.name}` }) })
-      const source = { type: "iceberg", schema: table.namespace, table: table.name, text_column: col }
-      if (sched) {
-        const r = await fetch(`/api/ai/collections/${encodeURIComponent(target)}/schedule`, {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ schedule: sched, source }) })
-        if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-        const d = await r.json(); setMsg(`Schedule created: auto re-embeds every ${d.interval_minutes} min`); setDone(target)
-      } else {
-        const r = await fetch(`/api/ai/collections/${encodeURIComponent(target)}/ingest-source`, {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(source) })
-        if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-        const d = await r.json(); setMsg(`${d.documents} docs → ${d.chunks} chunks ingested (${target})`); setDone(target)
-      }
-    } catch (error) { setErr(error instanceof Error ? error.message : "Failed to send table to Knowledge") }
-    setBusy(false)
-  }
-
-  return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-1.5 text-base">
-            <Sparkles className="h-4 w-4 text-primary" />Send to Knowledge
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3 text-sm">
-            <p className="text-xs text-muted-foreground">
-              Embeds a text column from <span className="font-mono">{table.namespace}.{table.name}</span> into a RAG collection.
-            </p>
-            <div className="space-y-1">
-              <label className="text-2xs text-muted-foreground">Collection</label>
-              <select value={collection} onChange={e => setCollection(e.target.value)}
-                className="h-9 w-full rounded-md border bg-background px-2 text-xs">
-                {collections.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                <option value="__new__">+ New collection…</option>
-              </select>
-              {collection === "__new__" && (
-                <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="new collection name" className="text-sm mt-1" />
-              )}
-            </div>
-            <div className="space-y-1">
-              <label className="text-2xs text-muted-foreground">Text column</label>
-              <select value={col} onChange={e => setCol(e.target.value)}
-                className="h-9 w-full rounded-md border bg-background px-2 text-xs">
-                <option value="">column…</option>
-                {cols.map(c => <option key={c.name} value={c.name}>{c.name} ({c.type})</option>)}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-2xs text-muted-foreground">Mode</label>
-              <select value={sched} onChange={e => setSched(e.target.value)}
-                className="h-9 w-full rounded-md border bg-background px-2 text-xs">
-                <option value="">Ingest once (now)</option>
-                <option value="@hourly">Schedule — hourly</option>
-                <option value="@daily">Schedule — daily</option>
-                <option value="@weekly">Schedule — weekly</option>
-              </select>
-            </div>
-            {msg && <p className="text-xs text-[var(--dp-good-text)]">{msg}</p>}
-            {err && <div role="alert" aria-live="polite"><ErrorBox msg={err} /></div>}
-          </div>
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
-          {done ? (
-            <Button size="sm" render={<NextLink href={`/knowledge?collection=${encodeURIComponent(done)}`} />}>
-              <Sparkles className="h-4 w-4 mr-1.5" />Open in Knowledge
-            </Button>
-          ) : (
-            <Button size="sm" onClick={submit} disabled={busy || !table}>
-              {busy ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : (sched ? <Clock className="h-4 w-4 mr-1.5" /> : <Sparkles className="h-4 w-4 mr-1.5" />)}
-              {sched ? "Schedule" : "Ingest"}
-            </Button>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   )
 }

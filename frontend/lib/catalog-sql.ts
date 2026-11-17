@@ -14,8 +14,14 @@ export function tableSelectSql(namespace: string, table: string, engineCatalog?:
   return `SELECT * FROM ${parts.map(quoteIdent).join(".")} LIMIT ${limit}`
 }
 
-/** The engine catalog name of a registry entry, or null when it is unknown. */
+/** The engine catalog name of a registry entry, or null when it is unknown. `name` may
+ *  be either of the entry's names, case-insensitively, as the backend accepts: the
+ *  catalog list labels tables with the engine name (`iceberg`), so a table card links
+ *  with that, and matching the registry name only left "Open in Analytics" disabled
+ *  on every table. */
 export function engineCatalogOf(catalogs: { name: string; engine_catalog?: string | null }[], name: string): string | null {
-  const c = catalogs.find(x => x.name === name)
+  const low = name.toLowerCase()
+  const c = catalogs.find(x => x.name.toLowerCase() === low)
+    ?? catalogs.find(x => (x.engine_catalog ?? "").toLowerCase() === low)
   return c?.engine_catalog || null
 }
