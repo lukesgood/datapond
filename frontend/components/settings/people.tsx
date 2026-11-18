@@ -19,9 +19,11 @@ export interface Person {
   id: string; username: string; email: string; display_name: string; role: string; is_active: boolean
   require_password_change: boolean; created_at: string | null; last_activity_at: string | null
   attributes?: Record<string, string>
+  /** "service" for an agent's account (Agents), "person" otherwise. */
+  kind?: "person" | "service"
 }
 
-const SYNTHETIC = /@datapond\.local$/i
+const SYNTHETIC = /@(service\.)?datapond\.local$/i
 const when = (iso: string | null) => {
   if (!iso) return "never"
   const d = new Date(iso)
@@ -46,13 +48,17 @@ export function People() {
   const [query, setQuery] = useState("")
   const [selected, setSelected] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [agents, setAgents] = useState(0)
 
   const load = useCallback(async () => {
     setErr(null)
     try {
       const r = await fetch("/api/auth/users")
       if (!r.ok) throw new Error(await errText(r))
-      setPeople(((await r.json()) as Person[]).filter(p => p.username))
+      const all = ((await r.json()) as Person[]).filter(p => p.username)
+      // Agents' service accounts are user rows too; they are managed in Agents.
+      setPeople(all.filter(p => p.kind !== "service"))
+      setAgents(all.length - all.filter(p => p.kind !== "service").length)
     } catch (e) { setErr(e instanceof Error ? e.message : "Could not read people") }
   }, [])
   useEffect(() => { const t = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(t) }, [load])
@@ -123,7 +129,7 @@ export function People() {
             Change their role, email and row-policy attributes, reset their password, or deactivate them.
           </RailSection>
           <RailSection title="Agents are not people">
-            Service accounts for tools and AI agents are in <NextLink href="/agents" className="text-primary hover:underline">Agents</NextLink>.
+            {agents > 0 ? `${agents} service account${agents === 1 ? "" : "s"} for tools and AI agents ${agents === 1 ? "is" : "are"} not listed here; they are` : "Service accounts for tools and AI agents are"} in <NextLink href="/agents" className="text-primary hover:underline">Agents</NextLink>.
             Your own password and passkeys are in <NextLink href="/account" className="text-primary hover:underline">Account</NextLink>.
           </RailSection>
         </ExplainRail>

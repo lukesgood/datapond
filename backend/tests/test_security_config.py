@@ -26,3 +26,9 @@ def test_reports_the_enforced_values(monkeypatch):
 def test_route_needs_user_manage():
     src = inspect.getsource(auth.get_security_config)
     assert 'require_permission("user:manage")' in src
+
+
+def test_user_list_marks_service_accounts():
+    """People in Settings leaves agents' service accounts out by this field."""
+    src = inspect.getsource(auth.list_users)
+    assert "u.auth_method" in src and '"kind"' in src

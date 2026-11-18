@@ -1104,7 +1104,7 @@ async def list_users(admin: dict = Depends(require_permission("user:manage"))):
         # only exists under its email would otherwise read as never active.
         rows = await conn.fetch("""
             SELECT u.id, u.username, u.email, u.display_name, u.role, u.is_active,
-                   u.require_password_change, u.created_at,
+                   u.require_password_change, u.created_at, u.auth_method,
                    COALESCE(u.attributes, '{}'::jsonb) AS attributes,
                    (SELECT max(a.created_at) FROM auth_audit_log a
                      WHERE a.user_id = u.id
@@ -1141,6 +1141,9 @@ async def list_users(admin: dict = Depends(require_permission("user:manage"))):
             # KeyError here would 500 the whole user list over one field.
             "last_activity_at": iso_utc(r.get("last_activity_at")
                                         if hasattr(r, "get") else None),
+            # Service accounts (Agents) are users rows too; Settings → People leaves
+            # them out by this, rather than by guessing from a "svc-" name.
+            "kind": "service" if str((r.get("auth_method") if hasattr(r, "get") else "") or "").lower() == "service" else "person",
         }
         for r in rows
     ]
