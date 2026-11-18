@@ -8,7 +8,7 @@ import {
   Play, Save, History, Settings, ChevronRight, ChevronLeft,
   FlaskConical, Code2, Database, Trash2, AlignLeft,
   TableProperties, BarChart2, AlertCircle, FileCode,
-  Sparkles, Loader2, X, Copy, Check,
+  Sparkles, Loader2, Copy, Check, ShieldCheck,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import dynamic from "next/dynamic"
@@ -47,7 +47,11 @@ interface QueryResult {
 }
 
 type QueryStatus = "idle" | "running" | "success" | "error"
-type RightPanel = "history" | "chart-config" | null
+type RightPanel = "check" | "metric" | "history" | "chart-config" | null
+const INSPECTOR_TABS: { key: Exclude<RightPanel, null>; label: string }[] = [
+  { key: "check", label: "Check" }, { key: "metric", label: "Metric" },
+  { key: "chart-config", label: "Chart" }, { key: "history", label: "History" },
+]
 
 const DEFAULT_QUERY = "-- Write your SQL here\nSELECT 1 AS hello;"
 
@@ -128,7 +132,6 @@ function QueryPageInner() {
   const [aiCheck, setAiCheck]               = useState<{ ok: boolean | null; error?: string | null } | null>(null)
   const [planReview, setPlanReview]         = useState<PlanReview | null>(null)
   const [planLoading, setPlanLoading]       = useState(false)
-  const [planDetail, setPlanDetail]         = useState(false)
   // The exact statement Ask AI produced. Comparing against it (rather than tracking
   // edits) tells us whether what is about to run is still the assistant's work —
   // which the relationship graph must be able to exclude from its evidence.
@@ -204,7 +207,6 @@ function QueryPageInner() {
   const reviewPlan = useCallback(async (sql: string) => {
     setPlanLoading(true)
     setPlanReview(null)
-    setPlanDetail(false)
     try {
       const res = await fetch("/api/queries/plan", {
         method: "POST",
@@ -250,6 +252,9 @@ function QueryPageInner() {
         setAiCheck({ ok: data.validated, error: data.validation_error })
       }
       if (data.sql) void reviewPlan(data.sql)
+      const view = aiSqlMetricView(data)
+      if (view.suggestion) setRightPanel("metric")
+      else if (data.sql || data.explanation) setRightPanel("check")
       if (data.needs_input) {
         toast(data.explanation || "The assistant needs more detail to write this query", "info")
       } else if (!data.has_ai) {
@@ -548,6 +553,16 @@ function QueryPageInner() {
           <div className="h-4 w-px bg-border mx-0.5" />
 
           <Button
+            variant={rightPanel === "check" || rightPanel === "metric" ? "secondary" : "ghost"}
+            size="sm" className="h-8 text-xs gap-1.5"
+            onClick={() => togglePanel(aiMetrics.suggestion && rightPanel !== "metric" ? "metric" : "check")}
+            aria-label="Inspector: check and metric" title="Inspector: check and metric"
+          >
+            <ShieldCheck className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">Check</span>
+          </Button>
+
+          <Button
             variant={rightPanel === "history" ? "secondary" : "ghost"}
             size="sm" className="h-8 text-xs gap-1.5"
             onClick={() => togglePanel("history")}
@@ -606,153 +621,23 @@ function QueryPageInner() {
             : <Sparkles className="h-3.5 w-3.5" />}
           {aiLoading ? "Generating…" : "Generate SQL"}
         </Button>
-        {aiCheck && (
-          <span
-            title={aiCheck.error || "Resolved against the catalog with EXPLAIN (TYPE VALIDATE)"}
+        {(aiCheck || planLoading || aiExplanation) && (
+          <button
+            type="button"
+            onClick={() => setRightPanel("check")}
+            title={aiCheck?.error || "Open the check in the inspector"}
             className={`shrink-0 rounded px-1.5 py-0.5 text-2xs font-medium ${
-              aiCheck.ok
-                ? "bg-[var(--dp-good)]/10 text-[var(--dp-good-text)]"
-                : "bg-destructive/10 text-destructive"
+              aiCheck?.ok === false
+                ? "bg-destructive/10 text-destructive"
+                : aiCheck?.ok
+                  ? "bg-[var(--dp-good)]/10 text-[var(--dp-good-text)]"
+                  : "bg-muted text-muted-foreground"
             }`}
           >
-            {aiCheck.ok ? "Catalog-checked" : "Check failed"}
-          </span>
-        )}
-        {planLoading && (
-          <span className="shrink-0 text-2xs text-muted-foreground">Checking plan…</span>
-        )}
-        {aiExplanation && (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground max-w-xs truncate">
-            <span className="truncate" title={aiExplanation}>{aiExplanation}</span>
-            <button onClick={() => { setAiExplanation(null); setAiCheck(null); setPlanReview(null) }}>
-              <X className="h-3 w-3 hover:text-foreground" />
-            </button>
-          </div>
+            {planLoading ? "Checking plan…" : aiCheck?.ok === false ? "Check failed" : aiCheck?.ok ? "Catalog-checked" : "See check"}
+          </button>
         )}
       </div>
-
-      {(aiMetrics.chips.length > 0 || aiMetrics.suggestion) && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-1.5 text-xs text-muted-foreground">
-          {aiMetrics.chips.length > 0 && (
-            <>
-              <span>Provided definitions:</span>
-              {aiMetrics.chips.map(c => <Badge key={c} variant="outline">{c}</Badge>)}
-            </>
-          )}
-          {aiMetrics.suggestion && !metricForm && (
-            <Button size="sm" variant="outline" onClick={() => void openMetricForm(aiMetrics.suggestion!)}>
-              Query as metric ({aiMetrics.suggestion})
-            </Button>
-          )}
-          {metricRanNote && !metricForm && <span className="text-foreground">Ran {metricRanNote}</span>}
-        </div>
-      )}
-
-      {metricForm && (
-        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b bg-muted/30 px-3 py-2 text-xs">
-          <span className="font-medium">{metricForm.name} v{metricForm.version}</span>
-          {metricForm.hasTime && (
-            <label className="flex items-center gap-1.5">
-              <span className="text-muted-foreground">Period</span>
-              <Input
-                className="h-7 w-56 font-mono text-xs"
-                value={metricForm.period}
-                placeholder="2026-06-01..2026-06-30 or last_month"
-                onChange={e => setMetricForm(f => f && { ...f, period: e.target.value })}
-              />
-            </label>
-          )}
-          {metricForm.dims.length > 0 && (
-            <span className="flex flex-wrap items-center gap-2">
-              <span className="text-muted-foreground">By</span>
-              {metricForm.dims.map(d => (
-                <label key={d} className="flex items-center gap-1">
-                  <input
-                    type="checkbox"
-                    checked={metricForm.by.includes(d)}
-                    onChange={e => setMetricForm(f => f && {
-                      ...f, by: e.target.checked ? [...f.by, d] : f.by.filter(x => x !== d),
-                    })}
-                  />
-                  {d}
-                </label>
-              ))}
-            </span>
-          )}
-          {metricForm.hasTime && metricForm.grains.length > 0 && (
-            <label className="flex items-center gap-1.5">
-              <span className="text-muted-foreground">Per</span>
-              <select
-                className="h-7 rounded border bg-background px-1 text-xs"
-                value={metricForm.grain}
-                onChange={e => setMetricForm(f => f && { ...f, grain: e.target.value })}
-              >
-                <option value="">whole period</option>
-                {metricForm.grains.map(g => <option key={g} value={g}>{g}</option>)}
-              </select>
-            </label>
-          )}
-          <span className="ml-auto flex gap-1.5">
-            <Button size="sm" variant="ghost" onClick={() => setMetricForm(null)}>Cancel</Button>
-            <Button
-              size="sm"
-              disabled={metricForm.hasTime && !metricForm.period.trim()}
-              onClick={() => void runAsMetric(metricForm)}
-            >
-              Run
-            </Button>
-          </span>
-        </div>
-      )}
-
-      {/* ── Plan review — what this statement actually reads ─────────────────── */}
-      {planReview && planReview.accessed.length > 0 && (
-        <div className="shrink-0 border-b bg-muted/30 px-3 py-2 text-xs">
-          {/* The answer first: which tables. Everything else is secondary. */}
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-2xs uppercase tracking-wide text-muted-foreground">Reads</span>
-            {planReview.accessed.map(t => (
-              <span
-                key={`${t.schema}.${t.table}`}
-                className="rounded border bg-background px-1.5 py-0.5 font-mono text-2xs"
-              >
-                {t.schema}.{t.table}
-                <span className="ml-1.5 text-2xs text-muted-foreground">
-                  {t.filters.length
-                    ? t.filters.map(f => `${f.column} ${f.summary}`).join(", ")
-                    : "no filter"}
-                </span>
-              </span>
-            ))}
-            {planReview.problems.map((f, i) => (
-              <span key={`p-${i}`} className={`ml-1 ${FINDING_STYLE[f.severity]}`}>
-                {f.severity === "critical" ? "▲" : "△"} {f.message}
-              </span>
-            ))}
-            {planReview.characteristics.length > 0 && (
-              <button
-                onClick={() => setPlanDetail(v => !v)}
-                className="ml-auto shrink-0 text-2xs text-muted-foreground hover:text-foreground"
-              >
-                {planDetail ? "Hide plan details" : `Plan details (${planReview.characteristics.length})`}
-              </button>
-            )}
-          </div>
-          {planDetail && (
-            <ul className="mt-1.5 space-y-0.5 border-t pt-1.5">
-              {planReview.characteristics.map((f, i) => (
-                <li key={`c-${i}`} className={FINDING_STYLE[f.severity]}>{f.message}</li>
-              ))}
-              {planReview.estimates_available === false && (
-                <li className="text-muted-foreground">
-                  No table statistics, so row-count and size estimates are unavailable.
-                  Run ANALYZE on the tables to enable them.
-                </li>
-              )}
-            </ul>
-          )}
-        </div>
-      )}
 
       {/* ── Main body ───────────────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
@@ -1018,46 +903,172 @@ function QueryPageInner() {
           </div>
         </div>
 
-        {/* Right: sliding panels */}
-        {rightPanel === "history" && (
-          <div className="w-72 shrink-0 border-l flex flex-col overflow-hidden">
-            <QueryHistorySidebar
-              onQuerySelect={handleQuerySelect}
-              isOpen={true}
-              onToggle={() => setRightPanel(null)}
-            />
-          </div>
-        )}
-
-        {rightPanel === "chart-config" && hasResults && (
-          <div className="w-64 shrink-0 border-l overflow-auto">
-            <div className="flex items-center justify-between px-3 h-9 border-b bg-muted/30">
-              <div className="flex items-center gap-1.5">
-                <Settings className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs font-medium">Chart Config</span>
-              </div>
-              <Button variant="ghost" size="sm" className="h-6 w-6 p-0"
+        {/* Right: inspector — the check, the metric, chart settings and history live
+            here so the editor never moves when one of them appears. */}
+        {rightPanel && (
+          <aside aria-label="Inspector" className="w-80 shrink-0 border-l flex flex-col overflow-hidden bg-muted/20">
+            <div className="flex items-center gap-0.5 border-b px-2 h-9 shrink-0" role="tablist">
+              {INSPECTOR_TABS.filter(t => t.key !== "chart-config" || (hasResults && chartType !== "table")).map(t => (
+                <button key={t.key} type="button" role="tab" aria-selected={rightPanel === t.key}
+                  onClick={() => setRightPanel(t.key)}
+                  className={`rounded px-2 py-1 text-xs ${rightPanel === t.key ? "bg-background font-semibold text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                  {t.label}{t.key === "metric" && aiMetrics.suggestion ? " •" : ""}
+                </button>
+              ))}
+              <Button variant="ghost" size="sm" className="ml-auto h-6 w-6 p-0" aria-label="Close inspector" title="Close inspector"
                 onClick={() => setRightPanel(null)}>
                 <ChevronRight className="h-3.5 w-3.5" />
               </Button>
             </div>
-            <div className="p-3">
-              <ChartConfigPanel
-                columns={results!.columns}
-                xOptions={chartFit.xOptions} yOptions={chartFit.yOptions}
-                chartType={chartType}
-                colorOptions={chartFit.colorOptions}
-                xAxis={chartFit.x} yAxes={chartFit.ys} colorBy={chartFit.colorBy}
-                onXAxisChange={setXAxis} onYAxesChange={setYAxes} onColorByChange={setColorBy}
-                stacked={chartFit.stacked} stackedFit={chartFit.stackedFit}
-                onStackedChange={setStacked}
-                aggregate={aggregate} aggregates={chartFit.aggregates}
-                onAggregateChange={setAggregate}
-                showGrid={showGrid} showLegend={showLegend}
-                onShowGridChange={setShowGrid} onShowLegendChange={setShowLegend}
-              />
-            </div>
-          </div>
+
+            {rightPanel === "check" && (
+              <div className="flex-1 overflow-auto p-3 space-y-3 text-xs">
+                {aiCheck && (
+                  <p className={aiCheck.ok === false ? "font-semibold text-destructive" : aiCheck.ok ? "font-semibold text-[var(--dp-good-text)]" : "text-muted-foreground"}>
+                    {aiCheck.ok === false ? "Did not pass the catalog check" : aiCheck.ok ? "Catalog-checked" : "Not checked"}
+                    <span className="ml-1.5 font-normal text-muted-foreground">EXPLAIN (TYPE VALIDATE)</span>
+                  </p>
+                )}
+                {aiCheck?.error && <pre className="whitespace-pre-wrap rounded border border-destructive/20 bg-destructive/5 p-2 font-mono text-2xs text-destructive">{aiCheck.error}</pre>}
+                {aiExplanation && (
+                  <div>
+                    <p className="font-semibold">What it does</p>
+                    <p className="mt-0.5 text-muted-foreground">{aiExplanation}</p>
+                  </div>
+                )}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold">What it reads</p>
+                    <Button size="sm" variant="outline" className="h-6 text-2xs" disabled={planLoading || !query.trim()}
+                      onClick={() => void reviewPlan(query)}>
+                      {planLoading ? "Checking…" : "Check the editor's SQL"}
+                    </Button>
+                  </div>
+                  {planLoading ? <p className="text-muted-foreground">Asking the engine for the plan… No data is scanned.</p>
+                    : !planReview ? <p className="text-muted-foreground">The engine plans the statement without scanning data and lists the tables it reads, with their filters.</p>
+                    : planReview.accessed.length === 0 ? <p className="text-muted-foreground">The plan reads no tables.</p> : (
+                      <ul className="space-y-1">
+                        {planReview.accessed.map(t => (
+                          <li key={`${t.schema}.${t.table}`} className="rounded border bg-background px-2 py-1">
+                            <span className="font-mono">{t.schema}.{t.table}</span>
+                            <span className="block text-2xs text-muted-foreground">
+                              {t.filters.length ? t.filters.map(f => `${f.column} ${f.summary}`).join(", ") : "no filter: reads the whole table"}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  {planReview && planReview.problems.length > 0 && (
+                    <ul className="space-y-0.5">
+                      {planReview.problems.map((f, i) => (
+                        <li key={`p-${i}`} className={FINDING_STYLE[f.severity]}>{f.severity === "critical" ? "▲" : "△"} {f.message}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {planReview && (planReview.characteristics.length > 0 || planReview.estimates_available === false) && (
+                    <div className="border-t pt-1.5">
+                      <p className="font-semibold">Plan</p>
+                      <ul className="mt-0.5 list-disc space-y-0.5 pl-4">
+                        {planReview.characteristics.map((f, i) => <li key={`c-${i}`} className={FINDING_STYLE[f.severity]}>{f.message}</li>)}
+                        {planReview.estimates_available === false && (
+                          <li className="text-muted-foreground">No table statistics, so row-count and size estimates are unavailable. Run ANALYZE on the tables to enable them.</li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {rightPanel === "metric" && (
+              <div className="flex-1 overflow-auto p-3 space-y-3 text-xs">
+                {aiMetrics.chips.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="font-semibold">Definitions the assistant was given</p>
+                    <div className="flex flex-wrap gap-1">{aiMetrics.chips.map(c => <Badge key={c} variant="outline">{c}</Badge>)}</div>
+                  </div>
+                )}
+                {aiMetrics.suggestion && !metricForm && (
+                  <div className="rounded-lg border border-[var(--dp-warn)]/40 bg-[var(--dp-warn)]/5 p-2.5">
+                    <p className="font-semibold text-[var(--dp-warn-text)]">An approved metric matches</p>
+                    <p className="mt-0.5 text-muted-foreground"><span className="font-mono">{aiMetrics.suggestion}</span> computes this the approved way, and its results are cited.</p>
+                    <Button size="sm" className="mt-2 h-7 text-xs" onClick={() => void openMetricForm(aiMetrics.suggestion!)}>Use the metric</Button>
+                  </div>
+                )}
+                {metricForm && (
+                  <div className="space-y-2.5 rounded-lg border bg-background p-2.5">
+                    <p className="font-semibold">{metricForm.name} v{metricForm.version}</p>
+                    {metricForm.hasTime && (
+                      <label className="flex flex-col gap-1">
+                        <span className="text-muted-foreground">Period</span>
+                        <Input className="h-7 font-mono text-xs" value={metricForm.period} placeholder="2026-06-01..2026-06-30 or last_month"
+                          onChange={e => setMetricForm(f => f && { ...f, period: e.target.value })} />
+                      </label>
+                    )}
+                    {metricForm.dims.length > 0 && (
+                      <fieldset>
+                        <legend className="text-muted-foreground">Split by</legend>
+                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                          {metricForm.dims.map(d => (
+                            <label key={d} className="flex items-center gap-1">
+                              <input type="checkbox" checked={metricForm.by.includes(d)}
+                                onChange={e => setMetricForm(f => f && { ...f, by: e.target.checked ? [...f.by, d] : f.by.filter(x => x !== d) })} />
+                              {d}
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+                    )}
+                    {metricForm.hasTime && metricForm.grains.length > 0 && (
+                      <label className="flex flex-col gap-1">
+                        <span className="text-muted-foreground">Per</span>
+                        <select className="h-7 rounded border bg-background px-1 text-xs" value={metricForm.grain}
+                          onChange={e => setMetricForm(f => f && { ...f, grain: e.target.value })}>
+                          <option value="">whole period</option>
+                          {metricForm.grains.map(g => <option key={g} value={g}>{g}</option>)}
+                        </select>
+                      </label>
+                    )}
+                    <div className="flex gap-1.5">
+                      <Button size="sm" className="h-7 text-xs" disabled={metricForm.hasTime && !metricForm.period.trim()}
+                        onClick={() => void runAsMetric(metricForm)}>Run the metric</Button>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setMetricForm(null)}>Cancel</Button>
+                    </div>
+                    <p className="text-2xs text-muted-foreground">The editor gets the metric&apos;s SQL; the results cite its version.</p>
+                  </div>
+                )}
+                {metricRanNote && !metricForm && <p className="text-foreground">Ran {metricRanNote}</p>}
+                {!aiMetrics.suggestion && aiMetrics.chips.length === 0 && !metricForm && !metricRanNote && (
+                  <p className="text-muted-foreground">Ask AI a question above. When an approved metric answers it, it shows here, so the number matches what agents report.</p>
+                )}
+              </div>
+            )}
+
+            {rightPanel === "history" && (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <QueryHistorySidebar onQuerySelect={handleQuerySelect} isOpen={true} onToggle={() => setRightPanel(null)} />
+              </div>
+            )}
+
+            {rightPanel === "chart-config" && hasResults && (
+              <div className="flex-1 overflow-auto p-3">
+                <ChartConfigPanel
+                  columns={results!.columns}
+                  xOptions={chartFit.xOptions} yOptions={chartFit.yOptions}
+                  chartType={chartType}
+                  colorOptions={chartFit.colorOptions}
+                  xAxis={chartFit.x} yAxes={chartFit.ys} colorBy={chartFit.colorBy}
+                  onXAxisChange={setXAxis} onYAxesChange={setYAxes} onColorByChange={setColorBy}
+                  stacked={chartFit.stacked} stackedFit={chartFit.stackedFit}
+                  onStackedChange={setStacked}
+                  aggregate={aggregate} aggregates={chartFit.aggregates}
+                  onAggregateChange={setAggregate}
+                  showGrid={showGrid} showLegend={showLegend}
+                  onShowGridChange={setShowGrid} onShowLegendChange={setShowLegend}
+                />
+              </div>
+            )}
+          </aside>
         )}
       </div>
 
