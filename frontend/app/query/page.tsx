@@ -70,11 +70,18 @@ const FINDING_STYLE: Record<PlanFinding["severity"], string> = {
 }
 
 function QueryPageInner() {
-  const [query, setQuery]                   = useState(() => {
-    if (typeof window === "undefined") return DEFAULT_QUERY
-    const linkedSql = new URLSearchParams(window.location.search).get("sql")
-    return linkedSql?.trim() ? linkedSql : DEFAULT_QUERY
-  })
+  // ?sql= from a link (Catalog's "Open in Analytics", a relationship's join). Read
+  // through useSearchParams, not window.location: on a client-side navigation the
+  // new page renders before the address bar changes, so window.location still held
+  // the previous page and every in-app link opened the default query instead.
+  const linkedSql = useSearchParams().get("sql")
+  const [query, setQuery]                   = useState(() => (linkedSql?.trim() ? linkedSql : DEFAULT_QUERY))
+  // A second link while Analytics is open (?sql=A → ?sql=B) replaces the editor too.
+  const [seenLink, setSeenLink]             = useState(linkedSql)
+  if (linkedSql !== seenLink) {
+    setSeenLink(linkedSql)
+    if (linkedSql?.trim()) setQuery(linkedSql)
+  }
   const [queryStatus, setQueryStatus]       = useState<QueryStatus>("idle")
   const [results, setResults]               = useState<QueryResult | null>(null)
   // The exact editor text that produced `results` — lets us flag when the

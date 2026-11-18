@@ -33,12 +33,6 @@ interface CatalogData { tables: Table[]; namespaces: NamespaceInfo[]; registry: 
 
 const TYPE_LABEL: Record<string, string> = { managed: "Managed", external: "External", source: "Source database", foreign: "Foreign" }
 
-function updated(ts?: string) {
-  if (!ts) return "—"
-  const d = new Date(ts)
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
-}
-
 const tableKey = (t: CatalogTable) => `${t.catalog}\u0000${t.namespace}\u0000${t.name}`
 
 /** Browse every table the engine can query: catalog and namespace on the left, the
@@ -236,8 +230,7 @@ function CatalogPageInner() {
                     <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
                       <th className="px-4 py-2 font-medium">Table</th>
                       <th className="px-4 py-2 font-medium">Namespace</th>
-                      <th className="px-4 py-2 font-medium">Type</th>
-                      <th className="px-4 py-2 pr-6 text-right font-medium">Updated</th>
+                      <th className="px-4 py-2 pr-6 font-medium">Type</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -254,8 +247,7 @@ function CatalogPageInner() {
                           <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
                             {catalogs.length > 1 && catalog === "all" ? `${t.catalog}.` : ""}{t.namespace}
                           </td>
-                          <td className="px-4 py-2 text-xs">{TYPE_LABEL[typeOf(t)] ?? typeOf(t)}</td>
-                          <td className="dp-num px-4 py-2 pr-6 text-right text-xs text-muted-foreground">{updated(t.last_updated)}</td>
+                          <td className="px-4 py-2 pr-6 text-xs">{TYPE_LABEL[typeOf(t)] ?? typeOf(t)}</td>
                         </tr>
                       )
                     })}
