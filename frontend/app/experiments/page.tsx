@@ -36,7 +36,7 @@ import {
 import { cn } from "@/lib/utils"
 import { usePermissions } from "@/lib/permissions"
 import { useConfirm } from "@/lib/confirm"
-import { bestMetricValue, metricLowerIsBetter } from "@/components/experiments/compare-runs"
+import { bestMetricValue, metricColumns, metricLowerIsBetter, mlflowErrorText } from "@/components/experiments/compare-runs"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -354,12 +354,12 @@ function CompareView({
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b shrink-0">
         <div className="flex items-center gap-2">
           <GitCompare className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">Run Comparison</span>
+          <span className="text-sm font-medium">Comparison</span>
           <Badge variant="secondary" className="text-2xs">{result.runs.length} runs</Badge>
         </div>
         <Button variant="ghost" size="icon-sm" onClick={onClose} className="h-7 w-7">
@@ -459,7 +459,8 @@ function CompareView({
                 </thead>
                 <tbody>
                   {paramNames.map((param) => (
-                    <tr key={param} className="border-b last:border-0 hover:bg-muted/30">
+                    <tr key={param} className={cn("border-b last:border-0 hover:bg-muted/30",
+                      result.diff_params.includes(param) && "bg-[var(--dp-warn)]/5")}>
                       <td className="p-1.5 font-mono text-muted-foreground">{param}</td>
                       {result.runs.map((r) => (
                         <td key={r.info.run_id} className="p-1.5 font-mono">
@@ -626,7 +627,7 @@ function ExperimentsPageInner() {
     setExpError(null)
     try {
       const res = await fetch("/api/mlflow/experiments")
-      if (!res.ok) throw new Error(String(res.status))
+      if (!res.ok) throw new Error(mlflowErrorText(res.status, "load experiments"))
       const data = await res.json() as Experiment[]
       if (!Array.isArray(data)) throw new Error("Invalid experiment response")
       const active = data.filter((e) => e.lifecycle_stage !== "deleted")
@@ -664,7 +665,7 @@ function ExperimentsPageInner() {
     setCompareResult(null)
     try {
       const res = await fetch(`/api/mlflow/experiments/${exp.experiment_id}/runs`)
-      if (!res.ok) throw new Error(String(res.status))
+      if (!res.ok) throw new Error(mlflowErrorText(res.status, "load runs"))
       const data = await res.json() as Run[]
       if (!Array.isArray(data)) throw new Error("Invalid runs response")
       setRuns(data)
@@ -700,7 +701,7 @@ function ExperimentsPageInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ run_ids: Array.from(compareIds) }),
       })
-      if (!res.ok) throw new Error(String(res.status))
+      if (!res.ok) throw new Error(mlflowErrorText(res.status, "compare these runs"))
       const data = await res.json()
       setCompareResult(data)
     } catch (err) {
@@ -730,7 +731,7 @@ function ExperimentsPageInner() {
     if (!ok) return
     try {
       const res = await fetch(`/api/mlflow/experiments/${exp.experiment_id}`, { method: "DELETE" })
-      if (!res.ok) throw new Error(String(res.status))
+      if (!res.ok) throw new Error(mlflowErrorText(res.status, "delete this experiment"))
       toast(`Experiment "${exp.name}" deleted`, "success")
       if (selectedExp?.experiment_id === exp.experiment_id) {
         setSelectedExp(null)
@@ -754,7 +755,11 @@ function ExperimentsPageInner() {
   // ── Derived ────────────────────────────────────────────────────────────────
 
   const totalRuns = Object.values(runCounts).reduce((a, b) => a + b, 0)
-  const rightPanelOpen = compareResult !== null || selectedRun !== null
+  // Compare opens under the runs table, full width; the side panel is for one run.
+  const rightPanelOpen = selectedRun !== null
+  const metricCols = metricColumns(runs)
+  const bestByCol: Record<string, number | null> = Object.fromEntries(metricCols.map(k =>
+    [k, bestMetricValue(runs.map(r => r.data.metrics.find(m => m.key === k)?.value), k)]))
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -1040,7 +1045,9 @@ function ExperimentsPageInner() {
                     <TableHead className="text-xs">Name</TableHead>
                     <TableHead className="text-xs">Status</TableHead>
                     <TableHead className="text-xs">Duration</TableHead>
-                    <TableHead className="text-xs">Metrics</TableHead>
+                    {metricCols.map(k => (
+                      <TableHead key={k} className="text-right font-mono text-xs">{k}</TableHead>
+                    ))}
                     <TableHead className="text-xs">Started</TableHead>
                     <TableHead className="text-xs w-6"></TableHead>
                   </TableRow>
@@ -1049,8 +1056,6 @@ function ExperimentsPageInner() {
                   {runs.map((run) => {
                     const isSelected = selectedRun?.info.run_id === run.info.run_id
                     const isChecked = compareIds.has(run.info.run_id)
-                    // Show first 2 metrics as preview
-                    const previewMetrics = run.data.metrics.slice(0, 2)
 
                     return (
                       <TableRow
@@ -1061,7 +1066,6 @@ function ExperimentsPageInner() {
                         )}
                         onClick={() => {
                           setSelectedRun(isSelected ? null : run)
-                          setCompareResult(null)
                         }}
                       >
                         {/* Compare checkbox */}
@@ -1094,29 +1098,17 @@ function ExperimentsPageInner() {
                           {formatDuration(run.info.start_time, run.info.end_time)}
                         </TableCell>
 
-                        {/* Metrics preview */}
-                        <TableCell className="text-xs">
-                          {previewMetrics.length > 0 ? (
-                            <div className="flex flex-wrap gap-1.5">
-                              {previewMetrics.map((m) => (
-                                <span
-                                  key={m.key}
-                                  className="inline-flex items-baseline gap-0.5 text-2xs font-mono"
-                                >
-                                  <span className="text-muted-foreground">{m.key}:</span>
-                                  <span className="font-medium">{m.value.toPrecision(4)}</span>
-                                </span>
-                              ))}
-                              {run.data.metrics.length > 2 && (
-                                <span className="text-2xs text-muted-foreground">
-                                  +{run.data.metrics.length - 2}
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground/40 text-2xs">—</span>
-                          )}
-                        </TableCell>
+                        {metricCols.map(k => {
+                          const v = run.data.metrics.find(m => m.key === k)?.value
+                          const best = v !== undefined && v === bestByCol[k]
+                          return (
+                            <TableCell key={k} className={cn("text-right font-mono text-xs tabular-nums",
+                              best && "bg-[var(--dp-good)]/10 font-semibold text-[var(--dp-good-text)]")}>
+                              {v === undefined ? <span className="text-muted-foreground/40">—</span> : v.toPrecision(4)}
+                              {best && <span className="sr-only"> (best)</span>}
+                            </TableCell>
+                          )
+                        })}
 
                         {/* Start time */}
                         <TableCell className="text-2xs text-muted-foreground">
@@ -1138,18 +1130,18 @@ function ExperimentsPageInner() {
                 </TableBody>
               </Table>
             )}
+            {compareResult && (
+              <div className="m-3 overflow-hidden rounded-lg border">
+                <CompareView result={compareResult} onClose={() => { setCompareResult(null) }} />
+              </div>
+            )}
           </div>
         </div>
 
         {/* ── RIGHT: Run detail or Compare view (~320px) ─────────────────── */}
         {rightPanelOpen && (
           <div className="w-80 shrink-0 flex flex-col overflow-hidden border-l">
-            {compareResult ? (
-              <CompareView
-                result={compareResult}
-                onClose={() => { setCompareResult(null) }}
-              />
-            ) : selectedRun ? (
+            {selectedRun ? (
               <RunDetailPanel
                 run={selectedRun}
                 onClose={() => setSelectedRun(null)}
