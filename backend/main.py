@@ -20,7 +20,7 @@ from app.api.queries import router as queries_router
 from app.api.catalog import router as catalog_router
 from app.api.catalog_admin import router as catalog_admin_router
 from app.api.connectors import router as connectors_router
-from app.api.services import router as services_router, workload_pods
+from app.api.services import router as services_router, workload_pods, pod_usage
 from app.api.system_events_routes import router as system_events_router
 from app.api.notebooks import router as notebooks_router
 from app.api.mlflow_integration import router as mlflow_router
@@ -561,6 +561,10 @@ class ServiceStatus(BaseModel):
     version: Optional[str] = None
     description: Optional[str] = None
     kind: Optional[str] = None  # "pod" | "managed"
+    ready: Optional[int] = None       # serving pods that are Ready
+    replicas: Optional[int] = None    # serving pods (Job pods excluded)
+    cpu_m: Optional[int] = None       # summed millicores, when metrics-server answers
+    memory_mi: Optional[int] = None   # summed MiB, when metrics-server answers
 
 
 class DashboardStats(BaseModel):
@@ -709,6 +713,7 @@ def _compute_services_sync() -> List[ServiceStatus]:
         if app:
             by_app.setdefault(app, []).append(pod)
 
+    usage = pod_usage()
     out = []
     for svc in _service_registry():
         if svc.get("kind") == "managed":
@@ -723,9 +728,13 @@ def _compute_services_sync() -> List[ServiceStatus]:
             all_running = all((p.status.phase == "Running") for p in sp)
             all_ready = all(k8s_client._is_pod_ready(p) for p in sp)
             status = "healthy" if (all_running and all_ready) else "unhealthy"
+        used = [usage[p.metadata.name] for p in sp if p.metadata.name in usage]
         out.append(ServiceStatus(
             name=svc["name"], status=status, url=svc.get("url"),
             version="Running" if sp else None, description=svc.get("desc"), kind="pod",
+            ready=sum(1 for p in sp if k8s_client._is_pod_ready(p)), replicas=len(sp),
+            cpu_m=sum(u["cpu_m"] for u in used) if used else None,
+            memory_mi=sum(u["memory_mi"] for u in used) if used else None,
         ))
     return out
 

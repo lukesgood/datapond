@@ -77,6 +77,7 @@ def test_the_services_list_calls_backend_healthy_beside_a_finished_migrate_job(m
     # cluster config the moment an attribute is read.
     monkeypatch.setattr(main, "k8s_client", _FakeK8s(SERVING + [MIGRATE]))
     monkeypatch.setattr(main, "_service_registry", lambda: [{"name": "backend", "app": "backend", "kind": "pod"}])
+    monkeypatch.setattr(main, "pod_usage", lambda: {})
     [backend] = main._compute_services_sync()
     assert backend.status == "healthy"
 
@@ -85,5 +86,6 @@ def test_the_services_list_still_flags_a_serving_pod_that_is_down(monkeypatch):
     import main
     monkeypatch.setattr(main, "k8s_client", _FakeK8s([_pod("backend-a"), _pod("backend-b", ready=False), MIGRATE]))
     monkeypatch.setattr(main, "_service_registry", lambda: [{"name": "backend", "app": "backend", "kind": "pod"}])
+    monkeypatch.setattr(main, "pod_usage", lambda: {})
     [backend] = main._compute_services_sync()
     assert backend.status == "unhealthy"
