@@ -209,10 +209,10 @@ export default function StoragePage() {
               <input ref={fileInput} type="file" multiple className="hidden" onChange={e => { if (e.target.files?.length) void upload(e.target.files); e.target.value = "" }} />
               <Button size="sm" disabled={!bucket || busy} onClick={() => fileInput.current?.click()}><Upload className="mr-1.5 h-3.5 w-3.5" />Upload files</Button>
             </div>
-            {!loaded || (loadingList && !listing) ? (
+            {!loaded || (!overview && !overviewError) || (loadingList && !listing) ? (
               <div className="space-y-2 p-4">{[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
             ) : !bucket ? (
-              <p className="p-6 text-sm text-muted-foreground">{managed ? "No bucket is configured for this deployment." : "No buckets yet. Create one on the right."}</p>
+              <p className="p-6 text-sm text-muted-foreground">{overviewError ? "Object storage could not be read." : managed ? "No bucket is configured for this deployment." : "No buckets yet. Create one on the right."}</p>
             ) : listError ? (
               <div className="p-4"><ErrorBox msg={listError} action={<Button size="sm" variant="outline" onClick={() => void loadList(bucket, prefix)}>Retry</Button>} /></div>
             ) : folders.length + objects.length === 0 ? (
