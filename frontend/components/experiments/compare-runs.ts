@@ -29,3 +29,19 @@ export function bestMetricValue(
     ? Math.min(...nums)
     : Math.max(...nums)
 }
+
+/** The metric keys most runs logged, most common first (ties by name), at most `max`:
+ *  the columns the runs table shows. */
+export function metricColumns(runs: { data: { metrics: { key: string }[] } }[], max = 3): string[] {
+  const count = new Map<string, number>()
+  for (const r of runs) for (const k of new Set(r.data.metrics.map(m => m.key))) count.set(k, (count.get(k) ?? 0) + 1)
+  return [...count.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, max).map(([k]) => k)
+}
+
+/** What an MLflow request failure means, in words — never a bare status code. */
+export function mlflowErrorText(status: number, what: string): string {
+  if (status === 401 || status === 403) return `You may not ${what}.`
+  if (status === 404) return `MLflow could not find that. It may have been deleted.`
+  if (status === 502 || status === 503 || status === 504) return "MLflow is not reachable. Check Infrastructure."
+  return `Could not ${what} (MLflow answered ${status}).`
+}
