@@ -79,13 +79,30 @@ class FakeStore:
                                on_columns=kw["on_columns"], approved_by_name=kw["approver_name"]))
         return len(self.joins)
 
+    async def metrics_using_join(self, pool, j):
+        out = []
+        for m in self.metrics.values():
+            if m["status"] == "retired":
+                continue
+            for n, v in self.versions.get(m["id"], {}).items():
+                if n < (m["current_version"] or 0) or v.base_table != j["from_table"]:
+                    continue
+                if any(d.join and d.join.to_table == j["to_table"] for d in v.dimensions):
+                    out.append({"name": m["name"], "version": n})
+        return out
+
+    async def delete_join(self, pool, jid):
+        before = len(self.joins)
+        self.joins = [j for j in self.joins if j["id"] != jid]
+        return len(self.joins) < before
+
 
 @pytest.fixture
 def client(monkeypatch):
     fs = FakeStore()
     for name in ("get_metric", "list_metrics", "get_version", "list_versions", "create_metric",
                  "insert_version", "approve_version", "retire_metric", "list_joins", "get_join",
-                 "insert_join"):
+                 "insert_join", "metrics_using_join", "delete_join"):
         monkeypatch.setattr(api.store, name, getattr(fs, name))
     state = {"user": ADMIN, "unique": True, "audited": []}
 
@@ -455,3 +472,40 @@ def test_uniqueness_probe_runs_as_internal_not_as_a_metric(monkeypatch):
     assert asyncio.run(api._target_unique(ADMIN, _Entry(), "sales.customers", ["id"])) == (True, 0)
     (sql, origin), = calls
     assert origin == "internal" and '"AwsDataCatalog"."sales"."customers"' in sql
+
+
+def _approve_customer_join(client):
+    client.post("/api/semantic/joins", json={"catalog": "glue", "from_table": "sales.orders",
+                                             "to_table": "sales.customers",
+                                             "on_columns": [["customer_id", "id"]], "source": "manual"})
+
+
+def test_unused_join_can_be_revoked(client):
+    _approve_customer_join(client)
+    r = client.delete("/api/semantic/joins/1")
+    assert r.status_code == 200 and client.fs.joins == []
+    assert client.delete("/api/semantic/joins/1").status_code == 404
+
+
+def test_join_in_use_by_a_live_metric_is_409(client):
+    _approve_customer_join(client)
+    dims = [{"name": "region", "column": "region", "join_id": 1}]
+    client.post("/api/semantic/metrics", json={**BODY, "version": {**BODY["version"], "dimensions": dims}})
+    r = client.delete("/api/semantic/joins/1")
+    assert r.status_code == 409
+    assert r.json()["detail"].startswith(f"In use by {BODY['name']} v1.")
+    assert len(client.fs.joins) == 1
+
+
+def test_join_used_only_by_a_retired_metric_can_be_revoked(client):
+    _approve_customer_join(client)
+    dims = [{"name": "region", "column": "region", "join_id": 1}]
+    client.post("/api/semantic/metrics", json={**BODY, "version": {**BODY["version"], "dimensions": dims}})
+    client.post(f"/api/semantic/metrics/{BODY['name']}/retire")
+    assert client.delete("/api/semantic/joins/1").status_code == 200
+
+
+def test_only_an_admin_can_revoke_a_join(client):
+    _approve_customer_join(client)
+    client.state["user"] = ANALYST
+    assert client.delete("/api/semantic/joins/1").status_code == 403

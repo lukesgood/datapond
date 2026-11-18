@@ -136,3 +136,21 @@ test("a candidate already approved, either way round, is not offered again", () 
   assert.equal(edgeApproved(edge, [{ ...join, to_table: "shop.orders" }], cats), false)
   assert.equal(edgeApproved(edge, [], cats), false)
 })
+
+test("metric search matches name, label and synonyms", async () => {
+  const { metricMatches } = await import("./metrics.ts")
+  const m = { name: "revenue", label: "매출", synonyms: ["sales", "turnover"] }
+  assert.equal(metricMatches(m, ""), true)
+  assert.equal(metricMatches(m, "REV"), true)
+  assert.equal(metricMatches(m, "매출"), true)
+  assert.equal(metricMatches(m, "turn"), true)
+  assert.equal(metricMatches(m, "cost"), false)
+})
+
+test("draft description reads the form", async () => {
+  const { describeDraft } = await import("./metrics.ts")
+  const base = { measure: "SUM(amount)", filters: "status = 'paid'", base_table: "default.orders", time_column: "ordered_at", grains: ["day", "month"], dimensions: [{ name: "region" }, { name: "" }] }
+  assert.equal(describeDraft(base), "SUM(amount) over default.orders, only rows where status = 'paid', by day, month of ordered_at, split by region.")
+  assert.equal(describeDraft({ ...base, time_column: "", grains: [], filters: "", dimensions: [] }), "SUM(amount) over default.orders, over all rows (no time column).")
+  assert.equal(describeDraft({ ...base, measure: " " }), null)
+})
