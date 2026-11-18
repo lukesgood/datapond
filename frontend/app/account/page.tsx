@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { PasskeyManager } from "@/components/passkey-manager"
 import { MySpend } from "@/components/ai/my-spend"
-import { readUser, serverUser, subscribeToUser } from "@/lib/auth"
+import { readUser, saveAuth, serverUser, subscribeToUser } from "@/lib/auth"
+import { PageHeader } from "@/components/ui/page-header"
 import { useToast } from "@/lib/toast"
 import { useCapabilityStrict } from "@/lib/capabilities"
 
@@ -22,6 +23,28 @@ export default function AccountPage() {
   const [pw, setPw] = useState("")
   const [confirm, setConfirm] = useState("")
   const [busy, setBusy] = useState(false)
+  const [name, setName] = useState<string | null>(null)
+  const [savingName, setSavingName] = useState(false)
+  const shownName = name ?? user?.display_name ?? ""
+  const nameChanged = name !== null && name.trim() !== (user?.display_name ?? "") && name.trim().length > 0
+
+  const saveName = async () => {
+    if (!user || !nameChanged) return
+    setSavingName(true)
+    try {
+      const r = await fetch("/api/auth/me", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: shownName.trim() }),
+      })
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`)
+      saveAuth({ ...user, display_name: shownName.trim() })
+      setName(null)
+      toast("Name saved", "success")
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not save the name", "error")
+    }
+    setSavingName(false)
+  }
 
   // Inline validity so the user sees why the button is disabled before submitting,
   // instead of only discovering it via a toast after a click.
@@ -50,20 +73,24 @@ export default function AccountPage() {
 
   return (
     <div className="flex-1 space-y-5 p-8 pt-6">
-      <div>
-        <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-primary">Account</p>
-        <h1 className="mt-0.5 text-2xl font-semibold tracking-tight">Your account</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Your profile, your own model usage, and how you sign in — password and passkeys.
-        </p>
-      </div>
+      <PageHeader title="Your account"
+        description="Your profile, your own model usage, and how you sign in — password and passkeys." />
 
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2"><User className="h-4 w-4" />Profile</CardTitle>
         </CardHeader>
         <CardContent className="text-sm space-y-1.5">
-          <div className="flex justify-between gap-4"><span className="text-muted-foreground">Name</span><span className="truncate">{user?.display_name ?? "—"}</span></div>
+          <form className="flex flex-wrap items-end gap-2 pb-2" onSubmit={e => { e.preventDefault(); void saveName() }}>
+            <div className="min-w-0 flex-1 space-y-1.5" style={{ minWidth: 220 }}>
+              <Label htmlFor="display-name" className="text-xs">Display name</Label>
+              <Input id="display-name" value={shownName} maxLength={100} autoComplete="name"
+                onChange={e => setName(e.target.value)} />
+            </div>
+            <Button type="submit" variant="outline" disabled={!nameChanged || savingName}>
+              {savingName && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}Save name
+            </Button>
+          </form>
           <div className="flex justify-between gap-4"><span className="text-muted-foreground">Username</span><span className="font-mono truncate">{user?.username ?? "—"}</span></div>
           <div className="flex justify-between gap-4"><span className="text-muted-foreground">Email</span><span className="truncate">{user?.email ?? "—"}</span></div>
           <div className="flex justify-between gap-4"><span className="text-muted-foreground">Role</span><span className="capitalize">{user?.role ?? "—"}</span></div>
@@ -114,7 +141,19 @@ export default function AccountPage() {
         </CardContent>
       </Card>
 
-      {webauthnEnabled && <PasskeyManager />}
+      {webauthnEnabled ? <PasskeyManager /> : (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Passkeys</CardTitle>
+            <CardDescription>
+              Passkeys are off on this deployment: they work only when the console is served over
+              HTTPS. An administrator turns them on with{" "}
+              <code className="font-mono text-xs">auth.webauthn.origin</code> (and{" "}
+              <code className="font-mono text-xs">rpId</code>) in the Helm values.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
     </div>
   )
 }

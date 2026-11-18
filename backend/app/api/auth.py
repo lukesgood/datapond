@@ -1257,12 +1257,15 @@ async def delete_user(user_id: str, admin: dict = Depends(require_permission("us
 
 
 @router.patch("/auth/me")
-async def update_me(body: dict, user: dict = Depends(require_user)):
-    """Update own display_name or email."""
+async def update_me(body: dict, user: dict = Depends(require_human)):
+    """Update own display_name or email. People only: an agent's name is set on Agents."""
     pool = await _get_pool()
     updates = []; values = []; idx = 1
     if "display_name" in body:
-        updates.append(f"display_name = ${idx}"); values.append(str(body["display_name"])); idx += 1
+        name = str(body["display_name"] or "").strip()
+        if not name or len(name) > 100:
+            raise HTTPException(status_code=400, detail="Display name must be 1 to 100 characters")
+        updates.append(f"display_name = ${idx}"); values.append(name); idx += 1
     if "email" in body:
         updates.append(f"email = ${idx}"); values.append(str(body["email"])); idx += 1
     if not updates:

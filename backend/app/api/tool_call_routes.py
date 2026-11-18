@@ -24,7 +24,7 @@ _LIST_COLUMNS = ("id, occurred_at, actor_id::text AS actor_id, actor_username, a
 _SUMMARY_SQL = """
 WITH base AS (
     SELECT actor_id, actor_username, actor_kind, outcome, hit_count, pii_masked,
-           resource_kind, resource
+           resource_kind, resource, occurred_at
       FROM public.tool_call_log
      WHERE occurred_at >= $1 AND occurred_at <= $2
 ),
@@ -36,7 +36,8 @@ counts AS (
            count(*) FILTER (WHERE outcome = 'error')    AS error,
            count(*) FILTER (WHERE outcome = 'refused')  AS refused,
            coalesce(sum(hit_count), 0)                  AS hits,
-           coalesce(sum(pii_masked), 0)                 AS pii_masked
+           coalesce(sum(pii_masked), 0)                 AS pii_masked,
+           max(occurred_at)                             AS last_call
       FROM base
      GROUP BY actor_id, actor_username, actor_kind
 ),
@@ -54,7 +55,7 @@ SELECT c.actor_id::text AS actor_id, c.actor_username, c.actor_kind,
        coalesce(n.collections, '{}') AS collections,
        coalesce(n.tables, '{}')      AS tables,
        coalesce(n.metrics, '{}')     AS metrics,
-       c.hits, c.pii_masked
+       c.hits, c.pii_masked, c.last_call
   FROM counts c
   LEFT JOIN names n ON n.actor_id IS NOT DISTINCT FROM c.actor_id
                    AND n.actor_username = c.actor_username
@@ -128,6 +129,8 @@ async def summarize_tool_calls(
         d["collections"] = list(d.get("collections") or [])
         d["tables"] = list(d.get("tables") or [])
         d["metrics"] = list(d.get("metrics") or [])
+        if d.get("last_call") is not None:
+            d["last_call"] = d["last_call"].isoformat()
         by_actor.append(d)
     return {"since": since_ts.isoformat(), "until": until_ts.isoformat(), "by_actor": by_actor}
 

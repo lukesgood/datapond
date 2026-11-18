@@ -237,7 +237,7 @@ export function describeAccess(perms: string[]): { can: string[]; cannot: string
 
 // ── the agent page's summary rail ────────────────────────────────────────────
 
-function liveKeys(a: Agent, now: Date): AgentKey[] {
+export function liveKeys(a: Agent, now: Date): AgentKey[] {
   return a.keys.filter(k => k.status === "active"
     && (k.expires_at === null || new Date(k.expires_at).getTime() > now.getTime()))
 }

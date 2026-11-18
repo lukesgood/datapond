@@ -5,6 +5,7 @@ import dynamic from "next/dynamic"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { useHasPermission } from "@/lib/permissions"
 import {
   readPanelOpen, serverPanelOpen, subscribeToPanelState, togglePanel,
@@ -12,7 +13,7 @@ import {
 import { Markdown } from "@/components/ui/markdown"
 import { DestructiveCard } from "@/components/chat/destructive-card"
 import { genericPreviewEntries } from "@/lib/preview-render"
-import { Bot, Loader2, PanelRightClose, Check, X, Play } from "lucide-react"
+import { Bot, Loader2, PanelRightClose, Check, X, Play, RotateCcw, SquarePen } from "lucide-react"
 import { ChartSelector } from "@/components/query/chart-selector"
 import type { ChartType } from "@/components/query/chart-renderer"
 import { chartSpecFor, profileColumns, recommend, toChartRows } from "@/lib/chart-recommend"
@@ -61,6 +62,8 @@ export function AssistantPanel() {
   const [input, setInput] = useState("")
   const [busy, setBusy] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
+  // The message whose request failed: shown with Retry, which resends it as is.
+  const [failed, setFailed] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -69,17 +72,27 @@ export function AssistantPanel() {
     // supposed to keep out of.
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [turns, pending, busy])
+  }, [turns, pending, busy, failed])
 
   const toggle = useCallback(() => { togglePanel() }, [])
 
-  const send = async () => {
-    const message = input.trim()
+  const newConversation = () => {
+    if (busy) return
+    setTurns([]); setPending(null); setConversationId(null); setFailed(null); setInput("")
+  }
+
+  const send = async (retry?: string) => {
+    const message = retry ?? input.trim()
     if (!message || busy) return
-    setInput("")
-    setTurns(t => [...t, { role: "user", content: message }])
+    if (retry === undefined) {
+      setInput("")
+      setTurns(t => [...t, { role: "user", content: message }])
+    }
+    setFailed(null)
     setPending(null)
     setBusy(true)
+    // On a retry the message is already the last turn; history is what came before it.
+    const history = (retry === undefined ? turns : turns.slice(0, -1)).slice(-12)
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -88,11 +101,11 @@ export function AssistantPanel() {
           message,
           page: pathname,
           conversation_id: conversationId,
-          history: turns.slice(-12),
+          history,
         }),
       })
       if (!res.ok) {
-        setTurns(t => [...t, { role: "assistant", content: "The assistant is unavailable." }])
+        setFailed(message)
         return
       }
       const data = await res.json()
@@ -114,6 +127,8 @@ export function AssistantPanel() {
           }])
         }
       }
+    } catch {
+      setFailed(message)
     } finally {
       setBusy(false)
     }
@@ -186,10 +201,18 @@ export function AssistantPanel() {
         <span className="flex items-center gap-2 text-sm font-medium">
           <Bot className="h-4 w-4 text-primary" /> Assistant
         </span>
-        <button onClick={toggle} aria-label="Close assistant"
-                className="text-muted-foreground hover:text-foreground">
-          <PanelRightClose className="h-4 w-4" />
-        </button>
+        <span className="flex items-center gap-1">
+          {(turns.length > 0 || pending || failed) && (
+            <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2 text-xs" disabled={busy}
+                    onClick={newConversation}>
+              <SquarePen className="h-3.5 w-3.5" aria-hidden /> New conversation
+            </Button>
+          )}
+          <button type="button" onClick={toggle} aria-label="Close assistant"
+                  className="rounded p-1 text-muted-foreground hover:text-foreground">
+            <PanelRightClose className="h-4 w-4" />
+          </button>
+        </span>
       </div>
 
       <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 text-sm">
@@ -242,6 +265,14 @@ export function AssistantPanel() {
                 Nothing runs until you approve. This is what the server will do.
               </p>
             </div>)}
+        {failed && !busy && (
+          <div role="alert" className="flex items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs">
+            <span>The assistant could not be reached.</span>
+            <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={() => void send(failed)}>
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden /> Retry
+            </Button>
+          </div>
+        )}
         {busy && (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking…
@@ -250,15 +281,17 @@ export function AssistantPanel() {
       </div>
 
       <div className="shrink-0 border-t p-2">
-        <div className="flex gap-1.5">
-          <Input
+        <div className="flex items-end gap-1.5">
+          <Textarea
+            aria-label="Message the assistant"
+            rows={2}
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => {
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send() }
             }}
             placeholder="Ask about this page…"
-            className="h-8 text-xs"
+            className="min-h-0 resize-none text-xs"
             disabled={busy}
           />
           <Button size="sm" className="h-8 text-xs" disabled={busy || !input.trim()}
@@ -267,7 +300,7 @@ export function AssistantPanel() {
           </Button>
         </div>
         <p className="mt-1 text-2xs text-muted-foreground">
-          Conversation is not saved. Requests that change something are recorded.
+          Shift+Enter for a new line. The conversation is not saved; requests that change something are recorded.
         </p>
       </div>
     </aside>

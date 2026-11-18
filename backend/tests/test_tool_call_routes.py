@@ -159,3 +159,16 @@ def test_the_listing_carries_what_a_chunk_rule_withheld_and_injection_flags():
     returned content talked like an instruction. The listing left them out."""
     assert "chunks_withheld" in tool_call_routes._LIST_COLUMNS
     assert "injection_flags" in tool_call_routes._LIST_COLUMNS
+
+
+def test_summary_returns_last_call_as_iso(monkeypatch):
+    from datetime import datetime, timezone
+    when = datetime(2026, 11, 19, 6, 3, tzinfo=timezone.utc)
+    conn = _Conn([{"actor_id": "2", "actor_username": "svc-bot", "actor_kind": "service",
+                   "calls": 1, "ok": 1, "degraded": 0, "error": 0, "refused": 0,
+                   "collections": [], "tables": [], "hits": 0, "pii_masked": 0,
+                   "last_call": when}], 0)
+    _patch(monkeypatch, conn)
+    r = TestClient(_app()).get("/api/audit/tool-calls/summary")
+    assert r.json()["by_actor"][0]["last_call"] == when.isoformat()
+    assert "max(occurred_at)" in conn.sql[0]
