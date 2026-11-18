@@ -77,8 +77,8 @@ interface Pod {
   status: "Running" | "Pending" | "Failed" | "Succeeded" | "Unknown"
   restarts: number
   age: string
-  cpu_usage?: number
-  memory_usage?: number
+  cpu_m?: number | null
+  memory_mi?: number | null
 }
 
 // Raw shape returned by GET /api/services/{service}/pods (backend PodInfo) —
@@ -91,6 +91,8 @@ interface RawPod {
   age: string
   node?: string
   ip?: string
+  cpu_m?: number | null
+  memory_mi?: number | null
 }
 
 export default function ServiceDetailPage() {
@@ -179,6 +181,8 @@ export default function ServiceDetailPage() {
             status: p.phase,
             restarts: p.restarts,
             age: p.age,
+            cpu_m: p.cpu_m,
+            memory_mi: p.memory_mi,
           }))
         )
       }

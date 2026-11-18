@@ -59,6 +59,59 @@ class _LazyApi:
 
 core_v1 = _LazyApi("CoreV1Api")
 apps_v1 = _LazyApi("AppsV1Api")
+custom_api = _LazyApi("CustomObjectsApi")
+
+
+def _parse_cpu_nano(s: str) -> int:
+    if s.endswith("n"):
+        return int(s[:-1])
+    if s.endswith("u"):
+        return int(s[:-1]) * 1_000
+    if s.endswith("m"):
+        return int(s[:-1]) * 1_000_000
+    return int(float(s) * 1_000_000_000)
+
+
+_MEM_UNITS = {"Ki": 1024, "Mi": 1024 ** 2, "Gi": 1024 ** 3, "Ti": 1024 ** 4,
+              "k": 1000, "K": 1000, "M": 1000 ** 2, "G": 1000 ** 3}
+
+
+def _parse_mem_bytes(s: str) -> int:
+    for unit in ("Ki", "Mi", "Gi", "Ti", "k", "K", "M", "G"):
+        if s.endswith(unit):
+            return int(float(s[:-len(unit)]) * _MEM_UNITS[unit])
+    return int(s)
+
+
+def pod_usage(label_selector: Optional[str] = None) -> Dict[str, Dict[str, int]]:
+    """CPU (millicores) and memory (MiB) per pod name from metrics-server. Empty when
+    metrics-server is missing or unreadable: usage is best-effort, never an error."""
+    try:
+        kw = {"label_selector": label_selector} if label_selector else {}
+        items = custom_api.list_namespaced_custom_object(
+            "metrics.k8s.io", "v1beta1", NAMESPACE, "pods", **kw).get("items", [])
+    except Exception as e:
+        logger.info(f"pod metrics unavailable: {e}")
+        return {}
+    out: Dict[str, Dict[str, int]] = {}
+    for pod in items:
+        cpu = mem = 0
+        for c in pod.get("containers", []):
+            u = c.get("usage", {})
+            try:
+                cpu += _parse_cpu_nano(u.get("cpu", "0"))
+                mem += _parse_mem_bytes(u.get("memory", "0"))
+            except ValueError:
+                continue
+        out[pod["metadata"]["name"]] = {"cpu_m": round(cpu / 1_000_000),
+                                        "memory_mi": round(mem / 1024 ** 2)}
+    return out
+
+
+def app_label(service: str) -> str:
+    """The pod label a registry service is found by (its name when not registered)."""
+    entry = next((s for s in service_registry(os.environ) if s["name"] == service), None)
+    return (entry or {}).get("app", service)
 
 # ==========================================
 # Models
@@ -72,6 +125,9 @@ class PodInfo(BaseModel):
     age: str
     node: Optional[str] = None
     ip: Optional[str] = None
+    image: Optional[str] = None
+    cpu_m: Optional[int] = None        # millicores, from metrics-server when installed
+    memory_mi: Optional[int] = None    # MiB, from metrics-server when installed
 
 class ServiceLogsResponse(BaseModel):
     service: str
@@ -391,21 +447,22 @@ async def get_service_detail(service: str):
 )
 async def get_service_pods(service: str):
     """
-    List all pods for a service
-
-    Returns detailed information about each pod including status, restarts, age.
+    List the pods serving a service (Job pods excluded), with each pod's CPU and
+    memory from metrics-server when it is installed.
     """
     try:
-        pods = core_v1.list_namespaced_pod(
-            namespace=NAMESPACE,
-            label_selector=get_service_label_selector(service)
-        )
+        selector = get_service_label_selector(app_label(service))
+        pods = workload_pods(core_v1.list_namespaced_pod(
+            namespace=NAMESPACE, label_selector=selector).items)
 
-        if not pods.items:
+        if not pods:
             raise HTTPException(404, f"No pods found for service: {service}")
 
+        usage = await asyncio.to_thread(pod_usage, selector)
         pod_list = []
-        for pod in pods.items:
+        for pod in pods:
+            containers = pod.spec.containers if pod.spec and pod.spec.containers else []
+            u = usage.get(pod.metadata.name, {})
             pod_list.append(PodInfo(
                 name=pod.metadata.name,
                 phase=pod.status.phase,
@@ -413,7 +470,10 @@ async def get_service_pods(service: str):
                 restarts=get_restart_count(pod),
                 age=get_pod_age(pod.metadata.creation_timestamp),
                 node=pod.spec.node_name,
-                ip=pod.status.pod_ip
+                ip=pod.status.pod_ip,
+                image=containers[0].image if containers else None,
+                cpu_m=u.get("cpu_m"),
+                memory_mi=u.get("memory_mi"),
             ))
 
         return pod_list

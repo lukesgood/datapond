@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useConfirm } from "@/lib/confirm"
+import { formatUsage } from "@/lib/infra-usage"
 import {
   Table,
   TableBody,
@@ -26,8 +27,8 @@ interface Pod {
   status: "Running" | "Pending" | "Failed" | "Succeeded" | "Unknown"
   restarts: number
   age: string
-  cpu_usage?: number
-  memory_usage?: number
+  cpu_m?: number | null
+  memory_mi?: number | null
 }
 
 interface PodListProps {
@@ -123,6 +124,7 @@ export function PodList({
                     <TableHead>Name</TableHead>
                     <TableHead className="text-center">Restarts</TableHead>
                     <TableHead>Age</TableHead>
+                    <TableHead>CPU · Memory</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -146,6 +148,7 @@ export function PodList({
                         </Badge>
                       </TableCell>
                       <TableCell>{pod.age}</TableCell>
+                      <TableCell className="tabular-nums text-muted-foreground">{formatUsage(pod.cpu_m, pod.memory_mi)}</TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-2">
                           {onViewLogs && (
