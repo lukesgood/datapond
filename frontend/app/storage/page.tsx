@@ -1,582 +1,313 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { formatDistanceToNow } from "date-fns"
+import { FileText, Folder, RefreshCw, Upload } from "lucide-react"
 import { useToast } from "@/lib/toast"
-import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
 import { usePermissions } from "@/lib/permissions"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { responseErrorMessage } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table"
-import {
-  HardDrive, Database, RefreshCw, Plus, Trash2, FolderOpen,
-  FileText, ChevronRight, ChevronLeft, Package, Upload, Download, Search, X,
-} from "lucide-react"
-import { formatDistanceToNow } from "date-fns"
+import { ErrorBox } from "@/components/ui/error-box"
+import { PageHeader } from "@/components/ui/page-header"
+import { ExplainRail, RailAttention, RailSection } from "@/components/ui/explain-rail"
+import { breadcrumbs, joinKey, looksLikeTable } from "@/lib/storage-path"
 
-interface BucketStat {
-  name: string
-  created_at: string | null
-  object_count: number
-  total_size_bytes: number
-  total_size_human: string
-}
-
+interface BucketStat { name: string; object_count: number; total_size_bytes: number; total_size_human: string; error?: string | null }
 interface StorageOverview {
-  endpoint: string
-  bucket_count: number
-  total_object_count: number
-  total_size_bytes: number
-  total_size_human: string
-  buckets: BucketStat[]
+  endpoint: string; bucket_count: number; total_object_count: number; total_size_human: string; buckets: BucketStat[]
 }
-
-interface S3Object {
-  bucket: string
-  key: string
-  size_bytes: number
-  size_human: string
-  last_modified: string
-  content_type?: string
-}
-
-function sizeBar(bytes: number, total: number) {
-  const pct = total > 0 ? Math.min((bytes / total) * 100, 100) : 0
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-        <div className="h-full bg-primary/60 rounded-full" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="text-2xs text-muted-foreground w-10 text-right tabular-nums">
-        {pct.toFixed(0)}%
-      </span>
-    </div>
-  )
-}
+interface S3Object { bucket: string; key: string; size_bytes: number; size_human: string; last_modified: string }
+interface Browse { bucket: string; prefix: string; folders: { prefix: string; name: string }[]; objects: S3Object[]; truncated: boolean }
 
 export default function StoragePage() {
-  const [overview, setOverview] = useState<StorageOverview | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [selectedBucket, setSelectedBucket] = useState<string | null>(null)
-  const [objects, setObjects] = useState<S3Object[]>([])
-  const [objectsLoading, setObjectsLoading] = useState(false)
-  const [objectsError, setObjectsError] = useState<string | null>(null)
-  const [newBucketName, setNewBucketName] = useState("")
-  const [creating, setCreating] = useState(false)
-  const [actionError, setActionError] = useState<string | null>(null)
-  const [uploading, setUploading] = useState(false)
-  const [objectFilter, setObjectFilter] = useState("")
-  const [dragging, setDragging] = useState(false)
-  // Bucket create/delete/upload are all `require_admin` on the backend
-  // (backend/app/api/storage.py) — a role, not a permission — so this reads the
-  // role itself, sourced from /api/me/permissions rather than the token in
-  // localStorage. Fails closed the same way it always did: `role` stays "viewer"
-  // until /api/me/permissions answers.
-  const { role: viewerRole } = usePermissions()
-  const isAdmin = viewerRole === "admin"
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
-
-  // The objects endpoint caps at 100; when the page is full there may be more
-  // server-side that this client list can't see — surface that instead of
-  // letting objects.length read as the true total.
-  const OBJECT_LIMIT = 100
-  const objectsCapped = objects.length >= OBJECT_LIMIT
-  const filteredObjects = objectFilter.trim()
-    ? objects.filter(o => o.key.toLowerCase().includes(objectFilter.trim().toLowerCase()))
-    : objects
-
-  const loadOverview = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch("/api/storage/overview")
-      if (!res.ok) throw new Error(`${res.status}`)
-      setOverview(await res.json())
-    } catch (e) {
-      setOverview(null)
-      setError(e instanceof Error ? `Failed to load storage overview (HTTP ${e.message})` : "Failed to load storage overview")
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  const loadObjects = async (bucket: string) => {
-    setObjectsLoading(true)
-    setObjects([])
-    setObjectsError(null)
-    try {
-      const res = await fetch(`/api/storage/buckets/${encodeURIComponent(bucket)}/objects?limit=${OBJECT_LIMIT}`)
-      if (!res.ok) throw new Error(`${res.status}`)
-      setObjects(await res.json())
-    } catch (requestError) {
-      setObjects([])
-      setObjectsError(requestError instanceof Error ? `Failed to load objects (HTTP ${requestError.message})` : "Failed to load objects")
-    } finally {
-      setObjectsLoading(false)
-    }
-  }
-
-  const handleSelectBucket = (name: string) => {
-    setSelectedBucket(name)
-    setObjectFilter("")
-    loadObjects(name)
-  }
-
-  const handleCreateBucket = async () => {
-    if (!newBucketName.trim()) return
-    setCreating(true)
-    setActionError(null)
-    try {
-      const res = await fetch(`/api/storage/buckets/${encodeURIComponent(newBucketName.trim())}`, {
-        method: "POST",
-      })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.detail || "Failed to create bucket")
-      }
-      toast(`Bucket "${newBucketName.trim()}" created`, "success")
-      setNewBucketName("")
-      await loadOverview()
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Failed")
-    } finally {
-      setCreating(false)
-    }
-  }
-
   const { toast } = useToast()
   const confirm = useConfirm()
-  const handleDeleteBucket = async (name: string) => {
-    if (!(await confirm({ title: "Delete bucket", message: `Delete the "${name}" bucket? Only an empty bucket can be deleted — remove its objects first. This cannot be undone.`, destructive: true, confirmText: "Delete" }))) return
-    setActionError(null)
+  // Browsing, upload and delete are require_admin on the backend: a table's raw files
+  // bypass row and column policies. Fails closed until /api/me/permissions answers.
+  const { role, loaded } = usePermissions()
+  const isAdmin = role === "admin"
+  const [overview, setOverview] = useState<StorageOverview | null>(null)
+  const [overviewError, setOverviewError] = useState<string | null>(null)
+  const [bucket, setBucket] = useState<string | null>(null)
+  const [prefix, setPrefix] = useState("")
+  const [listing, setListing] = useState<Browse | null>(null)
+  const [listError, setListError] = useState<string | null>(null)
+  const [loadingList, setLoadingList] = useState(false)
+  const [filter, setFilter] = useState("")
+  const [selected, setSelected] = useState<S3Object | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const [newBucket, setNewBucket] = useState("")
+  const fileInput = useRef<HTMLInputElement | null>(null)
+  const listSeq = useRef(0)
+
+  const loadOverview = useCallback(async () => {
+    try {
+      const res = await fetch("/api/storage/overview")
+      if (!res.ok) throw new Error(await responseErrorMessage(res, "Could not read object storage"))
+      const data: StorageOverview = await res.json()
+      setOverview(data); setOverviewError(null)
+      setBucket(b => (b && data.buckets.some(x => x.name === b) ? b : data.buckets[0]?.name ?? null))
+    } catch (e) { setOverviewError(e instanceof Error ? e.message : "Could not read object storage") }
+  }, [])
+
+  const loadList = useCallback(async (b: string, p: string) => {
+    const seq = ++listSeq.current
+    setLoadingList(true); setListError(null)
+    try {
+      const res = await fetch(`/api/storage/buckets/${encodeURIComponent(b)}/browse?prefix=${encodeURIComponent(p)}`)
+      if (!res.ok) throw new Error(await responseErrorMessage(res, "Could not list this folder"))
+      const data: Browse = await res.json()
+      if (seq === listSeq.current) setListing(data)
+    } catch (e) {
+      if (seq === listSeq.current) { setListing(null); setListError(e instanceof Error ? e.message : "Could not list this folder") }
+    } finally { if (seq === listSeq.current) setLoadingList(false) }
+  }, [])
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void loadOverview() }, [loadOverview])
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (bucket && isAdmin) void loadList(bucket, prefix)
+  }, [bucket, prefix, isAdmin, loadList])
+
+  const go = (p: string) => { setPrefix(p); setFilter(""); setSelected(null) }
+  const refresh = async () => { await loadOverview(); if (bucket && isAdmin) await loadList(bucket, prefix) }
+
+  const upload = async (files: FileList | File[]) => {
+    if (!bucket) return
+    setBusy(true)
+    let done = 0
+    for (const file of Array.from(files)) {
+      try {
+        const res = await fetch(`/api/storage/objects/${encodeURIComponent(bucket)}/${joinKey(prefix, file.name).split("/").map(encodeURIComponent).join("/")}`, {
+          method: "PUT", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file,
+        })
+        if (!res.ok) throw new Error(await responseErrorMessage(res, `Could not upload ${file.name}`))
+        done++
+      } catch (e) { toast(e instanceof Error ? e.message : `Could not upload ${file.name}`, "error") }
+    }
+    if (done) toast(`Uploaded ${done} file${done === 1 ? "" : "s"} to ${prefix || bucket}`, "success")
+    setBusy(false); await refresh()
+  }
+
+  const download = async (o: S3Object) => {
+    try {
+      const res = await fetch(`/api/storage/objects/${encodeURIComponent(o.bucket)}/${o.key.split("/").map(encodeURIComponent).join("/")}`)
+      if (!res.ok) throw new Error(await responseErrorMessage(res, "Download failed"))
+      const url = URL.createObjectURL(await res.blob())
+      const a = document.createElement("a")
+      a.href = url; a.download = o.key.split("/").pop() || o.key
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+    } catch (e) { toast(e instanceof Error ? e.message : "Download failed", "error") }
+  }
+
+  const remove = async (o: S3Object) => {
+    if (!(await confirm({ title: "Delete file", message: `Delete ${o.key} from ${o.bucket}? This cannot be undone. Files inside an Iceberg table are refused.`, confirmText: "Delete", destructive: true }))) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/storage/objects/${encodeURIComponent(o.bucket)}/${o.key.split("/").map(encodeURIComponent).join("/")}`, { method: "DELETE" })
+      if (!res.ok) throw new Error(await responseErrorMessage(res, "Delete failed"))
+      toast(`Deleted ${o.key.split("/").pop()}`, "success"); setSelected(null); await refresh()
+    } catch (e) { toast(e instanceof Error ? e.message : "Delete failed", "error") }
+    finally { setBusy(false) }
+  }
+
+  const copyUri = async (o: S3Object) => {
+    try { await navigator.clipboard.writeText(`s3://${o.bucket}/${o.key}`); toast("S3 URI copied", "success") }
+    catch { toast("Could not copy to the clipboard", "error") }
+  }
+
+  const managed = !overview || overview.endpoint === "aws-native"
+  const createBucket = async () => {
+    const name = newBucket.trim()
+    if (!name) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/storage/buckets/${encodeURIComponent(name)}`, { method: "POST" })
+      if (!res.ok) throw new Error(await responseErrorMessage(res, "Could not create the bucket"))
+      toast(`Bucket ${name} created`, "success"); setNewBucket(""); setBucket(name); go(""); await loadOverview()
+    } catch (e) { toast(e instanceof Error ? e.message : "Could not create the bucket", "error") }
+    finally { setBusy(false) }
+  }
+  const deleteBucket = async (name: string) => {
+    if (!(await confirm({ title: `Delete bucket ${name}`, message: "Only an empty bucket can be deleted. This cannot be undone.", confirmText: "Delete", destructive: true }))) return
     try {
       const res = await fetch(`/api/storage/buckets/${encodeURIComponent(name)}`, { method: "DELETE" })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.detail || "Failed to delete")
-      }
-      if (selectedBucket === name) setSelectedBucket(null)
-      toast(`Bucket "${name}" deleted`, "success")
-      await loadOverview()
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Failed")
-    }
+      if (!res.ok) throw new Error(await responseErrorMessage(res, "Could not delete the bucket"))
+      toast(`Bucket ${name} deleted`, "success"); setBucket(null); go(""); await loadOverview()
+    } catch (e) { toast(e instanceof Error ? e.message : "Could not delete the bucket", "error") }
   }
 
-  const handleUpload = async (bucket: string, file: File) => {
-    setUploading(true)
-    setObjectsError(null)
-    try {
-      const res = await fetch(
-        `/api/storage/objects/${encodeURIComponent(bucket)}/${encodeURIComponent(file.name)}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": file.type || "application/octet-stream" },
-          body: file,
-        },
-      )
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}))
-        throw new Error(d.detail || "Failed to upload object")
-      }
-      toast(`Uploaded "${file.name}" to "${bucket}"`, "success")
-      await loadObjects(bucket)
-      await loadOverview()
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "Failed to upload object", "error")
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  const handleDownload = async (bucket: string, key: string) => {
-    try {
-      const res = await fetch(
-        `/api/storage/objects/${encodeURIComponent(bucket)}/${encodeURIComponent(key)}`,
-      )
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}))
-        throw new Error(d.detail || "Failed to download object")
-      }
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = key.split("/").pop() || key
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "Failed to download object", "error")
-    }
-  }
-
-  useEffect(() => {
-    const initial = window.setTimeout(() => void loadOverview(), 0)
-    return () => window.clearTimeout(initial)
-  }, [loadOverview])
-
-  // Native S3 buckets are provisioned by the cloud account/Terraform, so lifecycle
-  // mutations fail closed. S3-compatible profiles retain in-app bucket management.
-  const bucketLifecycleManaged = !overview || overview.endpoint === "aws-native"
-  const storageLabel = !overview
-    ? "Object storage"
-    : overview.endpoint === "aws-native"
-      ? "Amazon S3"
-      : "S3-compatible storage"
+  const storageLabel = !overview ? "Object storage" : overview.endpoint === "aws-native" ? "Amazon S3" : "S3-compatible storage"
+  const q = filter.trim().toLowerCase()
+  const folders = (listing?.folders ?? []).filter(f => !q || f.name.toLowerCase().includes(q))
+  const objects = (listing?.objects ?? []).filter(o => !q || o.key.slice(prefix.length).toLowerCase().includes(q))
+  const inTable = looksLikeTable(prefix, listing?.folders.map(f => f.name) ?? [])
+  const crumbs = breadcrumbs(prefix)
+  const bucketStat = overview?.buckets.find(b => b.name === bucket)
 
   return (
-    <div className="flex-1 space-y-5 px-6 py-5">
+    <div className="mx-auto max-w-[1400px] flex-1 space-y-5 p-8 pt-6">
+      <PageHeader title="Storage"
+        description={overview
+          ? `${storageLabel} through the S3 API · ${overview.bucket_count} bucket${overview.bucket_count === 1 ? "" : "s"} · ${overview.total_object_count.toLocaleString()} objects · ${overview.total_size_human}`
+          : `${storageLabel} through the S3 API`}
+        actions={<Button variant="outline" size="sm" onClick={() => void refresh()}><RefreshCw className="mr-1.5 h-3.5 w-3.5" />Refresh</Button>} />
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Object Storage</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {storageLabel} through the S3 API
-          </p>
+      {overviewError && <ErrorBox msg={overviewError} action={<Button size="sm" variant="outline" onClick={() => void loadOverview()}>Retry</Button>} />}
+
+      {loaded && !isAdmin ? (
+        <div className="flex flex-wrap items-start gap-5">
+          <section className="min-w-0 flex-[3_1_560px] overflow-hidden rounded-xl border bg-card">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-left text-xs text-muted-foreground"><tr><th scope="col" className="px-4 py-2 font-medium">Bucket</th><th scope="col" className="px-4 py-2 text-right font-medium">Objects</th><th scope="col" className="px-4 py-2 text-right font-medium">Size</th></tr></thead>
+              <tbody>
+                {(overview?.buckets ?? []).map(b => (
+                  <tr key={b.name} className="border-t"><td className="px-4 py-2 font-mono text-xs">{b.name}</td><td className="px-4 py-2 text-right">{b.error ? "—" : b.object_count.toLocaleString()}</td><td className="px-4 py-2 text-right">{b.error ? "—" : b.total_size_human}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+          <ExplainRail label="About storage">
+            <RailSection title="Browsing files needs an administrator">
+              Table files read straight from storage skip row policies and column masking, which apply only to governed queries. Query tables from Analytics or Catalog instead.
+            </RailSection>
+          </ExplainRail>
         </div>
-        <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs"
-          onClick={loadOverview} disabled={loading}>
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
-      </div>
-
-      {/* Error */}
-      {error && <div role="alert" aria-live="polite"><ErrorBox msg={error} /></div>}
-
-      {/* Stats strip: failed requests never fall through to fabricated zero values. */}
-      {(loading || overview) && <div className="grid grid-cols-4 gap-3">
-        {[
-          { label: "Endpoint",       value: loading ? null : storageLabel,       sub: overview?.endpoint ?? "", icon: HardDrive },
-          { label: "Buckets",        value: loading ? null : overview?.bucket_count ?? 0, sub: "Total buckets", icon: Database },
-          { label: "Total Objects",  value: loading ? null : (overview?.total_object_count ?? 0).toLocaleString(), sub: "Objects stored", icon: FileText },
-          { label: "Total Size",     value: loading ? null : (overview?.total_size_human ?? "0 B"), sub: "Storage used", icon: Package },
-        ].map(({ label, value, sub, icon: Icon }) => (
-          <Card key={label}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs text-muted-foreground">{label}</span>
-                <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-              </div>
-              {loading
-                ? <Skeleton className="h-6 w-20 mt-1" />
-                : <div className="text-xl font-bold truncate">{value}</div>
-              }
-              <div className="text-2xs text-muted-foreground mt-0.5 truncate">{sub}</div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>}
-
-      {/* Main content is rendered only after a successful overview response. */}
-      {overview && <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-5">
-
-        {/* Left: Bucket list */}
-        <div className="space-y-3">
-          {/* Create bucket — admin only; also hidden when bucket lifecycle is managed by the AWS account/Terraform */}
-          {!isAdmin ? null : bucketLifecycleManaged ? (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm">New Bucket</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xs text-muted-foreground">
-                  Bucket lifecycle is managed by your AWS account/Terraform on this profile — create buckets there.
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm">New Bucket</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <div className="flex gap-2">
-                  <Input
-                    value={newBucketName}
-                    onChange={e => setNewBucketName(e.target.value.toLowerCase().replace(/[^a-z0-9\-]/g, ""))}
-                    className="h-8 text-sm font-mono"
-                    placeholder="my-bucket"
-                    onKeyDown={e => e.key === "Enter" && handleCreateBucket()}
-                  />
-                  <Button size="sm" className="h-8 shrink-0 gap-1"
-                    onClick={handleCreateBucket}
-                    disabled={creating || !newBucketName.trim()}>
-                    {creating ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                  </Button>
-                </div>
-                {actionError && <div role="alert" aria-live="polite"><ErrorBox msg={actionError} /></div>}
-                <p className="text-2xs text-muted-foreground">
-                  Lowercase letters, numbers, and hyphens only
-                </p>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Bucket list */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center justify-between">
-                Buckets
-                {overview && (
-                  <Badge variant="secondary" className="text-2xs h-4 px-1.5">
-                    {overview.bucket_count}
-                  </Badge>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {loading ? (
-                <div className="p-4 space-y-2">
-                  {Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}
-                </div>
-              ) : !overview || overview.buckets.length === 0 ? (
-                <div className="flex flex-col items-center py-10 text-center px-4">
-                  <Database className="h-8 w-8 text-muted-foreground/30 mb-2" />
-                  <p className="text-sm text-muted-foreground">No buckets yet</p>
-                  <p className="text-xs text-muted-foreground/60 mt-1">
-                    {bucketLifecycleManaged
-                      ? "Create a bucket in your AWS account/Terraform, then refresh"
-                      : "Create your first bucket above"}
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y">
-                  {overview.buckets.map(b => (
-                    <div
-                      key={b.name}
-                      className={`group flex items-stretch transition-colors hover:bg-muted/50
-                        ${selectedBucket === b.name ? "bg-muted/60" : ""}`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => handleSelectBucket(b.name)}
-                        className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"
-                        aria-pressed={selectedBucket === b.name}
-                      >
-                        <FolderOpen className={`h-4 w-4 shrink-0 ${
-                          selectedBucket === b.name ? "text-primary" : "text-muted-foreground"
-                        }`} />
-                        <div className="min-w-0 flex-1 space-y-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate text-sm font-medium">{b.name}</span>
-                            <span className="shrink-0 text-2xs text-muted-foreground">
-                              {b.total_size_human}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2 text-2xs text-muted-foreground">
-                            <span>{b.object_count.toLocaleString()} objects</span>
-                            {b.created_at && (
-                              <span>
-                                {formatDistanceToNow(new Date(b.created_at), { addSuffix: true })}
-                              </span>
-                            )}
-                          </div>
-                          {overview.total_size_bytes > 0 && sizeBar(b.total_size_bytes, overview.total_size_bytes)}
-                        </div>
-                        <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-muted-foreground/50
-                          ${selectedBucket === b.name ? "text-primary" : ""}`} />
-                      </button>
-                      {isAdmin && !bucketLifecycleManaged && (
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteBucket(b.name)}
-                          className="mr-2 self-center rounded p-2 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus:opacity-100 group-hover:opacity-100"
-                          aria-label={`Delete bucket ${b.name}`}
-                          title={`Delete bucket ${b.name}`}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right: Object browser */}
-        <Card className="flex flex-col overflow-hidden">
-          <CardHeader className="pb-3 shrink-0">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                {selectedBucket && (
-                  <Button variant="ghost" size="icon" className="h-7 w-7"
-                    onClick={() => setSelectedBucket(null)}>
-                    <ChevronLeft className="h-3.5 w-3.5" />
-                  </Button>
-                )}
-                <div className="min-w-0">
-                  <CardTitle className="text-sm">
-                    {selectedBucket ? (
-                      <span className="flex items-center gap-1.5">
-                        <FolderOpen className="h-4 w-4 text-primary" />
-                        {selectedBucket}
-                      </span>
-                    ) : "Object Browser"}
-                  </CardTitle>
-                  {selectedBucket && (
-                    <CardDescription className="text-2xs mt-0.5">
-                      {objectsLoading
-                        ? "Loading..."
-                        : objectFilter.trim()
-                          ? `${filteredObjects.length} of ${objects.length}${objectsCapped ? "+" : ""} objects`
-                          : `${objects.length}${objectsCapped ? "+" : ""} objects${objectsCapped ? ` · first ${OBJECT_LIMIT}` : ""}`}
-                    </CardDescription>
-                  )}
-                </div>
-              </div>
-              {selectedBucket && isAdmin && (
-                <>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    className="hidden"
-                    onChange={e => {
-                      const file = e.target.files?.[0]
-                      if (file && selectedBucket) void handleUpload(selectedBucket, file)
-                      e.target.value = ""
-                    }}
-                  />
-                  <Button
-                    size="sm"
-                    className="h-8 shrink-0 gap-1.5 text-xs"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploading}
-                  >
-                    {uploading
-                      ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                      : <Upload className="h-3.5 w-3.5" />}
-                    Upload
-                  </Button>
-                </>
-              )}
-            </div>
-          </CardHeader>
-
-          <CardContent
-            className="relative flex-1 overflow-auto p-0"
-            onDragOver={selectedBucket && isAdmin ? (e) => { e.preventDefault(); setDragging(true) } : undefined}
-            onDragLeave={selectedBucket && isAdmin ? (e) => { if (e.currentTarget === e.target) setDragging(false) } : undefined}
-            onDrop={selectedBucket && isAdmin ? (e) => {
-              e.preventDefault(); setDragging(false)
-              const file = e.dataTransfer.files?.[0]
-              if (file && selectedBucket) void handleUpload(selectedBucket, file)
-            } : undefined}
-          >
-            {/* Drop-to-upload affordance — a storage browser should accept a
-                dropped file, not only a picked one. */}
-            {dragging && selectedBucket && isAdmin && (
-              <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-primary bg-primary/5 backdrop-blur-[1px]">
-                <Upload className="h-6 w-6 text-primary" />
-                <p className="text-sm font-medium text-primary">Drop to upload to {selectedBucket}</p>
+      ) : (
+        <div className="flex flex-wrap items-start gap-5">
+          <section className="relative min-w-0 flex-[3_1_600px] overflow-hidden rounded-xl border bg-card"
+            onDragOver={bucket && isAdmin ? e => { e.preventDefault(); setDragging(true) } : undefined}
+            onDragLeave={e => { if (e.currentTarget === e.target) setDragging(false) }}
+            onDrop={bucket && isAdmin ? e => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files?.length) void upload(e.dataTransfer.files) } : undefined}>
+            {dragging && (
+              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center border-2 border-dashed border-primary bg-primary/5">
+                <p className="text-sm font-medium text-primary">Drop to upload into {prefix || bucket}</p>
               </div>
             )}
-            {!selectedBucket ? (
-              <div className="flex flex-col items-center justify-center h-48 text-center px-4">
-                <FolderOpen className="h-10 w-10 text-muted-foreground/20 mb-3" />
-                <p className="text-sm text-muted-foreground">Select a bucket to view its objects</p>
+            <div className="flex flex-wrap items-center gap-2.5 border-b px-4 py-3">
+              {overview && overview.buckets.length > 0 && (
+                <select aria-label="Bucket" className="h-8 rounded-md border bg-background px-2 text-sm" value={bucket ?? ""}
+                        onChange={e => { setBucket(e.target.value); go("") }}>
+                  {overview.buckets.map(b => <option key={b.name} value={b.name}>{b.name} · {b.error ? "unreadable" : b.total_size_human}</option>)}
+                </select>
+              )}
+              <nav aria-label="Path" className="min-w-0 truncate font-mono text-xs">
+                <button className="text-primary hover:underline" onClick={() => go("")}>{bucket ?? "—"}</button>
+                {crumbs.map((c, i) => (
+                  <span key={c.prefix}> / {i === crumbs.length - 1
+                    ? <strong>{c.name}</strong>
+                    : <button className="text-primary hover:underline" onClick={() => go(c.prefix)}>{c.name}</button>}</span>
+                ))} /
+              </nav>
+              <span className="ml-auto" />
+              <Input aria-label="Filter this folder" value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filter this folder" className="h-8 w-44" />
+              <input ref={fileInput} type="file" multiple className="hidden" onChange={e => { if (e.target.files?.length) void upload(e.target.files); e.target.value = "" }} />
+              <Button size="sm" disabled={!bucket || busy} onClick={() => fileInput.current?.click()}><Upload className="mr-1.5 h-3.5 w-3.5" />Upload files</Button>
+            </div>
+            {!loaded || (loadingList && !listing) ? (
+              <div className="space-y-2 p-4">{[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
+            ) : !bucket ? (
+              <p className="p-6 text-sm text-muted-foreground">{managed ? "No bucket is configured for this deployment." : "No buckets yet. Create one on the right."}</p>
+            ) : listError ? (
+              <div className="p-4"><ErrorBox msg={listError} action={<Button size="sm" variant="outline" onClick={() => void loadList(bucket, prefix)}>Retry</Button>} /></div>
+            ) : folders.length + objects.length === 0 ? (
+              <p className="p-6 text-sm text-muted-foreground">{q ? `Nothing in this folder matches “${filter}”.` : "This folder is empty. Upload files or drop them here."}</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[560px] text-sm">
+                  <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
+                    <tr><th scope="col" className="px-4 py-2 font-medium">Name</th><th scope="col" className="px-4 py-2 text-right font-medium">Size</th><th scope="col" className="px-4 py-2 font-medium">Modified</th></tr>
+                  </thead>
+                  <tbody>
+                    {prefix && !q && (
+                      <tr className="border-t"><td colSpan={3} className="px-4 py-1.5">
+                        <button className="text-xs text-primary hover:underline" onClick={() => go(crumbs.length > 1 ? crumbs[crumbs.length - 2].prefix : "")}>.. up one folder</button>
+                      </td></tr>
+                    )}
+                    {folders.map(f => (
+                      <tr key={f.prefix} className="border-t hover:bg-muted/40">
+                        <td className="px-4 py-2"><button className="flex items-center gap-2 text-primary hover:underline" onClick={() => go(f.prefix)}><Folder aria-hidden className="h-3.5 w-3.5" />{f.name}/</button></td>
+                        <td className="px-4 py-2 text-right text-muted-foreground">—</td><td className="px-4 py-2 text-muted-foreground">—</td>
+                      </tr>
+                    ))}
+                    {objects.map(o => {
+                      const on = selected?.key === o.key
+                      return (
+                        <tr key={o.key} className={`border-t ${on ? "bg-primary/10" : "hover:bg-muted/40"}`}>
+                          <td className="px-4 py-2">
+                            <button aria-pressed={on} className="flex min-w-0 items-center gap-2 text-left font-mono text-xs" onClick={() => setSelected(on ? null : o)}>
+                              <FileText aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /><span className="truncate">{o.key.slice(prefix.length)}</span>
+                            </button>
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums">{o.size_human}</td>
+                          <td className="px-4 py-2 text-muted-foreground">{formatDistanceToNow(new Date(o.last_modified), { addSuffix: true })}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
               </div>
-            ) : objectsLoading ? (
-              <div className="p-4 space-y-2">
-                {Array(5).fill(0).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}
+            )}
+            {listing && (
+              <div className="border-t px-4 py-2 text-xs text-muted-foreground">
+                {listing.folders.length} folder{listing.folders.length === 1 ? "" : "s"} · {listing.objects.length} file{listing.objects.length === 1 ? "" : "s"} in this folder
+                {listing.truncated && " · showing the first 500; filter or open a sub-folder to see the rest"}
               </div>
-            ) : objectsError ? (
-              <div className="p-4" role="alert" aria-live="polite">
-                <ErrorBox
-                  msg={objectsError}
-                  action={<Button size="sm" variant="outline" onClick={() => loadObjects(selectedBucket)}>Retry</Button>}
-                />
-              </div>
-            ) : objects.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-48 text-center px-4">
-                <FileText className="h-8 w-8 text-muted-foreground/20 mb-2" />
-                <p className="text-sm text-muted-foreground">This bucket is empty</p>
-              </div>
+            )}
+          </section>
+
+          <ExplainRail label={selected ? "File details" : "About this folder"}>
+            {selected ? (
+              <>
+                <h3 className="break-all font-mono text-sm font-semibold text-foreground">{selected.key.split("/").pop()}</h3>
+                <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
+                  <dt className="text-muted-foreground">Size</dt><dd>{selected.size_human}</dd>
+                  <dt className="text-muted-foreground">Modified</dt><dd>{new Date(selected.last_modified).toLocaleString()}</dd>
+                  <dt className="text-muted-foreground">Key</dt><dd className="break-all font-mono text-xs">{selected.key}</dd>
+                  <dt className="text-muted-foreground">S3 URI</dt><dd className="break-all font-mono text-xs">s3://{selected.bucket}/{selected.key}</dd>
+                </dl>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => void download(selected)}>Download</Button>
+                  <Button size="sm" variant="outline" onClick={() => void copyUri(selected)}>Copy S3 URI</Button>
+                  <Button size="sm" variant="outline" disabled={busy} className="text-destructive" onClick={() => void remove(selected)}>Delete…</Button>
+                </div>
+                {inTable && <RailAttention title="Inside an Iceberg table">This looks like part of a table. Deleting its files would corrupt it, so the server refuses. Drop the table from Catalog instead.</RailAttention>}
+              </>
             ) : (
               <>
-                {/* Filter within the loaded page — objects can run to the 100-row
-                    cap, so give a way to jump to a known key without scrolling. */}
-                <div className="sticky top-0 z-[5] flex items-center gap-2 border-b bg-background/95 px-3 py-2 backdrop-blur-sm">
-                  <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <input
-                    value={objectFilter}
-                    onChange={e => setObjectFilter(e.target.value)}
-                    placeholder="Filter objects by key"
-                    className="w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-                    aria-label="Filter objects by key"
-                  />
-                  {objectFilter && (
-                    <button type="button" onClick={() => setObjectFilter("")}
-                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground" aria-label="Clear filter">
-                      <X className="h-3.5 w-3.5" />
-                    </button>
+                <RailSection title={prefix ? prefix : bucket ?? "Storage"}>
+                  {inTable
+                    ? "This folder is an Iceberg table: its data and metadata files. Query it from Analytics; drop it from Catalog."
+                    : bucketStat && !prefix ? `${bucketStat.object_count.toLocaleString()} objects · ${bucketStat.total_size_human} in this bucket.` : "Pick a file to see its details."}
+                </RailSection>
+                <RailSection title="Uploads">Files go into the folder you are in. Drop several at once onto the list.</RailSection>
+                {inTable && <RailAttention title="Inside an Iceberg table">Deleting files here is refused: it would corrupt the table.</RailAttention>}
+                <RailSection title="Buckets">
+                  {managed ? "Buckets are managed by Terraform on this profile." : (
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <Input aria-label="New bucket name" value={newBucket} placeholder="my-bucket" className="h-8 font-mono"
+                               onChange={e => setNewBucket(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                               onKeyDown={e => { if (e.key === "Enter") void createBucket() }} />
+                        <Button size="sm" disabled={busy || !newBucket.trim()} onClick={() => void createBucket()}>Create</Button>
+                      </div>
+                      <p className="text-xs">Lowercase letters, digits and hyphens.</p>
+                      {bucket && !prefix && listing && listing.folders.length + listing.objects.length === 0 && (
+                        <Button size="sm" variant="outline" className="text-destructive" onClick={() => void deleteBucket(bucket)}>Delete empty bucket {bucket}…</Button>
+                      )}
+                    </div>
                   )}
-                </div>
-                {filteredObjects.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-center px-4">
-                    <Search className="h-6 w-6 text-muted-foreground/20 mb-2" />
-                    <p className="text-sm text-muted-foreground">No objects match “{objectFilter}”</p>
-                    {objectsCapped && (
-                      <p className="mt-1 text-2xs text-muted-foreground/70">Only the first {OBJECT_LIMIT} objects are loaded — a match may exist beyond them.</p>
-                    )}
-                  </div>
-                ) : (
-                <Table>
-                <TableHeader className="sticky top-[41px] bg-muted/60 backdrop-blur-sm">
-                  <TableRow>
-                    <TableHead className="text-xs">Key</TableHead>
-                    <TableHead className="text-xs text-right w-24">Size</TableHead>
-                    <TableHead className="text-xs w-40">Last Modified</TableHead>
-                    <TableHead className="text-xs w-12 text-right"><span className="sr-only">Actions</span></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredObjects.map(obj => (
-                    <TableRow key={obj.key} className="hover:bg-muted/30">
-                      <TableCell className="text-xs font-mono truncate max-w-[400px]" title={obj.key}>
-                        <span className="flex items-center gap-1.5">
-                          <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
-                          {obj.key}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-xs text-right tabular-nums text-muted-foreground">
-                        {obj.size_human}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(new Date(obj.last_modified), { addSuffix: true })}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <button
-                          type="button"
-                          onClick={() => selectedBucket && handleDownload(selectedBucket, obj.key)}
-                          className="rounded p-1.5 text-muted-foreground transition-colors hover:text-primary"
-                          aria-label={`Download ${obj.key}`}
-                          title={`Download ${obj.key}`}
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                        </button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-                )}
+                </RailSection>
               </>
             )}
-          </CardContent>
-        </Card>
-      </div>}
+          </ExplainRail>
+        </div>
+      )}
     </div>
   )
 }

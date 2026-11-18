@@ -165,3 +165,25 @@ async def insert_join(pool, *, catalog, from_table, to_table, on_columns, source
                DO UPDATE SET source = semantic_joins.source
                RETURNING id""",
             catalog, from_table, to_table, json.dumps(on_columns), source, approver_id, approver_name)
+
+
+async def metrics_using_join(pool, j: dict) -> List[dict]:
+    """Live metrics whose approved version, or a newer draft, reaches a table through this
+    join. Versions copy the join by value, so this matches on the copy, not the id."""
+    probe = json.dumps([{"join": {"to_table": j["to_table"], "on": j["on_columns"]}}])
+    async with pool.acquire() as c:
+        rows = await c.fetch(
+            """SELECT m.name, v.version FROM semantic_metric_versions v
+                 JOIN semantic_metrics m ON m.id = v.metric_id
+                WHERE m.status <> 'retired'
+                  AND v.version >= COALESCE(m.current_version, 0)
+                  AND lower(v.catalog) = lower($1) AND lower(v.base_table) = lower($2)
+                  AND v.dimensions @> $3::jsonb
+                ORDER BY m.name, v.version""",
+            j["catalog"], j["from_table"], probe)
+    return [dict(r) for r in rows]
+
+
+async def delete_join(pool, join_id: int) -> bool:
+    async with pool.acquire() as c:
+        return await c.execute("DELETE FROM semantic_joins WHERE id = $1", join_id) == "DELETE 1"

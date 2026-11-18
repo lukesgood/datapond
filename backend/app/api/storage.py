@@ -188,7 +188,90 @@ async def get_storage_overview():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/storage/buckets/{bucket_name}/objects", response_model=List[RecentObject])
+class BrowseFolder(BaseModel):
+    prefix: str
+    name: str
+
+
+class BrowseResult(BaseModel):
+    bucket: str
+    prefix: str
+    folders: List[BrowseFolder]
+    objects: List[RecentObject]
+    truncated: bool = False
+
+
+BROWSE_LIMIT = 500
+
+
+def _browse(s3, bucket: str, prefix: str) -> BrowseResult:
+    """One folder level: sub-folders (common prefixes) and the objects directly in it."""
+    resp = s3.list_objects_v2(Bucket=bucket, Prefix=prefix, Delimiter="/", MaxKeys=BROWSE_LIMIT)
+    folders = [BrowseFolder(prefix=cp["Prefix"], name=cp["Prefix"][len(prefix):].rstrip("/"))
+               for cp in resp.get("CommonPrefixes", [])]
+    objects = [RecentObject(bucket=bucket, key=o["Key"], size_bytes=o["Size"],
+                            size_human=human_size(o["Size"]),
+                            last_modified=o["LastModified"].isoformat())
+               for o in resp.get("Contents", []) if o["Key"] != prefix]
+    return BrowseResult(bucket=bucket, prefix=prefix, folders=folders, objects=objects,
+                        truncated=bool(resp.get("IsTruncated")))
+
+
+@router.get("/storage/buckets/{bucket_name}/browse", response_model=BrowseResult,
+            dependencies=[Depends(require_admin)])
+async def browse_bucket(bucket_name: str, prefix: str = ""):
+    """List one folder of a bucket. Admin only: raw table files bypass row and column
+    policies, which apply only to governed queries."""
+    if prefix and not prefix.endswith("/"):
+        prefix += "/"
+    try:
+        return await asyncio.to_thread(_browse, get_s3_client(), bucket_name, prefix)
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "NoSuchBucket":
+            raise HTTPException(status_code=404, detail=f"Bucket '{bucket_name}' not found")
+        raise HTTPException(status_code=500, detail=str(e))
+    except EndpointConnectionError:
+        raise HTTPException(status_code=503, detail="Object storage endpoint unreachable")
+
+
+def _iceberg_table_root(s3, bucket: str, key: str) -> Optional[str]:
+    """The folder of the Iceberg table this key belongs to, if any: the nearest
+    ancestor folder holding metadata/*.metadata.json."""
+    parts = key.split("/")[:-1]
+    for i in range(len(parts), 0, -1):
+        root = "/".join(parts[:i]) + "/"
+        resp = s3.list_objects_v2(Bucket=bucket, Prefix=root + "metadata/", MaxKeys=1000)
+        if any(o["Key"].endswith(".metadata.json") for o in resp.get("Contents", [])):
+            return root
+    return None
+
+
+@router.delete("/storage/objects/{bucket}/{key:path}", dependencies=[Depends(require_admin)])
+async def delete_object(bucket: str, key: str):
+    """Delete one object. Refused inside an Iceberg table folder: removing a data or
+    metadata file there corrupts the table, which is dropped from Catalog instead."""
+    if not bucket or not key or key.endswith("/"):
+        raise HTTPException(status_code=400, detail="bucket and an object key are required")
+    s3 = get_s3_client()
+    try:
+        root = await asyncio.to_thread(_iceberg_table_root, s3, bucket, key)
+        if root:
+            raise HTTPException(status_code=409, detail=f"'{key}' is part of the Iceberg table "
+                                f"at {root}. Deleting it would corrupt the table; drop the "
+                                "table from Catalog instead.")
+        await asyncio.to_thread(s3.head_object, Bucket=bucket, Key=key)
+        await asyncio.to_thread(s3.delete_object, Bucket=bucket, Key=key)
+    except ClientError as e:
+        code = e.response["Error"]["Code"]
+        if code in ("NoSuchBucket", "NoSuchKey", "404"):
+            raise HTTPException(status_code=404, detail=f"Object '{key}' not found in '{bucket}'")
+        raise HTTPException(status_code=500, detail=str(e))
+    _invalidate_overview()
+    return {"bucket": bucket, "key": key, "deleted": True}
+
+
+@router.get("/storage/buckets/{bucket_name}/objects", response_model=List[RecentObject],
+            dependencies=[Depends(require_admin)])
 async def list_bucket_objects(bucket_name: str, limit: int = 50, prefix: str = ""):
     """List objects in a bucket, sorted by last modified (newest first)"""
     try:
@@ -275,9 +358,10 @@ async def put_object(bucket: str, key: str, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/storage/objects/{bucket}/{key:path}")
+@router.get("/storage/objects/{bucket}/{key:path}", dependencies=[Depends(require_admin)])
 async def get_object(bucket: str, key: str):
-    """Download an object, streaming its body back with the stored content-type."""
+    """Download an object, streaming its body back with the stored content-type. Admin
+    only: a table's raw files bypass row and column policies."""
     if not bucket or not key:
         raise HTTPException(status_code=400, detail="bucket and key are required")
     try:

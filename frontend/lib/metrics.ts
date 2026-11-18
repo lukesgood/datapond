@@ -162,3 +162,26 @@ export function edgeApproved(edge: RelationshipEdge, joins: JoinKey[], catalogs:
     return !!body && approved.has(key(body))
   })
 }
+
+/** Search box over the metric list: name, label and synonyms, case-insensitive. */
+export function metricMatches(m: Pick<MetricSummary, "name" | "label" | "synonyms">, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return [m.name, m.label, ...(m.synonyms ?? [])].some(s => (s ?? "").toLowerCase().includes(q))
+}
+
+/** One sentence on what a draft computes, from the form, before it is saved. */
+export function describeDraft(d: {
+  measure: string; filters: string; base_table: string; time_column: string; grains: string[]
+  dimensions: { name: string }[]
+}): string | null {
+  if (!d.measure.trim() || !d.base_table.trim()) return null
+  const parts = [`${d.measure.trim()} over ${d.base_table.trim()}`]
+  if (d.filters.trim()) parts.push(`only rows where ${d.filters.trim()}`)
+  if (d.time_column.trim()) {
+    parts.push(d.grains.length ? `by ${d.grains.join(", ")} of ${d.time_column.trim()}` : `filtered on ${d.time_column.trim()}, no grouping by time`)
+  } else parts.push("over all rows (no time column)")
+  const dims = d.dimensions.map(x => x.name.trim()).filter(Boolean)
+  if (dims.length) parts.push(`split by ${dims.join(", ")}`)
+  return parts.join(", ") + "."
+}

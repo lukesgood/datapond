@@ -451,3 +451,25 @@ async def approve_join(body: JoinBody, admin: dict = Depends(require_admin)):
     await _audit(admin, "admin", "/api/semantic/joins",
                  f"join {body.from_table} -> {body.to_table} approved")
     return {"id": jid}
+
+
+@router.delete("/semantic/joins/{join_id}")
+async def revoke_join(join_id: int, admin: dict = Depends(require_admin)):
+    """Revoke an approved join. Refused while a live metric uses it: its approved version
+    or a newer draft. Retire the metric or save a version without that dimension first."""
+    pool = await _pool()
+    j = await store.get_join(pool, join_id)
+    if not j:
+        raise HTTPException(404, f"Unknown join {join_id}.")
+    users = await store.metrics_using_join(pool, j)
+    if users:
+        names = ", ".join(f"{u['name']} v{u['version']}" for u in users)
+        raise HTTPException(409, f"In use by {names}. Retire the metric or save a version "
+                                 "without that dimension first.")
+    if not await store.delete_join(pool, join_id):
+        raise HTTPException(404, f"Unknown join {join_id}.")
+    await security_audit.record(actor=admin, permission="admin",
+                                route=f"/api/semantic/joins/{join_id}", method="DELETE",
+                                outcome="allowed",
+                                reason=f"join {j['from_table']} -> {j['to_table']} revoked")
+    return {"id": join_id, "revoked": True}
