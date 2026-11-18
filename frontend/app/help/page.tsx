@@ -6,15 +6,8 @@ import { useSearchParams } from "next/navigation"
 import type { LucideIcon } from "lucide-react"
 import { ArrowDownToLine, ArrowRight, BookOpen, Code2, Database, HardDrive, Layers, Plug, Settings2, ShieldCheck, Sigma, Sparkles } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { Badge } from "@/components/ui/badge"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
 import { useCapabilities } from "@/lib/capabilities"
 import { getProductProfile } from "@/lib/product-profile"
 import { HelpTabs } from "@/components/help/help-tabs"
@@ -249,76 +242,44 @@ function GuidesHub() {
         <HelpTabs active="guides" />
       </div>
 
-      <div className="flex-1 space-y-6 p-8 pt-6">
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem><BreadcrumbLink href="/dashboard">{t({ en: "Home", ko: "홈" })}</BreadcrumbLink></BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem><BreadcrumbPage>{t({ en: "Guides", ko: "가이드" })}</BreadcrumbPage></BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
+      <div className="mx-auto w-full max-w-[1180px] flex-1 space-y-6 px-6 py-6">
+        <PageHeader
+          title={t({ en: "Help", ko: "도움말" })}
+          description={t({
+            en: "Guides for what this deployment runs, and the API and MCP reference.",
+            ko: "이 배포에서 쓰는 기능별 가이드와 API·MCP 참고 자료입니다.",
+          })}
+        >
+          <p className="mt-2 text-xs text-muted-foreground">
+            {t({ en: "Profile", ko: "프로파일" })}: <span className="font-medium text-foreground">{profile.label}</span>
+            {" · "}<Link href="/docs/profiles" className="text-primary hover:underline">{t({ en: "Compare profiles", ko: "프로파일 비교" })}</Link>
+          </p>
+        </PageHeader>
 
-        <div>
-          <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-primary">{profile.label}</p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight">{t({ en: "Guides", ko: "가이드" })}</h1>
-          <p className="mt-2 text-muted-foreground">{t({
-            en: "Connect a source, query it, govern it, then add AI on the same data. Profiles without a query engine start from Knowledge.",
-            ko: "소스를 연결하고 조회한 뒤 권한을 설정하고, 같은 데이터 위에 AI를 더합니다. 쿼리 엔진이 없는 프로파일은 Knowledge에서 시작합니다.",
-          })}</p>
-        </div>
-
-        <Card className="border-primary/20 bg-primary/5">
-          <CardContent className="flex flex-wrap items-start justify-between gap-4 py-4">
-            <div className="flex gap-3">
-              <Layers className="mt-0.5 h-5 w-5 text-primary" />
-              <div>
-                <p className="text-sm font-semibold">{t({ en: "Current profile", ko: "현재 프로파일" })}: {profile.label}</p>
-                <p className="text-xs text-muted-foreground">{profile.description}</p>
-              </div>
-            </div>
-            <Link href="/docs/profiles" className="text-sm font-medium text-primary hover:underline">{t({ en: "Compare profiles", ko: "프로파일 비교" })} →</Link>
-          </CardContent>
-        </Card>
-
-        <section className="space-y-3">
-          <h2 className="text-xl font-bold">{t({ en: "Available workflows", ko: "작업별 가이드" })}</h2>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {visibleGuides.map((guide) => {
-              const Icon = guide.icon
-              return (
-                <Link key={guide.href} href={guide.href}>
-                  <Card className="group h-full transition-all hover:-translate-y-0.5 hover:shadow-md">
-                    <CardHeader>
-                      <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                        <Icon className="h-5 w-5 text-primary" />
-                      </div>
-                      <CardTitle className="flex items-center justify-between text-base">
-                        {t(guide.title)}<ArrowRight className="h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100" />
-                      </CardTitle>
-                      <CardDescription>{t(guide.description)}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="flex flex-wrap gap-1.5">
-                      {/* `capability` was declared on every guide and then read by
-                          nothing. Cards stay visible when a module is off — a guide
-                          explains setup, which is exactly when you have not set it up
-                          yet — but saying so beats letting the card imply the module is
-                          running. Fail-closed: anything other than an explicit true
-                          reads as not enabled. */}
-                      {guide.capability && caps[guide.capability] !== true && (
-                        <Badge
-                          variant="outline"
-                          className="border-[var(--dp-warn)]/25 bg-[var(--dp-warn)]/10 text-xs text-[var(--dp-warn-text)]"
-                        >
-                          {t({ en: "Not enabled here", ko: "이 배포에서는 꺼져 있음" })}
-                        </Badge>
-                      )}
-                      {guide.topics.map((topic) => <Badge key={topic.en} variant="secondary" className="text-xs">{t(topic)}</Badge>)}
-                    </CardContent>
-                  </Card>
-                </Link>
-              )
-            })}
-          </div>
+        <section aria-label={t({ en: "Guides", ko: "가이드" })} className="grid gap-2.5 md:grid-cols-2">
+          {visibleGuides.map((guide) => {
+            const Icon = guide.icon
+            const off = guide.capability && caps[guide.capability] !== true
+            return (
+              <Link key={guide.href} href={guide.href}
+                    className="group flex items-start gap-3 rounded-xl border bg-card p-3.5 transition-colors hover:border-primary/40">
+                <Icon className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+                <span className="min-w-0">
+                  <span className="flex flex-wrap items-center gap-2 text-sm font-semibold group-hover:text-primary">
+                    {t(guide.title)}
+                    {/* Guides stay listed when a module is off — they explain setup — but say so. */}
+                    {off && (
+                      <Badge variant="outline" className="border-[var(--dp-warn)]/25 bg-[var(--dp-warn)]/10 text-2xs font-medium text-[var(--dp-warn-text)]">
+                        {t({ en: "Not enabled here", ko: "이 배포에서는 꺼져 있음" })}
+                      </Badge>
+                    )}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">{t(guide.description)}</span>
+                  <span className="mt-1 block text-2xs text-muted-foreground">{guide.topics.map(x => t(x)).join(", ")}</span>
+                </span>
+              </Link>
+            )
+          })}
         </section>
 
         <section className="space-y-3">
