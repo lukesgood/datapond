@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DagCard } from "@/components/airflow/dag-card"
 import { TransformsTab } from "@/components/transforms/transforms-tab"
+import { FlowMap } from "@/components/transforms/flow-map"
 import { PageHeader } from "@/components/ui/page-header"
 import { useHasPermission } from "@/lib/permissions"
 import type { SavedTransform } from "@/lib/transforms"
@@ -81,7 +82,7 @@ function PipelinesPageInner() {
   // Top-level tab is controlled by the ?tab= query param so deep links such as
   // /jobs → /pipelines?tab=history land on the right tab (defaults to transforms).
   const searchParams = useSearchParams()
-  const VALID_TABS = ["transforms", "pipelines", "history"]
+  const VALID_TABS = ["transforms", "flow", "pipelines", "history"]
   const tabParam = searchParams.get("tab")
   // URL is the source of truth: derive the tab from ?tab= (so deep links like
   // /jobs → /pipelines?tab=history land right) and push tab clicks back to the URL.
@@ -362,7 +363,8 @@ function PipelinesPageInner() {
           <TabsTrigger value="transforms" className="text-xs h-7">
             <Layers className="h-3 w-3 mr-1" />Transforms ({transforms.length})
           </TabsTrigger>
-          <TabsTrigger value="pipelines" className="text-xs h-7">Pipelines · preview ({dags.length})</TabsTrigger>
+          <TabsTrigger value="flow" className="text-xs h-7">Data flow</TabsTrigger>
+          <TabsTrigger value="pipelines" className="text-xs h-7">Airflow jobs ({dags.length})</TabsTrigger>
           <TabsTrigger value="history" className="text-xs h-7">Recent Activity</TabsTrigger>
         </TabsList>
 
@@ -373,10 +375,13 @@ function PipelinesPageInner() {
         </TabsContent>
 
         {/* Pipeline DAG list */}
+        <TabsContent value="flow" className="mt-4">
+          {activeTab === "flow" && <FlowMap canWrite={canWrite} />}
+        </TabsContent>
+
         <TabsContent value="pipelines" className="mt-4 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
-            <span>Every Airflow job, transforms included. Pipelines drawn in the visual builder are a preview: they compile to placeholder tasks and their deploy is refused.</span>
-            {canWrite && <Button variant="outline" size="sm" onClick={() => router.push("/pipelines/new")}>Open the visual builder (preview)</Button>}
+            <span>Every Airflow job on this deployment, transforms included. New work starts as a transform; the Data flow tab shows how they connect.</span>
           </div>
           {/* Stats strip */}
       <div className="grid grid-cols-4 gap-3">

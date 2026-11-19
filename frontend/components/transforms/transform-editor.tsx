@@ -142,7 +142,7 @@ export function TransformEditor({ id, initial, dagId, onSaved, onCancel }: {
           <div className="space-y-1.5">
             <Label htmlFor="tf-src">Reads from</Label>
             <select id="tf-src" className={field} value={f.source_namespace} onChange={e => set({ source_namespace: e.target.value })}>
-              {NAMESPACES.map(n => <option key={n} value={n}>{n}</option>)}
+              {[...new Set([...NAMESPACES, f.source_namespace])].map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </div>
           <div className="space-y-1.5">
