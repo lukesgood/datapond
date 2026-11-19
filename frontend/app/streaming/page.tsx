@@ -2,14 +2,17 @@
 import { supportBadge, supportTier } from "@/lib/capability-support"
 import { CapabilityGate, useCapabilities } from "@/lib/capabilities"
 
-import { useCallback, useEffect, useState, useRef } from "react"
+import { Fragment, Suspense, useCallback, useEffect, useState, useRef } from "react"
 import { useToast } from "@/lib/toast"
 import { ErrorBox } from "@/components/ui/error-box"
 import { useConfirm } from "@/lib/confirm"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
+import { NewStream } from "@/components/streaming/new-stream"
+import { PageHeader } from "@/components/ui/page-header"
+import { useHasPermission } from "@/lib/permissions"
+import type { StreamKind } from "@/lib/streaming"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -24,7 +27,7 @@ import {
   AlertCircle, CheckCircle2, XCircle,
   Plus, Trash2, Play, Eye, ArrowRight,
   ChevronRight, ChevronDown, Code2, Loader2, Zap, RefreshCw,
-  Radio, Database, Search, AlertTriangle, Copy,
+  Radio, Database,
 } from "lucide-react"
 
 
@@ -59,96 +62,8 @@ interface SqlResult {
   execution_time_ms?: number; message?: string
 }
 
-// ── CDC Prerequisites (shown on marketplace card) ─────────────────────────────
-
-function CopyBtn({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <button
-      onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-      className="flex items-center gap-1 text-2xs text-muted-foreground hover:text-foreground transition-colors"
-    >
-      <Copy className="h-3 w-3" />{copied ? "Copied!" : "Copy"}
-    </button>
-  )
-}
-
-const CDC_PREREQS = [
-  {
-    label: "WAL Level = logical",
-    desc: "PostgreSQL must use logical replication. Requires DB restart.",
-    sql: `-- Run as superuser, then restart PostgreSQL
-ALTER SYSTEM SET wal_level = logical;`,
-  },
-  {
-    label: "REPLICATION privilege",
-    desc: "The connecting user must have REPLICATION role.",
-    sql: `ALTER ROLE {user} REPLICATION LOGIN;`,
-  },
-  {
-    label: "CREATE on database",
-    desc: "Required to create replication slots.",
-    sql: `GRANT CREATE ON DATABASE {db} TO {user};`,
-  },
-]
-
-function CdcPrereqPanel({ dbName, dbUser }: { dbName?: string; dbUser?: string }) {
-  const [open, setOpen] = useState(false)
-  const db = dbName || "your_db"
-  const user = dbUser || "your_user"
-
-  return (
-    <div className="mt-2.5 rounded-lg border border-[var(--dp-warn)]/30 bg-[var(--dp-warn)]/7 overflow-hidden">
-      <button
-        onClick={e => { e.stopPropagation(); setOpen(v => !v) }}
-        className="w-full flex items-center gap-2 px-3 py-2 text-left"
-      >
-        <AlertTriangle className="h-3.5 w-3.5 text-[var(--dp-warn-text)] shrink-0" />
-        <span className="text-xs font-medium text-[var(--dp-warn-text)]">Prerequisites required</span>
-        <ChevronDown className={`h-3.5 w-3.5 text-[var(--dp-warn-text)] ml-auto transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
-      </button>
-
-      {open && (
-        <div className="border-t border-[var(--dp-warn)]/30 px-3 pb-3 space-y-3">
-          {CDC_PREREQS.map((p, i) => (
-            <div key={i} className="pt-2.5">
-              <p className="text-xs font-semibold text-[var(--dp-warn-text)]">{i + 1}. {p.label}</p>
-              <p className="text-2xs text-[var(--dp-warn-text)] mt-0.5 mb-1.5">{p.desc}</p>
-              <div className="relative rounded bg-[var(--dp-warn)]/8 border border-[var(--dp-warn)]/30 px-3 py-1.5">
-                <pre className="text-2xs font-mono text-[var(--dp-warn-text)] whitespace-pre-wrap pr-12">
-                  {p.sql.replace("{db}", db).replace(/{user}/g, user)}
-                </pre>
-                <div className="absolute top-1.5 right-2">
-                  <CopyBtn text={p.sql.replace("{db}", db).replace(/{user}/g, user)} />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ── Streaming sources (marketplace) ───────────────────────────────────────────
 
-const STREAMING_SOURCES = [
-  { id: "postgres-cdc", type: "cdc",   name: "PostgreSQL CDC",   icon: "🐘",
-    description: "WAL-based real-time change capture (INSERT / UPDATE / DELETE)",
-    features: ["Zero latency", "No source load", "DELETE support"], available: true },
-  { id: "mysql-cdc",    type: "cdc",   name: "MySQL CDC",         icon: "🐬",
-    description: "binlog-based real-time change capture for MySQL / MariaDB",
-    features: ["binlog-based", "MariaDB support"], available: false },
-  { id: "kafka",        type: "event", name: "Apache Kafka",      icon: "📨",
-    description: "Real-time ingestion of Kafka topics into Iceberg tables",
-    features: ["JSON / Avro / CSV", "Schema Registry"], available: true },
-  { id: "kinesis",      type: "event", name: "Amazon Kinesis",    icon: "☁️",
-    description: "AWS Kinesis Data Streams → Iceberg",
-    features: ["AWS native", "at-least-once"], available: true },
-  { id: "pulsar",       type: "event", name: "Apache Pulsar",     icon: "⚡",
-    description: "Pulsar topic streaming",
-    features: ["Multi-tenancy"], available: false },
-] as const
 
 // ── SQL Templates ──────────────────────────────────────────────────────────────
 
@@ -185,9 +100,8 @@ WITH (
   type           = 'append-only',
   catalog.type   = 'storage',
   warehouse.path = 's3a://iceberg/warehouse',
-  s3.endpoint    = 'http://minio:9000',
-  s3.access.key  = 'datapond',
-  s3.secret.key  = 'datapond_dev',
+  -- On MinIO also set s3.endpoint, s3.access.key and s3.secret.key.
+  -- On AWS leave them out: RisingWave uses its own credential chain.
   database.name  = 'default',
   table.name     = 'my_view'
 );`,
@@ -350,15 +264,13 @@ function StreamingPageInner() {
   // Pipeline row expansion
   const [expandedPipeline, setExpandedPipeline] = useState<string | null>(null)
 
-  // Tab control — ?tab=add-source from back navigation
-  const [activeTab, setActiveTab] = useState(() =>
-    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "add-source"
-      ? "add-source" : "streams"
-  )
-
-  // Add Source tab filter state
-  const [sourceSearch, setSourceSearch] = useState("")
-  const [sourceCat, setSourceCat] = useState("all")
+  const [activeTab, setActiveTab] = useState("streams")
+  const canWrite = useHasPermission("pipeline:write")
+  const params = useSearchParams()
+  const newParam = params.get("new")
+  const newKind: StreamKind | null = canWrite && newParam
+    ? (["cdc", "kafka", "kinesis"].includes(newParam) ? newParam as StreamKind : "cdc") : null
+  const openNew = (kind: StreamKind | null) => router.replace(kind ? `/streaming?new=${kind}` : "/streaming")
 
   // Sample streams creation state
   const [makingSamples, setMakingSamples] = useState(false)
@@ -379,6 +291,13 @@ function StreamingPageInner() {
       if (sinksRes.ok) setSinks(await sinksRes.json())
       if (viewsRes.ok) setViews(await viewsRes.json())
       if (progressRes.ok) setProgress(await progressRes.json())
+      const failed = [["cluster status", clusterRes], ["sources", sourcesRes], ["sinks", sinksRes], ["views", viewsRes]]
+        .filter(([, r]) => !(r as Response).ok)
+      if (failed.length) {
+        const parts = await Promise.all(failed.map(async ([w, r]) =>
+          `${w} (${await responseError(r as Response, `HTTP ${(r as Response).status}`)})`))
+        setError(`Could not load ${parts.join(", ")}. What shows may be incomplete.`)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load")
     } finally {
@@ -446,8 +365,9 @@ function StreamingPageInner() {
   const handlePreview = async (mv: MV) => {
     setPreviewMv(mv)
     setPreviewLoading(true)
-    const res = await fetch(`/api/streaming/views/${mv.name}/data?limit=50`)
+    const res = await fetch(`/api/streaming/views/${encodeURIComponent(mv.name)}/data?limit=50`)
     if (res.ok) setPreviewData(await res.json())
+    else toast(await responseError(res, "Could not read the view"), "error")
     setPreviewLoading(false)
   }
 
@@ -508,25 +428,22 @@ function StreamingPageInner() {
   return (
     <div className="flex-1 space-y-5 px-6 py-5">
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Streaming</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Real-time CDC pipelines via RisingWave — captures every change with sub-second latency
+      <PageHeader
+        title="Streaming"
+        description="Database changes and event streams written to Iceberg continuously, through RisingWave."
+        actions={<>
+          <Button variant="outline" size="sm" onClick={fetchAll} disabled={loading}>
+            <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />Refresh
+          </Button>
+          {canWrite && <Button variant="outline" size="sm" onClick={() => setActiveTab("console")}>SQL console</Button>}
+          {canWrite && <Button size="sm" onClick={() => openNew("cdc")}><Plus className="mr-1.5 h-3.5 w-3.5" />New stream</Button>}
+        </>}>
+        {streamingBadge && (
+          <p className="mt-1 text-xs text-muted-foreground" title={streamingBadge.title}>
+            {streamingBadge.label} — {streamingBadge.title}
           </p>
-          {streamingBadge && (
-            <p className="text-xs text-muted-foreground mt-1" title={streamingBadge.title}>
-              {streamingBadge.label} — {streamingBadge.title}
-            </p>
-          )}
-        </div>
-        <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5"
-          onClick={fetchAll} disabled={loading}>
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
-      </div>
+        )}
+      </PageHeader>
 
       {error && <ErrorBox msg={error} />}
 
@@ -566,6 +483,11 @@ function StreamingPageInner() {
         )}
       </div>
 
+      {newKind && (
+        <NewStream key={newKind} kind={newKind} existingSources={sources.map(x => x.name)}
+                   onCreated={() => { void fetchAll(); openNew(null) }} onCancel={() => openNew(null)} />
+      )}
+
       {/* Main tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="h-8">
@@ -576,11 +498,7 @@ function StreamingPageInner() {
               <Badge variant="secondary" className="text-2xs h-4 px-1 ml-0.5">{pipelines.length}</Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="add-source" className="text-xs h-7 gap-1.5">
-            <Plus className="h-3.5 w-3.5" />
-            Add Source
-          </TabsTrigger>
-          <TabsTrigger value="console" className="text-xs h-7">SQL Console</TabsTrigger>
+          {canWrite && <TabsTrigger value="console" className="text-xs h-7">SQL console</TabsTrigger>}
         </TabsList>
 
         {/* ── Pipelines (default) ── */}
@@ -610,15 +528,15 @@ function StreamingPageInner() {
                 </p>
               </div>
               <div className="flex items-center gap-3">
-                <Button onClick={() => setActiveTab("add-source")} className="gap-1.5">
-                  <Plus className="h-4 w-4" />Add Source
-                </Button>
-                <Button variant="outline" className="gap-1.5"
+                {canWrite && <Button onClick={() => openNew("cdc")} className="gap-1.5">
+                  <Plus className="h-4 w-4" />New stream
+                </Button>}
+                {canWrite && <Button variant="outline" className="gap-1.5"
                   onClick={handleMakeSamples} disabled={makingSamples}>
                   {makingSamples
                     ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</>
-                    : <><Play className="h-4 w-4" />Make Sample Streams</>}
-                </Button>
+                    : <><Play className="h-4 w-4" />Make sample streams</>}
+                </Button>}
               </div>
               <div className="flex items-center gap-6 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1"><ArrowRight className="h-3 w-3" />Source → RisingWave</span>
@@ -660,7 +578,7 @@ function StreamingPageInner() {
                 </TableHeader>
                 <TableBody>
                   {pipelines.map(p => (
-                    <>
+                    <Fragment key={p.name}>
                       <TableRow
                         key={p.name}
                         className="cursor-pointer hover:bg-muted/30"
@@ -713,10 +631,10 @@ function StreamingPageInner() {
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">{fmtDate(p.created_at)}</TableCell>
                         <TableCell onClick={e => e.stopPropagation()}>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
-                            onClick={() => handleDropPipeline(p)}>
+                          {canWrite && <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                            aria-label={`Delete ${p.name}`} onClick={() => handleDropPipeline(p)}>
                             <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          </Button>}
                         </TableCell>
                       </TableRow>
 
@@ -767,13 +685,13 @@ function StreamingPageInner() {
                                           {vName}
                                           {obj && (
                                             <>
-                                              <button
+                                              {canWrite && <button
                                                 className="text-muted-foreground hover:text-foreground transition-colors"
                                                 onClick={() => handlePreview(obj)}
-                                                aria-label="Preview data" title="Preview data"
+                                                aria-label={`Preview ${vName}`} title="Preview data"
                                               >
                                                 <Eye className="h-3 w-3" />
-                                              </button>
+                                              </button>}
                                               <button
                                                 className="text-muted-foreground hover:text-foreground transition-colors"
                                                 onClick={() => setShowDdl(obj.definition)}
@@ -822,7 +740,7 @@ function StreamingPageInner() {
                           </TableCell>
                         </TableRow>
                       )}
-                    </>
+                    </Fragment>
                   ))}
                 </TableBody>
               </Table>
@@ -832,80 +750,6 @@ function StreamingPageInner() {
         </TabsContent>
 
         {/* ── Add Source ── */}
-        <TabsContent value="add-source" className="space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                placeholder="Search sources..."
-                className="pl-8 h-8 text-sm"
-                value={sourceSearch}
-                onChange={e => setSourceSearch(e.target.value)}
-              />
-            </div>
-            <div className="flex gap-1">
-              {[
-                { id: "all",   label: "All" },
-                { id: "cdc",   label: "CDC" },
-                { id: "event", label: "Event Stream" },
-              ].map(c => (
-                <Button key={c.id} variant={sourceCat === c.id ? "secondary" : "ghost"}
-                  size="sm" className="h-8 text-xs" onClick={() => setSourceCat(c.id)}>
-                  {c.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {STREAMING_SOURCES.filter(s => {
-              const matchCat = sourceCat === "all" || s.type === sourceCat
-              const q = sourceSearch.toLowerCase()
-              const matchSearch = !q || s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)
-              return matchCat && matchSearch
-            }).map(src => (
-              <div key={src.id} className="flex flex-col">
-                <button
-                  disabled={!src.available}
-                  onClick={() => { if (!src.available) return; router.push(`/streaming/new?source=${src.id}`) }}
-                  className={`flex items-start gap-4 p-4 rounded-xl border text-left transition-all group ${
-                    src.available
-                      ? "border-border hover:border-primary hover:shadow-sm hover:bg-primary/5 cursor-pointer bg-card"
-                      : "border-border/50 opacity-40 cursor-not-allowed bg-muted/20"
-                  }`}
-                >
-                  <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-muted text-2xl shrink-0">
-                    {src.icon}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-semibold">{src.name}</span>
-                      {!src.available && <Badge variant="secondary" className="text-2xs h-4 px-1">Soon</Badge>}
-                    </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed">{src.description}</p>
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {src.features.map(f => (
-                        <span key={f} className="text-2xs bg-muted px-1.5 py-0.5 rounded font-medium">{f}</span>
-                      ))}
-                    </div>
-                  </div>
-                  {src.available && (
-                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  )}
-                </button>
-                {/* CDC prerequisites panel — outside card button to prevent click propagation */}
-                {src.type === "cdc" && src.available && (
-                  <CdcPrereqPanel />
-                )}
-              </div>
-            ))}
-          </div>
-
-          <div className="border-t pt-3 flex justify-between text-xs text-muted-foreground">
-            <span>{STREAMING_SOURCES.filter(s => s.available).length} available</span>
-            <span>{STREAMING_SOURCES.filter(s => !s.available).length} coming soon</span>
-          </div>
-        </TabsContent>
 
         {/* ── SQL Console ── */}
         <TabsContent value="console" className="mt-4 space-y-3">
@@ -998,7 +842,7 @@ function StreamingPageInner() {
             {showDdl}
           </pre>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setSql(showDdl ?? ""); setShowDdl(null) }}>
+            <Button variant="outline" onClick={() => { setSql(showDdl ?? ""); setShowDdl(null); setActiveTab("console") }}>
               Open in Console
             </Button>
           </DialogFooter>
@@ -1048,7 +892,7 @@ function StreamingPageInner() {
 export default function StreamingPage() {
   return (
     <CapabilityGate capability="streaming">
-      <StreamingPageInner />
+      <Suspense><StreamingPageInner /></Suspense>
     </CapabilityGate>
   )
 }
