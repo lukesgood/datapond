@@ -74,3 +74,22 @@ export function nextRun(cron: string): string {
     return `in ${Math.floor(hrs / 24)}d`
   } catch { return "" }
 }
+
+/** The picker choice a cron matches exactly, or null for a cron written elsewhere
+ *  (the API takes any 5-field cron). cronToFreqHour falls back to daily 02:00, which
+ *  would show a hand-written schedule as one it is not. */
+export function matchCron(cron: string | null | undefined): { freqId: string; hour: number } | null {
+  if (!cron) return null
+  for (const f of FREQ_OPTIONS) {
+    for (let h = 0; h < 24; h++) {
+      if (f.buildCron(h) === cron) return { freqId: f.id, hour: f.hasTime ? h : 2 }
+    }
+  }
+  return null
+}
+
+/** The cron for a picker choice; null for manual or an unknown id. */
+export function buildSchedule(freqId: string, hour: number): string | null {
+  const f = FREQ_OPTIONS.find(o => o.id === freqId)
+  return f ? f.buildCron(hour) : null
+}

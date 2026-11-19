@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { SourceState } from "@/components/ui/source-state"
+import { readJson } from "@/lib/source-state"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { PiiEvidenceSection } from "@/components/governance/pii-evidence"
 import { ToolCallsTab } from "@/components/governance/tool-calls-tab"
@@ -253,12 +255,15 @@ export default function GovernancePage() {
   // and nothing happened.
   const [auditReload, setAuditReload] = useState(0)
   const [auditLoading, setAuditLoading] = useState(true)
+  const [auditError, setAuditError] = useState<string | null>(null)
   const [eventTypeFilter, setEventTypeFilter] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
 
   // unified activity stream (query + auth + connector)
   const [activityItems, setActivityItems] = useState<AuditStreamItem[]>([])
   const [activityLoading, setActivityLoading] = useState(true)
+  const [activityError, setActivityError] = useState<string | null>(null)
+  const [activityReload, setActivityReload] = useState(0)
   const [activitySource, setActivitySource] = useState("all")
   const [activitySources, setActivitySources] = useState<string[]>([])
 
@@ -271,6 +276,8 @@ export default function GovernancePage() {
   const [riskDist, setRiskDist] = useState<{ low: number; medium: number; high: number } | null>(null)
   const [recentFlags, setRecentFlags] = useState<AiSafetyFlag[]>([])
   const [safetyLoading, setSafetyLoading] = useState(true)
+  const [safetyError, setSafetyError] = useState<string | null>(null)
+  const [safetyReload, setSafetyReload] = useState(0)
 
   // reports state
   const [reportFrom, setReportFrom] = useState("")
@@ -404,24 +411,28 @@ export default function GovernancePage() {
   }, [loadStats, loadPii])
 
   useEffect(() => {
-    fetch("/api/governance/ai-safety")
-      .then((r) => r.json())
-      .then((d) => {
-        setRiskDist(d.risk_distribution ?? null)
-        setRecentFlags(d.recent_flags ?? [])
-      })
-      .catch(() => {})
-      .finally(() => setSafetyLoading(false))
-  }, [])
+    const request = window.setTimeout(() => {
+      setSafetyLoading(true); setSafetyError(null)
+      fetch("/api/governance/ai-safety")
+        .then((r) => readJson<{ risk_distribution?: { low: number; medium: number; high: number }; recent_flags?: AiSafetyFlag[] }>(r))
+        .then((d) => {
+          setRiskDist(d.risk_distribution ?? null)
+          setRecentFlags(d.recent_flags ?? [])
+        })
+        .catch((e) => setSafetyError(e instanceof Error ? e.message : "failed"))
+        .finally(() => setSafetyLoading(false))
+    }, 0)
+    return () => window.clearTimeout(request)
+  }, [safetyReload])
 
   // Audit log — re-fetch when filter changes
   useEffect(() => {
     const request = window.setTimeout(() => {
-      setAuditLoading(true)
+      setAuditLoading(true); setAuditError(null)
       const qs = new URLSearchParams({ limit: String(AUDIT_PAGE), offset: String(auditOffset) })
       if (eventTypeFilter !== "all") qs.set("event_type", eventTypeFilter)
       fetch(`/api/governance/audit-log?${qs}`)
-        .then((r) => r.json())
+        .then((r) => readJson<{ items?: AuditLogItem[]; total?: number }>(r))
         .then((d) => {
           // Append past the first page: the table used to ask for 50 at offset 0 and
           // nothing else, so a deployment with more than fifty entries could not reach
@@ -429,7 +440,7 @@ export default function GovernancePage() {
           setAuditItems((prev) => (auditOffset === 0 ? (d.items ?? []) : [...prev, ...(d.items ?? [])]))
           setAuditTotal(d.total ?? 0)
         })
-        .catch(() => {})
+        .catch((e) => setAuditError(e instanceof Error ? e.message : "failed"))
         .finally(() => setAuditLoading(false))
     }, 0)
     return () => window.clearTimeout(request)
@@ -438,20 +449,20 @@ export default function GovernancePage() {
   // Unified activity stream — re-fetch when source filter changes
   useEffect(() => {
     const request = window.setTimeout(() => {
-      setActivityLoading(true)
+      setActivityLoading(true); setActivityError(null)
       const qs = new URLSearchParams({ limit: "100" })
       if (activitySource !== "all") qs.set("source", activitySource)
       fetch(`/api/governance/audit-stream?${qs}`)
-        .then((r) => r.json())
+        .then((r) => readJson<{ items?: AuditStreamItem[]; sources?: string[] }>(r))
         .then((d) => {
           setActivityItems(d.items ?? [])
           setActivitySources(d.sources ?? [])
         })
-        .catch(() => { setActivityItems([]); setActivitySources([]) })
+        .catch((e) => { setActivityItems([]); setActivitySources([]); setActivityError(e instanceof Error ? e.message : "failed") })
         .finally(() => setActivityLoading(false))
     }, 0)
     return () => window.clearTimeout(request)
-  }, [activitySource])
+  }, [activitySource, activityReload])
 
   // client-side search filter on audit items
   const filteredAudit = searchQuery
@@ -620,6 +631,13 @@ export default function GovernancePage() {
                         ))}
                       </TableRow>
                     ))
+                  ) : auditError && auditItems.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="p-4">
+                        <SourceState status="error" what="the query log" error={auditError}
+                                     onRetry={() => { setAuditOffset(0); setAuditReload((n) => n + 1) }}>{null}</SourceState>
+                      </TableCell>
+                    </TableRow>
                   ) : filteredAudit.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
@@ -748,6 +766,13 @@ export default function GovernancePage() {
                         ))}
                       </TableRow>
                     ))
+                  ) : activityError ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="p-4">
+                        <SourceState status="error" what="the activity stream" error={activityError}
+                                     onRetry={() => setActivityReload((n) => n + 1)}>{null}</SourceState>
+                      </TableCell>
+                    </TableRow>
                   ) : activityItems.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
@@ -782,7 +807,7 @@ export default function GovernancePage() {
             </CardContent>
           </Card>
 
-          {!activityLoading && (
+          {!activityLoading && !activityError && (
             <p className="text-xs text-muted-foreground">
               {activityItems.length} event{activityItems.length === 1 ? "" : "s"}
               {activitySources.length > 0 && <> · sources: {activitySources.join(", ")}</>}
@@ -803,7 +828,11 @@ export default function GovernancePage() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {safetyError && (
+            <SourceState status="error" what="AI safety assessments" error={safetyError}
+                         onRetry={() => setSafetyReload((n) => n + 1)}>{null}</SourceState>
+          )}
+          {!safetyError && <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Pie chart */}
             <Card>
               <CardHeader>
@@ -899,7 +928,7 @@ export default function GovernancePage() {
                 )}
               </CardContent>
             </Card>
-          </div>
+          </div>}
         </TabsContent>
 
         {/* ── Tab 3: Data Protection ───────────────────────────────────── */}

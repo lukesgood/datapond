@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { DollarSign, Loader2 } from "lucide-react"
 import { formatUsd } from "@/lib/format-usd"
+import { SourceState } from "@/components/ui/source-state"
+import { readJson } from "@/lib/source-state"
 
 type AppRow = { app: string; spend: number; requests: number; total_tokens: number }
 type Mine = { spend: number; requests: number; total_tokens: number; models: string[]; apps: AppRow[] }
@@ -23,12 +25,19 @@ const LABELS: Record<string, string> = {
 export function MySpend() {
   const [m, setM] = useState<Mine | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  // A role without ai:generate has spent nothing and gets 403: no card, not an error.
+  const [hidden, setHidden] = useState(false)
 
   const load = useCallback(async () => {
+    setLoading(true); setError(null)
     try {
       const r = await fetch("/api/settings/ai/usage/me")
-      if (r.ok) setM(await r.json())
-    } catch { /* the card simply does not appear */ } finally {
+      if (r.status === 403) { setHidden(true); return }
+      setM(await readJson<Mine>(r))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed")
+    } finally {
       setLoading(false)
     }
   }, [])
@@ -43,7 +52,14 @@ export function MySpend() {
       </CardContent></Card>
     )
   }
-  if (!m) return null
+  if (hidden) return null
+  if (!m) {
+    return (
+      <Card><CardContent className="py-4">
+        <SourceState status="error" what="your model usage" error={error} onRetry={() => void load()}>{null}</SourceState>
+      </CardContent></Card>
+    )
+  }
 
   const fmtN = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 

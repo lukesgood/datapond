@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ChoiceGroup } from "@/components/ui/choice-group"
+import { SchedulePicker } from "@/components/ui/schedule-picker"
 import { ExplainRail, RailAttention, RailSection } from "@/components/ui/explain-rail"
 import { PageHeader } from "@/components/ui/page-header"
 import { ConnectionForm } from "@/components/connectors/connection-form"
@@ -17,15 +17,13 @@ import { getConnector } from "@/lib/connectors"
 import { useCapability } from "@/lib/capabilities"
 import { isTrinoEngine } from "@/lib/engine-restart"
 import { useToast } from "@/lib/toast"
-import { FREQ_OPTIONS, HOUR_OPTIONS, parseCron } from "@/lib/schedule"
+import { parseCron } from "@/lib/schedule"
 
 interface RemoteTable { name: string; row_count?: number; columns?: { name: string; type: string; nullable: boolean }[] }
 interface TableConfig { enabled: boolean; incremental_column: string }   // "" = whole table each time
 type ConfigValue = string | number | boolean | null | undefined
 interface TablesResponse { tables?: Array<string | RemoteTable> }
 interface CreatedConnection { id: string; engine_restarting?: boolean; catalog?: string | null }
-
-const MANUAL = "manual"
 
 /** The catalog name the backend will give this source (connectors/trino_source.py
  *  source_slug): NFKD-folded ASCII, lowercase, runs of other characters → "_", at most
@@ -65,8 +63,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
   const [tableSearch, setTableSearch] = useState("")
   const [tableConfigs, setTableConfigs] = useState<Record<string, TableConfig>>({})
 
-  const [freq, setFreq] = useState<string>(MANUAL)
-  const [hour, setHour] = useState(2)
+  const [schedule, setSchedule] = useState<string | null>(null)
   const [syncNow, setSyncNow] = useState(true)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -122,9 +119,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
 
   const enabled = Object.entries(tableConfigs).filter(([, c]) => c.enabled)
   const incremental = enabled.filter(([, c]) => c.incremental_column)
-  const effectiveFreq = pipelinesEnabled ? freq : MANUAL
-  const freqOpt = FREQ_OPTIONS.find(f => f.id === effectiveFreq)
-  const cron = freqOpt ? freqOpt.buildCron(hour) : null
+  const cron = pipelinesEnabled ? schedule : null
   const trino = isTrinoEngine(id)
   const slug = sourceSlug(name)
   const ready = testStatus === "success" && name.trim().length > 0 && enabled.length > 0
@@ -296,19 +291,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
               <CardHeader className="pb-3"><CardTitle className="text-base">Keep it fresh</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 {pipelinesEnabled ? (
-                  <div className="flex flex-wrap items-end gap-4">
-                    <ChoiceGroup label="How often" value={freq} onChange={setFreq}
-                      options={[{ label: "Manual", value: MANUAL }, ...FREQ_OPTIONS.map(f => ({ label: f.label, value: f.id as string }))]} />
-                    {freqOpt?.hasTime && (
-                      <div className="space-y-1.5">
-                        <Label htmlFor="src-hour">At</Label>
-                        <select id="src-hour" value={hour} onChange={e => setHour(Number(e.target.value))}
-                                className="h-8 rounded-md border bg-background px-2 text-sm">
-                          {HOUR_OPTIONS.map(h => <option key={h.value} value={h.value}>{h.label}</option>)}
-                        </select>
-                      </div>
-                    )}
-                  </div>
+                  <SchedulePicker id="src-schedule" value={schedule} onChange={setSchedule} />
                 ) : (
                   <p className="text-sm text-muted-foreground">
                     Syncs run when you press Sync now. Recurring schedules need the pipelines component, which this deployment does not run.
