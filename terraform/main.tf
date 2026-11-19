@@ -20,4 +20,9 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
+  # Cost allocation: Infrastructure › Cost reads Cost Explorer for Project=<prefix>
+  # once this tag is activated in the billing account.
+  default_tags {
+    tags = { Project = var.name_prefix }
+  }
 }

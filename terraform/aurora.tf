@@ -64,8 +64,10 @@ resource "aws_rds_cluster" "aurora" {
     max_capacity = var.db_max_acu
   }
 
+  # The console (Infrastructure › AWS) may change the capacity range after creation;
+  # var.db_min_acu / db_max_acu set it once and a later apply does not undo it.
   lifecycle {
-    ignore_changes = [snapshot_identifier]
+    ignore_changes = [snapshot_identifier, serverlessv2_scaling_configuration]
   }
 }
 

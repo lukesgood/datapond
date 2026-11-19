@@ -20,6 +20,7 @@ export type OpsIssue =
   | { kind: "mirror"; mirror: string; owner?: string | null; status: string; detail?: string | null }
   | { kind: "sync_failed"; connection_id: string; source: string; table: string; error?: string | null; diagnosis?: Diagnosis | null }
   | { kind: "stale_source"; connection_id: string; source: string; hours?: number | null }
+  | { kind: "cost_over_budget"; forecast: number; budget: number; pct: number }
 
 export type OpsStatus = {
   state: "ok" | "attention"
@@ -116,6 +117,13 @@ export function issueView(issue: OpsIssue, perms: Set<string>): IssueView {
           : [{ type: "link", label: "Open connection", href: connectionHref(issue.connection_id) }],
       }
     }
+    case "cost_over_budget":
+      return {
+        tone: "warn",
+        title: `AWS cost forecast is over budget (${issue.pct}%)`,
+        detail: `This month is heading for $${issue.forecast.toFixed(2)} against a budget of $${issue.budget.toFixed(2)}.`,
+        actions: [{ type: "link", label: "Open Cost", href: "/services?tab=cost" }],
+      }
     case "stale_source": {
       const actions: OpsAction[] = []
       if (perms.has("connector:write")) actions.push({ type: "sync", label: "Sync now", connectionId: issue.connection_id })

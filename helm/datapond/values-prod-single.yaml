@@ -85,6 +85,11 @@ backend:
   cloudwatchMetrics:
     enabled: true
     namespace: DataPond
+  # Infrastructure › AWS and Cost tabs (resources, alarms, Aurora capacity, node
+  # schedule, cost estimate). namePrefix = Terraform var.name_prefix.
+  awsInfra:
+    enabled: true
+    namePrefix: datapond
 frontend:
   enabled: true
   image:
