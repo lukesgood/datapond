@@ -115,6 +115,12 @@ async def ops_status(user: dict = Depends(require_user)):
     engine = await asyncio.to_thread(_engine)
     out = summarize(syncs, names, stale=stale, engine=engine, catalogs=catalogs, mirrors=mirrors,
                     queries_24h=await _count_queries(pool, user), now=_now())
+    if user.get("role") == "admin":
+        from app.api.infra_aws import over_budget
+        ob = over_budget()
+        if ob:
+            out["issues"].append({"kind": "cost_over_budget", **ob})
+            out["state"] = "attention"
     if "connector:read" not in perms:
         out.pop("syncs", None)
     else:

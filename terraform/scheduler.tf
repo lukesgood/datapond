@@ -42,6 +42,10 @@ resource "aws_scheduler_schedule" "start" {
     role_arn = aws_iam_role.scheduler[0].arn
     input    = jsonencode({ InstanceIds = [aws_instance.node.id] })
   }
+  # Infrastructure › AWS edits the hours and on/off; the cron vars set them once.
+  lifecycle {
+    ignore_changes = [schedule_expression, state]
+  }
 }
 
 resource "aws_scheduler_schedule" "stop" {
@@ -54,5 +58,9 @@ resource "aws_scheduler_schedule" "stop" {
     arn      = "arn:aws:scheduler:::aws-sdk:ec2:stopInstances"
     role_arn = aws_iam_role.scheduler[0].arn
     input    = jsonencode({ InstanceIds = [aws_instance.node.id] })
+  }
+  # Infrastructure › AWS edits the hours and on/off; the cron vars set them once.
+  lifecycle {
+    ignore_changes = [schedule_expression, state]
   }
 }

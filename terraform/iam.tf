@@ -118,6 +118,52 @@ data "aws_iam_policy_document" "app" {
     }
   }
 
+  # Infrastructure › AWS and Cost tabs (backend app/aws_infra.py). Read-only: the
+  # Describe/List/Get calls have no resource-level scoping, except the two below.
+  statement {
+    sid    = "InfraRead"
+    effect = "Allow"
+    actions = [
+      "ec2:DescribeInstances", "ec2:DescribeVolumes", "ec2:DescribeSpotPriceHistory",
+      "cloudwatch:GetMetricData", "cloudwatch:DescribeAlarms", "cloudwatch:ListDashboards",
+      "cloudwatch:ListMetrics", "secretsmanager:ListSecrets", "ce:GetCostAndUsage",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid       = "InfraReadScoped"
+    effect    = "Allow"
+    actions   = ["rds:DescribeDBClusters", "scheduler:GetSchedule"]
+    resources = local.infra_manage_resources
+  }
+
+  # The only two changes the console makes: Aurora's capacity range and the node's
+  # start/stop schedule (both ignored by Terraform after creation — aurora.tf,
+  # scheduler.tf). Nothing here stops, resizes or deletes anything.
+  statement {
+    sid       = "InfraManage"
+    effect    = "Allow"
+    actions   = ["rds:ModifyDBCluster", "scheduler:UpdateSchedule"]
+    resources = local.infra_manage_resources
+  }
+
+  # UpdateSchedule re-sends the schedule's target, which names the scheduler role.
+  dynamic "statement" {
+    for_each = var.schedule_enabled ? [1] : []
+    content {
+      sid       = "InfraPassSchedulerRole"
+      effect    = "Allow"
+      actions   = ["iam:PassRole"]
+      resources = [aws_iam_role.scheduler[0].arn]
+      condition {
+        test     = "StringEquals"
+        variable = "iam:PassedToService"
+        values   = ["scheduler.amazonaws.com"]
+      }
+    }
+  }
+
   # Cross-account Glue catalogs (Settings > Data catalogs, config `role_arn`): the node
   # role assumes a role the OTHER account owns. Not enabled here; add one ARN per
   # customer role (never "*") and apply only when a catalog is registered with it. The
@@ -145,4 +191,11 @@ resource "aws_iam_instance_profile" "app" {
 resource "aws_iam_role_policy_attachment" "app_ssm" {
   role       = aws_iam_role.app.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+locals {
+  infra_manage_resources = concat(
+    [aws_rds_cluster.aurora.arn],
+    var.schedule_enabled ? [aws_scheduler_schedule.start[0].arn, aws_scheduler_schedule.stop[0].arn] : [],
+  )
 }

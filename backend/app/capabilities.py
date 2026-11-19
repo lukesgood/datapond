@@ -117,6 +117,8 @@ def compute_capabilities(env: Mapping) -> dict:
         "mlflow_ui": _feat(env, "MLFLOW_UI", default=False),
         "notebooks": _gated("notebooks"),
         "rls": _feat(env, "RLS", default=False),
+        # Infrastructure › AWS and Cost tabs (app/aws_infra.py): the AWS reference only.
+        "aws_infra": str(env.get("AWS_INFRA_ENABLED", "")).strip().lower() in ("1", "true", "yes", "on"),
         # Phase 0 ontology slice: concept store + opt-in query expansion. Fail-closed.
         "ontology": _feat(env, "ONTOLOGY", default=False),
         # Non-boolean UI hints (safe extras — nav gating ignores these):

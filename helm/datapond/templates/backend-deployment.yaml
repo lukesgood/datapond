@@ -295,6 +295,12 @@ spec:
           value: {{ dig "enabled" false (.Values.backend.cloudwatchMetrics | default dict) | quote }}
         - name: CLOUDWATCH_METRICS_NAMESPACE
           value: {{ dig "namespace" "DataPond" (.Values.backend.cloudwatchMetrics | default dict) | quote }}
+        # Infrastructure › AWS and Cost tabs: read the node, Aurora, alarms and schedule,
+        # estimate cost. Needs the InfraRead/InfraManage IAM statements (terraform iam.tf).
+        - name: AWS_INFRA_ENABLED
+          value: {{ dig "enabled" false (.Values.backend.awsInfra | default dict) | quote }}
+        - name: AWS_INFRA_NAME_PREFIX
+          value: {{ dig "namePrefix" "datapond" (.Values.backend.awsInfra | default dict) | quote }}
         # Encrypts credentials-at-rest (connector secrets, stored provider keys)
         - name: ENCRYPTION_KEY
           valueFrom:

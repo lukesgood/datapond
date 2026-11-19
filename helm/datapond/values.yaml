@@ -167,6 +167,11 @@ backend:
   cloudwatchMetrics:
     enabled: false
     namespace: DataPond
+  # Infrastructure › AWS and Cost tabs. AWS reference only (values-prod-single.yaml);
+  # needs the InfraRead/InfraManage statements in terraform/iam.tf.
+  awsInfra:
+    enabled: false
+    namePrefix: datapond
 
   service:
     type: ClusterIP

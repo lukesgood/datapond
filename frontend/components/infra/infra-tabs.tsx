@@ -1,25 +1,30 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { Boxes, ScrollText, Server } from "lucide-react"
+import { Boxes, Cloud, DollarSign, ScrollText, Server } from "lucide-react"
+import { useCapabilityStrict } from "@/lib/capabilities"
 
-// Shared tab switcher for the Infrastructure workspace. Rendered in both the
-// Services grid toolbar and the System page top bar so the two halves read as
-// one surface. Tab state lives in the URL (?tab=system) so it is linkable and
-// the legacy /system route can redirect straight to the right tab.
-const TABS = [
-  { key: "services", label: "Services", icon: Boxes,  href: "/services" },
-  { key: "system",   label: "System",   icon: Server, href: "/services?tab=system" },
-  { key: "events",   label: "Events",   icon: ScrollText, href: "/services?tab=events" },
-] as const
+// Shared tab switcher for the Infrastructure workspace, rendered in each panel's top
+// bar so the halves read as one surface. Tab state lives in the URL (?tab=…) so it is
+// linkable. AWS and Cost exist only on the AWS reference (capability aws_infra).
+export type InfraTab = "services" | "system" | "aws" | "cost" | "events"
 
-export function InfraTabs({ active }: { active: "services" | "system" | "events" }) {
+const TABS: { key: InfraTab; label: string; icon: typeof Boxes; href: string; aws?: boolean }[] = [
+  { key: "services", label: "Services", icon: Boxes, href: "/services" },
+  { key: "system", label: "Node", icon: Server, href: "/services?tab=system" },
+  { key: "aws", label: "AWS", icon: Cloud, href: "/services?tab=aws", aws: true },
+  { key: "cost", label: "Cost", icon: DollarSign, href: "/services?tab=cost", aws: true },
+  { key: "events", label: "Events", icon: ScrollText, href: "/services?tab=events" },
+]
+
+export function InfraTabs({ active }: { active: InfraTab }) {
   const router = useRouter()
+  const aws = useCapabilityStrict("aws_infra")
   return (
     <div className="flex items-center gap-2 min-w-0">
       <span className="text-sm font-semibold text-foreground hidden sm:block">Infrastructure</span>
       <div className="flex items-center gap-0.5 rounded-md border bg-muted/40 p-0.5">
-        {TABS.map((t) => {
+        {TABS.filter(t => !t.aws || aws).map((t) => {
           const on = t.key === active
           const Icon = t.icon
           return (

@@ -279,6 +279,8 @@ async def startup():
             from app.api.connectors import get_db_pool
             pool = await get_db_pool()
             await load_settings_on_startup(pool)
+            from app.api.infra_aws import restore_expected_starts
+            await restore_expected_starts(pool)
             logger.info("[startup] System settings loaded from DB")
             break
         except Exception as e:
@@ -545,6 +547,8 @@ app.include_router(mcp_router, prefix="/api")
 app.include_router(sample_api_router, prefix="/api")
 from app.api.ops import router as ops_router
 app.include_router(ops_router, prefix="/api")
+from app.api.infra_aws import router as infra_aws_router
+app.include_router(infra_aws_router, prefix="/api")
 
 from app.service_registry import service_registry as _service_registry_pure
 
