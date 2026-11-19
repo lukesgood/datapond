@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ChoiceGroup } from "@/components/ui/choice-group"
 import { RailAttention } from "@/components/ui/explain-rail"
+import { SourceState } from "@/components/ui/source-state"
+import { readJson } from "@/lib/source-state"
 import { useToast } from "@/lib/toast"
 
 export interface SourceTable {
@@ -54,18 +56,20 @@ export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit,
   const [partTransform, setPartTransform] = useState(ps && ps.length > 0 ? ps[0].transform || "day" : "day")
   const [columns, setColumns] = useState<SchemaColumn[]>([])
   const [loadingCols, setLoadingCols] = useState(true)
+  const [colsError, setColsError] = useState<string | null>(null)
+  const [colsReload, setColsReload] = useState(0)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     fetch(`/api/connectors/${connId}/schema/${encodeURIComponent(table.name)}`)
-      .then(r => (r.ok ? r.json() : { columns: [] }))
-      .then((d: { columns?: SchemaColumn[] }) => { if (!cancelled) setColumns(d.columns ?? []) })
-      .catch(() => {})
+      .then(r => readJson<{ columns?: SchemaColumn[] }>(r))
+      .then(d => { if (!cancelled) { setColumns(d.columns ?? []); setColsError(null) } })
+      .catch(e => { if (!cancelled) setColsError(e instanceof Error ? e.message : "failed") })
       .finally(() => { if (!cancelled) setLoadingCols(false) })
     return () => { cancelled = true }
-  }, [connId, table.name])
+  }, [connId, table.name, colsReload])
 
   const incremental = mode === "incremental"
   const timeCols = columns.filter(isTimeLike)
@@ -129,6 +133,10 @@ export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit,
                 {timeCols.length > 0 && <optgroup label="Recommended">{timeCols.map(c => <option key={c.name} value={c.name}>{c.name} ({c.type})</option>)}</optgroup>}
                 {otherCols.length > 0 && <optgroup label="All columns">{otherCols.map(c => <option key={c.name} value={c.name}>{c.name} ({c.type})</option>)}</optgroup>}
               </select>
+              {colsError && (
+                <SourceState status="error" what="this table's columns" error={colsError}
+                             onRetry={() => { setLoadingCols(true); setColsReload(n => n + 1) }}>{null}</SourceState>
+              )}
               {table.last_value && <p className="text-xs text-muted-foreground">Last value seen: {String(table.last_value).slice(0, 19)}</p>}
             </div>
             <div className="space-y-1.5">

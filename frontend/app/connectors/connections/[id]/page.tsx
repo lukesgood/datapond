@@ -23,13 +23,13 @@ import {
   AlertTriangle, Pencil, X, Check, Calendar,
   Clock, Zap, Search, PlugZap, Pause, Play,
 } from "lucide-react"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import Link from "next/link"
 import { ConnectionForm } from "@/components/connectors/connection-form"
 import { getConnector } from "@/lib/connectors"
 import { describeCheck } from "@/lib/source-check"
-import { FREQ_OPTIONS, HOUR_OPTIONS, parseCron, cronToFreqHour, nextRun } from "@/lib/schedule"
+import { parseCron, nextRun } from "@/lib/schedule"
+import { SchedulePicker } from "@/components/ui/schedule-picker"
 import { useCapability } from "@/lib/capabilities"
 import { EngineRestartBanner } from "@/components/connectors/engine-restart-banner"
 import { isTrinoEngine } from "@/lib/engine-restart"
@@ -172,12 +172,9 @@ function ScheduleCard({
   onSave: (val: string | null) => void
   pipelinesEnabled: boolean
 }) {
-  const { freqId: initFreq, hour: initHour } = schedule ? cronToFreqHour(schedule) : { freqId: "daily", hour: 2 }
-  const [freqId, setFreqId] = useState(initFreq)
-  const [hour, setHour]     = useState(initHour)
-
-  const freq = FREQ_OPTIONS.find(f => f.id === freqId) ?? FREQ_OPTIONS[4]
-  const builtCron = freq.buildCron(hour)
+  // The choice being edited; the card is re-keyed on the saved schedule.
+  const [draft, setDraft] = useState<string>(schedule ?? "0 2 * * *")
+  const builtCron = draft
   const isDirty = builtCron !== schedule
 
   // Foundation profile: no in-process/Airflow executor runs schedules, so the
@@ -236,33 +233,8 @@ function ScheduleCard({
           </div>
         )}
 
-        {/* Frequency selector */}
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">How often</Label>
-          <Select value={freqId} onValueChange={v => v && setFreqId(v)}>
-            <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {FREQ_OPTIONS.map(f => (
-                <SelectItem key={f.id} value={f.id}>{f.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Time selector — only shown for daily/weekly/monthly */}
-        {freq.hasTime && (
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Start time</Label>
-            <Select value={String(hour)} onValueChange={v => v && setHour(parseInt(v))}>
-              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {HOUR_OPTIONS.map(o => (
-                  <SelectItem key={o.value} value={String(o.value)}>{o.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+        <SchedulePicker id="conn-schedule" value={draft} allowManual={false} disabled={savingSchedule}
+                        onChange={c => { if (c) setDraft(c) }} />
 
         {/* Apply button */}
         <Button
