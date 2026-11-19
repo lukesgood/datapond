@@ -303,8 +303,9 @@ def test_streaming_preview_returns_columns_and_array_rows():
 
     functions = _load_functions(
         "streaming.py",
-        ("_serialize", "preview_view"),
-        {"datetime": datetime, "_execute": execute, "HTTPException": HTTPException},
+        ("_serialize", "_ident", "preview_view"),
+        {"datetime": datetime, "_execute": execute, "HTTPException": HTTPException,
+         "_IDENT": __import__("re").compile(r"[A-Za-z_][A-Za-z0-9_]{0,62}")},
     )
 
     result = _run(functions["preview_view"]("events_mv", limit=2))
