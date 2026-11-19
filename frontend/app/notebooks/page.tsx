@@ -1,674 +1,371 @@
 "use client"
+
+import { useCallback, useEffect, useState } from "react"
+import Link from "next/link"
+import { Loader2, MoreHorizontal, RefreshCw } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { ErrorBox } from "@/components/ui/error-box"
+import { ExplainRail, RailSection } from "@/components/ui/explain-rail"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { PageHeader } from "@/components/ui/page-header"
+import { Skeleton } from "@/components/ui/skeleton"
+import { SourceState } from "@/components/ui/source-state"
 import { supportBadge, supportTier } from "@/lib/capability-support"
 import { CapabilityGate, useCapabilities } from "@/lib/capabilities"
-
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { useToast } from "@/lib/toast"
 import { useConfirm } from "@/lib/confirm"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Skeleton } from "@/components/ui/skeleton"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Input } from "@/components/ui/input"
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  FileCode,
-  ExternalLink,
-  Clock,
-  FileText,
-  Info,
-  Play,
-  RefreshCw,
-  Plus,
-  Grid3x3,
-  List,
-  Search,
-  Upload,
-} from "lucide-react"
-import { NotebookCard } from "@/components/notebooks/notebook-card"
-import { KernelStatus } from "@/components/notebooks/kernel-status"
+  ago, jupyterState, kernelLabel, labUrl, sessionFor, sortNotebooks, withIpynb,
+  type NotebookRow, type NotebookSort, type Session,
+} from "@/lib/notebooks"
+import { useHasPermission } from "@/lib/permissions"
+import { readJson, sourceStatus } from "@/lib/source-state"
+import { useToast } from "@/lib/toast"
 import { serviceUrls } from "@/lib/urls"
 
-interface ServiceStatus {
-  name: string
-  status?: "healthy" | "unhealthy" | "unknown" | "managed"
-}
+const apiPath = (path: string) => path.split("/").map(encodeURIComponent).join("/")
+const TEMPLATES = [
+  { id: "python", label: "Python", hint: "pandas and numpy, ready to query" },
+  { id: "spark", label: "Spark", hint: "a PySpark session" },
+  { id: "blank", label: "Blank", hint: "an empty notebook" },
+] as const
 
-interface BackendNotebook {
-  name: string
-  path: string
-  last_modified?: string
-  size?: number
-  type: string
-}
-
-interface NotebookListResponse {
-  notebooks: BackendNotebook[]
-  total: number
-}
-
-function notebookApiPath(path: string): string {
-  return path.split("/").map(encodeURIComponent).join("/")
-}
-
-async function apiError(response: Response, fallback: string): Promise<string> {
-  const body = await response.json().catch(() => null) as { detail?: unknown } | null
-  return typeof body?.detail === "string" ? body.detail : `${fallback} (HTTP ${response.status})`
-}
-
-interface NotebookItem {
-  name: string
-  path: string
-  last_modified: string
-  modified_ts?: number // raw epoch ms for honest recency sort; 0/undefined when unknown
-  size?: string
-  type: string
-  kernel?: string
-}
-
-const RECENT_LIMIT = 10
+type Dialogs =
+  | { kind: "new"; template: string }
+  | { kind: "rename"; notebook: NotebookRow }
+  | null
 
 function NotebooksPageInner() {
   const { toast } = useToast()
   const confirm = useConfirm()
   const caps = useCapabilities()
-  const notebooksTier = supportTier("notebooks", caps.support ?? {})
-  const notebooksBadge = notebooksTier ? supportBadge(notebooksTier) : null
-  const [notebooks, setNotebooks] = useState<NotebookItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [jupyterStatus, setJupyterStatus] = useState<"healthy" | "unhealthy" | "unknown" | "managed">("unknown")
-  const [error, setError] = useState<string | null>(null)
-  const [busyAction, setBusyAction] = useState<string | null>(null)
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
-  const [searchQuery, setSearchQuery] = useState("")
-  const [showCreateDialog, setShowCreateDialog] = useState(false)
-  const [newNotebookName, setNewNotebookName] = useState("")
-  const [notebookToRename, setNotebookToRename] = useState<NotebookItem | null>(null)
-  const [renamePath, setRenamePath] = useState("")
+  const tier = supportTier("notebooks", caps.support ?? {})
+  const badge = tier ? supportBadge(tier) : null
+  const canWrite = useHasPermission("workbench:write")
 
-  const fetchNotebooks = useCallback(async () => {
+  const [notebooks, setNotebooks] = useState<NotebookRow[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [jupyter, setJupyter] = useState<string | undefined>(undefined)
+  const [sessions, setSessions] = useState<Session[] | null>(null)
+  const [sessionsError, setSessionsError] = useState<string | null>(null)
+  const [query, setQuery] = useState("")
+  const [sort, setSort] = useState<NotebookSort>("changed")
+  const [busy, setBusy] = useState<string | null>(null)
+  const [dialog, setDialog] = useState<Dialogs>(null)
+  const [dialogName, setDialogName] = useState("")
+  const [dialogError, setDialogError] = useState<string | null>(null)
+
+  // A refresh keeps what is on screen; only the first load shows skeletons.
+  const load = useCallback(async () => {
     setLoading(true)
-    setError(null)
-    try {
-      const [statusRes, notebooksRes] = await Promise.all([
-        fetch("/api/services"),
-        fetch("/api/notebooks?recursive=true"),
-      ])
-      if (statusRes.ok) {
-        const services = await statusRes.json() as ServiceStatus[]
-        const jupyter = services.find((service) => service.name === "jupyterlab")
-        setJupyterStatus(jupyter?.status || "unknown")
-      } else {
-        setJupyterStatus("unknown")
-      }
-      if (!notebooksRes.ok) {
-        throw new Error(await apiError(notebooksRes, "Failed to load notebooks"))
-      }
-      const data = await notebooksRes.json() as NotebookListResponse
-      if (!Array.isArray(data.notebooks)) throw new Error("Notebook API returned an invalid response")
-      setNotebooks(data.notebooks.map((notebook) => ({
-        name: notebook.name,
-        path: notebook.path,
-        last_modified: notebook.last_modified
-          ? new Date(notebook.last_modified).toLocaleString()
-          : "Unknown",
-        modified_ts: notebook.last_modified ? Date.parse(notebook.last_modified) || 0 : 0,
-        size: notebook.size != null ? `${Math.round(notebook.size / 1024)} KB` : "—",
-        type: notebook.type,
-        kernel: "Python 3",
-      })))
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Failed to load notebooks")
-      setNotebooks([])
-    } finally {
-      setLoading(false)
-    }
+    const [list, services, sess] = await Promise.allSettled([
+      fetch("/api/notebooks?recursive=true").then(r => readJson<{ notebooks: NotebookRow[] }>(r)),
+      fetch("/api/services").then(r => readJson<{ name: string; status?: string }[]>(r)),
+      fetch("/api/notebooks/sessions/list").then(r => readJson<Session[]>(r)),
+    ])
+    if (list.status === "fulfilled") { setNotebooks(Array.isArray(list.value.notebooks) ? list.value.notebooks : []); setError(null) }
+    else setError(list.reason instanceof Error ? list.reason.message : "failed")
+    setJupyter(services.status === "fulfilled" ? services.value.find(s => s.name === "jupyterlab")?.status : undefined)
+    if (sess.status === "fulfilled") { setSessions(Array.isArray(sess.value) ? sess.value : []); setSessionsError(null) }
+    else setSessionsError(sess.reason instanceof Error ? sess.reason.message : "failed")
+    setLoading(false)
   }, [])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => { void fetchNotebooks() }, 0)
-    return () => window.clearTimeout(timer)
-  }, [fetchNotebooks])
+    const t = window.setTimeout(() => void load(), 0)
+    return () => window.clearTimeout(t)
+  }, [load])
 
-  const filteredNotebooks = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase()
-    return query
-      ? notebooks.filter((notebook) => notebook.name.toLowerCase().includes(query))
-      : notebooks
-  }, [notebooks, searchQuery])
-
-  const openJupyter = () => {
-    window.open(serviceUrls.jupyter(), "_blank", "noopener,noreferrer")
+  const act = async (key: string, run: () => Promise<void>) => {
+    setBusy(key)
+    try { await run() } catch (e) { toast(e instanceof Error ? e.message : "Failed", "error") } finally { setBusy(null) }
   }
 
-  const openNotebook = (notebook: NotebookItem) => {
-    window.open(`/notebooks/view?path=${encodeURIComponent(notebook.path)}`, "_blank", "noopener,noreferrer")
+  const openDialog = (d: Dialogs) => {
+    setDialog(d); setDialogError(null)
+    setDialogName(d?.kind === "rename" ? d.notebook.path : "")
   }
 
-  const handleCreateNotebook = async () => {
-    if (!newNotebookName.trim()) return
-    const name = newNotebookName.trim().endsWith(".ipynb")
-      ? newNotebookName.trim()
-      : `${newNotebookName.trim()}.ipynb`
-    setBusyAction("create")
-    setError(null)
+  const submitDialog = async () => {
+    if (!dialog || !dialogName.trim()) return
+    const path = withIpynb(dialogName)
+    setBusy("dialog"); setDialogError(null)
     try {
-      const response = await fetch("/api/notebooks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "notebook", path: name }),
-      })
-      if (!response.ok) throw new Error(await apiError(response, "Failed to create notebook"))
-      setNewNotebookName("")
-      setShowCreateDialog(false)
-      toast(`Notebook "${name}" created`, "success")
-      await fetchNotebooks()
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Failed to create notebook")
-    } finally {
-      setBusyAction(null)
-    }
-  }
-
-  const handleRenameNotebook = async () => {
-    if (!notebookToRename || !renamePath.trim()) return
-    const newPath = renamePath.trim().endsWith(".ipynb") ? renamePath.trim() : `${renamePath.trim()}.ipynb`
-    setBusyAction(`rename:${notebookToRename.path}`)
-    setError(null)
-    try {
-      const response = await fetch(`/api/notebooks/${notebookApiPath(notebookToRename.path)}/rename`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ new_path: newPath }),
-      })
-      if (!response.ok) throw new Error(await apiError(response, "Failed to rename notebook"))
-      toast(`Notebook renamed to "${newPath}"`, "success")
-      setNotebookToRename(null)
-      setRenamePath("")
-      await fetchNotebooks()
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Failed to rename notebook")
-    } finally {
-      setBusyAction(null)
-    }
-  }
-
-  const handleDeleteNotebook = async (notebook: NotebookItem) => {
-    const ok = await confirm({
-      title: "Delete Notebook",
-      message: `This deletes the notebook "${notebook.name}" and cannot be undone.`,
-      destructive: true,
-      confirmText: "Delete",
-    })
-    if (!ok) return
-    setBusyAction(`delete:${notebook.path}`)
-    setError(null)
-    try {
-      const response = await fetch(`/api/notebooks/${notebookApiPath(notebook.path)}`, { method: "DELETE" })
-      if (!response.ok) throw new Error(await apiError(response, "Failed to delete notebook"))
-      toast(`Notebook "${notebook.name}" deleted`, "success")
-      await fetchNotebooks()
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Failed to delete notebook")
-    } finally {
-      setBusyAction(null)
-    }
-  }
-
-  const handleDuplicateNotebook = async (notebook: NotebookItem) => {
-    setBusyAction(`duplicate:${notebook.path}`)
-    setError(null)
-    try {
-      const response = await fetch(`/api/notebooks/${notebookApiPath(notebook.path)}/duplicate`, { method: "POST" })
-      if (!response.ok) throw new Error(await apiError(response, "Failed to duplicate notebook"))
-      toast(`Notebook "${notebook.name}" duplicated`, "success")
-      await fetchNotebooks()
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Failed to duplicate notebook")
-    } finally {
-      setBusyAction(null)
-    }
-  }
-
-  const handleDownloadNotebook = async (notebook: NotebookItem) => {
-    setBusyAction(`download:${notebook.path}`)
-    setError(null)
-    try {
-      const response = await fetch(`/api/notebooks/download?path=${encodeURIComponent(notebook.path)}`)
-      if (!response.ok) throw new Error(await apiError(response, "Failed to download notebook"))
-      const url = URL.createObjectURL(await response.blob())
-      const link = document.createElement("a")
-      link.href = url
-      link.download = notebook.name
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      URL.revokeObjectURL(url)
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Failed to download notebook")
-    } finally {
-      setBusyAction(null)
-    }
-  }
-
-  const handleUploadNotebook = () => {
-    const input = document.createElement("input")
-    input.type = "file"
-    input.accept = ".ipynb,application/x-ipynb+json,application/json"
-    input.onchange = async (event: Event) => {
-      if (!(event.target instanceof HTMLInputElement)) return
-      const file = event.target.files?.[0]
-      if (!file) return
-      setBusyAction("upload")
-      setError(null)
-      try {
-        const form = new FormData()
-        form.append("file", file)
-        form.append("path", file.name)
-        const response = await fetch("/api/notebooks/upload", { method: "POST", body: form })
-        if (!response.ok) throw new Error(await apiError(response, "Failed to upload notebook"))
-        toast(`Notebook "${file.name}" uploaded`, "success")
-        await fetchNotebooks()
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "Failed to upload notebook")
-      } finally {
-        setBusyAction(null)
+      if (dialog.kind === "new") {
+        await readJson(await fetch("/api/notebooks/from-template", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path, template: dialog.template }),
+        }))
+        toast(`Created ${path}`, "success")
+      } else {
+        await readJson(await fetch(`/api/notebooks/${apiPath(dialog.notebook.path)}/rename`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ new_path: path }),
+        }))
+        toast(`Renamed to ${path}`, "success")
       }
+      setDialog(null)
+      void load()
+    } catch (e) {
+      // Inside the dialog: an error behind it is an error nobody sees.
+      setDialogError(e instanceof Error ? e.message : "Failed")
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const remove = (nb: NotebookRow) => act(`delete:${nb.path}`, async () => {
+    if (!(await confirm({ title: `Delete ${nb.name}`, message: `Deletes ${nb.path} from the deployment's notebook storage. This cannot be undone.`, destructive: true, confirmText: "Delete notebook" }))) return
+    await readJson(await fetch(`/api/notebooks/${apiPath(nb.path)}`, { method: "DELETE" }))
+    toast(`Deleted ${nb.name}`, "success")
+    void load()
+  })
+
+  const duplicate = (nb: NotebookRow) => act(`dup:${nb.path}`, async () => {
+    await readJson(await fetch(`/api/notebooks/${apiPath(nb.path)}/duplicate`, { method: "POST" }))
+    toast(`Duplicated ${nb.name}`, "success")
+    void load()
+  })
+
+  const download = (nb: NotebookRow) => act(`dl:${nb.path}`, async () => {
+    const r = await fetch(`/api/notebooks/download?path=${encodeURIComponent(nb.path)}`)
+    if (!r.ok) await readJson(r)
+    const url = URL.createObjectURL(await r.blob())
+    const a = document.createElement("a")
+    a.href = url; a.download = nb.name
+    document.body.appendChild(a); a.click(); a.remove()
+    URL.revokeObjectURL(url)
+  })
+
+  const upload = () => {
+    const input = document.createElement("input")
+    input.type = "file"; input.accept = ".ipynb,application/x-ipynb+json,application/json"
+    input.onchange = () => {
+      const file = input.files?.[0]
+      if (!file) return
+      void act("upload", async () => {
+        const form = new FormData()
+        form.append("file", file); form.append("path", file.name)
+        await readJson(await fetch("/api/notebooks/upload", { method: "POST", body: form }))
+        toast(`Uploaded ${file.name}`, "success")
+        void load()
+      })
     }
     input.click()
   }
 
-  // "Recent" must actually mean most-recently-modified — sort by real timestamp, not API order.
-  const recentSorted = useMemo(
-    () => [...filteredNotebooks].sort((a, b) => (b.modified_ts ?? 0) - (a.modified_ts ?? 0)),
-    [filteredNotebooks],
-  )
-  const recentNotebooks = recentSorted.slice(0, RECENT_LIMIT)
-  const recentCapped = recentSorted.length > RECENT_LIMIT
-  // Newest across all notebooks for the stat card (don't assume list is pre-sorted).
-  const newestNotebook = useMemo(
-    () => notebooks.reduce<NotebookItem | null>(
-      (acc, n) => (acc === null || (n.modified_ts ?? 0) > (acc.modified_ts ?? 0) ? n : acc),
-      null,
-    ),
-    [notebooks],
-  )
+  const kernelAction = (s: Session, action: "restart" | "stop") => act(`${action}:${s.kernel?.id}`, async () => {
+    if (!s.kernel) return
+    const name = s.name || s.path
+    if (!(await confirm({
+      title: action === "stop" ? `Stop ${name}'s kernel` : `Restart ${name}'s kernel`,
+      message: action === "stop"
+        ? "Its variables are lost and the notebook stays open without a kernel until one is started again."
+        : "Its variables are lost; the notebook keeps its cells and outputs.",
+      destructive: action === "stop", confirmText: action === "stop" ? "Stop kernel" : "Restart kernel",
+    }))) return
+    await readJson(await fetch(`/api/notebooks/kernels/${encodeURIComponent(s.kernel.id)}${action === "restart" ? "/restart" : ""}`,
+      { method: action === "restart" ? "POST" : "DELETE" }))
+    toast(action === "stop" ? "Kernel stopped" : "Kernel restarted", "success")
+    // Only the kernel list changes; the notebook list stays where it is.
+    try { setSessions(await readJson<Session[]>(await fetch("/api/notebooks/sessions/list"))) } catch { /* next refresh */ }
+  })
 
-  if (loading) {
-    return (
-      <div className="flex-1 space-y-4 p-8 pt-6">
-        <Skeleton className="h-5 w-[200px]" />
-        <div className="space-y-2">
-          <Skeleton className="h-8 w-[150px]" />
-          <Skeleton className="h-4 w-[300px]" />
-        </div>
-        <div className="grid gap-4 md:grid-cols-4">
-          {[...Array(4)].map((_, i) => (
-            <Skeleton key={i} className="h-[120px]" />
-          ))}
-        </div>
-        <Skeleton className="h-[400px]" />
-      </div>
-    )
-  }
+  const j = jupyterState(jupyter)
+  const rows = notebooks ? sortNotebooks(notebooks, sort, query) : []
+  const status = sourceStatus({ loading: notebooks === null, error, empty: (notebooks?.length ?? 0) === 0, hasData: notebooks !== null && notebooks.length > 0 })
+  const running = (sessions ?? []).filter(s => s.kernel)
 
   return (
-    <div className="flex-1 space-y-4 p-8 pt-6">
-      {/* Breadcrumb */}
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/dashboard">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Notebooks</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      {/* Page Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Notebooks</h2>
-          <p className="text-muted-foreground">
-            Interactive data science environment with JupyterLab
-          </p>
-          {notebooksBadge && (
-            <p className="text-xs text-muted-foreground mt-1" title={notebooksBadge.title}>
-              {notebooksBadge.label} — {notebooksBadge.title}
-            </p>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={fetchNotebooks}
-          >
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
+    <div className="mx-auto max-w-[1180px] space-y-5 px-6 py-6">
+      <PageHeader
+        title="Notebooks"
+        description="Jupyter notebooks stored with the deployment. Read them here; edit them in JupyterLab."
+        actions={<>
+          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+            <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />Refresh
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleUploadNotebook}
-            disabled={busyAction === "upload"}
-          >
-            <Upload className="mr-2 h-4 w-4" />
-            Upload
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={openJupyter}
-            disabled={jupyterStatus !== "healthy"}
-          >
-            <ExternalLink className="mr-2 h-4 w-4" />
-            Open JupyterLab
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => setShowCreateDialog(true)}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            New Notebook
-          </Button>
-        </div>
-      </div>
+          {canWrite && <Button variant="outline" size="sm" onClick={upload} disabled={busy === "upload"}>
+            {busy === "upload" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}Upload
+          </Button>}
+          <Button variant="outline" size="sm" disabled={!j.canOpen}
+                  onClick={() => window.open(serviceUrls.jupyter(), "_blank", "noopener,noreferrer")}>Open JupyterLab</Button>
+          {canWrite && <Button size="sm" onClick={() => openDialog({ kind: "new", template: "python" })}>New notebook</Button>}
+        </>}>
+        {badge && <p className="mt-1 text-xs text-muted-foreground" title={badge.title}>{badge.label} — {badge.title}</p>}
+      </PageHeader>
 
-      {error && (
-        <Alert variant="destructive">
-          <Info className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      {jupyterStatus === "unhealthy" ? (
-        <Alert variant="destructive">
-          <Info className="h-4 w-4" />
-          <AlertDescription>
-            JupyterLab is unavailable. Notebook API actions will fail until the service recovers.
-          </AlertDescription>
-        </Alert>
-      ) : (
-        <Alert>
-          <Info className="h-4 w-4" />
-          <AlertDescription>
-            Interactive JupyterLab opens as an external tool and may require its own authentication. DataPond does not inject a Jupyter token into browser URLs.
-          </AlertDescription>
-        </Alert>
-      )}
+      {notebooks !== null && error && <div role="alert"><ErrorBox msg={`Could not refresh the list: ${error}`} /></div>}
 
-      {/* Statistics Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">JupyterLab Status</CardTitle>
-              <Play className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2">
-              {jupyterStatus === "healthy" ? (
-                <Badge variant="default" className="bg-[var(--dp-good)]">Running</Badge>
-              ) : (
-                <Badge variant="destructive">Offline</Badge>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Notebooks</CardTitle>
-              <FileCode className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{notebooks.filter(n => n.type === "notebook").length}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Files</CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{notebooks.filter(n => n.type === "file").length}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Last Modified</CardTitle>
-              <Clock className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            {newestNotebook ? (
-              <>
-                <div className="text-lg font-bold tabular-nums truncate">{newestNotebook.last_modified}</div>
-                <div className="text-xs text-muted-foreground truncate" title={newestNotebook.name}>{newestNotebook.name}</div>
-              </>
-            ) : (
-              <div className="text-lg font-bold text-muted-foreground">N/A</div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Tabs */}
-      <Tabs defaultValue="recent" className="space-y-4">
-        <div className="flex items-center justify-between">
-          <TabsList>
-            <TabsTrigger value="recent">Recent</TabsTrigger>
-            <TabsTrigger value="all" className="gap-1.5">
-              All Notebooks
-              {notebooks.length > 0 && (
-                <span className="tabular-nums text-xs text-muted-foreground">{filteredNotebooks.length}</span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="kernels">Running Kernels</TabsTrigger>
-          </TabsList>
-
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search notebooks..."
-                className="pl-8 w-[250px]"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-            <div className="flex border rounded-lg">
-              <Button
-                variant={viewMode === "grid" ? "default" : "ghost"}
-                size="icon-sm"
-                onClick={() => setViewMode("grid")}
-              >
-                <Grid3x3 className="h-4 w-4" />
-              </Button>
-              <Button
-                variant={viewMode === "list" ? "default" : "ghost"}
-                size="icon-sm"
-                onClick={() => setViewMode("list")}
-              >
-                <List className="h-4 w-4" />
-              </Button>
-            </div>
+      <div className="flex flex-wrap items-start gap-6">
+        <section className="min-w-0 flex-[3_1_560px] overflow-hidden rounded-xl border bg-card">
+          <div className="flex flex-wrap items-center gap-2.5 p-3">
+            <Input aria-label="Search notebooks" value={query} onChange={e => setQuery(e.target.value)}
+                   placeholder={notebooks ? `Search ${notebooks.length} notebook${notebooks.length === 1 ? "" : "s"}` : "Search notebooks"}
+                   className="h-8 min-w-0 flex-1" />
+            <select aria-label="Sort" value={sort} onChange={e => setSort(e.target.value as NotebookSort)}
+                    className="h-8 rounded-md border bg-background px-2 text-sm">
+              <option value="changed">Recently changed</option>
+              <option value="name">Name</option>
+            </select>
           </div>
-        </div>
-
-        <TabsContent value="recent" className="space-y-4">
-          {recentNotebooks.length > 0 ? (
-            <>
-            {recentCapped && (
-              // Never let a capped list read as complete.
-              <p className="text-xs text-muted-foreground">
-                Showing the {RECENT_LIMIT} most recently modified of {filteredNotebooks.length}. See <span className="font-medium text-foreground">All Notebooks</span> for the full list.
-              </p>
-            )}
-            <div className={viewMode === "grid" ? "grid gap-4 md:grid-cols-2 lg:grid-cols-3" : "space-y-2"}>
-              {recentNotebooks.map((notebook) => (
-                <NotebookCard
-                  key={notebook.path}
-                  notebook={notebook}
-                  onOpen={openNotebook}
-                  onRename={(nb) => {
-                    setNotebookToRename(nb)
-                    setRenamePath(nb.path)
-                  }}
-                  onDelete={handleDeleteNotebook}
-                  onDuplicate={handleDuplicateNotebook}
-                  onDownload={handleDownloadNotebook}
-                  busy={busyAction?.endsWith(`:${notebook.path}`) ?? false}
-                />
-              ))}
+          <SourceState status={status} what="notebooks" error={error} onRetry={() => void load()}
+            loading={<div className="space-y-2 p-3">{[0, 1, 2].map(i => <Skeleton key={i} className="h-10" />)}</div>}
+            empty={
+              <div className="px-5 py-10 text-center">
+                <p className="text-sm font-medium">No notebooks yet</p>
+                <p className="mt-1 text-xs text-muted-foreground">Start one from a template, upload an .ipynb, or open a query from Analytics as a notebook.</p>
+              </div>
+            }>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-sm">
+                <thead>
+                  <tr className="bg-muted/40 text-left text-xs text-muted-foreground">
+                    <th scope="col" className="px-3 py-2 font-medium">Notebook</th>
+                    <th scope="col" className="px-3 py-2 font-medium">Kernel</th>
+                    <th scope="col" className="px-3 py-2 font-medium">Changed</th>
+                    <th scope="col" className="px-3 py-2"><span className="sr-only">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.length === 0 && (
+                    <tr><td colSpan={4} className="px-3 py-6 text-center text-xs text-muted-foreground">No notebook matches “{query}”.</td></tr>
+                  )}
+                  {rows.map(nb => {
+                    const s = sessionFor(nb.path, sessions ?? [])
+                    const dir = nb.path.includes("/") ? nb.path.slice(0, nb.path.lastIndexOf("/") + 1) : ""
+                    return (
+                      <tr key={nb.path} className="border-t">
+                        <td className="px-3 py-2">
+                          <Link href={`/notebooks/view?path=${encodeURIComponent(nb.path)}`} className="font-semibold text-primary hover:underline">{nb.name}</Link>
+                          {dir && <div className="font-mono text-xs text-muted-foreground">{dir}</div>}
+                        </td>
+                        <td className="px-3 py-2 text-xs">
+                          {s?.kernel
+                            ? <>{kernelLabel(s.kernel.name)} · <span className="text-[var(--dp-good-text)]">{s.kernel.execution_state ?? "running"}</span></>
+                            : <span className="text-muted-foreground">not running</span>}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground" title={nb.last_modified ? new Date(nb.last_modified).toLocaleString() : undefined}>{ago(nb.last_modified)}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+                            <Button variant="outline" size="sm" disabled={!j.canOpen}
+                                    onClick={() => window.open(labUrl(serviceUrls.jupyter(), nb.path), "_blank", "noopener,noreferrer")}>Edit in JupyterLab</Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger render={<Button variant="ghost" size="sm" aria-label={`More for ${nb.name}: rename, duplicate, download, delete`} />}>
+                                {busy?.endsWith(`:${nb.path}`) ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => void download(nb)}>Download</DropdownMenuItem>
+                                {canWrite && <>
+                                  <DropdownMenuItem onClick={() => openDialog({ kind: "rename", notebook: nb })}>Rename</DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => void duplicate(nb)}>Duplicate</DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem className="text-destructive" onClick={() => void remove(nb)}>Delete</DropdownMenuItem>
+                                </>}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
-            </>
-          ) : (
-            <Card>
-              <CardContent className="text-center py-12 text-muted-foreground">
-                <FileCode className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p className="text-lg font-medium mb-2">No notebooks found</p>
-                <p className="text-sm mb-4">Create your first notebook to get started</p>
-                <Button onClick={() => setShowCreateDialog(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create Notebook
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
+          </SourceState>
+        </section>
 
-        <TabsContent value="all" className="space-y-4">
-          {filteredNotebooks.length > 0 ? (
-            <div className={viewMode === "grid" ? "grid gap-4 md:grid-cols-2 lg:grid-cols-3" : "space-y-2"}>
-              {filteredNotebooks.map((notebook) => (
-                <NotebookCard
-                  key={notebook.path}
-                  notebook={notebook}
-                  onOpen={openNotebook}
-                  onRename={(nb) => {
-                    setNotebookToRename(nb)
-                    setRenamePath(nb.path)
-                  }}
-                  onDelete={handleDeleteNotebook}
-                  onDuplicate={handleDuplicateNotebook}
-                  onDownload={handleDownloadNotebook}
-                  busy={busyAction?.endsWith(`:${notebook.path}`) ?? false}
-                />
-              ))}
+        <ExplainRail label="JupyterLab">
+          <section className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-semibold">JupyterLab</h3>
+              <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${j.tone === "good" ? "text-[var(--dp-good-text)]" : j.tone === "bad" ? "text-destructive" : "text-muted-foreground"}`}>
+                <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: j.tone === "good" ? "var(--dp-good)" : j.tone === "bad" ? "var(--destructive)" : "var(--muted-foreground)" }} />
+                {j.label}
+              </span>
             </div>
-          ) : (
-            <Card>
-              <CardContent className="text-center py-12 text-muted-foreground">
-                <FileCode className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p className="text-lg font-medium mb-2">No notebooks found</p>
-                <p className="text-sm mb-4">
-                  {searchQuery ? "Try a different search term" : "Create your first notebook to get started"}
-                </p>
-              </CardContent>
-            </Card>
+            <p className="text-xs text-muted-foreground">Opens in its own tab and may ask you to sign in there. DataPond never puts a Jupyter token in a URL.</p>
+          </section>
+
+          <RailSection title={`Running kernels${sessions ? ` · ${running.length}` : ""}`}>
+            {sessionsError ? <p>Could not read kernels: {sessionsError}</p>
+              : sessions === null ? <p>Loading…</p>
+              : running.length === 0 ? <p>None. A kernel starts when a notebook is opened in JupyterLab.</p>
+              : (
+                <ul className="space-y-2">
+                  {running.map(s => (
+                    <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 text-foreground">
+                      <span className="min-w-0">
+                        <span className="font-medium">{(s.name || s.path).replace(/\.ipynb$/, "")}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {" "}· {s.kernel?.execution_state ?? "running"}
+                          {s.kernel?.last_activity ? ` ${ago(s.kernel.last_activity)}` : ""}
+                          {" "}· {s.kernel?.connections ?? 0} connection{s.kernel?.connections === 1 ? "" : "s"}
+                        </span>
+                      </span>
+                      {canWrite && (
+                        <span className="flex gap-1.5">
+                          <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void kernelAction(s, "restart")}>Restart</Button>
+                          <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void kernelAction(s, "stop")}>Stop</Button>
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+          </RailSection>
+
+          {canWrite && (
+            <RailSection title="Start from a template">
+              <ul className="space-y-1.5">
+                {TEMPLATES.map(t => (
+                  <li key={t.id} className="flex items-center justify-between gap-2">
+                    <span><span className="text-foreground">{t.label}</span> <span className="text-xs">· {t.hint}</span></span>
+                    <Button variant="outline" size="sm" onClick={() => openDialog({ kind: "new", template: t.id })}>Use</Button>
+                  </li>
+                ))}
+              </ul>
+            </RailSection>
           )}
-        </TabsContent>
+        </ExplainRail>
+      </div>
 
-        <TabsContent value="kernels">
-          <KernelStatus onRefresh={fetchNotebooks} />
-        </TabsContent>
-      </Tabs>
-
-      <Dialog open={notebookToRename !== null} onOpenChange={(open) => {
-        if (!open && busyAction?.startsWith("rename:") !== true) {
-          setNotebookToRename(null)
-          setRenamePath("")
-        }
-      }}>
+      <Dialog open={dialog !== null} onOpenChange={open => { if (!open) setDialog(null) }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Rename Notebook</DialogTitle>
-            <DialogDescription>Enter a relative notebook path ending in .ipynb.</DialogDescription>
-          </DialogHeader>
-          <Input
-            value={renamePath}
-            onChange={(event) => setRenamePath(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void handleRenameNotebook()
-            }}
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setNotebookToRename(null)
-              setRenamePath("")
-            }} disabled={busyAction?.startsWith("rename:")}>Cancel</Button>
-            <Button onClick={handleRenameNotebook} disabled={!renamePath.trim() || busyAction?.startsWith("rename:")}>Rename</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Create Notebook Dialog */}
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create New Notebook</DialogTitle>
+            <DialogTitle>{dialog?.kind === "rename" ? `Rename ${dialog.notebook.name}` : `New ${TEMPLATES.find(t => t.id === (dialog?.kind === "new" ? dialog.template : ""))?.label ?? ""} notebook`}</DialogTitle>
             <DialogDescription>
-              Enter a name for your new Jupyter notebook.
+              {dialog?.kind === "rename" ? "A path moves it into that folder." : "A path like analysis/churn puts it in a folder; .ipynb is added for you."}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <Input
-              placeholder="my_notebook.ipynb"
-              value={newNotebookName}
-              onChange={(e) => setNewNotebookName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  handleCreateNotebook()
-                }
-              }}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowCreateDialog(false)
-                setNewNotebookName("")
-              }}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleCreateNotebook} disabled={!newNotebookName.trim() || busyAction === "create"}>
-              {busyAction === "create" ? "Creating…" : "Create"}
-            </Button>
-          </DialogFooter>
+          <form className="space-y-3" onSubmit={e => { e.preventDefault(); void submitDialog() }}>
+            {dialog?.kind === "new" && (
+              <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Template">
+                {TEMPLATES.map(t => (
+                  <button key={t.id} type="button" role="radio" aria-checked={dialog.template === t.id}
+                          onClick={() => setDialog({ kind: "new", template: t.id })}
+                          className={`h-8 rounded-md border px-3 text-xs ${dialog.template === t.id ? "border-primary bg-primary/10 font-semibold text-primary" : "bg-card"}`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="nb-path">{dialog?.kind === "rename" ? "New path" : "Name"}</Label>
+              <Input id="nb-path" autoFocus value={dialogName} onChange={e => setDialogName(e.target.value)} className="font-mono" />
+            </div>
+            {dialogError && <div role="alert"><ErrorBox msg={dialogError} /></div>}
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setDialog(null)}>Cancel</Button>
+              <Button type="submit" disabled={!dialogName.trim() || busy === "dialog"}>
+                {busy === "dialog" && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}{dialog?.kind === "rename" ? "Rename" : "Create notebook"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
-
     </div>
   )
 }
