@@ -34,3 +34,12 @@ test("matchCron: picker crons round-trip; hand-written ones are null", () => {
   assert.equal(buildSchedule("weekly", 7), "0 7 * * 1")
   assert.equal(buildSchedule("manual", 7), null)
 })
+
+test("Airflow presets read as words and match their buttons", async () => {
+  const { parseCron } = await import("./schedule.ts")
+  assert.equal(parseCron("@hourly"), "Every hour")
+  assert.equal(parseCron("@daily"), "Once a day · Midnight")
+  assert.equal(parseCron("@weekly"), "Once a week · Sunday midnight")
+  assert.deepEqual(matchCron("@daily"), { freqId: "daily", hour: 0 })
+  assert.equal(matchCron("@weekly"), null)
+})
