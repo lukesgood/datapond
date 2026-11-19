@@ -147,11 +147,7 @@ export default function DagDetailPage() {
         const savedR = await fetch(`/api/pipelines/${dag_id}`)
         if (savedR.ok) {
           const saved = await savedR.json()
-          if (saved.status === "draft") {
-            // Redirect to editor with saved pipeline loaded
-            router.replace(`/pipelines/new?load=${encodeURIComponent(saved.name)}`)
-            return
-          }
+          // A draft from the retired visual builder: shown read-only here.
           setDag({ dag_id: saved.name, is_paused: true, is_active: false, description: saved.description, schedule_interval: saved.schedule, tags: [], owners: [] })
           if (saved.nodes?.length) {
             setGraphData({ nodes: saved.nodes, edges: saved.edges || [] })
@@ -193,7 +189,7 @@ export default function DagDetailPage() {
     } finally {
       setLoading(false)
     }
-  }, [dag_id, router])
+  }, [dag_id])
 
   // Adaptive polling: 5s when tasks are running, 30s otherwise
   const hasRunningTasks = Object.values(taskStates).some(s => s === "running" || s === "queued")

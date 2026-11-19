@@ -12,7 +12,7 @@ import { useConfirm } from "@/lib/confirm"
 import { parseCron } from "@/lib/schedule"
 import { readJson, sourceStatus } from "@/lib/source-state"
 import { useToast } from "@/lib/toast"
-import { emptyForm, formFrom, type SavedTransform, type TransformForm } from "@/lib/transforms"
+import { formFrom, formReading, type SavedTransform, type TransformForm } from "@/lib/transforms"
 
 function LastRun({ t }: { t: SavedTransform }) {
   if (!t.last_run_state) return <span className="text-muted-foreground">Not run yet</span>
@@ -154,7 +154,7 @@ export function TransformsTab({ transforms, loading, error, onReload, canWrite }
       </SourceState>
 
       {edit === "new" && (
-        <TransformEditor key="new" id={null} initial={emptyForm()}
+        <TransformEditor key={`new:${params.get("from") ?? ""}`} id={null} initial={formReading(params.get("from"))}
                          onSaved={id => { onReload(); go(id) }} onCancel={() => go(null)} />
       )}
       {edit && edit !== "new" && (loadError

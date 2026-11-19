@@ -520,6 +520,63 @@ async def list_transforms(db: Session = Depends(get_db),
     }
 
 
+@router.get("/transforms/flow")
+async def transforms_flow(db: Session = Depends(get_db), user: dict = Depends(require_user)):
+    """The data flow map: sources and streams → the tables they write → the tables
+    each transform builds from them. Only what the caller may see: sources by the
+    source grants, transforms by the transform grants. Every part is optional — no
+    connectors, no Airflow, no RisingWave each just leave that part out."""
+    from app import flow_map
+    from app.component_guard import capability_on
+    from app.tool_call_log import table_names
+    warnings: list = []
+
+    connections: list = []
+    jobs: list = []
+    try:
+        from app.api.connectors import get_db_pool
+        from app.api.source_access import CONNECTOR, visible_clause
+        pool = await get_db_pool()
+        clause, args = visible_clause(CONNECTOR, user, "c", 1)
+        async with pool.acquire() as c:
+            connections = [dict(r) for r in await c.fetch(
+                f"SELECT c.id, c.name, c.connector_type FROM connector_connections c"
+                f"{' WHERE ' + clause if clause else ''}", *args)]
+            jobs = [dict(r) for r in await c.fetch(
+                """SELECT connection_id, source_table, target_table, last_run_status, last_run_at
+                   FROM connector_sync_jobs WHERE enabled""")]
+    except Exception as e:
+        warnings.append(f"sources unavailable: {str(e)[:160]}")
+
+    roles = await granted_roles(TRANSFORM_KIND, user)
+    rows = [r for r in db.query(SavedTransform).all()
+            if may_see(TRANSFORM_KIND, r, user, roles.get(str(r.id)))]
+    runs = await _last_runs([r.dag_id for r in rows if r.dag_id]) if rows else {}
+    transforms = [{
+        "id": str(r.id), "name": r.name, "dag_id": r.dag_id, "schedule": r.schedule,
+        "target_namespace": r.target_namespace, "target_table": r.target_table,
+        "reads": table_names(r.sql or ""),
+        "last_run_state": (runs.get(r.dag_id) or {}).get("state"),
+        "last_run_at": (runs.get(r.dag_id) or {}).get("at"),
+    } for r in rows]
+
+    sinks: list = []
+    if capability_on("streaming"):
+        try:
+            from app.api import streaming
+            sinks = await asyncio.wait_for(asyncio.to_thread(streaming._execute, """
+                SELECT s.name, s.definition, src.connector AS source_connector
+                FROM rw_catalog.rw_sinks s
+                LEFT JOIN rw_catalog.rw_sources src ON src.name = regexp_replace(s.name, '_sink$', '_src')
+                WHERE s.connector = 'iceberg'"""), timeout=8)
+        except Exception as e:
+            warnings.append(f"streams unavailable: {str(e)[:160]}")
+
+    out = flow_map.build_flow(connections, jobs, transforms, sinks)
+    out["warnings"] = warnings
+    return out
+
+
 @router.get("/transforms/{transform_id}")
 async def get_transform(transform_id: str, db: Session = Depends(get_db),
                         user: dict = Depends(require_user)):

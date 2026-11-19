@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { dagIdFor, emptyForm, formProblem, previewSql, runStrip, runSummary, saveBody, tablesRead } from "./transforms.ts"
+import { dagIdFor, emptyForm, formReading, formProblem, previewSql, runStrip, runSummary, saveBody, tablesRead } from "./transforms.ts"
 
 const good = { ...emptyForm(), name: "daily revenue", target_table: "daily_revenue",
   sql: "SELECT date(o.ordered_at) AS day FROM refined.orders o JOIN refined.customers c USING (customer_id)" }
@@ -43,4 +43,13 @@ test("runStrip and runSummary", () => {
   assert.equal(runSummary(cells), "Last 2 runs: 1 failed")
   assert.equal(runSummary([]), "No runs yet.")
   assert.equal(runSummary([cells[0]]), "Last 1 run: all succeeded")
+})
+
+test("formReading starts a transform from a table on the map", () => {
+  const f = formReading("raw.customers")
+  assert.equal(f.source_namespace, "raw"); assert.equal(f.target_namespace, "refined")
+  assert.equal(f.target_table, "customers_clean"); assert.equal(f.sql, "SELECT *\nFROM raw.customers")
+  assert.equal(formReading("refined.customers").target_namespace, "serving")
+  assert.equal(formReading("default.orders").target_namespace, "serving")
+  assert.deepEqual(formReading("x; drop"), emptyForm())
 })

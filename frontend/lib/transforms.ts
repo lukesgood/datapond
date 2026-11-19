@@ -26,6 +26,19 @@ export function emptyForm(): TransformForm {
            target_table: "", sql: "SELECT\n  \nFROM refined.", schedule: "0 3 * * *" }
 }
 
+/** A new transform that reads `ns.table` (from the flow map's "+"): reads from that
+ *  namespace, writes to the next one, and starts its SELECT from that table. */
+export function formReading(from: string | null): TransformForm {
+  const f = emptyForm()
+  const m = /^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(from ?? "")
+  if (!m) return f
+  const [, ns, table] = m
+  const i = (NAMESPACES as readonly string[]).indexOf(ns)
+  const next = i >= 0 && i < NAMESPACES.length - 1 ? NAMESPACES[i + 1] : "serving"
+  return { ...f, source_namespace: ns, target_namespace: next === ns ? "serving" : next,
+           target_table: `${table}_${next === "serving" ? "summary" : "clean"}`, sql: `SELECT *\nFROM ${ns}.${table}` }
+}
+
 export function formFrom(t: SavedTransform): TransformForm {
   return {
     name: t.name, description: t.description ?? "",
