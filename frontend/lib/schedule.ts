@@ -14,8 +14,19 @@ export const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
     : `${String(i % 12 || 12).padStart(2, "0")}:00 ${i < 12 ? "AM" : "PM"}`,
 }))
 
+/** Airflow's presets as the cron each stands for; @weekly is Sunday, which no
+ *  button builds (Once a week is Monday), so it stays a preset. */
+const PRESETS: Record<string, string> = {
+  "@hourly": "0 * * * *", "@daily": "0 0 * * *", "@midnight": "0 0 * * *", "@monthly": "0 0 1 * *",
+}
+const PRESET_LABELS: Record<string, string> = {
+  "@weekly": "Once a week · Sunday midnight", "@yearly": "Once a year", "@annually": "Once a year", "@once": "Once",
+}
+
 export function parseCron(cron: string): string {
   if (!cron) return ""
+  if (PRESET_LABELS[cron]) return PRESET_LABELS[cron]
+  cron = PRESETS[cron] ?? cron
   for (const f of FREQ_OPTIONS) {
     for (let h = 0; h < 24; h++) {
       if (f.buildCron(h) === cron) {
@@ -80,6 +91,7 @@ export function nextRun(cron: string): string {
  *  would show a hand-written schedule as one it is not. */
 export function matchCron(cron: string | null | undefined): { freqId: string; hour: number } | null {
   if (!cron) return null
+  cron = PRESETS[cron] ?? cron
   for (const f of FREQ_OPTIONS) {
     for (let h = 0; h < 24; h++) {
       if (f.buildCron(h) === cron) return { freqId: f.id, hour: f.hasTime ? h : 2 }

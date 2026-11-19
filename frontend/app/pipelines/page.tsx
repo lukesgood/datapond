@@ -9,6 +9,10 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DagCard } from "@/components/airflow/dag-card"
+import { TransformsTab } from "@/components/transforms/transforms-tab"
+import { PageHeader } from "@/components/ui/page-header"
+import { useHasPermission } from "@/lib/permissions"
+import type { SavedTransform } from "@/lib/transforms"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   Workflow,
@@ -21,13 +25,11 @@ import {
   CheckCircle2,
   Play,
   Timer,
-  Loader2,
-  Pencil,
 } from "lucide-react"
 import { formatDistance } from "date-fns"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useConfirm } from "@/lib/confirm"
-import { ArrowRight, Layers } from "lucide-react"
+import { Layers } from "lucide-react"
 
 interface DAG {
   dag_id: string
@@ -58,20 +60,7 @@ interface DagRun {
   run_type: string
 }
 
-interface Transform {
-  last_run_state?: string | null
-  last_run_at?: string | null
-  id: string
-  name: string
-  description?: string
-  source_namespace: string
-  target_namespace: string
-  target_table: string
-  schedule?: string
-  status: string
-  dag_id?: string
-  updated_at?: string
-}
+type Transform = SavedTransform
 
 function PipelinesPageInner() {
   const { toast } = useToast()
@@ -84,7 +73,8 @@ function PipelinesPageInner() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [transforms, setTransforms] = useState<Transform[]>([])
-  const [triggeringTransform, setTriggeringTransform] = useState<string | null>(null)
+  const [transformsError, setTransformsError] = useState<string | null>(null)
+  const canWrite = useHasPermission("pipeline:write")
   const [savedStatuses, setSavedStatuses] = useState<Map<string, string>>(new Map())
   const router = useRouter()
 
@@ -181,11 +171,13 @@ function PipelinesPageInner() {
       // Fetch transforms
       try {
         const trRes = await fetch("/api/transforms")
-        if (trRes.ok) {
-          const trData = await trRes.json()
-          setTransforms(trData.transforms || [])
-        }
-      } catch { /* non-critical */ }
+        if (!trRes.ok) throw new Error(trRes.status === 403 ? "your role does not allow this" : `HTTP ${trRes.status}`)
+        const trData = await trRes.json()
+        setTransforms(trData.transforms || [])
+        setTransformsError(null)
+      } catch (e) {
+        setTransformsError(e instanceof Error ? e.message : "failed")
+      }
 
     } catch (err) {
       console.error("Failed to fetch data:", err)
@@ -195,24 +187,7 @@ function PipelinesPageInner() {
     }
   }, [])
 
-  const handleTriggerTransform = async (id: string, dagId: string) => {
-    setTriggeringTransform(id)
-    try {
-      const r = await fetch(`/api/transforms/${id}/trigger`, { method: "POST" })
-      if (r.ok) toast(`Run started — Airflow DAG ${dagId}`, "info")
-      else toast("Failed to trigger run", "error")
-    } catch { /* best effort */ }
-    finally { setTriggeringTransform(null) }
-  }
-
   const confirmDialog = useConfirm()
-  const handleDeleteTransform = async (id: string, name: string) => {
-    if (!(await confirmDialog({ title: "Delete Transform", message: `Delete '${name}' and its Airflow DAG.`, destructive: true, confirmText: "Delete" }))) return
-    await fetch(`/api/transforms/${id}`, { method: "DELETE" })
-    toast(`Transform '${name}' deleted`, "success")
-    setTransforms(prev => prev.filter(t => t.id !== id))
-  }
-
   useEffect(() => {
     const initial = window.setTimeout(() => { void fetchData() }, 0)
     const interval = window.setInterval(() => { void fetchData() }, 30000)
@@ -317,9 +292,8 @@ function PipelinesPageInner() {
         <Workflow className="h-10 w-10 text-muted-foreground/30" />
         <div>
           <p className="text-sm text-muted-foreground">No pipelines found</p>
-          <p className="text-xs text-muted-foreground/70 mt-1">Create a SQL Transform to deploy it as an Airflow DAG</p>
+          <p className="text-xs text-muted-foreground/70 mt-1">A transform you deploy shows here as its Airflow job.</p>
         </div>
-        <Button size="sm" onClick={() => router.push("/pipelines/new")}>New Transform</Button>
       </div>
     )
     return (
@@ -354,40 +328,25 @@ function PipelinesPageInner() {
   return (
     <div className="flex-1 space-y-5 px-6 py-5">
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Transforms</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            ELT transformations — raw → refined → serving via Airflow
-          </p>
-          {pipelinesBadge && (
-            <p className="text-xs text-muted-foreground mt-1" title={pipelinesBadge.title}>
-              {pipelinesBadge.label} — {pipelinesBadge.title}
-            </p>
+      <PageHeader
+        title="Transforms"
+        description="SQL that turns raw tables into refined and serving tables, on a schedule. Each transform runs as an Airflow job."
+        actions={<>
+          <Button variant="outline" size="sm" onClick={fetchData} disabled={loading}>
+            <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />Refresh
+          </Button>
+          {canWrite && (
+            <Button size="sm" onClick={() => { const sp = new URLSearchParams(searchParams.toString()); sp.set("tab", "transforms"); sp.set("edit", "new"); router.replace(`/pipelines?${sp.toString()}`) }}>
+              <Plus className="mr-1.5 h-3.5 w-3.5" />New transform
+            </Button>
           )}
-          {/* This page hosts two different things under one capability: SQL
-              Transforms actually deploy and run, declarative pipelines do not. The
-              capability payload carries one tier for "pipelines" — see
-              docs/superpowers/specs/2026-09-02-product-scope-boundary-design.md §1
-              for why — so the finer distinction only exists here, in prose. */}
-          <p className="text-xs text-muted-foreground mt-1">
-            SQL Transforms below deploy to Airflow and run. Saved declarative pipelines
-            are preview: they compile to placeholder tasks and their deploy is refused.
+        </>}>
+        {pipelinesBadge && (
+          <p className="mt-1 text-xs text-muted-foreground" title={pipelinesBadge.title}>
+            {pipelinesBadge.label} — {pipelinesBadge.title}
           </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={fetchData} disabled={loading} className="h-8 text-xs gap-1.5">
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-          <Button size="sm" className="h-8 text-xs gap-1.5"
-            onClick={() => router.push("/pipelines/new")}>
-            <Plus className="h-3.5 w-3.5" />
-            New Transform
-          </Button>
-        </div>
-      </div>
+        )}
+      </PageHeader>
 
       {/* Error */}
       {error && (
@@ -397,7 +356,29 @@ function PipelinesPageInner() {
         </Alert>
       )}
 
-      {/* Stats strip */}
+      {/* Main tabs: Transforms / Pipelines / History */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="h-8">
+          <TabsTrigger value="transforms" className="text-xs h-7">
+            <Layers className="h-3 w-3 mr-1" />Transforms ({transforms.length})
+          </TabsTrigger>
+          <TabsTrigger value="pipelines" className="text-xs h-7">Pipelines · preview ({dags.length})</TabsTrigger>
+          <TabsTrigger value="history" className="text-xs h-7">Recent Activity</TabsTrigger>
+        </TabsList>
+
+        {/* Transforms tab */}
+        <TabsContent value="transforms" className="mt-4">
+          <TransformsTab transforms={transforms} loading={loading && transforms.length === 0 && !transformsError}
+                         error={transformsError} onReload={() => void fetchData()} canWrite={canWrite} />
+        </TabsContent>
+
+        {/* Pipeline DAG list */}
+        <TabsContent value="pipelines" className="mt-4 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
+            <span>Every Airflow job, transforms included. Pipelines drawn in the visual builder are a preview: they compile to placeholder tasks and their deploy is refused.</span>
+            {canWrite && <Button variant="outline" size="sm" onClick={() => router.push("/pipelines/new")}>Open the visual builder (preview)</Button>}
+          </div>
+          {/* Stats strip */}
       <div className="grid grid-cols-4 gap-3">
         {[
           { label: "Total", value: dags.length, sub: `${activeDags.length} active`, icon: Workflow },
@@ -424,132 +405,6 @@ function PipelinesPageInner() {
         ))}
       </div>
 
-      {/* Main tabs: Transforms / Pipelines / History */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="h-8">
-          <TabsTrigger value="transforms" className="text-xs h-7">
-            <Layers className="h-3 w-3 mr-1" />Transforms ({transforms.length})
-          </TabsTrigger>
-          <TabsTrigger value="pipelines" className="text-xs h-7">Pipelines ({dags.length})</TabsTrigger>
-          <TabsTrigger value="history" className="text-xs h-7">Recent Activity</TabsTrigger>
-        </TabsList>
-
-        {/* Transforms tab */}
-        <TabsContent value="transforms" className="mt-4">
-          {transforms.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 border rounded-lg bg-muted/20 text-center">
-              <Layers className="h-10 w-10 text-muted-foreground/30 mb-3" />
-              <p className="text-sm font-medium text-muted-foreground mb-1">No transforms yet</p>
-              <p className="text-xs text-muted-foreground mb-4">
-                SQL-based ELT: raw → refined → serving via Airflow + Trino CTAS
-              </p>
-              <Button size="sm" className="h-7 text-xs gap-1.5" onClick={() => router.push("/pipelines/new")}>
-                <Plus className="h-3 w-3" />New Transform
-              </Button>
-            </div>
-          ) : (
-            <div className="rounded-lg border overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/40 text-xs">
-                  <tr>
-                    <th className="text-left px-4 py-2">Name</th>
-                    <th className="text-left px-4 py-2">Flow</th>
-                    <th className="text-left px-4 py-2">Target Table</th>
-                    <th className="text-left px-4 py-2">Schedule</th>
-                    <th className="text-left px-4 py-2">Status</th>
-                    <th className="text-left px-4 py-2" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {transforms.map(t => (
-                    <tr key={t.id} className="border-t hover:bg-muted/20">
-                      <td className="px-4 py-2.5">
-                        <div className="font-medium text-sm">{t.name}</div>
-                        {t.description && <div className="text-xs text-muted-foreground">{t.description}</div>}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <span className="flex items-center gap-1 text-xs font-mono">
-                          <span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{t.source_namespace}</span>
-                          <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                          <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary">{t.target_namespace}</span>
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
-                        {t.target_namespace}.{t.target_table}
-                      </td>
-                      <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                        {t.schedule || <span className="text-muted-foreground/50">manual</span>}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <div className="flex flex-col gap-0.5">
-                          <span className={`text-2xs px-1.5 py-0.5 rounded font-medium w-fit ${
-                            t.status === "deployed" ? "bg-[var(--dp-good)]/10 text-[var(--dp-good-text)]" : "bg-muted text-muted-foreground"
-                          }`}>
-                            {t.status}
-                          </span>
-                          {t.last_run_state && (
-                            <span
-                              className={`inline-flex items-center gap-1 text-2xs w-fit ${
-                                t.last_run_state === "success" ? "text-[var(--dp-good-text)]" :
-                                t.last_run_state === "failed" ? "text-destructive" :
-                                t.last_run_state === "running" ? "text-primary" : "text-muted-foreground"
-                              }`}
-                              title={t.last_run_at ? new Date(t.last_run_at).toLocaleString() : undefined}
-                            >
-                              {t.last_run_state === "success" ? <CheckCircle2 className="h-3 w-3" /> :
-                               t.last_run_state === "failed" ? <XCircle className="h-3 w-3" /> :
-                               t.last_run_state === "running" ? <Play className="h-3 w-3" /> :
-                               <Clock className="h-3 w-3" />}
-                              <span className="capitalize">{t.last_run_state}</span>
-                              {t.last_run_at && (
-                                <span className="text-muted-foreground/70">
-                                  · {formatDistance(new Date(t.last_run_at), new Date(), { addSuffix: true })}
-                                </span>
-                              )}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <div className="flex items-center gap-1 justify-end">
-                          <Button
-                            variant="ghost" size="sm" aria-label={`Edit ${t.name}`}
-                            className="h-6 text-2xs px-2"
-                            onClick={() => router.push(`/pipelines/new?load=${encodeURIComponent(t.name)}`)}
-                          >
-                            <Pencil className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            variant="ghost" size="sm" aria-label={`Run ${t.name}`}
-                            className="h-6 text-2xs px-2"
-                            disabled={triggeringTransform === t.id}
-                            onClick={() => handleTriggerTransform(t.id, t.dag_id || "")}
-                          >
-                            {triggeringTransform === t.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Play className="h-3 w-3" />
-                            )}
-                          </Button>
-                          <Button
-                            variant="ghost" size="sm"
-                            className="h-6 text-2xs px-2 text-destructive hover:text-destructive"
-                            onClick={() => handleDeleteTransform(t.id, t.name)}
-                          >
-                            <XCircle className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </TabsContent>
-
-        {/* Pipeline DAG list */}
-        <TabsContent value="pipelines" className="mt-4">
           <Tabs defaultValue="all">
             <div className="flex items-center justify-between mb-3">
               <TabsList className="h-8">

@@ -94,6 +94,36 @@ async def _ensure_trino_connection() -> None:
         raise HTTPException(503, f"Airflow connection request failed: {exc}") from exc
 
 
+# A schedule goes into the generated DAG source; a namespace into its docstring.
+# Both used to be interpolated unchecked, so a quote in either could end the string
+# and run as Python on the Airflow worker.
+_SCHEDULE_PRESETS = {"@once", "@hourly", "@daily", "@weekly", "@monthly", "@yearly"}
+_CRON_FIELD = re.compile(r"[0-9A-Za-z*/,?-]{1,40}")
+_NAMESPACE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
+
+
+def _clean_schedule(v: Optional[str]) -> Optional[str]:
+    v = (v or "").strip()
+    if not v or v.lower() == "none":
+        return None
+    if v in _SCHEDULE_PRESETS:
+        return v
+    fields = v.split()
+    if len(fields) == 5 and all(_CRON_FIELD.fullmatch(f) for f in fields):
+        return " ".join(fields)
+    raise ValueError("schedule must be a 5-field cron (e.g. '0 3 * * *') or one of "
+                     + ", ".join(sorted(_SCHEDULE_PRESETS)))
+
+
+def _clean_namespace(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return None
+    v = v.strip()
+    if not _NAMESPACE.fullmatch(v):
+        raise ValueError("namespace must be a letter or underscore followed by letters, digits or underscores")
+    return v
+
+
 class TransformCreateRequest(BaseModel):
     name: str
     description: Optional[str] = None
@@ -116,6 +146,10 @@ class TransformCreateRequest(BaseModel):
             )
         return v
 
+    _schedule = field_validator("schedule")(classmethod(lambda cls, v: _clean_schedule(v)))
+    _namespaces = field_validator("source_namespace", "target_namespace")(
+        classmethod(lambda cls, v: _clean_namespace(v)))
+
 
 class TransformUpdateRequest(BaseModel):
     description: Optional[str] = None
@@ -124,6 +158,14 @@ class TransformUpdateRequest(BaseModel):
     target_table: Optional[str] = None
     sql: Optional[str] = None
     schedule: Optional[str] = None
+
+    _schedule = field_validator("schedule")(classmethod(lambda cls, v: _clean_schedule(v)))
+    _namespaces = field_validator("source_namespace", "target_namespace")(
+        classmethod(lambda cls, v: _clean_namespace(v)))
+
+
+class TransformCheckRequest(BaseModel):
+    sql: str
 
 
 def _safe_id(name: str) -> str:
@@ -162,7 +204,9 @@ def _generate_dag(transform: "SavedTransform") -> str:
     target_ns = transform.target_namespace
     target_tbl = _safe_id(transform.target_table)
     fqtn       = f"iceberg.{target_ns}.{target_tbl}"
-    schedule   = f'"{transform.schedule}"' if transform.schedule else "None"
+    # repr() is a Python literal whatever the string holds (validated upstream too).
+    schedule   = repr(str(transform.schedule)) if transform.schedule else "None"
+    source_ns  = re.sub(r'[^A-Za-z0-9_]+', "_", transform.source_namespace or "")
     # T1: CREATE OR REPLACE TABLE … AS — 원자적 교체(Trino 481 Iceberg 검증).
     #     실패 시 기존 테이블이 보존되고, drop~create 사이 조회 공백도 없다.
     # T8: SQL은 base64로 삽입 — 따옴표/백슬래시가 생성된 DAG 소스를 깨지 못함.
@@ -180,7 +224,7 @@ def _generate_dag(transform: "SavedTransform") -> str:
     return f'''"""
 Auto-generated ELT transform DAG: {name_safe}
 {desc_safe}
-Source: iceberg.{transform.source_namespace}  →  Target: {fqtn}
+Source: iceberg.{source_ns}  →  Target: {fqtn}
 Generated: {datetime.utcnow().isoformat()}
 
 stock Airflow 이미지에는 trino provider가 없으므로 Trino REST API(/v1/statement)를
@@ -299,6 +343,29 @@ async def _deploy_dag(dag_id: str, dag_code: str) -> bool:
         raise HTTPException(503, f"Airflow activation request failed for DAG '{dag_id}': {exc}") from exc
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _output_columns(sql: str) -> list:
+    """The columns the SELECT would write: run it with LIMIT 0 and read the cursor."""
+    cur = trino_conn(timeout=20).cursor()
+    cur.execute(f"SELECT * FROM (\n{sql.rstrip().rstrip(';')}\n) AS t LIMIT 0")
+    cur.fetchall()
+    return [{"name": d[0], "type": str(d[1])} for d in (cur.description or [])]
+
+
+@router.post("/transforms/check", dependencies=[Depends(require_permission("pipeline:write"))])
+async def check_transform(req: TransformCheckRequest):
+    """What Save would check, without deploying: one SELECT/WITH that Trino can plan,
+    and the columns it would write. A failure is 200 with ok=false, so the editor can
+    show it beside the SQL instead of as an error."""
+    try:
+        _validate_transform_sql(req.sql)
+        columns = await asyncio.to_thread(_output_columns, req.sql)
+    except HTTPException as e:
+        return {"ok": False, "error": e.detail, "columns": []}
+    except Exception as e:
+        return {"ok": False, "error": f"SQL validation failed: {e}", "columns": []}
+    return {"ok": True, "error": None, "columns": columns}
 
 
 @router.post("/transforms", dependencies=[Depends(require_permission("pipeline:write"))])
