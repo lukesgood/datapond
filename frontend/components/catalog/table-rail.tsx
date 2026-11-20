@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import NextLink from "next/link"
 import { Loader2, X } from "lucide-react"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -68,6 +68,15 @@ export function TableRail({ table, typeLabel, catalogKind, connectionId, graph, 
     return () => { cancelled = true }
   }, [table, attempt])
 
+  // Below the two-column width the rail opens under the whole list, off screen: bring
+  // it into view and move focus to it, so selecting a table visibly does something.
+  const heading = useRef<HTMLHeadingElement>(null)
+  useEffect(() => {
+    if (!window.matchMedia("(max-width: 1023px)").matches) return
+    heading.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    heading.current?.focus({ preventScroll: true })
+  }, [table])
+
   const joins = graph && graphNode ? neighbours(graph, graphNode).slice(0, 5) : []
   const sql = tableSelectSql(table.namespace, table.name, table.catalog || null)
 
@@ -80,7 +89,7 @@ export function TableRail({ table, typeLabel, catalogKind, connectionId, graph, 
             <span className="truncate">{table.catalog}.{table.namespace}</span>
             <CatalogKindBadge kind={catalogKind} />
           </p>
-          <h3 className="truncate text-base font-semibold">{table.name}</h3>
+          <h3 ref={heading} tabIndex={-1} className="truncate text-base font-semibold focus:outline-none">{table.name}</h3>
           <p className="text-xs text-muted-foreground">{typeLabel}</p>
         </div>
         <Button size="icon-sm" variant="ghost" aria-label="Close table details" onClick={onClose}><X className="h-4 w-4" /></Button>

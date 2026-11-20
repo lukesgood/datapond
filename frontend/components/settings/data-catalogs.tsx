@@ -397,7 +397,7 @@ function CatalogDialog({ original, onClose, onSaved }: {
     <Dialog open onOpenChange={o => { if (!o) onClose() }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{creating ? "Add a data catalog" : `Edit ${original.name}`}</DialogTitle>
+          <DialogTitle>{creating ? "Add a data catalog" : `Edit ${original.engine_catalog}`}</DialogTitle>
         </DialogHeader>
         <div className="max-h-[65vh] space-y-3 overflow-y-auto py-1 pr-1">
           <div className="grid grid-cols-2 gap-3">
@@ -552,7 +552,7 @@ function AccessDialog({ catalog, initial, onClose, onSaved }: {
     <Dialog open onOpenChange={o => { if (!o) onClose() }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Access to {catalog.name}</DialogTitle>
+          <DialogTitle>Access to {catalog.engine_catalog}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3 py-1 text-xs">
           <p className="text-muted-foreground">{RESTRICT_NOTE}</p>

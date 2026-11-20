@@ -65,6 +65,9 @@ function CatalogPageInner() {
   const [sort, setSort] = useState<{ by: "name" | "namespace" | "synced"; desc: boolean }>({ by: "name", desc: false })
   const [graph, setGraph] = useState<RelGraph | null>(null)
   const [graphFailed, setGraphFailed] = useState(false)
+  // The registry carries kinds, groups and source connections; without it the list
+  // still works, so say what is missing rather than fail the page.
+  const [registryFailed, setRegistryFailed] = useState(false)
 
   // Send to Knowledge drives ingest-source / schedule: knowledge:write plus
   // ai:generate, which mayIngest checks — the same decision the Knowledge page makes.
@@ -86,8 +89,9 @@ function CatalogPageInner() {
       }
       const tablesData = await tablesRes.json()
       const namespacesData = await namespacesRes.json()
-      const registryData = registryRes?.ok ? await registryRes.json().catch(() => ({})) : {}
-      setData({ tables: tablesData.tables ?? [], namespaces: namespacesData.namespaces ?? [], registry: registryData.catalogs ?? [] })
+      const registryData = registryRes?.ok ? await registryRes.json().catch(() => null) : null
+      setRegistryFailed(!registryData)
+      setData({ tables: tablesData.tables ?? [], namespaces: namespacesData.namespaces ?? [], registry: registryData?.catalogs ?? [] })
     } catch (e) {
       setData(null)
       setError(e instanceof Error ? e.message : "The catalog could not be read")
@@ -171,6 +175,14 @@ function CatalogPageInner() {
   const pickCatalog = (c: string) => { setCatalog(c); setChip("all"); setSelected(null); setSending(false) }
   const pickChip = (k: string) => { setChip(k); setSelected(null); setSending(false) }
   const select = (t: Table) => { setSelected(tableKey(t)); setSending(false) }
+  // Closing the rail puts focus back on the row it was opened from.
+  const closeRail = () => {
+    const key = selected
+    setSelected(null)
+    // Compared directly: the key holds NUL separators, which CSS.escape would rewrite.
+    if (key) window.setTimeout(() => Array.from(document.querySelectorAll<HTMLElement>("[data-table-key]"))
+      .find(el => el.dataset.tableKey === key)?.focus(), 0)
+  }
 
   const header = (
     <PageHeader
@@ -281,6 +293,12 @@ function CatalogPageInner() {
           </nav>
 
           <section aria-label="Tables" className="min-w-0 flex-[3_1_420px] space-y-3">
+            {registryFailed && (
+              <p role="status" className="flex flex-wrap items-center gap-2 rounded-md border border-[var(--dp-warn)]/40 bg-[var(--dp-warn)]/10 px-3 py-1.5 text-xs">
+                Catalog details are unavailable, so kinds, groups and source links are missing.
+                <button type="button" className="font-medium text-primary hover:underline" onClick={() => void fetchData()}>Retry</button>
+              </p>
+            )}
             <div className="flex flex-wrap items-center gap-3">
               <div className="relative min-w-[220px] flex-1">
                 <Search aria-hidden className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -317,7 +335,8 @@ function CatalogPageInner() {
                             className={`cursor-pointer border-b last:border-0 ${on ? "bg-primary/5" : "hover:bg-muted/30"}`}
                             onClick={() => select(t)}>
                           <td className="px-4 py-2">
-                            <button type="button" className="text-left font-medium hover:underline focus-visible:underline focus-visible:outline-none"
+                            <button type="button" data-table-key={tableKey(t)} aria-pressed={on}
+                                    className="text-left font-medium hover:underline focus-visible:underline focus-visible:outline-none"
                                     onClick={e => { e.stopPropagation(); select(t) }}>{t.name}</button>
                           </td>
                           <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
@@ -348,7 +367,7 @@ function CatalogPageInner() {
               catalogKind={registry.find(r => r.engine_catalog === current.catalog)?.kind}
               connectionId={connectionOf(current)} onPickJoined={pickJoined}
               graph={graph} graphNode={nodeFor(current)} sole={sole}
-              canSend={sendAccess === "allowed"} onSend={() => setSending(true)} onClose={() => setSelected(null)} />
+              canSend={sendAccess === "allowed"} onSend={() => setSending(true)} onClose={closeRail} />
           ) : (
             <ExplainRail label="About the catalog">
               <RailSection title={`${tables.length} tables in ${catalogs.length} catalog${catalogs.length === 1 ? "" : "s"}`}>
