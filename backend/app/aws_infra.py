@@ -196,7 +196,7 @@ def gather(now: Optional[datetime] = None) -> Dict[str, Any]:
     acu, acupeak = _series(res, "acu"), _series(res, "acupeak")
     cpu, cpupeak = _series(res, "cpu"), _series(res, "cpupeak")
     last = lambda s: s[-1][1] if s else None
-    aurora.update(acu_now=last(acu), acu_peak_24h=max((v for ts, v in acupeak if ts >= day_ago), default=None),
+    aurora.update(acu_now=None if last(acu) is None else round(last(acu), 2), acu_peak_24h=max((v for ts, v in acupeak if ts >= day_ago), default=None),
                   connections_peak_24h=max((v for ts, v in _series(res, "dbconn") if ts >= day_ago), default=None),
                   storage_gb=round(last(_series(res, "dbvol")) / 1e9, 2) if _series(res, "dbvol") else None)
     cpu24 = [(ts, v) for ts, v in cpu if ts >= day_ago]

@@ -8,7 +8,7 @@ import { RailAttention } from "@/components/ui/explain-rail"
 import { InfraTabs } from "@/components/infra/infra-tabs"
 import { AuroraCapacityCard, ScheduleCard } from "@/components/infra/aws-controls"
 import { readJson, sourceStatus } from "@/lib/source-state"
-import { missingSentence, money, stopsToday, type AwsSnapshot } from "@/lib/aws-infra"
+import { acu, missingSentence, money, stopsToday, type AwsSnapshot } from "@/lib/aws-infra"
 
 const fmtTime = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"
@@ -87,7 +87,7 @@ export function AwsPanel() {
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                 <Tile label="Alarms" value={inAlarm ? `${inAlarm} in alarm` : "None in alarm"} sub={`of ${data.alarms.length}`} warn={inAlarm > 0} />
                 <Tile label="Node" value={n.state ?? "—"} sub={stops ? `stops today ${stops}` : data.schedule.enabled === false ? "runs 24/7" : n.lifecycle ?? ""} />
-                <Tile label="Aurora" value={a.acu_now != null ? `${a.acu_now} ACU` : a.status ?? "—"} sub={a.min_acu != null ? `range ${a.min_acu}–${a.max_acu}` : ""} />
+                <Tile label="Aurora" value={a.acu_now != null ? `${acu(a.acu_now)} ACU` : a.status ?? "—"} sub={a.min_acu != null ? `range ${a.min_acu}–${a.max_acu}` : ""} />
                 <Tile label="Data bucket" value={data.s3.size_gb != null ? `${(data.s3.size_gb * 1000).toFixed(1)} MB` : "—"}
                       sub={data.s3.objects != null ? `${data.s3.objects.toLocaleString()} objects` : "measured daily by S3"} />
               </div>
@@ -106,7 +106,7 @@ export function AwsPanel() {
                     <tr className="border-t align-top">
                       <td className="px-3 py-2.5"><div className="font-medium">Aurora PostgreSQL</div><div className="font-mono text-xs text-muted-foreground">{a.cluster} · Serverless v2{a.engine_version ? ` · ${a.engine_version}` : ""}</div></td>
                       <td className="px-3 py-2.5"><State ok={a.status ? a.status === "available" : null}>{a.status ?? "—"}</State></td>
-                      <td className="px-3 py-2.5 text-xs">{a.acu_now ?? "—"} ACU now · {a.acu_peak_24h ?? "—"} peak<div className="text-muted-foreground">{a.connections_peak_24h ?? "—"} connections peak · {a.storage_gb ?? "—"} GB</div></td>
+                      <td className="px-3 py-2.5 text-xs">{acu(a.acu_now)} ACU now · {acu(a.acu_peak_24h)} peak<div className="text-muted-foreground">{a.connections_peak_24h ?? "—"} connections peak · {a.storage_gb ?? "—"} GB</div></td>
                     </tr>
                     <tr className="border-t align-top">
                       <td className="px-3 py-2.5"><div className="font-medium">S3 data bucket</div><div className="font-mono text-xs text-muted-foreground">{data.s3.bucket ?? "—"}</div></td>

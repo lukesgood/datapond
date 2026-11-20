@@ -74,6 +74,11 @@ export function money(n: number | null | undefined, digits = 2): string {
   return `$${n.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`
 }
 
+/** Aurora capacity to two decimals at most: 1.0254… → "1.03", 4 → "4". */
+export function acu(n: number | null | undefined): string {
+  return n == null || Number.isNaN(n) ? "—" : String(Math.round(n * 100) / 100)
+}
+
 function minutes(t: string): number | null {
   const m = /^(\d{1,2}):(\d{2})$/.exec(t.trim())
   if (!m) return null
