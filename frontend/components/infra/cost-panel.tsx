@@ -251,7 +251,9 @@ export function CostPanel() {
                       <li>In the billing account, activate the Project cost allocation tag. It takes up to 24 h.</li>
                       <li>This page then reads Cost Explorer once every 6 hours ($0.01 a read).</li>
                     </ol>
-                    <p className="mt-2 text-muted-foreground">On an MSP or organization account, step 2 is done by whoever owns billing.</p>
+                    {data.actual.blocked === "payer"
+                      ? <p className="mt-2 text-foreground">This account is a member of an AWS organization, and its payer account does not share Cost Explorer with member accounts yet. Whoever owns billing turns that on in the payer account (Billing and Cost Management › Cost Management preferences › member account access), along with step 2.</p>
+                      : <p className="mt-2 text-muted-foreground">On an MSP or organization account, step 2 is done by whoever owns billing.</p>}
                   </section>
                 )}
               </div>

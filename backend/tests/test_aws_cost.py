@@ -102,6 +102,25 @@ def test_refused_calls_are_named_not_fatal():
     assert calls.missing == ["rds:DescribeDBClusters"] and len(calls.errors) == 1
 
 
+class _PayerDenied(Exception):
+    response = {"Error": {"Code": "AccessDeniedException"}}
+
+    def __str__(self):
+        return ("An error occurred (AccessDeniedException) when calling the GetCostAndUsage operation: "
+                "Payer account 111111111111 does not allow access for linked account 222222222222")
+
+
+def test_payer_block_is_not_reported_as_missing_iam(monkeypatch):
+    class _Ce:
+        def get_cost_and_usage(self, **_):
+            raise _PayerDenied()
+    monkeypatch.setattr(aws_infra, "_client", lambda *_: _Ce())
+    aws_infra._cache.pop("ce", None)
+    out = aws_infra.actual_costs()
+    aws_infra._cache.pop("ce", None)
+    assert out == {"active": False, "missing": [], "blocked": "payer"}
+
+
 def test_schedule_view_editable_only_when_both_parse():
     names = aws_infra.schedule_names()
     s = {"names": names,
