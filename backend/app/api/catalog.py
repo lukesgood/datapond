@@ -69,6 +69,12 @@ class TableInfo(BaseModel):
     metadata_location: Optional[str] = None
     last_updated: Optional[str] = None
     row_count: Optional[int] = None
+    # What the table is, for the browser: a read-only mirror of another catalog's table
+    # ("catalog.schema.table"), the source connection that syncs it, and whether it is
+    # a live source database table (read through the engine, not copied).
+    mirror_of: Optional[str] = None
+    synced_from: Optional[Dict[str, Any]] = None
+    live: bool = False
 
 class TablesResponse(BaseModel):
     tables: List[TableInfo]
@@ -90,6 +96,9 @@ class TableDetails(BaseModel):
     snapshot_id: Optional[str] = None
     row_count: Optional[int] = None
     last_updated: Optional[str] = None
+    mirror_of: Optional[str] = None
+    synced_from: Optional[Dict[str, Any]] = None
+    live: bool = False
 
 class CatalogTree(BaseModel):
     catalogs: List[Dict[str, Any]] = []
@@ -140,6 +149,42 @@ async def list_all_namespaces(user: dict = Depends(require_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _utc_iso(ts) -> str:
+    """Sync times are stored naive in UTC; say so, or a browser reads them as local."""
+    from datetime import timezone
+    return (ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)).isoformat()
+
+
+async def _table_facts():
+    """Mirror links and, per lake table, the sync that writes it — both advisory: a
+    failure (or a database before migrations 0028/0024) leaves the list as names only."""
+    from app import sync_targets, table_links
+    from app.api.connectors import get_db_pool
+    links, synced = None, {}
+    try:
+        pool = await get_db_pool()
+        links = await table_links.load(pool)
+        default = catalog_registry.default_entry().engine_catalog
+        async with pool.acquire() as c:
+            rows = await c.fetch(
+                """SELECT j.connection_id, cn.name, j.source_table, j.target_table, j.target_catalog,
+                          j.last_run_at, j.rows_synced, j.last_run_status
+                     FROM connector_sync_jobs j JOIN connector_connections cn ON cn.id = j.connection_id
+                    WHERE j.enabled AND j.last_run_at IS NOT NULL""")
+        for r in rows:
+            ns, tbl = sync_targets.lake_table(r["source_table"], r["target_table"])
+            key = ((r["target_catalog"] or default).lower(), ns.lower(), tbl.lower())
+            prev = synced.get(key)
+            if prev and prev["last_run_at"] >= _utc_iso(r["last_run_at"]):
+                continue
+            synced[key] = {"connection_id": str(r["connection_id"]), "connection": r["name"],
+                           "last_run_at": _utc_iso(r["last_run_at"]), "rows": r["rows_synced"],
+                           "status": r["last_run_status"]}
+    except Exception as e:
+        logger.info("catalog list: table facts unavailable: %s", e)
+    return links, synced
+
+
 @router.get("/catalog/tables", response_model=TablesResponse)
 async def list_all_tables(user: dict = Depends(require_user)):
     """List all tables of every enabled catalog the caller may use, each labelled with
@@ -147,16 +192,25 @@ async def list_all_tables(user: dict = Depends(require_user)):
     access = await catalog_access.for_caller(user)
     try:
         tables, errors, readers = [], [], _readers(access)
+        links, synced = await _table_facts()
         for entry, reader in readers:
             try:
                 namespaces = reader.list_namespaces()
             except Exception as e:
                 errors.append(e)
                 continue
+            live = entry.kind == "trino_source"
             for ns in namespaces:
                 try:
                     for tbl in reader.list_tables(ns):
-                        tables.append(TableInfo(name=tbl, namespace=ns, catalog=_label(entry)))
+                        cat = _label(entry)
+                        key = (cat.lower(), str(ns).lower(), str(tbl).lower())
+                        owner = links.owner_of(key) if links else None
+                        tables.append(TableInfo(
+                            name=tbl, namespace=ns, catalog=cat, live=live,
+                            table_type="source" if live else "iceberg",
+                            mirror_of=".".join(owner) if owner else None,
+                            synced_from=synced.get(key)))
                 except Exception:
                     continue
         if errors and len(errors) == len(readers):
@@ -181,11 +235,18 @@ async def get_table_details(namespace: str, table: str, catalog: Optional[str] =
             raise HTTPException(status_code=404, detail=f"Table {namespace}.{table} not found")
         location = reader.get_location(namespace, table)
         row_count = reader.row_count(namespace, table)
+        links, synced = await _table_facts()
+        key = (_label(entry).lower(), namespace.lower(), table.lower())
+        owner = links.owner_of(key) if links else None
+        live = entry.kind == "trino_source"
         return TableDetails(
             name=table,
             namespace=namespace,
             catalog=_label(entry),
-            table_type="iceberg",
+            table_type="source" if live else "iceberg",
+            live=live,
+            mirror_of=".".join(owner) if owner else None,
+            synced_from=synced.get(key),
             location=location,
             columns=columns,
             properties={"location": location} if location else {},

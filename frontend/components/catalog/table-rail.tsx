@@ -10,6 +10,8 @@ import { ChoiceGroup } from "@/components/ui/choice-group"
 import { RailAttention, RailSection } from "@/components/ui/explain-rail"
 import { tableSelectSql } from "@/lib/catalog-sql"
 import { CatalogKindBadge } from "@/components/catalog/kind-badge"
+import { CopyName, TableStatus } from "@/components/catalog/table-status"
+import type { TableFacts } from "@/lib/catalog-view"
 import { displayId, neighbours, type RelGraph } from "@/lib/relationship-view"
 import { useToast } from "@/lib/toast"
 
@@ -20,6 +22,9 @@ export interface CatalogTable {
   catalog: string
   table_type: string
   last_updated?: string
+  mirror_of?: string | null
+  synced_from?: TableFacts["synced_from"]
+  live?: boolean
 }
 
 interface Detail { row_count?: number | null; columns: { name: string; type: string }[]; location?: string }
@@ -31,11 +36,15 @@ export const tableHref = (t: CatalogTable) =>
 /** One table, in the right column of the catalog: what it is, its first columns, the
  *  tables people join it to, and the actions. It replaces a grid of cards that said
  *  nothing but the name, and a relationship graph that filled the screen first. */
-export function TableRail({ table, typeLabel, catalogKind, graph, graphNode, sole, canSend, onSend, onClose }: {
+export function TableRail({ table, typeLabel, catalogKind, connectionId, graph, graphNode, sole, canSend, onSend, onClose, onPickJoined }: {
   table: CatalogTable
   typeLabel: string
   /** Registry kind of the table's catalog, for the badge beside its name. */
   catalogKind?: string
+  /** For a source catalog: the connection that owns it, for "Sync it into the lake". */
+  connectionId?: string | null
+  /** Select another table from "Joined with" (a graph node id). */
+  onPickJoined?: (nodeId: string) => void
   graph: RelGraph | null
   graphNode: string | null
   sole: string | null
@@ -72,10 +81,12 @@ export function TableRail({ table, typeLabel, catalogKind, graph, graphNode, sol
             <CatalogKindBadge kind={catalogKind} />
           </p>
           <h3 className="truncate text-base font-semibold">{table.name}</h3>
-          <p className="text-xs text-muted-foreground">{typeLabel} · {table.table_type}</p>
+          <p className="text-xs text-muted-foreground">{typeLabel}</p>
         </div>
         <Button size="icon-sm" variant="ghost" aria-label="Close table details" onClick={onClose}><X className="h-4 w-4" /></Button>
       </div>
+
+      <TableStatus facts={table} connectionId={connectionId} />
 
       {err ? (
         <RailAttention title="Could not read this table" tone="bad">
@@ -92,8 +103,9 @@ export function TableRail({ table, typeLabel, catalogKind, graph, graphNode, sol
 
       <div className="flex flex-wrap gap-2">
         <NextLink href={`/query?sql=${encodeURIComponent(sql)}`} className={buttonVariants({ size: "sm" })}>Open in Analytics</NextLink>
-        <NextLink href={tableHref(table)} className={buttonVariants({ size: "sm", variant: "outline" })}>Preview and profile</NextLink>
+        <NextLink href={tableHref(table)} className={buttonVariants({ size: "sm", variant: "outline" })}>Open table</NextLink>
         {canSend && <Button size="sm" variant="outline" onClick={onSend}>Send to Knowledge</Button>}
+        <CopyName name={`${table.catalog}.${table.namespace}.${table.name}`} />
       </div>
 
       {detail && detail.columns.length > 0 && (
@@ -124,7 +136,10 @@ export function TableRail({ table, typeLabel, catalogKind, graph, graphNode, sol
             <ul className="mt-1.5 space-y-1">
               {joins.map(j => (
                 <li key={j.other} className="text-xs">
-                  <span className="font-mono text-foreground">{displayId(j.other, sole)}</span>
+                  {onPickJoined
+                    ? <button type="button" className="font-mono text-primary hover:underline focus-visible:underline focus-visible:outline-none"
+                              onClick={() => onPickJoined(j.other)}>{displayId(j.other, sole)}</button>
+                    : <span className="font-mono text-foreground">{displayId(j.other, sole)}</span>}
                   <span className="text-muted-foreground"> · {j.count} quer{j.count === 1 ? "y" : "ies"}</span>
                   {j.on && <div className="truncate font-mono text-2xs" title={displayId(j.on, sole)}>on {displayId(j.on, sole)}</div>}
                 </li>

@@ -21,6 +21,8 @@ import {
 import { Table, Database, Eye, ExternalLink, Columns3, CheckCircle2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { CatalogKindBadge } from "@/components/catalog/kind-badge"
+import { CopyName, TableStatus } from "@/components/catalog/table-status"
+import type { TableFacts } from "@/lib/catalog-view"
 
 interface Column {
   name: string
@@ -54,6 +56,9 @@ interface TableDetail {
   row_count?: number
   properties?: Record<string, unknown>
   last_updated?: string
+  mirror_of?: string | null
+  synced_from?: TableFacts["synced_from"]
+  live?: boolean
 }
 
 function TableDetailPageInner() {
@@ -76,7 +81,7 @@ function TableDetailPageInner() {
   const [attempt, setAttempt] = useState(0)
   // The registry, for the engine name and kind of this table's catalog. ?catalog= is the
   // engine name when it comes from the Catalog page, so a failed lookup falls back to it.
-  const [registry, setRegistry] = useState<{ name: string; engine_catalog: string; kind: string; is_default: boolean }[]>([])
+  const [registry, setRegistry] = useState<{ name: string; engine_catalog: string; kind: string; is_default: boolean; config?: Record<string, unknown> }[]>([])
   useEffect(() => {
     let cancelled = false
     fetch("/api/catalogs")
@@ -97,11 +102,7 @@ function TableDetailPageInner() {
     if (withTable) q.set("table", fullName)
     return `/catalog?${q.toString()}`
   }
-  const [copied, setCopied] = useState(false)
-  const copyName = async () => {
-    try { await navigator.clipboard.writeText(fullName); setCopied(true); window.setTimeout(() => setCopied(false), 1500) }
-    catch { /* clipboard refused: the name is on screen to select */ }
-  }
+
 
   useEffect(() => {
     const fetchTableDetail = async () => {
@@ -139,12 +140,14 @@ function TableDetailPageInner() {
   // The preview tab is the default, but Tabs only fires onValueChange on a
   // change — never for the initial value — so trigger the initial load here.
   // The ref guards against a double-invocation (e.g. React strict mode).
+  // A live source table is not previewed on its own: every preview is a query against
+  // the source database, so it waits for "Load preview".
   useEffect(() => {
-    if (previewRequested.current) return
+    if (previewRequested.current || !tableDetail || tableDetail.live) return
     previewRequested.current = true
     void loadPreview()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [namespace, tableName])
+  }, [namespace, tableName, tableDetail])
 
   const formatNumber = (num?: number) => {
     if (num == null) return "—"
@@ -237,9 +240,10 @@ function TableDetailPageInner() {
           </div>
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <code className="font-mono text-sm text-muted-foreground">{fullName}</code>
-            <Button size="xs" variant="outline" onClick={() => void copyName()} aria-live="polite">
-              {copied ? "Copied" : "Copy name"}</Button>
+            <CopyName name={fullName} />
           </div>
+          <div className="mb-2"><TableStatus facts={tableDetail} connectionId={
+            typeof catalogEntry?.config?.connection_id === "string" ? catalogEntry.config.connection_id : null} /></div>
           <p className="text-sm text-muted-foreground">{tableDetail.location}</p>
         </div>
       </div>
@@ -300,7 +304,7 @@ function TableDetailPageInner() {
                     }}
                   />
                 </div>
-                <p className="mt-1.5 text-xs text-muted-foreground">non-null across {stats.length} profiled column{stats.length === 1 ? "" : "s"}</p>
+                <p className="mt-1.5 text-xs text-muted-foreground">non-null in a {preview?.total_returned ?? 100}-row sample, {stats.length} column{stats.length === 1 ? "" : "s"}</p>
               </>
             )}
           </CardContent>
@@ -413,7 +417,9 @@ function TableDetailPageInner() {
                 <EmptyState
                   icon={Eye}
                   title="No preview loaded"
-                  hint="Fetch the first 100 rows to inspect this table's data."
+                  hint={tableDetail.live
+                    ? "This table is read live from the source database, so a preview queries it. Load the first 100 rows when you need them."
+                    : "Fetch the first 100 rows to inspect this table's data."}
                   action={
                     <button onClick={loadPreview} className="mt-1 text-xs text-primary hover:underline font-medium">Load preview</button>
                   }

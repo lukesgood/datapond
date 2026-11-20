@@ -104,3 +104,38 @@ export function browserQuery(s: BrowserState): string {
   const q = p.toString()
   return q ? `?${q}` : ""
 }
+
+/** What the catalog list and table page say about a table besides its name. */
+export interface TableFacts {
+  mirror_of?: string | null
+  synced_from?: { connection_id: string; connection: string; last_run_at: string; rows?: number | null; status?: string | null } | null
+  live?: boolean
+}
+
+/** "3 h ago", "2 days ago", "just now" — for a sync time. */
+export function ago(iso: string | null | undefined, now: Date = new Date()): string {
+  if (!iso) return "—"
+  const ms = now.getTime() - new Date(iso).getTime()
+  if (!Number.isFinite(ms)) return "—"
+  const min = Math.round(ms / 60000)
+  if (min < 1) return "just now"
+  if (min < 60) return `${min} min ago`
+  const h = Math.round(min / 60)
+  if (h < 48) return `${h} h ago`
+  return `${Math.round(h / 24)} days ago`
+}
+
+/** Catalog browser link to one table ("catalog.namespace.table"). */
+export function browserHref(fullName: string): string {
+  const first = fullName.indexOf("."), last = fullName.lastIndexOf(".")
+  if (first <= 0 || last <= first) return "/catalog"
+  const cat = fullName.slice(0, first), ns = fullName.slice(first + 1, last)
+  return `/catalog${browserQuery({ catalog: cat, chip: chipKey(cat, ns), query: "", selected: [cat, ns, fullName.slice(last + 1)].join("\u0000") })}`
+}
+
+/** Where a search looked, for "No match in …". */
+export function searchScope(catalog: string, chipLabel: string | null): string {
+  if (catalog === "all" && !chipLabel) return "any catalog"
+  if (chipLabel) return catalog === "all" ? chipLabel : `${catalog} · ${chipLabel}`
+  return catalog
+}
