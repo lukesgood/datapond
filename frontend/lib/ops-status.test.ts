@@ -133,3 +133,15 @@ test("paused sources are not an Overview fact (they live on Sources)", () => {
               syncs: { window_hours: 24, tables_ok: 3, tables_failed: 0, paused_sources: 5 } }
   assert.deepEqual(statusFacts(s), ["3 tables synced ok (24h)"])
 })
+
+test("a source table synced by two jobs explains the drift and links the connection", () => {
+  const v = issueView({ kind: "duplicate_sync", connection_id: "c1", source: "Sample E-Commerce DB", table: "default.customers",
+    jobs: [{ source_table: "customers", catalog: "iceberg", last_run_at: null },
+           { source_table: "public.customers", catalog: "polaris_lake", last_run_at: null }] }, new Set())
+  assert.equal(v.title, "Sample E-Commerce DB · default.customers is synced by 2 jobs")
+  assert.match(v.detail, /drift apart.*iceberg \(customers\) and polaris_lake \(public\.customers\)/)
+  assert.deepEqual(v.actions, [{ type: "link", label: "Open connection", href: "/connectors/connections/c1" }])
+  const same = issueView({ kind: "duplicate_sync", connection_id: "c1", source: "S", table: "default.t",
+    jobs: [{ source_table: "t", catalog: "iceberg", last_run_at: null }, { source_table: "public.t", catalog: "iceberg", last_run_at: null }] }, new Set())
+  assert.match(same.detail, /overwrite each other/)
+})

@@ -422,12 +422,117 @@ async def _resolve_target_catalog(pool, connection_id: str, table: str,
                 "writes into a lake catalog."))
         return entry.engine_catalog
     try:
-        async with pool.acquire() as conn:
-            return await conn.fetchval(
-                "SELECT target_catalog FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
-                uuid.UUID(connection_id), table)
+        job = await _job_for(pool, connection_id, table)
+        return job["target_catalog"] if job else None
     except Exception:            # a database before migration 0028
         return None
+
+
+async def _job_for(pool, connection_id: str, table: str) -> Optional[dict]:
+    """This connection's job for `table`: the one named so, else the one that lands in the
+    same lake table under another spelling (`public.customers` for `customers`) — so a
+    sync that names a table differently updates that job instead of starting a second
+    copy (app/sync_targets.py)."""
+    from app import sync_targets
+    async with pool.acquire() as conn:
+        rows = [dict(r) for r in await conn.fetch(
+            "SELECT id, source_table, target_table, target_catalog, enabled FROM connector_sync_jobs WHERE connection_id=$1",
+            uuid.UUID(connection_id))]
+    exact = next((r for r in rows if r["source_table"] == table), None)
+    if exact:
+        return exact
+    return sync_targets.conflict(rows, table, f"datapond.default.{table}")
+
+
+def _default_lake() -> Optional[str]:
+    from app import catalog_registry
+    try:
+        return catalog_registry.default_entry().engine_catalog
+    except Exception:
+        return None
+
+
+async def _check_sync_target(pool, connection_id: str, table_name: str, enabled: bool, target_catalog,
+                             resolved_target: Optional[str], existing_choice, user: dict) -> None:
+    """One lake table per source table (app/sync_targets.py).
+
+    - A job may not land in the namespace.table another job of this connection already
+      syncs, in any catalog: 409 duplicate_target.
+    - Changing the catalog of a table that has synced before needs a choice for the data
+      already there: `existing: "move"` registers it in the new catalog as the owner (no
+      copy; catalog:write), `existing: "leave"` lets the old table stop updating. Without
+      one: 409 target_has_data, naming both catalogs.
+    """
+    from app import sync_targets
+    try:
+        async with pool.acquire() as conn:
+            rows = [dict(r) for r in await conn.fetch(
+                """SELECT source_table, target_table, target_catalog, enabled, last_run_at, rows_synced
+                     FROM connector_sync_jobs WHERE connection_id=$1""", uuid.UUID(connection_id))]
+    except Exception as e:           # before migration 0028 there is no target_catalog to compare
+        logger.warning("[sync] target check skipped for %s: %s", table_name, e)
+        return
+    me = next((r for r in rows if r["source_table"] == table_name), None)
+    changing = target_catalog != "__keep__"
+    if enabled and (me is None or not me["enabled"] or changing):
+        other = sync_targets.conflict([r for r in rows if r["enabled"]], table_name,
+                                      me["target_table"] if me else f"datapond.default.{table_name}")
+        if other:
+            ns, tbl = sync_targets.lake_table(table_name, me["target_table"] if me else f"datapond.default.{table_name}")
+            raise HTTPException(status_code=409, detail={
+                "code": "duplicate_target", "table": f"{ns}.{tbl}", "other": other["source_table"],
+                "other_catalog": other.get("target_catalog") or _default_lake(),
+                "message": (f"{table_name} lands in {ns}.{tbl}, which {other['source_table']} already syncs "
+                            f"(into {other.get('target_catalog') or _default_lake() or 'the default catalog'}). "
+                            "Change that table's target instead of adding a second job.")})
+    if not (changing and me and me["last_run_at"]):
+        return
+    old = me["target_catalog"] or _default_lake()
+    new = resolved_target or _default_lake()
+    if not old or not new or old == new:
+        return
+    ns, tbl = sync_targets.lake_table(table_name, me["target_table"])
+    if existing_choice not in ("move", "leave"):
+        raise HTTPException(status_code=409, detail={
+            "code": "target_has_data", "table": f"{ns}.{tbl}", "from": old, "to": new,
+            "rows": me["rows_synced"], "last_run_at": me["last_run_at"].isoformat() if me["last_run_at"] else None,
+            "message": (f"{ns}.{tbl} already has data in {old}. Move it to {new} (no copy) or leave it "
+                        "there and start fresh.")})
+    if existing_choice == "leave":
+        return
+    from app.permissions import permissions_for
+    if "catalog:write" not in set(user.get("permissions") or permissions_for(user.get("role"))):
+        raise HTTPException(status_code=403, detail=(
+            "Moving a table between catalogs needs catalog:write (admins and data engineers). "
+            "Choose to leave it, or ask one of them."))
+    await _move_table(pool, old, new, ns, tbl, user)
+
+
+async def _move_table(pool, src: str, dst: str, schema: str, table: str, user: dict) -> None:
+    """Register src.schema.table in dst as the owner, src keeping a read-only mirror —
+    the export route's move mode for one table (app/catalog_export.py)."""
+    from app import catalog_export as ce
+    from app.api.catalog_admin import _record_links
+    try:
+        cur = ce._cursor()
+        items = await asyncio.to_thread(ce.plan, cur, src, dst, schema, [table])
+        if not items:
+            return                    # nothing was written there after all
+        if items[0].action == "exists":
+            raise HTTPException(status_code=409, detail=(
+                f"{dst}.{schema}.{table} already exists. Delete or rename it first, or leave the "
+                f"table in {src} and start fresh."))
+        if items[0].action == "skip":
+            raise HTTPException(status_code=409, detail=f"{src}.{schema}.{table} cannot be moved: {items[0].detail}")
+        items = await asyncio.to_thread(ce.apply, cur, items, src, dst)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"The move failed in the query engine: {str(e)[:300]}")
+    if items[0].action != "registered":
+        raise HTTPException(status_code=502, detail=f"The move did not complete: {items[0].action} {items[0].detail or ''}".strip())
+    await _record_links(pool, items, src, dst, "move")
+    logger.info("[sync] %s moved %s.%s from %s to %s", user.get("username"), schema, table, src, dst)
 
 
 async def _remember_target_catalog(pool, connection_id: str, table: str, catalog: Optional[str]) -> None:
@@ -1887,10 +1992,22 @@ async def list_tables(connection_id: str, user: dict = Depends(require_user)):
         pool = await get_db_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT source_table, enabled, sync_mode, incremental_column, last_value, partition_spec, key_columns, pii_columns, target_catalog FROM connector_sync_jobs WHERE connection_id=$1",
+                "SELECT source_table, target_table, enabled, sync_mode, incremental_column, last_value, partition_spec, key_columns, pii_columns, target_catalog, last_run_at FROM connector_sync_jobs WHERE connection_id=$1",
                 uuid.UUID(connection_id)
             )
         config_map = {r['source_table']: r for r in rows}
+        from app import sync_targets
+        _lands = {r['source_table']: sync_targets.lake_table(r['source_table'], r['target_table']) for r in rows}
+        _default = _default_lake()
+
+        def _also(t: str) -> list:
+            # Other jobs of this connection that land in the same lake table under another
+            # spelling — a second copy the source's own table list would never show.
+            mine = _lands.get(t) or sync_targets.lake_table(t, f"datapond.default.{t}")
+            return [{"source_table": r['source_table'], "catalog": r['target_catalog'] or _default,
+                     "enabled": r['enabled'],
+                     "last_run_at": r['last_run_at'].isoformat() if r['last_run_at'] else None}
+                    for r in rows if r['source_table'] != t and _lands[r['source_table']] == mine]
 
         def _table_info(t: str) -> dict:
             cfg = config_map.get(t)
@@ -1919,6 +2036,7 @@ async def list_tables(connection_id: str, user: dict = Depends(require_user)):
                 "pii_columns": _parse_key_columns(cfg['pii_columns']) if cfg else None,
                 # where the table lands; None = the default catalog
                 "target_catalog": (cfg['target_catalog'] if cfg and 'target_catalog' in cfg.keys() else None),
+                "also_synced_as": _also(t),
             }
 
         return {"tables": [_table_info(t) for t in tables]}
@@ -1940,10 +2058,13 @@ async def set_table_enabled(connection_id: str, table_name: str, body: dict,
         key_columns         = body.get("key_columns", "__keep__")  # list|[]|None; sentinel=don't change
         pii_columns         = body.get("pii_columns", "__keep__")  # list|["*"]|[]; sentinel=don't change
         target_catalog      = body.get("target_catalog", "__keep__")  # name|""(default); sentinel=don't change
+        existing_choice     = body.get("existing")   # "move" | "leave": what happens to data in the old catalog
         pool = await get_db_pool()
         resolved_target = None
         if target_catalog != "__keep__" and target_catalog:
             resolved_target = await _resolve_target_catalog(pool, connection_id, table_name, target_catalog)
+        await _check_sync_target(pool, connection_id, table_name, enabled, target_catalog,
+                                 resolved_target, existing_choice, user)
         async with pool.acquire() as conn:
             existing = await conn.fetchval(
                 "SELECT id FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
@@ -2282,11 +2403,9 @@ async def sync_stream(connection_id: str, sync_mode: str = "full",
                 # 나머지 테이블 sync를 막지 않도록 try로 감싼다.
                 try:
                     run_at = datetime.utcnow()
+                    alias = await _job_for(pool, connection_id, table)
                     async with pool.acquire() as conn:
-                        existing = await conn.fetchval(
-                            "SELECT id FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
-                            uuid.UUID(connection_id), table
-                        )
+                        existing = alias["id"] if alias else None
                         if existing:
                             # Only advance watermark when new_last_value is set; never overwrite with NULL
                             if new_last_value is not None:
