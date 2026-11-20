@@ -70,3 +70,37 @@ export function kindShort(kind: string | null | undefined): string | null {
 export function isSourceKind(kind: string | null | undefined): boolean {
   return kind === "trino_source"
 }
+
+/** The catalog browser's state as it lives in the URL, so a view can be shared,
+ *  reloaded and returned to: ?catalog=iceberg&ns=iceberg.default&q=ord&table=iceberg.default.orders
+ *  `ns` and `table` carry their catalog, since a namespace name may exist in several. */
+export interface BrowserState { catalog: string; chip: string; query: string; selected: string | null }
+
+const KEY_SEP = "\u0000"
+
+export function browserStateFrom(params: { get(name: string): string | null }): BrowserState {
+  const catalog = params.get("catalog") || "all"
+  const ns = params.get("ns")
+  let chip = "all"
+  if (ns) {
+    const i = ns.indexOf(".")
+    chip = i > 0 ? chipKey(ns.slice(0, i), ns.slice(i + 1)) : chipKey(catalog === "all" ? "" : catalog, ns)
+  }
+  const table = params.get("table")
+  let selected: string | null = null
+  if (table) {
+    const first = table.indexOf("."), last = table.lastIndexOf(".")
+    if (first > 0 && last > first) selected = [table.slice(0, first), table.slice(first + 1, last), table.slice(last + 1)].join(KEY_SEP)
+  }
+  return { catalog, chip, query: params.get("q") || "", selected }
+}
+
+export function browserQuery(s: BrowserState): string {
+  const p = new URLSearchParams()
+  if (s.catalog !== "all") p.set("catalog", s.catalog)
+  if (s.chip !== "all") p.set("ns", s.chip.split(KEY_SEP).filter(Boolean).join("."))
+  if (s.query.trim()) p.set("q", s.query)
+  if (s.selected) p.set("table", s.selected.split(KEY_SEP).join("."))
+  const q = p.toString()
+  return q ? `?${q}` : ""
+}

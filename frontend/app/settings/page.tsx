@@ -15,6 +15,7 @@ import { useCapabilityStrict, useCapability, useCapabilities } from "@/lib/capab
 import { usePermissions } from "@/lib/permissions"
 import { permissionState } from "@/lib/permission-state"
 import { PermissionUnknown } from "@/components/ui/permission-state"
+import { canExportCatalogs } from "@/lib/data-catalogs"
 
 // Path-hosted services. OpenMetadata / MinIO / Trino are not listed: their web UIs
 // don't support sub-path hosting. MLflow/Airflow keep a trailing slash to skip an
@@ -59,14 +60,18 @@ function SettingsWorkspace() {
   const router = useRouter()
   useEffect(() => { if (asked === "service") router.replace("/agents") }, [asked, router])
   const resolved = asked ? ALIASES[asked] ?? asked : null
-  const tab = resolved && (TABS as readonly string[]).includes(resolved) ? resolved : "people"
   const setTab = (v: string) => router.replace(v === "people" ? "/settings" : `/settings?tab=${v}`, { scroll: false })
 
-  // Settings is platform administration — admin only (every tab's API is). Personal
+  // Settings is platform administration — admin only (every tab's API is), with one
+  // exception: catalog:write (data engineers) exports catalogs and checks mirrors, so
+  // they see Data catalogs alone, read-only apart from Export and Mirrors. Personal
   // credentials live on /account.
-  const { role, loaded, error, refetch } = usePermissions()
+  const { role, permissions, loaded, error, refetch } = usePermissions()
   const isAdmin = role === "admin"
-  const access = permissionState({ loaded, error, allowed: isAdmin })
+  const catalogsOnly = !isAdmin && canExportCatalogs(permissions)
+  const access = permissionState({ loaded, error, allowed: isAdmin || catalogsOnly })
+  const tab = catalogsOnly ? "catalogs"
+    : resolved && (TABS as readonly string[]).includes(resolved) ? resolved : "people"
 
   if (access !== "allowed") {
     return (
@@ -87,8 +92,11 @@ function SettingsWorkspace() {
 
   return (
     <div className="mx-auto max-w-[1400px] flex-1 space-y-5 p-8 pt-6">
-      <PageHeader title="Settings"
-        description={<>People, catalogs and sign-in. Workload health is in <NextLink href="/services" className="text-primary hover:underline">Infrastructure</NextLink>; agents and models have their own menus.</>} />
+      <PageHeader title={catalogsOnly ? "Data catalogs" : "Settings"}
+        description={catalogsOnly ? <>Export a catalog&apos;s tables into another catalog and check the mirrors that leaves. Adding, editing and granting catalogs needs an administrator.</> : <>People, catalogs and sign-in. Workload health is in <NextLink href="/services" className="text-primary hover:underline">Infrastructure</NextLink>; agents and models have their own menus.</>} />
+      {catalogsOnly ? (
+        <DataCatalogs canEdit={false} />
+      ) : (
       <Tabs value={tab} onValueChange={v => setTab(String(v))}>
         <TabsList>
           <TabsTrigger value="people">People</TabsTrigger>
@@ -101,6 +109,7 @@ function SettingsWorkspace() {
         <TabsContent value="security" className="mt-5"><SecurityPanel /></TabsContent>
         <TabsContent value="urls" className="mt-5"><ServiceUrls /></TabsContent>
       </Tabs>
+      )}
     </div>
   )
 }

@@ -151,10 +151,14 @@ export function ExportDialog({ source, catalogs, onClose, onApplied }: {
           {confirming && plan && (
             <div className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
               <p className="font-medium">
-                Register {plan.tables.filter(t => t.action === "register").length} table(s) in {target} as {mode}?
+                {mode === "move" ? "Move" : "Mirror"} {plan.tables.filter(t => t.action === "register").length} table(s)
+                {" "}{mode === "move" ? "to" : "into"} {lakeLabel(target, catalogs)}?
               </p>
               <p className="mt-0.5 text-muted-foreground">
-                This changes the target catalog. No data is copied, and row counts are compared on both sides afterwards.
+                {mode === "move"
+                  ? `${lakeLabel(target, catalogs)} becomes the owner and ${lakeLabel(source.name, catalogs)} keeps read-only mirrors: writes there, and syncs still targeting it, are refused. Change those syncs' target to ${lakeLabel(target, catalogs)}.`
+                  : `${lakeLabel(source.name, catalogs)} stays the owner; ${lakeLabel(target, catalogs)} gets read-only mirrors that follow it.`}
+                {" "}No data is copied, and row counts are compared on both sides afterwards.
               </p>
               <div className="mt-2 flex gap-2">
                 <Button size="sm" disabled={busy !== null} onClick={() => void run(true)}>

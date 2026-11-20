@@ -283,12 +283,12 @@ export function SchemaTree({ onTableSelect }: Props) {
                                 <ChevronRight className={`h-3 w-3 transition-transform ${tableOpen ? "rotate-90" : ""}`} />
                               </button>
 
-                              {/* Table name — click to insert SELECT */}
+                              {/* Table name — inserts the name at the cursor (a starter SELECT into an empty editor) */}
                               <button
                                 className="flex-1 flex items-center gap-1.5 py-1 text-xs
                                            text-left min-w-0"
                                 onClick={() => onTableSelect(cat.name, schema.name, table.name, cat.is_default !== false)}
-                                title={`${cat.name}.${schema.name}.${table.name}`}
+                                title={`Insert ${cat.name}.${schema.name}.${table.name}`}
                               >
                                 <Table2 className="h-3 w-3 shrink-0 text-muted-foreground" />
                                 <span className="truncate min-w-0">{table.name}</span>

@@ -36,6 +36,8 @@ import { aiSqlMetricView, periodFromQuestion, periodLabel, type MetricDetail } f
 import { useCapabilities, useCapability, CapabilityGate } from "@/lib/capabilities"
 import { AnalyticsTabs } from "@/components/query/analytics-tabs"
 import { DashboardsGallery } from "@/components/dashboards/dashboards-gallery"
+import { quoteIdent } from "@/lib/catalog-sql"
+import type { SqlEditorApi } from "@/components/query/sql-editor"
 
 interface QueryResult {
   columns: string[]
@@ -80,6 +82,7 @@ function QueryPageInner() {
   // the previous page and every in-app link opened the default query instead.
   const linkedSql = useSearchParams().get("sql")
   const [query, setQuery]                   = useState(() => (linkedSql?.trim() ? linkedSql : DEFAULT_QUERY))
+  const editorApi = useRef<SqlEditorApi | null>(null)
   // A second link while Analytics is open (?sql=A → ?sql=B) replaces the editor too.
   const [seenLink, setSeenLink]             = useState(linkedSql)
   if (linkedSql !== seenLink) {
@@ -424,9 +427,16 @@ function QueryPageInner() {
   const handleTableSelect = (catalog: string, schema: string, table: string, isDefault = true) => {
     // Two parts resolve under the default catalog (`iceberg`); a table in any other
     // catalog has to be named with its catalog, or the query would read the default
-    // catalog's table of the same name.
-    const name = isDefault ? `${schema}.${table}` : `${catalog}.${schema}.${table}`
-    setQuery(`SELECT *\nFROM ${name}\nLIMIT 100;`)
+    // catalog's table of the same name. Quoted, so any name survives.
+    const name = isDefault ? `${quoteIdent(schema)}.${quoteIdent(table)}`
+      : `${quoteIdent(catalog)}.${quoteIdent(schema)}.${quoteIdent(table)}`
+    // An empty or untouched editor gets a starter query; anything the person wrote is
+    // kept and the name goes in at the cursor (it used to replace the whole editor).
+    if (!query.trim() || query === DEFAULT_QUERY || !editorApi.current) {
+      setQuery(`SELECT *\nFROM ${name}\nLIMIT 100;`)
+    } else {
+      editorApi.current.insert(name)
+    }
   }
 
   const handleQuerySelect = (selectedQuery: string) => {
@@ -739,7 +749,7 @@ function QueryPageInner() {
 
             {/* Monaco editor */}
             <div className="flex-1 overflow-hidden">
-              <SqlEditor value={query} onChange={setQuery} onExecute={executeQuery} />
+              <SqlEditor value={query} onChange={setQuery} onExecute={executeQuery} apiRef={editorApi} />
             </div>
           </div>
 
