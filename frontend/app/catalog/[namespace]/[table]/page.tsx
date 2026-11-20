@@ -6,6 +6,7 @@ import { CapabilityGate } from "@/lib/capabilities"
 import { engineCatalogOf, tableSelectSql } from "@/lib/catalog-sql"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ErrorBox, EmptyState } from "@/components/ui/error-box"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -19,6 +20,7 @@ import {
 } from "@/components/ui/breadcrumb"
 import { Table, Database, Eye, ExternalLink, Columns3, CheckCircle2 } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { CatalogKindBadge } from "@/components/catalog/kind-badge"
 
 interface Column {
   name: string
@@ -72,18 +74,34 @@ function TableDetailPageInner() {
   const [previewError, setPreviewError] = useState<string | null>(null)
   const previewRequested = useRef(false)
   const [attempt, setAttempt] = useState(0)
-  // The engine name of ?catalog= (e.g. polaris_lake), for a three-part name in Analytics.
-  const [engineCatalog, setEngineCatalog] = useState<string | null>(null)
-
+  // The registry, for the engine name and kind of this table's catalog. ?catalog= is the
+  // engine name when it comes from the Catalog page, so a failed lookup falls back to it.
+  const [registry, setRegistry] = useState<{ name: string; engine_catalog: string; kind: string; is_default: boolean }[]>([])
   useEffect(() => {
-    if (!catalogParam) return
     let cancelled = false
     fetch("/api/catalogs")
       .then(r => (r.ok ? r.json() : { catalogs: [] }))
-      .then(d => { if (!cancelled) setEngineCatalog(engineCatalogOf(d.catalogs ?? [], catalogParam)) })
+      .then(d => { if (!cancelled) setRegistry(d.catalogs ?? []) })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [catalogParam])
+  }, [])
+  const engineCatalog = catalogParam
+    ? engineCatalogOf(registry, catalogParam) ?? catalogParam
+    : registry.find(c => c.is_default)?.engine_catalog ?? null
+  const catalogEntry = registry.find(c => c.engine_catalog === engineCatalog)
+  const fullName = engineCatalog ? `${engineCatalog}.${namespace}.${tableName}` : `${namespace}.${tableName}`
+  const browse = (withNs: boolean, withTable: boolean) => {
+    if (!engineCatalog) return "/catalog"
+    const q = new URLSearchParams({ catalog: engineCatalog })
+    if (withNs) q.set("ns", `${engineCatalog}.${namespace}`)
+    if (withTable) q.set("table", fullName)
+    return `/catalog?${q.toString()}`
+  }
+  const [copied, setCopied] = useState(false)
+  const copyName = async () => {
+    try { await navigator.clipboard.writeText(fullName); setCopied(true); window.setTimeout(() => setCopied(false), 1500) }
+    catch { /* clipboard refused: the name is on screen to select */ }
+  }
 
   useEffect(() => {
     const fetchTableDetail = async () => {
@@ -188,11 +206,17 @@ function TableDetailPageInner() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbLink href="/catalog">Catalog</BreadcrumbLink>
+            <BreadcrumbLink href={browse(true, true)}>Catalog</BreadcrumbLink>
           </BreadcrumbItem>
+          {engineCatalog && (<>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink href={browse(false, false)} className="font-mono">{engineCatalog}</BreadcrumbLink>
+            </BreadcrumbItem>
+          </>)}
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>{namespace}</BreadcrumbPage>
+            <BreadcrumbLink href={browse(true, false)} className="font-mono">{namespace}</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
@@ -209,10 +233,12 @@ function TableDetailPageInner() {
               <Table className="h-5 w-5 text-muted-foreground" />
             </div>
             <h2 className="text-3xl font-bold tracking-tight">{tableDetail.name}</h2>
+            <CatalogKindBadge kind={catalogEntry?.kind} />
           </div>
-          <div className="flex gap-2 mb-2">
-            <Badge variant="secondary">{tableDetail.namespace}</Badge>
-            <Badge variant="outline">{tableDetail.table_type}</Badge>
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <code className="font-mono text-sm text-muted-foreground">{fullName}</code>
+            <Button size="xs" variant="outline" onClick={() => void copyName()} aria-live="polite">
+              {copied ? "Copied" : "Copy name"}</Button>
           </div>
           <p className="text-sm text-muted-foreground">{tableDetail.location}</p>
         </div>
@@ -289,15 +315,12 @@ function TableDetailPageInner() {
             <TabsTrigger value="schema">Schema</TabsTrigger>
             <TabsTrigger value="metadata">Metadata</TabsTrigger>
           </TabsList>
-          <button
-            // A table from another catalog needs its engine catalog, or Analytics reads the
-            // default catalog's table of the same name. Disabled until that name is known.
-            disabled={!!catalogParam && !engineCatalog}
-            onClick={() => router.push(`/query?sql=${encodeURIComponent(tableSelectSql(namespace, tableName, catalogParam ? engineCatalog : null))}`)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />Open in Analytics
-          </button>
+          <Button size="sm"
+            // Named with its catalog, so Analytics never reads the default catalog's table
+            // of the same name.
+            onClick={() => router.push(`/query?sql=${encodeURIComponent(tableSelectSql(namespace, tableName, engineCatalog))}`)}>
+            <ExternalLink className="mr-1.5 h-3.5 w-3.5" />Open in Analytics
+          </Button>
         </div>
 
         {/* Preview Tab */}

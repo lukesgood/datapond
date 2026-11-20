@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { catalogTypeOf, chipKey, inChip, isSourceKind, kindShort, namespaceChips } from "./catalog-view.ts"
+import { browserQuery, browserStateFrom, catalogTypeOf, chipKey, inChip, isSourceKind, kindShort, namespaceChips } from "./catalog-view.ts"
 
 const tables = [
   { name: "a", namespace: "public", catalog: "iceberg" },
@@ -54,4 +54,14 @@ test("catalog kind labels", () => {
   assert.equal(kindShort(undefined), null)
   assert.equal(isSourceKind("trino_source"), true)
   assert.equal(isSourceKind("glue"), false)
+})
+
+test("browser state round-trips through the URL", () => {
+  const s = { catalog: "iceberg", chip: chipKey("iceberg", "default"), query: "ord", selected: ["iceberg", "default", "orders"].join("\u0000") }
+  const q = browserQuery(s)
+  assert.equal(q, "?catalog=iceberg&ns=iceberg.default&q=ord&table=iceberg.default.orders")
+  assert.deepEqual(browserStateFrom(new URLSearchParams(q.slice(1))), s)
+  assert.equal(browserQuery({ catalog: "all", chip: "all", query: " ", selected: null }), "")
+  assert.deepEqual(browserStateFrom(new URLSearchParams("")), { catalog: "all", chip: "all", query: "", selected: null })
+  assert.equal(browserStateFrom(new URLSearchParams("table=bad")).selected, null)
 })

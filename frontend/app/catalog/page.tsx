@@ -1,7 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import NextLink from "next/link"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import dynamic from "next/dynamic"
 import { Search, Database, Share2 } from "lucide-react"
 import { CapabilityGate } from "@/lib/capabilities"
@@ -17,7 +18,7 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
 import { ExplainRail, RailSection } from "@/components/ui/explain-rail"
 import { SendToKnowledgePanel, TableRail, type CatalogTable } from "@/components/catalog/table-rail"
-import { catalogTypeOf, inChip, isSourceKind, namespaceChips, type RegistryEntry } from "@/lib/catalog-view"
+import { browserQuery, browserStateFrom, catalogTypeOf, inChip, isSourceKind, namespaceChips, type RegistryEntry } from "@/lib/catalog-view"
 import { CatalogKindBadge } from "@/components/catalog/kind-badge"
 import { findNodeId, soleCatalog, type RelGraph } from "@/lib/relationship-view"
 
@@ -44,10 +45,20 @@ function CatalogPageInner() {
   const [data, setData] = useState<CatalogData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [query, setQuery] = useState("")
-  const [catalog, setCatalog] = useState("all")
-  const [chip, setChip] = useState("all")
-  const [selected, setSelected] = useState<string | null>(null)
+  // Catalog, namespace, search and the selected table start from, and are kept in, the
+  // URL — a view can be shared, reloaded, and returned to from a table's page.
+  const params = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+  const [initial] = useState(() => browserStateFrom(params))
+  const [query, setQuery] = useState(initial.query)
+  const [catalog, setCatalog] = useState(initial.catalog)
+  const [chip, setChip] = useState(initial.chip)
+  const [selected, setSelected] = useState<string | null>(initial.selected)
+  useEffect(() => {
+    const next = browserQuery({ catalog, chip, query, selected })
+    if (next !== (params.toString() ? `?${params.toString()}` : "")) router.replace(`${pathname}${next}`, { scroll: false })
+  }, [catalog, chip, query, selected, params, pathname, router])
   const [sending, setSending] = useState(false)
   const [showMap, setShowMap] = useState(false)
   const [showEmpty, setShowEmpty] = useState(false)
@@ -138,8 +149,9 @@ function CatalogPageInner() {
           <Button size="sm" variant="outline" aria-expanded={showMap} onClick={() => setShowMap(v => !v)}>
             <Share2 className="mr-1.5 h-3.5 w-3.5" />{showMap ? "Hide relationship map" : "Relationship map"}
           </Button>
-          {role === "admin" && (
-            <NextLink href="/settings?tab=catalogs" className={buttonVariants({ size: "sm", variant: "outline" })}>Manage catalogs</NextLink>
+          {(role === "admin" || permissions.has("catalog:write")) && (
+            <NextLink href="/settings?tab=catalogs" className={buttonVariants({ size: "sm", variant: "outline" })}>
+              {role === "admin" ? "Manage catalogs" : "Export and mirrors"}</NextLink>
           )}
         </>
       }
@@ -324,7 +336,7 @@ function CatalogPageInner() {
 export default function CatalogPage() {
   return (
     <CapabilityGate capability="catalog">
-      <CatalogPageInner />
+      <Suspense fallback={null}><CatalogPageInner /></Suspense>
     </CapabilityGate>
   )
 }

@@ -116,9 +116,37 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
     }
   }
 
+  // Both change what everyone's queries read, so each asks first.
+  const makeDefault = async (c: DataCatalog) => {
+    const ok = await confirm({
+      title: `Make ${c.engine_catalog} the default catalog?`,
+      message: `Two-part names (namespace.table) in saved queries, dashboards, metrics and agents will read `
+        + `${c.engine_catalog} instead of ${defaultLake?.engine_catalog ?? "the current default"}. `
+        + "New syncs without a target land here too.",
+      confirmText: "Make default",
+    })
+    if (!ok) return
+    void act(c.name, () => call(`/api/catalogs/${encodeURIComponent(c.name)}`, json("PATCH", { is_default: true })),
+      `${c.engine_catalog} is now the default`)
+  }
+
+  const toggleEnabled = async (c: DataCatalog) => {
+    if (c.enabled) {
+      const ok = await confirm({
+        title: `Disable ${c.engine_catalog}?`,
+        message: "Its tables disappear from the catalog, the schema tree and table resolution for everyone "
+          + "until it is enabled again. Nothing in the catalog itself changes.",
+        confirmText: "Disable", destructive: true,
+      })
+      if (!ok) return
+    }
+    void act(c.name, () => call(`/api/catalogs/${encodeURIComponent(c.name)}`, json("PATCH", { enabled: !c.enabled })),
+      c.enabled ? `${c.engine_catalog} disabled` : `${c.engine_catalog} enabled`)
+  }
+
   const remove = async (c: DataCatalog) => {
     const ok = await confirm({
-      title: `Delete catalog ${c.name}?`,
+      title: `Delete catalog ${c.engine_catalog}?`,
       message: "DataPond stops reading it. Tables in it disappear from the catalog, the "
         + "schema tree and table resolution. The catalog itself is not touched.",
       confirmText: "Delete", destructive: true,
@@ -189,15 +217,13 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
                           )}
                           {!c.is_default && c.enabled && c.kind !== "trino_source" && (
                             <button className="text-primary disabled:opacity-40" disabled={busy === c.name}
-                                    onClick={() => void act(c.name, () => call(`/api/catalogs/${encodeURIComponent(c.name)}`,
-                                      json("PATCH", { is_default: true })), `${c.engine_catalog} is now the default`)}>
+                                    onClick={() => void makeDefault(c)}>
                               Make default</button>
                           )}
                           <button className="text-muted-foreground disabled:opacity-40"
                                   disabled={busy === c.name || (c.enabled && !!disableBlocked(c))}
                                   title={c.enabled ? disableBlocked(c) ?? undefined : undefined}
-                                  onClick={() => void act(c.name, () => call(`/api/catalogs/${encodeURIComponent(c.name)}`,
-                                    json("PATCH", { enabled: !c.enabled })), c.enabled ? `${c.engine_catalog} disabled` : `${c.engine_catalog} enabled`)}>
+                                  onClick={() => void toggleEnabled(c)}>
                             {c.enabled ? "Disable" : "Enable"}</button>
                           <button className="text-muted-foreground hover:text-destructive disabled:opacity-40"
                                   disabled={busy === c.name || !!deleteBlocked(c)}
