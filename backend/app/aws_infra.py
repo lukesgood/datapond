@@ -70,14 +70,19 @@ class _Calls:
     def __init__(self) -> None:
         self.missing: List[str] = []
         self.errors: List[str] = []
+        self.payer_blocked = False  # a linked account whose payer has not shared Cost Explorer
 
     def __call__(self, action: str, fn: Callable[[], Any], default: Any = None) -> Any:
         try:
             return fn()
         except Exception as e:  # botocore ClientError, NoCredentialsError, endpoint errors
             code = getattr(e, "response", {}).get("Error", {}).get("Code", "") if hasattr(e, "response") else ""
-            if code in ("AccessDenied", "AccessDeniedException", "UnauthorizedOperation",
-                        "UnauthorizedException", "AuthorizationError"):
+            message = str(e)
+            if "Payer account" in message and "linked account" in message:
+                # Not IAM: the organization's management account keeps Cost Explorer to itself.
+                self.payer_blocked = True
+            elif code in ("AccessDenied", "AccessDeniedException", "UnauthorizedOperation",
+                          "UnauthorizedException", "AuthorizationError"):
                 if action not in self.missing:
                     self.missing.append(action)
             else:
@@ -297,7 +302,9 @@ def actual_costs(now: Optional[datetime] = None) -> Dict[str, Any]:
     """Cost Explorer, month to date, for resources tagged Project=<prefix>.
 
     `{"active": False}` while the tag is not activated (Cost Explorer then returns
-    nothing for it) — the page stays on the estimate. Cached six hours.
+    nothing for it) — the page stays on the estimate. `blocked: "payer"` when this is a
+    linked account of an organization whose payer has not shared Cost Explorer with it.
+    Cached six hours.
     """
     now = now or datetime.now(timezone.utc)
     with _lock:
@@ -314,6 +321,8 @@ def actual_costs(now: Optional[datetime] = None) -> Dict[str, Any]:
         Filter={"Tags": {"Key": "Project", "Values": [name_prefix()]}},
         GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}]), None)
     out: Dict[str, Any] = {"active": False, "missing": call.missing}
+    if call.payer_blocked:
+        out["blocked"] = "payer"
     if r:
         groups = [g for t in r.get("ResultsByTime", []) for g in t.get("Groups", [])]
         services = [{"label": g["Keys"][0], "mtd": round(float(g["Metrics"]["UnblendedCost"]["Amount"]), 2)}

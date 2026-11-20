@@ -59,7 +59,7 @@ export type CostReport = {
     on_demand_hourly: number | null; schedule_saves: number | null; hours_per_week: number
   }
   not_counted: string[]
-  actual: { active: boolean; services?: { label: string; mtd: number }[]; total?: number; read_at?: string; missing?: string[] }
+  actual: { active: boolean; services?: { label: string; mtd: number }[]; total?: number; read_at?: string; missing?: string[]; blocked?: "payer" }
   budget: { pct: number; over: boolean; budget: number } | null
   budget_usd: number | null
   missing: string[]
