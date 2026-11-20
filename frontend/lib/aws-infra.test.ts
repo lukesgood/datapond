@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
-  auroraIdle, capacityProblem, money, missingSentence, niceMax, scheduleDelta, scheduleProblem,
+  acu, auroraIdle, capacityProblem, money, missingSentence, niceMax, scheduleDelta, scheduleProblem,
   share, stopsToday, weeklyHours,
 } from "./aws-infra.ts"
 
@@ -41,6 +41,9 @@ test("formatting", () => {
   assert.equal(money(64.6), "$64.60")
   assert.equal(money(1234.5, 0), "$1,235")
   assert.equal(money(null), "—")
+  assert.equal(acu(1.025462962962963), "1.03")
+  assert.equal(acu(4), "4")
+  assert.equal(acu(null), "—")
   assert.equal(niceMax([3.2, 4.1]), 5)
   assert.equal(niceMax([]), 1)
   assert.equal(share(34.55, 64.6), 53)

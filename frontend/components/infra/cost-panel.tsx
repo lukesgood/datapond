@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { SourceState } from "@/components/ui/source-state"
@@ -21,13 +21,23 @@ const shortDay = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateStrin
 
 function DailyChart({ days }: { days: CostDay[] }) {
   const [hover, setHover] = useState<CostDay | null>(null)
-  const w = 640, h = 160, pad = 28
+  // Draw at the box's real width so 10px labels stay 10px instead of scaling with the viewBox.
+  const box = useRef<HTMLDivElement>(null)
+  const [w, setW] = useState(640)
+  useEffect(() => {
+    const el = box.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setW(Math.max(Math.round(e.contentRect.width), 240)))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  const h = 160, pad = 28
   const top = niceMax(days.map(dayTotal))
   const slot = (w - pad) / Math.max(days.length, 1)
-  const bw = Math.max(slot - 3, 2)
+  const bw = Math.max(Math.min(slot - 3, 28), 2)
   const y = (v: number) => (v / top) * (h - 18)
   return (
-    <div className="relative">
+    <div className="relative" ref={box}>
       <div className="mb-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
         {SERIES.map(s => (
           <span key={s.key} className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: s.color }} />{s.label}</span>
