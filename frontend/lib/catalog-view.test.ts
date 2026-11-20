@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { browserQuery, browserStateFrom, catalogTypeOf, chipKey, inChip, isSourceKind, kindShort, namespaceChips } from "./catalog-view.ts"
+import { ago, browserHref, browserQuery, browserStateFrom, catalogTypeOf, searchScope, chipKey, inChip, isSourceKind, kindShort, namespaceChips } from "./catalog-view.ts"
 
 const tables = [
   { name: "a", namespace: "public", catalog: "iceberg" },
@@ -64,4 +64,18 @@ test("browser state round-trips through the URL", () => {
   assert.equal(browserQuery({ catalog: "all", chip: "all", query: " ", selected: null }), "")
   assert.deepEqual(browserStateFrom(new URLSearchParams("")), { catalog: "all", chip: "all", query: "", selected: null })
   assert.equal(browserStateFrom(new URLSearchParams("table=bad")).selected, null)
+})
+
+test("ago, browser links and search scope", () => {
+  const now = new Date("2026-11-20T06:00:00Z")
+  assert.equal(ago("2026-11-20T05:59:50Z", now), "just now")
+  assert.equal(ago("2026-11-20T05:30:00Z", now), "30 min ago")
+  assert.equal(ago("2026-11-20T03:00:00+00:00", now), "3 h ago")
+  assert.equal(ago("2026-11-16T06:00:00Z", now), "4 days ago")
+  assert.equal(ago(null, now), "—")
+  assert.equal(browserHref("iceberg.default.orders"), "/catalog?catalog=iceberg&ns=iceberg.default&table=iceberg.default.orders")
+  assert.equal(browserHref("bad"), "/catalog")
+  assert.equal(searchScope("all", null), "any catalog")
+  assert.equal(searchScope("iceberg", "default"), "iceberg · default")
+  assert.equal(searchScope("iceberg", null), "iceberg")
 })

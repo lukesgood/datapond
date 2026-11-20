@@ -18,7 +18,7 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
 import { ExplainRail, RailSection } from "@/components/ui/explain-rail"
 import { SendToKnowledgePanel, TableRail, type CatalogTable } from "@/components/catalog/table-rail"
-import { browserQuery, browserStateFrom, catalogTypeOf, inChip, isSourceKind, namespaceChips, type RegistryEntry } from "@/lib/catalog-view"
+import { ago, browserQuery, browserStateFrom, catalogTypeOf, inChip, isSourceKind, namespaceChips, searchScope, type RegistryEntry } from "@/lib/catalog-view"
 import { CatalogKindBadge } from "@/components/catalog/kind-badge"
 import { findNodeId, soleCatalog, type RelGraph } from "@/lib/relationship-view"
 
@@ -30,7 +30,7 @@ const RelationshipGraph = dynamic(
 
 interface Table extends CatalogTable { catalog_type: string }
 interface NamespaceInfo { name: string; catalog?: string }
-interface Registry extends RegistryEntry { is_default?: boolean; enabled?: boolean }
+interface Registry extends RegistryEntry { is_default?: boolean; enabled?: boolean; config?: Record<string, unknown> }
 interface CatalogData { tables: Table[]; namespaces: NamespaceInfo[]; registry: Registry[] }
 
 const TYPE_LABEL: Record<string, string> = { managed: "Managed", external: "External", source: "Source database", foreign: "Foreign" }
@@ -62,7 +62,9 @@ function CatalogPageInner() {
   const [sending, setSending] = useState(false)
   const [showMap, setShowMap] = useState(false)
   const [showEmpty, setShowEmpty] = useState(false)
+  const [sort, setSort] = useState<{ by: "name" | "namespace" | "synced"; desc: boolean }>({ by: "name", desc: false })
   const [graph, setGraph] = useState<RelGraph | null>(null)
+  const [graphFailed, setGraphFailed] = useState(false)
 
   // Send to Knowledge drives ingest-source / schedule: knowledge:write plus
   // ai:generate, which mayIngest checks — the same decision the Knowledge page makes.
@@ -101,9 +103,9 @@ function CatalogPageInner() {
   useEffect(() => {
     let cancelled = false
     fetch("/api/catalog/relationships?days=30")
-      .then(r => (r.ok ? r.json() : { nodes: [], edges: [] }))
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then((g: RelGraph) => { if (!cancelled) setGraph(g) })
-      .catch(() => { if (!cancelled) setGraph({ nodes: [], edges: [] }) })
+      .catch(() => { if (!cancelled) { setGraph({ nodes: [], edges: [] }); setGraphFailed(true) } })
     return () => { cancelled = true }
   }, [])
 
@@ -126,7 +128,37 @@ function CatalogPageInner() {
   const chips = useMemo(() => namespaceChips(tables.filter(inCatalog), (data?.namespaces ?? []).filter(inCatalog)), [tables, data, inCatalog])
   const scoped = tables.filter(t => inCatalog(t) && inChip(chip, t))
   const needle = query.trim().toLowerCase()
-  const shown = needle ? scoped.filter(t => t.name.toLowerCase().includes(needle) || t.namespace.toLowerCase().includes(needle)) : scoped
+  const matched = needle ? scoped.filter(t => t.name.toLowerCase().includes(needle) || t.namespace.toLowerCase().includes(needle)
+    || t.catalog.toLowerCase().includes(needle)) : scoped
+  const shown = [...matched].sort((a, b) => {
+    const v = sort.by === "synced"
+      ? (a.synced_from?.last_run_at ?? "").localeCompare(b.synced_from?.last_run_at ?? "")
+      : sort.by === "namespace" ? `${a.catalog}.${a.namespace}.${a.name}`.localeCompare(`${b.catalog}.${b.namespace}.${b.name}`)
+      : a.name.localeCompare(b.name) || a.catalog.localeCompare(b.catalog)
+    return sort.desc ? -v : v
+  })
+  // Outside the current catalog/namespace: offered when the search finds nothing here.
+  const elsewhere = needle && (catalog !== "all" || chip !== "all")
+    ? tables.filter(t => t.name.toLowerCase().includes(needle) || t.namespace.toLowerCase().includes(needle)).length : 0
+  const chipLabel = chip === "all" ? null : chips.find(c => c.key === chip)?.label ?? null
+  const connectionOf = (t: Table) => {
+    const id = registry.find(r => r.engine_catalog === t.catalog)?.config?.connection_id
+    return typeof id === "string" ? id : null
+  }
+  const pickJoined = (nodeId: string) => {
+    const want = nodeId.toLowerCase()
+    const hit = tables.find(t => `${t.catalog}.${t.namespace}.${t.name}`.toLowerCase() === want)
+      ?? tables.find(t => `${t.namespace}.${t.name}`.toLowerCase() === want)
+    if (hit) { setSelected(tableKey(hit)); setSending(false) }
+  }
+  const sortHeader = (by: "name" | "namespace" | "synced", label: string, extra = "") => (
+    <th className={`px-4 py-2 font-medium ${extra}`} aria-sort={sort.by === by ? (sort.desc ? "descending" : "ascending") : "none"}>
+      <button type="button" className="inline-flex items-center gap-1 hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
+              onClick={() => setSort(s => ({ by, desc: s.by === by ? !s.desc : by === "synced" }))}>
+        {label}{sort.by === by ? (sort.desc ? " ▾" : " ▴") : ""}
+      </button>
+    </th>
+  )
   const current = tables.find(t => tableKey(t) === selected) ?? null
   const typeOf = (t: Table) => catalogTypeOf(t, registry)
   const sole = graph ? soleCatalog(graph) : null
@@ -209,7 +241,7 @@ function CatalogPageInner() {
 
       {showMap && (
         <section aria-label="Relationship map" className="rounded-xl border bg-card p-4">
-          <RelationshipGraph days={30} />
+          <RelationshipGraph days={30} initial={graphFailed ? null : graph} focus={current ? nodeFor(current) : null} />
         </section>
       )}
 
@@ -259,17 +291,22 @@ function CatalogPageInner() {
             {shown.length === 0 ? (
               <div className="rounded-xl border bg-card">
                 <EmptyState icon={Search} title="No tables match"
-                  hint={`Nothing in this namespace matches "${query}".`}
-                  action={<Button size="sm" variant="outline" onClick={() => setQuery("")}>Clear search</Button>} />
+                  hint={`Nothing in ${searchScope(catalog, chipLabel)} matches "${query}".${elsewhere ? ` ${elsewhere} table${elsewhere === 1 ? "" : "s"} elsewhere ${elsewhere === 1 ? "does" : "do"}.` : ""}`}
+                  action={
+                    <div className="flex gap-2">
+                      {elsewhere > 0 && <Button size="sm" onClick={() => { setCatalog("all"); setChip("all") }}>Search all catalogs</Button>}
+                      <Button size="sm" variant="outline" onClick={() => setQuery("")}>Clear search</Button>
+                    </div>} />
               </div>
             ) : (
               <div className="overflow-x-auto rounded-xl border bg-card">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
-                      <th className="px-4 py-2 font-medium">Table</th>
-                      <th className="px-4 py-2 font-medium">Namespace</th>
-                      <th className="px-4 py-2 pr-6 font-medium">Type</th>
+                      {sortHeader("name", "Table")}
+                      {sortHeader("namespace", "Namespace")}
+                      <th className="px-4 py-2 font-medium">From</th>
+                      {sortHeader("synced", "Last sync", "pr-6")}
                     </tr>
                   </thead>
                   <tbody>
@@ -286,7 +323,15 @@ function CatalogPageInner() {
                           <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
                             {catalogs.length > 1 && catalog === "all" ? `${t.catalog}.` : ""}{t.namespace}
                           </td>
-                          <td className="px-4 py-2 pr-6 text-xs">{TYPE_LABEL[typeOf(t)] ?? typeOf(t)}</td>
+                          <td className="px-4 py-2 text-xs">
+                            {t.live ? <span className="rounded bg-muted px-1.5 py-0.5 text-2xs font-medium text-muted-foreground" title="Read live from the source database, not copied">Live</span>
+                              : t.mirror_of ? <span className="rounded bg-muted px-1.5 py-0.5 text-2xs font-medium text-muted-foreground" title={`Read-only mirror of ${t.mirror_of}`}>Mirror</span>
+                              : t.synced_from ? <span className="text-muted-foreground">{t.synced_from.connection}</span>
+                              : <span className="text-muted-foreground">—</span>}
+                          </td>
+                          <td className="dp-num px-4 py-2 pr-6 text-xs text-muted-foreground" title={t.synced_from?.last_run_at}>
+                            {t.synced_from ? ago(t.synced_from.last_run_at) : t.live ? "live" : "—"}
+                          </td>
                         </tr>
                       )
                     })}
@@ -301,6 +346,7 @@ function CatalogPageInner() {
           ) : current ? (
             <TableRail key={tableKey(current)} table={current} typeLabel={TYPE_LABEL[typeOf(current)] ?? typeOf(current)}
               catalogKind={registry.find(r => r.engine_catalog === current.catalog)?.kind}
+              connectionId={connectionOf(current)} onPickJoined={pickJoined}
               graph={graph} graphNode={nodeFor(current)} sole={sole}
               canSend={sendAccess === "allowed"} onSend={() => setSending(true)} onClose={() => setSelected(null)} />
           ) : (

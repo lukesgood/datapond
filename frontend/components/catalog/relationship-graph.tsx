@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import NextLink from "next/link"
 import ReactFlow, {
   Background, Controls, Handle, Position, type Edge, type Node, type NodeProps,
 } from "reactflow"
@@ -45,29 +46,41 @@ const NODE_TYPES = { table: TableNode }
  *  observed use, drawn around it, guesses off unless asked for, and each join one click
  *  from a query.
  */
-export function RelationshipGraph({ days = 30 }: { days?: number }) {
-  const [graph, setGraph] = useState<RelGraph | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [selected, setSelected] = useState<string | null>(null)
+export function RelationshipGraph({ days = 30, initial = null, focus = null }: {
+  days?: number
+  /** The graph the page already read, so opening the map does not fetch it again. */
+  initial?: RelGraph | null
+  /** Node id of the table selected on the page: the map opens on it. */
+  focus?: string | null
+}) {
+  const [graph, setGraph] = useState<RelGraph | null>(initial)
+  const [loading, setLoading] = useState(!initial)
+  const [failed, setFailed] = useState(false)
+  const [selected, setSelected] = useState<string | null>(focus)
   const [query, setQuery] = useState("")
   const [withCandidates, setWithCandidates] = useState(false)
 
   const load = useCallback(async () => {
-    setLoading(true)
+    setLoading(true); setFailed(false)
     try {
       const res = await fetch(`/api/catalog/relationships?days=${days}`)
-      if (res.ok) setGraph(await res.json())
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setGraph(await res.json())
     } catch {
-      /* advisory view — never block the catalog on it */
+      // Advisory view: never block the catalog on it, but do not pass a failure off
+      // as "no relationships".
+      setFailed(true)
     } finally {
       setLoading(false)
     }
   }, [days])
 
-  // A fetch on mount that shows a spinner while it runs. `loading` starts true, so
-  // the synchronous set inside `load` is a no-op, not a cascade.
+  // Fetch only when the page had nothing to hand over.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { if (!initial) void load() }, [load, initial])
+  // A new selection on the page re-centres the map.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (focus) setSelected(focus) }, [focus])
 
   const top = useMemo(() => (graph ? hubs(graph, 10) : []), [graph])
   // One catalog: leave its name off every label (ids stay three-part underneath).
@@ -88,6 +101,14 @@ export function RelationshipGraph({ days = 30 }: { days?: number }) {
     return (
       <div className="flex h-[360px] items-center justify-center text-sm text-muted-foreground">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Finding relationships…
+      </div>
+    )
+  }
+  if (failed && !graph) {
+    return (
+      <div className="flex h-[200px] flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
+        <p>The relationship map could not be read.</p>
+        <button type="button" className="text-xs text-primary hover:underline" onClick={() => void load()}>Retry</button>
       </div>
     )
   }
@@ -169,10 +190,10 @@ export function RelationshipGraph({ days = 30 }: { days?: number }) {
                     {hiddenCandidates > 0 && ` · ${hiddenCandidates} guesses hidden`}
                   </p>
                 </div>
-                <a href={tableHref(current)}
+                <NextLink href={tableHref(current)}
                    className="text-xs text-primary hover:underline">
                   Open table →
-                </a>
+                </NextLink>
               </div>
 
               {around.length === 0 ? (
@@ -300,8 +321,8 @@ function NeighbourRow({ n, sole, onPick }: { n: Neighbour; sole: string | null; 
       {!observed && n.reason && <p className="mt-0.5 text-2xs italic text-muted-foreground">{n.reason} — unverified</p>}
       {n.joinSql && (
         <div className="mt-1 flex gap-3">
-          <a href={`/query?sql=${encodeURIComponent(n.joinSql)}`}
-             className="text-2xs text-primary hover:underline">Open in Analytics →</a>
+          <NextLink href={`/query?sql=${encodeURIComponent(n.joinSql)}`}
+             className="text-2xs text-primary hover:underline">Open in Analytics →</NextLink>
           <button type="button" onClick={copy}
                   className="inline-flex items-center gap-1 text-2xs text-muted-foreground hover:text-foreground">
             {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
