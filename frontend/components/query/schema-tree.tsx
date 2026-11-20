@@ -136,7 +136,8 @@ export function SchemaTree({ onTableSelect }: Props) {
               cat.name.toLowerCase().includes(q)
             )
           }))
-          .filter(s => !q || s.tables.length > 0 || s.name.toLowerCase().includes(q))
+          // Empty namespaces add nothing to type against; they stay out unless searched for.
+          .filter(s => (q ? (s.tables.length > 0 || s.name.toLowerCase().includes(q)) : s.tables.length > 0))
       }))
       .filter(cat => cat.schemas.length > 0 || !q)
   }, [catalogs, search, showSystem])
@@ -174,6 +175,7 @@ export function SchemaTree({ onTableSelect }: Props) {
         <div className="relative">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
+            aria-label="Search tables"
             placeholder="Search tables..."
             value={search}
             onChange={e => setSearch(e.target.value)}
@@ -181,6 +183,7 @@ export function SchemaTree({ onTableSelect }: Props) {
           />
           {search && (
             <button
+              type="button" aria-label="Clear search"
               onClick={() => setSearch("")}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             >
@@ -199,6 +202,8 @@ export function SchemaTree({ onTableSelect }: Props) {
               variant="ghost" size="icon"
               className="h-6 w-6"
               title={showSystem ? "Hide system schemas" : "Show system schemas"}
+              aria-label={showSystem ? "Hide system schemas" : "Show system schemas"}
+              aria-pressed={showSystem}
               onClick={() => setShowSystem(v => !v)}
             >
               {showSystem

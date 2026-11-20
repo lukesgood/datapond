@@ -228,11 +228,13 @@ export function MirrorsSection({ refreshKey }: { refreshKey: number }) {
         A table has one writer. Each mirror is a read-only registration that follows its owner; Check now re-points
         mirrors that are behind and reports any that were committed to from outside.
       </p>
-      {err ? (
-        <p className="flex items-center gap-1.5 text-xs text-destructive"><AlertCircle className="h-3.5 w-3.5" />{err}</p>
-      ) : mirrors === null ? (
+      {/* A failed check is said above the list; the list stays (it only replaces nothing). */}
+      {err && (
+        <p role="alert" className="flex items-center gap-1.5 text-xs text-destructive"><AlertCircle className="h-3.5 w-3.5" />{err}</p>
+      )}
+      {mirrors === null ? (err ? null : (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" />Loading…</p>
-      ) : mirrors.length === 0 ? (
+      )) : mirrors.length === 0 ? (
         <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
           No mirrors. Export a catalog to register its tables in a second catalog; they are listed here.</p>
       ) : (
