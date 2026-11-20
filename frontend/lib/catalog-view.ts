@@ -51,3 +51,22 @@ export function catalogTypeOf(table: Pick<ViewTable, "catalog" | "catalog_type">
   if (hit?.kind === "trino_source") return "source"
   return table.catalog_type || "managed"
 }
+
+/** What a catalog is, for the badge beside its name. Every screen names a catalog by its
+ *  engine name — the one SQL uses (`iceberg`, `polaris_lake`) — and shows this beside it;
+ *  the registry name (`AwsDataCatalog`) appears only in Settings as "Registered as". */
+export const KIND_SHORT: Record<string, string> = {
+  glue: "Glue",
+  polaris: "Polaris",
+  iceberg_rest: "Iceberg REST",
+  trino_source: "Source",
+}
+
+export function kindShort(kind: string | null | undefined): string | null {
+  return kind ? KIND_SHORT[kind] ?? null : null
+}
+
+/** Source catalogs (a connection's live database) are listed apart from lake catalogs. */
+export function isSourceKind(kind: string | null | undefined): boolean {
+  return kind === "trino_source"
+}

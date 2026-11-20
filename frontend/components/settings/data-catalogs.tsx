@@ -59,6 +59,7 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
   const [access, setAccess] = useState<DataCatalog | null>(null)
   const [exporting, setExporting] = useState<DataCatalog | null>(null)
   const [mirrorsKey, setMirrorsKey] = useState(0)
+  const [showSources, setShowSources] = useState(false)
 
   const loadGrants = useCallback(async (names: string[]) => {
     const pairs = await Promise.all(names.map(async n => {
@@ -87,6 +88,8 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
   }, [canEdit, loadGrants])
 
   useEffect(() => { void load() }, [load])
+
+  const defaultLake = rows.find(c => c.is_default && isLakeKind(c.kind)) ?? null
 
   const act = async (name: string, fn: () => Promise<unknown>, done: string) => {
     setBusy(name); setRowErr(prev => ({ ...prev, [name]: "" }))
@@ -122,7 +125,7 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
     })
     if (!ok) return
     void act(c.name, () => call(`/api/catalogs/${encodeURIComponent(c.name)}`, { method: "DELETE" }),
-      `Catalog ${c.name} deleted`)
+      `Catalog ${c.engine_catalog} deleted`)
   }
 
   return (
@@ -132,9 +135,9 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
           <Library className="h-4 w-4 text-primary" />Data catalogs
         </CardTitle>
         <CardDescription>
-          The catalogs DataPond lists, resolves table names against and governs. Two-part names
-          (<code className="font-mono">namespace.table</code>) mean the default catalog. A catalog
-          is queryable only when the query engine knows its engine catalog name.
+          The catalogs DataPond lists, resolves table names against and governs. Each is named as SQL
+          names it (<code className="font-mono">catalog.namespace.table</code>); two-part names
+          (<code className="font-mono">namespace.table</code>) mean the default catalog.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -151,23 +154,26 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
                 Shown from the deployment&apos;s settings; the registry has not been written yet.
               </p>
             )}
-            <div className="divide-y rounded-lg border">
-              {rows.map(c => {
+            {(() => {
+              const renderRow = (c: DataCatalog) => {
                 const t = tests[c.name]
                 return (
                   <div key={c.name} className="space-y-1.5 px-3 py-2.5 text-xs">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">{c.name}</span>
-                      {c.is_default && <Badge className="text-2xs">Default</Badge>}
+                      {/* Named as SQL names it, like every other screen; the registry name is a detail. */}
+                      <span className="font-mono font-medium">{c.engine_catalog}</span>
                       <Badge variant="outline" className="text-2xs">{(c.kind === "trino_source" ? "Source database" : KIND_LABEL[c.kind])}</Badge>
+                      {c.is_default && <Badge className="text-2xs">Default</Badge>}
                       {!c.enabled && <Badge variant="outline" className="text-2xs text-muted-foreground">Disabled</Badge>}
                       {c.has_secret && (
                         <span className="inline-flex items-center gap-1 text-2xs text-muted-foreground" title="A credential is stored">
                           <KeyRound className="h-3 w-3" />secret</span>
                       )}
-                      <span className="text-muted-foreground">
-                        engine catalog <code className="font-mono">{c.engine_catalog}</code>
-                      </span>
+                      {c.name !== c.engine_catalog && (
+                        <span className="text-muted-foreground">
+                          registered as <code className="font-mono">{c.name}</code>
+                        </span>
+                      )}
                       {!canEdit && canExport && isLakeKind(c.kind) && c.enabled && (
                         <span className="ml-auto flex items-center gap-2">
                           <button className="text-primary" onClick={() => setExporting(c)}>Export…</button>
@@ -184,14 +190,14 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
                           {!c.is_default && c.enabled && c.kind !== "trino_source" && (
                             <button className="text-primary disabled:opacity-40" disabled={busy === c.name}
                                     onClick={() => void act(c.name, () => call(`/api/catalogs/${encodeURIComponent(c.name)}`,
-                                      json("PATCH", { is_default: true })), `${c.name} is now the default`)}>
+                                      json("PATCH", { is_default: true })), `${c.engine_catalog} is now the default`)}>
                               Make default</button>
                           )}
                           <button className="text-muted-foreground disabled:opacity-40"
                                   disabled={busy === c.name || (c.enabled && !!disableBlocked(c))}
                                   title={c.enabled ? disableBlocked(c) ?? undefined : undefined}
                                   onClick={() => void act(c.name, () => call(`/api/catalogs/${encodeURIComponent(c.name)}`,
-                                    json("PATCH", { enabled: !c.enabled })), c.enabled ? `${c.name} disabled` : `${c.name} enabled`)}>
+                                    json("PATCH", { enabled: !c.enabled })), c.enabled ? `${c.engine_catalog} disabled` : `${c.engine_catalog} enabled`)}>
                             {c.enabled ? "Disable" : "Enable"}</button>
                           <button className="text-muted-foreground hover:text-destructive disabled:opacity-40"
                                   disabled={busy === c.name || !!deleteBlocked(c)}
@@ -201,6 +207,13 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
                       )}
                     </div>
                     {locationOf(c) && <p className="truncate text-muted-foreground" title={locationOf(c)}>{locationOf(c)}</p>}
+                    {isLakeKind(c.kind) && !c.is_default && c.enabled && defaultLake && (
+                      <p className="text-muted-foreground">
+                        Second catalog beside <code className="font-mono">{defaultLake.engine_catalog}</code>. A source table lands
+                        here when its target is set to <code className="font-mono">{c.engine_catalog}</code>; Export moves
+                        registrations between the two without copying data.
+                      </p>
+                    )}
                     {c.kind === "trino_source" && (
                       <p className="flex items-center gap-1.5 text-muted-foreground">
                         <Lock className="h-3 w-3 shrink-0" />
@@ -235,8 +248,29 @@ export function DataCatalogs({ canEdit }: { canEdit: boolean }) {
                     {rowErr[c.name] && <p className="text-destructive">{rowErr[c.name]}</p>}
                   </div>
                 )
-              })}
-            </div>
+              }
+              const lake = rows.filter(c => c.kind !== "trino_source")
+              const sources = rows.filter(c => c.kind === "trino_source")
+              return (
+                <>
+                  <div className="divide-y rounded-lg border">{lake.map(renderRow)}</div>
+                  {sources.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs">
+                        <span><span className="font-medium">Source databases</span>
+                          <span className="text-muted-foreground"> · {sources.length} · read live; access follows each source&apos;s share list</span></span>
+                        <span className="flex items-center gap-3">
+                          <Link className="text-primary" href="/connectors">Manage in Sources</Link>
+                          <button className="text-primary" aria-expanded={showSources} onClick={() => setShowSources(v => !v)}>
+                            {showSources ? "Hide" : "Show"}</button>
+                        </span>
+                      </div>
+                      {showSources && <div className="divide-y rounded-lg border">{sources.map(renderRow)}</div>}
+                    </div>
+                  )}
+                </>
+              )
+            })()}
             {canEdit && (
               <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEditing("new")}>
                 <Plus className="h-3.5 w-3.5" />Add catalog</Button>

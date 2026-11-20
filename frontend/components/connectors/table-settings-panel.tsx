@@ -10,6 +10,7 @@ import { RailAttention } from "@/components/ui/explain-rail"
 import { SourceState } from "@/components/ui/source-state"
 import { readJson } from "@/lib/source-state"
 import { useToast } from "@/lib/toast"
+import { lakeLabel } from "@/lib/data-catalogs"
 
 export interface SourceTable {
   name: string
@@ -38,7 +39,7 @@ const list = (s: string) => s.split(",").map(x => x.trim()).filter(Boolean)
 export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit, onSaved, onClose }: {
   connId: string
   table: SourceTable
-  lakes: { name: string; is_default: boolean }[]
+  lakes: { name: string; is_default: boolean; engine_catalog?: string; kind?: string }[]
   defaultLake?: string
   canEdit: boolean
   onSaved: () => void | Promise<void>
@@ -179,8 +180,8 @@ export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit,
             <Label htmlFor="ts-target">Write to</Label>
             <select id="ts-target" value={target} onChange={e => setTarget(e.target.value)}
                     className="h-9 w-full rounded-md border bg-background px-2 text-sm">
-              <option value="">{defaultLake ?? "Default catalog"} (default)</option>
-              {lakes.filter(c => !c.is_default).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+              <option value="">{lakeLabel(defaultLake, lakes) ?? "Default catalog"} (default)</option>
+              {lakes.filter(c => !c.is_default).map(c => <option key={c.name} value={c.name}>{lakeLabel(c.name, lakes)}</option>)}
             </select>
           </div>
         )}

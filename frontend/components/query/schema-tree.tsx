@@ -8,17 +8,12 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { CatalogKindBadge } from "@/components/catalog/kind-badge"
 
 interface Column { name: string; type: string }
 interface Table  { name: string; columns: Column[] | null }
 interface Schema { name: string; tables: Table[] }
-interface Catalog { name: string; catalog_type?: string; is_default?: boolean; schemas: Schema[] }
-
-const CATALOG_TYPE_BADGE: Record<string, { label: string; cls: string }> = {
-  managed:  { label: "M", cls: "text-[var(--dp-good-text)] bg-[var(--dp-good)]/10" },
-  external: { label: "E", cls: "text-[var(--dp-warn-text)] bg-[var(--dp-warn)]/10" },
-  foreign:  { label: "F", cls: "text-[var(--dp-managed)] bg-[var(--dp-managed)]/10" },
-}
+interface Catalog { name: string; catalog_type?: string; kind?: string | null; is_default?: boolean; schemas: Schema[] }
 
 interface Props {
   /** `isDefault` false means the table lives in another catalog and must be named
@@ -242,11 +237,8 @@ export function SchemaTree({ onTableSelect }: Props) {
                   <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${catOpen ? "rotate-90" : ""}`} />
                   <Database className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <span className="truncate">{cat.name}</span>
-                  {cat.catalog_type && CATALOG_TYPE_BADGE[cat.catalog_type] && (
-                    <span className={`text-2xs font-medium px-1 rounded shrink-0 ${CATALOG_TYPE_BADGE[cat.catalog_type].cls}`}>
-                      {CATALOG_TYPE_BADGE[cat.catalog_type].label}
-                    </span>
-                  )}
+                  <CatalogKindBadge kind={cat.kind} />
+                  {cat.is_default && <span className="shrink-0 text-2xs font-normal text-muted-foreground">default</span>}
                   <span className="ml-auto text-2xs text-muted-foreground font-normal">
                     {cat.schemas.reduce((a, s) => a + s.tables.length, 0)}
                   </span>

@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { ChoiceGroup } from "@/components/ui/choice-group"
 import { RailAttention, RailSection } from "@/components/ui/explain-rail"
 import { tableSelectSql } from "@/lib/catalog-sql"
+import { CatalogKindBadge } from "@/components/catalog/kind-badge"
 import { displayId, neighbours, type RelGraph } from "@/lib/relationship-view"
 import { useToast } from "@/lib/toast"
 
@@ -30,9 +31,11 @@ export const tableHref = (t: CatalogTable) =>
 /** One table, in the right column of the catalog: what it is, its first columns, the
  *  tables people join it to, and the actions. It replaces a grid of cards that said
  *  nothing but the name, and a relationship graph that filled the screen first. */
-export function TableRail({ table, typeLabel, graph, graphNode, sole, canSend, onSend, onClose }: {
+export function TableRail({ table, typeLabel, catalogKind, graph, graphNode, sole, canSend, onSend, onClose }: {
   table: CatalogTable
   typeLabel: string
+  /** Registry kind of the table's catalog, for the badge beside its name. */
+  catalogKind?: string
   graph: RelGraph | null
   graphNode: string | null
   sole: string | null
@@ -64,7 +67,10 @@ export function TableRail({ table, typeLabel, graph, graphNode, sole, canSend, o
            className="min-w-0 flex-[2_1_300px] space-y-4 rounded-xl border border-primary/50 bg-muted/40 p-5 text-sm lg:sticky lg:top-6">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate font-mono text-xs text-muted-foreground">{table.catalog}.{table.namespace}</p>
+          <p className="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground">
+            <span className="truncate">{table.catalog}.{table.namespace}</span>
+            <CatalogKindBadge kind={catalogKind} />
+          </p>
           <h3 className="truncate text-base font-semibold">{table.name}</h3>
           <p className="text-xs text-muted-foreground">{typeLabel} · {table.table_type}</p>
         </div>

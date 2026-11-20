@@ -33,7 +33,7 @@ import { SchedulePicker } from "@/components/ui/schedule-picker"
 import { useCapability } from "@/lib/capabilities"
 import { EngineRestartBanner } from "@/components/connectors/engine-restart-banner"
 import { isTrinoEngine } from "@/lib/engine-restart"
-import { lakeCatalogs, landsIn } from "@/lib/data-catalogs"
+import { lakeCatalogs, lakeLabel, landsIn } from "@/lib/data-catalogs"
 
 type ConfigValue = string | number | boolean | null | undefined
 type ConnectorTable = SourceTable
@@ -66,9 +66,11 @@ interface QualityCheck {
   null_checks?: Record<string, NullCheck>
 }
 
+type Lake = { name: string; engine_catalog: string; is_default: boolean; kind: string; enabled: boolean }
+
 // ── Tables: the list; one table's settings open in the right column ──────────
 function TablesCard({
-  tables, latestTableRows, togglingTable, onToggle, selected, onSelect, canEdit, defaultLake,
+  tables, latestTableRows, togglingTable, onToggle, selected, onSelect, canEdit, defaultLake, lakes = [],
 }: {
   tables: ConnectorTable[]
   latestTableRows: Map<string, number>
@@ -78,6 +80,7 @@ function TablesCard({
   onSelect: (name: string | null) => void
   canEdit: boolean
   defaultLake?: string
+  lakes?: Lake[]
 }) {
   const [search, setSearch] = useState("")
   const filtered = tables.filter(t => t.name.toLowerCase().includes(search.toLowerCase()))
@@ -135,7 +138,7 @@ function TablesCard({
                       </td>
                       <td className="py-2">
                         <span className="font-mono text-xs">{table.name}</span>
-                        {landsIn(table.target_catalog, defaultLake) && <span className="block text-xs text-muted-foreground">→ {table.target_catalog}</span>}
+                        {landsIn(table.target_catalog, defaultLake) && <span className="block text-xs text-muted-foreground">→ {lakeLabel(table.target_catalog, lakes)}</span>}
                         {noWatermark && <span className="block text-xs text-[var(--dp-warn-text)]">no changed-since column — reads the whole table</span>}
                       </td>
                       <td className="py-2 text-xs">
@@ -282,10 +285,10 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   // connector:write; only "check connection" is open to every reader.
   const canWrite = useHasPermission("connector:write")
   const [selectedTable, setSelectedTable] = useState<string | null>(null)
-  const [lakes, setLakes] = useState<{ name: string; is_default: boolean }[]>([])
+  const [lakes, setLakes] = useState<Lake[]>([])
   useEffect(() => {
     fetch("/api/catalogs").then(r => (r.ok ? r.json() : { catalogs: [] }))
-      .then(d => setLakes(lakeCatalogs<{ name: string; is_default: boolean; kind: string; enabled: boolean }>(d.catalogs ?? [])))
+      .then(d => setLakes(lakeCatalogs<Lake>(d.catalogs ?? [])))
       .catch(() => setLakes([]))
   }, [])
   const defaultLake = lakes.find(c => c.is_default)?.name
@@ -921,6 +924,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         onSelect={setSelectedTable}
         canEdit={canWrite}
         defaultLake={defaultLake}
+        lakes={lakes}
       />
 
       {/* ── Main 2-column layout — direct card children, no wrapper divs ── */}

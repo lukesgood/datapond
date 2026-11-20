@@ -1,6 +1,7 @@
 /** Form logic for Settings -> Data catalogs (/api/catalogs). Mirrors the backend's
  *  rules (app/catalog_registry.py validate_config, app/api/catalog_admin.py) so an
  *  admin sees the problem before the request; the backend still decides. */
+import { kindShort } from "./catalog-view.ts"
 
 export type CatalogKind = "glue" | "iceberg_rest" | "polaris"
 export const KINDS: CatalogKind[] = ["glue", "iceberg_rest", "polaris"]
@@ -353,6 +354,17 @@ export function isLakeKind(kind: string): kind is CatalogKind {
 
 export function lakeCatalogs<T extends { kind: string; enabled: boolean }>(list: T[]): T[] {
   return list.filter(c => c.enabled && isLakeKind(c.kind))
+}
+
+/** A lake catalog as every screen names it: its engine name and kind ("polaris_lake · Polaris").
+ *  `name` is the registry name a sync's target_catalog holds. */
+export function lakeLabel(name: string | null | undefined,
+                          lakes: { name: string; engine_catalog?: string; kind?: string }[]): string | null {
+  if (!name) return null
+  const c = lakes.find(l => l.name === name)
+  if (!c) return name
+  const kind = kindShort(c.kind)
+  return kind ? `${c.engine_catalog || c.name} · ${kind}` : c.engine_catalog || c.name
 }
 
 /** Where a table lands: null for the default catalog, else the catalog's name. */

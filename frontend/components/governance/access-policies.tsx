@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ErrorBox } from "@/components/ui/error-box"
 import { ExplainRail, RailAttention, RailSection } from "@/components/ui/explain-rail"
+import { kindShort } from "@/lib/catalog-view"
 
 interface RlsPolicy {
   id: string; name?: string | null; catalog_name: string; schema_name: string; table_name: string
@@ -253,6 +254,10 @@ function PolicyEditor({ editing, roles, lakes, queryCatalog, canWrite, onClose, 
   const mask = !isRow ? editing.policy : null
   const existing = editing.policy
   const defaultLake = lakes.find(l => l.is_default)?.engine_catalog ?? queryCatalog
+  const withKind = (engine: string) => {
+    const k = kindShort(lakes.find(l => l.engine_catalog === engine)?.kind)
+    return k ? `${engine} · ${k}` : engine
+  }
 
   const [name, setName] = useState(existing?.name ?? "")
   const [catalog, setCatalog] = useState(existing?.catalog_name ?? "")
@@ -345,8 +350,8 @@ function PolicyEditor({ editing, roles, lakes, queryCatalog, canWrite, onClose, 
               <div className="col-span-2 space-y-1.5">
                 <Label htmlFor="pe-cat">Catalog</Label>
                 <select id="pe-cat" value={catalog} onChange={e => setCatalog(e.target.value)} className={select}>
-                  <option value="">{defaultLake} (default)</option>
-                  {lakes.filter(l => l.engine_catalog !== defaultLake).map(l => <option key={l.engine_catalog} value={l.engine_catalog}>{l.engine_catalog}</option>)}
+                  <option value="">{withKind(defaultLake)} (default)</option>
+                  {lakes.filter(l => l.engine_catalog !== defaultLake).map(l => <option key={l.engine_catalog} value={l.engine_catalog}>{withKind(l.engine_catalog)}</option>)}
                 </select>
               </div>
               <div className="space-y-1.5">

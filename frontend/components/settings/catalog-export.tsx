@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/lib/toast"
-import { lakeCatalogs, type DataCatalog } from "@/lib/data-catalogs"
+import { lakeCatalogs, type DataCatalog, lakeLabel } from "@/lib/data-catalogs"
 import {
   MODE_HELP, canApply, exportBody, mirrorTone, summaryLine,
   type ExportMode, type ExportResult, type Mirror,
@@ -71,7 +71,7 @@ export function ExportDialog({ source, catalogs, onClose, onApplied }: {
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose() }}>
       <DialogContent className="sm:max-w-2xl">
-        <DialogHeader><DialogTitle>Export tables from {source.name}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>Export tables from {lakeLabel(source.name, catalogs)}</DialogTitle></DialogHeader>
         <div className="max-h-[65vh] space-y-3 overflow-y-auto py-1 pr-1 text-xs">
           <p className="text-muted-foreground">
             Registers this catalog&apos;s Iceberg tables in another catalog. Data files are not copied.
@@ -86,7 +86,7 @@ export function ExportDialog({ source, catalogs, onClose, onApplied }: {
                   <Label htmlFor="ex-target" className="text-xs">Target catalog</Label>
                   <select id="ex-target" value={target} className="h-8 w-full rounded-md border bg-background px-2 text-xs"
                           onChange={e => { setTarget(e.target.value); reset() }}>
-                    {targets.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                    {targets.map(c => <option key={c.name} value={c.name}>{lakeLabel(c.name, catalogs)}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1">

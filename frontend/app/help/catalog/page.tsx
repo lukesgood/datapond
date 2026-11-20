@@ -57,8 +57,8 @@ const CONCEPTS: { badge: string; label: L; body: L }[] = [
     badge: "Lake catalog",
     label: { en: "Iceberg tables DataPond manages", ko: "DataPond가 관리하는 Iceberg 테이블" },
     body: {
-      en: "AWS Glue or Apache Polaris (Iceberg REST). You can run several side by side, each with its own grants. One is the default; bare table names resolve only in lake catalogs.",
-      ko: "AWS Glue 또는 Apache Polaris(Iceberg REST)입니다. 여러 개를 나란히 운영할 수 있고 카탈로그마다 권한이 따로 있습니다. 하나가 기본값이며, 테이블 이름만 쓰는 방식은 레이크 카탈로그에서만 해석됩니다.",
+      en: "AWS Glue or Apache Polaris (Iceberg REST). You can run several side by side, each with its own grants. Each is shown by the name SQL uses (for example iceberg for Glue, polaris_lake for Polaris) with a Glue or Polaris badge. One is the default; bare table names resolve only in lake catalogs.",
+      ko: "AWS Glue 또는 Apache Polaris(Iceberg REST)입니다. 여러 개를 나란히 운영할 수 있고 카탈로그마다 권한이 따로 있습니다. 화면에는 SQL에서 쓰는 이름(예: Glue는 iceberg, Polaris는 polaris_lake)과 Glue/Polaris 배지가 함께 표시됩니다. 하나가 기본값이며, 테이블 이름만 쓰는 방식은 레이크 카탈로그에서만 해석됩니다.",
     },
   },
   {
