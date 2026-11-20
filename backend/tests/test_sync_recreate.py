@@ -25,6 +25,9 @@ class _Conn:
         return False
 
     async def fetch(self, sql, *args):
+        if "FROM connector_sync_jobs" in sql:     # the connection's jobs (target lookup)
+            return [{"id": 1, "source_table": "public.customers", "target_table": self.stored.get("target_table"),
+                     "target_catalog": self.stored.get("target_catalog"), "enabled": True}]
         assert "FROM connector_sync_history" in sql
         return self.rows
 

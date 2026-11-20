@@ -25,6 +25,12 @@ class _Conn:
         assert "target_catalog" in sql
         return self.stored
 
+    async def fetch(self, sql, *args):
+        # the connection's jobs: this table's, carrying the catalog it last used
+        assert "target_catalog" in sql
+        return [{"id": 1, "source_table": "public.orders", "target_table": "datapond.default.public.orders",
+                 "target_catalog": self.stored, "enabled": True}]
+
 
 class _Pool:
     def __init__(self, stored=None):

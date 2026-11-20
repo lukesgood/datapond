@@ -34,6 +34,7 @@ import { useCapability } from "@/lib/capabilities"
 import { EngineRestartBanner } from "@/components/connectors/engine-restart-banner"
 import { isTrinoEngine } from "@/lib/engine-restart"
 import { lakeCatalogs, lakeLabel, landsIn } from "@/lib/data-catalogs"
+import { alsoSyncedLine } from "@/lib/sync-target"
 
 type ConfigValue = string | number | boolean | null | undefined
 type ConnectorTable = SourceTable
@@ -139,6 +140,10 @@ function TablesCard({
                       <td className="py-2">
                         <span className="font-mono text-xs">{table.name}</span>
                         {landsIn(table.target_catalog, defaultLake) && <span className="block text-xs text-muted-foreground">→ {lakeLabel(table.target_catalog, lakes)}</span>}
+                        {alsoSyncedLine(table.also_synced_as) && (
+                          <span className="block text-xs text-[var(--dp-warn-text)]" title="Two jobs land in the same lake table. Keep one: change the other job's target or turn it off.">
+                            {alsoSyncedLine(table.also_synced_as)}</span>
+                        )}
                         {noWatermark && <span className="block text-xs text-[var(--dp-warn-text)]">no changed-since column — reads the whole table</span>}
                       </td>
                       <td className="py-2 text-xs">
@@ -405,6 +410,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                 key_columns: table.key_columns ?? null,
                 pii_columns: table.pii_columns ?? null,
                 target_catalog: table.target_catalog ?? null,
+                also_synced_as: table.also_synced_as ?? [],
               }
         ))
       }

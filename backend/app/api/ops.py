@@ -55,6 +55,28 @@ async def _load_syncs(pool):
     return syncs, names, stale, paused
 
 
+async def _load_duplicate_syncs(pool):
+    """Source tables synced by two jobs of one connection (app/sync_targets.py)."""
+    from app import catalog_registry, sync_targets
+    try:
+        async with pool.acquire() as c:
+            rows = [dict(r) for r in await c.fetch(
+                """SELECT connection_id, source_table, target_table, target_catalog, enabled, last_run_at
+                     FROM connector_sync_jobs""")]
+    except Exception:            # before migration 0028
+        return []
+    try:
+        default = catalog_registry.default_entry().engine_catalog
+    except Exception:
+        default = None
+    groups = sync_targets.duplicates(rows)
+    for g in groups:
+        for j in g["jobs"]:
+            j["catalog"] = j["catalog"] or default
+            j["last_run_at"] = _aware(j["last_run_at"])
+    return groups
+
+
 async def _load_mirrors(pool):
     try:
         async with pool.acquire() as c:
@@ -115,6 +137,15 @@ async def ops_status(user: dict = Depends(require_user)):
     engine = await asyncio.to_thread(_engine)
     out = summarize(syncs, names, stale=stale, engine=engine, catalogs=catalogs, mirrors=mirrors,
                     queries_24h=await _count_queries(pool, user), now=_now())
+    if "connector:read" in perms:
+        for d in await _load_duplicate_syncs(pool):
+            out["issues"].append({"kind": "duplicate_sync", "connection_id": d["connection_id"],
+                                  "source": names.get(d["connection_id"], d["connection_id"]),
+                                  "table": f'{d["namespace"]}.{d["table"]}',
+                                  "jobs": [{"source_table": j["source_table"], "catalog": j["catalog"],
+                                            "last_run_at": j["last_run_at"].isoformat() if j["last_run_at"] else None}
+                                           for j in d["jobs"]]})
+            out["state"] = "attention"
     if user.get("role") == "admin":
         from app.api.infra_aws import over_budget
         ob = over_budget()

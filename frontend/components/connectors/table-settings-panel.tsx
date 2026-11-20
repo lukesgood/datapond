@@ -11,6 +11,7 @@ import { SourceState } from "@/components/ui/source-state"
 import { readJson } from "@/lib/source-state"
 import { useToast } from "@/lib/toast"
 import { lakeLabel } from "@/lib/data-catalogs"
+import { hasDataLine, targetRefusal, type AlsoSynced, type TargetRefusal } from "@/lib/sync-target"
 
 export interface SourceTable {
   name: string
@@ -23,6 +24,8 @@ export interface SourceTable {
   key_columns?: string[] | null
   pii_columns?: string[] | null
   target_catalog?: string | null
+  /** Other jobs of this connection landing in the same lake table (a second copy). */
+  also_synced_as?: AlsoSynced[]
 }
 
 interface SchemaColumn { name: string; type: string }
@@ -61,6 +64,9 @@ export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit,
   const [colsReload, setColsReload] = useState(0)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // Set when the save is refused because the table already has data in another catalog.
+  const [moving, setMoving] = useState<Extract<TargetRefusal, { kind: "has_data" }> | null>(null)
+  const [choice, setChoice] = useState<"move" | "leave">("move")
 
   useEffect(() => {
     let cancelled = false
@@ -86,6 +92,7 @@ export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit,
         key_columns: incremental ? list(keyCols) : [],
         pii_columns: list(piiCols),
         target_catalog: target,
+        ...(moving ? { existing: choice } : {}),
       }],
       [`/api/connectors/${connId}/sync-mode`, "sync mode", { sync_mode: mode, table_name: table.name }],
       [`/api/connectors/${connId}/tables/${encodeURIComponent(table.name)}/partition`, "partitioning", { partition_spec }],
@@ -95,6 +102,9 @@ export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit,
         const r = await fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
         if (!r.ok) {
           const d = await r.json().catch(() => ({}))
+          const refusal = targetRefusal(r.status, d.detail)
+          if (refusal?.kind === "has_data") { setMoving(refusal); return }
+          if (refusal?.kind === "duplicate") { setErr(refusal.message); return }
           setErr(`Could not save the ${what}: ${typeof d.detail === "string" ? d.detail : `HTTP ${r.status}`}`)
           return
         }
@@ -178,11 +188,26 @@ export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit,
         {lakes.length > 1 && (
           <div className="space-y-1.5">
             <Label htmlFor="ts-target">Write to</Label>
-            <select id="ts-target" value={target} onChange={e => setTarget(e.target.value)}
+            <select id="ts-target" value={target} onChange={e => { setTarget(e.target.value); setMoving(null) }}
                     className="h-9 w-full rounded-md border bg-background px-2 text-sm">
               <option value="">{lakeLabel(defaultLake, lakes) ?? "Default catalog"} (default)</option>
               {lakes.filter(c => !c.is_default).map(c => <option key={c.name} value={c.name}>{lakeLabel(c.name, lakes)}</option>)}
             </select>
+          </div>
+        )}
+        {moving && (
+          <div role="group" aria-label={`What happens to ${moving.table} in ${moving.from}`}
+               className="space-y-2 rounded-lg border border-[var(--dp-warn)]/40 bg-[var(--dp-warn)]/10 p-3">
+            <p className="text-sm font-medium">{moving.table} already has data in {moving.from}</p>
+            <p className="text-xs text-muted-foreground">{hasDataLine(moving)} Choose what happens to it.</p>
+            <ChoiceGroup label="Existing data" value={choice} onChange={v => setChoice(v)}
+              options={[{ value: "move" as const, label: `Move it to ${moving.to}` },
+                        { value: "leave" as const, label: "Leave it and start fresh" }]} />
+            <p className="text-xs text-muted-foreground">
+              {choice === "move"
+                ? `Registers the same files in ${moving.to} as the owner; ${moving.from} keeps a read-only mirror. Nothing is copied. Needs catalog:write.`
+                : `The next sync writes a new table in ${moving.to}. ${moving.from}.${moving.table} stops updating; delete it when you no longer need it.`}
+            </p>
           </div>
         )}
       </fieldset>
@@ -195,7 +220,7 @@ export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit,
       {err && <p role="alert" className="text-xs text-destructive">{err}</p>}
       {canEdit ? (
         <div className="flex gap-2">
-          <Button size="sm" onClick={save} disabled={saving}>{saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}Save table</Button>
+          <Button size="sm" onClick={save} disabled={saving}>{saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}{moving ? (choice === "move" ? "Move and save" : "Save and start fresh") : "Save table"}</Button>
           <Button size="sm" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
         </div>
       ) : (

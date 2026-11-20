@@ -21,6 +21,8 @@ export type OpsIssue =
   | { kind: "sync_failed"; connection_id: string; source: string; table: string; error?: string | null; diagnosis?: Diagnosis | null }
   | { kind: "stale_source"; connection_id: string; source: string; hours?: number | null }
   | { kind: "cost_over_budget"; forecast: number; budget: number; pct: number }
+  | { kind: "duplicate_sync"; connection_id: string; source: string; table: string;
+      jobs: { source_table: string; catalog: string | null; last_run_at: string | null }[] }
 
 export type OpsStatus = {
   state: "ok" | "attention"
@@ -124,6 +126,19 @@ export function issueView(issue: OpsIssue, perms: Set<string>): IssueView {
         detail: `This month is heading for $${issue.forecast.toFixed(2)} against a budget of $${issue.budget.toFixed(2)}.`,
         actions: [{ type: "link", label: "Open Cost", href: "/services?tab=cost" }],
       }
+    case "duplicate_sync": {
+      const where = issue.jobs.map(j => `${j.catalog ?? "the default catalog"} (${j.source_table})`)
+      const sameCatalog = new Set(issue.jobs.map(j => j.catalog)).size < issue.jobs.length
+      return {
+        tone: "warn",
+        title: `${issue.source} · ${issue.table} is synced by ${issue.jobs.length} jobs`,
+        detail: sameCatalog
+          ? `They write the same table and overwrite each other: ${where.join(", ")}.`
+          : `Separate copies that drift apart, each with its own grants: ${where.join(" and ")}.`,
+        advice: "Keep one: change the other job's target or turn it off. To read the table from a second catalog, export a mirror instead.",
+        actions: [{ type: "link", label: "Open connection", href: connectionHref(issue.connection_id) }],
+      }
+    }
     case "stale_source": {
       const actions: OpsAction[] = []
       if (perms.has("connector:write")) actions.push({ type: "sync", label: "Sync now", connectionId: issue.connection_id })
