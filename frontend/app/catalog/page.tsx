@@ -99,7 +99,10 @@ function CatalogPageInner() {
   const tables = useMemo(() => data?.tables ?? [], [data])
   const registry = useMemo(() => data?.registry ?? [], [data])
   const catalogs = useMemo(() => {
-    const engines = [...new Set(tables.map(t => t.catalog))]
+    // Every enabled lake catalog is listed, even with no tables yet (an empty Polaris
+    // catalog is still a place a sync or an export can land).
+    const engines = [...new Set([...tables.map(t => t.catalog),
+      ...registry.filter(r => r.enabled !== false && !isSourceKind(r.kind)).map(r => r.engine_catalog)])]
     return engines.map(e => {
       const r = registry.find(x => x.engine_catalog === e)
       // Named as SQL names it; the kind badge says what it is (Settings keeps the registry name).
