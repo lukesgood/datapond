@@ -855,8 +855,8 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
             <Button variant="outline" size="sm" render={<Link href="/catalog" />}>Open Catalog</Button>
           )}
           <DropdownMenu>
-            <DropdownMenuTrigger>
-              <Button variant="outline" size="sm" aria-label="More actions for this source">More ▾</Button>
+            <DropdownMenuTrigger render={<Button variant="outline" size="sm" aria-label="More actions for this source" />}>
+              More ▾
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={handleCheck} disabled={checking}>
