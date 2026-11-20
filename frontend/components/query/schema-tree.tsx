@@ -236,9 +236,8 @@ export function SchemaTree({ onTableSelect }: Props) {
                 >
                   <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${catOpen ? "rotate-90" : ""}`} />
                   <Database className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{cat.name}</span>
+                  <span className="truncate" title={cat.is_default ? `${cat.name} (default catalog)` : cat.name}>{cat.name}</span>
                   <CatalogKindBadge kind={cat.kind} />
-                  {cat.is_default && <span className="shrink-0 text-2xs font-normal text-muted-foreground">default</span>}
                   <span className="ml-auto text-2xs text-muted-foreground font-normal">
                     {cat.schemas.reduce((a, s) => a + s.tables.length, 0)}
                   </span>
