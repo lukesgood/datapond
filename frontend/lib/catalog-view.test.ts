@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { catalogTypeOf, chipKey, inChip, namespaceChips } from "./catalog-view.ts"
+import { catalogTypeOf, chipKey, inChip, isSourceKind, kindShort, namespaceChips } from "./catalog-view.ts"
 
 const tables = [
   { name: "a", namespace: "public", catalog: "iceberg" },
@@ -44,4 +44,14 @@ test("tables of a Trino source catalog are typed source", () => {
   assert.equal(catalogTypeOf({ catalog: "src_shop" }, reg), "source")
   assert.equal(catalogTypeOf({ catalog: "iceberg" }, reg), "managed")
   assert.equal(catalogTypeOf({ catalog: "iceberg", catalog_type: "external" }, reg), "external")
+})
+
+test("catalog kind labels", () => {
+  assert.equal(kindShort("glue"), "Glue")
+  assert.equal(kindShort("polaris"), "Polaris")
+  assert.equal(kindShort("trino_source"), "Source")
+  assert.equal(kindShort("unknown"), null)
+  assert.equal(kindShort(undefined), null)
+  assert.equal(isSourceKind("trino_source"), true)
+  assert.equal(isSourceKind("glue"), false)
 })

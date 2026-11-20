@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
-  OPEN_ACCESS, accessSummary, addGrant, grantCandidates, grantKey, grantLabel, grantsChanged,
+  lakeLabel, OPEN_ACCESS, accessSummary, addGrant, grantCandidates, grantKey, grantLabel, grantsChanged,
   grantsPayload, removeGrant, type CatalogGrant,
   configOf, deleteBlocked, disableBlocked, emptyForm, formFromCatalog, locationOf,
   testSummary, toCreatePayload, toPatchPayload, uriProblem, validateForm,
@@ -215,4 +215,15 @@ test("export and mirrors open to whoever holds catalog:write, not only admins", 
   assert.equal(canExportCatalogs(new Set(["catalog:write"])), true)
   assert.equal(canExportCatalogs(new Set(["catalog:read", "query:run"])), false)
   assert.equal(canExportCatalogs(new Set()), false)
+})
+
+test("lake label: engine name and kind, from the registry name a sync stores", () => {
+  const lakes = [
+    { name: "AwsDataCatalog", engine_catalog: "iceberg", kind: "glue" },
+    { name: "polaris_lake", engine_catalog: "polaris_lake", kind: "polaris" },
+  ]
+  assert.equal(lakeLabel("AwsDataCatalog", lakes), "iceberg · Glue")
+  assert.equal(lakeLabel("polaris_lake", lakes), "polaris_lake · Polaris")
+  assert.equal(lakeLabel("gone", lakes), "gone")
+  assert.equal(lakeLabel(null, lakes), null)
 })

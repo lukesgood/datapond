@@ -17,7 +17,8 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
 import { ExplainRail, RailSection } from "@/components/ui/explain-rail"
 import { SendToKnowledgePanel, TableRail, type CatalogTable } from "@/components/catalog/table-rail"
-import { catalogTypeOf, inChip, namespaceChips, type RegistryEntry } from "@/lib/catalog-view"
+import { catalogTypeOf, inChip, isSourceKind, namespaceChips, type RegistryEntry } from "@/lib/catalog-view"
+import { CatalogKindBadge } from "@/components/catalog/kind-badge"
 import { findNodeId, soleCatalog, type RelGraph } from "@/lib/relationship-view"
 
 // reactflow pulls in a chunk we should not pay for unless the map is opened.
@@ -49,6 +50,7 @@ function CatalogPageInner() {
   const [selected, setSelected] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [showMap, setShowMap] = useState(false)
+  const [showEmpty, setShowEmpty] = useState(false)
   const [graph, setGraph] = useState<RelGraph | null>(null)
 
   // Send to Knowledge drives ingest-source / schedule: knowledge:write plus
@@ -100,9 +102,10 @@ function CatalogPageInner() {
     const engines = [...new Set(tables.map(t => t.catalog))]
     return engines.map(e => {
       const r = registry.find(x => x.engine_catalog === e)
-      return { engine: e, label: r ? (r.name === e ? e : `${r.name} (${e})`) : e, isDefault: !!r?.is_default,
+      // Named as SQL names it; the kind badge says what it is (Settings keeps the registry name).
+      return { engine: e, kind: r?.kind ?? null, isDefault: !!r?.is_default, source: isSourceKind(r?.kind),
                count: tables.filter(t => t.catalog === e).length }
-    }).sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.label.localeCompare(b.label))
+    }).sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.engine.localeCompare(b.engine))
   }, [tables, registry])
 
   const inCatalog = useCallback((t: { catalog?: string }) => catalog === "all" || (t.catalog ?? "") === catalog, [catalog])
@@ -163,13 +166,22 @@ function CatalogPageInner() {
     )
   }
 
-  const navItem = (key: string, label: string, count: number, active: boolean, onClick: () => void, mono = false) => (
+  const navItem = (key: string, label: string, count: number, active: boolean, onClick: () => void, mono = false, extra?: React.ReactNode) => (
     <button key={key} type="button" onClick={onClick} aria-current={active ? "true" : undefined}
             className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors ${active ? "bg-primary/10 font-semibold text-primary" : "hover:bg-muted"}`}>
-      <span className={`truncate ${mono ? "font-mono text-xs" : ""}`}>{label}</span>
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className={`truncate ${mono ? "font-mono text-xs" : ""}`}>{label}</span>
+        {extra}
+      </span>
       <span className="dp-num shrink-0 text-xs text-muted-foreground">{count}</span>
     </button>
   )
+  const catalogItem = (c: (typeof catalogs)[number]) => navItem(c.engine, c.engine, c.count, catalog === c.engine, () => pickCatalog(c.engine), true,
+    <>{!c.source && <CatalogKindBadge kind={c.kind} />}{c.isDefault && <span className="shrink-0 text-2xs font-normal text-muted-foreground">default</span>}</>)
+  const lakeCatalogs = catalogs.filter(c => !c.source)
+  const sourceCatalogs = catalogs.filter(c => c.source)
+  const fullChips = chips.filter(c => c.count > 0)
+  const emptyChips = chips.filter(c => c.count === 0)
 
   const typeCounts = Object.entries(tables.reduce<Record<string, number>>((acc, t) => {
     const k = typeOf(t); acc[k] = (acc[k] ?? 0) + 1; return acc
@@ -197,15 +209,27 @@ function CatalogPageInner() {
           <nav aria-label="Catalogs and namespaces" className="w-full space-y-4 lg:w-56 lg:shrink-0">
             {catalogs.length > 1 && (
               <div className="space-y-1">
-                <p className="px-2.5 text-xs font-medium text-muted-foreground">Catalog</p>
                 {navItem("all", "All catalogs", tables.length, catalog === "all", () => pickCatalog("all"))}
-                {catalogs.map(c => navItem(c.engine, c.isDefault ? `${c.label} · default` : c.label, c.count, catalog === c.engine, () => pickCatalog(c.engine), true))}
+                {lakeCatalogs.length > 0 && <p className="px-2.5 pt-2 text-xs font-medium text-muted-foreground">Lakehouse</p>}
+                {lakeCatalogs.map(catalogItem)}
+                {sourceCatalogs.length > 0 && (
+                  <p className="px-2.5 pt-2 text-xs font-medium text-muted-foreground">Source databases <span className="font-normal">· read live</span></p>
+                )}
+                {sourceCatalogs.map(catalogItem)}
               </div>
             )}
             <div className="space-y-1">
               <p className="px-2.5 text-xs font-medium text-muted-foreground">Namespace</p>
               {navItem("all", "All", tables.filter(inCatalog).length, chip === "all", () => pickChip("all"))}
-              {chips.map(c => navItem(c.key, c.label, c.count, chip === c.key, () => pickChip(c.key), true))}
+              {fullChips.map(c => navItem(c.key, c.label, c.count, chip === c.key, () => pickChip(c.key), true))}
+              {emptyChips.length > 0 && (showEmpty || emptyChips.some(c => c.key === chip)
+                ? emptyChips.map(c => navItem(c.key, c.label, c.count, chip === c.key, () => pickChip(c.key), true))
+                : (
+                  <button type="button" onClick={() => setShowEmpty(true)}
+                          className="px-2.5 py-1 text-xs text-primary hover:underline focus-visible:underline focus-visible:outline-none">
+                    Show {emptyChips.length} empty namespace{emptyChips.length === 1 ? "" : "s"}
+                  </button>
+                ))}
             </div>
           </nav>
 
@@ -261,6 +285,7 @@ function CatalogPageInner() {
             <SendToKnowledgePanel key={tableKey(current)} table={current} onClose={() => setSending(false)} />
           ) : current ? (
             <TableRail key={tableKey(current)} table={current} typeLabel={TYPE_LABEL[typeOf(current)] ?? typeOf(current)}
+              catalogKind={registry.find(r => r.engine_catalog === current.catalog)?.kind}
               graph={graph} graphNode={nodeFor(current)} sole={sole}
               canSend={sendAccess === "allowed"} onSend={() => setSending(true)} onClose={() => setSelected(null)} />
           ) : (
