@@ -702,11 +702,9 @@ function ConnectorsPageInner() {
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>
-                          <DropdownMenuTrigger>
-                            <Button variant="ghost" size="icon"
-                              className="h-7 w-7" disabled={actionLoading === conn.id}>
-                              <MoreHorizontal className="h-3.5 w-3.5" />
-                            </Button>
+                          <DropdownMenuTrigger disabled={actionLoading === conn.id}
+                            render={<Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`More for ${conn.name}`} />}>
+                            <MoreHorizontal className="h-3.5 w-3.5" />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => handleSync(conn.id)}>

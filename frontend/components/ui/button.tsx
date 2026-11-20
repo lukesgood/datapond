@@ -1,3 +1,4 @@
+import { cloneElement, isValidElement, type ReactElement } from "react"
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 
@@ -46,10 +47,26 @@ function Button({
   size = "default",
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  const classes = cn(buttonVariants({ variant, size, className }))
+  // Rendered as a link (render={<Link …/>}) it navigates, so it stays a plain link: the
+  // button primitive would add role="button" (and warn that it expected a <button>).
+  const { render, children, ...rest } = props
+  if (isValidElement(render) && render.type !== "button") {
+    const el = render as ReactElement<{ className?: string }>
+    // Button-only options mean nothing on a link.
+    const linkProps: Record<string, unknown> = { ...rest }
+    delete linkProps.nativeButton
+    delete linkProps.focusableWhenDisabled
+    return cloneElement(el, {
+      ...(linkProps as object), "data-slot": "button",
+      className: cn(classes, el.props.className),
+      children,
+    } as object)
+  }
   return (
     <ButtonPrimitive
       data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={classes}
       {...props}
     />
   )
