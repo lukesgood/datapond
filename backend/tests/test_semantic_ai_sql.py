@@ -322,3 +322,53 @@ def test_a_tie_between_two_metrics_suggests_neither():
 ])
 def test_partial_or_cue_only_questions_suggest_nothing(question):
     assert suggest(LIVE, question) is None
+
+
+def test_concepts_named_in_the_question_reach_the_prompt_the_response_and_the_audit(monkeypatch):
+    """Concept bindings step 2: approved bindings for the concepts the question names go in
+    the prompt beside the metrics, come back as concepts_provided, and are cited."""
+    from app.semantic import concept_context as cc, context as mc
+    reg.set_entries([CatalogEntry(name="iceberg", kind="polaris", engine_catalog="iceberg", is_default=True)])
+    catalog_access.set_grants({})
+    monkeypatch.setenv("QUERY_ENGINE", "trino")
+    prompts, calls = [], []
+
+    async def _record(**kw):
+        calls.append(kw)
+    monkeypatch.setattr(tool_call_log, "record", _record)
+    monkeypatch.setattr(m, "_cfg", lambda: {"litellm_url": "http://litellm:4000",
+                                            "litellm_model": "default", "master_key": ""})
+    monkeypatch.setattr(m, "_get_schema_context",
+                        lambda: "Available tables (catalog: iceberg):\n  iceberg.default.customers: tier (varchar)")
+    monkeypatch.setattr(m, "egress_policy", lambda: "allow-external")
+    monkeypatch.setattr(m, "validate_sql", lambda sql: (True, None))
+
+    def _llm(system, messages):
+        prompts.append(system)
+        return '{"sql": "SELECT count(*) FROM iceberg.default.customers WHERE tier = \'platinum\'", "explanation": "x"}'
+    monkeypatch.setattr(m, "_call_litellm", _llm)
+
+    async def no_metrics(user, catalog=None):
+        return []
+    monkeypatch.setattr(mc, "for_caller", no_metrics)
+
+    async def concepts(user):
+        return [{"name": "플래티넘 고객", "terms": [], "parent": "고객", "pii": False, "bindings": [
+            {"catalog": "iceberg", "namespace": "default", "table": "customers", "column": "tier",
+             "role": "filter", "filter_sql": "tier = 'platinum'"}]}]
+    monkeypatch.setattr(cc, "for_caller", concepts)
+    try:
+        app = FastAPI()
+        app.include_router(m.router, prefix="/api")
+
+        async def _override():
+            return ENG
+        app.dependency_overrides[auth.require_user] = _override
+        r = TestClient(app).post("/api/ai/sql", json={"question": "플래티넘 고객은 몇 명?"})
+    finally:
+        reg.reset()
+    assert r.status_code == 200
+    assert "segment iceberg.default.customers WHERE tier = 'platinum'" in prompts[0]
+    assert r.json()["concepts_provided"] == [{"name": "플래티넘 고객",
+                                              "uses": ["iceberg.default.customers WHERE tier = 'platinum'"]}]
+    assert calls[0]["citation_sources"] == ["context:concept:플래티넘 고객"]

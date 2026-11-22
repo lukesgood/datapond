@@ -76,8 +76,9 @@ def test_approved_joins_become_edges_under_the_engine_name():
 
 
 def test_plural_folding():
-    assert [concepts.singular(x) for x in ("customers", "categories", "addresses", "status", "class")] == \
-        ["customer", "category", "address", "statu", "class"]
+    assert [concepts.singular(x) for x in ("customers", "categories", "addresses", "status", "class",
+                                           "warehouses", "boxes", "branches", "courses")] == \
+        ["customer", "category", "address", "statu", "class", "warehouse", "box", "branch", "course"]
 
 
 # ── migration ─────────────────────────────────────────────────────────────────
@@ -243,3 +244,84 @@ def test_off_without_the_ontology_capability(world, monkeypatch):
     with pytest.raises(HTTPException) as e:
         asyncio.run(routes.list_concepts_with_bindings(user=ADMIN))
     assert e.value.status_code == 404
+
+
+# ── step 2: context for /ai/sql, read actions, column chips ───────────────────
+
+from app.semantic import concept_context as ctx
+
+VISIBLE = [
+    {"name": "고객", "terms": ["customer", "회원"], "parent": None, "pii": True, "bindings": [
+        {"catalog": "iceberg", "namespace": "default", "table": "customers", "column": "id", "role": "key", "filter_sql": None},
+        {"catalog": "iceberg", "namespace": "default", "table": "orders", "column": "customer_id", "role": "key", "filter_sql": None}]},
+    {"name": "플래티넘 고객", "terms": [], "parent": "고객", "pii": False, "bindings": [
+        {"catalog": "iceberg", "namespace": "default", "table": "customers", "column": "tier", "role": "filter", "filter_sql": "tier = 'platinum'"}]},
+    {"name": "주문", "terms": ["order"], "parent": None, "pii": False, "bindings": [
+        {"catalog": "iceberg", "namespace": "default", "table": "orders", "column": "id", "role": "key", "filter_sql": None}]},
+    {"name": "환불", "terms": ["refund"], "parent": None, "pii": False, "bindings": []},
+]
+
+
+def test_the_question_picks_its_concepts_longest_first_particles_ignored():
+    names = [c["name"] for c in ctx.matched(VISIBLE, "플래티넘 고객의 지난달 주문은 몇 건?")]
+    assert names == ["플래티넘 고객", "고객", "주문"]
+    assert ctx.matched(VISIBLE, "환불 건수") == []          # no approved binding, nothing to give
+    assert ctx.matched(VISIBLE, "전체 매출") == []
+
+
+def test_the_prompt_block_names_keys_and_segments_and_reports_what_it_gave():
+    block, provided = ctx.concept_lines(VISIBLE, "플래티넘 고객 주문")
+    assert "- 플래티넘 고객: segment iceberg.default.customers WHERE tier = 'platinum'" in block
+    assert "- 고객 (customer, 회원): key iceberg.default.customers.id, iceberg.default.orders.customer_id" in block
+    assert block.rstrip().endswith(ctx.RULE)
+    assert provided[0] == {"name": "플래티넘 고객", "uses": ["iceberg.default.customers WHERE tier = 'platinum'"]}
+    assert ctx.concept_lines(VISIBLE, "hello") == ("", [])
+
+
+def test_column_chips_for_one_table():
+    cols = ctx.for_table(VISIBLE, "iceberg", "default", "customers")
+    assert cols["id"] == [{"concept": "고객", "role": "key", "filter_sql": None, "pii": True}]
+    assert cols["tier"][0]["concept"] == "플래티넘 고객"
+    assert ctx.for_table(VISIBLE, "polaris_lake", "default", "customers") == {}
+
+
+def test_describe_finds_by_term_and_lists_narrower(monkeypatch):
+    async def fake(user):
+        return VISIBLE
+    monkeypatch.setattr(ctx, "for_caller", fake)
+    d = asyncio.run(ctx.describe_visible(ADMIN, "customer"))
+    assert d["name"] == "고객" and d["narrower"] == ["플래티넘 고객"]
+    assert d["bindings"][1]["text"] == "iceberg.default.orders.customer_id"
+    assert [c["bindings"] for c in asyncio.run(ctx.list_visible(ADMIN))] == [2, 1, 1, 0]
+    with pytest.raises(HTTPException):
+        asyncio.run(ctx.describe_visible(ADMIN, "없음"))
+
+
+def test_for_caller_drops_bindings_on_hidden_catalogs(monkeypatch):
+    monkeypatch.setenv("FEATURE_ONTOLOGY", "true")
+    import app.api.connectors as connectors
+    import app.api.ontology as ontology
+
+    async def pool():
+        return object()
+    async def bindings(p, statuses=None):
+        return [{"concept": "고객", "catalog": c, "namespace": "default", "table": "customers", "column": "id",
+                 "role": "key", "filter_sql": None} for c in ("iceberg", "polaris_lake")]
+    async def concepts_(p):
+        return [{"name": "고객", "terms": [], "parent": None, "pii": True, "description": None}]
+    async def access(user):
+        return catalog_access.CatalogAccess(grants={"polaris_lake": frozenset({("role", "admin")})},
+                                            user_id=user["id"], role=user["role"])
+    reg.set_entries([CatalogEntry(name="AwsDataCatalog", kind="glue", engine_catalog="iceberg", is_default=True),
+                     CatalogEntry(name="polaris_lake", kind="polaris", engine_catalog="polaris_lake")])
+    monkeypatch.setattr(connectors, "get_db_pool", pool)
+    monkeypatch.setattr(ctx.__dict__.get("concept_store") or __import__("app.semantic.concept_store", fromlist=["x"]), "list_bindings", bindings)
+    monkeypatch.setattr(ontology, "load_concepts", concepts_)
+    monkeypatch.setattr(catalog_access, "for_caller", access)
+    try:
+        got = asyncio.run(ctx.for_caller(READER))
+        assert [b["catalog"] for b in got[0]["bindings"]] == ["iceberg"]
+        monkeypatch.setenv("FEATURE_ONTOLOGY", "")
+        assert asyncio.run(ctx.for_caller(READER)) == []
+    finally:
+        reg.reset()

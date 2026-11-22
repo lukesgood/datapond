@@ -18,8 +18,9 @@ def test_four_read_actions_with_their_permissions():
         assert i in EXECUTORS
 
 
-def test_mcp_now_exposes_30_read_tools():
-    assert sum(1 for a in ACTIONS if a.kind is ActionKind.READ) == 30
+def test_mcp_now_exposes_32_read_tools():
+    # 30 + concept.list, concept.describe (concept bindings step 2)
+    assert sum(1 for a in ACTIONS if a.kind is ActionKind.READ) == 32
     names = {tools.mcp_name(a.id) for a in ACTIONS}
     assert {"metric_list", "metric_describe", "metric_query", "metric_values"} <= names
 

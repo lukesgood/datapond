@@ -99,3 +99,16 @@ export function suggestionBody(s: Suggestion, status: "approved" | "rejected") {
   return { concept: s.concept, catalog: s.catalog, table: `${s.namespace}.${s.table}`, column: s.column,
            role: s.role, source: s.source, evidence: s.evidence, status }
 }
+
+/** A binding as /ai/sql reports it, shortened for a chip: the catalog and namespace go,
+ *  `iceberg.default.customers WHERE tier = 'platinum'` → `customers: tier = 'platinum'`. */
+export function shortUse(use: string): string {
+  const m = use.match(/^[^.\s]+\.[^.\s]+\.([^.\s]+)(?:\.(\S+)| WHERE (.+))$/)
+  if (!m) return use
+  return m[3] ? `${m[1]}: ${m[3]}` : `${m[1]}.${m[2]}`
+}
+
+/** The answer's concept chips: one per concept the assistant was given. */
+export function conceptChips(provided: { name: string; uses: string[] }[] | undefined) {
+  return (provided ?? []).map(c => ({ name: c.name, uses: c.uses.map(shortUse) }))
+}

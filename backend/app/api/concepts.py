@@ -72,6 +72,22 @@ async def list_concepts_with_bindings(user: dict = Depends(require_user)):
             "viewer": _viewer(user)}
 
 
+@router.get("/semantic/concepts/table", dependencies=[Depends(require_permission("catalog:read"))])
+async def concepts_of_table(catalog: str, namespace: str, table: str,
+                            user: dict = Depends(require_user)):
+    """{columns: {column: [{concept, role, filter_sql, pii}]}} for one table's approved
+    bindings, for the Catalog's column chips. Empty, not 404, when concepts are off: the
+    table page asks on every open and must not show an error for a feature not in use."""
+    from app.semantic import concept_context
+    try:
+        found = await concept_context.for_caller(user)
+    except Exception as e:
+        logger.info("[concepts] table chips unavailable: %s", e)
+        found = []
+    canonical = catalog_registry.canonical_catalog(catalog) or catalog
+    return {"columns": concept_context.for_table(found, canonical, namespace, table)}
+
+
 @router.get("/semantic/concepts/proposals",
             dependencies=[Depends(require_permission("catalog:read"))])
 async def binding_proposals(db: Session = Depends(get_db), user: dict = Depends(require_user)):

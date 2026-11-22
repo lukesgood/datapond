@@ -149,6 +149,19 @@ function TableDetailPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [namespace, tableName, tableDetail])
 
+  // Approved concept bindings on this table's columns (Metrics › Concepts). Empty when
+  // concepts are off or none are bound; the column only appears when there are some.
+  const [columnConcepts, setColumnConcepts] = useState<Record<string, { concept: string; role: string; filter_sql: string | null; pii: boolean }[]>>({})
+  useEffect(() => {
+    if (!engineCatalog) return
+    const q = new URLSearchParams({ catalog: engineCatalog, namespace, table: tableName })
+    let live = true
+    fetch(`/api/semantic/concepts/table?${q}`).then(r => (r.ok ? r.json() : { columns: {} }))
+      .then(d => { if (live) setColumnConcepts(d.columns ?? {}) }).catch(() => {})
+    return () => { live = false }
+  }, [engineCatalog, namespace, tableName])
+  const hasConcepts = Object.keys(columnConcepts).length > 0
+
   const formatNumber = (num?: number) => {
     if (num == null) return "—"
     return num.toLocaleString()
@@ -473,6 +486,7 @@ function TableDetailPageInner() {
                       <th className="p-3 text-left font-medium">Data Type</th>
                       <th className="p-3 text-left font-medium">Nullable</th>
                       <th className="p-3 text-left font-medium">Comment</th>
+                      {hasConcepts && <th className="p-3 text-left font-medium">Concept</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -490,6 +504,18 @@ function TableDetailPageInner() {
                         <td className="p-3 text-muted-foreground">
                           {column.comment || "-"}
                         </td>
+                        {hasConcepts && (
+                          <td className="p-3">
+                            <span className="flex flex-wrap gap-1">
+                              {(columnConcepts[column.name.toLowerCase()] ?? []).map(c => (
+                                <Badge key={`${c.concept}-${c.role}`} variant="secondary"
+                                       title={c.role === "filter" ? `segment: ${c.filter_sql}` : c.role}>
+                                  {c.concept}{c.role === "filter" ? " (segment)" : ""}{c.pii ? " · PII" : ""}
+                                </Badge>
+                              ))}
+                            </span>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>

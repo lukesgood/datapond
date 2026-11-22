@@ -38,10 +38,11 @@ def norm(s: str) -> str:
 
 
 def singular(s: str) -> str:
-    """Enough English plural folding for table names: customers, categories, addresses."""
+    """Enough English plural folding for table names: customers, categories, addresses,
+    boxes, branches, warehouses."""
     if s.endswith("ies") and len(s) > 4:
         return s[:-3] + "y"
-    if s.endswith(("ses", "xes", "zes", "ches", "shes")) and len(s) > 4:
+    if s.endswith(("sses", "xes", "zes", "ches", "shes")) and len(s) > 4:
         return s[:-2]
     if s.endswith("s") and not s.endswith("ss") and len(s) > 3:
         return s[:-1]
