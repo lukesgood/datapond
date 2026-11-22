@@ -11,7 +11,8 @@ import { ExplainRail, RailAttention, RailSection } from "@/components/ui/explain
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MetricEditor, type TableRef } from "@/components/metrics/metric-editor"
 import { JoinsPanel } from "@/components/metrics/joins-panel"
-import { CapabilityGate } from "@/lib/capabilities"
+import { ConceptsPanel } from "@/components/metrics/concepts-panel"
+import { CapabilityGate, useCapability } from "@/lib/capabilities"
 import { useConfirm } from "@/lib/confirm"
 import { useToast } from "@/lib/toast"
 import { responseErrorMessage } from "@/lib/auth"
@@ -31,8 +32,10 @@ function MetricsPage() {
   const { toast } = useToast()
   const confirm = useConfirm()
   const router = useRouter()
-  const tab = useSearchParams().get("tab") === "joins" ? "joins" : "definitions"
-  const setTab = (v: string) => router.replace(v === "joins" ? "/metrics?tab=joins" : "/metrics", { scroll: false })
+  const conceptsOn = useCapability("ontology")
+  const asked = useSearchParams().get("tab")
+  const tab = asked === "joins" ? "joins" : asked === "concepts" && conceptsOn ? "concepts" : "definitions"
+  const setTab = (v: string) => router.replace(v === "definitions" ? "/metrics" : `/metrics?tab=${v}`, { scroll: false })
   const [metrics, setMetrics] = useState<MetricSummary[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [viewer, setViewer] = useState<Viewer>({ can_author: false, can_approve: false })
@@ -113,6 +116,7 @@ function MetricsPage() {
         <TabsList>
           <TabsTrigger value="definitions">Definitions</TabsTrigger>
           <TabsTrigger value="joins">Joins</TabsTrigger>
+          {conceptsOn && <TabsTrigger value="concepts">Concepts</TabsTrigger>}
         </TabsList>
         <TabsContent value="definitions" className="mt-5">
           <div className="flex flex-wrap items-start gap-5">
@@ -252,6 +256,11 @@ function MetricsPage() {
         <TabsContent value="joins" className="mt-5">
           <JoinsPanel canApprove={viewer.can_approve} catalogs={catalogs} />
         </TabsContent>
+        {conceptsOn && (
+          <TabsContent value="concepts" className="mt-5">
+            <ConceptsPanel catalogs={catalogs} tables={tables} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   )
