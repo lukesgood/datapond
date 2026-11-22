@@ -465,6 +465,9 @@ class AskResponse(BaseModel):
     # A metric whose label or synonym occurs verbatim in the question: the cited,
     # deterministic path (metric.query) for the same answer.
     suggested_metric: Optional[dict] = None
+    # Concepts the question named, with the approved bindings put in the prompt
+    # ([{name, uses}]). Given, not necessarily used.
+    concepts_provided: List[dict] = []
 
 
 # ── Route ─────────────────────────────────────────────────────────────────────
@@ -535,7 +538,16 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
         suggested = metric_context.suggest(visible_metrics, q_text)
     except Exception as e:      # the semantic tables are optional context, never a blocker
         logger.info("[ai_sql] metric context unavailable: %s", e)
-    system, messages = _build_messages(schema_ctx, q_text, c_text or None, metrics_block)
+    concepts_block, concepts_provided = "", []
+    try:
+        from app.semantic import concept_context
+        visible_concepts = await asyncio.wait_for(
+            concept_context.for_caller(user), timeout=_METRIC_CONTEXT_TIMEOUT_S)
+        concepts_block, concepts_provided = concept_context.concept_lines(visible_concepts, q_text)
+    except Exception as e:      # optional context, like the metrics
+        logger.info("[ai_sql] concept context unavailable: %s", e)
+    context_block = "\n\n".join(b for b in (metrics_block, concepts_block) if b)
+    system, messages = _build_messages(schema_ctx, q_text, c_text or None, context_block)
 
     cfg = _cfg()
 
@@ -579,6 +591,7 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
                     needs_input=True,
                     metrics_provided=metrics_provided,
                     suggested_metric=suggested,
+                    concepts_provided=concepts_provided,
                 )
 
             sql = data["sql"].strip()
@@ -626,6 +639,7 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
                 validation_error=verr,
                 metrics_provided=metrics_provided,
                 suggested_metric=suggested,
+                concepts_provided=concepts_provided,
             )
 
     # ── 2. Graceful fallback — schema-aware SQL template ──────────────────────
@@ -675,7 +689,8 @@ async def generate_sql(req: AskRequest, user: dict = Depends(require_user)):
                                resource=[], request_text=masked_question,
                                hit_count=0,
                                pii_masked=int(resp.pii_masked or 0),
-                               citation_sources=[f"context:metric:{x}" for x in resp.metrics_provided] or None,
+                               citation_sources=([f"context:metric:{x}" for x in resp.metrics_provided]
+                                                 + [f"context:concept:{c['name']}" for c in resp.concepts_provided]) or None,
                                outcome="ok" if resp.has_ai else "degraded",
                                duration_ms=int((time.perf_counter() - started) * 1000))
     return resp

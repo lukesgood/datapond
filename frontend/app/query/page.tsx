@@ -33,6 +33,7 @@ const OpenInNotebookModal = dynamic(() => import("@/components/query/open-in-not
 import { useToast } from "@/lib/toast"
 import { responseErrorMessage } from "@/lib/auth"
 import { aiSqlMetricView, periodFromQuestion, periodLabel, type MetricDetail } from "@/lib/metrics"
+import { conceptChips } from "@/lib/concepts"
 import { useCapabilities, useCapability, CapabilityGate } from "@/lib/capabilities"
 import { AnalyticsTabs } from "@/components/query/analytics-tabs"
 import { DashboardsGallery } from "@/components/dashboards/dashboards-gallery"
@@ -126,6 +127,7 @@ function QueryPageInner() {
   const [aiQuestion, setAiQuestion]         = useState("")
   const [aiLoading, setAiLoading]           = useState(false)
   const [aiExplanation, setAiExplanation]   = useState<string | null>(null)
+  const [aiConcepts, setAiConcepts]         = useState<{ name: string; uses: string[] }[]>([])
   const [aiMetrics, setAiMetrics]           = useState<{ chips: string[]; suggestion: string | null }>({ chips: [], suggestion: null })
   // "Query as metric" asks before it runs: the period and dimensions read from the
   // question, for the person to confirm or change.
@@ -230,6 +232,7 @@ function QueryPageInner() {
     const seq = ++runSeq.current
     setAiLoading(true)
     setAiExplanation(null)
+    setAiConcepts([])
     setAiMetrics({ chips: [], suggestion: null })
     setMetricForm(null)
     setMetricRanNote(null)
@@ -246,6 +249,7 @@ function QueryPageInner() {
       // A run or a metric query started since then owns the editor and the results.
       if (seq !== runSeq.current) return
       setAiMetrics(aiSqlMetricView(data))
+      setAiConcepts(conceptChips(data.concepts_provided))
       // Only replace the editor when there is a statement. A clarifying question or
       // an empty catalog returns no SQL, and pasting that over the user's work — or
       // pasting prose as if it were runnable — is worse than doing nothing.
@@ -944,6 +948,19 @@ function QueryPageInner() {
                   <div>
                     <p className="font-semibold">What it does</p>
                     <p className="mt-0.5 text-muted-foreground">{aiExplanation}</p>
+                  </div>
+                )}
+                {aiConcepts.length > 0 && (
+                  <div>
+                    <p className="font-semibold">Business words it was given</p>
+                    <ul className="mt-1 flex flex-wrap gap-1">
+                      {aiConcepts.map(c => (
+                        <li key={c.name} className="rounded-full border bg-background px-2 py-0.5" title={c.uses.join("\n")}>
+                          {c.name} <span className="font-mono text-2xs text-muted-foreground">→ {c.uses.slice(0, 2).join(" · ")}{c.uses.length > 2 ? ` +${c.uses.length - 2}` : ""}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-1 text-2xs text-muted-foreground">Approved concept bindings sent with the question. Given, not proof the SQL used them.</p>
                   </div>
                 )}
                 <div className="space-y-1.5">

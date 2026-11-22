@@ -2,7 +2,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import {
-  bindingText, cell, conceptRows, coverage, matchesSearch, matrixTables, suggestionBody, tableLabel,
+  bindingText, cell, conceptChips, shortUse, conceptRows, coverage, matchesSearch, matrixTables, suggestionBody, tableLabel,
   type Binding, type Concept, type Suggestion,
 } from "./concepts.ts"
 
@@ -55,4 +55,12 @@ test("a suggestion becomes a binding body with namespace.table", () => {
     concept: "고객", catalog: "iceberg", table: "default.customers", column: "id", role: "key",
     source: "naming", evidence: "name", status: "rejected",
   })
+})
+
+test("the answer's chips drop catalog and namespace", () => {
+  assert.equal(shortUse("iceberg.default.customers WHERE tier = 'platinum'"), "customers: tier = 'platinum'")
+  assert.equal(shortUse("iceberg.default.orders.customer_id"), "orders.customer_id")
+  assert.equal(shortUse("odd"), "odd")
+  assert.deepEqual(conceptChips([{ name: "고객", uses: ["iceberg.default.customers.id"] }]), [{ name: "고객", uses: ["customers.id"] }])
+  assert.deepEqual(conceptChips(undefined), [])
 })

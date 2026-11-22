@@ -150,7 +150,7 @@ AI layer and governance:
 - Capability-gated navigation and direct-route states
 - Community authentication plus Enterprise OIDC SSO
 - Append-only tool call log: who called search, cited answers, SQL generation or query execution, against which collection or tables, with hit count, cited sources and PII masked; NDJSON export and compliance-report section
-- Read-only MCP server at POST /api/mcp (2026-07-28 stateless HTTP): the 30 read actions as tools, scoped by the calling key, one audit row per call
+- Read-only MCP server at POST /api/mcp (2026-07-28 stateless HTTP): the 32 read actions as tools, scoped by the calling key, one audit row per call
 - Governed metrics: admin-approved, versioned metric definitions; `metric_query` compiles deterministic SQL (no model), runs it through the same RLS/masking path, and returns rows with a citation (metric, version, approver, SQL) recorded in the audit log
 - OAuth resource-server mode: the API and MCP endpoint accept the customer's IdP access tokens for existing users and linked service accounts, narrowed by `datapond:` scopes (off by default; a client is linked to a service account on its page under Agents)
 - Tool-facing OpenAPI for gateway registration at `GET /api/tools/openapi.json` (3.0, no `anyOf`, only the tools the calling key may use)
