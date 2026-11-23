@@ -16,6 +16,14 @@ from typing import Dict, Iterable, List, Optional, Tuple
 from app.connectors import trino_sync
 
 
+def default_target(source_table: str) -> str:
+    """The target a job stores when nobody names one: `datapond.default.<table>`. A
+    Trino source lists its tables with their schema (`public.orders`); the schema is
+    not part of the target — the writer drops it (trino_sync.target_ref) — so it is not
+    stored either. Older rows say `datapond.default.public.orders`; both read the same."""
+    return f"datapond.default.{str(source_table or '').split('.')[-1]}"
+
+
 def lake_table(source_table: str, target_table: Optional[str]) -> Tuple[str, str]:
     """(namespace, table) a job lands in, whatever the catalog."""
     ref = trino_sync.target_ref(source_table, target_table, None)

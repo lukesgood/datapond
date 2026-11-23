@@ -109,3 +109,30 @@ def test_an_orphaned_job_can_be_deleted_but_a_listed_one_cannot(monkeypatch):
     assert asyncio.run(c.delete_orphaned_job(cid, "information_schema.sql_parts", user={"id": "u"})) == {
         "deleted": "information_schema.sql_parts"}
     assert deleted == ["information_schema.sql_parts"]
+
+
+def test_batch_conflicts():
+    from app.sync_plan import batch_conflicts
+    rows = [{"source_table": "customers", "target_table": "datapond.default.customers", "enabled": True}]
+    # the qualified spelling lands where the bare job already lands
+    assert batch_conflicts(rows, [{"table": "public.customers", "enabled": True}])
+    # turning the old one off in the same batch clears it
+    assert batch_conflicts(rows, [{"table": "public.customers", "enabled": True},
+                                  {"table": "customers", "enabled": False}]) == []
+    # two schemas of one table inside one batch
+    assert batch_conflicts([], [{"table": "a.orders"}, {"table": "b.orders"}])
+    assert batch_conflicts([], [{"table": "a.orders"}, {"table": "b.orders", "enabled": False}]) == []
+
+
+def test_default_target_drops_the_schema():
+    from app import sync_targets
+    assert sync_targets.default_target("public.orders") == "datapond.default.orders"
+    assert sync_targets.lake_table("public.orders", sync_targets.default_target("public.orders")) == ("default", "orders")
+
+
+def test_rag_invalidation_reads_old_four_part_targets():
+    from app.api.connectors import _synced_namespace_table_pairs
+    res = [("public.orders", "datapond.default.public.orders", True, 1, None),
+           ("public.items", "datapond.default.items", True, 1, None),
+           ("public.x", "datapond.default.x", False, 0, None)]
+    assert _synced_namespace_table_pairs(res) == [("default", "items"), ("default", "orders")]

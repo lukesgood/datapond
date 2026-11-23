@@ -37,6 +37,8 @@ from app.api.om_util import OPENMETADATA_URL, om_token as _om_token
 # gate before it does anything with it. See app/api/source_access.py.
 from app.api.source_access import CONNECTOR, require_access, visible_clause, caller_uuid
 from app.timefmt import iso_utc
+from app import sync_targets
+from app.connectors import trino_sync
 
 logger = logging.getLogger(__name__)
 
@@ -441,7 +443,7 @@ async def _job_for(pool, connection_id: str, table: str) -> Optional[dict]:
     exact = next((r for r in rows if r["source_table"] == table), None)
     if exact:
         return exact
-    return sync_targets.conflict(rows, table, f"datapond.default.{table}")
+    return sync_targets.conflict(rows, table, sync_targets.default_target(table))
 
 
 def _default_lake() -> Optional[str]:
@@ -476,9 +478,9 @@ async def _check_sync_target(pool, connection_id: str, table_name: str, enabled:
     changing = target_catalog != "__keep__"
     if enabled and (me is None or not me["enabled"] or changing):
         other = sync_targets.conflict([r for r in rows if r["enabled"]], table_name,
-                                      me["target_table"] if me else f"datapond.default.{table_name}")
+                                      me["target_table"] if me else sync_targets.default_target(table_name))
         if other:
-            ns, tbl = sync_targets.lake_table(table_name, me["target_table"] if me else f"datapond.default.{table_name}")
+            ns, tbl = sync_targets.lake_table(table_name, me["target_table"] if me else sync_targets.default_target(table_name))
             raise HTTPException(status_code=409, detail={
                 "code": "duplicate_target", "table": f"{ns}.{tbl}", "other": other["source_table"],
                 "other_catalog": other.get("target_catalog") or _default_lake(),
@@ -1611,10 +1613,21 @@ async def list_connections(user: dict = Depends(require_user)):
                 SELECT c.id, c.name, c.connector_type, c.status, c.created_at,
                        c.last_sync_at, c.schedule, c.owner_id,
                        c.last_checked_at, c.last_check_message,
-                       d.engine_catalog AS catalog
+                       d.engine_catalog AS catalog,
+                       jt.tables, hs.last_rows, hs.success_rate
                 FROM connector_connections c
                 LEFT JOIN data_catalogs d
                   ON d.kind = 'trino_source' AND d.config->>'connection_id' = c.id::text
+                LEFT JOIN LATERAL (
+                    SELECT count(*) FILTER (WHERE j.enabled) AS tables
+                      FROM connector_sync_jobs j WHERE j.connection_id = c.id) jt ON true
+                LEFT JOIN LATERAL (
+                    SELECT (array_agg(h.rows_processed ORDER BY h.started_at DESC))[1] AS last_rows,
+                           round(100.0 * count(*) FILTER (WHERE h.status = 'success')
+                                 / NULLIF(count(*), 0))::int AS success_rate
+                      FROM (SELECT rows_processed, status, started_at FROM connector_sync_history
+                             WHERE metadata->>'connection_id' = c.id::text
+                             ORDER BY started_at DESC LIMIT 20) h) hs ON true
                 {where}
                 ORDER BY c.created_at DESC
             ''', *args)
@@ -1631,6 +1644,11 @@ async def list_connections(user: dict = Depends(require_user)):
                 "schedule": row['schedule'],
                 "owner_id": str(row['owner_id']) if row['owner_id'] else None,
                 "catalog": row['catalog'],
+                # The list's columns, in this one query: the page used to ask each source
+                # for its tables (a live discovery) and its history — 2 requests a source.
+                "tables": row['tables'] or 0,
+                "last_rows": row['last_rows'],
+                "success_rate": row['success_rate'],
                 "engine": _trino_source.engine_of(ConnectorType(row['connector_type']))
                           if row['connector_type'] in ConnectorType._value2member_map_ else "python",
                 **_check_fields(row),
@@ -2005,7 +2023,7 @@ async def list_tables(connection_id: str, user: dict = Depends(require_user)):
         def _also(t: str) -> list:
             # Other jobs of this connection that land in the same lake table under another
             # spelling — a second copy the source's own table list would never show.
-            mine = _lands.get(t) or sync_targets.lake_table(t, f"datapond.default.{t}")
+            mine = _lands.get(t) or sync_targets.lake_table(t, sync_targets.default_target(t))
             return [{"source_table": r['source_table'], "catalog": r['target_catalog'] or _default,
                      "enabled": r['enabled'],
                      "last_run_at": r['last_run_at'].isoformat() if r['last_run_at'] else None}
@@ -2133,7 +2151,7 @@ async def set_table_enabled(connection_id: str, table_name: str, body: dict,
                        (id, connection_id, source_table, target_table, sync_mode, enabled, incremental_column)
                        VALUES ($1,$2,$3,$4,'full',$5,$6)""",
                     uuid.UUID(str(uuid.uuid4())), uuid.UUID(connection_id),
-                    table_name, f"datapond.default.{table_name}",
+                    table_name, sync_targets.default_target(table_name),
                     enabled, incremental_column or None
                 )
             if target_catalog != "__keep__":
@@ -2149,6 +2167,55 @@ async def set_table_enabled(connection_id: str, table_name: str, body: dict,
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/connectors/{connection_id}/tables", dependencies=[Depends(require_permission("connector:write"))])
+async def set_tables(connection_id: str, body: dict, user: dict = Depends(require_user)):
+    """Save many tables' choices in one request and one transaction.
+
+    body: {"tables": [{"table", "enabled", "incremental_column"?}]}. A table with an
+    incremental column syncs incrementally, otherwise in full. Used by the setup wizard,
+    which made two requests per table (400 for a 200-table database) and left a half-saved
+    source when one failed. Nothing is saved if two tables would land in one lake table."""
+    from app import sync_plan
+    await require_access(CONNECTOR, connection_id, user, write=True)
+    items = body.get("tables")
+    if not isinstance(items, list) or not items:
+        raise HTTPException(status_code=400, detail="tables must be a non-empty list")
+    for i in items:
+        if not isinstance(i, dict) or not isinstance(i.get("table"), str) or not i["table"]:
+            raise HTTPException(status_code=400, detail="each item needs a 'table'")
+    if len({i["table"] for i in items}) != len(items):
+        raise HTTPException(status_code=400, detail="a table is listed twice")
+    cid = uuid.UUID(connection_id)
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            rows = {r["source_table"]: dict(r) for r in await conn.fetch(
+                "SELECT source_table, target_table, enabled FROM connector_sync_jobs "
+                "WHERE connection_id=$1 FOR UPDATE", cid)}
+            clashes = sync_plan.batch_conflicts(list(rows.values()), items)
+            if clashes:
+                raise HTTPException(status_code=409, detail={
+                    "code": "duplicate_target", "message": "; ".join(clashes[:5])
+                    + (f" (and {len(clashes) - 5} more)" if len(clashes) > 5 else "")})
+            for i in items:
+                inc = i.get("incremental_column") or None
+                mode = "incremental" if inc else "full"
+                enabled = bool(i.get("enabled", True))
+                if i["table"] in rows:
+                    await conn.execute(
+                        "UPDATE connector_sync_jobs SET enabled=$1, incremental_column=$2, sync_mode=$3, "
+                        "updated_at=now() WHERE connection_id=$4 AND source_table=$5",
+                        enabled, inc, mode, cid, i["table"])
+                else:
+                    await conn.execute(
+                        """INSERT INTO connector_sync_jobs
+                           (id, connection_id, source_table, target_table, sync_mode, enabled, incremental_column)
+                           VALUES ($1,$2,$3,$4,$5,$6,$7)""",
+                        uuid.uuid4(), cid, i["table"], sync_targets.default_target(i["table"]),
+                        mode, enabled, inc)
+    return {"saved": len(items), "enabled": sum(1 for i in items if i.get("enabled", True))}
 
 
 _PARTITION_TRANSFORMS = {"day", "month", "year", "identity", "bucket"}
@@ -2192,7 +2259,7 @@ async def set_table_partition(connection_id: str, table_name: str, body: dict,
                        (id, connection_id, source_table, target_table, sync_mode, enabled, partition_spec)
                        VALUES ($1,$2,$3,$4,'full',true,$5)""",
                     uuid.UUID(str(uuid.uuid4())), uuid.UUID(connection_id),
-                    table_name, f"datapond.default.{table_name}", spec_json
+                    table_name, sync_targets.default_target(table_name), spec_json
                 )
         return {"table": table_name, "partition_spec": spec}
     except HTTPException:
@@ -2230,7 +2297,7 @@ async def set_connection_sync_mode(connection_id: str, body: dict,
                            (id, connection_id, source_table, target_table, sync_mode, enabled)
                            VALUES ($1,$2,$3,$4,$5,true)""",
                         uuid.UUID(str(uuid.uuid4())), uuid.UUID(connection_id),
-                        table_name, f"datapond.default.{table_name}", mode
+                        table_name, sync_targets.default_target(table_name), mode
                     )
             else:
                 # All tables update
@@ -2335,7 +2402,7 @@ async def sync_stream(connection_id: str, sync_mode: str = "full",
             results = []
             durations: dict = {}   # table → 처리 소요(ms) for 관측성
             for i, table in enumerate(tables):
-                target = f"datapond.default.{table}"
+                target = sync_targets.default_target(table)
                 t_tbl = datetime.utcnow()
 
                 # Per-table mode: use stored sync_mode (overrides global mode)
@@ -2631,7 +2698,10 @@ async def sync_stream(connection_id: str, sync_mode: str = "full",
                 pass  # Don't let history save failure mask the original error
             yield sse("error", {"message": str(e)})
 
-    return StreamingResponse(generate(), media_type="text/event-stream",
+    # Detached: closing the tab or a dropped connection must not stop a sync halfway
+    # with no history row (app/detached_stream.py).
+    from app.detached_stream import detach
+    return StreamingResponse(detach(generate()), media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
@@ -2662,11 +2732,11 @@ def _synced_namespace_table_pairs(results: list) -> list:
     for tbl, tgt, ok, _rows, _st in results:
         if not ok:
             continue
-        parts = (tgt or "").split(".")
-        ns = parts[-2] if len(parts) >= 2 else "default"
-        name = parts[-1] if parts and parts[-1] else tbl
-        if ns and name:
-            pairs.add((ns, name))
+        # Read it the way the writer does: `datapond.default.public.orders` (older
+        # rows) lands in default.orders, not public.orders.
+        ref = trino_sync.target_ref(tbl, tgt)
+        if ref.namespace and ref.table:
+            pairs.add((ref.namespace, ref.table))
     return sorted(pairs)
 
 
@@ -2833,7 +2903,7 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
             job_id = None
             pool = await get_db_pool()
             for table in tables:
-                target = f"datapond.default.{table}"
+                target = sync_targets.default_target(table)
                 # Load the stored watermark for incremental mode (mirror /sync/stream):
                 # without it every run re-reads the full table and appends → duplication.
                 table_mode = request.sync_mode
@@ -2896,7 +2966,7 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
 
         # Sync a specific table
         source_table = request.source_table
-        target_table = request.target_table or f"datapond.default.{source_table}"
+        target_table = request.target_table or sync_targets.default_target(source_table)
         started_at = datetime.utcnow()
         pool = await get_db_pool()
         # Load the stored watermark for incremental mode (mirror /sync/stream):
@@ -3040,7 +3110,7 @@ async def recreate_table(connection_id: str, table_name: str, user: dict = Depen
             "SELECT target_table FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
             uuid.UUID(connection_id), table_name)
     catalog = await _resolve_target_catalog(pool, connection_id, table_name, None)
-    ref = trino_sync.target_ref(table_name, stored or f"datapond.default.{table_name}", catalog)
+    ref = trino_sync.target_ref(table_name, stored or sync_targets.default_target(table_name), catalog)
     owner = table_links.current().owner_of((ref.catalog.lower(), ref.namespace.lower(), ref.table.lower()))
     if owner:
         raise HTTPException(status_code=409, detail=str(table_links.MirrorWriteRefused(
