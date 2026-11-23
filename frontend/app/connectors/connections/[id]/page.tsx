@@ -57,10 +57,12 @@ interface RawSyncSession {
   tables?: Array<{ table: string; status: "pending" | "running" | "success" | "failed"; rows?: number; error?: string; diagnosis?: Diagnosis | null }>
   diagnosis?: Diagnosis | null
 }
-interface QualityWarning { severity: string; message: string }
+interface QualityWarning { severity: string; message: string; type?: string; column?: string }
 interface NullCheck { null_rate: number; status: string }
 interface QualityCheck {
   source_table: string
+  table_key?: string
+  expected_null_columns?: string[]
   overall_status: string
   checked_at: string
   rows_current?: number
@@ -498,7 +500,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
 
   const fetchQuality = useCallback(async () => {
     try {
-      const res = await fetch(`/api/connectors/${id}/quality?limit=30`)
+      const res = await fetch(`/api/connectors/${id}/quality?limit=200`)
       if (res.ok) {
         const data: { checks?: QualityCheck[] } = await res.json()
         setQualityChecks(data.checks ?? [])
@@ -739,6 +741,35 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connector, engineRestarting, canWrite])
 
+  // One check per lake table, the newest: `orders` (before 2.5) and `public.orders`
+  // are the same table, and an old check under the old name is not current.
+  const latestQuality: QualityCheck[] = []
+  {
+    const seen = new Set<string>()
+    for (const c of qualityChecks) {
+      const key = c.table_key ?? c.source_table
+      if (!seen.has(key)) { seen.add(key); latestQuality.push(c) }
+    }
+  }
+
+  const markExpectedNulls = async (table: string, column: string, expected: boolean) => {
+    try {
+      const res = await fetch(`/api/connectors/${id}/tables/${encodeURIComponent(table)}/expected-nulls`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ column, expected }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        toast(typeof d?.detail === "string" ? d.detail : `Could not update ${column} (HTTP ${res.status})`, "error")
+        return
+      }
+      toast(expected ? `${column}: no more null warnings` : `${column}: warns again`, "success")
+      void fetchQuality()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : `Could not update ${column}`, "error")
+    }
+  }
+
   // ── Edit ───────────────────────────────────────────────────────────────────
 
   const startEdit = async () => {
@@ -935,7 +966,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
             <span className="capitalize">{connector.connector_type.replace(/_/g, " ")}</span>
             {connector.catalog && <><span>·</span><span>queryable as <code className="font-mono text-xs">{connector.catalog}</code></span></>}
             <span>·</span>
-            <span className={connector.status === "error" ? "text-destructive" : connector.status === "paused" ? "" : "text-[var(--dp-good-text)]"}>{connector.status}</span>
+            <span className={connector.status === "error" ? "text-destructive" : connector.status === "paused" ? "" : "text-[var(--dp-good-text)]"}>{({ active: "Active", paused: "Paused", error: "Error", pending: "Pending" } as Record<string, string>)[connector.status] ?? connector.status}</span>
             {(() => {
               const check = describeCheck(connector.last_checked_at, loadedAt)
               return <span className={check.stale ? "text-[var(--dp-warn-text)]" : ""}>· {check.text}</span>
@@ -1138,11 +1169,11 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-semibold">Data Quality</h3>
-                {qualityChecks.some(c => c.overall_status === "alert") && (
+                {latestQuality.some(c => c.overall_status === "alert") && (
                   <span className="text-2xs px-1.5 py-0.5 rounded bg-destructive/10 text-destructive font-medium">Alert</span>
                 )}
-                {!qualityChecks.some(c => c.overall_status === "alert") &&
-                  qualityChecks.some(c => c.overall_status === "warning") && (
+                {!latestQuality.some(c => c.overall_status === "alert") &&
+                  latestQuality.some(c => c.overall_status === "warning") && (
                   <span className="text-2xs px-1.5 py-0.5 rounded bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)] font-medium">Warning</span>
                 )}
               </div>
@@ -1152,11 +1183,9 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           <CardContent className="p-0">
             {/* Group by table, show latest check per table */}
             {(() => {
-              const byTable: Record<string, QualityCheck> = {}
-              for (const c of qualityChecks) {
-                if (!byTable[c.source_table]) byTable[c.source_table] = c
-              }
-              return Object.entries(byTable).map(([table, check]) => (
+              // One row per lake table: checks written as `orders` (before 2.5) and
+              // `public.orders` are the same table, and only the newest one counts.
+              return latestQuality.map(check => [check.source_table, check] as const).map(([table, check]) => (
                 <div key={table} className="border-t px-4 py-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-mono text-xs font-medium">{table}</span>
@@ -1195,7 +1224,14 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                           warning.severity === "alert" ? "bg-destructive/10 text-destructive" : "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)]"
                         }`}>
                           <span>{warning.severity === "alert" ? "⚠" : "○"}</span>
-                          <span>{warning.message}</span>
+                          <span className="flex-1">{warning.message}</span>
+                          {canWrite && warning.type === "high_null_rate" && warning.column && (
+                            <button type="button" className="shrink-0 underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+                              title="This column is often empty by design (for example a date set later). Its null rate is still recorded."
+                              onClick={() => markExpectedNulls(table, warning.column!, true)}>
+                              Expected — stop warning
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1233,6 +1269,22 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                         {hidden > 0 && (
                           <p className="text-2xs text-muted-foreground mt-1.5">
                             +{hidden} more column{hidden > 1 ? "s" : ""} with nulls
+                          </p>
+                        )}
+                        {(check.expected_null_columns ?? []).length > 0 && (
+                          <p className="text-2xs text-muted-foreground mt-1.5">
+                            Expected to be mostly empty:{" "}
+                            {(check.expected_null_columns ?? []).map((col, i) => (
+                              <span key={col}>
+                                {i > 0 && ", "}
+                                <span className="font-mono">{col}</span>
+                                {canWrite && (
+                                  <button type="button" className="ml-1 underline underline-offset-2 hover:text-foreground"
+                                    onClick={() => markExpectedNulls(table, col, false)}
+                                    aria-label={`Warn about ${col} again`}>warn again</button>
+                                )}
+                              </span>
+                            ))}
                           </p>
                         )}
                       </>

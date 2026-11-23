@@ -89,15 +89,6 @@ const FLOW_STEPS = [
   },
 ]
 
-const SOURCE_TYPES = [
-  { name: "PostgreSQL",  icon: "🐘" },
-  { name: "MySQL",       icon: "🐬" },
-  { name: "REST API",    icon: "🌐" },
-  { name: "S3 Storage",  icon: "🪣" },
-  { name: "Universal DB",icon: "🔗" },
-  { name: "Custom Python", icon: "🐍" },
-]
-
 function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated, onEngineRestart, canWrite }: {
   onAddSource: () => void
   hideTitle?: boolean
@@ -150,11 +141,11 @@ function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated, onEngine
           Supported sources
         </p>
         <div className="flex flex-wrap justify-center gap-2">
-          {SOURCE_TYPES.map(s => (
-            <span key={s.name}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-muted/30 text-xs font-medium text-muted-foreground hover:bg-muted/60 transition-colors">
-              <span>{s.icon}</span>
-              {s.name}
+          {/* From the connector list itself, so it names only what can be added. */}
+          {availableConnectors.map(c => (
+            <span key={c.id}
+              className="px-3 py-1.5 rounded-lg border bg-muted/30 text-xs font-medium text-muted-foreground">
+              {c.name}
             </span>
           ))}
         </div>
