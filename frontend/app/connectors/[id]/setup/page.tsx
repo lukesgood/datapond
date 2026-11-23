@@ -132,7 +132,8 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
       const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
       if (!r.ok) {
         const d = await r.json().catch(() => ({}))
-        throw new Error(`${what}: ${typeof d.detail === "string" ? d.detail : `HTTP ${r.status}`}`)
+        const detail = typeof d.detail === "string" ? d.detail : typeof d.detail?.message === "string" ? d.detail.message : `HTTP ${r.status}`
+        throw new Error(`${what}: ${detail}`)
       }
       return r
     }
@@ -141,22 +142,17 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
       const res = await step("/api/connectors/create", "POST", { name: name.trim(), connector_type: id, config: pureConfig() }, "Could not create the source")
       const created: CreatedConnection = await res.json()
       createdId = created.id
-      for (const [t, c] of Object.entries(tableConfigs)) {
-        await step(`/api/connectors/${createdId}/tables/${encodeURIComponent(t)}/enabled`, "PATCH",
-          { enabled: c.enabled, incremental_column: c.incremental_column || null }, `Could not save ${t}`)
-        if (c.enabled) {
-          await step(`/api/connectors/${createdId}/sync-mode`, "PATCH",
-            { sync_mode: c.incremental_column ? "incremental" : "full", table_name: t }, `Could not set the sync mode of ${t}`)
-        }
-      }
+      // One request for every table (it was two per table: 400 for a 200-table database).
+      await step(`/api/connectors/${createdId}/tables`, "PUT", {
+        tables: Object.entries(tableConfigs).map(([t, c]) => ({
+          table: t, enabled: c.enabled, incremental_column: c.incremental_column || null })),
+      }, "Could not save the table choices")
       if (cron) await step(`/api/connectors/${createdId}/schedule`, "PATCH", { schedule: cron }, "Could not set the schedule")
-      // The first sync runs on the server for as long as it takes; the source page shows
-      // it live. Waiting for it here held "Finishing…" for the whole sync.
-      if (syncNow && !created.engine_restarting) {
-        void fetch(`/api/connectors/${createdId}/sync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
-      }
+      // The source page runs the first sync (?sync=1), so its progress and any failure
+      // show there; this page used to send it and never read the answer.
+      const firstSync = syncNow && !created.engine_restarting
       // From the response, not from state set during this same click (it was always false).
-      router.push(`/connectors/connections/${createdId}${created.engine_restarting ? "?engine=restarting" : ""}`)
+      router.push(`/connectors/connections/${createdId}${created.engine_restarting ? "?engine=restarting" : firstSync ? "?sync=1" : ""}`)
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Setup failed"
       if (createdId) {

@@ -24,6 +24,7 @@ import {
   ArrowRight, ArrowDownToLine, Layers, BarChart2, Zap, Pause, Play, Loader2,
 } from "lucide-react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { parseCron, nextRun } from "@/lib/schedule"
 import { CapabilityGate } from "@/lib/capabilities"
 import { describeCheck } from "@/lib/source-check"
@@ -44,17 +45,15 @@ interface Connection {
   // Trino-backed sources: the engine catalog (`src_…`) and `engine: "trino"`.
   catalog?: string | null
   engine?: string | null
+  tables?: number
+  last_rows?: number | null
+  success_rate?: number | null
 }
 
 interface ConnStats {
   tables: number
   lastRows: number | null
   successRate: number | null
-}
-
-interface SyncSessionSummary {
-  rows_processed?: number
-  status: string
 }
 
 // ── Ingestion flow empty state ────────────────────────────────────────────────
@@ -207,6 +206,7 @@ function ConnectorsPageInner() {
   // All / Stale / Paused — Overview's stale line links here with ?filter=stale.
   const [filter, setFilter] = useState<SourceFilter>("all")
   const [syncingStale, setSyncingStale] = useState<number | null>(null)
+  const router = useRouter()
   const { permissions } = usePermissions()
   const canWrite = permissions.has("connector:write")
   useEffect(() => {
@@ -233,31 +233,10 @@ function ConnectorsPageInner() {
       const list = Array.isArray(data) ? data : []
       setConnections(list)
 
-      // Fetch per-connection stats in parallel
-      const statsEntries = await Promise.all(list.map(async (conn) => {
-        try {
-          const [tablesRes, historyRes] = await Promise.all([
-            fetch(`/api/connectors/${conn.id}/tables`),
-            fetch(`/api/connectors/${conn.id}/history`),  // Fix #7: history-based rate
-          ])
-          const tables = tablesRes.ok ? (await tablesRes.json()).tables?.length ?? 0 : 0
-          let lastRows: number | null = null
-          let successRate: number | null = null
-          if (historyRes.ok) {
-            const sessions: SyncSessionSummary[] = await historyRes.json()
-            if (sessions.length > 0) {
-              // Last sync rows from most recent session
-              lastRows = sessions[0].rows_processed ?? null
-              // Success rate from recent sessions (accurate: session-level)
-              const recent = sessions.slice(0, 20)
-              successRate = Math.round(recent.filter((session) => session.status === "success").length / recent.length * 100)
-            }
-          }
-          return [conn.id, { tables, lastRows, successRate }] as [string, ConnStats]
-        } catch {
-          return [conn.id, { tables: 0, lastRows: null, successRate: null }] as [string, ConnStats]
-        }
-      }))
+      // The list answers with each source's stats (one request, not two per source).
+      const statsEntries = list.map(conn => [conn.id, {
+        tables: conn.tables ?? 0, lastRows: conn.last_rows ?? null, successRate: conn.success_rate ?? null,
+      }] as [string, ConnStats])
       setConnStats(new Map(statsEntries))
       setCheckedAt(Date.now())
     } catch (e) {
@@ -272,24 +251,9 @@ function ConnectorsPageInner() {
     return () => window.clearTimeout(initial)
   }, [fetchConnections])
 
-  const handleSync = async (id: string) => {
-    setActionLoading(id)
-    try {
-      // This call runs the sync synchronously and only returns once it's done —
-      // so report actual completion/failure, not "started".
-      const res = await fetch(`/api/connectors/${id}/sync`, { method: "POST" })
-      if (res.ok) {
-        toast("Sync complete — check Catalog for the ingested results", "success")
-      } else {
-        let msg = `Sync failed (HTTP ${res.status})`
-        try { const d = await res.json(); if (d?.detail) msg = d.detail } catch {}
-        toast(msg, "error")
-      }
-      await fetchConnections()
-    } finally {
-      setActionLoading(null)
-    }
-  }
+  // The source page runs it (?sync=1) and shows each table's progress and any failure;
+  // here the menu waited for the whole sync with nothing on screen.
+  const handleSync = (id: string) => router.push(`/connectors/connections/${id}?sync=1`)
 
   const { toast } = useToast()
   const confirm = useConfirm()
@@ -603,7 +567,7 @@ function ConnectorsPageInner() {
                   <TableHead className="text-xs">Status</TableHead>
                   <TableHead className="text-xs">Last Sync</TableHead>
                   <TableHead className="text-xs">Schedule</TableHead>
-                  <TableHead className="text-xs text-right">Tables</TableHead>
+                  <TableHead className="text-xs text-right" title="Tables this source syncs">Synced tables</TableHead>
                   <TableHead className="text-xs text-right">Last Rows</TableHead>
                   <TableHead className="text-xs text-right">Success Rate</TableHead>
                   <TableHead className="text-xs w-10" />

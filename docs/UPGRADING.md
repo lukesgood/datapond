@@ -86,6 +86,21 @@ reports parents it could not resolve as `unresolved_parents`.
   does not support: before this, any query on a table with a column mask failed with a
   syntax error. A masked table whose columns cannot be read is refused.
 
+**Sources: syncs that outlive the page, one-request setup (2026-11-23).**
+- A sync started from the console keeps running if the page closes or the connection
+  drops, and writes its run history as usual; the stream sends a keepalive comment every
+  15 s. The page says the connection was lost instead of staying on "Syncing…".
+- New jobs store `datapond.default.<table>` (no source schema). Older rows that say
+  `datapond.default.public.orders` land in the same table and are left as they are. A
+  sync of such a row now marks RAG collections over `default.orders` stale; it used to
+  look for `public.orders` and miss them.
+- `PUT /api/connectors/{id}/tables` saves many tables' choices in one transaction (the
+  setup wizard used two requests per table). After "Create and sync" the source page runs
+  the first sync and shows its progress; the list's "Sync now" opens that page too.
+- `GET /api/connectors/connections` returns each source's `tables` (enabled jobs),
+  `last_rows` and `success_rate` (last 20 runs). The list column is now "Synced tables";
+  it used to count every table the source lists, by asking each source live.
+
 ## 2.6 (2026-11) — Lakehouse first: catalog export, Trino workers, menu
 
 Positioning v7 (`docs/POSITIONING_V7.md`): DataPond is a lightweight open lakehouse; the AI

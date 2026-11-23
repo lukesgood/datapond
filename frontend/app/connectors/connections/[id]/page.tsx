@@ -414,8 +414,11 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
     })))
   }, [id])
 
+  // "Now" for the freshness labels, taken when the source was last loaded (render must
+  // not read the clock).
+  const [loadedAt, setLoadedAt] = useState(() => Date.now())
   const fetchConnector = useCallback(async () => {
-    setLoading(true); setError(null)
+    setLoading(true); setError(null); setLoadedAt(Date.now())
     try {
       const [connRes, tablesRes, cfgRes] = await Promise.all([
         fetch(`/api/connectors/${id}`),
@@ -506,9 +509,9 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   useEffect(() => {
     // The wizard lands here with ?engine=restarting right after creating a Trino-backed
     // source; hold Sync until the banner's first poll says otherwise.
-    if (new URLSearchParams(window.location.search).get("engine") === "restarting") {
-      setEngineRestarting(true)
-    }
+    if (new URLSearchParams(window.location.search).get("engine") !== "restarting") return
+    const t = window.setTimeout(() => setEngineRestarting(true), 0)
+    return () => window.clearTimeout(t)
   }, [])
 
   useEffect(() => {
@@ -587,9 +590,9 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
     setLiveSession(live)
 
     // Elapsed timer
-    const start = Date.now()
+    const start = new Date(startedAt).getTime()
     elapsedRef.current = setInterval(() => {
-      setLiveSession(prev => prev ? { ...prev, duration_ms: Date.now() - start } : prev)
+      setLiveSession(prev => prev ? { ...prev, duration_ms: new Date().getTime() - start } : prev)
     }, 1000)
 
     try {
@@ -608,7 +611,11 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
       const decoder = new TextDecoder()
       let buffer = ""
 
+      // Set by a "done" or "error" event. A stream that closes without either (proxy
+      // timeout, pod restart, network drop) must not leave the page on "Syncing…".
+      let finished = false
       const handleEvent = (eventType: string, dataStr: string) => {
+        if (eventType === "done" || eventType === "error") finished = true
         try {
           const d = JSON.parse(dataStr)
           if (eventType === "step") {
@@ -669,15 +676,21 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         } catch {}
       }
 
-      // Parse SSE stream manually
+      // Parse SSE stream manually. Event type and data persist across reads: one event
+      // can arrive split over two chunks.
+      let eventType = "message"
+      let dataLines: string[] = []
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done) {
+          buffer += decoder.decode()
+          if (buffer.startsWith("data:")) dataLines.push(buffer.slice(5).trim())
+          if (dataLines.length > 0) handleEvent(eventType, dataLines.join("\n"))
+          break
+        }
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split("\n")
         buffer = lines.pop() ?? ""
-        let eventType = "message"
-        let dataLines: string[] = []
         for (const line of lines) {
           if (line.startsWith("event:")) {
             eventType = line.slice(6).trim()
@@ -692,12 +705,39 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           }
         }
       }
+      if (!finished) streamLost()
     } catch (err) {
-      if (elapsedRef.current) clearInterval(elapsedRef.current)
-      setLiveSession(prev => prev ? { ...prev, status: "failed", isLive: false, error: String(err) } : prev)
-      setSyncing(false)
+      streamLost(err instanceof Error ? err.message : String(err))
     }
   }
+
+  // The page lost the stream before the sync said it was done. The sync may still be
+  // running on the server, so this does not say it failed: it says what is known and
+  // reloads the run history, which is the record of what actually happened.
+  const streamLost = (detail?: string) => {
+    if (elapsedRef.current) clearInterval(elapsedRef.current)
+    setSyncing(false)
+    const msg = "Lost the connection before the sync finished" + (detail ? ` (${detail})` : "")
+      + ". It keeps running on the server — the run history below shows the result."
+    setLiveSession(prev => prev ? { ...prev, status: "failed", isLive: false, error: msg } : prev)
+    toast(msg, "error")
+    fetchConnector()
+    fetchHistory().then(() => setLiveSession(null))
+  }
+
+  // The wizard lands here with ?sync=1 after "Create and sync": the first sync runs
+  // from this page, so its progress and any failure show here (the wizard used to fire
+  // the request and never read the answer). Once, then the flag leaves the URL.
+  const autoSynced = useRef(false)
+  useEffect(() => {
+    if (autoSynced.current || !connector || engineRestarting || !canWrite) return
+    if (new URLSearchParams(window.location.search).get("sync") !== "1") return
+    autoSynced.current = true
+    window.history.replaceState(null, "", window.location.pathname)
+    const t = window.setTimeout(() => { void handleSyncNow() }, 0)
+    return () => window.clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connector, engineRestarting, canWrite])
 
   // ── Edit ───────────────────────────────────────────────────────────────────
 
@@ -826,7 +866,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   // Ensure UTC parsing — add Z if no timezone info to prevent local-time misinterpretation
   const toUTC = (s: string) => s.endsWith("Z") || s.includes("+") ? s : s + "Z"
   const freshnessMs = connector?.last_sync_at
-    ? Date.now() - new Date(toUTC(connector.last_sync_at)).getTime() : null
+    ? loadedAt - new Date(toUTC(connector.last_sync_at)).getTime() : null
   const freshnessLabel = freshnessMs === null ? "Never synced"
     : freshnessMs < 60_000 ? "< 1 min ago"
     : freshnessMs < 3_600_000 ? `${Math.floor(freshnessMs / 60_000)}m ago`
@@ -897,7 +937,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
             <span>·</span>
             <span className={connector.status === "error" ? "text-destructive" : connector.status === "paused" ? "" : "text-[var(--dp-good-text)]"}>{connector.status}</span>
             {(() => {
-              const check = describeCheck(connector.last_checked_at, Date.now())
+              const check = describeCheck(connector.last_checked_at, loadedAt)
               return <span className={check.stale ? "text-[var(--dp-warn-text)]" : ""}>· {check.text}</span>
             })()}
           </p>

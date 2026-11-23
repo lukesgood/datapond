@@ -63,3 +63,27 @@ async def heal(pool, connection_id, discovered: List[str]) -> Dict[str, str]:
                 "SELECT 1 FROM connector_sync_jobs WHERE connection_id = $1 AND source_table = $3)",
                 cid, old, new)
     return renames
+
+
+def batch_conflicts(rows: List[dict], items: List[dict]) -> List[str]:
+    """Tables of one batch save that would land where another enabled job lands.
+
+    `rows` are the connection's jobs (source_table, target_table, enabled); `items`
+    the batch ({table, enabled}). The batch wins for the tables it names, so the check
+    runs on the jobs as they will be after it."""
+    from app import sync_targets
+    named = {i["table"]: bool(i.get("enabled", True)) for i in items}
+    after = [r for r in rows if r["source_table"] not in named and r.get("enabled")]
+    stored = {r["source_table"]: r.get("target_table") for r in rows}
+    out, seen = [], {}
+    for r in after:
+        seen[sync_targets.lake_table(r["source_table"], r.get("target_table"))] = r["source_table"]
+    for t, on in named.items():
+        if not on:
+            continue
+        key = sync_targets.lake_table(t, stored.get(t) or sync_targets.default_target(t))
+        if key in seen:
+            out.append(f"{t} lands in {key[0]}.{key[1]}, which {seen[key]} already syncs")
+        else:
+            seen[key] = t
+    return out
