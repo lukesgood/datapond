@@ -17,7 +17,7 @@ export type Suggestion = {
   concept: string; catalog: string; namespace: string; table: string; column: string
   role: Role; source: string; evidence: string
 }
-export type ConceptViewer = { can_approve: boolean; can_propose: boolean }
+export type ConceptViewer = { can_approve: boolean; can_propose: boolean; openmetadata?: boolean }
 
 type Placed = { catalog: string; namespace: string; table: string }
 export const tableKey = (x: Placed) => `${x.catalog}.${x.namespace}.${x.table}`.toLowerCase()
@@ -111,4 +111,53 @@ export function shortUse(use: string): string {
 /** The answer's concept chips: one per concept the assistant was given. */
 export function conceptChips(provided: { name: string; uses: string[] }[] | undefined) {
   return (provided ?? []).map(c => ({ name: c.name, uses: c.uses.map(shortUse) }))
+}
+
+/** A column bound to a PII concept that no column mask covers (GET /semantic/concepts/pii-gaps). */
+export type PiiGap = { concept: string; catalog: string; namespace: string; table: string; column: string; key: boolean }
+
+/** Governance › Access policies with a new mask for this column filled in. */
+export const maskHref = (g: PiiGap) =>
+  `/governance?tab=access-control&mask=${encodeURIComponent(`${g.catalog}.${g.namespace}.${g.table}.${g.column}`)}`
+
+/** `catalog.schema.table.column` from the mask link, or null. */
+export function parseMaskParam(v: string | null): { catalog: string; schema: string; table: string; column: string } | null {
+  const p = (v ?? "").split(".")
+  if (p.length !== 4 || p.some(x => !/^[A-Za-z0-9_$-]+$/.test(x))) return null
+  return { catalog: p[0], schema: p[1], table: p[2], column: p[3] }
+}
+
+/** Approved segments on one table, for the metric editor's "Only rows where". `catalog`
+ *  is the engine's name (bindings store it); `table` is namespace.table. */
+export function segmentsFor(bindings: Binding[], catalog: string, table: string): { concept: string; filter_sql: string }[] {
+  const want = `${catalog}.${table}`.toLowerCase()
+  return bindings
+    .filter(b => b.status === "approved" && b.role === "filter" && b.filter_sql && tableKey(b) === want)
+    .map(b => ({ concept: b.concept, filter_sql: b.filter_sql as string }))
+    .sort((a, b) => (a.concept < b.concept ? -1 : a.concept > b.concept ? 1 : 0))
+}
+
+/** The filter with a segment's condition added (AND); unchanged when it is already there. */
+export function addCondition(current: string, cond: string): string {
+  const c = /\bor\b/i.test(cond) ? `(${cond})` : cond
+  const cur = current.trim()
+  if (!cur) return c
+  if (cur.includes(cond)) return cur
+  return `${/\bor\b/i.test(cur) ? `(${cur})` : cur} AND ${c}`
+}
+
+/** Concept words that also match a metric label, as /ai/sql matches them: a one-word
+ *  term of a concept stands for its concept's other one-word terms. */
+export function conceptWordsFor(label: string, concepts: Concept[]): string[] {
+  const words = label.toLowerCase().split(/\s+/).filter(Boolean)
+  const out: string[] = []
+  for (const c of concepts) {
+    // Same rule as the backend's alias_map: one word, three letters if Latin, two otherwise.
+    const group = [c.name, ...c.terms].map(t => t.trim())
+      .filter(t => t && !/\s/.test(t) && t.length >= (/^[\x00-\x7f]+$/.test(t) ? 3 : 2))
+    const lower = group.map(t => t.toLowerCase())
+    if (!words.some(w => lower.includes(w))) continue
+    for (const t of group) if (!words.includes(t.toLowerCase()) && !out.includes(t)) out.push(t)
+  }
+  return out
 }

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import {
-  bindingText, cell, conceptChips, shortUse, conceptRows, coverage, matchesSearch, matrixTables, suggestionBody, tableLabel,
+  addCondition, bindingText, cell, conceptChips, conceptWordsFor, shortUse, conceptRows, coverage, maskHref, matchesSearch, matrixTables, parseMaskParam, segmentsFor, suggestionBody, tableLabel,
   type Binding, type Concept, type Suggestion,
 } from "./concepts.ts"
 
@@ -63,4 +63,30 @@ test("the answer's chips drop catalog and namespace", () => {
   assert.equal(shortUse("odd"), "odd")
   assert.deepEqual(conceptChips([{ name: "고객", uses: ["iceberg.default.customers.id"] }]), [{ name: "고객", uses: ["customers.id"] }])
   assert.deepEqual(conceptChips(undefined), [])
+})
+
+test("a PII gap links to a prefilled mask, and the link parses back", () => {
+  const href = maskHref({ concept: "고객", catalog: "iceberg", namespace: "default", table: "orders", column: "customer_id", key: true })
+  assert.equal(href, "/governance?tab=access-control&mask=iceberg.default.orders.customer_id")
+  assert.deepEqual(parseMaskParam(new URL(href, "http://x").searchParams.get("mask")),
+    { catalog: "iceberg", schema: "default", table: "orders", column: "customer_id" })
+  assert.equal(parseMaskParam("a.b.c"), null)
+  assert.equal(parseMaskParam("a.b.c.d e"), null)
+})
+
+test("segments on the base table feed the metric filter", () => {
+  const seg = B("플래티넘 고객", "customers", "tier", "approved", { role: "filter", filter_sql: "tier = 'platinum'" })
+  const other = B("취소 주문", "orders", "status", "approved", { role: "filter", filter_sql: "status = 'cancelled'" })
+  const waiting = B("활성 고객", "customers", "is_active", "proposed", { role: "filter", filter_sql: "is_active = true" })
+  assert.deepEqual(segmentsFor([seg, other, waiting], "iceberg", "default.customers"), [{ concept: "플래티넘 고객", filter_sql: "tier = 'platinum'" }])
+  assert.equal(addCondition("", "tier = 'platinum'"), "tier = 'platinum'")
+  assert.equal(addCondition("status = 'paid'", "tier = 'platinum'"), "status = 'paid' AND tier = 'platinum'")
+  assert.equal(addCondition("tier = 'platinum'", "tier = 'platinum'"), "tier = 'platinum'")
+  assert.equal(addCondition("a = 1 OR b = 2", "c = 3 or d = 4"), "(a = 1 OR b = 2) AND (c = 3 or d = 4)")
+})
+
+test("a metric label's concept words", () => {
+  const cs = [C("고객", null, ["customer", "회원", "VIP 고객"]), C("주문", null, ["order"])]
+  assert.deepEqual(conceptWordsFor("고객 수", cs), ["customer", "회원"])
+  assert.deepEqual(conceptWordsFor("매출", cs), [])
 })

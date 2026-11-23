@@ -70,7 +70,12 @@ capability) return the administrator-approved bindings of business words to colu
 is the segment `customers WHERE tier = 'platinum'`. `concept_describe` takes a concept's
 name or any of its terms. Bindings on catalogs the caller may not use are left out; they
 are read-only and never widen access. `/ai/sql` gives the same bindings to the model for the
-concepts a question names and reports them as `concepts_provided`.
+concepts a question names and reports them as `concepts_provided`, and a concept's one-word
+terms stand in for each other when a question is matched to a metric: with 회원 a term of 고객,
+"회원 수" finds the metric labelled "고객 수" (`query_generate_sql`'s `suggested_metric` too).
+Concepts can be imported from an OpenMetadata glossary (Metrics › Concepts › Import glossary,
+or a pull when the add-on runs); columns tagged with a glossary term arrive as proposals, never
+approved bindings.
 
 Agents do not find metrics on their own: measured on live (2026-10-16), an agent that
 could also run SQL never called `metric_list`, and one limited to MCP reached it only

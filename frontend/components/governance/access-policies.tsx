@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ErrorBox } from "@/components/ui/error-box"
 import { ExplainRail, RailAttention, RailSection } from "@/components/ui/explain-rail"
 import { kindShort } from "@/lib/catalog-view"
+import { parseMaskParam } from "@/lib/concepts"
 
 interface RlsPolicy {
   id: string; name?: string | null; catalog_name: string; schema_name: string; table_name: string
@@ -28,9 +29,10 @@ interface Role { name: string; display_name?: string }
 interface Lake { engine_catalog: string; is_default: boolean; kind: string; enabled: boolean }
 interface PreviewResult { allowed?: boolean; rewritten_sql?: string; reason?: string; error?: string; detail?: string }
 
+type MaskTarget = { catalog: string; schema: string; table: string; column: string }
 type Editing =
   | { kind: "row"; policy: RlsPolicy | null }
-  | { kind: "mask"; policy: MaskPolicy | null }
+  | { kind: "mask"; policy: MaskPolicy | null; target?: MaskTarget }
 
 const errText = async (r: Response) => {
   const d = await r.json().catch(() => ({}))
@@ -86,6 +88,16 @@ export function AccessPolicies() {
     fetch("/api/governance/roles").then(r => (r.ok ? r.json() : [])).then(d => setRoles(Array.isArray(d) ? d : [])).catch(() => {})
     fetch("/api/catalogs").then(r => (r.ok ? r.json() : { catalogs: [] }))
       .then(d => setLakes(lakeCatalogs<Lake>(d.catalogs ?? []))).catch(() => {})
+    // ?mask=catalog.schema.table.column (Metrics › Concepts, a PII column with no mask):
+    // open a new mask with the column filled in. Nothing is saved until it is submitted.
+    const target = parseMaskParam(new URLSearchParams(window.location.search).get("mask"))
+    if (target) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setEditing({ kind: "mask", policy: null, target })
+      // Drop the parameter so a reload after saving does not open the form again.
+      const url = new URL(window.location.href); url.searchParams.delete("mask")
+      window.history.replaceState(null, "", url.toString())
+    }
     return () => window.clearTimeout(t)
   }, [load])
 
@@ -259,11 +271,12 @@ function PolicyEditor({ editing, roles, lakes, queryCatalog, canWrite, onClose, 
     return k ? `${engine} · ${k}` : engine
   }
 
-  const [name, setName] = useState(existing?.name ?? "")
-  const [catalog, setCatalog] = useState(existing?.catalog_name ?? "")
-  const [schema, setSchema] = useState(existing?.schema_name ?? "")
-  const [table, setTable] = useState(existing?.table_name ?? "")
-  const [column, setColumn] = useState(mask?.column_name ?? "")
+  const [name, setName] = useState(existing?.name ?? (!isRow && editing.kind === "mask" && editing.target ? `mask ${editing.target.table}.${editing.target.column}` : ""))
+  const target = !isRow && editing.kind === "mask" ? editing.target : undefined
+  const [catalog, setCatalog] = useState(existing?.catalog_name ?? target?.catalog ?? "")
+  const [schema, setSchema] = useState(existing?.schema_name ?? target?.schema ?? "")
+  const [table, setTable] = useState(existing?.table_name ?? target?.table ?? "")
+  const [column, setColumn] = useState(mask?.column_name ?? target?.column ?? "")
   const [filter, setFilter] = useState(row?.filter_expression ?? "")
   const [priority, setPriority] = useState(String(row?.priority ?? 0))
   const [maskType, setMaskType] = useState(mask?.masking_type ?? "full")

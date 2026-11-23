@@ -532,15 +532,6 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
             needs_input=True,
         )
 
-    metrics_block, metrics_provided, suggested = "", [], None
-    try:
-        from app.semantic import context as metric_context
-        visible_metrics = await asyncio.wait_for(
-            metric_context.for_caller(user, req.catalog), timeout=_METRIC_CONTEXT_TIMEOUT_S)
-        metrics_block, metrics_provided = metric_context.metric_lines(visible_metrics, q_text)
-        suggested = metric_context.suggest(visible_metrics, q_text)
-    except Exception as e:      # the semantic tables are optional context, never a blocker
-        logger.info("[ai_sql] metric context unavailable: %s", e)
     concepts_block, concepts_provided, visible_concepts = "", [], []
     try:
         from app.semantic import concept_context
@@ -549,6 +540,18 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
         concepts_block, concepts_provided = concept_context.concept_lines(visible_concepts, q_text)
     except Exception as e:      # optional context, like the metrics
         logger.info("[ai_sql] concept context unavailable: %s", e)
+    metrics_block, metrics_provided, suggested = "", [], None
+    try:
+        from app.semantic import context as metric_context
+        visible_metrics = await asyncio.wait_for(
+            metric_context.for_caller(user, req.catalog), timeout=_METRIC_CONTEXT_TIMEOUT_S)
+        # A concept's words stand in for each other in metric matching (회원 수 → 고객 수).
+        aliases = metric_context.alias_map(visible_concepts)
+        metrics_block, metrics_provided = metric_context.metric_lines(
+            visible_metrics, q_text, aliases=aliases)
+        suggested = metric_context.suggest(visible_metrics, q_text, aliases=aliases)
+    except Exception as e:      # the semantic tables are optional context, never a blocker
+        logger.info("[ai_sql] metric context unavailable: %s", e)
     context_block = "\n\n".join(b for b in (metrics_block, concepts_block) if b)
     system, messages = _build_messages(schema_ctx, q_text, c_text or None, context_block)
 

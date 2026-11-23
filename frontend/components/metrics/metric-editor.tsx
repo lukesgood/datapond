@@ -12,6 +12,7 @@ import {
   type CatalogEntry, type DimensionRow, type MetricDetail,
 } from "@/lib/metrics"
 import { CatalogSelect, ColumnSelect, TableSelect, isTimeType } from "./catalog-pickers"
+import { addCondition, conceptWordsFor, segmentsFor, type Binding, type Concept } from "@/lib/concepts"
 
 export type Join = { id: number; catalog: string; from_table: string; to_table: string; on_columns: string[][]; source: string; approved_by_name: string | null }
 export type TableRef = { catalog: string; namespace: string; name: string }
@@ -58,10 +59,18 @@ export function MetricEditor({ mode, base, catalogs, tables, onDone, onCancel }:
   const [note, setNote] = useState("")
   const [joins, setJoins] = useState<Join[]>([])
   const [joinsLoaded, setJoinsLoaded] = useState(false)
+  // Approved concepts (Metrics › Concepts), when they are on: segments for the filter
+  // and the words a label already answers to.
+  const [vocab, setVocab] = useState<{ concepts: Concept[]; bindings: Binding[] }>({ concepts: [], bindings: [] })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [preview, setPreview] = useState<{ columns: string[]; rows: unknown[][]; citation: { sql: string } } | null>(null)
   const [previewing, setPreviewing] = useState(false)
+
+  useEffect(() => {
+    fetch("/api/semantic/concepts").then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d) setVocab({ concepts: d.concepts ?? [], bindings: d.bindings ?? [] }) }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     fetch("/api/semantic/joins").then(r => r.ok ? r.json() : { joins: [] }).then(d => {
@@ -82,6 +91,8 @@ export function MetricEditor({ mode, base, catalogs, tables, onDone, onCancel }:
     return tables.filter(t => t.catalog.toLowerCase() === engine || t.catalog.toLowerCase() === entry.name.toLowerCase())
       .map(t => `${t.namespace}.${t.name}`).sort()
   }, [tables, entry])
+  const segments = entry && table ? segmentsFor(vocab.bindings, entry.engine_catalog, table) : []
+  const labelWords = conceptWordsFor(label, vocab.concepts)
   const usable = joins.filter(j => j.catalog.toLowerCase() === catalog.toLowerCase() && j.from_table.toLowerCase() === table.toLowerCase())
 
   const changeTable = (t: string) => {
@@ -151,7 +162,8 @@ export function MetricEditor({ mode, base, catalogs, tables, onDone, onCancel }:
           <Field id="m-label" label="Label" hint={mode === "new" ? undefined : "Set when the metric was created."} error={errors.label}>
             <Input id="m-label" value={label} disabled={mode !== "new"} onChange={e => setLabel(e.target.value)} placeholder="매출" />
           </Field>
-          <Field id="m-syn" label="Also called" hint={mode === "new" ? "Comma separated. Agents match these." : "Set when the metric was created."}>
+          <Field id="m-syn" label="Also called" hint={(mode === "new" ? "Comma separated. Agents match these." : "Set when the metric was created.")
+            + (labelWords.length ? ` The label already matches the concept words ${labelWords.join(", ")}.` : "")}>
             <Input id="m-syn" value={synonyms} disabled={mode !== "new"} onChange={e => setSynonyms(e.target.value)} placeholder="매출액, sales" />
           </Field>
         </div>
@@ -178,6 +190,13 @@ export function MetricEditor({ mode, base, catalogs, tables, onDone, onCancel }:
             </Field>
             <Field id="m-filter" label="Only rows where" hint="Optional SQL condition on the base table." error={errors.filters}>
               <Input id="m-filter" className="font-mono" value={filters} onChange={e => setFilters(e.target.value)} placeholder="status = 'paid'" />
+              {segments.length > 0 && (
+                <select aria-label="Add an approved segment" className="h-8 rounded-md border bg-background px-2 text-sm" value=""
+                        onChange={e => { const sg = segments.find(x => x.concept === e.target.value); if (sg) setFilters(f => addCondition(f, sg.filter_sql)) }}>
+                  <option value="">Add a segment…</option>
+                  {segments.map(sg => <option key={sg.concept} value={sg.concept}>{sg.concept}: {sg.filter_sql}</option>)}
+                </select>
+              )}
             </Field>
           </div>
         </Section>
