@@ -2633,22 +2633,11 @@ async def sync_stream(connection_id: str, sync_mode: str = "full",
                 "duration_ms": duration_ms,
             })
 
-            # Best-effort: register lineage in OpenMetadata for successful tables
-            async with pool.acquire() as conn:
-                conn_info = await conn.fetchrow(
-                    "SELECT name, connector_type FROM connector_connections WHERE id=$1",
-                    uuid.UUID(connection_id)
-                )
-            if conn_info:
-                for tbl, tgt, ok, rows, _ in results:
-                    if ok:
-                        asyncio.create_task(register_lineage(
-                            source_name=tbl,
-                            source_schema=conn_info["connector_type"],
-                            target_table=tbl,
-                            target_schema="default",
-                            connector_name=conn_info["name"],
-                        ))
+            # Best-effort: the same OpenMetadata reflection as /sync. This used to call
+            # register_lineage with arguments it does not take; the TypeError, raised
+            # after the success row, wrote a second "failed" row and skipped the RAG
+            # nudge below on every streamed sync.
+            await _reflect_tables_in_om(pool, connection_id, results)
 
             # Connector → RAG sink: nudge matching fresh collections to re-embed.
             await _invalidate_sink_collections(pool, results)
@@ -2781,6 +2770,38 @@ async def _invalidate_sink_collections(pool, results: list) -> int:
         return 0
 
 
+async def _reflect_tables_in_om(pool, connection_id: str, results) -> None:
+    # Best-effort: reflect each synced table in OpenMetadata (register the table
+    # entity, then the lineage edge). Done per table in one task so the lineage
+    # target exists before the edge is created.
+    try:
+        async with pool.acquire() as conn:
+            conn_info = await conn.fetchrow(
+                "SELECT name, connector_type FROM connector_connections WHERE id=$1",
+                uuid.UUID(connection_id)
+            )
+        if conn_info:
+            async def _reflect_in_om(tbl):
+                # 1) target iceberg table entity (reproducible OM ingestion)
+                columns = await register_om_table("default", tbl)
+                # 2) source table entity (so lineage has a valid 'from' endpoint)
+                source_fqn = await register_om_source_table(
+                    conn_info["connector_type"], conn_info["name"], "public", tbl, columns)
+                # 3) lineage edge (needs both entities to exist)
+                if columns and source_fqn:
+                    await register_lineage(
+                        source_fqn=source_fqn,
+                        target_fqn=f"{OM_DATABASE_FQN}.default.{tbl}",
+                        connector_name=conn_info["name"],
+                    )
+            for tbl, tgt, ok, rows, _ in results:
+                if ok:
+                    asyncio.create_task(_reflect_in_om(tbl))
+    except Exception:
+        pass
+
+
+
 async def _persist_sync_session(pool, connection_id: str, job_id: str,
                                 started_at: datetime, results: list, sync_mode) -> str:
     """Record a connector_sync_history session row and fire best-effort data
@@ -2840,34 +2861,7 @@ async def _persist_sync_session(pool, connection_id: str, job_id: str,
     except Exception:
         pass
 
-    # Best-effort: reflect each synced table in OpenMetadata (register the table
-    # entity, then the lineage edge). Done per table in one task so the lineage
-    # target exists before the edge is created.
-    try:
-        async with pool.acquire() as conn:
-            conn_info = await conn.fetchrow(
-                "SELECT name, connector_type FROM connector_connections WHERE id=$1",
-                uuid.UUID(connection_id)
-            )
-        if conn_info:
-            async def _reflect_in_om(tbl):
-                # 1) target iceberg table entity (reproducible OM ingestion)
-                columns = await register_om_table("default", tbl)
-                # 2) source table entity (so lineage has a valid 'from' endpoint)
-                source_fqn = await register_om_source_table(
-                    conn_info["connector_type"], conn_info["name"], "public", tbl, columns)
-                # 3) lineage edge (needs both entities to exist)
-                if columns and source_fqn:
-                    await register_lineage(
-                        source_fqn=source_fqn,
-                        target_fqn=f"{OM_DATABASE_FQN}.default.{tbl}",
-                        connector_name=conn_info["name"],
-                    )
-            for tbl, tgt, ok, rows, _ in results:
-                if ok:
-                    asyncio.create_task(_reflect_in_om(tbl))
-    except Exception:
-        pass
+    await _reflect_tables_in_om(pool, connection_id, results)
 
     return history_id
 
