@@ -92,3 +92,32 @@ def test_record_keeps_no_personal_values(monkeypatch):
     asyncio.run(fb.record({"id": None}, "kim@example.com 의 등급", sql, [], [], []))
     assert "kim@example.com" not in stored["q"]
     assert '"gold"' in stored["lits"] and "example.com" not in stored["lits"]
+
+
+def test_value_check_finds_the_stored_spelling():
+    v = {"table": "iceberg.default.customers", "column": "tier", "value": "VIP", "questions": 2}
+    sql = fb.value_check_sql(v)
+    assert 'FROM "iceberg"."default"."customers"' in sql and "lower('VIP')" in sql
+    assert fb.value_check_sql(dict(v, column="tier; DROP")) is None
+    assert fb.value_check_sql(dict(v, value="O'Neil")).count("O''Neil") == 1
+    got = fb.apply_check(v, [["vip", 3]], masked=False)
+    assert (got["exists"], got["rows"], got["actual"], got["actual_rows"]) == (True, 0, "vip", 3)
+    exact = fb.apply_check(dict(v, value="vip"), [["vip", 3]], masked=False)
+    assert (exact["rows"], "actual" in exact) == (3, False)
+    none = fb.apply_check(v, [], masked=False)
+    assert (none["exists"], none["rows"]) == (False, 0)
+    assert fb.apply_check(v, [["***", 3]], masked=True)["checked"] is False
+
+
+def test_check_values_goes_through_the_governed_path(monkeypatch):
+    from app.semantic import service
+    calls = []
+    async def execute(sql, user, origin="metric"):
+        calls.append((origin, user["id"]))
+        return {"rows": [["vip", 3]], "pii_masked": 0}
+    monkeypatch.setattr(service, "_execute", execute)
+    vals = [{"table": "iceberg.default.customers", "column": "tier", "value": "VIP"},
+            {"table": "bad name", "column": "c", "value": "x"}]
+    out = asyncio.run(fb.check_values(vals, {"id": "u1"}))
+    assert calls == [("internal", "u1")]
+    assert out[0]["actual"] == "vip" and out[1]["checked"] is False

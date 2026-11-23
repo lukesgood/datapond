@@ -294,6 +294,10 @@ async def concept_feedback(days: int = 30, user: dict = Depends(require_user)):
         metrics = []
     out = fb.suggest(rows, await load_concepts(pool),
                      await concept_store.list_bindings(pool, ("approved",)), metrics)
+    # A value is the model's guess; check it against the data before anyone makes it a
+    # segment ('VIP' asked, 'vip' stored).
+    if out["values"]:
+        out["values"] = await fb.check_values(out["values"], user)
     return dict(out, days=days, concept_use=dict(fb.counts(rows)))
 
 

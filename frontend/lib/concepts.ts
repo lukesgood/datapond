@@ -165,7 +165,18 @@ export function conceptWordsFor(label: string, concepts: Concept[]): string[] {
 /** GET /semantic/concepts/feedback: what /ai/sql questions suggest (governance readers). */
 export type FeedbackWord = { word: string; questions: number; examples: string[] }
 export type FeedbackJoin = { join: string; seen: number; unrepaired: number; example: string }
-export type FeedbackValue = { table: string; column: string; value: string; questions: number; example: string; segments_on_column: boolean }
+export type FeedbackValue = {
+  table: string; column: string; value: string; questions: number; example: string; segments_on_column: boolean
+  /** Checked against the data through the governed path: rows with the exact value, and the
+   *  stored spelling when only another case exists ('VIP' asked, 'vip' stored). */
+  checked?: boolean; exists?: boolean; rows?: number; actual?: string; actual_rows?: number
+}
+
+/** The value a segment should hold: the stored spelling when the data has it in another case. */
+export const segmentValue = (v: FeedbackValue) => v.actual ?? v.value
+
+/** False only when the data was checked and holds no such value in any case. */
+export const canBecomeSegment = (v: FeedbackValue) => !(v.checked && v.exists === false)
 export type Feedback = { questions: number; days: number; words: FeedbackWord[]; joins: FeedbackJoin[]; values: FeedbackValue[]; concept_use: Record<string, number> }
 
 /** The condition a value suggestion becomes: `tier = 'vip'`, or `is_active = true`. */
@@ -179,7 +190,7 @@ export function segmentBody(v: FeedbackValue, concept: string) {
   const [catalog, namespace, table] = v.table.split(".")
   return {
     concept, catalog, table: `${namespace}.${table}`, column: v.column, role: "filter" as const,
-    filter_sql: valueCondition(v), source: "history" as const,
+    filter_sql: valueCondition({ column: v.column, value: segmentValue(v) }), source: "history" as const,
     evidence: `used in ${v.questions} questions to /ai/sql`, status: "approved" as const,
   }
 }
