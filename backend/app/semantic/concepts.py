@@ -153,3 +153,32 @@ def approved_join_edges(joins: Iterable[dict], engine_name) -> List[dict]:
                     "target": f"{cat}.{j['to_table']}".lower(), "evidence": "approved",
                     "joins": [{"left_column": a, "right_column": b} for a, b in j["on_columns"]]})
     return out
+
+
+def pii_gaps(concepts: Iterable[dict], bindings: Iterable[dict], masks: Iterable,
+             engine_name) -> List[dict]:
+    """Columns approved for a PII concept that no enabled column mask covers.
+
+    A suggestion for Governance, never an action: a concept says what a column IS, a
+    mask says what a role may SEE, and only an administrator decides the second (Access
+    policies). A segment's condition is not a column holding the concept, so filters are
+    left out. A key column is listed with `key: true` — masking it breaks joins on it
+    unless the mask keeps equal values equal (hash). `masks` are app/rls MaskPolicy rows
+    (catalog, schema, table, column, enabled); `engine_name` maps either catalog name to
+    the engine's, so a mask written against `AwsDataCatalog` covers `iceberg`.
+    """
+    pii = {c["name"] for c in concepts if c.get("pii")}
+    covered = {((engine_name(m.catalog) or m.catalog).lower(), m.schema.lower(),
+                m.table.lower(), m.column.lower())
+               for m in masks if getattr(m, "enabled", True)}
+    seen, out = set(), []
+    for b in bindings:
+        if b.get("status") != "approved" or b["concept"] not in pii or b["role"] == "filter":
+            continue
+        ref = _ref(b)
+        if ref in covered or (b["concept"], ref) in seen:
+            continue
+        seen.add((b["concept"], ref))
+        out.append({"concept": b["concept"], "catalog": ref[0], "namespace": ref[1],
+                    "table": ref[2], "column": ref[3], "key": b["role"] == "key"})
+    return sorted(out, key=lambda g: (g["concept"], g["catalog"], g["namespace"], g["table"], g["column"]))

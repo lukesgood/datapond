@@ -236,7 +236,7 @@ def test_readers_see_only_catalogs_they_may_use(world, monkeypatch):
     monkeypatch.setattr(routes.catalog_access, "for_caller", access)
     out = asyncio.run(routes.list_concepts_with_bindings(user=READER))
     assert [b["catalog"] for b in out["bindings"]] == ["iceberg"]
-    assert out["viewer"] == {"can_approve": False, "can_propose": False}
+    assert out["viewer"] == {"can_approve": False, "can_propose": False, "openmetadata": False}
 
 
 def test_off_without_the_ontology_capability(world, monkeypatch):

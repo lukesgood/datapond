@@ -53,7 +53,9 @@ def _bad(field: str, message: str, status: int = 422):
 
 def _viewer(user: dict) -> dict:
     from app.api.semantic import _can_author, _is_admin
-    return {"can_approve": _is_admin(user), "can_propose": _can_author(user)}
+    from app.semantic import om_glossary
+    return {"can_approve": _is_admin(user), "can_propose": _can_author(user),
+            "openmetadata": om_glossary.enabled()}
 
 
 async def _audit(user: dict, method: str, route: str, reason: str) -> None:
@@ -111,6 +113,21 @@ async def binding_proposals(db: Session = Depends(get_db), user: dict = Depends(
                              await concept_store.list_bindings(pool), edges)
     return {"proposals": [p for p in found if access.allows_sql_catalog(p["catalog"])],
             "tables_inspected": len(schema)}
+
+
+@router.get("/semantic/concepts/pii-gaps",
+            dependencies=[Depends(require_permission("governance:read"))])
+async def pii_gaps(user: dict = Depends(require_user)):
+    """Columns bound to a PII concept with no enabled column mask: suggestions for
+    Governance › Access policies, never applied here."""
+    _require_enabled()
+    from app.rls import loader as rls_loader
+    pool = await _pool()
+    access = await catalog_access.for_caller(user)
+    gaps = concepts.pii_gaps(await load_concepts(pool),
+                             await concept_store.list_bindings(pool, ("approved",)),
+                             await rls_loader.load_masks(), catalog_registry.canonical_catalog)
+    return {"gaps": [g for g in gaps if access.allows_sql_catalog(g["catalog"])]}
 
 
 @router.post("/semantic/concepts/bindings", status_code=201)
@@ -192,3 +209,66 @@ async def reject_binding(binding_id: int, admin: dict = Depends(require_admin)):
 async def retire_binding(binding_id: int, admin: dict = Depends(require_admin)):
     return await _decide(binding_id, admin, "approved", "retired", "DELETE",
                          f"/api/semantic/concepts/bindings/{binding_id}")
+
+
+class GlossaryImport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # The JSON OpenMetadata's API returns ({"data": [...]} or a list) or the CSV its
+    # Glossary › Export writes. Absent: pull from the add-on running on this deployment.
+    glossary: Optional[object] = None
+
+
+def _known_engine(name: str) -> Optional[str]:
+    try:
+        return catalog_registry.resolve(name).engine_catalog
+    except Exception:
+        return None
+
+
+@router.post("/semantic/concepts/import/openmetadata")
+async def import_openmetadata(body: GlossaryImport, admin: dict = Depends(require_admin)):
+    """Concepts from an OpenMetadata glossary (app/semantic/om_glossary.py). A pull also
+    proposes bindings for columns tagged with a glossary term; none is approved here."""
+    _require_enabled()
+    from app.semantic import om_glossary
+    pool = await _pool()
+    tables: list = []
+    if body.glossary is None:
+        if not om_glossary.enabled():
+            raise HTTPException(409, "OpenMetadata does not run on this deployment. Upload "
+                                     "a glossary export (JSON or CSV) instead.")
+        try:
+            raw, tables = await om_glossary.pull()
+        except Exception as e:
+            logger.warning("[concepts] OpenMetadata pull failed: %s", e)
+            raise HTTPException(502, f"Could not read the OpenMetadata glossary: {e}")
+    else:
+        raw = body.glossary
+    if not isinstance(raw, (str, list, dict)):
+        _bad("glossary", "Send the glossary as JSON or as the CSV text of an export.")
+    terms = om_glossary.parse_terms(raw)
+    if not terms:
+        _bad("glossary", "No glossary terms found in what was sent.")
+    saved = await om_glossary.save_concepts(pool, om_glossary.to_concepts(terms))
+    proposed = 0
+    if tables:
+        access = await catalog_access.for_caller(admin)
+        found = om_glossary.proposals_from_tables(tables, om_glossary.term_index(terms), _known_engine)
+        fresh = om_glossary.new_proposals(found, await concept_store.list_bindings(pool))
+        for p in fresh:
+            if not access.allows_sql_catalog(p["catalog"]):
+                continue
+            cid = await concept_store.concept_id(pool, p["concept"])
+            if not cid:
+                continue
+            await concept_store.upsert_binding(
+                pool, concept_id=cid, catalog=p["catalog"], namespace=p["namespace"],
+                table=p["table"], column=p["column"], role=p["role"], filter_sql=None,
+                status="proposed", source=om_glossary.SOURCE, evidence=p["evidence"][:500],
+                actor_id=admin.get("id"), actor_name="OpenMetadata import")
+            proposed += 1
+    await _audit(admin, "POST", "/api/semantic/concepts/import/openmetadata",
+                 f"glossary import: {len(terms)} terms, {len(saved['created'])} concepts created, "
+                 f"{saved['terms_added']} words added, {proposed} bindings proposed")
+    return {"terms_read": len(terms), **saved, "bindings_proposed": proposed,
+            "source": "upload" if body.glossary is not None else "openmetadata"}

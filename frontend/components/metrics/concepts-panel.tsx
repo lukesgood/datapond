@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,8 +11,8 @@ import { useToast } from "@/lib/toast"
 import { responseErrorMessage } from "@/lib/auth"
 import { fieldError, type CatalogEntry } from "@/lib/metrics"
 import {
-  bindingText, cell, conceptRows, coverage, matchesSearch, matrixTables, suggestionBody, tableKey, tableLabel,
-  type Binding, type Concept, type ConceptViewer, type Role, type Suggestion,
+  bindingText, cell, conceptRows, coverage, maskHref, matchesSearch, matrixTables, suggestionBody, tableKey, tableLabel,
+  type Binding, type Concept, type ConceptViewer, type PiiGap, type Role, type Suggestion,
 } from "@/lib/concepts"
 import { CatalogSelect, ColumnSelect, TableSelect } from "./catalog-pickers"
 import type { TableRef } from "./metric-editor"
@@ -37,6 +38,7 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
   const [search, setSearch] = useState("")
   const [selected, setSelected] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [gaps, setGaps] = useState<PiiGap[]>([])
 
   const load = useCallback(async () => {
     try {
@@ -54,8 +56,15 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
       setSuggestions(r.ok ? (await r.json()).proposals ?? [] : [])
     } catch { setSuggestions([]) }
   }, [])
+  // Columns of PII concepts with no mask. Needs governance:read; anyone else sees none.
+  const loadGaps = useCallback(async () => {
+    try {
+      const r = await fetch("/api/semantic/concepts/pii-gaps")
+      setGaps(r.ok ? (await r.json()).gaps ?? [] : [])
+    } catch { setGaps([]) }
+  }, [])
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void load(); void loadSuggestions() }, [load, loadSuggestions])
+  useEffect(() => { void load(); void loadSuggestions(); void loadGaps() }, [load, loadSuggestions, loadGaps])
 
   const concepts = useMemo(() => data?.concepts ?? [], [data])
   const bindings = useMemo(() => data?.bindings ?? [], [data])
@@ -71,7 +80,7 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
     try {
       const res = await fn()
       if (!res.ok) { toast(await errorText(res, fallback), "error"); return false }
-      toast(ok, "success"); await load(); await loadSuggestions(); return true
+      toast(ok, "success"); await load(); await loadSuggestions(); await loadGaps(); return true
     } catch (e) { toast(e instanceof Error ? e.message : fallback, "error"); return false }
     finally { setBusy(false) }
   }
@@ -113,6 +122,7 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
           {state === "ok" && cov.unbound.length > 0 && <Badge variant="outline">{cov.unbound.length} bound nowhere</Badge>}
           {suggestions === null && <span className="text-xs text-muted-foreground">Reading column names and query history…</span>}
           <span className="flex-1" />
+          {viewer.can_approve && <ImportGlossary pull={viewer.openmetadata === true} onDone={async () => { await load(); await loadSuggestions(); await loadGaps() }} />}
           {(viewer.can_approve || viewer.can_propose) && <NewConcept concepts={concepts} onDone={async n => { await load(); await loadSuggestions(); setSelected(n) }} />}
         </div>
         {state === "loading" ? <p className="text-sm text-muted-foreground">Loading…</p>
@@ -177,6 +187,7 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
         ) : (
           <ConceptRail key={current.name} concept={current} concepts={concepts} bindings={bindings.filter(b => b.concept === current.name)}
                        suggestions={sugg.filter(s => s.concept === current.name)} viewer={viewer} busy={busy}
+                       gaps={gaps.filter(g => g.concept === current.name)}
                        catalogs={catalogs} tables={tables}
                        onSuggestion={decideSuggestion} onStored={decideStored} onRetire={retire}
                        onAdd={body => act(() => post("/api/semantic/concepts/bindings", body),
@@ -187,8 +198,8 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
   )
 }
 
-function ConceptRail({ concept, concepts, bindings, suggestions, viewer, busy, catalogs, tables, onSuggestion, onStored, onRetire, onAdd }: {
-  concept: Concept; concepts: Concept[]; bindings: Binding[]; suggestions: Suggestion[]; viewer: ConceptViewer; busy: boolean
+function ConceptRail({ concept, concepts, bindings, suggestions, gaps, viewer, busy, catalogs, tables, onSuggestion, onStored, onRetire, onAdd }: {
+  concept: Concept; concepts: Concept[]; bindings: Binding[]; suggestions: Suggestion[]; gaps: PiiGap[]; viewer: ConceptViewer; busy: boolean
   catalogs: CatalogEntry[]; tables: TableRef[] | null
   onSuggestion: (s: Suggestion, status: "approved" | "rejected") => Promise<unknown>
   onStored: (b: Binding, verb: "approve" | "reject") => Promise<unknown>
@@ -226,6 +237,24 @@ function ConceptRail({ concept, concepts, bindings, suggestions, viewer, busy, c
           </ul>
         )}
       </section>
+
+      {concept.pii && gaps.length > 0 && (
+        <section className="space-y-1.5 border-t pt-3">
+          <h4 className="text-sm font-semibold">Personal data without a mask</h4>
+          <p className="text-xs text-muted-foreground">No column mask covers these columns of {concept.name}, so anyone who may read the table sees them in full. A suggestion only: nothing is masked until an administrator adds a mask.</p>
+          <ul className="space-y-1">
+            {gaps.map(g => (
+              <li key={`${tableKey(g)}.${g.column}`} className="flex items-center justify-between gap-2">
+                <span className="min-w-0">
+                  <span className="font-mono text-xs">{g.table}.{g.column}</span>
+                  {g.key && <span className="text-xs text-muted-foreground"> key: a hash mask keeps joins on it working</span>}
+                </span>
+                <Link href={maskHref(g)} className="shrink-0 text-xs underline underline-offset-2">Review mask</Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {(proposed.length > 0 || suggestions.length > 0) && (
         <section className="space-y-2 border-t pt-3">
@@ -345,5 +374,52 @@ function NewConcept({ concepts, onDone }: { concepts: Concept[]; onDone: (name: 
       <Button size="sm" disabled={saving || !name.trim()} onClick={() => void save()}>Add concept</Button>
       <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
     </div>
+  )
+}
+
+type ImportResult = { terms_read: number; created: string[]; terms_added: number; pii_differs: string[]; bindings_proposed: number }
+
+/** Concepts from an OpenMetadata glossary: pulled from the add-on when it runs here, or
+ *  from an export file. Column tags become proposals; nothing is approved for you. */
+function ImportGlossary({ pull, onDone }: { pull: boolean; onDone: () => Promise<void> }) {
+  const { toast } = useToast()
+  const file = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const send = async (glossary?: unknown) => {
+    setBusy(true)
+    try {
+      const res = await fetch("/api/semantic/concepts/import/openmetadata", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(glossary === undefined ? {} : { glossary }),
+      })
+      if (!res.ok) { toast(await errorText(res, "Import failed"), "error"); return }
+      const d: ImportResult = await res.json()
+      const n = (k: number, one: string) => `${k} ${one}${k === 1 ? "" : "s"}`
+      const parts = [`${n(d.terms_read, "term")} read`, `${n(d.created.length, "concept")} added`, `${n(d.terms_added, "word")} added`]
+      if (d.bindings_proposed) parts.push(`${n(d.bindings_proposed, "binding")} proposed`)
+      if (d.pii_differs.length) parts.push(`PII flag differs and was kept for ${d.pii_differs.join(", ")}`)
+      toast(parts.join(", "), "success")
+      await onDone()
+    } catch (e) { toast(e instanceof Error ? e.message : "Import failed", "error") }
+    finally { setBusy(false) }
+  }
+  const pick = async (f: File | undefined) => {
+    if (!f) return
+    const text = await f.text()
+    let glossary: unknown = text
+    if (!f.name.toLowerCase().endsWith(".csv")) {
+      try { glossary = JSON.parse(text) } catch { toast("The file is neither JSON nor a CSV export.", "error"); return }
+    }
+    await send(glossary)
+    if (file.current) file.current.value = ""
+  }
+  return (
+    <>
+      {pull && <Button size="sm" variant="outline" disabled={busy} onClick={() => void send()}>Pull from OpenMetadata</Button>}
+      <Button size="sm" variant="outline" disabled={busy} onClick={() => file.current?.click()}
+              title="An OpenMetadata glossary export (CSV) or its API JSON">Import glossary…</Button>
+      <input ref={file} type="file" accept=".csv,.json,application/json,text/csv" className="hidden" aria-label="Glossary file"
+             onChange={e => void pick(e.target.files?.[0])} />
+    </>
   )
 }

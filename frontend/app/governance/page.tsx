@@ -236,9 +236,18 @@ function StatPill({
 
 // ─── main page ────────────────────────────────────────────────────────────────
 
+const GOVERNANCE_TABS = ["tool-calls", "audit", "activity", "ai-safety", "data-protection", "access-control", "reports"]
+
 export default function GovernancePage() {
   const { toast } = useToast()
   const caps = useCapabilities()
+  // ?tab= opens a tab directly (Metrics › Concepts links to a prefilled column mask).
+  const [tab, setTab] = useState("tool-calls")
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab")
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (t && GOVERNANCE_TABS.includes(t)) setTab(t)
+  }, [])
   // stats
   const [stats, setStats] = useState<GovernanceStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(true)
@@ -528,7 +537,7 @@ export default function GovernancePage() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="tool-calls">
+      <Tabs value={tab} onValueChange={v => setTab(String(v))}>
         <TabsList>
           <TabsTrigger value="tool-calls">Tool calls</TabsTrigger>
           <TabsTrigger value="audit">Query log</TabsTrigger>
