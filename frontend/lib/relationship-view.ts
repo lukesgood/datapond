@@ -8,14 +8,22 @@
 export type RelColumn = { name: string; type: string }
 export type RelNode = { id: string; query_count: number; columns: RelColumn[] }
 export type RelJoin = { left_column: string; right_column: string; count: number }
+/** observed: people ran this join. fk: the source database declares it as a foreign
+ *  key (and `count` > 0 when people ran it too). candidate: a guess from column names. */
+export type Evidence = "observed" | "candidate" | "fk"
 export type RelEdge = {
   source: string
   target: string
   count: number
-  evidence: "observed" | "candidate"
+  evidence: Evidence
   reason?: string
   join_sql?: string
   joins: RelJoin[]
+  /** fk: "source" — declared on these very tables; "lake" — carried from the source
+   *  tables these lake tables are synced from. */
+  via?: "source" | "lake"
+  /** fk on an edge people also ran: the declared key columns. */
+  fk_joins?: RelJoin[]
 }
 export type RelGraph = {
   nodes: RelNode[]
@@ -25,30 +33,35 @@ export type RelGraph = {
   tables_inspected?: number
 }
 
-export type Hub = { id: string; observed: number; candidates: number; queries: number }
+export type Hub = { id: string; observed: number; declared: number; candidates: number; queries: number }
 
 /** Tables ranked by how many joins people ran against them, then by use. */
 export function hubs(graph: RelGraph, limit = 10): Hub[] {
   const out = new Map<string, Hub>(
-    graph.nodes.map(n => [n.id, { id: n.id, observed: 0, candidates: 0, queries: n.query_count }]))
+    graph.nodes.map(n => [n.id, { id: n.id, observed: 0, declared: 0, candidates: 0, queries: n.query_count }]))
   for (const e of graph.edges) {
     for (const id of [e.source, e.target]) {
       const h = out.get(id)
       if (!h) continue
-      if (e.evidence === "observed") h.observed += 1
-      else h.candidates += 1
+      if (e.evidence === "candidate") h.candidates += 1
+      else {
+        if (e.count > 0) h.observed += 1
+        if (e.evidence === "fk") h.declared += 1
+      }
     }
   }
   return [...out.values()]
-    .filter(h => h.observed + h.candidates > 0)
-    .sort((a, b) => b.observed - a.observed || b.queries - a.queries || a.id.localeCompare(b.id))
+    .filter(h => h.observed + h.declared + h.candidates > 0)
+    .sort((a, b) => b.observed - a.observed || b.declared - a.declared || b.queries - a.queries || a.id.localeCompare(b.id))
     .slice(0, limit)
 }
 
 export type Neighbour = {
   other: string
-  evidence: "observed" | "candidate"
+  evidence: Evidence
   count: number
+  /** The source database declares this join as a foreign key. */
+  declared: boolean
   /** Join condition written from the selected table's side of the edge. */
   on: string
   reason?: string
@@ -64,19 +77,30 @@ export function neighbours(graph: RelGraph, table: string,
   for (const e of graph.edges) {
     if (e.source !== table && e.target !== table) continue
     if (e.evidence === "candidate" && !opts.includeCandidates) continue
-    const j = e.joins[0]
+    const j = e.joins[0] ?? e.fk_joins?.[0]
     // Edges are undirected (source/target sorted by name); the join keys belong to
     // source on the left and target on the right.
     const on = j ? `${e.source}.${j.left_column} = ${e.target}.${j.right_column}` : ""
+    // A declared key nobody has run yet has no recorded SQL; the key itself is the join.
+    const joinSql = e.join_sql ?? (e.evidence === "fk" && on
+      ? `SELECT *\nFROM ${e.source}\nJOIN ${e.target} ON ${on}\nLIMIT 100` : undefined)
     rows.push({
       other: e.source === table ? e.target : e.source,
-      evidence: e.evidence, count: e.count, on,
-      reason: e.reason, joinSql: e.join_sql, edge: e,
+      evidence: e.evidence, count: e.count, declared: e.evidence === "fk", on,
+      reason: e.reason, joinSql, edge: e,
     })
   }
-  return rows.sort((a, b) =>
-    (a.evidence === b.evidence ? 0 : a.evidence === "observed" ? -1 : 1)
-    || b.count - a.count || a.other.localeCompare(b.other))
+  // Run joins first (most-run first), then declared keys nobody ran, then guesses.
+  const rank = (n: Neighbour) => n.evidence === "candidate" ? 2 : n.count > 0 ? 0 : 1
+  return rows.sort((a, b) => rank(a) - rank(b) || b.count - a.count || a.other.localeCompare(b.other))
+}
+
+/** How a neighbour's join is known, in a few words. */
+export function evidenceLabel(n: Pick<Neighbour, "evidence" | "count" | "edge">): string {
+  if (n.evidence === "candidate") return "guess"
+  const key = n.evidence === "fk" ? (n.edge.via === "lake" ? "key (from source)" : "declared key") : ""
+  if (n.count > 0) return key ? `run ${n.count}× · ${key}` : `run ${n.count}×`
+  return key
 }
 
 export type LaidOut = { id: string; position: { x: number; y: number } }

@@ -9,7 +9,7 @@
  */
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { hubs, neighbours, egoLayout, searchTables, findNodeId, type RelGraph } from "./relationship-view.ts"
+import { hubs, neighbours, egoLayout, evidenceLabel, searchTables, findNodeId, type RelGraph } from "./relationship-view.ts"
 
 const g: RelGraph = {
   nodes: [
@@ -119,4 +119,23 @@ test("findNodeId matches either catalog name, or a two-part id", () => {
   assert.equal(findNodeId(g, ["polaris", "polaris_lake"], "default", "orders"), "polaris_lake.default.orders")
   assert.equal(findNodeId(g, ["x"], "public", "users"), "public.users")
   assert.equal(findNodeId(g, ["x"], "default", "orders"), null)
+})
+
+test("declared keys: shown without asking, after run joins, with a JOIN to open", () => {
+  const g: RelGraph = {
+    nodes: [{ id: "i.d.orders", query_count: 3, columns: [] }, { id: "i.d.customers", query_count: 1, columns: [] },
+            { id: "i.d.items", query_count: 0, columns: [] }, { id: "i.d.notes", query_count: 0, columns: [] }],
+    edges: [
+      { source: "i.d.customers", target: "i.d.orders", count: 4, evidence: "fk", via: "lake", joins: [{ left_column: "id", right_column: "customer_id", count: 4 }] },
+      { source: "i.d.items", target: "i.d.orders", count: 0, evidence: "fk", via: "source", joins: [{ left_column: "order_id", right_column: "id", count: 0 }] },
+      { source: "i.d.notes", target: "i.d.orders", count: 0, evidence: "candidate", joins: [] },
+    ],
+  }
+  const n = neighbours(g, "i.d.orders")
+  assert.deepEqual(n.map(x => x.other), ["i.d.customers", "i.d.items"])
+  assert.equal(evidenceLabel(n[0]), "run 4× · key (from source)")
+  assert.equal(evidenceLabel(n[1]), "declared key")
+  assert.match(n[1].joinSql ?? "", /JOIN i\.d\.orders ON i\.d\.items\.order_id = i\.d\.orders\.id/)
+  const h = hubs(g)
+  assert.equal(h[0].id, "i.d.orders"); assert.equal(h[0].observed, 1); assert.equal(h[0].declared, 2)
 })

@@ -935,8 +935,18 @@ async def catalog_relationships(
     graph = build_graph([r[0] for r in rows if r and r[0]],
                         dialect=get_engine().rls_dialect, schema=schema,
                         default_catalog=_default_catalog().lower())
+    # Keys the source databases declare, and their lake copies (app/source_keys.py).
+    # Cached per source catalog; a slow source must not hold the graph for long.
+    fk = []
+    try:
+        from app import source_keys
+        keys = await asyncio.wait_for(source_keys.all_keys(), timeout=8)
+        fk = source_keys.fk_edges(keys)
+        graph = source_keys.merge(graph, fk)
+    except Exception as e:
+        logger.info(f"[catalog] source keys unavailable: {e}")
     graph = _visible_graph(graph, await catalog_access.for_caller(user))
-    graph["source"] = "query_history+catalog"
+    graph["source"] = "query_history+catalog" + ("+source_keys" if fk else "")
     graph["window_days"] = days
     graph["statements_scanned"] = len(rows)
     graph["includes_ai_generated"] = include_ai

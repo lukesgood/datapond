@@ -346,3 +346,57 @@ async def catalog_health(user: dict = Depends(require_user)):
         return {"status": "unhealthy", "error": str(e)}
 
 
+
+
+@router.get("/catalog/tables/{namespace}/{table}/keys",
+            dependencies=[Depends(require_permission("catalog:read"))])
+async def table_keys(namespace: str, table: str, catalog: Optional[str] = None,
+                     user: dict = Depends(require_user)):
+    """Primary and foreign keys the source database declares for this table, or for the
+    source table it is synced from (app/source_keys.py). Tables in catalogs the caller
+    may not use are left out of `referenced_by`."""
+    import asyncio
+    from app import source_keys
+    _bare(namespace, table)
+    access = await catalog_access.for_caller(user)
+    entry = _entry(catalog, access)
+    try:
+        keys = await asyncio.wait_for(source_keys.all_keys(), timeout=20)
+    except Exception as e:
+        logger.info("[catalog] keys unavailable: %s", e)
+        keys = []
+    out = source_keys.for_table(keys, f"{entry.engine_catalog}.{namespace}.{table}")
+    ok = lambda t: access.allows_sql_catalog(t.split(".", 1)[0])
+    out["foreign"] = [f for f in out["foreign"] if ok(f["ref_table"])]
+    out["referenced_by"] = [r for r in out["referenced_by"] if ok(r["table"])]
+    return out
+
+
+@router.get("/catalog/tables/{namespace}/{table}/profile",
+            dependencies=[Depends(require_permission("catalog:read"))])
+async def table_profile(namespace: str, table: str, catalog: Optional[str] = None,
+                        user: dict = Depends(require_user)):
+    """Whole-table profile from the table's statistics, no scan (app/table_profile.py):
+    rows, per-column nulls / distinct / range, and Iceberg snapshots. Under a row policy
+    the table-wide figures are withheld; masked and PII-bound columns show no range."""
+    import asyncio
+    from app import table_profile as tp
+    _bare(namespace, table)
+    entry = _entry(catalog, await catalog_access.for_caller(user))
+    cat = entry.engine_catalog
+    try:
+        gov = await tp.governance(user, cat, namespace, table)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=f"Not readable for you: {e}")
+    try:
+        prof = await asyncio.wait_for(asyncio.to_thread(
+            tp.read, cat, namespace, table, entry.kind != "trino_source"), timeout=30)
+    except Exception as e:
+        logger.info("[catalog] profile of %s.%s.%s failed: %s", cat, namespace, table, e)
+        raise HTTPException(status_code=502, detail="Statistics could not be read for this table.")
+    if gov["restricted"]:
+        return {"restricted": True, "rows": None, "snapshots": [],
+                "columns": [{"name": c["name"]} for c in prof["columns"]],
+                "note": "Row policies limit what you see in this table, so table-wide figures are not shown."}
+    hidden = gov["masked"] | await tp.pii_columns(cat, namespace, table)
+    return dict(tp.redact(prof, hidden), restricted=False)

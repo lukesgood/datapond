@@ -116,6 +116,19 @@ reports parents it could not resolve as `unresolved_parents`.
   help no longer says "JDBC"; source status reads "Active"; the table browser also hides
   `pg_toast`; the unused `table-selector` component is gone.
 
+**Catalog: source keys and table profile (2026-11-23, migration 0035).**
+- The relationship graph reads primary and foreign keys declared in source databases
+  (PostgreSQL sources, through Trino's `system.query`; cached), and carries them to the
+  lake tables those sources sync into when both ends are synced. A declared key shows as a
+  solid edge marked "declared key" (or "key (from source)") with a JOIN to open, even if
+  nobody has run it; a name-match guess for the same pair is dropped.
+- `GET /api/catalog/tables/{ns}/{t}/keys` and `/profile`. The table page has a Profile
+  tab: per-column empty share, distinct estimate and range from the table's statistics (no
+  scan), recent Iceberg snapshots, and the keys. Under a row policy the table-wide figures
+  are withheld; masked and PII-bound columns show no range. The Schema tab marks PK/FK.
+- A join proposed from a foreign key records `source = 'fk'` (migration 0035 widens the
+  `semantic_joins` source check; the previous release never writes it).
+
 ## 2.6 (2026-11) — Lakehouse first: catalog export, Trino workers, menu
 
 Positioning v7 (`docs/POSITIONING_V7.md`): DataPond is a lightweight open lakehouse; the AI

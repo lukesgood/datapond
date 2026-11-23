@@ -118,16 +118,17 @@ def propose(concepts: Iterable[dict], schema: Dict[str, List[dict]],
         if b.get("status") == "approved" and b.get("role") == "key":
             keys.setdefault(_ref(b), []).append(b["concept"])
     for e in edges:
-        if e.get("evidence") not in ("observed", "approved"):
+        if e.get("evidence") not in ("observed", "approved", "fk"):
             continue
         src, dst = split_table(e.get("source", "")), split_table(e.get("target", ""))
         if not src or not dst:
             continue
-        for j in e.get("joins") or []:
+        for j in (e.get("joins") or []) + (e.get("fk_joins") or []):
             lc, rc = str(j.get("left_column", "")).lower(), str(j.get("right_column", "")).lower()
             if not lc or not rc:
                 continue
             how = ("approved join" if e["evidence"] == "approved"
+                   else "foreign key in the source" if e["evidence"] == "fk"
                    else f"joined in {j.get('count') or e.get('count') or 1} queries")
             for a, b, ac, bc in ((src, dst, lc, rc), (dst, src, rc, lc)):
                 for concept in keys.get((*a, ac), []):
