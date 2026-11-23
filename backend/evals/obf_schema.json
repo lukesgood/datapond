@@ -1,0 +1,155 @@
+{
+  "_doc": "Real iceberg.default tables shown to the model under legacy-style names (iceberg.erp.*). Keys are deliberately unhelpful: a foreign key never repeats the name of the key it points at. Each obfuscated column name maps to exactly one real column name, so SQL can be translated back by name.",
+  "namespace": "erp",
+  "tables": {
+    "customers": {
+      "as": "TB_CST",
+      "cols": {
+        "id": "CST_NO",
+        "email": "EML_ADDR",
+        "full_name": "CST_NM",
+        "country": "NAT_CD",
+        "tier": "GRD_CD",
+        "is_active": "USE_YN",
+        "signup_date": "JOIN_DT"
+      }
+    },
+    "orders": {
+      "as": "TB_ORD",
+      "cols": {
+        "id": "ORD_NO",
+        "customer_id": "BUYER_NO",
+        "status": "ORD_STAT_CD",
+        "total_amount": "ORD_AMT",
+        "discount": "DC_AMT",
+        "channel": "CHNL_CD",
+        "ordered_at": "ORD_DTM"
+      }
+    },
+    "order_items": {
+      "as": "TB_ORD_DTL",
+      "cols": {
+        "id": "DTL_SEQ",
+        "order_id": "REF_NO",
+        "product_id": "ITEM_CD",
+        "quantity": "QTY",
+        "unit_price": "UNIT_PRC"
+      }
+    },
+    "products": {
+      "as": "TB_GDS",
+      "cols": {
+        "id": "GDS_SN",
+        "sku": "SKU_CD",
+        "name": "GDS_NM",
+        "category": "CTGRY_CD",
+        "price": "SALE_PRC",
+        "stock_qty": "STK_QTY",
+        "is_active": "SALE_YN"
+      }
+    },
+    "product_returns": {
+      "as": "TB_RTN",
+      "cols": {
+        "return_id": "RTN_NO",
+        "order_id": "ORG_DOC_NO",
+        "order_item_id": "ORG_DTL_SEQ",
+        "product_id": "RTN_ITEM",
+        "quantity": "RTN_QTY",
+        "reason": "RTN_RSN",
+        "refund_amount": "RFND_AMT",
+        "status": "RTN_STAT"
+      }
+    },
+    "invoices": {
+      "as": "TB_BILL",
+      "cols": {
+        "id": "BILL_NO",
+        "order_id": "SRC_DOC_NO",
+        "invoice_no": "BILL_DOC_NO",
+        "amount": "BILL_AMT",
+        "status": "BILL_STAT",
+        "issued_on": "ISSU_DT",
+        "due_on": "DUE_DT"
+      }
+    },
+    "payments": {
+      "as": "TB_PAY",
+      "cols": {
+        "id": "PAY_NO",
+        "invoice_id": "DOC_REF",
+        "method": "PAY_MTHD",
+        "amount": "PAY_AMT",
+        "paid_at": "PAY_DTM"
+      }
+    },
+    "warehouses": {
+      "as": "TB_LOC",
+      "cols": {
+        "id": "LOC_ID",
+        "code": "LOC_CD",
+        "city": "CITY_NM",
+        "country": "LOC_NAT"
+      }
+    },
+    "inventory": {
+      "as": "TB_STK",
+      "cols": {
+        "id": "STK_SEQ",
+        "product_id": "SKU_REF",
+        "warehouse_id": "SITE_NO",
+        "on_hand": "OH_QTY",
+        "reserved": "RSV_QTY"
+      }
+    },
+    "shipments": {
+      "as": "TB_DLV",
+      "cols": {
+        "id": "DLV_NO",
+        "order_id": "ORDER_REF",
+        "warehouse_id": "FROM_SITE",
+        "carrier": "CARR_CD",
+        "status": "DLV_STAT",
+        "delivered_at": "ARR_DTM"
+      }
+    },
+    "support_tickets": {
+      "as": "TB_CS",
+      "cols": {
+        "id": "CS_NO",
+        "customer_id": "REQ_USR",
+        "order_id": "REL_DOC",
+        "priority": "PRIO_CD",
+        "status": "CS_STAT",
+        "subject": "CS_TTL"
+      }
+    },
+    "campaigns": {
+      "as": "TB_CMP",
+      "cols": {
+        "id": "CMP_ID",
+        "name": "CMP_NM",
+        "channel": "CMP_CHNL"
+      }
+    },
+    "campaign_touches": {
+      "as": "TB_CMP_LOG",
+      "cols": {
+        "id": "LOG_SEQ",
+        "campaign_id": "CMP_REF",
+        "customer_id": "TGT_NO",
+        "outcome": "RSLT_CD"
+      }
+    }
+  },
+  "questions": {
+    "3": "플래티넘 고객 주문의 총 주문 금액(ORD_AMT) 합계는 얼마인가요?",
+    "4": "취소 주문의 총 주문 금액(ORD_AMT) 합계는 얼마인가요?",
+    "10": "고객 등급(GRD_CD)별 고객 문의 건수를 알려주세요.",
+    "13": "구매자 국가별 평균 주문 금액(ORD_AMT)을 알려주세요.",
+    "15": "제품 카테고리별 창고 재고(OH_QTY) 합계를 알려주세요.",
+    "17": "취소 주문에 담긴 상품 수량(QTY) 합계는 얼마인가요?",
+    "18": "창고가 있는 국가별 재고(OH_QTY) 합계를 알려주세요.",
+    "19": "플래티넘 고객 주문에서 나온 반품의 환불 금액(RFND_AMT) 합계는 얼마인가요?"
+  }
+}
