@@ -450,8 +450,13 @@ async def _execute_query_impl(
         try:
             ctx = await rls_loader.load_user_context(user)
             policies = await rls_loader.load_policies()
-            masks = await rls_loader.load_masks()
-            result = enforce(effective_query, ctx, policies, masks, dialect=engine.rls_dialect)
+            # Admin-defined masks, plus the sync's PII columns when a source catalog is read
+            # directly (rls_loader.load_source_masks).
+            masks = await rls_loader.load_masks() + await rls_loader.load_source_masks()
+            from app.rls.engine import masked_tables
+            cols = await rls_loader.columns_for(masked_tables(effective_query, masks, engine.rls_dialect))
+            result = enforce(effective_query, ctx, policies, masks, dialect=engine.rls_dialect,
+                             columns=cols)
             _note_rls(result.applied_policy_ids, result.applied_mask_ids)
             effective_query = result.sql
             trino_user = ctx.username or TRINO_USER  # run as the real user

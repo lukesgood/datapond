@@ -173,7 +173,7 @@ def test_rls_sees_the_qualified_table_name(monkeypatch):
 
     seen = {}
 
-    def _enforce(sql, ctx, policies, masks, dialect="trino"):
+    def _enforce(sql, ctx, policies, masks, dialect="trino", columns=None):
         seen["sql"] = sql
         return types.SimpleNamespace(sql=sql, applied_policy_ids=[], applied_mask_ids=[])
 
@@ -183,6 +183,12 @@ def test_rls_sees_the_qualified_table_name(monkeypatch):
 
         async def load_policies(self):
             return []
+
+        async def load_source_masks(self):
+            return []
+
+        async def columns_for(self, keys):
+            return {}
 
         async def load_masks(self):
             return []

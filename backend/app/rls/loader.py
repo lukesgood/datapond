@@ -313,3 +313,88 @@ async def audit_denial(user: UserContext, raw_sql: str, denied_reason: str,
             )
     except Exception as e:
         logger.debug(f"[rls] audit skipped: {e}")
+
+
+_SOURCE_MASKS: Dict[str, Any] = {"at": 0.0, "masks": []}
+
+
+async def load_source_masks(ttl: float = 60.0) -> List[MaskPolicy]:
+    """Masks for reading a source catalog directly, derived from its sync jobs.
+
+    A sync masks a job's PII columns on the way into the lake, but the source is also a
+    Trino catalog anyone with its grant can query — found live 2026-11-23: a viewer read
+    customers.full_name in clear from src_sample_e_commerce_db while the lake copy was
+    masked. A column masked on its way into the lake is now masked when the source is
+    read directly, for every role (the lake copy is masked for every role too). Read-only
+    and derived: these never appear among the policies in Governance and cannot be edited
+    there; change the job's PII columns instead. A job masking every column (`["*"]`)
+    names no columns and adds nothing here.
+    """
+    import time
+    if time.monotonic() - _SOURCE_MASKS["at"] < ttl:
+        return _SOURCE_MASKS["masks"]
+    masks: List[MaskPolicy] = []
+    try:
+        pool = await _get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT j.id, d.engine_catalog, j.source_table, j.pii_columns
+                   FROM connector_sync_jobs j
+                   JOIN data_catalogs d ON d.kind = 'trino_source' AND d.enabled
+                    AND d.config->>'connection_id' = j.connection_id::text
+                   WHERE j.pii_columns IS NOT NULL""")
+            roles = [r[0] for r in await conn.fetch("SELECT name FROM roles")]
+        for r in rows:
+            raw = r["pii_columns"]
+            cols = json.loads(raw) if isinstance(raw, str) else (raw or [])
+            if not isinstance(cols, list):
+                continue
+            parts = str(r["source_table"]).split(".")
+            schema, table = (parts[-2], parts[-1]) if len(parts) > 1 else ("public", parts[0])
+            for col in cols:
+                if not isinstance(col, str) or not col or col == "*":
+                    continue
+                masks.append(MaskPolicy(
+                    id=f"sync:{r['id']}:{col}", catalog=r["engine_catalog"], schema=schema,
+                    table=table, column=col, masking_type="full", enabled=True,
+                    role_map={name: False for name in roles}))
+    except Exception as e:
+        logger.warning(f"[rls] source masks skipped: {e}")
+        return _SOURCE_MASKS["masks"]
+    _SOURCE_MASKS.update(at=time.monotonic(), masks=masks)
+    return masks
+
+
+_COLUMNS: Dict[str, Any] = {}
+
+
+async def columns_for(keys: List[str], ttl: float = 300.0) -> Dict[str, List[str]]:
+    """{catalog.schema.table: [column, ...] in table order} for masked tables, read from
+    the engine's information_schema with the service identity (cached). A table that
+    cannot be read is left out, so enforce refuses it."""
+    import asyncio
+    import time
+    from app.api.trino_util import trino_conn
+
+    def read(key: str) -> Optional[List[str]]:
+        cat, sch, tbl = key.split(".")
+        cur = trino_conn(timeout=20).cursor()
+        cur.execute(f'SELECT column_name FROM "{cat}".information_schema.columns '
+                    "WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position", (sch, tbl))
+        return [r[0] for r in cur.fetchall()] or None
+
+    out: Dict[str, List[str]] = {}
+    for key in keys:
+        hit = _COLUMNS.get(key)
+        if hit and time.monotonic() - hit[0] < ttl:
+            out[key] = hit[1]
+            continue
+        try:
+            cols = await asyncio.to_thread(read, key)
+        except Exception as e:
+            logger.warning(f"[rls] columns of {key} not read: {e}")
+            cols = None
+        if cols:
+            _COLUMNS[key] = (time.monotonic(), cols)
+            out[key] = cols
+    return out

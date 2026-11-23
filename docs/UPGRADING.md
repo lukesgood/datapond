@@ -68,6 +68,24 @@ bindings and narrower concepts, and by default keeps the old name as one of its 
 parent must name an existing concept and may not make a cycle (422); `/ai/concepts/import`
 reports parents it could not resolve as `unresolved_parents`.
 
+**Sources: what a sync runs, and masks on direct source reads (2026-11-23).**
+- A bare job name saved before 2.5 (`customers`) that matches exactly one table the source
+  lists (`public.customers`) is renamed to it on the next table list or sync, so its
+  settings — PII columns included — follow the table. Before this, the qualified table
+  looked new and would have synced without its masks.
+- The first sync of a source adopts every table, as before. After that a table new in the
+  source is listed as new and is not synced until someone turns it on. The full "Sync now"
+  honours the per-table switch (it used to sync every listed table).
+- Jobs for tables the source no longer lists are shown under "Not in the source any more"
+  and can be deleted (`DELETE /api/connectors/{id}/jobs/{source_table}`); the lake table
+  stays.
+- A job's PII columns are also masked when its source catalog is queried directly, for
+  every role, through the same enforcement as other masks (derived, not listed among
+  Governance policies; refreshed within a minute of a change).
+- Column masks now list the table's columns instead of `SELECT * EXCEPT (…)`, which Trino
+  does not support: before this, any query on a table with a column mask failed with a
+  syntax error. A masked table whose columns cannot be read is refused.
+
 ## 2.6 (2026-11) — Lakehouse first: catalog export, Trino workers, menu
 
 Positioning v7 (`docs/POSITIONING_V7.md`): DataPond is a lightweight open lakehouse; the AI

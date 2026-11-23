@@ -263,6 +263,7 @@ def enforce(
     *,
     sensitive_block: bool = False,
     dialect: str = "trino",
+    columns: Optional[Dict[str, List[str]]] = None,
 ) -> EnforceResult:
     """
     Apply RLS to `sql` for `user`. Returns rewritten SQL or raises RlsDenied.
@@ -272,6 +273,10 @@ def enforce(
 
     `sensitive_block=True` is used by the DuckDB/direct-read guard: any referenced
     table that HAS a policy is treated as sensitive and denied entirely.
+
+    `columns` maps catalog.schema.table to its column names in order, for every table
+    a mask applies to (`masked_tables` says which; the caller reads them, this module
+    does no I/O). A masked table whose columns are not given is refused, never sent.
     """
     if user.is_admin and _admin_bypass_enabled():
         return EnforceResult(sql=sql, tables=[])
@@ -350,7 +355,7 @@ def enforce(
                 # but table IS registered so access is allowed.
                 continue
 
-            _wrap_table(tbl, key, filt, eff_masks, dialect)
+            _wrap_table(tbl, key, filt, eff_masks, dialect, (columns or {}).get(key))
             applied_pids.extend(p.id for p in eff)
             applied_mids.extend(m.id for m in eff_masks)
 
@@ -372,22 +377,51 @@ def _mask_applies(mask: MaskPolicy, user: UserContext) -> bool:
     return not any(mapped.values())          # any exempt role -> mask not applied
 
 
+def masked_tables(sql: str, masks: Sequence[MaskPolicy], dialect: str = "trino") -> List[str]:
+    """catalog.schema.table of each table in `sql` that an enabled mask names — the
+    tables whose columns `enforce` needs. Unparseable SQL names none (enforce refuses it)."""
+    keys = {_policy_key(m) for m in masks if m.enabled}
+    if not keys:
+        return []
+    try:
+        statements = [s for s in sqlglot.parse(sql, read=dialect) if s is not None]
+    except Exception:
+        return []
+    out: List[str] = []
+    for stmt in statements:
+        for tbl in stmt.find_all(exp.Table):
+            k = _qualify(tbl)
+            if k in keys and k not in out:
+                out.append(k)
+    return out
+
+
 def _wrap_table(tbl: exp.Table, key: str, filt: Optional[str], masks: List[MaskPolicy],
-                dialect: str = "trino") -> None:
+                dialect: str = "trino", columns: Optional[List[str]] = None) -> None:
     """
     Replace `tbl` in-place with a filtered/masked subquery, preserving its alias:
-        FROM cat.sch.t  ->  FROM (SELECT * [EXCEPT(masked), <mask> AS col] FROM cat.sch.t
+        FROM cat.sch.t  ->  FROM (SELECT c1, <mask> AS c2, c3 FROM cat.sch.t
                                    [WHERE <filt>]) AS <alias>
-    Masked columns use Trino's `SELECT * EXCEPT (col), <expr> AS col` so the column
-    keeps its name/position semantics while the value is masked.
+    Masked columns keep their name and position: the projection lists every column in
+    order, with the masked ones replaced. It used `SELECT * EXCEPT (col), <expr> AS col`,
+    which Trino does not have (BigQuery and Snowflake do) — found live 2026-11-23: every
+    query on a masked table failed with a syntax error. Without the column list a masked
+    table is refused rather than sent.
     """
     alias = tbl.alias or tbl.name
     catalog, schema, name = key.split(".")
 
     if masks:
-        except_clause = ", ".join(m.column for m in masks)
-        overrides = ", ".join(f"{mask_expression(m.column, m)} AS {m.column}" for m in masks)
-        select_sql = f"SELECT * EXCEPT ({except_clause}), {overrides} FROM {catalog}.{schema}.{name}"
+        if not columns:
+            raise RlsDenied(f"Column mask on '{key}' could not be applied: its columns could not "
+                            "be read — blocked.", table=key)
+        by_col = {m.column.lower(): m for m in masks}
+        items = []
+        for c in columns:
+            q = '"' + c.replace('"', '""') + '"'
+            m = by_col.get(c.lower())
+            items.append(f"{mask_expression(q, m)} AS {q}" if m else q)
+        select_sql = f"SELECT {', '.join(items)} FROM {catalog}.{schema}.{name}"
     else:
         select_sql = f"SELECT * FROM {catalog}.{schema}.{name}"
 
