@@ -183,7 +183,7 @@ async def pull() -> Tuple[List[dict], List[dict]]:
     headers = om_headers(token)
     async with httpx.AsyncClient(timeout=20) as c:
         terms = await _pages(c, f"{OPENMETADATA_URL}/api/v1/glossaryTerms", headers,
-                             {"fields": "tags,parent", "limit": 200})
+                             {"fields": "tags", "limit": 200})   # parent comes by default
         tables = await _pages(c, f"{OPENMETADATA_URL}/api/v1/tables", headers,
                               {"fields": "columns,tags", "limit": 100})
     return terms, tables

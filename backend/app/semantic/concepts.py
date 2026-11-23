@@ -164,13 +164,15 @@ def pii_gaps(concepts: Iterable[dict], bindings: Iterable[dict], masks: Iterable
     policies). A segment's condition is not a column holding the concept, so filters are
     left out. A key column is listed with `key: true` — masking it breaks joins on it
     unless the mask keeps equal values equal (hash). `masks` are app/rls MaskPolicy rows
-    (catalog, schema, table, column, enabled); `engine_name` maps either catalog name to
-    the engine's, so a mask written against `AwsDataCatalog` covers `iceberg`.
+    (catalog, schema, table, column, enabled, role_map); `engine_name` maps either catalog
+    name to the engine's, so a mask written against `AwsDataCatalog` covers `iceberg`. A
+    mask that applies to no role masks nothing (Access policies says so) and covers nothing.
     """
     pii = {c["name"] for c in concepts if c.get("pii")}
     covered = {((engine_name(m.catalog) or m.catalog).lower(), m.schema.lower(),
                 m.table.lower(), m.column.lower())
-               for m in masks if getattr(m, "enabled", True)}
+               for m in masks if getattr(m, "enabled", True)
+               and any(not exempt for exempt in (getattr(m, "role_map", None) or {}).values())}
     seen, out = set(), []
     for b in bindings:
         if b.get("status") != "approved" or b["concept"] not in pii or b["role"] == "filter":

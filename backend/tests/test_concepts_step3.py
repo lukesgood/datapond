@@ -33,6 +33,14 @@ def test_a_concept_word_matches_a_metric_label():
     assert context.suggest(METRICS, "고객 수", aliases=a)["name"] == "customer_count"
 
 
+def test_the_word_the_question_used_beats_an_alias():
+    a = context.alias_map([{"name": "고객", "terms": ["회원", "id"]}])
+    assert "id" not in a                                   # too short to stand for anything
+    both = METRICS + [{"name": "member_count", "label": "회원 수", "synonyms": []}]
+    assert context.suggest(both, "회원 수는?", aliases=a)["name"] == "member_count"
+    assert context.suggest(both, "고객 수는?", aliases=a)["name"] == "customer_count"
+
+
 def test_metric_lines_rank_with_aliases():
     a = context.alias_map(CONCEPTS)
     metrics = [dict(m, version=1, measure="COUNT(*)", base_table="iceberg.default.customers",
@@ -46,9 +54,9 @@ def _b(concept, table, column, role="key", status="approved", filter_sql=None):
             "column": column, "role": role, "status": status, "filter_sql": filter_sql}
 
 
-def _mask(catalog, table, column, enabled=True):
+def _mask(catalog, table, column, enabled=True, roles=None):
     return SimpleNamespace(catalog=catalog, schema="default", table=table, column=column,
-                           enabled=enabled)
+                           enabled=enabled, role_map=roles if roles is not None else {"analyst": False})
 
 
 def test_pii_gaps_lists_unmasked_columns_of_pii_concepts():
@@ -61,7 +69,9 @@ def test_pii_gaps_lists_unmasked_columns_of_pii_concepts():
         _b("고객", "payments", "customer_id", status="proposed"),
         _b("주문", "orders", "id"),
     ]
-    gaps = pii_gaps(CONCEPTS, bindings, [_mask("AwsDataCatalog", "customers", "email")], engine)
+    gaps = pii_gaps(CONCEPTS, bindings, [_mask("AwsDataCatalog", "customers", "email"),
+                                         _mask("iceberg", "customers", "id", roles={})], engine)
+    # customers.id's mask names no role, so it masks nothing and is still a gap
     assert [(g["table"], g["column"], g["key"]) for g in gaps] == [
         ("customers", "id", True), ("orders", "customer_id", True)]
 

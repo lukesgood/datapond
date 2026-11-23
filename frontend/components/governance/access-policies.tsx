@@ -91,8 +91,13 @@ export function AccessPolicies() {
     // ?mask=catalog.schema.table.column (Metrics › Concepts, a PII column with no mask):
     // open a new mask with the column filled in. Nothing is saved until it is submitted.
     const target = parseMaskParam(new URLSearchParams(window.location.search).get("mask"))
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (target) setEditing({ kind: "mask", policy: null, target })
+    if (target) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setEditing({ kind: "mask", policy: null, target })
+      // Drop the parameter so a reload after saving does not open the form again.
+      const url = new URL(window.location.href); url.searchParams.delete("mask")
+      window.history.replaceState(null, "", url.toString())
+    }
     return () => window.clearTimeout(t)
   }, [load])
 

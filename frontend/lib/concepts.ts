@@ -152,7 +152,9 @@ export function conceptWordsFor(label: string, concepts: Concept[]): string[] {
   const words = label.toLowerCase().split(/\s+/).filter(Boolean)
   const out: string[] = []
   for (const c of concepts) {
-    const group = [c.name, ...c.terms].map(t => t.trim()).filter(t => t && !/\s/.test(t))
+    // Same rule as the backend's alias_map: one word, three letters if Latin, two otherwise.
+    const group = [c.name, ...c.terms].map(t => t.trim())
+      .filter(t => t && !/\s/.test(t) && t.length >= (/^[\x00-\x7f]+$/.test(t) ? 3 : 2))
     const lower = group.map(t => t.toLowerCase())
     if (!words.some(w => lower.includes(w))) continue
     for (const t of group) if (!words.includes(t.toLowerCase()) && !out.includes(t)) out.push(t)

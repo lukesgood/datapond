@@ -37,8 +37,11 @@ def alias_map(concepts: List[dict]) -> Aliases:
     metric's label is compared with a word, never with a phrase."""
     out: Aliases = {}
     for c in concepts or []:
+        # A Latin word needs three letters ("id" or "po" sits inside far too many words to
+        # stand for anything); a two-syllable Korean word (회원, 고객) is a whole word.
         words = {t.strip().lower() for t in [c.get("name"), *(c.get("terms") or [])]
-                 if t and t.strip() and len(t.strip().split()) == 1}
+                 if t and len(t.strip().split()) == 1
+                 and len(t.strip()) >= (3 if t.strip().isascii() else 2)}
         for w in words:
             out.setdefault(w, [])
             out[w] += sorted(x for x in words - {w} if x not in out[w])
@@ -61,10 +64,12 @@ def _counted(anchors: List[str], q: str) -> bool:
 
 
 def _term_score(term: str, q: str, aliases: Optional[Aliases] = None) -> int:
-    """Characters of the term's words found in the question when every required word is
-    found (as a substring, so Korean particles and spacing do not matter; a word may be
-    found as another word of its concept); else 0. A term made only of count or optional
-    words never matches on its own."""
+    """Twice the characters of the term's words found in the question when every required
+    word is found (as a substring, so Korean particles and spacing do not matter; a word
+    may be found as another word of its concept), less one per word found that way; else
+    0. The discount keeps the word the question actually used ahead: with metrics "회원 수"
+    and "고객 수", "회원 수는?" is the first, not a tie. A term made only of count or
+    optional words never matches on its own."""
     words = [w for w in re.findall(r"\w+", term.lower()) if w not in _OPTIONAL]
     anchors = [w for w in words if w not in _COUNT_WORDS]
     used = [_found(a, q, aliases) for a in anchors]
@@ -73,7 +78,7 @@ def _term_score(term: str, q: str, aliases: Optional[Aliases] = None) -> int:
     counts = [w for w in words if w in _COUNT_WORDS]
     if counts and not _counted(used, q):
         return 0
-    return sum(len(w) for w in words)
+    return 2 * sum(len(w) for w in words) - sum(u != a for u, a in zip(used, anchors))
 
 
 def _matches(m: dict, question: str, aliases: Optional[Aliases] = None) -> int:
