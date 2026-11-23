@@ -117,3 +117,43 @@ def for_table(concepts: List[dict], catalog: str, namespace: str, table: str) ->
                     {"concept": c["name"], "role": b["role"], "filter_sql": b["filter_sql"], "pii": c["pii"]})
     return out
 
+
+
+def join_conflicts(sql: str, concepts: List[dict], dialect: str = "trino",
+                   default_catalog: str = "") -> List[str]:
+    """Joins in `sql` that equate key columns of two different concepts.
+
+    Live 2026-11-23: asked for "활성 고객별 반품 건수", the model joined customers.id =
+    product_returns.product_id — a 고객 key to a 상품 key — with both bindings in its
+    prompt. The statement was valid, so the catalog check passed it. A key column bound
+    to 고객 equated with one bound only to 상품 is never right; this finds those. A
+    concept counts as its ancestors too, so a narrower concept's key may meet its
+    parent's. Columns with no key binding are not judged.
+    """
+    from app.api.catalog_graph import extract_joins
+    parent = {c["name"]: c.get("parent") for c in concepts}
+
+    def lineage(name: str) -> set:
+        out, cur = set(), name
+        while cur and cur not in out:
+            out.add(cur)
+            cur = parent.get(cur)
+        return out
+
+    keys: Dict[Tuple[str, str], set] = {}
+    for c in concepts:
+        for b in c.get("bindings") or []:
+            if b["role"] == "key":
+                k = (f"{b['catalog']}.{b['namespace']}.{b['table']}".lower(), b["column"].lower())
+                keys.setdefault(k, set()).update(lineage(c["name"]))
+    if not keys:
+        return []
+    out = []
+    for j in extract_joins(sql, dialect, default_catalog or None):
+        a = keys.get((j["left_table"], j["left_column"].lower()))
+        b = keys.get((j["right_table"], j["right_column"].lower()))
+        if a and b and not (a & b):
+            short = lambda t: t.split(".")[-1]
+            out.append(f"{short(j['left_table'])}.{j['left_column']} is {'/'.join(sorted(a))} but "
+                       f"{short(j['right_table'])}.{j['right_column']} is {'/'.join(sorted(b))}")
+    return out

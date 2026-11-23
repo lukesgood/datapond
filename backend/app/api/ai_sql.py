@@ -468,6 +468,9 @@ class AskResponse(BaseModel):
     # Concepts the question named, with the approved bindings put in the prompt
     # ([{name, uses}]). Given, not necessarily used.
     concepts_provided: List[dict] = []
+    # Joins in the returned SQL that equate keys of two different concepts (after one
+    # repair round). Empty when none, or when no concepts are bound.
+    concept_warnings: List[str] = []
 
 
 # ── Route ─────────────────────────────────────────────────────────────────────
@@ -538,7 +541,7 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
         suggested = metric_context.suggest(visible_metrics, q_text)
     except Exception as e:      # the semantic tables are optional context, never a blocker
         logger.info("[ai_sql] metric context unavailable: %s", e)
-    concepts_block, concepts_provided = "", []
+    concepts_block, concepts_provided, visible_concepts = "", [], []
     try:
         from app.semantic import concept_context
         visible_concepts = await asyncio.wait_for(
@@ -629,6 +632,43 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
                     except Exception as e:
                         logger.warning(f"[ai_sql] validation repair round failed: {e}")
 
+            # ── Joins that cross concepts ───────────────────────────────────────
+            # Valid SQL can still join a customer key to a product key. One repair
+            # round with the offending joins named; what remains is reported.
+            concept_warnings: List[str] = []
+            if sql and visible_concepts:
+                from app.api.query_engine import get_engine
+                from app.rls.engine import _default_catalog
+                from app.semantic import concept_context
+                dialect, default_cat = get_engine().rls_dialect, _default_catalog().lower()
+                conflicts = concept_context.join_conflicts(sql, visible_concepts, dialect, default_cat)
+                if conflicts:
+                    repair = messages + [
+                        {"role": "assistant", "content": sql},
+                        {"role": "user", "content":
+                            "These joins equate columns of different business concepts:\n- "
+                            + "\n- ".join(conflicts)
+                            + "\nJoin only on key columns bound to the same concept (see the "
+                              "business concepts above), going through another table if needed. "
+                              "Return corrected JSON with the same two keys."},
+                    ]
+                    try:
+                        data3 = _parse_response(await generate_text_with_cap(
+                            actor=current_actor(), request_text=req.question, system=system,
+                            messages=repair))
+                        sql3 = data3["sql"].strip()
+                        ok3, verr3 = (await asyncio.to_thread(_validate, sql3)
+                                      if sql3 and _validation_enabled() else (None, None))
+                        left = concept_context.join_conflicts(sql3, visible_concepts, dialect, default_cat) if sql3 else conflicts
+                        if sql3 and ok3 is not False and not left:
+                            sql, explanation = sql3, data3.get("explanation", explanation)
+                            validated, verr = (ok3, verr3) if ok3 is not None else (validated, verr)
+                        else:
+                            concept_warnings = conflicts
+                    except Exception as e:
+                        logger.warning(f"[ai_sql] concept repair round failed: {e}")
+                        concept_warnings = conflicts
+
             return AskResponse(
                 sql=sql,
                 explanation=explanation,
@@ -640,6 +680,7 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
                 metrics_provided=metrics_provided,
                 suggested_metric=suggested,
                 concepts_provided=concepts_provided,
+                concept_warnings=concept_warnings,
             )
 
     # ── 2. Graceful fallback — schema-aware SQL template ──────────────────────

@@ -372,3 +372,60 @@ def test_concepts_named_in_the_question_reach_the_prompt_the_response_and_the_au
     assert r.json()["concepts_provided"] == [{"name": "플래티넘 고객",
                                               "uses": ["iceberg.default.customers WHERE tier = 'platinum'"]}]
     assert calls[0]["citation_sources"] == ["context:concept:플래티넘 고객"]
+
+
+def _concept_env(monkeypatch, answers):
+    from app.semantic import concept_context as cc, context as mc
+    reg.set_entries([CatalogEntry(name="iceberg", kind="polaris", engine_catalog="iceberg", is_default=True)])
+    catalog_access.set_grants({})
+    monkeypatch.setenv("QUERY_ENGINE", "trino")
+    seen = []
+
+    async def _record(**kw):
+        return None
+    monkeypatch.setattr(tool_call_log, "record", _record)
+    monkeypatch.setattr(m, "_cfg", lambda: {"litellm_url": "http://litellm:4000", "litellm_model": "default", "master_key": ""})
+    monkeypatch.setattr(m, "_get_schema_context",
+                        lambda: "Available tables (catalog: iceberg):\n  iceberg.default.customers: id (bigint)")
+    monkeypatch.setattr(m, "egress_policy", lambda: "allow-external")
+    monkeypatch.setattr(m, "validate_sql", lambda sql: (True, None))
+
+    def _llm(system, messages):
+        seen.append(messages[-1]["content"])
+        return answers.pop(0)
+    monkeypatch.setattr(m, "_call_litellm", _llm)
+
+    async def no_metrics(user, catalog=None):
+        return []
+    monkeypatch.setattr(mc, "for_caller", no_metrics)
+    key = lambda t, c: {"catalog": "iceberg", "namespace": "default", "table": t, "column": c, "role": "key", "filter_sql": None}
+
+    async def concepts(user):
+        return [{"name": "고객", "terms": [], "parent": None, "pii": True, "bindings": [key("customers", "id"), key("orders", "customer_id")]},
+                {"name": "상품", "terms": [], "parent": None, "pii": False, "bindings": [key("products", "id"), key("product_returns", "product_id")]}]
+    monkeypatch.setattr(cc, "for_caller", concepts)
+    return seen
+
+
+BAD = '{"sql": "SELECT count(*) FROM iceberg.default.customers c JOIN iceberg.default.product_returns pr ON c.id = pr.product_id", "explanation": "x"}'
+GOOD = '{"sql": "SELECT count(*) FROM iceberg.default.customers c JOIN iceberg.default.orders o ON o.customer_id = c.id JOIN iceberg.default.product_returns pr ON pr.order_id = o.id", "explanation": "y"}'
+
+
+def test_a_cross_concept_join_gets_one_repair_round(monkeypatch):
+    seen = _concept_env(monkeypatch, [BAD, GOOD])
+    try:
+        res = asyncio.run(m._generate_sql_impl(m.AskRequest(question="고객별 반품"), ENG))
+    finally:
+        reg.reset()
+    assert "customers.id is 고객 but product_returns.product_id is 상품" in seen[1]
+    assert "o.customer_id = c.id" in res.sql and res.concept_warnings == []
+
+
+def test_a_join_still_crossing_after_repair_is_reported_not_hidden(monkeypatch):
+    _concept_env(monkeypatch, [BAD, BAD])
+    try:
+        res = asyncio.run(m._generate_sql_impl(m.AskRequest(question="고객별 반품"), ENG))
+    finally:
+        reg.reset()
+    assert "pr.product_id" in res.sql
+    assert res.concept_warnings == ["customers.id is 고객 but product_returns.product_id is 상품"]
