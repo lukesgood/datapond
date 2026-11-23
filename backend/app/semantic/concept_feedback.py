@@ -244,5 +244,57 @@ def visible_rows(rows: List[dict], allows_table) -> List[dict]:
     return out
 
 
+_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def value_check_sql(v: dict) -> Optional[str]:
+    """The stored spellings of a suggested value, case-insensitively, with row counts. A
+    model writes the value it guesses ('VIP'); a segment must hold the one in the data
+    ('vip'). None when a name is not a plain identifier."""
+    parts = v["table"].split(".")
+    if len(parts) != 3 or not all(_IDENT.match(p) for p in parts + [v["column"]]):
+        return None
+    table = ".".join(f'"{p}"' for p in parts)
+    col = f'"{v["column"]}"'
+    lit = v["value"].replace("'", "''")
+    return (f"SELECT CAST({col} AS varchar) AS v, count(*) AS n FROM {table} "
+            f"WHERE lower(CAST({col} AS varchar)) = lower('{lit}') GROUP BY 1 ORDER BY 2 DESC LIMIT 5")
+
+
+def apply_check(v: dict, rows: List[list], masked: bool) -> dict:
+    """The suggestion with what the data says: `rows` holding the exact value, `actual` —
+    the stored spelling when only another case exists — and `exists`. A masked column
+    says nothing (the reader sees masked values), so it is left unchecked."""
+    if masked:
+        return dict(v, checked=False)
+    exact = sum(int(n) for s, n in rows if s == v["value"])
+    other = [(s, int(n)) for s, n in rows if s != v["value"]]
+    out = dict(v, checked=True, rows=exact, exists=exact > 0 or bool(other))
+    if not exact and other:
+        out["actual"], out["actual_rows"] = other[0]
+    return out
+
+
+async def check_values(values: List[dict], user: dict, limit: int = 10) -> List[dict]:
+    """Run value_check_sql for the first `limit` suggestions through the governed query
+    path (app/semantic/service._execute: grants, row policies and masks apply as for the
+    reader's own queries). A suggestion whose check fails comes back unchecked."""
+    import asyncio
+    from app.semantic import service
+
+    async def one(v):
+        sql = value_check_sql(v)
+        if not sql:
+            return dict(v, checked=False)
+        try:
+            r = await asyncio.wait_for(service._execute(sql, user, origin="internal"), timeout=15)
+            return apply_check(v, r["rows"], bool(r.get("pii_masked")))
+        except Exception as e:
+            logger.info("[concepts] value check skipped for %s.%s: %s", v["table"], v["column"], e)
+            return dict(v, checked=False)
+    head = await asyncio.gather(*(one(v) for v in values[:limit]))
+    return list(head) + [dict(v, checked=False) for v in values[limit:]]
+
+
 def counts(rows: List[dict]) -> Counter:
     return Counter(n for r in rows for n in (r.get("concepts") or []))

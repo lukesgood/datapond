@@ -2,7 +2,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import {
-  addCondition, segmentBody, valueCondition, bindingText, cell, conceptChips, conceptWordsFor, shortUse, conceptRows, coverage, maskHref, matchesSearch, matrixTables, parseMaskParam, segmentsFor, suggestionBody, tableLabel,
+  addCondition, canBecomeSegment, segmentBody, segmentValue, valueCondition, bindingText, cell, conceptChips, conceptWordsFor, shortUse, conceptRows, coverage, maskHref, matchesSearch, matrixTables, parseMaskParam, segmentsFor, suggestionBody, tableLabel,
   type Binding, type Concept, type Suggestion,
 } from "./concepts.ts"
 
@@ -100,4 +100,14 @@ test("a value suggestion becomes a segment binding", () => {
     concept: "VIP 고객", catalog: "iceberg", table: "default.customers", column: "tier", role: "filter",
     filter_sql: "tier = 'vip'", source: "history", evidence: "used in 4 questions to /ai/sql", status: "approved",
   })
+})
+
+test("a guessed value becomes the stored spelling, and a missing one cannot become a segment", () => {
+  const v = { table: "iceberg.default.customers", column: "tier", value: "VIP", questions: 2, example: "", segments_on_column: true,
+              checked: true, exists: true, rows: 0, actual: "vip", actual_rows: 3 }
+  assert.equal(segmentValue(v), "vip")
+  assert.equal(segmentBody(v, "VIP 고객").filter_sql, "tier = 'vip'")
+  assert.equal(canBecomeSegment(v), true)
+  assert.equal(canBecomeSegment({ ...v, actual: undefined, exists: false }), false)
+  assert.equal(canBecomeSegment({ ...v, checked: false, exists: undefined }), true)
 })

@@ -12,7 +12,7 @@ import { responseErrorMessage } from "@/lib/auth"
 import { fieldError, type CatalogEntry } from "@/lib/metrics"
 import {
   bindingText, cell, conceptRows, coverage, maskHref, matchesSearch, matrixTables, segmentBody, suggestionBody, tableKey, tableLabel,
-  valueCondition, type Binding, type Concept, type ConceptViewer, type Feedback, type PiiGap, type Role, type Suggestion,
+  canBecomeSegment, segmentValue, valueCondition, type Binding, type Concept, type ConceptViewer, type Feedback, type PiiGap, type Role, type Suggestion,
 } from "@/lib/concepts"
 import { CatalogSelect, ColumnSelect, TableSelect } from "./catalog-pickers"
 import type { TableRef } from "./metric-editor"
@@ -485,8 +485,15 @@ function FromQuestions({ feedback, concepts, viewer, busy, onNewConcept, onAlias
                 <li key={key} className="flex flex-wrap items-center gap-2">
                   <span className="font-mono text-xs">{v.table.split(".").slice(-1)[0]}: {valueCondition(v)}</span>
                   <span className="text-xs text-muted-foreground" title={v.example}>{v.questions} questions{v.segments_on_column ? " · other values of this column are segments" : ""}</span>
-                  {canWrite && <span className="ml-auto flex items-center gap-1.5">{pick(key, `Concept for ${valueCondition(v)}`)}
-                    <Button size="sm" variant="outline" className="h-7" disabled={busy || !target[key]} onClick={() => void onSegment(target[key], v)}>Make segment</Button></span>}
+                  <span className={`w-full text-xs ${v.checked && (v.actual || !v.exists) ? "text-[var(--dp-warn-text)]" : "text-muted-foreground"}`}>
+                    {!v.checked ? "Not checked against the data."
+                      : v.actual ? `No row holds '${v.value}'; the data spells it '${v.actual}' (${v.actual_rows} rows). The segment uses '${v.actual}'.`
+                      : !v.exists ? "No row holds this value in any spelling: the answer was empty. Nothing to make a segment of."
+                      : `${v.rows} rows hold this value.`}
+                  </span>
+                  {canWrite && canBecomeSegment(v) && <span className="ml-auto flex items-center gap-1.5">{pick(key, `Concept for ${valueCondition(v)}`)}
+                    <Button size="sm" variant="outline" className="h-7" disabled={busy || !target[key]} onClick={() => void onSegment(target[key], v)}>
+                      {v.actual ? `Make segment with '${segmentValue(v)}'` : "Make segment"}</Button></span>}
                 </li>
               )
             })}
