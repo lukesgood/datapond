@@ -288,7 +288,8 @@ def test_the_listing_query_carries_the_predicate_and_its_argument(monkeypatch):
     assert captured["args"] == (uuid.UUID(OTHER_ID),)
 
     _run(connectors.list_connections(ADMIN))
-    assert "WHERE" not in captured["query"]
+    # the per-source stats subqueries have their own WHERE; the access predicate is gone
+    assert "connector_members" not in captured["query"] and "owner_id IS NULL" not in captured["query"]
     assert captured["args"] == ()
 
 
