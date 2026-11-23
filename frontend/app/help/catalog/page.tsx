@@ -32,8 +32,8 @@ const QUICK_START: { title: L; body: L }[] = [
   {
     title: { en: "Open Catalog", ko: "Catalog 열기" },
     body: {
-      en: "Go to Lakehouse → Catalog. Every catalog you may read is listed: lake catalogs and source catalogs.",
-      ko: "Lakehouse → Catalog로 이동합니다. 읽을 수 있는 모든 카탈로그(레이크 카탈로그와 소스 카탈로그)가 나열됩니다.",
+      en: "Go to Data → Catalog. Every catalog you may read is listed: lake catalogs and source catalogs.",
+      ko: "Data → Catalog로 이동합니다. 읽을 수 있는 모든 카탈로그(레이크 카탈로그와 소스 카탈로그)가 나열됩니다.",
     },
   },
   {

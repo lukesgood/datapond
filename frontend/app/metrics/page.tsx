@@ -107,14 +107,14 @@ function MetricsPage() {
 
   return (
     <div className="mx-auto max-w-[1400px] flex-1 space-y-5 p-8 pt-6">
-      <PageHeader title="Metrics"
-        description="Approved definitions that agents and people compute the same way. Every result cites the version and who approved it."
+      <PageHeader title="Semantic model"
+        description="What the data means, approved once: metrics computed the same way by people and agents, the joins between tables, and the business words bound to columns. Every result cites who approved it."
         actions={viewer.can_author && tab === "definitions" && (
           <Button onClick={() => { setEditing("new"); setSelected(null); setDetail(null) }}>New metric</Button>
         )} />
       <Tabs value={tab} onValueChange={v => setTab(String(v))}>
         <TabsList>
-          <TabsTrigger value="definitions">Definitions</TabsTrigger>
+          <TabsTrigger value="definitions">Metrics</TabsTrigger>
           <TabsTrigger value="joins">Joins</TabsTrigger>
           {conceptsOn && <TabsTrigger value="concepts">Concepts</TabsTrigger>}
         </TabsList>

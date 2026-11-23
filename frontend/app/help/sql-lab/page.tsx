@@ -31,8 +31,8 @@ const QUICK_START: { title: L; body: L }[] = [
   {
     title: { en: "Open Analytics", ko: "Analytics 열기" },
     body: {
-      en: "Go to Lakehouse → Analytics. The editor runs Trino SQL, and the schema tree on the left lists every catalog you may use.",
-      ko: "Lakehouse → Analytics로 이동합니다. 편집기는 Trino SQL을 실행하며, 왼쪽 스키마 트리에 사용할 수 있는 모든 카탈로그가 나옵니다.",
+      en: "Go to Use → Analytics. The editor runs Trino SQL, and the schema tree on the left lists every catalog you may use.",
+      ko: "Use → Analytics로 이동합니다. 편집기는 Trino SQL을 실행하며, 왼쪽 스키마 트리에 사용할 수 있는 모든 카탈로그가 나옵니다.",
     },
   },
   {

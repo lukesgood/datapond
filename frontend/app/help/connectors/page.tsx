@@ -36,8 +36,8 @@ const QUICK_START: Step[] = [
   {
     title: { en: "Open Sources", ko: "Sources 열기" },
     body: {
-      en: "Go to Lakehouse → Sources. The menu appears when the query engine (Trino) is enabled in your deployment.",
-      ko: "Lakehouse → Sources로 이동합니다. 배포에서 쿼리 엔진(Trino)이 켜져 있어야 이 메뉴가 보입니다.",
+      en: "Go to Data → Sources. The menu appears when the query engine (Trino) is enabled in your deployment.",
+      ko: "Data → Sources로 이동합니다. 배포에서 쿼리 엔진(Trino)이 켜져 있어야 이 메뉴가 보입니다.",
     },
   },
   {

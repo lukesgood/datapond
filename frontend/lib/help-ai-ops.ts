@@ -243,7 +243,7 @@ export const GOVERNANCE: Guide = {
 }
 
 export const METRICS: Guide = {
-  crumb: l("Metrics", "Metrics"),
+  crumb: l("Semantic model", "Semantic model"),
   title: l("Approved metrics", "승인된 메트릭"),
   subtitle: l(
     "A number an agent can cite: defined once, approved, versioned, and computed from the approved definition every time, not from SQL a model wrote for the occasion",
@@ -260,8 +260,8 @@ export const METRICS: Guide = {
     {
       title: l("1. Define it", "1. 정의하기"),
       paras: [
-        l("Metrics → New metric. A definition names a base table and a measure: an aggregate such as `SUM(total_amount)`, or a ratio of aggregates such as `SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) / COUNT(*)`. Use the three-part name `catalog.schema.table`, so a metric can sit on a lake table or a source table.",
-          "Metrics → New metric에서 만듭니다. 정의는 기준 테이블과 측정값으로 이루어집니다. `SUM(total_amount)` 같은 집계, 또는 `SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) / COUNT(*)` 같은 집계의 비율입니다. 테이블은 `catalog.schema.table` 세 부분 이름으로 지정하므로 레이크 테이블과 소스 테이블 모두에 메트릭을 만들 수 있습니다."),
+        l("Semantic model → New metric. A definition names a base table and a measure: an aggregate such as `SUM(total_amount)`, or a ratio of aggregates such as `SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) / COUNT(*)`. Use the three-part name `catalog.schema.table`, so a metric can sit on a lake table or a source table.",
+          "Semantic model → New metric에서 만듭니다. 정의는 기준 테이블과 측정값으로 이루어집니다. `SUM(total_amount)` 같은 집계, 또는 `SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) / COUNT(*)` 같은 집계의 비율입니다. 테이블은 `catalog.schema.table` 세 부분 이름으로 지정하므로 레이크 테이블과 소스 테이블 모두에 메트릭을 만들 수 있습니다."),
         l("Optional: filters, a time column with its grains and the longest period one query may cover, and dimensions to break the number down by. Synonyms are the words people use for it (매출, sales), which is how a question finds the metric.",
           "선택 항목으로 필터, 시간 컬럼(단위와 한 번에 조회할 수 있는 최대 기간), 분해 기준이 되는 차원이 있습니다. 동의어는 사람들이 그 숫자를 부르는 말(매출, sales)이며, 질문이 메트릭을 찾는 단서가 됩니다."),
       ],
@@ -269,8 +269,8 @@ export const METRICS: Guide = {
     },
     {
       title: l("2. Approve the joins a dimension needs", "2. 차원에 필요한 조인 승인하기"),
-      paras: [l("A dimension on another table (a product's category for an order line) goes through an approved join. Metrics → Joins lists candidates from query history and column names. Only many-to-one joins are accepted, so a join cannot multiply rows.",
-        "다른 테이블의 차원(주문 행의 상품 카테고리 등)은 승인된 조인을 거칩니다. Metrics → Joins에 쿼리 이력과 컬럼 이름에서 찾은 후보가 나옵니다. 다대일 조인만 허용하므로 조인 때문에 행이 늘어나지 않습니다.")],
+      paras: [l("A dimension on another table (a product's category for an order line) goes through an approved join. Semantic model → Joins lists candidates from query history and column names. Only many-to-one joins are accepted, so a join cannot multiply rows.",
+        "다른 테이블의 차원(주문 행의 상품 카테고리 등)은 승인된 조인을 거칩니다. Semantic model → Joins에 쿼리 이력과 컬럼 이름에서 찾은 후보가 나옵니다. 다대일 조인만 허용하므로 조인 때문에 행이 늘어나지 않습니다.")],
     },
     {
       title: l("3. Approve the version", "3. 버전 승인하기"),
