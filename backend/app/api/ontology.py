@@ -48,7 +48,7 @@ async def ensure_ontology_schema(pool) -> None:
                     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     name        TEXT UNIQUE NOT NULL,
                     description TEXT,
-                    parent      TEXT,
+                    parent_id   UUID REFERENCES ontology_concepts(id) ON DELETE SET NULL,
                     pii         BOOLEAN NOT NULL DEFAULT FALSE,
                     created_at  TIMESTAMPTZ DEFAULT NOW()
                 )""")
@@ -108,11 +108,12 @@ async def load_concepts(pool) -> list[dict]:
     """Concept list with terms, shaped for expand_query_text."""
     async with pool.acquire() as c:
         rows = await c.fetch("""
-            SELECT oc.name, oc.pii, oc.parent, oc.description,
+            SELECT oc.name, oc.pii, p.name AS parent, oc.description,
                    COALESCE(array_agg(ct.term) FILTER (WHERE ct.term IS NOT NULL), '{}') AS terms
             FROM ontology_concepts oc
+            LEFT JOIN ontology_concepts p ON p.id = oc.parent_id
             LEFT JOIN concept_terms ct ON ct.concept_id = oc.id
-            GROUP BY oc.id ORDER BY oc.name""")
+            GROUP BY oc.id, p.name ORDER BY oc.name""")
     return [{"name": r["name"], "pii": r["pii"], "parent": r["parent"],
              "description": r["description"], "terms": list(r["terms"])} for r in rows]
 
@@ -127,6 +128,72 @@ async def expand_for_query(query: str) -> tuple[str, list[dict]]:
         logger.warning(f"[ontology] expansion skipped (load failed): {e}")
         return query, []
     return expand_query_text(query, concepts)
+
+
+# ── Parent by id (migration 0033) ───────────────────────────────────────────────
+
+class ParentError(ValueError):
+    """An unknown parent, or one that would make a concept its own ancestor."""
+
+
+async def parent_id_for(conn, parent: Optional[str], concept_id=None):
+    """The id of the concept named `parent` (None for no parent). Refuses a name no
+    concept has, and a parent that is the concept itself or one of its descendants —
+    the tree is walked up from the parent, so a cycle can never be stored."""
+    name = (parent or "").strip()
+    if not name:
+        return None
+    pid = await conn.fetchval("SELECT id FROM ontology_concepts WHERE name = $1", name)
+    if pid is None:
+        raise ParentError(f"Unknown parent concept {name!r}.")
+    if concept_id is not None:
+        cur, seen = pid, set()
+        while cur is not None and cur not in seen:
+            if cur == concept_id:
+                raise ParentError(f"{name!r} is this concept or narrower than it; a concept "
+                                  "cannot be its own ancestor.")
+            seen.add(cur)
+            cur = await conn.fetchval("SELECT parent_id FROM ontology_concepts WHERE id = $1", cur)
+    return pid
+
+
+async def import_items(pool, items: list[dict]) -> dict:
+    """Bulk upsert in the PoC bootstrap shape ({name, aliases|terms, parent, pii}).
+    Two passes, so a child may come before its parent in the list. A parent that names
+    no concept, or would make a cycle, is left unset and reported."""
+    n, unresolved = 0, []
+    async with pool.acquire() as c:
+        async with c.transaction():
+            ids = {}
+            for item in items:
+                name = str(item.get("name") or "").strip()
+                if not name:
+                    continue
+                cid = await c.fetchval("""
+                    INSERT INTO ontology_concepts (name, description, pii)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (name) DO UPDATE SET pii = EXCLUDED.pii
+                    RETURNING id""", name, item.get("description"), bool(item.get("pii")))
+                ids[name] = cid
+                for t in (item.get("aliases") or item.get("terms") or []):
+                    t = str(t or "").strip()
+                    if t:
+                        await c.execute(
+                            "INSERT INTO concept_terms (concept_id, term) VALUES ($1, $2) "
+                            "ON CONFLICT DO NOTHING", cid, t)
+                n += 1
+            for item in items:
+                name = str(item.get("name") or "").strip()
+                if not name or "parent" not in item:
+                    continue
+                try:
+                    pid = await parent_id_for(c, item.get("parent"), ids[name])
+                except ParentError:
+                    unresolved.append(name)
+                    pid = None
+                await c.execute("UPDATE ontology_concepts SET parent_id = $1 WHERE id = $2",
+                                pid, ids[name])
+    return {"imported": n, "unresolved_parents": unresolved}
 
 
 # ── API ──────────────────────────────────────────────────────────────────────────
@@ -165,12 +232,17 @@ async def create_concept(body: ConceptIn, user: dict = Depends(require_user)):
     if not name:
         raise HTTPException(400, "Concept name is required.")
     async with pool.acquire() as c:
+        existing = await c.fetchval("SELECT id FROM ontology_concepts WHERE name = $1", name)
+        try:
+            pid = await parent_id_for(c, body.parent, existing)
+        except ParentError as e:
+            raise HTTPException(400, str(e))
         cid = await c.fetchval("""
-            INSERT INTO ontology_concepts (name, description, parent, pii)
+            INSERT INTO ontology_concepts (name, description, parent_id, pii)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (name) DO UPDATE
-              SET description = EXCLUDED.description, parent = EXCLUDED.parent, pii = EXCLUDED.pii
-            RETURNING id""", name, body.description, body.parent, body.pii)
+              SET description = EXCLUDED.description, parent_id = EXCLUDED.parent_id, pii = EXCLUDED.pii
+            RETURNING id""", name, body.description, pid, body.pii)
         for t in body.terms:
             t = (t or "").strip()
             if t:
@@ -195,25 +267,5 @@ async def delete_concept(name: str, user: dict = Depends(require_user)):
 async def import_concepts(body: ConceptImport, user: dict = Depends(require_user)):
     """Bulk upsert in the PoC bootstrap shape ({name, aliases, parent, pii})."""
     _require_enabled()
-    pool = await get_db_pool()
-    n = 0
-    async with pool.acquire() as c:
-        for item in body.concepts:
-            name = str(item.get("name") or "").strip()
-            if not name:
-                continue
-            cid = await c.fetchval("""
-                INSERT INTO ontology_concepts (name, description, parent, pii)
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT (name) DO UPDATE
-                  SET parent = EXCLUDED.parent, pii = EXCLUDED.pii
-                RETURNING id""",
-                name, item.get("description"), item.get("parent"), bool(item.get("pii")))
-            for t in (item.get("aliases") or item.get("terms") or []):
-                t = str(t or "").strip()
-                if t:
-                    await c.execute(
-                        "INSERT INTO concept_terms (concept_id, term) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                        cid, t)
-            n += 1
-    return {"ok": True, "imported": n}
+    out = await import_items(await get_db_pool(), body.concepts)
+    return {"ok": True, **out}

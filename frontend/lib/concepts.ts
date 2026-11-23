@@ -194,3 +194,27 @@ export function segmentBody(v: FeedbackValue, concept: string) {
     evidence: `used in ${v.questions} questions to /ai/sql`, status: "approved" as const,
   }
 }
+
+/** Names of every concept below `name` in the tree: none of them may become its parent. */
+export function descendants(concepts: Concept[], name: string): Set<string> {
+  const out = new Set<string>()
+  let frontier = [name]
+  while (frontier.length) {
+    const next = concepts.filter(c => c.parent && frontier.includes(c.parent) && !out.has(c.name)).map(c => c.name)
+    next.forEach(n => out.add(n))
+    frontier = next
+  }
+  return out
+}
+
+export type ConceptDraft = { name: string; description: string; parent: string; pii: boolean }
+
+/** PATCH /semantic/concepts/{name} body: only what the draft changes. */
+export function editBody(c: Concept, d: ConceptDraft): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  if (d.name.trim() && d.name.trim() !== c.name) out.name = d.name.trim()
+  if ((d.description.trim() || null) !== (c.description ?? null)) out.description = d.description.trim() || null
+  if ((d.parent || null) !== (c.parent ?? null)) out.parent = d.parent || null
+  if (d.pii !== c.pii) out.pii = d.pii
+  return out
+}

@@ -12,7 +12,7 @@ import { responseErrorMessage } from "@/lib/auth"
 import { fieldError, type CatalogEntry } from "@/lib/metrics"
 import {
   bindingText, cell, conceptRows, coverage, maskHref, matchesSearch, matrixTables, segmentBody, suggestionBody, tableKey, tableLabel,
-  canBecomeSegment, segmentValue, valueCondition, type Binding, type Concept, type ConceptViewer, type Feedback, type PiiGap, type Role, type Suggestion,
+  canBecomeSegment, descendants, editBody, segmentValue, valueCondition, type Binding, type Concept, type ConceptViewer, type Feedback, type PiiGap, type Role, type Suggestion,
 } from "@/lib/concepts"
 import { CatalogSelect, ColumnSelect, TableSelect } from "./catalog-pickers"
 import type { TableRef } from "./metric-editor"
@@ -206,21 +206,31 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
                        catalogs={catalogs} tables={tables}
                        onSuggestion={decideSuggestion} onStored={decideStored} onRetire={retire}
                        onAdd={body => act(() => post("/api/semantic/concepts/bindings", body),
-                         viewer.can_approve ? "Binding approved" : "Binding proposed", "Could not save")} />
+                         viewer.can_approve ? "Binding approved" : "Binding proposed", "Could not save")}
+                       onEdit={async body => {
+                         const newName = typeof body.name === "string" ? body.name : current.name
+                         const ok = await act(() => fetch(`/api/semantic/concepts/${encodeURIComponent(current.name)}`, {
+                           method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+                         }), `${newName} saved`, "Could not save the concept")
+                         if (ok) setSelected(newName)
+                         return ok
+                       }} />
         )}
       </aside>
     </div>
   )
 }
 
-function ConceptRail({ concept, concepts, bindings, suggestions, gaps, viewer, busy, catalogs, tables, onSuggestion, onStored, onRetire, onAdd }: {
+function ConceptRail({ concept, concepts, bindings, suggestions, gaps, viewer, busy, catalogs, tables, onSuggestion, onStored, onRetire, onAdd, onEdit }: {
   concept: Concept; concepts: Concept[]; bindings: Binding[]; suggestions: Suggestion[]; gaps: PiiGap[]; viewer: ConceptViewer; busy: boolean
   catalogs: CatalogEntry[]; tables: TableRef[] | null
   onSuggestion: (s: Suggestion, status: "approved" | "rejected") => Promise<unknown>
   onStored: (b: Binding, verb: "approve" | "reject") => Promise<unknown>
   onRetire: (b: Binding) => Promise<unknown>
   onAdd: (body: unknown) => Promise<boolean>
+  onEdit: (body: Record<string, unknown>) => Promise<boolean>
 }) {
+  const [editing, setEditing] = useState(false)
   const narrower = concepts.filter(c => c.parent === concept.name).map(c => c.name)
   const approved = bindings.filter(b => b.status === "approved")
   const proposed = bindings.filter(b => b.status === "proposed")
@@ -231,7 +241,11 @@ function ConceptRail({ concept, concepts, bindings, suggestions, gaps, viewer, b
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="text-base font-semibold">{concept.name}</h3>
         {concept.pii && <Badge variant="destructive">PII</Badge>}
+        <span className="flex-1" />
+        {canWrite && !editing && <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>Edit</Button>}
       </div>
+      {editing && <EditConcept concept={concept} concepts={concepts} busy={busy} onCancel={() => setEditing(false)}
+                               onSave={async body => { if (await onEdit(body)) setEditing(false) }} />}
       {concept.description && <p className="text-muted-foreground">{concept.description}</p>}
       <dl className="space-y-1 text-xs">
         <div><dt className="inline text-muted-foreground">Also called </dt><dd className="inline">{concept.terms.length ? concept.terms.join(" · ") : "—"}</dd></div>
@@ -541,5 +555,43 @@ function FromQuestions({ feedback, concepts, viewer, busy, onNewConcept, onAlias
         </div>
       )}
     </section>
+  )
+}
+
+/** Rename a concept or change its description, parent or PII flag. Bindings and narrower
+ *  concepts follow a rename: they refer to the concept by id. */
+function EditConcept({ concept, concepts, busy, onCancel, onSave }: {
+  concept: Concept; concepts: Concept[]; busy: boolean
+  onCancel: () => void; onSave: (body: Record<string, unknown>) => Promise<void>
+}) {
+  const [draft, setDraft] = useState({ name: concept.name, description: concept.description ?? "", parent: concept.parent ?? "", pii: concept.pii })
+  const below = descendants(concepts, concept.name)
+  const parents = concepts.filter(c => c.name !== concept.name && !below.has(c.name))
+  const [keepOld, setKeepOld] = useState(true)
+  const renamed = Boolean(draft.name.trim()) && draft.name.trim() !== concept.name
+  const body = { ...editBody(concept, draft), ...(renamed ? { keep_old_name: keepOld } : {}) }
+  return (
+    <form className="space-y-2 rounded-lg border bg-background p-3" onSubmit={e => { e.preventDefault(); void onSave(body) }}>
+      <div className="space-y-1"><Label htmlFor="ec-name" className="text-xs">Name</Label>
+        <Input id="ec-name" className="h-8" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} /></div>
+      <div className="space-y-1"><Label htmlFor="ec-desc" className="text-xs">What it means</Label>
+        <Input id="ec-desc" className="h-8" value={draft.description} onChange={e => setDraft({ ...draft, description: e.target.value })} placeholder="A person or company that buys." /></div>
+      <div className="space-y-1"><Label htmlFor="ec-parent" className="text-xs">Part of</Label>
+        <select id="ec-parent" className="h-8 w-full rounded-md border bg-background px-2 text-sm" value={draft.parent} onChange={e => setDraft({ ...draft, parent: e.target.value })}>
+          <option value="">None</option>
+          {parents.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+        </select></div>
+      <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={draft.pii} onChange={e => setDraft({ ...draft, pii: e.target.checked })} /> Personal data</label>
+      {renamed && (
+        <div className="space-y-1">
+          <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={keepOld} onChange={e => setKeepOld(e.target.checked)} /> Keep &ldquo;{concept.name}&rdquo; as one of its words</label>
+          <p className="text-xs text-muted-foreground">Bindings and narrower concepts follow the rename. Questions match the name and its words, so the old name keeps working only if it is kept.</p>
+        </div>
+      )}
+      <div className="flex gap-1.5">
+        <Button size="sm" type="submit" disabled={busy || !Object.keys(body).length || !draft.name.trim()}>Save</Button>
+        <Button size="sm" type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
+      </div>
+    </form>
   )
 }

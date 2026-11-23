@@ -60,6 +60,14 @@ concepts, and literal condition values (values holding personal data are dropped
 older than 90 days are deleted as new ones arrive. `GET /api/semantic/concepts/feedback`
 (governance:read) aggregates the last 30 days; nothing is bound automatically.
 
+**Concept parent by id (migration 0033, 2026-11-23).** `ontology_concepts.parent_id`
+references the parent concept and is backfilled from the text `parent` column, which is
+no longer read or written and is dropped by a later contract migration. Renaming a concept
+(`PATCH /api/semantic/concepts/{name}`, Semantic model › Concepts › Edit) keeps its
+bindings and narrower concepts, and by default keeps the old name as one of its words. A
+parent must name an existing concept and may not make a cycle (422); `/ai/concepts/import`
+reports parents it could not resolve as `unresolved_parents`.
+
 ## 2.6 (2026-11) — Lakehouse first: catalog export, Trino workers, menu
 
 Positioning v7 (`docs/POSITIONING_V7.md`): DataPond is a lightweight open lakehouse; the AI

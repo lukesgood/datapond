@@ -194,7 +194,9 @@ async def pull() -> Tuple[List[dict], List[dict]]:
 async def save_concepts(pool, concepts: List[dict]) -> dict:
     """Create concepts that do not exist; add missing words to those that do. An existing
     concept's parent, PII flag and description are DataPond's and stay as they are."""
+    from app.api.ontology import ParentError, parent_id_for
     created, words, kept = [], 0, []
+    new_ids = {}
     async with pool.acquire() as c:
         async with c.transaction():
             for item in concepts:
@@ -202,10 +204,11 @@ async def save_concepts(pool, concepts: List[dict]) -> dict:
                     "SELECT id, pii FROM ontology_concepts WHERE name = $1", item["name"])
                 if row is None:
                     cid = await c.fetchval(
-                        "INSERT INTO ontology_concepts (name, description, parent, pii) "
-                        "VALUES ($1, $2, $3, $4) RETURNING id",
-                        item["name"], item["description"], item["parent"], item["pii"])
+                        "INSERT INTO ontology_concepts (name, description, pii) "
+                        "VALUES ($1, $2, $3) RETURNING id",
+                        item["name"], item["description"], item["pii"])
                     created.append(item["name"])
+                    new_ids[item["name"]] = (cid, item["parent"])
                 else:
                     cid = row["id"]
                     if bool(row["pii"]) != bool(item["pii"]):
@@ -215,4 +218,12 @@ async def save_concepts(pool, concepts: List[dict]) -> dict:
                         "INSERT INTO concept_terms (concept_id, term) VALUES ($1, $2) "
                         "ON CONFLICT DO NOTHING", cid, t)
                     words += tag.endswith(" 1")
+            # Parents after every concept exists, so a term may precede its parent.
+            for cid, parent in new_ids.values():
+                if parent:
+                    try:
+                        pid = await parent_id_for(c, parent, cid)
+                    except ParentError:
+                        continue
+                    await c.execute("UPDATE ontology_concepts SET parent_id = $1 WHERE id = $2", pid, cid)
     return {"created": created, "terms_added": words, "pii_differs": kept}
