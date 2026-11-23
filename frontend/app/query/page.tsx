@@ -128,6 +128,7 @@ function QueryPageInner() {
   const [aiLoading, setAiLoading]           = useState(false)
   const [aiExplanation, setAiExplanation]   = useState<string | null>(null)
   const [aiConcepts, setAiConcepts]         = useState<{ name: string; uses: string[] }[]>([])
+  const [aiConceptWarn, setAiConceptWarn]   = useState<string[]>([])
   const [aiMetrics, setAiMetrics]           = useState<{ chips: string[]; suggestion: string | null }>({ chips: [], suggestion: null })
   // "Query as metric" asks before it runs: the period and dimensions read from the
   // question, for the person to confirm or change.
@@ -233,6 +234,7 @@ function QueryPageInner() {
     setAiLoading(true)
     setAiExplanation(null)
     setAiConcepts([])
+    setAiConceptWarn([])
     setAiMetrics({ chips: [], suggestion: null })
     setMetricForm(null)
     setMetricRanNote(null)
@@ -250,6 +252,7 @@ function QueryPageInner() {
       if (seq !== runSeq.current) return
       setAiMetrics(aiSqlMetricView(data))
       setAiConcepts(conceptChips(data.concepts_provided))
+      setAiConceptWarn(Array.isArray(data.concept_warnings) ? data.concept_warnings : [])
       // Only replace the editor when there is a statement. A clarifying question or
       // an empty catalog returns no SQL, and pasting that over the user's work — or
       // pasting prose as if it were runnable — is worse than doing nothing.
@@ -948,6 +951,13 @@ function QueryPageInner() {
                   <div>
                     <p className="font-semibold">What it does</p>
                     <p className="mt-0.5 text-muted-foreground">{aiExplanation}</p>
+                  </div>
+                )}
+                {aiConceptWarn.length > 0 && (
+                  <div role="alert" className="rounded-lg border border-[var(--dp-warn)]/40 bg-[var(--dp-warn)]/5 p-2.5">
+                    <p className="font-semibold text-[var(--dp-warn-text)]">A join mixes two business concepts</p>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-4 text-foreground">{aiConceptWarn.map(w => <li key={w}>{w}</li>)}</ul>
+                    <p className="mt-1 text-muted-foreground">The SQL runs, but this join is probably wrong. Fix it in the editor, or ask again.</p>
                   </div>
                 )}
                 {aiConcepts.length > 0 && (

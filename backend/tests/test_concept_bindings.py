@@ -325,3 +325,30 @@ def test_for_caller_drops_bindings_on_hidden_catalogs(monkeypatch):
         assert asyncio.run(ctx.for_caller(READER)) == []
     finally:
         reg.reset()
+
+
+# ── joins that cross concepts (live 2026-11-23: customers.id = product_returns.product_id) ──
+
+CROSS = VISIBLE + [
+    {"name": "상품", "terms": ["product"], "parent": None, "pii": False, "bindings": [
+        {"catalog": "iceberg", "namespace": "default", "table": "products", "column": "id", "role": "key", "filter_sql": None},
+        {"catalog": "iceberg", "namespace": "default", "table": "product_returns", "column": "product_id", "role": "key", "filter_sql": None}]},
+    {"name": "VIP", "terms": [], "parent": "고객", "pii": False, "bindings": [
+        {"catalog": "iceberg", "namespace": "default", "table": "vip_list", "column": "customer_ref", "role": "key", "filter_sql": None}]},
+]
+
+
+def test_a_join_from_one_concepts_key_to_anothers_is_found():
+    bad = ("SELECT c.id FROM iceberg.default.customers c JOIN iceberg.default.product_returns pr "
+           "ON c.id = pr.product_id JOIN iceberg.default.orders o ON pr.order_id = o.id")
+    assert ctx.join_conflicts(bad, CROSS, "trino", "iceberg") == [
+        "customers.id is 고객 but product_returns.product_id is 상품"]
+
+
+def test_same_concept_unbound_columns_and_narrower_concepts_pass():
+    ok = ("SELECT 1 FROM default.customers c JOIN default.orders o ON o.customer_id = c.id "
+          "JOIN default.product_returns pr ON pr.order_id = o.id "
+          "JOIN default.vip_list v ON v.customer_ref = c.id")
+    assert ctx.join_conflicts(ok, CROSS, "trino", "iceberg") == []
+    assert ctx.join_conflicts("not sql at all", CROSS) == []
+    assert ctx.join_conflicts("SELECT 1 FROM a JOIN b ON a.x = b.y", []) == []
