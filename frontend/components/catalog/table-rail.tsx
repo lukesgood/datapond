@@ -12,7 +12,7 @@ import { tableSelectSql } from "@/lib/catalog-sql"
 import { CatalogKindBadge } from "@/components/catalog/kind-badge"
 import { CopyName, TableStatus } from "@/components/catalog/table-status"
 import type { TableFacts } from "@/lib/catalog-view"
-import { displayId, neighbours, type RelGraph } from "@/lib/relationship-view"
+import { displayId, evidenceLabel, neighbours, type RelGraph } from "@/lib/relationship-view"
 import { useToast } from "@/lib/toast"
 
 export interface CatalogTable {
@@ -141,7 +141,7 @@ export function TableRail({ table, typeLabel, catalogKind, connectionId, graph, 
           <p className="text-xs">No joins with this table in the last {graph.window_days ?? 30} days. Running one in Analytics adds it here.</p>
         ) : (
           <>
-            <p className="text-xs">From joins people ran in the last {graph.window_days ?? 30} days. AI-generated queries are not counted.</p>
+            <p className="text-xs">From joins people ran in the last {graph.window_days ?? 30} days (AI-generated queries not counted) and foreign keys the source database declares.</p>
             <ul className="mt-1.5 space-y-1">
               {joins.map(j => (
                 <li key={j.other} className="text-xs">
@@ -149,7 +149,7 @@ export function TableRail({ table, typeLabel, catalogKind, connectionId, graph, 
                     ? <button type="button" className="font-mono text-primary hover:underline focus-visible:underline focus-visible:outline-none"
                               onClick={() => onPickJoined(j.other)}>{displayId(j.other, sole)}</button>
                     : <span className="font-mono text-foreground">{displayId(j.other, sole)}</span>}
-                  <span className="text-muted-foreground"> · {j.count} quer{j.count === 1 ? "y" : "ies"}</span>
+                  <span className="text-muted-foreground"> · {evidenceLabel(j)}</span>
                   {j.on && <div className="truncate font-mono text-2xs" title={displayId(j.on, sole)}>on {displayId(j.on, sole)}</div>}
                 </li>
               ))}

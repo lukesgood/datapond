@@ -77,7 +77,7 @@ class JoinBody(BaseModel):
     from_table: str
     to_table: str
     on_columns: List[List[str]]
-    source: str = Field(pattern="^(history|naming|manual)$")
+    source: str = Field(pattern="^(history|naming|manual|fk)$")
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────

@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import {
-  displayId, egoLayout, hubs, neighbours, searchTables, soleCatalog, splitTableId, tableHref,
+  displayId, egoLayout, evidenceLabel, hubs, neighbours, searchTables, soleCatalog, splitTableId, tableHref,
   type Neighbour, type RelGraph,
 } from "@/lib/relationship-view"
 
@@ -168,7 +168,7 @@ export function RelationshipGraph({ days = 30, initial = null, focus = null }: {
               </p>
               <TableList items={top.map(h => ({
                             id: h.id,
-                            hint: h.observed > 0 ? `${h.observed} joins` : `${h.candidates} guesses`,
+                            hint: h.observed > 0 ? `${h.observed} joins` : h.declared > 0 ? `${h.declared} keys` : `${h.candidates} guesses`,
                           }))}
                          current={current} sole={sole} onPick={setSelected} />
             </>
@@ -257,16 +257,16 @@ function Neighbourhood({ center, around, onPick }: {
     },
   }))
   const edges: Edge[] = around.slice(0, DRAWN).map(n => {
-    const observed = n.evidence === "observed"
     return {
       id: `${center}-${n.other}`,
       source: center,
       target: n.other,
       type: "straight",
-      // Solid, thicker for more use = people ran it. Dashed = a guess.
-      style: observed
-        ? { strokeWidth: Math.min(1 + Math.log2(n.count + 1), 4) }
-        : { strokeWidth: 1, strokeDasharray: "4 3", opacity: 0.6 },
+      // Solid, thicker for more use = people ran it. Solid thin = a declared key nobody
+      // ran yet. Dashed = a guess.
+      style: n.evidence === "candidate"
+        ? { strokeWidth: 1, strokeDasharray: "4 3", opacity: 0.6 }
+        : { strokeWidth: n.count > 0 ? Math.min(1 + Math.log2(n.count + 1), 4) : 1.25 },
     }
   })
   return (
@@ -297,7 +297,7 @@ function NeighbourList({ around, sole, onPick }: {
 
 function NeighbourRow({ n, sole, onPick }: { n: Neighbour; sole: string | null; onPick: (id: string) => void }) {
   const [copied, setCopied] = useState(false)
-  const observed = n.evidence === "observed"
+  const known = n.evidence !== "candidate"
   const copy = async () => {
     if (!n.joinSql) return
     try {
@@ -313,12 +313,12 @@ function NeighbourRow({ n, sole, onPick }: { n: Neighbour; sole: string | null; 
                 className="truncate text-left font-mono text-2xs text-primary hover:underline">
           {displayId(n.other, sole)}
         </button>
-        <span className={`shrink-0 text-2xs ${observed ? "text-foreground" : "italic text-muted-foreground"}`}>
-          {observed ? `run ${n.count}×` : "guess"}
+        <span className={`shrink-0 text-2xs ${known ? "text-foreground" : "italic text-muted-foreground"}`}>
+          {evidenceLabel(n)}
         </span>
       </div>
       {n.on && <p className="mt-0.5 break-all font-mono text-2xs text-muted-foreground">{displayId(n.on, sole)}</p>}
-      {!observed && n.reason && <p className="mt-0.5 text-2xs italic text-muted-foreground">{n.reason} — unverified</p>}
+      {!known && n.reason && <p className="mt-0.5 text-2xs italic text-muted-foreground">{n.reason} — unverified</p>}
       {n.joinSql && (
         <div className="mt-1 flex gap-3">
           <NextLink href={`/query?sql=${encodeURIComponent(n.joinSql)}`}

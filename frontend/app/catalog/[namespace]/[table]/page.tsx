@@ -23,6 +23,8 @@ import { useRouter } from "next/navigation"
 import { CatalogKindBadge } from "@/components/catalog/kind-badge"
 import { CopyName, TableStatus } from "@/components/catalog/table-status"
 import type { TableFacts } from "@/lib/catalog-view"
+import { TableProfileView } from "@/components/catalog/table-profile"
+import { keyBadges, type TableKeys, type TableProfile } from "@/lib/table-profile"
 
 interface Column {
   name: string
@@ -120,6 +122,32 @@ function TableDetailPageInner() {
     }
     fetchTableDetail()
   }, [namespace, tableName, catalogQs, attempt])
+
+  // Profile and source keys load when their tab opens: statistics and the source
+  // databases' catalogs are not free, and most visits only look at the preview.
+  const [profile, setProfile] = useState<TableProfile | null>(null)
+  const [profileError, setProfileError] = useState<string | null>(null)
+  const [keys, setKeys] = useState<TableKeys | null>(null)
+  const keysAsked = useRef(false)
+  const loadKeys = () => {
+    if (keysAsked.current) return
+    keysAsked.current = true
+    fetch(`/api/catalog/tables/${namespace}/${tableName}/keys${catalogQs ? `?${catalogQs}` : ""}`)
+      .then(r => (r.ok ? r.json() : null)).then(setKeys).catch(() => setKeys(null))
+  }
+  const loadProfile = () => {
+    loadKeys()
+    if (profile) return
+    setProfileError(null)
+    fetch(`/api/catalog/tables/${namespace}/${tableName}/profile${catalogQs ? `?${catalogQs}` : ""}`)
+      .then(async r => {
+        if (r.ok) return setProfile(await r.json())
+        const d = await r.json().catch(() => ({}))
+        setProfileError(typeof d?.detail === "string" ? d.detail : `Could not read the profile (HTTP ${r.status})`)
+      })
+      .catch(e => setProfileError(e instanceof Error ? e.message : "Could not read the profile"))
+  }
+  const badges = keyBadges(keys)
 
   const loadPreview = async () => {
     if (preview) return
@@ -325,11 +353,16 @@ function TableDetailPageInner() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="preview" onValueChange={(v) => v === "preview" && loadPreview()}>
+      <Tabs defaultValue="preview" onValueChange={(v) => {
+        if (v === "preview") void loadPreview()
+        else if (v === "profile") loadProfile()
+        else if (v === "schema") loadKeys()
+      }}>
         <div className="flex items-center justify-between">
           <TabsList>
             <TabsTrigger value="preview" className="gap-1.5"><Eye className="h-3.5 w-3.5" />Preview</TabsTrigger>
             <TabsTrigger value="schema">Schema</TabsTrigger>
+            <TabsTrigger value="profile">Profile</TabsTrigger>
             <TabsTrigger value="metadata">Metadata</TabsTrigger>
           </TabsList>
           <Button size="sm"
@@ -492,7 +525,12 @@ function TableDetailPageInner() {
                   <tbody>
                     {tableDetail.columns.map((column, index) => (
                       <tr key={index} className="border-b last:border-b-0">
-                        <td className="p-3 font-mono">{column.name}</td>
+                        <td className="p-3 font-mono">
+                          {column.name}
+                          {(badges[column.name.toLowerCase()] ?? []).map(b => (
+                            <Badge key={b.label} variant="outline" title={b.title} className="ml-1.5 font-sans text-2xs">{b.label}</Badge>
+                          ))}
+                        </td>
                         <td className="p-3">
                           <Badge variant="outline">{column.type}</Badge>
                         </td>
@@ -523,6 +561,10 @@ function TableDetailPageInner() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="profile" className="space-y-4">
+          <TableProfileView profile={profile} error={profileError} keys={keys} />
         </TabsContent>
 
         {/* Metadata Tab */}
