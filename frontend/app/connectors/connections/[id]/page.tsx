@@ -199,13 +199,15 @@ function TablesCard({
 // Schedule frequency options (user-facing)
 // ── Schedule Card ─────────────────────────────────────────────────────────────
 function ScheduleCard({
-  schedule, savingSchedule, scheduleMsg, onSave, pipelinesEnabled,
+  schedule, savingSchedule, scheduleMsg, onSave, pipelinesEnabled, canEdit,
 }: {
   schedule: string | null
   savingSchedule: boolean
   scheduleMsg: string | null
   onSave: (val: string | null) => void
   pipelinesEnabled: boolean
+  /** connector:write; without it the card shows the schedule and changes nothing. */
+  canEdit: boolean
 }) {
   // The choice being edited; the card is re-keyed on the saved schedule.
   const [draft, setDraft] = useState<string>(schedule ?? "0 2 * * *")
@@ -242,7 +244,8 @@ function ScheduleCard({
           </CardTitle>
           <Switch
             checked={!!schedule}
-            disabled={savingSchedule}
+            disabled={savingSchedule || !canEdit}
+            aria-label={schedule ? "Turn the schedule off" : "Turn the schedule on"}
             onCheckedChange={checked => onSave(checked ? builtCron : null)}
           />
         </div>
@@ -268,10 +271,15 @@ function ScheduleCard({
           </div>
         )}
 
-        <SchedulePicker id="conn-schedule" value={draft} allowManual={false} disabled={savingSchedule}
-                        onChange={c => { if (c) setDraft(c) }} />
+        {canEdit ? (
+          <SchedulePicker id="conn-schedule" value={draft} allowManual={false} disabled={savingSchedule}
+                          onChange={c => { if (c) setDraft(c) }} />
+        ) : (
+          <p className="text-xs text-muted-foreground">Changing the schedule needs connector:write.</p>
+        )}
 
         {/* Apply button */}
+        {canEdit && (
         <Button
           className="w-full"
           size="sm"
@@ -284,6 +292,7 @@ function ScheduleCard({
               ? <><Check className="h-4 w-4 mr-2" />Apply Changes</>
               : <><Zap className="h-4 w-4 mr-2" />Enable Schedule</>}
         </Button>
+        )}
 
         {scheduleMsg && (
           <p className={`text-xs flex items-center gap-1 ${
@@ -716,8 +725,11 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ connector_type: editConnectorType, config: merged, connection_id: id }),
       })
-      const data = await res.json()
-      setTestResult({ success: data.success, message: data.message })
+      const data = await res.json().catch(() => ({}))
+      // A refused or failed request has no success/message: say what the server said.
+      setTestResult(res.ok
+        ? { success: Boolean(data.success), message: data.message ?? "" }
+        : { success: false, message: typeof data.detail === "string" ? data.detail : `Test could not run (HTTP ${res.status})` })
     } catch (err) {
       setTestResult({ success: false, message: err instanceof Error ? err.message : "Test failed" })
     } finally { setTesting(false) }
@@ -1041,14 +1053,17 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                 {previewEntries.length === 0 && (
                   <p className="text-muted-foreground text-xs text-center py-4">No configuration preview available.</p>
                 )}
+                {canWrite && (
                 <div className="pt-2 border-t mt-2">
                   <button
+                    type="button"
                     onClick={startEdit}
                     className="w-full text-xs text-muted-foreground hover:text-foreground flex items-center justify-center gap-1.5 py-1.5 rounded-md hover:bg-muted/30 transition-colors"
                   >
                     <Pencil className="h-3 w-3" />Edit connection settings
                   </button>
                 </div>
+                )}
               </div>
             )}
           </CardContent>
@@ -1062,6 +1077,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           scheduleMsg={scheduleMsg}
           onSave={handleSaveSchedule}
           pipelinesEnabled={pipelinesEnabled}
+          canEdit={canWrite}
         />
       </div>{/* end 2-col grid */}
 

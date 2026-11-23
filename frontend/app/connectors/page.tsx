@@ -99,11 +99,13 @@ const SOURCE_TYPES = [
   { name: "Custom Python", icon: "🐍" },
 ]
 
-function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated, onEngineRestart }: {
+function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated, onEngineRestart, canWrite }: {
   onAddSource: () => void
   hideTitle?: boolean
   onSampleCreated?: () => void
   onEngineRestart?: () => void
+  /** connector:write; without it there is nothing to add here, only to read. */
+  canWrite: boolean
 }) {
   return (
     <div className="px-8 py-10 space-y-8">
@@ -160,6 +162,11 @@ function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated, onEngine
       </div>
 
       {/* CTA */}
+      {!canWrite ? (
+        <p className="text-center text-sm text-muted-foreground">
+          Adding a source needs connector:write. Ask an administrator or a data engineer to connect one.
+        </p>
+      ) : (
       <div className="flex flex-col items-center gap-3">
         {/* Primary: one sample per connector kind */}
         <SampleSourcesPanel onAdded={onSampleCreated} onEngineRestart={onEngineRestart} />
@@ -180,6 +187,7 @@ function IngestionEmptyState({ onAddSource, hideTitle, onSampleCreated, onEngine
           Connect Your Own Source
         </button>
       </div>
+      )}
     </div>
   )
 }
@@ -285,13 +293,27 @@ function ConnectorsPageInner() {
 
   const { toast } = useToast()
   const confirm = useConfirm()
-  const handleDelete = async (id: string) => {
-    if (!(await confirm({ title: "Delete connection", message: "Delete this connection?", destructive: true, confirmText: "Delete" }))) return
+  const handleDelete = async (id: string, name: string) => {
+    if (!(await confirm({
+      title: `Delete ${name}?`,
+      message: "The source, its table settings and sync jobs are removed. A database source's SQL catalog goes too, and the query engine restarts for a minute. Lake tables it already wrote stay.",
+      destructive: true, confirmText: "Delete source",
+    }))) return
     setActionLoading(id)
     try {
-      await fetch(`/api/connectors/${id}`, { method: "DELETE" })
-      toast("Connection deleted", "success")
+      // The row goes only when the server says it went: a refused delete used to toast
+      // success and drop the row until the next refresh brought it back.
+      const res = await fetch(`/api/connectors/${id}`, { method: "DELETE" })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        toast(typeof d?.detail === "string" ? d.detail : `Could not delete ${name} (HTTP ${res.status})`, "error")
+        return
+      }
+      const d = await res.json().catch(() => ({}))
+      toast(d?.engine_restarting ? `${name} deleted. The query engine is restarting.` : `${name} deleted`, "success")
       setConnections(prev => prev.filter(c => c.id !== id))
+    } catch (e) {
+      toast(e instanceof Error ? e.message : `Could not delete ${name}`, "error")
     } finally {
       setActionLoading(null)
     }
@@ -480,10 +502,12 @@ function ConnectorsPageInner() {
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="marketplace" className="text-xs h-7 gap-1.5">
-              <Plus className="h-3.5 w-3.5" />
-              Add Source
-            </TabsTrigger>
+            {canWrite && (
+              <TabsTrigger value="marketplace" className="text-xs h-7 gap-1.5">
+                <Plus className="h-3.5 w-3.5" />
+                Add Source
+              </TabsTrigger>
+            )}
           </TabsList>
         </div>
 
@@ -552,7 +576,7 @@ function ConnectorsPageInner() {
               <IngestionEmptyState onAddSource={() => {
                 setShowOnboarding(false)
                 setActiveTab("marketplace")
-              }} onSampleCreated={fetchConnections} onEngineRestart={() => setEngineRestart(true)} hideTitle />
+              }} onSampleCreated={fetchConnections} onEngineRestart={() => setEngineRestart(true)} hideTitle canWrite={canWrite} />
             </div>
           )}
 
@@ -564,7 +588,7 @@ function ConnectorsPageInner() {
             <div className="rounded-xl border bg-card">
               <IngestionEmptyState onAddSource={() => {
                 setActiveTab("marketplace")
-              }} onSampleCreated={fetchConnections} onEngineRestart={() => setEngineRestart(true)} />
+              }} onSampleCreated={fetchConnections} onEngineRestart={() => setEngineRestart(true)} canWrite={canWrite} />
             </div>
           )}
 
@@ -701,6 +725,9 @@ function ConnectorsPageInner() {
                         })()}
                       </TableCell>
                       <TableCell>
+                        {/* Every item here writes (connector:write); a reader gets no menu
+                            rather than three actions that each end in a 403. */}
+                        {canWrite && (
                         <DropdownMenu>
                           <DropdownMenuTrigger disabled={actionLoading === conn.id}
                             render={<Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`More for ${conn.name}`} />}>
@@ -710,21 +737,20 @@ function ConnectorsPageInner() {
                             <DropdownMenuItem onClick={() => handleSync(conn.id)}>
                               <RefreshCw className="h-3.5 w-3.5 mr-2" />Sync Now
                             </DropdownMenuItem>
-                            {canWrite && (
-                              <DropdownMenuItem onClick={() => void handlePause(conn.id, conn.name, conn.status === "paused")}>
-                                {conn.status === "paused"
-                                  ? <><Play className="h-3.5 w-3.5 mr-2" />Resume</>
-                                  : <><Pause className="h-3.5 w-3.5 mr-2" />Pause (not in use)</>}
-                              </DropdownMenuItem>
-                            )}
+                            <DropdownMenuItem onClick={() => void handlePause(conn.id, conn.name, conn.status === "paused")}>
+                              {conn.status === "paused"
+                                ? <><Play className="h-3.5 w-3.5 mr-2" />Resume</>
+                                : <><Pause className="h-3.5 w-3.5 mr-2" />Pause (not in use)</>}
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="text-destructive"
-                              onClick={() => handleDelete(conn.id)}>
-                              <Trash2 className="h-3.5 w-3.5 mr-2" />Delete
+                              onClick={() => handleDelete(conn.id, conn.name)}>
+                              <Trash2 className="h-3.5 w-3.5 mr-2" />Delete…
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))
@@ -737,6 +763,9 @@ function ConnectorsPageInner() {
 
         {/* ── Marketplace tab ────────────────────────────────────────────── */}
         <TabsContent value="marketplace" className="space-y-4">
+          {!canWrite ? (
+            <p className="text-sm text-muted-foreground">Adding a source needs connector:write. Ask an administrator or a data engineer to connect one.</p>
+          ) : (<>
           <div className="flex items-center gap-3">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -798,6 +827,7 @@ function ConnectorsPageInner() {
             <span>{availableConnectors.filter(c => c.supported).length} available</span>
             <span>{availableConnectors.filter(c => !c.supported).length} coming soon</span>
           </div>
+          </>)}
         </TabsContent>
       </Tabs>
     </div>
