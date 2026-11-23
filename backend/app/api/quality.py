@@ -7,7 +7,7 @@ import logging
 import os
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Iterable, List, Optional
 
 import asyncpg
 
@@ -61,12 +61,14 @@ def _run_quality_check_sync(
     schema: str,
     rows_current: int,
     rows_previous: Optional[int],
+    expected_nulls: Iterable[str] = (),
 ) -> dict:
     """
     Run quality checks against an Iceberg table via Trino.
     Returns check result dict.
     """
     fqtn = f"{TRINO_CATALOG}.{schema}.{table_name}"
+    expected = {c.lower() for c in expected_nulls}
     warnings = []
     null_checks = {}
     overall_status = "ok"
@@ -115,11 +117,13 @@ def _run_quality_check_sync(
                     null_count = row[i] or 0
                     null_rate = (null_count / rows_current) * 100
                     status = "ok"
-                    if null_rate >= NULL_RATE_ALERT:
+                    if col.lower() in expected:
+                        status = "expected"
+                    elif null_rate >= NULL_RATE_ALERT:
                         status = "alert"
                         overall_status = "alert"
                         warnings.append({
-                            "type": "high_null_rate",
+                            "type": "high_null_rate", "column": col,
                             "message": f"Column '{col}' has {null_rate:.1f}% null values",
                             "severity": "alert",
                         })
@@ -128,7 +132,7 @@ def _run_quality_check_sync(
                         if overall_status == "ok":
                             overall_status = "warning"
                         warnings.append({
-                            "type": "high_null_rate",
+                            "type": "high_null_rate", "column": col,
                             "message": f"Column '{col}' has {null_rate:.1f}% null values",
                             "severity": "warning",
                         })
@@ -167,22 +171,29 @@ async def run_and_store_quality_checks(
 
     statuses: dict = {}
 
+    from app.connectors import trino_sync
+
     for table, target, ok, rows_current, _ in table_results:
         if not ok or rows_current == 0:
             continue
         try:
-            # Get previous row count from last quality check
             async with pool.acquire() as conn:
+                # Previous count under either spelling: checks written before 2.5 say
+                # `orders`, later ones `public.orders` — the same lake table.
                 prev = await conn.fetchval(
                     """SELECT rows_current FROM connector_quality_checks
-                       WHERE connection_id=$1 AND source_table=$2
+                       WHERE connection_id=$1 AND source_table = ANY($2::text[])
                        ORDER BY checked_at DESC LIMIT 1""",
-                    uuid.UUID(connection_id), table
+                    uuid.UUID(connection_id), spellings(table)
                 )
+                expected = await _expected_nulls(conn, connection_id, table)
 
-            # Run checks in a thread (Trino is synchronous)
+            # The lake table the sync wrote, not the source name: `public.orders` lands
+            # in default.orders, and `iceberg.default.public.orders` does not exist — the
+            # null checks of every schema-qualified table used to fail on it.
+            ref = trino_sync.target_ref(table, target)
             result = await asyncio.to_thread(
-                _run_quality_check_sync, table, schema, rows_current, prev
+                _run_quality_check_sync, ref.table, ref.namespace or schema, rows_current, prev, expected
             )
 
             # Persist
@@ -206,3 +217,64 @@ async def run_and_store_quality_checks(
         except Exception as e:
             logger.warning(f"[quality] check failed for {table}: {e}")
     return statuses
+
+
+def spellings(source_table: str) -> List[str]:
+    """`public.orders` and `orders`: the names one source table's checks were written
+    under (bare before 2.5, schema-qualified after)."""
+    bare = source_table.split(".")[-1]
+    return [source_table] if bare == source_table else [source_table, bare]
+
+
+def canonical(source_table: str) -> str:
+    """The key checks of one table group under, whatever spelling they were written in."""
+    return source_table.split(".")[-1].lower()
+
+
+async def _expected_nulls(conn, connection_id: str, source_table: str) -> List[str]:
+    try:
+        raw = await conn.fetchval(
+            """SELECT expected_null_columns FROM connector_sync_jobs
+               WHERE connection_id=$1 AND source_table = ANY($2::text[])
+               ORDER BY (source_table = $3) DESC LIMIT 1""",
+            uuid.UUID(connection_id), spellings(source_table), source_table)
+    except Exception:          # before migration 0034
+        return []
+    return parse_columns(raw)
+
+
+def parse_columns(raw) -> List[str]:
+    import json as _json
+    if raw is None:
+        return []
+    try:
+        v = _json.loads(raw) if isinstance(raw, str) else raw
+    except (ValueError, TypeError):
+        return []
+    return [str(c) for c in v] if isinstance(v, list) else []
+
+
+def with_expected(check: dict, expected: Iterable[str]) -> dict:
+    """A stored check read with today's expected-null columns: those columns' null
+    warnings go, their status reads "expected", and the overall status is recomputed
+    from what is left. A mark therefore takes effect on the check already shown, not
+    only on the next sync."""
+    exp = {c.lower() for c in expected}
+    null_checks = {}
+    for col, nc in (check.get("null_checks") or {}).items():
+        nc = dict(nc)
+        if col.lower() in exp:
+            nc["status"] = "expected"
+        elif nc.get("status") == "expected":     # mark removed since the check ran
+            rate = nc.get("null_rate") or 0
+            nc["status"] = "alert" if rate >= NULL_RATE_ALERT else "warning" if rate >= NULL_RATE_WARN else "ok"
+        null_checks[col] = nc
+    warnings = [w for w in (check.get("warnings") or []) if w.get("type") != "high_null_rate"]
+    for col, nc in null_checks.items():
+        if nc.get("status") in ("warning", "alert"):
+            warnings.append({"type": "high_null_rate", "column": col, "severity": nc["status"],
+                             "message": f"Column '{col}' has {nc.get('null_rate', 0):.1f}% null values"})
+    levels = [w["severity"] for w in warnings]
+    overall = "alert" if "alert" in levels else "warning" if "warning" in levels else "ok"
+    return {**check, "null_checks": null_checks, "warnings": warnings, "overall_status": overall,
+            "expected_null_columns": sorted(c for c in null_checks if c.lower() in exp)}

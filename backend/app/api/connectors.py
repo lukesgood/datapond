@@ -3439,13 +3439,19 @@ async def _get_connector_instance(connection_id: str):
     return _create_connector(connector_type, config)
 
 
+
+
 @router.get("/connectors/{connection_id}/quality")
 async def get_quality_checks(connection_id: str, limit: int = 20,
                              user: dict = Depends(require_user)):
-    """Get latest data quality check results for a connection."""
+    """Latest data quality check results for a connection.
+
+    Each check carries `table_key`: checks written under `orders` (before 2.5) and
+    `public.orders` are one table, so a stale warning under the old name no longer
+    reads as current. Columns marked expected-empty are applied on read."""
     await require_access(CONNECTOR, connection_id, user)
+    from . import quality
     pool = await get_db_pool()
-    from .quality import ensure_quality_table
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """SELECT source_table, checked_at, rows_current, rows_previous,
@@ -3456,20 +3462,58 @@ async def get_quality_checks(connection_id: str, limit: int = 20,
                ORDER BY checked_at DESC LIMIT $2""",
             uuid.UUID(connection_id), limit
         )
-    import json as _json
-    return {
-        "checks": [
-            {
-                "source_table": r["source_table"],
-                "checked_at": iso_utc(r["checked_at"]),
-                "rows_current": r["rows_current"],
-                "rows_previous": r["rows_previous"],
-                "row_change_pct": r["row_change_pct"],
-                "row_change_status": r["row_change_status"],
-                "null_checks": _json.loads(r["null_checks"]) if r["null_checks"] else {},
-                "overall_status": r["overall_status"],
-                "warnings": _json.loads(r["warnings"]) if r["warnings"] else [],
-            }
-            for r in rows
-        ]
-    }
+        try:
+            marks = {quality.canonical(r["source_table"]): quality.parse_columns(r["expected_null_columns"])
+                     for r in await conn.fetch(
+                         "SELECT source_table, expected_null_columns FROM connector_sync_jobs "
+                         "WHERE connection_id=$1 AND expected_null_columns IS NOT NULL",
+                         uuid.UUID(connection_id))}
+        except Exception:          # before migration 0034
+            marks = {}
+    checks = []
+    for r in rows:
+        key = quality.canonical(r["source_table"])
+        check = {
+            "source_table": r["source_table"],
+            "table_key": key,
+            "checked_at": iso_utc(r["checked_at"]),
+            "rows_current": r["rows_current"],
+            "rows_previous": r["rows_previous"],
+            "row_change_pct": r["row_change_pct"],
+            "row_change_status": r["row_change_status"],
+            "null_checks": json.loads(r["null_checks"]) if r["null_checks"] else {},
+            "overall_status": r["overall_status"],
+            "warnings": json.loads(r["warnings"]) if r["warnings"] else [],
+        }
+        checks.append(quality.with_expected(check, marks.get(key, [])))
+    return {"checks": checks}
+
+
+@router.put("/connectors/{connection_id}/tables/{table_name}/expected-nulls",
+            dependencies=[Depends(require_permission("connector:write"))])
+async def set_expected_nulls(connection_id: str, table_name: str, body: dict,
+                             user: dict = Depends(require_user)):
+    """Mark a column as expected to be mostly empty (or unmark it).
+
+    body: {"column": "shipped_at", "expected": true}. The quality check keeps recording
+    its null rate but stops warning; the latest check reflects it at once."""
+    from . import quality
+    await require_access(CONNECTOR, connection_id, user, write=True)
+    column = body.get("column")
+    if not isinstance(column, str) or not column.strip():
+        raise HTTPException(status_code=400, detail="column is required")
+    pool = await get_db_pool()
+    job = await _job_for(pool, connection_id, table_name)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"{table_name} has no sync job on this source")
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            raw = await conn.fetchval(
+                "SELECT expected_null_columns FROM connector_sync_jobs WHERE id=$1 FOR UPDATE", job["id"])
+            cols = [c for c in quality.parse_columns(raw) if c.lower() != column.lower()]
+            if body.get("expected", True):
+                cols.append(column)
+            await conn.execute(
+                "UPDATE connector_sync_jobs SET expected_null_columns=$1::jsonb, updated_at=now() WHERE id=$2",
+                json.dumps(sorted(cols)) if cols else None, job["id"])
+    return {"table": job["source_table"], "expected_null_columns": sorted(cols)}

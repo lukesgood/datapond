@@ -412,7 +412,8 @@ class IcebergRestReader:
 # customer's production table, so row_count stays None.
 
 # Schemas the source engines keep for themselves; nobody browses them as data.
-SOURCE_SYSTEM_SCHEMAS = frozenset({"information_schema", "pg_catalog", "mysql", "sys",
+# Same list as connectors/probe.SYSTEM_SCHEMAS: what the probe hides, the browser hides.
+SOURCE_SYSTEM_SCHEMAS = frozenset({"information_schema", "pg_catalog", "pg_toast", "mysql", "sys",
                                    "performance_schema"})
 
 

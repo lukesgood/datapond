@@ -101,6 +101,21 @@ reports parents it could not resolve as `unresolved_parents`.
   `last_rows` and `success_rate` (last 20 runs). The list column is now "Synced tables";
   it used to count every table the source lists, by asking each source live.
 
+**Sources: data quality checks read the right table (2026-11-23, migration 0034).**
+- Quality checks now query the lake table the sync wrote (`default.orders` for
+  `public.orders`). They used to query `iceberg.default.public.orders`, so the null-rate
+  checks of every schema-qualified table failed silently since 2.5.
+- Checks written as `orders` (before 2.5) and `public.orders` are one table: the source
+  page shows the newest, and the row-count comparison reads the previous count under either
+  name. `GET /api/connectors/{id}/quality` returns `table_key` for grouping.
+- A column can be marked expected to be mostly empty
+  (`PUT /api/connectors/{id}/tables/{table}/expected-nulls`, `{column, expected}`): its null
+  rate is still recorded but no longer warns, on the check already shown and on later ones.
+  Migration 0034 adds `connector_sync_jobs.expected_null_columns` (expand-only).
+- Smaller: the empty Sources page lists the source types that can actually be added; SSL
+  help no longer says "JDBC"; source status reads "Active"; the table browser also hides
+  `pg_toast`; the unused `table-selector` component is gone.
+
 ## 2.6 (2026-11) — Lakehouse first: catalog export, Trino workers, menu
 
 Positioning v7 (`docs/POSITIONING_V7.md`): DataPond is a lightweight open lakehouse; the AI

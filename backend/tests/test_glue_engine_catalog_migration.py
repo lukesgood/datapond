@@ -23,7 +23,7 @@ def _load():
 
 def test_the_highest_revision_is_known():
     stems = sorted(p.stem for p in VERSIONS.glob("*.py") if re.fullmatch(r"\d{4}_[a-z0-9_]+", p.stem))
-    assert stems[-1] == "0033_concept_parent_id"      # the pin moves with the newest revision
+    assert stems[-1] == "0034_expected_null_columns"      # the pin moves with the newest revision
 
 
 def test_it_chains_from_0024():

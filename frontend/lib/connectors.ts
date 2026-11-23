@@ -68,7 +68,7 @@ export const availableConnectors: Connector[] = [
       { name: "database", label: "Database", type: "text", required: true, placeholder: "mydb" },
       { half: true, name: "username", label: "Username", type: "text", required: true },
       { half: true, name: "password", label: "Password", type: "password", required: true },
-      { name: "ssl", label: "Use SSL/TLS", type: "boolean", default: false, help: "sslmode=require on the JDBC connection" }
+      { name: "ssl", label: "Use SSL/TLS", type: "boolean", default: false, help: "Encrypt the connection to the database (sslmode=require)" }
     ]
   },
   {
@@ -85,7 +85,7 @@ export const availableConnectors: Connector[] = [
       { name: "database", label: "Default schema", type: "text", required: false, placeholder: "mydb", help: "Optional — Trino lists every schema the user can see" },
       { half: true, name: "username", label: "Username", type: "text", required: true },
       { half: true, name: "password", label: "Password", type: "password", required: true },
-      { name: "ssl", label: "Use SSL/TLS", type: "boolean", default: false, help: "sslMode=REQUIRED on the JDBC connection" }
+      { name: "ssl", label: "Use SSL/TLS", type: "boolean", default: false, help: "Encrypt the connection to the database (sslMode=REQUIRED)" }
     ]
   },
   {
@@ -119,7 +119,7 @@ export const availableConnectors: Connector[] = [
       { name: "database", label: "Service name", type: "text", required: true, placeholder: "ORCLPDB1", help: "The service name (not SID) of the database" },
       { half: true, name: "username", label: "Username", type: "text", required: true },
       { half: true, name: "password", label: "Password", type: "password", required: true },
-      { name: "ssl", label: "Use SSL/TLS", type: "boolean", default: false, help: "TCPS on the JDBC connection" }
+      { name: "ssl", label: "Use SSL/TLS", type: "boolean", default: false, help: "Encrypt the connection to the database (TCPS)" }
     ]
   },
   {
