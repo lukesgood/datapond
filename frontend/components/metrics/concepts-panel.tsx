@@ -11,8 +11,8 @@ import { useToast } from "@/lib/toast"
 import { responseErrorMessage } from "@/lib/auth"
 import { fieldError, type CatalogEntry } from "@/lib/metrics"
 import {
-  bindingText, cell, conceptRows, coverage, maskHref, matchesSearch, matrixTables, suggestionBody, tableKey, tableLabel,
-  type Binding, type Concept, type ConceptViewer, type PiiGap, type Role, type Suggestion,
+  bindingText, cell, conceptRows, coverage, maskHref, matchesSearch, matrixTables, segmentBody, suggestionBody, tableKey, tableLabel,
+  valueCondition, type Binding, type Concept, type ConceptViewer, type Feedback, type PiiGap, type Role, type Suggestion,
 } from "@/lib/concepts"
 import { CatalogSelect, ColumnSelect, TableSelect } from "./catalog-pickers"
 import type { TableRef } from "./metric-editor"
@@ -39,6 +39,8 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
   const [selected, setSelected] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [gaps, setGaps] = useState<PiiGap[]>([])
+  const [feedback, setFeedback] = useState<Feedback | null>(null)
+  const [seed, setSeed] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -63,8 +65,16 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
       setGaps(r.ok ? (await r.json()).gaps ?? [] : [])
     } catch { setGaps([]) }
   }, [])
+  // What /ai/sql questions suggest. Needs governance:read (the rows are other people's
+  // questions, masked); anyone else gets no section.
+  const loadFeedback = useCallback(async () => {
+    try {
+      const r = await fetch("/api/semantic/concepts/feedback")
+      setFeedback(r.ok ? await r.json() : null)
+    } catch { setFeedback(null) }
+  }, [])
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void load(); void loadSuggestions(); void loadGaps() }, [load, loadSuggestions, loadGaps])
+  useEffect(() => { void load(); void loadSuggestions(); void loadGaps(); void loadFeedback() }, [load, loadSuggestions, loadGaps, loadFeedback])
 
   const concepts = useMemo(() => data?.concepts ?? [], [data])
   const bindings = useMemo(() => data?.bindings ?? [], [data])
@@ -80,7 +90,7 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
     try {
       const res = await fn()
       if (!res.ok) { toast(await errorText(res, fallback), "error"); return false }
-      toast(ok, "success"); await load(); await loadSuggestions(); await loadGaps(); return true
+      toast(ok, "success"); await load(); await loadSuggestions(); await loadGaps(); await loadFeedback(); return true
     } catch (e) { toast(e instanceof Error ? e.message : fallback, "error"); return false }
     finally { setBusy(false) }
   }
@@ -123,7 +133,7 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
           {suggestions === null && <span className="text-xs text-muted-foreground">Reading column names and query history…</span>}
           <span className="flex-1" />
           {viewer.can_approve && <ImportGlossary pull={viewer.openmetadata === true} onDone={async () => { await load(); await loadSuggestions(); await loadGaps() }} />}
-          {(viewer.can_approve || viewer.can_propose) && <NewConcept concepts={concepts} onDone={async n => { await load(); await loadSuggestions(); setSelected(n) }} />}
+          {(viewer.can_approve || viewer.can_propose) && <NewConcept concepts={concepts} seed={seed} onDone={async n => { setSeed(null); await load(); await loadSuggestions(); await loadFeedback(); setSelected(n) }} />}
         </div>
         {state === "loading" ? <p className="text-sm text-muted-foreground">Loading…</p>
           : concepts.length === 0 ? <p className="text-sm text-muted-foreground">No concepts yet. Add one, such as 고객 with the aliases customer and 회원; matching columns are then suggested here.</p> : (
@@ -174,6 +184,11 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
           <span className={approvedCls}>solid</span> approved · <span className={waitingCls}>dashed</span> proposed or suggested, waiting for an administrator · — not bound.
           Columns are the tables with any binding or suggestion.
         </p>
+        {feedback && <FromQuestions feedback={feedback} concepts={concepts} viewer={viewer} busy={busy}
+          onNewConcept={w => setSeed(w)}
+          onAlias={(c, w) => act(() => post(`/api/semantic/concepts/${encodeURIComponent(c)}/terms`, { term: w }), `${w} added to ${c}`, "Could not add the word")}
+          onSegment={(c, v) => act(() => post("/api/semantic/concepts/bindings", segmentBody(v, c)),
+            viewer.can_approve ? `Segment added to ${c}` : `Segment proposed for ${c}`, "Could not add the segment")} />}
       </section>
 
       <aside aria-label="Concept details" className="min-w-0 flex-[2_1_300px] space-y-4 rounded-xl border bg-muted/40 p-5 text-sm lg:sticky lg:top-6">
@@ -334,10 +349,15 @@ function AddBinding({ concept, catalogs, tables, busy, approves, onAdd }: {
   )
 }
 
-function NewConcept({ concepts, onDone }: { concepts: Concept[]; onDone: (name: string) => Promise<void> }) {
+function NewConcept({ concepts, seed, onDone }: { concepts: Concept[]; seed?: string | null; onDone: (name: string) => Promise<void> }) {
   const { toast } = useToast()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState("")
+  // A word suggested by the questions opens the form with it as the name.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (seed) { setName(seed); setOpen(true) }
+  }, [seed])
   const [terms, setTerms] = useState("")
   const [parent, setParent] = useState("")
   const [pii, setPii] = useState(false)
@@ -421,5 +441,98 @@ function ImportGlossary({ pull, onDone }: { pull: boolean; onDone: () => Promise
       <input ref={file} type="file" accept=".csv,.json,application/json,text/csv" className="hidden" aria-label="Glossary file"
              onChange={e => void pick(e.target.files?.[0])} />
     </>
+  )
+}
+
+/** Suggestions from /ai/sql use: words no concept covers, values no segment states, and
+ *  joins between keys of different concepts. Shown to governance readers. */
+function FromQuestions({ feedback, concepts, viewer, busy, onNewConcept, onAlias, onSegment }: {
+  feedback: Feedback; concepts: Concept[]; viewer: ConceptViewer; busy: boolean
+  onNewConcept: (word: string) => void
+  onAlias: (concept: string, word: string) => Promise<unknown>
+  onSegment: (concept: string, v: Feedback["values"][number]) => Promise<unknown>
+}) {
+  const [target, setTarget] = useState<Record<string, string>>({})
+  const canWrite = viewer.can_approve || viewer.can_propose
+  const empty = !feedback.words.length && !feedback.values.length && !feedback.joins.length
+  const pick = (key: string, label: string) => (
+    <select aria-label={label} className="h-7 rounded-md border bg-background px-1.5 text-xs" value={target[key] ?? ""}
+            onChange={e => setTarget(t => ({ ...t, [key]: e.target.value }))}>
+      <option value="">Concept…</option>
+      {concepts.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+    </select>
+  )
+  return (
+    <section aria-label="From questions" className="space-y-3 border-t pt-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-sm font-semibold">From questions</h3>
+        <span className="text-xs text-muted-foreground">{feedback.questions} questions to Analytics and agents in the last {feedback.days} days</span>
+      </div>
+      {empty ? (
+        <p className="text-xs text-muted-foreground">
+          {feedback.questions ? "Nothing to suggest: every word, value and join in recent questions is covered." : "No questions yet. Suggestions appear once people and agents ask in Analytics or over MCP."}
+        </p>
+      ) : <p className="text-xs text-muted-foreground">Seen in at least two questions. Suggestions only: nothing changes until you add it.</p>}
+
+      {feedback.values.length > 0 && (
+        <div className="space-y-1.5">
+          <h4 className="text-xs font-semibold">Conditions no segment states</h4>
+          <p className="text-xs text-muted-foreground">A segment belongs to a narrower concept (VIP 고객 under 고객): create that concept first, then make the condition its segment.</p>
+          <ul className="space-y-1.5">
+            {feedback.values.map(v => {
+              const key = `v:${v.table}.${v.column}=${v.value}`
+              return (
+                <li key={key} className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-xs">{v.table.split(".").slice(-1)[0]}: {valueCondition(v)}</span>
+                  <span className="text-xs text-muted-foreground" title={v.example}>{v.questions} questions{v.segments_on_column ? " · other values of this column are segments" : ""}</span>
+                  {canWrite && <span className="ml-auto flex items-center gap-1.5">{pick(key, `Concept for ${valueCondition(v)}`)}
+                    <Button size="sm" variant="outline" className="h-7" disabled={busy || !target[key]} onClick={() => void onSegment(target[key], v)}>Make segment</Button></span>}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
+
+      {feedback.words.length > 0 && (
+        <div className="space-y-1.5">
+          <h4 className="text-xs font-semibold">Words no concept covers</h4>
+          <ul className="space-y-1.5">
+            {feedback.words.map(w => {
+              const key = `w:${w.word}`
+              return (
+                <li key={key} className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium">{w.word}</span>
+                  <span className="text-xs text-muted-foreground" title={w.examples.join("\n")}>{w.questions} questions</span>
+                  {canWrite && <span className="ml-auto flex items-center gap-1.5">
+                    {pick(key, `Concept for ${w.word}`)}
+                    <Button size="sm" variant="outline" className="h-7" disabled={busy || !target[key]} onClick={() => void onAlias(target[key], w.word)}>Add as alias</Button>
+                    <Button size="sm" variant="ghost" className="h-7" disabled={busy} onClick={() => onNewConcept(w.word)}>New concept</Button>
+                  </span>}
+                </li>
+              )
+            })}
+          </ul>
+          <p className="text-xs text-muted-foreground">A word may name a column rather than a concept (국가, 카테고리): bind it as an attribute in that concept&apos;s details instead.</p>
+        </div>
+      )}
+
+      {feedback.joins.length > 0 && (
+        <div className="space-y-1.5">
+          <h4 className="text-xs font-semibold">Joins between different concepts</h4>
+          <ul className="space-y-1">
+            {feedback.joins.map(j => (
+              <li key={j.join} className="text-xs">
+                <span className="font-mono">{j.join}</span>{" "}
+                <span className="text-muted-foreground" title={j.example}>
+                  {j.seen} times, {j.unrepaired ? `${j.unrepaired} left in the answer` : "all fixed by the check"}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground">Usually a key bound to the wrong concept, or a key missing a binding.</p>
+        </div>
+      )}
+    </section>
   )
 }

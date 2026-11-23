@@ -639,6 +639,7 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
             # Valid SQL can still join a customer key to a product key. One repair
             # round with the offending joins named; what remains is reported.
             concept_warnings: List[str] = []
+            conflicts: List[str] = []
             if sql and visible_concepts:
                 from app.api.query_engine import get_engine
                 from app.rls.engine import _default_catalog
@@ -672,6 +673,14 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
                         logger.warning(f"[ai_sql] concept repair round failed: {e}")
                         concept_warnings = conflicts
 
+            if visible_concepts:
+                # What the question said about missing concepts (app/semantic/concept_feedback.py).
+                from app.api.query_engine import get_engine
+                from app.rls.engine import _default_catalog
+                from app.semantic import concept_feedback
+                await concept_feedback.record(user, req.question, sql, concepts_provided,
+                                              conflicts, concept_warnings,
+                                              get_engine().rls_dialect, _default_catalog().lower())
             return AskResponse(
                 sql=sql,
                 explanation=explanation,

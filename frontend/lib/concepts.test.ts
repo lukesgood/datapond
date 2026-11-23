@@ -2,7 +2,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import {
-  addCondition, bindingText, cell, conceptChips, conceptWordsFor, shortUse, conceptRows, coverage, maskHref, matchesSearch, matrixTables, parseMaskParam, segmentsFor, suggestionBody, tableLabel,
+  addCondition, segmentBody, valueCondition, bindingText, cell, conceptChips, conceptWordsFor, shortUse, conceptRows, coverage, maskHref, matchesSearch, matrixTables, parseMaskParam, segmentsFor, suggestionBody, tableLabel,
   type Binding, type Concept, type Suggestion,
 } from "./concepts.ts"
 
@@ -89,4 +89,15 @@ test("a metric label's concept words", () => {
   const cs = [C("고객", null, ["customer", "회원", "VIP 고객"]), C("주문", null, ["order"])]
   assert.deepEqual(conceptWordsFor("고객 수", cs), ["customer", "회원"])
   assert.deepEqual(conceptWordsFor("매출", cs), [])
+})
+
+test("a value suggestion becomes a segment binding", () => {
+  const v = { table: "iceberg.default.customers", column: "tier", value: "vip", questions: 4, example: "", segments_on_column: true }
+  assert.equal(valueCondition(v), "tier = 'vip'")
+  assert.equal(valueCondition({ column: "is_active", value: "true" }), "is_active = true")
+  assert.equal(valueCondition({ column: "name", value: "O'Neil" }), "name = 'O''Neil'")
+  assert.deepEqual(segmentBody(v, "VIP 고객"), {
+    concept: "VIP 고객", catalog: "iceberg", table: "default.customers", column: "tier", role: "filter",
+    filter_sql: "tier = 'vip'", source: "history", evidence: "used in 4 questions to /ai/sql", status: "approved",
+  })
 })

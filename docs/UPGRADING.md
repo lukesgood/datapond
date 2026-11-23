@@ -53,6 +53,13 @@ Agents) and Operate (Governance, AI Gateway, Storage, Infrastructure, Settings).
 unchanged; bookmarks keep working. Menus are not per role: each item is gated by its
 permission as before, so a role sees only its own part of the path.
 
+**Concept feedback (migration 0032, 2026-11-23).** With concepts on, every `/ai/sql`
+generation (console and MCP `query_generate_sql`) writes one `concept_feedback` row: the
+question masked like the tool-call log, matched concepts, joins between keys of different
+concepts, and literal condition values (values holding personal data are dropped). Rows
+older than 90 days are deleted as new ones arrive. `GET /api/semantic/concepts/feedback`
+(governance:read) aggregates the last 30 days; nothing is bound automatically.
+
 ## 2.6 (2026-11) — Lakehouse first: catalog export, Trino workers, menu
 
 Positioning v7 (`docs/POSITIONING_V7.md`): DataPond is a lightweight open lakehouse; the AI

@@ -172,6 +172,8 @@ async def main():
 
     import httpx
     import app.api.ai_sql as m
+    from app.semantic import concept_feedback
+    concept_feedback.ENABLED = False      # an evaluation is not use; keep it out of the feedback
     # LiteLLM caches identical prompts for an hour, which would make attempts 2 and 3
     # copies of attempt 1. Ask it not to use the cache for these calls.
     _post = httpx.Client.post
