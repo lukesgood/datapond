@@ -75,7 +75,11 @@ terms stand in for each other when a question is matched to a metric: with 회�
 "회원 수" finds the metric labelled "고객 수" (`query_generate_sql`'s `suggested_metric` too).
 Concepts can be imported from an OpenMetadata glossary (Metrics › Concepts › Import glossary,
 or a pull when the add-on runs); columns tagged with a glossary term arrive as proposals, never
-approved bindings.
+approved bindings. While concepts are on, each generation leaves a feedback row (question
+PII-masked as in the tool-call log, matched concepts, cross-concept joins, condition values;
+migration 0032, kept 90 days); governance readers see the aggregate under Semantic model ›
+Concepts › From questions — words no concept covers, values no segment states, joins between
+different concepts — as suggestions, never bindings.
 
 Agents do not find metrics on their own: measured on live (2026-10-16), an agent that
 could also run SQL never called `metric_list`, and one limited to MCP reached it only

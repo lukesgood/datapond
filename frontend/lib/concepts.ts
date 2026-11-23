@@ -161,3 +161,25 @@ export function conceptWordsFor(label: string, concepts: Concept[]): string[] {
   }
   return out
 }
+
+/** GET /semantic/concepts/feedback: what /ai/sql questions suggest (governance readers). */
+export type FeedbackWord = { word: string; questions: number; examples: string[] }
+export type FeedbackJoin = { join: string; seen: number; unrepaired: number; example: string }
+export type FeedbackValue = { table: string; column: string; value: string; questions: number; example: string; segments_on_column: boolean }
+export type Feedback = { questions: number; days: number; words: FeedbackWord[]; joins: FeedbackJoin[]; values: FeedbackValue[]; concept_use: Record<string, number> }
+
+/** The condition a value suggestion becomes: `tier = 'vip'`, or `is_active = true`. */
+export function valueCondition(v: Pick<FeedbackValue, "column" | "value">): string {
+  if (v.value === "true" || v.value === "false") return `${v.column} = ${v.value}`
+  return `${v.column} = '${v.value.replace(/'/g, "''")}'`
+}
+
+/** POST /semantic/concepts/bindings body making a value suggestion a segment of `concept`. */
+export function segmentBody(v: FeedbackValue, concept: string) {
+  const [catalog, namespace, table] = v.table.split(".")
+  return {
+    concept, catalog, table: `${namespace}.${table}`, column: v.column, role: "filter" as const,
+    filter_sql: valueCondition(v), source: "history" as const,
+    evidence: `used in ${v.questions} questions to /ai/sql`, status: "approved" as const,
+  }
+}

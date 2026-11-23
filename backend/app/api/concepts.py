@@ -272,3 +272,51 @@ async def import_openmetadata(body: GlossaryImport, admin: dict = Depends(requir
                  f"{saved['terms_added']} words added, {proposed} bindings proposed")
     return {"terms_read": len(terms), **saved, "bindings_proposed": proposed,
             "source": "upload" if body.glossary is not None else "openmetadata"}
+
+
+@router.get("/semantic/concepts/feedback",
+            dependencies=[Depends(require_permission("governance:read"))])
+async def concept_feedback(days: int = 30, user: dict = Depends(require_user)):
+    """Suggestions from /ai/sql use (app/semantic/concept_feedback.py): words no concept
+    covers, joins between keys of different concepts, and condition values no segment
+    states. Governance readers only: the rows hold other people's questions (masked)."""
+    _require_enabled()
+    from app.semantic import concept_feedback as fb
+    days = max(1, min(int(days), 90))
+    pool = await _pool()
+    access = await catalog_access.for_caller(user)
+    rows = fb.visible_rows(await fb.load(pool, days),
+                           lambda t: access.allows_sql_catalog(t.split(".", 1)[0]))
+    try:
+        from app.semantic import context as metric_context
+        metrics = await metric_context.for_caller(user)
+    except Exception:
+        metrics = []
+    out = fb.suggest(rows, await load_concepts(pool),
+                     await concept_store.list_bindings(pool, ("approved",)), metrics)
+    return dict(out, days=days, concept_use=dict(fb.counts(rows)))
+
+
+class TermBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    term: str = Field(min_length=2, max_length=100)
+
+
+@router.post("/semantic/concepts/{name}/terms", status_code=201)
+async def add_term(name: str, body: TermBody,
+                   user: dict = Depends(require_permission("knowledge:write"))):
+    """Add one word to a concept, leaving its parent, PII flag and description as they
+    are (POST /ai/concepts replaces those). Used for an alias suggested by feedback."""
+    _require_enabled()
+    pool = await _pool()
+    cid = await concept_store.concept_id(pool, name)
+    if not cid:
+        raise HTTPException(404, f"Unknown concept {name!r}.")
+    term = body.term.strip()
+    async with pool.acquire() as c:
+        tag = await c.execute("INSERT INTO concept_terms (concept_id, term) VALUES ($1, $2) "
+                              "ON CONFLICT DO NOTHING", cid, term)
+    added = tag.endswith(" 1")
+    if added:
+        await _audit(user, "POST", f"/api/semantic/concepts/{name}/terms", f"concept {name}: term {term!r} added")
+    return {"concept": name, "term": term, "added": added}
