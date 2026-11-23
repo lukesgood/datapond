@@ -1046,9 +1046,12 @@ async def preview_rls(body: RlsPreviewIn, user: Optional[dict] = Depends(_get_cu
     ctx = _UserCtx(user_id="preview", username="preview",
                    roles=body.roles or [], attributes=body.attributes or {})
     policies = await _rls_loader.load_policies()
-    masks = await _rls_loader.load_masks()
+    # The same masks a real query gets, the sync-derived source masks included.
+    masks = await _rls_loader.load_masks() + await _rls_loader.load_source_masks()
+    from app.rls.engine import masked_tables
+    cols = await _rls_loader.columns_for(masked_tables(body.sql, masks))
     try:
-        res = _rls_enforce(body.sql, ctx, policies, masks)
+        res = _rls_enforce(body.sql, ctx, policies, masks, columns=cols)
         return {"allowed": True, "rewritten_sql": res.sql,
                 "applied_policies": res.applied_policy_ids,
                 "applied_masks": res.applied_mask_ids, "tables": res.tables}

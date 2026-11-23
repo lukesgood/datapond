@@ -231,6 +231,12 @@ def test_rls_preview_still_previews_for_a_permitted_non_admin_caller():
         async def load_masks(self):
             return []
 
+        async def load_source_masks(self):
+            return []
+
+        async def columns_for(self, keys):
+            return {}
+
     original_loader = gov._rls_loader
     gov._rls_loader = _FakeLoader()
     try:

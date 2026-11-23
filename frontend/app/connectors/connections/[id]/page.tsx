@@ -34,6 +34,9 @@ import { useCapability } from "@/lib/capabilities"
 import { EngineRestartBanner } from "@/components/connectors/engine-restart-banner"
 import { isTrinoEngine } from "@/lib/engine-restart"
 import { lakeCatalogs, lakeLabel, landsIn } from "@/lib/data-catalogs"
+import { runLabel, runStates, shortDate } from "@/lib/table-runs"
+
+type OrphanJob = { source_table: string; enabled: boolean; last_run_at: string | null; last_run_status: string | null }
 import { alsoSyncedLine } from "@/lib/sync-target"
 
 type ConfigValue = string | number | boolean | null | undefined
@@ -72,6 +75,7 @@ type Lake = { name: string; engine_catalog: string; is_default: boolean; kind: s
 // ── Tables: the list; one table's settings open in the right column ──────────
 function TablesCard({
   tables, latestTableRows, togglingTable, onToggle, selected, onSelect, canEdit, defaultLake, lakes = [],
+  orphaned = [], onDeleteOrphan,
 }: {
   tables: ConnectorTable[]
   latestTableRows: Map<string, number>
@@ -82,8 +86,11 @@ function TablesCard({
   canEdit: boolean
   defaultLake?: string
   lakes?: Lake[]
+  orphaned?: OrphanJob[]
+  onDeleteOrphan?: (job: OrphanJob) => void
 }) {
   const [search, setSearch] = useState("")
+  const states = runStates(tables)
   const filtered = tables.filter(t => t.name.toLowerCase().includes(search.toLowerCase()))
   const enabledCount = tables.filter(t => t.enabled).length
 
@@ -117,6 +124,7 @@ function TablesCard({
                   <th scope="col" className="w-12 py-2 font-medium">Sync</th>
                   <th scope="col" className="py-2 font-medium">Table</th>
                   <th scope="col" className="py-2 font-medium">Mode</th>
+                  <th scope="col" className="py-2 font-medium">Last run</th>
                   <th scope="col" className="py-2 pr-6 text-right font-medium">Last rows</th>
                   <th scope="col" className="py-2 font-medium">Masked</th>
                   <th scope="col" className="py-2"><span className="sr-only">Settings</span></th>
@@ -124,7 +132,7 @@ function TablesCard({
               </thead>
               <tbody>
                 {filtered.length === 0 && (
-                  <tr><td colSpan={6} className="py-4 text-center text-xs text-muted-foreground">No tables match &quot;{search}&quot;</td></tr>
+                  <tr><td colSpan={7} className="py-4 text-center text-xs text-muted-foreground">No tables match &quot;{search}&quot;</td></tr>
                 )}
                 {filtered.map(table => {
                   const rows = latestTableRows.get(table.name)
@@ -145,9 +153,13 @@ function TablesCard({
                             {alsoSyncedLine(table.also_synced_as)}</span>
                         )}
                         {noWatermark && <span className="block text-xs text-[var(--dp-warn-text)]">no changed-since column — reads the whole table</span>}
+                        {table.is_new && <span className="block text-xs text-[var(--dp-warn-text)]">new in the source — not synced until you turn it on (check its masked columns first)</span>}
                       </td>
                       <td className="py-2 text-xs">
                         {mode === "incremental" ? <>Changed rows{table.incremental_column && <span className="text-muted-foreground"> · {table.incremental_column}</span>}</> : "Full refresh"}
+                      </td>
+                      <td className={`py-2 text-xs ${states[table.name] === "failed" || states[table.name] === "behind" ? "text-[var(--dp-warn-text)]" : ""}`}>
+                        {runLabel(states[table.name], table.last_run_at)}
                       </td>
                       <td className="py-2 pr-6 text-right font-mono text-xs">{rows != null ? rows.toLocaleString() : "—"}</td>
                       <td className="py-2 font-mono text-xs">{table.pii_columns?.length ? table.pii_columns.join(", ") : <span className="text-muted-foreground">—</span>}</td>
@@ -163,6 +175,21 @@ function TablesCard({
               </tbody>
             </table>
           </div>
+        )}
+        {orphaned.length > 0 && (
+          <section aria-label="Jobs for tables the source no longer has" className="mt-4 space-y-2 border-t pt-3">
+            <h3 className="text-sm font-semibold">Not in the source any more</h3>
+            <p className="text-xs text-muted-foreground">These jobs name tables the source no longer lists (dropped, renamed, or system tables picked before they were hidden). They never run. Deleting a job keeps the lake table it wrote.</p>
+            <ul className="space-y-1">
+              {orphaned.map(j => (
+                <li key={j.source_table} className="flex items-center justify-between gap-2 text-xs">
+                  <span><span className="font-mono">{j.source_table}</span>
+                    <span className="text-muted-foreground"> · {j.last_run_at ? `last ${j.last_run_status ?? "run"} ${shortDate(j.last_run_at)}` : "never run"}</span></span>
+                  {canEdit && onDeleteOrphan && <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => onDeleteOrphan(j)}>Delete job</Button>}
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
       </CardContent>
     </Card>
@@ -303,6 +330,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   // wizard says so in the URL, and the banner polls until it is back.
   const [engineRestarting, setEngineRestarting] = useState(false)
   const [tables, setTables]               = useState<ConnectorTable[]>([])
+  const [orphaned, setOrphaned]           = useState<OrphanJob[]>([])
   const [togglingTable, setTogglingTable] = useState<string | null>(null)
   const [configPreview, setConfigPreview] = useState<Record<string, ConfigValue>>({})
   const [loading, setLoading]             = useState(true)
@@ -411,8 +439,12 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                 pii_columns: table.pii_columns ?? null,
                 target_catalog: table.target_catalog ?? null,
                 also_synced_as: table.also_synced_as ?? [],
+                is_new: table.is_new ?? false,
+                last_run_at: table.last_run_at ?? null,
+                last_run_status: table.last_run_status ?? null,
               }
         ))
+        setOrphaned(Array.isArray(t.orphaned) ? t.orphaned : [])
       }
       if (cfgRes.ok) {
         const cfg = await cfgRes.json()
@@ -705,6 +737,21 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
     finally { setSaving(false) }
   }
 
+  const handleDeleteOrphan = async (job: OrphanJob) => {
+    if (!(await confirmDialog({
+      title: `Delete the job for ${job.source_table}?`,
+      message: "The source no longer lists this table, so the job never runs. The lake table it wrote stays.",
+      confirmText: "Delete job", destructive: true,
+    }))) return
+    try {
+      const res = await fetch(`/api/connectors/${id}/jobs/${encodeURIComponent(job.source_table)}`, { method: "DELETE" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { toast(typeof data.detail === "string" ? data.detail : `Could not delete (HTTP ${res.status})`, "error"); return }
+      setOrphaned(prev => prev.filter(j => j.source_table !== job.source_table))
+      toast(`Job for ${job.source_table} deleted`, "success")
+    } catch (e) { toast(e instanceof Error ? e.message : "Could not delete", "error") }
+  }
+
   const handleTableToggle = async (tableName: string, enabled: boolean) => {
     setTogglingTable(tableName)
     try {
@@ -931,6 +978,8 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         canEdit={canWrite}
         defaultLake={defaultLake}
         lakes={lakes}
+        orphaned={orphaned}
+        onDeleteOrphan={handleDeleteOrphan}
       />
 
       {/* ── Main 2-column layout — direct card children, no wrapper divs ── */}

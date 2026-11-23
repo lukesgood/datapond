@@ -187,10 +187,13 @@ def test_enforce_applies_mask_in_projection():
                       column="email", masking_type="partial_email",
                       role_map={"business_analyst": False})
     res = enforce("SELECT email FROM iceberg.sales.orders",
-                  analyst(), [orders_region_policy()], [mask])
+                  analyst(), [orders_region_policy()], [mask],
+                  columns={"iceberg.sales.orders": ["id", "email", "region"]})
     assert "m-email" in res.applied_mask_ids
     low = res.sql.lower()
-    assert "except" in low and "regexp_replace" in low
+    # Trino has no SELECT * EXCEPT: every column is listed, the masked one replaced
+    assert "except" not in low and "regexp_replace" in low
+    assert 'select "id", regexp_replace' in low and '"region" from iceberg.sales.orders' in low
 
 
 
@@ -249,10 +252,10 @@ def _region_mask(roles=None, table="customers"):
 def test_mask_only_table_masks_column(dialect, monkeypatch):
     monkeypatch.delenv("RLS_DEFAULT_DENY", raising=False)
     r = enforce("SELECT region FROM AwsDataCatalog.sales.customers", analyst(),
-                [], [_region_mask()], dialect=dialect)
+                [], [_region_mask()], dialect=dialect, columns=_cols("SELECT region FROM AwsDataCatalog.sales.customers"))
     assert r.applied_mask_ids == ["m-region"]
     assert r.applied_policy_ids == []
-    assert "'***' AS region" in r.sql
+    assert "'***' AS \"region\"" in r.sql
     assert "WHERE" not in r.sql
 
 
@@ -267,9 +270,9 @@ def test_mask_only_table_unmasked_for_exempt_role(monkeypatch):
 def test_mask_only_table_allowed_and_masked_under_default_deny(monkeypatch):
     monkeypatch.setenv("RLS_DEFAULT_DENY", "true")
     r = enforce("SELECT region FROM AwsDataCatalog.sales.customers", analyst(),
-                [], [_region_mask()], dialect="trino")
+                [], [_region_mask()], dialect="trino", columns=_cols("SELECT region FROM AwsDataCatalog.sales.customers"))
     assert r.applied_mask_ids == ["m-region"]
-    assert "'***' AS region" in r.sql
+    assert "'***' AS \"region\"" in r.sql
 
 
 def test_table_with_neither_still_blocks_under_default_deny(monkeypatch):
@@ -289,13 +292,12 @@ def test_sensitive_block_blocks_mask_only_table(monkeypatch):
 
 def test_join_of_policy_table_and_mask_only_table_applies_both(monkeypatch):
     monkeypatch.delenv("RLS_DEFAULT_DENY", raising=False)
-    r = enforce(
-        "SELECT o.id, c.region FROM iceberg.sales.orders o "
-        "JOIN awsdatacatalog.sales.customers c ON o.cid = c.id",
-        analyst(), [orders_region_policy()], [_region_mask()])
+    sql = ("SELECT o.id, c.region FROM iceberg.sales.orders o "
+           "JOIN awsdatacatalog.sales.customers c ON o.cid = c.id")
+    r = enforce(sql, analyst(), [orders_region_policy()], [_region_mask()], columns=_cols(sql))
     assert r.applied_policy_ids == ["p-orders-region"]
     assert r.applied_mask_ids == ["m-region"]
-    assert "'***' AS region" in r.sql
+    assert "'***' AS \"region\"" in r.sql
     assert "region = 'us-east'" in r.sql
 
 
@@ -330,3 +332,25 @@ def test_policy_stored_under_the_registry_alias_matches_the_engine_name(monkeypa
             assert "region = 'us-east'" in res.sql.lower(), sql
     finally:
         reg.reset()
+
+
+
+def _cols(sql):
+    """The columns enforce needs, as the caller reads them (rls.loader.columns_for)."""
+    from app.rls.engine import masked_tables
+    return {k: ["id", "region", "name"] for k in masked_tables(sql, [_region_mask()])}
+
+
+def test_a_masked_table_without_its_columns_is_refused_not_sent(monkeypatch):
+    monkeypatch.delenv("RLS_DEFAULT_DENY", raising=False)
+    with pytest.raises(RlsDenied) as e:
+        enforce("SELECT region FROM awsdatacatalog.sales.customers", analyst(), [], [_region_mask()])
+    assert "columns could not be read" in str(e.value)
+
+
+def test_masked_projection_keeps_every_column_in_order(monkeypatch):
+    monkeypatch.delenv("RLS_DEFAULT_DENY", raising=False)
+    sql = "SELECT * FROM awsdatacatalog.sales.customers"
+    r = enforce(sql, analyst(), [], [_region_mask()], columns=_cols(sql))
+    inner = r.sql[r.sql.index("(SELECT") + 1:]
+    assert inner.startswith('SELECT "id", \'***\' AS "region", "name" FROM')

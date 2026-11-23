@@ -26,6 +26,10 @@ export interface SourceTable {
   target_catalog?: string | null
   /** Other jobs of this connection landing in the same lake table (a second copy). */
   also_synced_as?: AlsoSynced[]
+  /** No job yet on a source that has been set up: waits for a person to enable it. */
+  is_new?: boolean
+  last_run_at?: string | null
+  last_run_status?: string | null
 }
 
 interface SchemaColumn { name: string; type: string }

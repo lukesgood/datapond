@@ -1990,9 +1990,11 @@ async def list_tables(connection_id: str, user: dict = Depends(require_user)):
 
         # Load full config per table from DB
         pool = await get_db_pool()
+        from app import sync_plan
+        await sync_plan.heal(pool, connection_id, tables)
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT source_table, target_table, enabled, sync_mode, incremental_column, last_value, partition_spec, key_columns, pii_columns, target_catalog, last_run_at FROM connector_sync_jobs WHERE connection_id=$1",
+                "SELECT source_table, target_table, enabled, sync_mode, incremental_column, last_value, partition_spec, key_columns, pii_columns, target_catalog, last_run_at, last_run_status, rows_synced FROM connector_sync_jobs WHERE connection_id=$1",
                 uuid.UUID(connection_id)
             )
         config_map = {r['source_table']: r for r in rows}
@@ -2014,7 +2016,9 @@ async def list_tables(connection_id: str, user: dict = Depends(require_user)):
             mode = (cfg['sync_mode'] or "full") if cfg else "full"
             inc_col = cfg['incremental_column'] if cfg else None
             last_val = cfg['last_value'] if cfg else None
-            enabled = cfg['enabled'] if cfg else True
+            # No job row: enabled only while the source has never been set up (first sync
+            # adopts everything); afterwards a new table waits for a person.
+            enabled = cfg['enabled'] if cfg else not rows
             raw_ps = cfg['partition_spec'] if cfg else None
             try:
                 part_spec = json.loads(raw_ps) if isinstance(raw_ps, str) else raw_ps
@@ -2037,14 +2041,47 @@ async def list_tables(connection_id: str, user: dict = Depends(require_user)):
                 # where the table lands; None = the default catalog
                 "target_catalog": (cfg['target_catalog'] if cfg and 'target_catalog' in cfg.keys() else None),
                 "also_synced_as": _also(t),
+                "is_new": cfg is None and bool(rows),
+                "last_run_at": cfg['last_run_at'].isoformat() if cfg and cfg['last_run_at'] else None,
+                "last_run_status": cfg['last_run_status'] if cfg else None,
+                "rows_synced": cfg['rows_synced'] if cfg else None,
             }
 
-        return {"tables": [_table_info(t) for t in tables]}
+        listed = set(tables)
+        orphaned = [{"source_table": r['source_table'], "enabled": r['enabled'],
+                     "last_run_at": r['last_run_at'].isoformat() if r['last_run_at'] else None,
+                     "last_run_status": r['last_run_status']}
+                    for r in rows if r['source_table'] not in listed]
+        return {"tables": [_table_info(t) for t in tables], "orphaned": orphaned}
 
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list tables: {str(e)}")
+
+
+@router.delete("/connectors/{connection_id}/jobs/{source_table}",
+               dependencies=[Depends(require_permission("connector:write"))])
+async def delete_orphaned_job(connection_id: str, source_table: str, user: dict = Depends(require_user)):
+    """Remove a sync job whose table the source no longer lists (a dropped table, a
+    system table chosen before they were hidden). A job for a table the source still has
+    is refused: disable it instead, so its settings are kept. The lake table stays."""
+    await require_access(CONNECTOR, connection_id, user, write=True)
+    connector = await _get_connector_instance(connection_id)
+    if source_table in await connector.get_tables():
+        raise HTTPException(409, f"{source_table} is still in the source; disable it instead of deleting its job.")
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        res = await conn.execute("DELETE FROM connector_sync_jobs WHERE connection_id=$1 AND source_table=$2",
+                                 uuid.UUID(connection_id), source_table)
+    if res.endswith(" 0"):
+        raise HTTPException(404, f"No job for {source_table}.")
+    from app import security_audit
+    await security_audit.record(actor=user, permission="connector:write",
+                                route=f"/api/connectors/{connection_id}/jobs/{source_table}",
+                                method="DELETE", outcome="allowed",
+                                reason=f"orphaned sync job {source_table} removed")
+    return {"deleted": source_table}
 
 
 @router.patch("/connectors/{connection_id}/tables/{table_name}/enabled", dependencies=[Depends(require_permission("connector:write"))])
@@ -2269,6 +2306,8 @@ async def sync_stream(connection_id: str, sync_mode: str = "full",
 
             # Load full table config (enabled, sync_mode, incremental_column, last_value)
             pool = await get_db_pool()
+            from app import sync_plan
+            await sync_plan.heal(pool, connection_id, all_tables)
             async with pool.acquire() as conn:
                 enabled_rows = await conn.fetch(
                     """SELECT source_table, enabled, sync_mode, incremental_column, last_value, partition_spec, key_columns, pii_columns
@@ -2276,15 +2315,17 @@ async def sync_stream(connection_id: str, sync_mode: str = "full",
                     uuid.UUID(connection_id)
                 )
             job_map = {r['source_table']: r for r in enabled_rows}
-            enabled_map = {r['source_table']: r['enabled'] for r in enabled_rows}
-            # Tables not yet in DB are enabled by default
-            tables = [t for t in all_tables if enabled_map.get(t, True)]
-            skipped = [t for t in all_tables if not enabled_map.get(t, True)]
+            # A first sync adopts every table; after that a new table waits to be enabled
+            # (app/sync_plan.py) — it must not land in the lake without its masks.
+            planned = sync_plan.plan(all_tables, {r['source_table']: r['enabled'] for r in enabled_rows})
+            tables, skipped, new_tables = planned["sync"], planned["skipped"], planned["new"]
 
             yield sse("step", {
                 "step": "discover",
-                "message": f"Found {len(all_tables)} tables, {len(tables)} enabled" + (f", {len(skipped)} skipped" if skipped else ""),
-                "status": "done", "tables": tables, "skipped": skipped
+                "message": f"Found {len(all_tables)} tables, {len(tables)} enabled"
+                           + (f", {len(skipped)} skipped" if skipped else "")
+                           + (f", {len(new_tables)} new — enable them to sync" if new_tables else ""),
+                "status": "done", "tables": tables, "skipped": skipped, "new": new_tables
             })
             await asyncio.sleep(0)
 
@@ -2771,11 +2812,20 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
     try:
         connector = await _get_connector_instance(connection_id)
 
-        # When no source_table specified, sync all available tables
+        # When no source_table specified, sync the enabled tables (app/sync_plan.py): a
+        # first sync adopts every table, later ones only those with an enabled job.
         if not request.source_table:
-            tables = await _discover_tables(connector, connection_id)
+            discovered = await _discover_tables(connector, connection_id)
+            from app import sync_plan
+            _pool = await get_db_pool()
+            await sync_plan.heal(_pool, connection_id, discovered)
+            async with _pool.acquire() as conn:
+                _jobs = {r['source_table']: r['enabled'] for r in await conn.fetch(
+                    "SELECT source_table, enabled FROM connector_sync_jobs WHERE connection_id=$1",
+                    uuid.UUID(connection_id))}
+            tables = sync_plan.plan(discovered, _jobs)["sync"]
             if not tables:
-                return {"job_id": None, "status": "success", "rows_processed": 0, "message": "No tables to sync"}
+                return {"job_id": None, "status": "success", "rows_processed": 0, "message": "No enabled tables to sync"}
             total_rows = 0
             last_status = None
             results = []
