@@ -2,7 +2,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import {
-  addCondition, canBecomeSegment, segmentBody, segmentValue, valueCondition, bindingText, cell, conceptChips, conceptWordsFor, shortUse, conceptRows, coverage, maskHref, matchesSearch, matrixTables, parseMaskParam, segmentsFor, suggestionBody, tableLabel,
+  addCondition, descendants, editBody, canBecomeSegment, segmentBody, segmentValue, valueCondition, bindingText, cell, conceptChips, conceptWordsFor, shortUse, conceptRows, coverage, maskHref, matchesSearch, matrixTables, parseMaskParam, segmentsFor, suggestionBody, tableLabel,
   type Binding, type Concept, type Suggestion,
 } from "./concepts.ts"
 
@@ -110,4 +110,14 @@ test("a guessed value becomes the stored spelling, and a missing one cannot beco
   assert.equal(canBecomeSegment(v), true)
   assert.equal(canBecomeSegment({ ...v, actual: undefined, exists: false }), false)
   assert.equal(canBecomeSegment({ ...v, checked: false, exists: undefined }), true)
+})
+
+test("a concept's descendants cannot be its parent; an edit sends only what changed", () => {
+  const cs = [C("고객"), C("VIP 고객", "고객"), C("VVIP", "VIP 고객"), C("주문")]
+  assert.deepEqual([...descendants(cs, "고객")].sort(), ["VIP 고객", "VVIP"])
+  assert.deepEqual([...descendants(cs, "주문")], [])
+  const c = { ...C("고객"), description: "buyer" }
+  assert.deepEqual(editBody(c, { name: "고객", description: "buyer", parent: "", pii: false }), {})
+  assert.deepEqual(editBody(c, { name: "회원 ", description: "", parent: "주문", pii: true }),
+    { name: "회원", description: null, parent: "주문", pii: true })
 })

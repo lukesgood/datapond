@@ -352,3 +352,24 @@ def test_same_concept_unbound_columns_and_narrower_concepts_pass():
     assert ctx.join_conflicts(ok, CROSS, "trino", "iceberg") == []
     assert ctx.join_conflicts("not sql at all", CROSS) == []
     assert ctx.join_conflicts("SELECT 1 FROM a JOIN b ON a.x = b.y", []) == []
+
+
+def test_edit_needs_the_capability_and_an_existing_concept(world, monkeypatch):
+    class Conn:
+        async def fetchval(self, sql, *a):
+            return None                                     # no such concept
+    class Acq:
+        async def __aenter__(self): return Conn()
+        async def __aexit__(self, *a): return False
+    class Pool:
+        def acquire(self): return Acq()
+    async def pool():
+        return Pool()
+    monkeypatch.setattr(routes, "_pool", pool)
+    with pytest.raises(HTTPException) as e:
+        asyncio.run(routes.edit_concept("없음", routes.ConceptEdit(name="x"), user=ADMIN))
+    assert e.value.status_code == 404
+    monkeypatch.setenv("FEATURE_ONTOLOGY", "")
+    with pytest.raises(HTTPException) as e:
+        asyncio.run(routes.edit_concept("고객", routes.ConceptEdit(name="x"), user=ADMIN))
+    assert e.value.status_code == 404

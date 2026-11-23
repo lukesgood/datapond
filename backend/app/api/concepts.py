@@ -324,3 +324,59 @@ async def add_term(name: str, body: TermBody,
     if added:
         await _audit(user, "POST", f"/api/semantic/concepts/{name}/terms", f"concept {name}: term {term!r} added")
     return {"concept": name, "term": term, "added": added}
+
+
+class ConceptEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    parent: Optional[str] = None            # null removes the parent
+    pii: Optional[bool] = None
+    # On a rename, keep the old name as one of the concept's words, so questions that
+    # still use it keep matching.
+    keep_old_name: bool = True
+
+
+@router.patch("/semantic/concepts/{name}")
+async def edit_concept(name: str, body: ConceptEdit,
+                       user: dict = Depends(require_permission("knowledge:write"))):
+    """Rename a concept or change its description, parent or PII flag. Bindings and
+    narrower concepts refer to the concept by id (migration 0033), so a rename keeps
+    them; only the fields sent change."""
+    _require_enabled()
+    from app.api.ontology import ParentError, parent_id_for
+    sent = body.model_fields_set
+    pool = await _pool()
+    async with pool.acquire() as c:
+        cid = await c.fetchval("SELECT id FROM ontology_concepts WHERE name = $1", name)
+        if cid is None:
+            raise HTTPException(404, f"Unknown concept {name!r}.")
+        sets, args = [], []
+        if "name" in sent and body.name and body.name.strip() != name:
+            new = body.name.strip()
+            if await c.fetchval("SELECT 1 FROM ontology_concepts WHERE name = $1", new):
+                _bad("name", f"A concept named {new!r} already exists.", 409)
+            sets.append("name"); args.append(new)
+        if "description" in sent:
+            sets.append("description"); args.append((body.description or "").strip() or None)
+        if "pii" in sent and body.pii is not None:
+            sets.append("pii"); args.append(body.pii)
+        if "parent" in sent:
+            try:
+                pid = await parent_id_for(c, body.parent, cid)
+            except ParentError as e:
+                _bad("parent", str(e))
+            sets.append("parent_id"); args.append(pid)
+        if not sets:
+            return {"name": name, "changed": []}
+        assign = ", ".join(f"{col} = ${i}" for i, col in enumerate(sets, start=1))
+        async with c.transaction():
+            await c.execute(f"UPDATE ontology_concepts SET {assign} WHERE id = ${len(sets) + 1}", *args, cid)
+            if "name" in sets and body.keep_old_name:
+                await c.execute("INSERT INTO concept_terms (concept_id, term) VALUES ($1, $2) "
+                                "ON CONFLICT DO NOTHING", cid, name)
+    new_name = args[sets.index("name")] if "name" in sets else name
+    changed = ["parent" if x == "parent_id" else x for x in sets]
+    await _audit(user, "PATCH", f"/api/semantic/concepts/{name}",
+                 f"concept {name} edited: {', '.join(changed)}" + (f" (now {new_name})" if new_name != name else ""))
+    return {"name": new_name, "changed": changed}
