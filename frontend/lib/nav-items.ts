@@ -18,51 +18,46 @@ export type NavSection = {
   items: NavItem[]
 }
 
-// DataPond is a lightweight lakehouse first (docs/PRODUCT_CONCEPT.md v7): the data
-// platform leads, AI is a section on top of it, and operating the deployment closes the
-// menu. Data and workload modules fail closed until /api/capabilities enables them, so a
-// RAG-only profile (no catalog or engine) shows the AI section first in practice.
+// The menu follows the path data takes to an answer (docs/PRODUCT_CONCEPT.md v7):
+// connect and land it (Data), say what it means (Semantic), use it — people and agents
+// (Use) — and run the deployment underneath (Operate). Roles are not separate menus:
+// each item is gated by its permission, so a role sees only its own stretch of the
+// path (an analyst: Catalog → Semantic model → Analytics; an auditor: Governance), and
+// help, guides and the demo describe one menu. Data and workload modules fail closed
+// until /api/capabilities enables them, so a RAG-only profile starts at Use.
 export const NAV_SECTIONS: NavSection[] = [
   {
-    label: "Lakehouse",
-    hint: "Iceberg catalog, SQL engine and data sources",
+    label: "Data",
+    hint: "Connect sources, move and shape data, browse the catalog",
     items: [
-      { title: "Catalog", url: "/catalog", capability: "catalog" },
-      { title: "Analytics", url: "/query", capability: "query", permission: "query:run" },
       { title: "Sources", url: "/connectors", capability: "connectors", permission: "connector:read" },
-      // Not /catalog/metrics: /catalog/[namespace] would shadow a namespace named
-      // "metrics". Needs the query capability — a metric is computed by the engine.
-      { title: "Metrics", url: "/metrics", capability: "query", permission: "catalog:read" },
-    ],
-  },
-  {
-    label: "Pipelines",
-    hint: "Optional transform and streaming workloads",
-    items: [
       { title: "Transforms", url: "/pipelines", capability: "pipelines", permission: "pipeline:write" },
       { title: "Streaming", url: "/streaming", capability: "streaming", permission: "pipeline:write" },
+      // Tables, their metadata and the relationship graph.
+      { title: "Catalog", url: "/catalog", capability: "catalog" },
     ],
   },
   {
-    label: "Data Science",
-    hint: "Optional notebooks and ML tracking",
+    label: "Semantic",
+    hint: "What the data means: metrics, joins and business concepts",
     items: [
+      // Not /catalog/metrics: /catalog/[namespace] would shadow a namespace named
+      // "metrics". Needs the query capability — a metric is computed by the engine.
+      { title: "Semantic model", url: "/metrics", capability: "query", permission: "catalog:read" },
+    ],
+  },
+  {
+    label: "Use",
+    hint: "Ask questions, search documents, notebooks and agents",
+    items: [
+      { title: "Analytics", url: "/query", capability: "query", permission: "query:run" },
+      { title: "Knowledge", url: "/knowledge" },
       { title: "Notebooks", url: "/notebooks", capability: "notebooks", permission: "workbench:read" },
       { title: "Experiments", url: "/experiments", capability: "experiments", permission: "workbench:read" },
-    ],
-  },
-  {
-    label: "AI",
-    hint: "Search, cited answers and agents on top of your data",
-    items: [
-      // How to connect an agent (MCP, the gateway document, the REST surface) is a
-      // guide, at /help/integrate; issuing its key is on the Agents page.
-      { title: "Knowledge", url: "/knowledge" },
       // An agent is a governed caller (which data it reads, what it spends, what it
-      // called); admin-only, like the service-account API behind it.
+      // called); admin-only, like the service-account API behind it. How to connect one
+      // (MCP, the gateway document, REST) is a guide, at /help/integrate.
       { title: "Agents", url: "/agents", permission: "user:manage" },
-      // Registers model providers, issues keys and reports spend.
-      { title: "AI Gateway", url: "/ai", permission: "spend:read" },
     ],
   },
   {
@@ -70,6 +65,8 @@ export const NAV_SECTIONS: NavSection[] = [
     hint: "Govern and run the deployment",
     items: [
       { title: "Governance", url: "/governance", permission: "governance:read" },
+      // Registers model providers, issues keys and reports spend.
+      { title: "AI Gateway", url: "/ai", permission: "spend:read" },
       { title: "Storage", url: "/storage", permission: "service:manage" },
       // Infrastructure = Services (workloads/adapters) + System (node) as one workspace
       // at /services with tabs; /system redirects into it.

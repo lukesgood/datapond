@@ -78,15 +78,23 @@ test("every step names its icon kind", () => {
   }
 })
 
-test("the menu leads with the data platform and keeps AI in its own section", () => {
-  assert.equal(NAV_SECTIONS[0].label, "Lakehouse")
-  assert.deepEqual(NAV_SECTIONS[0].items.map((i) => i.title), ["Catalog", "Analytics", "Sources", "Metrics"])
-  const ai = NAV_SECTIONS.find((s) => s.label === "AI")
-  assert.ok(ai, "an AI section")
-  assert.deepEqual(ai!.items.map((i) => i.title), ["Knowledge", "Agents", "AI Gateway"])
-  const operate = NAV_SECTIONS.find((s) => s.label === "Operate")!
-  assert.deepEqual(operate.items.map((i) => i.title), ["Governance", "Storage", "Infrastructure", "Settings"])
-  assert.equal(NAV_SECTIONS.at(-1)!.label, "Operate")
+test("the menu follows the data's path: Data, Semantic, Use, Operate", () => {
+  assert.deepEqual(NAV_SECTIONS.map((s) => s.label), ["Data", "Semantic", "Use", "Operate"])
+  const titles = (label: string) => NAV_SECTIONS.find((s) => s.label === label)!.items.map((i) => i.title)
+  assert.deepEqual(titles("Data"), ["Sources", "Transforms", "Streaming", "Catalog"])
+  assert.deepEqual(titles("Semantic"), ["Semantic model"])
+  assert.deepEqual(titles("Use"), ["Analytics", "Knowledge", "Notebooks", "Experiments", "Agents"])
+  assert.deepEqual(titles("Operate"), ["Governance", "AI Gateway", "Storage", "Infrastructure", "Settings"])
+})
+
+test("each role sees its own stretch of the path", () => {
+  // Permission sets as in backend app/permissions.py; capabilities all on.
+  const visible = (perms: string[]) => NAV_SECTIONS.flatMap((s) => s.items)
+    .filter((i) => !i.permission || perms.includes(i.permission)).map((i) => i.title)
+  const read = ["catalog:read", "knowledge:read"]
+  assert.deepEqual(visible([...read, "query:run"]), ["Catalog", "Semantic model", "Analytics", "Knowledge"])
+  assert.deepEqual(visible([...read, "governance:read", "spend:read"]),
+    ["Catalog", "Semantic model", "Knowledge", "Governance", "AI Gateway"])
 })
 
 test("the Organize sub-label counts catalogs when there are several", () => {

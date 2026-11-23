@@ -42,7 +42,7 @@ LiteLLM logical model gateway (Bedrock, cloud, or local provider mapping)
 S3 API object storage (native S3 or compatible endpoint)
 ```
 
-Console navigation (2.6): Dashboard; Lakehouse (Catalog, Analytics, Sources, Metrics — capability-gated); Pipelines; Data Science; AI (Knowledge, Agents, AI Gateway); Operate (Governance, Storage, Infrastructure, Settings); Help.
+Console navigation (2.7, by the data's path): Overview; Data (Sources, Transforms, Streaming, Catalog); Semantic (Semantic model: Metrics · Joins · Concepts); Use (Analytics, Knowledge, Notebooks, Experiments, Agents); Operate (Governance, AI Gateway, Storage, Infrastructure, Settings); Help. Items are capability- and permission-gated, so each role sees its own stretch.
 
 ### Adapter and add-on layer
 

@@ -46,6 +46,13 @@ target is refused (400).
   in `datapond-secrets`, lookup-preserved); before this, two replicas refused each other's
   tokens (401). On the AWS reference Polaris runs one replica with a 50m CPU request.
 
+**Console menu by the data's path (2026-11-23).** Sections are now Data (Sources,
+Transforms, Streaming, Catalog), Semantic (Semantic model — the former Metrics page, with
+Metrics, Joins and Concepts tabs), Use (Analytics, Knowledge, Notebooks, Experiments,
+Agents) and Operate (Governance, AI Gateway, Storage, Infrastructure, Settings). URLs are
+unchanged; bookmarks keep working. Menus are not per role: each item is gated by its
+permission as before, so a role sees only its own part of the path.
+
 ## 2.6 (2026-11) — Lakehouse first: catalog export, Trino workers, menu
 
 Positioning v7 (`docs/POSITIONING_V7.md`): DataPond is a lightweight open lakehouse; the AI

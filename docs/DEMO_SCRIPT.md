@@ -172,7 +172,7 @@ LEFT JOIN src_sample_e_commerce_db.public.orders s ON s.id = l.id
 GROUP BY l.channel ORDER BY lake_orders DESC;
 ```
 
-Define and approve a metric (console: Metrics → New, then Approve), or as below. A
+Define and approve a metric (console: Semantic model → New metric, then Approve), or as below. A
 retired name cannot be reused, so for a second run pick a new name (`demo_order_count_2`).
 
 ```bash

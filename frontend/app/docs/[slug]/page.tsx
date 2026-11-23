@@ -257,7 +257,7 @@ const ARTICLES: Record<string, Doc> = {
     related: [
       { label: { en: "Catalog", ko: "Catalog" }, href: "/catalog", capability: "catalog" },
       { label: { en: "Analytics", ko: "Analytics" }, href: "/query", capability: "query" },
-      { label: { en: "Metrics", ko: "Metrics" }, href: "/metrics", capability: "query" },
+      { label: { en: "Semantic model", ko: "Semantic model" }, href: "/metrics", capability: "query" },
     ],
   },
   catalogs: {
