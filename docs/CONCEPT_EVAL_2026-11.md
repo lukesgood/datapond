@@ -130,5 +130,8 @@ Approved by the owner the same day, made through the console's API functions (au
   people actually use (tiers, statuses, active flags) is the work that pays first.
 - Join guidance pays where names do not help: 0 vs 3 wrong key pairs, and a shorter correct
   path. On a well-named schema it changed nothing measurable.
-- A concept cannot say which column of a related table answers a phrase ("창고 코드"). That is
-  an attribute binding (창고 → `warehouses.code`), worth adding where questions use it.
+- A concept's keys do not say which column of a related table answers a phrase ("창고 코드").
+  An attribute binding does: after 창고 → `warehouses.code` was added (binding 46), Q8 on the
+  legacy names went from 1/3 to **5/5** with concepts (0/5 without); on the clean schema it
+  stayed 5/5 in both arms. Add attributes for the phrases questions use (category, country,
+  code).
