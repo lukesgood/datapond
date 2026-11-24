@@ -439,3 +439,70 @@ async def catalog_search(q: str = "", user: dict = Depends(require_user)):
         logger.info("[catalog] metrics unavailable for search: %s", e)
     return catalog_search.search(q, index, concepts, bindings, metrics,
                                  access.allows_sql_catalog)
+
+
+@router.get("/catalog/tables/{namespace}/{table}/columns/{column}/values",
+            dependencies=[Depends(require_permission("query:run"))])
+async def column_values(namespace: str, table: str, column: str, catalog: Optional[str] = None,
+                        db: Session = Depends(get_db), user: dict = Depends(require_user)):
+    """One column's top values by rows, its empty share and a distinct estimate, for the
+    Data Map's column drill-down (app/column_values.py).
+
+    Read through the governed query path as the caller — grants, row policies, masks,
+    the PII guardrail and the tool-call audit apply, so the figures describe the rows
+    and values the caller may see. A column masked for the caller, or bound to a PII
+    concept, returns counts only (`hidden`)."""
+    import asyncio
+    from app import column_values as cv
+    from app import table_profile as tp
+    _bare(namespace, table)
+    entry = _entry(catalog, await catalog_access.for_caller(user))
+    cat = entry.engine_catalog
+    try:
+        cols = await asyncio.to_thread(get_catalog_reader(entry.name).get_columns, namespace, table)
+    except Exception as e:
+        logger.info("[catalog] columns of %s.%s.%s unreadable: %s", cat, namespace, table, e)
+        raise HTTPException(status_code=404, detail=f"{namespace}.{table} could not be read.")
+    col = cv.find_column(cols, column)
+    if col is None:
+        raise HTTPException(status_code=404, detail=f"{namespace}.{table} has no column {column!r}.")
+    name, typ = col["name"], str(col.get("type") or "")
+    try:
+        gov = await tp.governance(user, cat, namespace, table)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=f"Not readable for you: {e}")
+    hidden_reason = None
+    if name.lower() in gov["masked"]:
+        hidden_reason = "A column mask hides this column's values from you."
+    elif name.lower() in {c.lower() for c in await tp.pii_columns(cat, namespace, table)}:
+        hidden_reason = "This column is bound to a PII concept, so its values are not listed."
+    elif not cv.listable(typ):
+        hidden_reason = f"Values of {typ or 'this type'} are not listed."
+    target = (f"{namespace}.{table}" if entry.is_default
+              else f"{safe_identifier(cat)}.{namespace}.{table}")
+
+    async def run(sql: str):
+        res = await execute_query(QueryExecuteRequest(query=sql, save_history=False, origin="ui"), db, user)
+        return [dict(zip(list(res.columns), r)) for r in res.rows]
+
+    try:
+        if hidden_reason:
+            counts = (await run(cv.counts_only(target, name)))[0]
+            values = []
+        else:
+            counts_sql, top_sql = cv.statements(target, name)
+            counts = (await run(counts_sql))[0]
+            values = [{"value": None if r["value"] is None else str(r["value"]), "rows": int(r["n"])}
+                      for r in await run(top_sql)]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.info("[catalog] values of %s.%s.%s.%s failed: %s", cat, namespace, table, name, e)
+        raise HTTPException(status_code=502, detail="The column's values could not be read.")
+    total = int(counts.get("total") or 0)
+    non_null = int(counts.get("non_null") or 0)
+    return {"column": name, "type": typ, "rows": total,
+            "nulls": total - non_null, "null_fraction": (total - non_null) / total if total else None,
+            "distinct": counts.get("distinct_est"),
+            "values": values, "hidden": bool(hidden_reason), "reason": hidden_reason,
+            "restricted": bool(gov["restricted"]), "top": cv.TOP}

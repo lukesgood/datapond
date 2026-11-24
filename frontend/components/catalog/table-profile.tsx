@@ -11,10 +11,14 @@ import {
   distinctLabel, nullPct, snapshotLabel, type TableKeys, type TableProfile,
 } from "@/lib/table-profile"
 
-export function TableProfileView({ profile, error, keys }: {
+export function TableProfileView({ profile, error, keys, onColumn, drilled }: {
   profile: TableProfile | null
   error: string | null
   keys: TableKeys | null
+  /** Open a column's values (the column drill-down); the link is left out without it. */
+  onColumn?: (name: string) => void
+  /** The column whose drill-down is open, so its row shows as selected. */
+  drilled?: string | null
 }) {
   if (error) return <ErrorBox msg={error} />
   if (!profile) {
@@ -46,8 +50,14 @@ export function TableProfileView({ profile, error, keys }: {
                 </thead>
                 <tbody>
                   {profile.columns.map(c => (
-                    <tr key={c.name} className="border-b last:border-b-0">
-                      <td className="p-2.5 font-mono text-xs">{c.name}</td>
+                    <tr key={c.name} className={`border-b last:border-b-0 ${drilled === c.name ? "bg-primary/5" : ""}`}>
+                      <td className="p-2.5 font-mono text-xs">
+                        {c.name}
+                        {onColumn && (
+                          <button type="button" onClick={() => onColumn(c.name)} aria-label={`Values of ${c.name}`}
+                                  className="ml-2 font-sans text-2xs text-primary hover:underline">values ›</button>
+                        )}
+                      </td>
                       <td className="p-2.5 text-right tabular-nums">{nullPct(c.nulls)}</td>
                       <td className="p-2.5 text-right tabular-nums">{distinctLabel(c.distinct)}</td>
                       <td className="p-2.5 font-mono text-xs text-muted-foreground">

@@ -24,6 +24,7 @@ import { CatalogKindBadge } from "@/components/catalog/kind-badge"
 import { CopyName, TableStatus } from "@/components/catalog/table-status"
 import type { TableFacts } from "@/lib/catalog-view"
 import { TableProfileView } from "@/components/catalog/table-profile"
+import { ColumnDrill } from "@/components/catalog/column-drill"
 import { keyBadges, type TableKeys, type TableProfile } from "@/lib/table-profile"
 
 interface Column {
@@ -92,6 +93,8 @@ function TableDetailPageInner() {
       .catch(() => {})
     return () => { cancelled = true }
   }, [])
+  // The column whose values are open on the Profile tab (column drill-down).
+  const [drill, setDrill] = useState<string | null>(null)
   const engineCatalog = catalogParam
     ? engineCatalogOf(registry, catalogParam) ?? catalogParam
     : registry.find(c => c.is_default)?.engine_catalog ?? null
@@ -564,7 +567,12 @@ function TableDetailPageInner() {
         </TabsContent>
 
         <TabsContent value="profile" className="space-y-4">
-          <TableProfileView profile={profile} error={profileError} keys={keys} />
+          {drill && engineCatalog && (
+            <ColumnDrill key={drill} tableId={`${engineCatalog}.${namespace}.${tableName}`.toLowerCase()} column={drill}
+                         onClose={() => setDrill(null)} />
+          )}
+          <TableProfileView profile={profile} error={profileError} keys={keys}
+                            onColumn={engineCatalog ? setDrill : undefined} drilled={drill} />
         </TabsContent>
 
         {/* Metadata Tab */}
