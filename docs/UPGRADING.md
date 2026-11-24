@@ -129,6 +129,19 @@ reports parents it could not resolve as `unresolved_parents`.
 - A join proposed from a foreign key records `source = 'fk'` (migration 0035 widens the
   `semantic_joins` source check; the previous release never writes it).
 
+**Catalog: search by column and business word (2026-11-24, no migration).**
+- `GET /api/catalog/search?q=` (`catalog:read`) matches table names, column names, concepts
+  (name and aliases) and metrics (name, label, synonyms). A matched concept brings the
+  columns bound to it (key and attribute bindings) and its segments, so 고객 finds
+  `customers.id` and `orders.customer_id`. Every hit says why. Only catalogs the caller may
+  use are searched; nothing reads a row.
+- The column index is one `information_schema.columns` read per catalog, cached five
+  minutes per backend process (live: four catalogs, about 3 s uncached). A catalog that
+  cannot be read is skipped, so one source down does not empty the search.
+- The Catalog search box now also shows what it found beyond names (a summary line and
+  Concepts / Columns / Segments / Metrics) and adds those tables to the list, each with its
+  reason. The agent tool `catalog.find_tables` is unchanged (names only).
+
 ## 2.6 (2026-11) — Lakehouse first: catalog export, Trino workers, menu
 
 Positioning v7 (`docs/POSITIONING_V7.md`): DataPond is a lightweight open lakehouse; the AI
