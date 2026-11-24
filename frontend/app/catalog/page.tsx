@@ -21,6 +21,8 @@ import { SendToKnowledgePanel, TableRail, type CatalogTable } from "@/components
 import { ago, browserQuery, browserStateFrom, catalogTypeOf, inChip, isSourceKind, namespaceChips, searchScope, type RegistryEntry } from "@/lib/catalog-view"
 import { CatalogKindBadge } from "@/components/catalog/kind-badge"
 import { findNodeId, soleCatalog, type RelGraph } from "@/lib/relationship-view"
+import { foundKey, whyFor, type SearchResult } from "@/lib/catalog-search"
+import { FindPanel } from "@/components/catalog/find-panel"
 
 // reactflow pulls in a chunk we should not pay for unless the map is opened.
 const RelationshipGraph = dynamic(
@@ -113,6 +115,25 @@ function CatalogPageInner() {
     return () => { cancelled = true }
   }, [])
 
+  // Columns and business words (GET /api/catalog/search): debounced, the latest query
+  // wins. Table names still match on the client, so the list never waits for this.
+  const [found, setFound] = useState<SearchResult | null>(null)
+  const [finding, setFinding] = useState(false)
+  const [findFailed, setFindFailed] = useState(false)
+  const searchText = query.trim()
+  useEffect(() => {
+    const ctrl = new AbortController()
+    const t = window.setTimeout(() => {
+      if (!searchText) { setFound(null); setFinding(false); setFindFailed(false); return }
+      setFinding(true)
+      fetch(`/api/catalog/search?q=${encodeURIComponent(searchText)}`, { signal: ctrl.signal })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+        .then((r: SearchResult) => { setFound(r); setFindFailed(false); setFinding(false) })
+        .catch(e => { if (ctrl.signal.aborted) return; setFound(null); setFindFailed(true); setFinding(false); void e })
+    }, searchText ? 300 : 0)
+    return () => { window.clearTimeout(t); ctrl.abort() }
+  }, [searchText])
+
   const tables = useMemo(() => data?.tables ?? [], [data])
   const registry = useMemo(() => data?.registry ?? [], [data])
   const catalogs = useMemo(() => {
@@ -132,8 +153,13 @@ function CatalogPageInner() {
   const chips = useMemo(() => namespaceChips(tables.filter(inCatalog), (data?.namespaces ?? []).filter(inCatalog)), [tables, data, inCatalog])
   const scoped = tables.filter(t => inCatalog(t) && inChip(chip, t))
   const needle = query.trim().toLowerCase()
+  // A search result is only trusted for the text it answered, so a stale one never
+  // widens the list for a newer query.
+  const result = found && found.query.trim() === searchText ? found : null
+  const foundKeys = new Set((result?.tables ?? []).map(foundKey))
+  const keyOf = (t: Table) => foundKey({ catalog: t.catalog, namespace: t.namespace, table: t.name })
   const matched = needle ? scoped.filter(t => t.name.toLowerCase().includes(needle) || t.namespace.toLowerCase().includes(needle)
-    || t.catalog.toLowerCase().includes(needle)) : scoped
+    || t.catalog.toLowerCase().includes(needle) || foundKeys.has(keyOf(t))) : scoped
   const shown = [...matched].sort((a, b) => {
     const v = sort.by === "synced"
       ? (a.synced_from?.last_run_at ?? "").localeCompare(b.synced_from?.last_run_at ?? "")
@@ -143,7 +169,15 @@ function CatalogPageInner() {
   })
   // Outside the current catalog/namespace: offered when the search finds nothing here.
   const elsewhere = needle && (catalog !== "all" || chip !== "all")
-    ? tables.filter(t => t.name.toLowerCase().includes(needle) || t.namespace.toLowerCase().includes(needle)).length : 0
+    ? tables.filter(t => !scoped.includes(t) && (t.name.toLowerCase().includes(needle) || t.namespace.toLowerCase().includes(needle)
+        || foundKeys.has(keyOf(t)))).length : 0
+  // Picking a search hit opens its table, widening the scope when it is outside it.
+  const pickFound = (key: string) => {
+    const hit = tables.find(t => keyOf(t) === key)
+    if (!hit) return
+    if (!scoped.includes(hit)) { setCatalog("all"); setChip("all") }
+    setSelected(tableKey(hit)); setSending(false)
+  }
   const chipLabel = chip === "all" ? null : chips.find(c => c.key === chip)?.label ?? null
   const connectionOf = (t: Table) => {
     const id = registry.find(r => r.engine_catalog === t.catalog)?.config?.connection_id
@@ -302,10 +336,14 @@ function CatalogPageInner() {
             <div className="flex flex-wrap items-center gap-3">
               <div className="relative min-w-[220px] flex-1">
                 <Search aria-hidden className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input aria-label="Search tables" placeholder="Search tables" value={query} onChange={e => setQuery(e.target.value)} className="pl-8" />
+                <Input aria-label="Search tables, columns or business words" placeholder="Search tables, columns or business words (고객, email)" value={query} onChange={e => setQuery(e.target.value)} className="pl-8" />
               </div>
               <p className="dp-num text-xs text-muted-foreground">{shown.length === scoped.length ? `${shown.length} tables` : `${shown.length} of ${scoped.length} tables`}</p>
             </div>
+            {searchText && (
+              <FindPanel result={result} loading={finding} failed={findFailed} onPick={pickFound}
+                         canPick={key => tables.some(t => keyOf(t) === key)} />
+            )}
             {shown.length === 0 ? (
               <div className="rounded-xl border bg-card">
                 <EmptyState icon={Search} title="No tables match"
@@ -338,6 +376,11 @@ function CatalogPageInner() {
                             <button type="button" data-table-key={tableKey(t)} aria-pressed={on}
                                     className="text-left font-medium hover:underline focus-visible:underline focus-visible:outline-none"
                                     onClick={e => { e.stopPropagation(); select(t) }}>{t.name}</button>
+                            {(() => {
+                              const why = whyFor(result, t)
+                              return why && why.length > 0
+                                ? <p className="mt-0.5 text-2xs text-muted-foreground">{why.join(" · ")}</p> : null
+                            })()}
                           </td>
                           <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
                             {catalogs.length > 1 && catalog === "all" ? `${t.catalog}.` : ""}{t.namespace}
