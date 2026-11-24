@@ -142,6 +142,23 @@ reports parents it could not resolve as `unresolved_parents`.
   Concepts / Columns / Segments / Metrics) and adds those tables to the list, each with its
   reason. The agent tool `catalog.find_tables` is unchanged (names only).
 
+**Catalog: Data map with four modes, and column drill-down (2026-11-24, no migration).**
+- The Catalog's "Relationship map" is now **Data map**: one centre table, four modes.
+  Relationships (as before); Lineage (upstream and downstream from the flow map: syncs,
+  streams, transforms); Schema (the centre and up to five known neighbours — columns,
+  source PK/FK, concept chips, join columns, snapshots); Concepts (approved concepts on the
+  table and the other tables holding each). Picking a table in any mode re-centres all.
+- `GET /api/catalog/tables/{ns}/{t}/columns/{col}/values` (`query:run`): top 20 values by
+  rows, empty share and a distinct estimate, run through the governed query path as the
+  caller (grants, row policies, masks, PII guardrail, tool-call audit). A masked column, a
+  PII-bound column or a complex type returns counts only (`hidden` with the reason).
+- The drill-down (Profile tab "values ›", or a column in Schema mode) shows the values, what
+  the column means (segments, concept bindings) and its declared joins, and can make a value
+  a segment (new concept under the table's key concept, or an existing one) or bind the
+  column to a concept — through the existing concept and binding APIs and their
+  permissions; a non-admin's binding is a proposal. A new concept name that already exists
+  is refused (creating it would overwrite the existing one).
+
 ## 2.6 (2026-11) — Lakehouse first: catalog export, Trino workers, menu
 
 Positioning v7 (`docs/POSITIONING_V7.md`): DataPond is a lightweight open lakehouse; the AI

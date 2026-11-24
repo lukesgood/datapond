@@ -9,6 +9,7 @@ import type { Binding, Concept } from "@/lib/concepts"
 import { conceptsAround, lineageAround, lineageLayout, schemaNeighbours, type LineageNode } from "@/lib/data-map"
 import { displayId, splitTableId, tableHref, type Neighbour } from "@/lib/relationship-view"
 import { keyBadges, snapshotLabel, type Snapshot, type TableKeys } from "@/lib/table-profile"
+import { ColumnDrill } from "@/components/catalog/column-drill"
 
 type Loaded<T> = { data: T | null; loading: boolean; failed: boolean }
 
@@ -142,9 +143,10 @@ function chipsFor(bindings: Binding[] | null, id: string): ConceptChips {
 
 const SHOWN_COLUMNS = 12
 
-function SchemaCard({ id, centre, joinColumns, via, sole, bindings, onPick, snapshots }: {
+function SchemaCard({ id, centre, joinColumns, via, sole, bindings, onPick, snapshots, onColumn, drilled }: {
   id: string; centre: boolean; joinColumns: string[]; via: string; sole: string | null
   bindings: Binding[] | null; onPick: (id: string) => void; snapshots?: Snapshot[] | null
+  onColumn: (table: string, column: string) => void; drilled: string | null
 }) {
   const detail = useJson<Detail>(detailUrl(id))
   const keys = useJson<TableKeys>(detailUrl(id, "/keys"))
@@ -180,7 +182,9 @@ function SchemaCard({ id, centre, joinColumns, via, sole, bindings, onPick, snap
               const k = c.name.toLowerCase()
               return (
                 <li key={c.name} className="flex flex-wrap items-baseline gap-1.5">
-                  <span className={`font-mono ${joins.has(k) ? "font-semibold text-primary" : ""}`}>{c.name}</span>
+                  <button type="button" onClick={() => onColumn(id, c.name)} title="Values, meaning and joins of this column"
+                          aria-pressed={drilled === c.name}
+                          className={`font-mono hover:underline ${joins.has(k) ? "font-semibold text-primary" : ""} ${drilled === c.name ? "rounded bg-primary/10 px-0.5" : ""}`}>{c.name}</button>
                   <span className="text-2xs text-muted-foreground">{c.type}</span>
                   {(badges[k] ?? []).map(b => <span key={b.label} title={b.title} className="rounded bg-muted px-1 text-2xs font-medium">{b.label}</span>)}
                   {(chips[k] ?? []).map(ch => <span key={ch.concept + ch.role} title={`Bound to concept ${ch.concept} (${ch.role})`} className="rounded border px-1 text-2xs">{ch.concept}</span>)}
@@ -212,20 +216,28 @@ export function SchemaView({ centre, around, sole, bindings, onPick }: {
 }) {
   const s = useMemo(() => schemaNeighbours(centre, around), [centre, around])
   const profile = useJson<{ snapshots?: Snapshot[] }>(detailUrl(centre, "/profile"))
+  const [drill, setDrill] = useState<{ table: string; column: string } | null>(null)
+  const pick = (table: string, column: string) =>
+    setDrill(d => (d && d.table === table && d.column === column ? null : { table, column }))
+  const drilledOn = (id: string) => (drill && drill.table === id ? drill.column : null)
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
         The table and {s.others.length ? `its ${s.others.length} nearest neighbour${s.others.length === 1 ? "" : "s"}` : "no known neighbours"}.
-        Bold columns join to the centre; PK/FK come from the source database.
+        Bold columns join to the centre; PK/FK come from the source database. Click a column for its values.
       </p>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <SchemaCard id={centre} centre joinColumns={s.centre.joinColumns} via="" sole={sole} bindings={bindings}
-                    onPick={onPick} snapshots={profile.data?.snapshots ?? null} />
+                    onPick={onPick} snapshots={profile.data?.snapshots ?? null} onColumn={pick} drilled={drilledOn(centre)} />
         {s.others.map(o => (
           <SchemaCard key={o.id} id={o.id} centre={false} joinColumns={o.joinColumns} via={o.via} sole={sole}
-                      bindings={bindings} onPick={onPick} />
+                      bindings={bindings} onPick={onPick} onColumn={pick} drilled={drilledOn(o.id)} />
         ))}
       </div>
+      {drill && (
+        <ColumnDrill key={`${drill.table}.${drill.column}`} tableId={drill.table} column={drill.column} sole={sole}
+                     onClose={() => setDrill(null)} />
+      )}
     </div>
   )
 }
