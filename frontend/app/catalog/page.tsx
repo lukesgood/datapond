@@ -225,7 +225,7 @@ function CatalogPageInner() {
       actions={
         <>
           <Button size="sm" variant="outline" aria-expanded={showMap} onClick={() => setShowMap(v => !v)}>
-            <Share2 className="mr-1.5 h-3.5 w-3.5" />{showMap ? "Hide relationship map" : "Relationship map"}
+            <Share2 className="mr-1.5 h-3.5 w-3.5" />{showMap ? "Hide data map" : "Data map"}
           </Button>
           {(role === "admin" || permissions.has("catalog:write")) && (
             <NextLink href="/settings?tab=catalogs" className={buttonVariants({ size: "sm", variant: "outline" })}>
@@ -286,7 +286,7 @@ function CatalogPageInner() {
       {sendAccess === "unknown" && <PermissionUnknown onRetry={refetchPerms} />}
 
       {showMap && (
-        <section aria-label="Relationship map" className="rounded-xl border bg-card p-4">
+        <section aria-label="Data map" className="rounded-xl border bg-card p-4">
           <RelationshipGraph days={30} initial={graphFailed ? null : graph} focus={current ? nodeFor(current) : null} />
         </section>
       )}

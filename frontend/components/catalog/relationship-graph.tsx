@@ -14,6 +14,9 @@ import {
   displayId, egoLayout, evidenceLabel, hubs, neighbours, searchTables, soleCatalog, splitTableId, tableHref,
   type Neighbour, type RelGraph,
 } from "@/lib/relationship-view"
+import { MODES, type Mode } from "@/lib/data-map"
+import type { Binding, Concept } from "@/lib/concepts"
+import { ConceptsView, LineageView, SchemaView } from "@/components/catalog/data-map-modes"
 
 // How many neighbours are drawn around the selected table; the list shows them all.
 const DRAWN = 12
@@ -37,7 +40,12 @@ function TableNode({ data }: NodeProps<{ label: React.ReactNode }>) {
 }
 const NODE_TYPES = { table: TableNode }
 
-/** Relationships between catalog tables, read from one table at a time.
+/** The Data Map: one table at the centre, four ways to look at it (Data Map step 3) —
+ *  Relationships (below), Lineage, Schema and Concepts (components/catalog/
+ *  data-map-modes.tsx). The left list, the centre and its header stay put when the mode
+ *  changes; picking a table in any mode re-centres all of them.
+ *
+ *  Relationships between catalog tables, read from one table at a time.
  *
  *  It used to draw every table on one ring with every join labelled, which past a
  *  dozen tables was a knot of crossing lines, with guesses from column naming mixed
@@ -46,12 +54,13 @@ const NODE_TYPES = { table: TableNode }
  *  observed use, drawn around it, guesses off unless asked for, and each join one click
  *  from a query.
  */
-export function RelationshipGraph({ days = 30, initial = null, focus = null }: {
+export function RelationshipGraph({ days = 30, initial = null, focus = null, initialMode = "relationships" }: {
   days?: number
   /** The graph the page already read, so opening the map does not fetch it again. */
   initial?: RelGraph | null
   /** Node id of the table selected on the page: the map opens on it. */
   focus?: string | null
+  initialMode?: Mode
 }) {
   const [graph, setGraph] = useState<RelGraph | null>(initial)
   const [loading, setLoading] = useState(!initial)
@@ -59,6 +68,21 @@ export function RelationshipGraph({ days = 30, initial = null, focus = null }: {
   const [selected, setSelected] = useState<string | null>(focus)
   const [query, setQuery] = useState("")
   const [withCandidates, setWithCandidates] = useState(false)
+  const [mode, setMode] = useState<Mode>(initialMode)
+  // Concepts and bindings for the Schema chips and the Concepts mode, read once when
+  // either is first opened.
+  const [concepts, setConcepts] = useState<{ concepts: Concept[]; bindings: Binding[] } | null>(null)
+  const [conceptsFailed, setConceptsFailed] = useState(false)
+  const wantConcepts = mode === "schema" || mode === "concepts"
+  useEffect(() => {
+    if (!wantConcepts || concepts || conceptsFailed) return
+    let cancelled = false
+    fetch("/api/semantic/concepts")
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+      .then(d => { if (!cancelled) setConcepts({ concepts: d.concepts ?? [], bindings: d.bindings ?? [] }) })
+      .catch(() => { if (!cancelled) setConceptsFailed(true) })
+    return () => { cancelled = true }
+  }, [wantConcepts, concepts, conceptsFailed])
 
   const load = useCallback(async () => {
     setLoading(true); setFailed(false)
@@ -112,7 +136,7 @@ export function RelationshipGraph({ days = 30, initial = null, focus = null }: {
       </div>
     )
   }
-  if (!graph || graph.nodes.length === 0 || top.length === 0) {
+  if (!current && (!graph || graph.nodes.length === 0 || top.length === 0)) {
     return (
       <div className="flex h-[240px] flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
         <Share2 className="h-6 w-6 opacity-40" />
@@ -124,7 +148,7 @@ export function RelationshipGraph({ days = 30, initial = null, focus = null }: {
     )
   }
 
-  const node = graph.nodes.find(n => n.id === current)
+  const node = graph?.nodes.find(n => n.id === current)
 
   return (
     <div className="space-y-3">
@@ -142,8 +166,8 @@ export function RelationshipGraph({ days = 30, initial = null, focus = null }: {
           </Label>
         </div>
         <span className="text-xs text-muted-foreground">
-          Joins from the last {graph.window_days ?? days} days
-          {typeof graph.statements_scanned === "number" && ` · ${graph.statements_scanned} queries read`}
+          Joins from the last {graph?.window_days ?? days} days
+          {typeof graph?.statements_scanned === "number" && ` · ${graph.statements_scanned} queries read`}
           {" · AI-generated queries excluded"}
         </span>
       </div>
@@ -196,7 +220,24 @@ export function RelationshipGraph({ days = 30, initial = null, focus = null }: {
                 </NextLink>
               </div>
 
-              {around.length === 0 ? (
+              <div role="tablist" aria-label="Data map mode" className="inline-flex flex-wrap gap-1 rounded-md bg-muted p-1">
+                {MODES.map(m => (
+                  <button key={m.key} type="button" role="tab" aria-selected={mode === m.key} title={m.hint}
+                          onClick={() => setMode(m.key)}
+                          className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${mode === m.key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+
+              {mode === "lineage" ? (
+                <LineageView centre={current} sole={sole} onPick={setSelected} />
+              ) : mode === "schema" ? (
+                <SchemaView centre={current} around={around} sole={sole} bindings={concepts?.bindings ?? null} onPick={setSelected} />
+              ) : mode === "concepts" ? (
+                <ConceptsView centre={current} sole={sole} concepts={concepts?.concepts ?? null}
+                              bindings={concepts?.bindings ?? null} failed={conceptsFailed} onPick={setSelected} />
+              ) : around.length === 0 ? (
                 <p className="rounded-md border p-4 text-xs text-muted-foreground">
                   No joins against this table were run in this window.
                   {hiddenCandidates > 0 && " Turn on guesses to see tables whose column names suggest a join."}
