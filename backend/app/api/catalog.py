@@ -6,7 +6,7 @@ import logging
 import math
 from typing import List, Optional, Dict, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -506,3 +506,86 @@ async def column_values(namespace: str, table: str, column: str, catalog: Option
             "distinct": counts.get("distinct_est"),
             "values": values, "hidden": bool(hidden_reason), "reason": hidden_reason,
             "restricted": bool(gov["restricted"]), "top": cv.TOP}
+
+
+def _holds(user: dict, permission: str) -> bool:
+    """Whether the caller holds `permission`, decided as require_permission decides it
+    (a key's scopes when present, else the role) but without a refusal or audit row:
+    used to leave optional detail out, not to refuse."""
+    from app.permissions import has_permission
+    granted = user.get("permissions")
+    return (permission in granted) if granted is not None else has_permission(user.get("role"), permission)
+
+
+IMPACT_DAYS = 30
+
+
+@router.get("/catalog/impact", dependencies=[Depends(require_permission("catalog:read"))])
+async def table_impact(table: List[str] = Query(default=[]), user: dict = Depends(require_user)):
+    """What depends on each table (app/table_impact.py): governed metrics built on it,
+    concepts bound to its columns, saved dashboards whose query reads it, and how often it
+    was queried in the last 30 days (the tool-call log).
+
+    `table` is `catalog.namespace.table`, repeated, at most 12. Tables in catalogs the
+    caller may not use are left out. Metrics and dashboards are the ones the caller can
+    see; who queried is named only for a governance reader, the counts for everyone who
+    may see the table. Nothing here reads a row of the table itself."""
+    from app import table_impact as ti
+    from app.api.connectors import get_db_pool
+    from app.tool_call_log import table_names
+    if len(table) > ti.MAX_TABLES:
+        raise HTTPException(status_code=400, detail=f"Ask for at most {ti.MAX_TABLES} tables.")
+    access = await catalog_access.for_caller(user)
+    canonical = catalog_registry.canonical_catalog
+    wanted = [t for t in table
+              if (tid := ti.table_id(t, canonical)) and access.allows_sql_catalog(tid.split(".", 1)[0])]
+    if not wanted:
+        return {"tables": {}, "days": IMPACT_DAYS}
+    pool = await get_db_pool()
+
+    metrics: list = []
+    try:
+        from app.semantic import context
+        metrics = await context.for_caller(user)
+    except Exception as e:
+        logger.info("[catalog] metrics unavailable for impact: %s", e)
+
+    bindings: list = []
+    try:
+        from app.api.ontology import ontology_enabled
+        from app.semantic import concept_store
+        if ontology_enabled():
+            bindings = await concept_store.list_bindings(pool, ("approved",))
+    except Exception as e:
+        logger.info("[catalog] concepts unavailable for impact: %s", e)
+
+    dashboards: list = []
+    try:
+        async with pool.acquire() as c:
+            if user.get("role") == "admin":
+                rows = await c.fetch("SELECT id, name, query_text FROM dashboards")
+            else:
+                rows = await c.fetch("SELECT id, name, query_text FROM dashboards "
+                                     "WHERE user_id::text = $1 OR is_public", str(user.get("id") or ""))
+        dashboards = [{"id": str(r["id"]), "name": r["name"], "tables": table_names(r["query_text"] or "")}
+                      for r in rows]
+    except Exception as e:
+        logger.info("[catalog] dashboards unavailable for impact: %s", e)
+
+    calls: list = []
+    try:
+        async with pool.acquire() as c:
+            rows = await c.fetch(
+                "SELECT t AS table, actor_username AS actor, actor_kind AS kind, count(*) AS n "
+                "FROM tool_call_log, unnest(resource) AS t "
+                "WHERE resource_kind = 'tables' AND outcome = 'ok' "
+                "AND occurred_at > now() - make_interval(days => $1) "
+                "GROUP BY 1, 2, 3", IMPACT_DAYS)
+        calls = [dict(r) for r in rows]
+    except Exception as e:
+        logger.info("[catalog] tool-call counts unavailable for impact: %s", e)
+
+    return {"tables": ti.impact(wanted, metrics=metrics, bindings=bindings, dashboards=dashboards,
+                                calls=calls, canonical=canonical,
+                                show_callers=_holds(user, "governance:read")),
+            "days": IMPACT_DAYS}

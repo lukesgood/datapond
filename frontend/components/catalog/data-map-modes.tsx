@@ -10,6 +10,7 @@ import { conceptsAround, lineageAround, lineageLayout, schemaNeighbours, type Li
 import { displayId, splitTableId, tableHref, type Neighbour } from "@/lib/relationship-view"
 import { keyBadges, snapshotLabel, type Snapshot, type TableKeys } from "@/lib/table-profile"
 import { ColumnDrill } from "@/components/catalog/column-drill"
+import { conceptHref, impactLines, impactUrl, type Impact, type ImpactResponse } from "@/lib/concept-map"
 
 type Loaded<T> = { data: T | null; loading: boolean; failed: boolean }
 
@@ -51,19 +52,31 @@ const STATE_LABEL: Record<string, string> = {
  *  flow map. Upstream on the left, downstream on the right. */
 export function LineageView({ centre, sole, onPick }: { centre: string; sole: string | null; onPick: (id: string) => void }) {
   const flow = useJson<Flow>("/api/transforms/flow")
+  const impact = useJson<ImpactResponse>(impactUrl([centre]))
   const lineage = useMemo(() => (flow.data ? lineageAround(flow.data, centre) : null), [flow.data, centre])
   const catalog = splitTableId(centre).catalog
+  const mine = impact.data?.tables[centre.toLowerCase()] ?? null
+  const days = impact.data?.days ?? 30
+  const panel = <ImpactPanel impact={mine} days={days} loading={impact.loading} failed={impact.failed} />
   if (flow.loading) return <Busy what="Reading the flow map…" />
-  if (flow.failed || !lineage) return <Note>The flow map could not be read.</Note>
+  if (flow.failed || !lineage) return <div className="space-y-3"><Note>The flow map could not be read.</Note>{panel}</div>
   if (!lineage.found) {
     return (
-      <Note>
-        Nothing DataPond runs writes this table or reads from it: no sync, stream or transform.
-        It may be loaded from outside, or read live from its source.
-      </Note>
+      <div className="space-y-3">
+        <Note>
+          Nothing DataPond runs writes this table or reads from it: no sync, stream or transform.
+          It may be loaded from outside, or read live from its source.
+        </Note>
+        {panel}
+      </div>
     )
   }
   const pos = lineageLayout(lineage.nodes)
+  // What uses the table past the transforms, one summary node per kind, in a lane of its own.
+  const uses = impactLines(mine, days)
+  const lastLane = Math.max(0, ...lineage.nodes.map(n => n.lane))
+  const usesX = (lastLane + 1) * (190 + 110)
+  const centreY = pos[lineage.nodes.find(n => n.lane === 0)?.id ?? ""]?.y ?? 0
   const pickable = (n: LineageNode) => n.kind === "table" && n.lane !== 0 && !!catalog
   const nodes: Node[] = lineage.nodes.map(n => ({
     id: n.id,
@@ -88,6 +101,19 @@ export function LineageView({ centre, sole, onPick }: { centre: string; sole: st
         : n.state === "failed" || n.state === "stale" ? "1px solid var(--dp-warn)" : "1px solid var(--border)",
     },
   }))
+  const centreId = lineage.nodes.find(n => n.lane === 0)?.id
+  uses.forEach((u, i) => nodes.push({
+    id: `uses:${u.kind}`,
+    position: { x: usesX, y: centreY + (i - (uses.length - 1) / 2) * 64 },
+    targetPosition: Position.Left,
+    data: { label: (
+      <div className="text-left">
+        <p className="truncate text-2xs font-medium" title={u.text}>{u.text}</p>
+        <p className="text-2xs text-muted-foreground">{u.kind}</p>
+      </div>
+    ) },
+    style: { width: 240, borderRadius: 6, padding: "4px 8px", background: "var(--muted)", color: "var(--foreground)", border: "1px dashed var(--border)" },
+  }))
   const edges: Edge[] = lineage.edges.map(e => ({
     id: `${e.from}>${e.to}`, source: e.from, target: e.to,
     // The sync's connection is the node on the left already; a transform's name is not.
@@ -96,12 +122,17 @@ export function LineageView({ centre, sole, onPick }: { centre: string; sole: st
     markerEnd: { type: MarkerType.ArrowClosed },
     style: e.kind === "stream" ? { strokeDasharray: "4 3" } : undefined,
   }))
+  if (centreId) for (const u of uses) edges.push({
+    id: `${centreId}>uses:${u.kind}`, source: centreId, target: `uses:${u.kind}`,
+    style: { strokeDasharray: "2 3" }, markerEnd: { type: MarkerType.ArrowClosed },
+  })
   const up = lineage.nodes.filter(n => n.lane < 0).length
   const down = lineage.nodes.filter(n => n.lane > 0).length
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
         {up} upstream · {down} downstream. Lines are what runs: a sync job, a stream, or a transform that reads one table and writes another.
+        Grey boxes on the right are what uses the table: metrics, concepts, dashboards and queries.
       </p>
       <div className="h-[320px] rounded-md border">
         <ReactFlow nodes={nodes} edges={edges} fitView proOptions={{ hideAttribution: true }}
@@ -117,7 +148,64 @@ export function LineageView({ centre, sole, onPick }: { centre: string; sole: st
       {sole === null && catalog && (
         <p className="text-2xs text-muted-foreground">Tables downstream are shown in {catalog}; the flow map does not tell catalogs apart.</p>
       )}
+      {panel}
     </div>
+  )
+}
+
+/** What breaks if this table changes: everything recorded as depending on it. */
+function ImpactPanel({ impact, days, loading, failed }: {
+  impact: Impact | null; days: number; loading: boolean; failed: boolean
+}) {
+  if (loading) return <p className="text-xs text-muted-foreground">Looking up what uses this table…</p>
+  if (failed) return <p className="text-xs text-muted-foreground">What uses this table could not be read.</p>
+  if (!impact) return null
+  const q = impact.queries
+  const nothing = !impact.metrics.length && !impact.concepts.length && !impact.dashboards.length && !q.calls
+  return (
+    <section aria-label="What uses this table" className="rounded-md border p-3 text-xs">
+      <h3 className="text-sm font-semibold">What uses this table</h3>
+      <p className="mb-2 text-2xs text-muted-foreground">Check these before changing or dropping a column: they are what breaks.</p>
+      {nothing ? (
+        <p className="text-muted-foreground">Nothing recorded: no approved metric, concept binding or dashboard, and no query in the last {days} days.</p>
+      ) : (
+        <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-[110px_minmax(0,1fr)]">
+          {impact.metrics.length > 0 && <>
+            <dt className="text-muted-foreground">Metrics</dt>
+            <dd className="flex flex-wrap gap-1.5">{impact.metrics.map(m => (
+              <NextLink key={m.name} href="/metrics" className="rounded border px-1.5 font-mono hover:bg-muted">{m.name}{m.version ? ` v${m.version}` : ""}</NextLink>
+            ))}</dd>
+          </>}
+          {impact.concepts.length > 0 && <>
+            <dt className="text-muted-foreground">Concepts</dt>
+            <dd className="space-y-0.5">{impact.concepts.map(c => (
+              <p key={`${c.concept}.${c.column}.${c.filter_sql ?? ""}`}>
+                <NextLink href={conceptHref(c.concept)} className="text-primary hover:underline">{c.concept}</NextLink>
+                <span className="text-muted-foreground"> · {c.role === "filter" ? `segment ${c.filter_sql}` : `${c.column} (${c.role})`}</span>
+              </p>
+            ))}</dd>
+          </>}
+          {impact.dashboards.length > 0 && <>
+            <dt className="text-muted-foreground">Dashboards</dt>
+            <dd className="flex flex-wrap gap-x-3">{impact.dashboards.map(d => (
+              <NextLink key={d.id} href={`/dashboards/${d.id}`} className="text-primary hover:underline">{d.name}</NextLink>
+            ))}</dd>
+          </>}
+          {q.calls > 0 && <>
+            <dt className="text-muted-foreground">Queried</dt>
+            <dd>
+              {q.calls}× in the last {days} days by {q.people === 1 ? "1 person" : `${q.people} people`}
+              {q.services > 0 && <> and {q.services === 1 ? "1 service key" : `${q.services} service keys`} ({q.service_calls}×)</>}.
+              {q.callers.length > 0 && (
+                <span className="block text-muted-foreground">
+                  Most: {q.callers.map(c => `${c.name}${c.kind === "service" ? " (key)" : ""} ${c.calls}×`).join(", ")}
+                </span>
+              )}
+            </dd>
+          </>}
+        </dl>
+      )}
+    </section>
   )
 }
 
@@ -310,7 +398,7 @@ export function ConceptsView({ centre, sole, concepts, bindings, failed, onPick 
         <ul className="max-h-[320px] space-y-2 overflow-y-auto pr-1 text-xs">
           {here.map(c => (
             <li key={c.concept} className="rounded-md border p-2">
-              <p className="font-medium">{c.concept}{c.pii && <span className="ml-1.5 rounded bg-muted px-1 text-2xs">PII</span>}
+              <p className="font-medium"><NextLink href={conceptHref(c.concept)} className="hover:underline">{c.concept}</NextLink>{c.pii && <span className="ml-1.5 rounded bg-muted px-1 text-2xs">PII</span>}
                 {c.parent && <span className="ml-1.5 text-2xs font-normal text-muted-foreground">in {c.parent}</span>}</p>
               <p className="text-2xs text-muted-foreground">
                 Here: {c.here.map(h => h.role === "filter" ? `segment ${h.filter_sql}` : `${h.column} (${h.role})`).join(", ")}

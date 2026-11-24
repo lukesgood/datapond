@@ -871,3 +871,12 @@ deliberate: the bootstrap must never silently revert an operator's password chan
 If the documented `kubectl get secret … ADMIN_PASSWORD` value returns a 401, that is
 the expected result of a password change, not a broken secret. Recover through the
 password-reset flow.
+
+### Catalog: concept page, ontology map, and what uses a table (2026-11-25, no migration)
+
+Data Map step 4. Nothing to run on upgrade.
+
+- **Concept page** at `/metrics/concepts/<name>`. It shows what the concept is, the concepts related to it (one table holds keys of both), its narrower concepts and columns, where those rows come from (the flow map), the metrics built on its tables, and what needs attention (personal data with no column mask, bindings waiting for approval). It also has *Show on map* (Catalog data map, Concepts mode) and *Ask in Analytics* (a first count query). Concept names in Catalog search, the data map and Semantic model → Concepts link to it.
+- **Ontology map**: Semantic model → Concepts has a Matrix / Map switch. Concepts are nodes. A solid line means one table holds keys of both concepts, and is labelled with that table. A dashed arrow points to a narrower concept, and segments are small pills beside their parent. Every line comes from approved bindings or a concept's parent; none is drawn by hand.
+- **What uses this table**: the data map's Lineage mode now also lists metrics on the table, concept bindings on its columns, saved dashboards whose query reads it, and how often it was queried in the last 30 days, from `GET /api/catalog/impact?table=catalog.ns.table` (`catalog:read`, up to 12 tables). It never reads the table's rows. Table names in the tool-call log are matched across catalog aliases (`AwsDataCatalog` and `iceberg`). Only readers with `governance:read` see who queried; everyone else sees counts only. Dashboards follow the dashboard list's rule: admins see all, others see their own and public ones.
+- `/catalog?table=…&map=lineage|schema|concepts|relationships` opens the data map in that mode.

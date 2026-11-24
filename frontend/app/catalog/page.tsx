@@ -23,6 +23,7 @@ import { CatalogKindBadge } from "@/components/catalog/kind-badge"
 import { findNodeId, soleCatalog, type RelGraph } from "@/lib/relationship-view"
 import { foundKey, whyFor, type SearchResult } from "@/lib/catalog-search"
 import { FindPanel } from "@/components/catalog/find-panel"
+import { modeFrom } from "@/lib/data-map"
 
 // reactflow pulls in a chunk we should not pay for unless the map is opened.
 const RelationshipGraph = dynamic(
@@ -62,7 +63,10 @@ function CatalogPageInner() {
     if (next !== (params.toString() ? `?${params.toString()}` : "")) router.replace(`${pathname}${next}`, { scroll: false })
   }, [catalog, chip, query, selected, params, pathname, router])
   const [sending, setSending] = useState(false)
-  const [showMap, setShowMap] = useState(false)
+  // ?map=concepts (or lineage, schema, relationships) opens the data map in that mode —
+  // the concept page's "Show on map" links here with the table selected.
+  const [mapMode] = useState(() => modeFrom(params.get("map")))
+  const [showMap, setShowMap] = useState(() => params.get("map") !== null)
   const [showEmpty, setShowEmpty] = useState(false)
   const [sort, setSort] = useState<{ by: "name" | "namespace" | "synced"; desc: boolean }>({ by: "name", desc: false })
   const [graph, setGraph] = useState<RelGraph | null>(null)
@@ -287,7 +291,7 @@ function CatalogPageInner() {
 
       {showMap && (
         <section aria-label="Data map" className="rounded-xl border bg-card p-4">
-          <RelationshipGraph days={30} initial={graphFailed ? null : graph} focus={current ? nodeFor(current) : null} />
+          <RelationshipGraph days={30} initial={graphFailed ? null : graph} focus={current ? nodeFor(current) : null} initialMode={mapMode} />
         </section>
       )}
 

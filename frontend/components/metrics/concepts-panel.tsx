@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
+import dynamic from "next/dynamic"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,6 +17,9 @@ import {
 } from "@/lib/concepts"
 import { CatalogSelect, ColumnSelect, TableSelect } from "./catalog-pickers"
 import type { TableRef } from "./metric-editor"
+import { conceptHref } from "@/lib/concept-map"
+
+const OntologyMap = dynamic(() => import("./ontology-map").then(m => m.OntologyMap), { ssr: false })
 
 type Data = { concepts: Concept[]; bindings: Binding[]; viewer: ConceptViewer }
 
@@ -41,6 +45,7 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
   const [gaps, setGaps] = useState<PiiGap[]>([])
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const [seed, setSeed] = useState<string | null>(null)
+  const [view, setView] = useState<"matrix" | "map">("matrix")
 
   const load = useCallback(async () => {
     try {
@@ -132,11 +137,20 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
           {state === "ok" && cov.unbound.length > 0 && <Badge variant="outline">{cov.unbound.length} bound nowhere</Badge>}
           {suggestions === null && <span className="text-xs text-muted-foreground">Reading column names and query history…</span>}
           <span className="flex-1" />
+          <div role="group" aria-label="View" className="inline-flex rounded-md border p-0.5 text-xs">
+            {(["matrix", "map"] as const).map(v => (
+              <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)}
+                      className={`rounded px-2 py-0.5 ${view === v ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                {v === "matrix" ? "Matrix" : "Map"}
+              </button>
+            ))}
+          </div>
           {viewer.can_approve && <ImportGlossary pull={viewer.openmetadata === true} onDone={async () => { await load(); await loadSuggestions(); await loadGaps() }} />}
           {(viewer.can_approve || viewer.can_propose) && <NewConcept concepts={concepts} seed={seed} onDone={async n => { setSeed(null); await load(); await loadSuggestions(); await loadFeedback(); setSelected(n) }} />}
         </div>
         {state === "loading" ? <p className="text-sm text-muted-foreground">Loading…</p>
-          : concepts.length === 0 ? <p className="text-sm text-muted-foreground">No concepts yet. Add one, such as 고객 with the aliases customer and 회원; matching columns are then suggested here.</p> : (
+          : concepts.length === 0 ? <p className="text-sm text-muted-foreground">No concepts yet. Add one, such as 고객 with the aliases customer and 회원; matching columns are then suggested here.</p>
+          : view === "map" ? <OntologyMap concepts={concepts} bindings={bindings} /> : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[560px] text-sm">
               <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
@@ -180,10 +194,10 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
             </table>
           </div>
         )}
-        <p className="text-xs text-muted-foreground">
+        {view === "matrix" && <p className="text-xs text-muted-foreground">
           <span className={approvedCls}>solid</span> approved · <span className={waitingCls}>dashed</span> proposed or suggested, waiting for an administrator · — not bound.
           Columns are the tables with any binding or suggestion.
-        </p>
+        </p>}
         {feedback && <FromQuestions feedback={feedback} concepts={concepts} viewer={viewer} busy={busy}
           onNewConcept={w => setSeed(w)}
           onAlias={(c, w) => act(() => post(`/api/semantic/concepts/${encodeURIComponent(c)}/terms`, { term: w }), `${w} added to ${c}`, "Could not add the word")}
@@ -242,6 +256,7 @@ function ConceptRail({ concept, concepts, bindings, suggestions, gaps, viewer, b
         <h3 className="text-base font-semibold">{concept.name}</h3>
         {concept.pii && <Badge variant="destructive">PII</Badge>}
         <span className="flex-1" />
+        <Link href={conceptHref(concept.name)} className="text-xs text-primary hover:underline">Open page</Link>
         {canWrite && !editing && <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>Edit</Button>}
       </div>
       {editing && <EditConcept concept={concept} concepts={concepts} busy={busy} onCancel={() => setEditing(false)}

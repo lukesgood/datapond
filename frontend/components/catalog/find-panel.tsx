@@ -1,6 +1,7 @@
 "use client"
 
 import NextLink from "next/link"
+import { conceptHref } from "@/lib/concept-map"
 import { foundKey, summaryLine, type SearchResult } from "@/lib/catalog-search"
 
 /** What a Catalog search found beyond table names: columns, the concepts a business
@@ -51,7 +52,7 @@ export function FindPanel({ result, loading, failed, onPick, canPick }: {
           <ul className="mt-1 space-y-1.5">
             {result.concepts.map(c => (
               <li key={c.name} className="text-xs">
-                <span className="font-medium text-foreground">{c.name}</span>
+                <NextLink href={conceptHref(c.name)} className="font-medium text-foreground hover:underline">{c.name}</NextLink>
                 {c.pii && <span className="ml-1.5 rounded bg-muted px-1 py-0.5 text-2xs font-medium">PII</span>}
                 {c.parent && <span className="ml-1.5 text-muted-foreground">in {c.parent}</span>}
                 {c.terms.length > 0 && <span className="ml-1.5 text-muted-foreground">also {c.terms.slice(0, 4).join(", ")}</span>}
@@ -90,7 +91,7 @@ export function FindPanel({ result, loading, failed, onPick, canPick }: {
           <ul className="mt-1 space-y-0.5 text-xs">
             {result.segments.map(s => (
               <li key={`${s.concept}.${foundKey(s)}.${s.filter_sql}`}>
-                <span className="font-medium">{s.concept}</span>
+                <NextLink href={conceptHref(s.concept)} className="font-medium hover:underline">{s.concept}</NextLink>
                 <span className="text-muted-foreground"> = </span>
                 <code className="text-2xs">{s.filter_sql}</code>
                 <span className="text-muted-foreground"> on </span>
