@@ -409,36 +409,10 @@ async def catalog_search(q: str = "", user: dict = Depends(require_user)):
     A business word is a concept name or alias; its approved bindings bring the columns
     that hold it and its segments. Metrics match by name, label and synonyms. Only the
     catalogs this caller may use are searched; nothing here reads a row."""
-    import asyncio
     from app import catalog_search
     if len(q) > 200:
         raise HTTPException(status_code=400, detail="Search for at most 200 characters.")
-    access = await catalog_access.for_caller(user)
-    cats = [e.engine_catalog for e in access.entries()]
-    try:
-        index = await asyncio.wait_for(
-            asyncio.to_thread(catalog_search.column_index, cats), timeout=45)
-    except Exception as e:
-        logger.warning("[catalog] search index unavailable: %s", e)
-        index = {}
-    concepts, bindings, metrics = [], [], []
-    try:
-        from app.api.connectors import get_db_pool
-        from app.api.ontology import load_concepts, ontology_enabled
-        from app.semantic import concept_store
-        if ontology_enabled():
-            pool = await get_db_pool()
-            concepts = await load_concepts(pool)
-            bindings = await concept_store.list_bindings(pool, ("approved",))
-    except Exception as e:
-        logger.info("[catalog] concepts unavailable for search: %s", e)
-    try:
-        from app.semantic import context
-        metrics = await context.for_caller(user)
-    except Exception as e:
-        logger.info("[catalog] metrics unavailable for search: %s", e)
-    return catalog_search.search(q, index, concepts, bindings, metrics,
-                                 access.allows_sql_catalog)
+    return await catalog_search.search_for(q, user)
 
 
 @router.get("/catalog/tables/{namespace}/{table}/columns/{column}/values",

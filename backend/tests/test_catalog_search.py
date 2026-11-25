@@ -128,3 +128,49 @@ def test_column_index_caches_and_survives_a_down_catalog():
     cs.column_index(["iceberg"], read=read, now=lambda: clock[0])
     assert calls[-1] == "iceberg"                          # expired → re-read
     cs.reset_cache()
+
+
+def test_find_tables_adds_column_and_concept_matches(monkeypatch):
+    """MCP catalog.find_tables: name matches stay in `tables`; column and concept hits
+    come back in `matches` with why, with the concepts the words name."""
+    import asyncio
+    from app import catalog_search
+    from app.chat.analysis import catalog as cat_actions
+
+    index = {("iceberg", "default", "customers"): [{"name": "id", "type": "bigint"}, {"name": "email", "type": "varchar"}],
+             ("iceberg", "default", "orders"): [{"name": "id", "type": "bigint"}, {"name": "customer_id", "type": "bigint"}]}
+    concepts = [{"name": "고객", "pii": True, "terms": ["customer"]}]
+    bindings = [{"concept": "고객", "catalog": "iceberg", "namespace": "default", "table": "customers", "column": "id", "role": "key"},
+                {"concept": "고객", "catalog": "iceberg", "namespace": "default", "table": "orders", "column": "customer_id", "role": "key"}]
+
+    async def search_for(q, user, engine_catalogs=None):
+        assert engine_catalogs == ["iceberg"]
+        return catalog_search.search(q, index, concepts, bindings)
+
+    class Entry:
+        name = engine_catalog = "iceberg"
+        is_default = True
+
+    class Access:
+        def entries(self):
+            return [Entry()]
+
+    class Reader:
+        def list_namespaces(self):
+            return ["default"]
+
+        def list_tables(self, ns):
+            return ["customers", "orders"]
+
+    async def access(user):
+        return Access()
+
+    monkeypatch.setattr(catalog_search, "search_for", search_for)
+    monkeypatch.setattr(cat_actions, "_access", access)
+    monkeypatch.setattr(cat_actions, "get_catalog_reader", lambda name: Reader())
+    out = asyncio.run(cat_actions.find_tables({"query": "고객 email"}, {"role": "admin"}))
+    assert out["tables"] == []                                    # no table is named 고객 or email
+    found = {m["table"]: m["why"] for m in out["matches"]}
+    assert "concept 고객" in found["default.customers"] and "concept 고객" in found["default.orders"]
+    assert out["concepts"][0]["name"] == "고객"
+    assert "default.orders.customer_id" in out["concepts"][0]["keys"]
