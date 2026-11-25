@@ -234,3 +234,40 @@ def column_index(engine_catalogs: Iterable[str], read: Callable[[str], Index] = 
 def reset_cache() -> None:
     with _lock:
         _cache.clear()
+
+
+async def search_for(q: str, user: dict, engine_catalogs: Optional[List[str]] = None) -> dict:
+    """`search` for one caller: the column index of the catalogs they may use (or of
+    `engine_catalogs`, already narrowed to those), approved concepts and bindings when
+    concepts are on, and the metrics they may use. Each part that cannot be read is left
+    out, never fatal. Shared by GET /catalog/search and MCP catalog.find_tables."""
+    import asyncio
+    from app import catalog_access
+    access = await catalog_access.for_caller(user)
+    cats = engine_catalogs if engine_catalogs is not None else [e.engine_catalog for e in access.entries()]
+    try:
+        index = await asyncio.wait_for(asyncio.to_thread(column_index, cats), timeout=45)
+    except Exception as e:
+        logger.warning("[catalog] search index unavailable: %s", e)
+        index = {}
+    concepts, bindings, metrics = [], [], []
+    try:
+        from app.api.connectors import get_db_pool
+        from app.api.ontology import load_concepts, ontology_enabled
+        from app.semantic import concept_store
+        if ontology_enabled():
+            pool = await get_db_pool()
+            concepts = await load_concepts(pool)
+            bindings = await concept_store.list_bindings(pool, ("approved",))
+    except Exception as e:
+        logger.info("[catalog] concepts unavailable for search: %s", e)
+    try:
+        from app.semantic import context
+        metrics = await context.for_caller(user)
+    except Exception as e:
+        logger.info("[catalog] metrics unavailable for search: %s", e)
+    from app import catalog_registry
+    wanted = {c.lower() for c in cats}
+    return search(q, index, concepts, bindings, metrics,
+                  lambda c: access.allows_sql_catalog(c)
+                  and (catalog_registry.canonical_catalog(c) or c).lower() in wanted)

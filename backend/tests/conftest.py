@@ -100,3 +100,21 @@ def _no_catalog_grants():
     catalog_access.set_grants({})
     yield
     catalog_access.reset()
+
+
+# MCP catalog.find_tables also searches columns and concepts (app/catalog_search.py
+# search_for), which reaches Trino and PostgreSQL. Unit tests have neither, and waiting
+# for each connection to fail made every find_tables test slow. Tests of that search
+# call catalog_search.search directly, or install their own search_for.
+@_pytest.fixture(autouse=True)
+def _no_live_catalog_search(monkeypatch):
+    try:
+        from app import catalog_search
+    except ImportError:
+        yield
+        return
+
+    async def _empty(q, user, engine_catalogs=None):
+        return catalog_search.search(q, {})
+    monkeypatch.setattr(catalog_search, "search_for", _empty)
+    yield

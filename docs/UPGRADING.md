@@ -880,3 +880,17 @@ Data Map step 4. Nothing to run on upgrade.
 - **Ontology map**: Semantic model → Concepts has a Matrix / Map switch. Concepts are nodes. A solid line means one table holds keys of both concepts, and is labelled with that table. A dashed arrow points to a narrower concept, and segments are small pills beside their parent. Every line comes from approved bindings or a concept's parent; none is drawn by hand.
 - **What uses this table**: the data map's Lineage mode now also lists metrics on the table, concept bindings on its columns, saved dashboards whose query reads it, and how often it was queried in the last 30 days, from `GET /api/catalog/impact?table=catalog.ns.table` (`catalog:read`, up to 12 tables). It never reads the table's rows. Table names in the tool-call log are matched across catalog aliases (`AwsDataCatalog` and `iceberg`). Only readers with `governance:read` see who queried; everyone else sees counts only. Dashboards follow the dashboard list's rule: admins see all, others see their own and public ones.
 - `/catalog?table=…&map=lineage|schema|concepts|relationships` opens the data map in that mode.
+
+### Concepts: the old text parent column is dropped (2026-11-25, migration 0036)
+
+`0036_drop_concept_parent_text` is the contract step of 0033: `ontology_concepts.parent` (the parent's name as text) is dropped. Parents have been read and written through `parent_id` since 0033, so no running release reads the column. On the live reference, all 11 concepts with a parent had matching values in both columns before the drop. The downgrade restores the column and fills it from `parent_id`.
+
+### MCP: catalog.find_tables also finds columns and business words (2026-11-25, no migration)
+
+`catalog.find_tables` still returns `tables`, the tables whose name or namespace matches, unchanged. It now also returns:
+
+- `matches`: tables found by column name or business word, each with why (`concept 고객`, `segment 취소 주문`, `2 columns`);
+- `concepts`: the concepts the words name, with their key columns;
+- `metrics`: metrics whose name, label or synonym matches.
+
+It uses the same search as `GET /api/catalog/search` (`catalog_search.search_for`), limited to the catalogs the caller may use. If that lookup fails, the extra keys are left out and the tool still answers.

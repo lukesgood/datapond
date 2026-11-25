@@ -34,8 +34,9 @@ class TableRef(_Strict):
 
 class TableSearch(_Strict):
     query: str = Field(
-        description="Words to match against table and namespace names, for example "
-                    "'orders customer'. Column names are not searched.")
+        description="Plain words, for example 'orders customer' or '고객 email'. Table and "
+                    "namespace names are matched; so are column names and business words "
+                    "(concepts such as 고객), which come back in `matches` with the reason.")
     catalog: Optional[str] = Field(
         default=None,
         description="Search only this data catalog. Omit to search every catalog.")
@@ -129,8 +130,9 @@ async def find_tables(params: dict, user: dict) -> dict:
     entries = ([access.resolve(params["catalog"])] if params.get("catalog")
                else access.entries())
     tokens = {t for t in _TOKEN.findall(params["query"].lower()) if len(t) >= _MIN_TOKEN}
+    deeper = await _deeper(params["query"], user, entries)
     if not tokens:
-        return {"tables": [], "query": params["query"]}
+        return {"tables": [], "query": params["query"], **deeper}
 
     scored = []
     for entry in entries:
@@ -150,7 +152,45 @@ async def find_tables(params: dict, user: dict) -> dict:
                 if hits:
                     scored.append((hits, qualified))
     scored.sort(key=lambda pair: (-pair[0], pair[1]))
-    return {"tables": [name for _hits, name in scored], "query": params["query"]}
+    return {"tables": [name for _hits, name in scored], "query": params["query"], **deeper}
+
+
+_MATCHES = 15
+
+
+async def _deeper(query: str, user: dict, entries) -> dict:
+    """Tables found by column name or business word (app/catalog_search.py), with why,
+    plus the concepts and metrics the words name — so "고객 이메일" finds
+    customers.email and says that 고객 is customers.id and orders.customer_id. Empty when
+    nothing matches or the lookup fails; never fails the tool."""
+    try:
+        from app import catalog_search
+        by_engine = {e.engine_catalog.lower(): e for e in entries}
+        r = await catalog_search.search_for(query, user, [e.engine_catalog for e in entries])
+    except Exception:
+        logger.debug("deeper find_tables search skipped", exc_info=True)
+        return {}
+    out: dict = {}
+
+    def name(cat: str, ns: str, table: str) -> str:
+        entry = by_engine.get(cat.lower())
+        return _qualified(entry, ns, table) if entry else f"{cat}.{ns}.{table}"
+
+    matches = [{"table": name(t["catalog"], t["namespace"], t["table"]), "why": t["why"],
+                "columns": t.get("columns") or []}
+               for t in r.get("tables", [])[:_MATCHES] if any(w != "name" for w in t["why"])]
+    if matches:
+        out["matches"] = matches
+    concepts = [{"name": c["name"], "pii": c.get("pii", False),
+                 "keys": list(c.get("keys", []))[:8],
+                 "segments": c.get("segments", 0)}
+                for c in r.get("concepts", [])]
+    if concepts:
+        out["concepts"] = concepts
+    metrics = [m["name"] for m in r.get("metrics", [])]
+    if metrics:
+        out["metrics"] = metrics
+    return out
 
 
 async def explain_relationships(params: dict, user: dict) -> dict:
@@ -179,7 +219,8 @@ ACTIONS = (
            ("/catalog", "/query"), "catalog:read", ActionKind.READ, TableRef,
            capability="catalog"),
     Action("catalog.find_tables", "Find tables",
-           "Find tables by name or namespace. Pass plain words only — there is no query syntax, no operators, no field: prefixes.",
+           "Find tables by name, namespace, column name or business word (a concept such as 고객). "
+           "Pass plain words only — there is no query syntax, no operators, no field: prefixes.",
            ("*",), "catalog:read", ActionKind.READ, TableSearch,
            capability="catalog"),
     Action("catalog.explain_relationships", "Explain relationships",
