@@ -881,6 +881,17 @@ Data Map step 4. Nothing to run on upgrade.
 - **What uses this table**: the data map's Lineage mode now also lists metrics on the table, concept bindings on its columns, saved dashboards whose query reads it, and how often it was queried in the last 30 days, from `GET /api/catalog/impact?table=catalog.ns.table` (`catalog:read`, up to 12 tables). It never reads the table's rows. Table names in the tool-call log are matched across catalog aliases (`AwsDataCatalog` and `iceberg`). Only readers with `governance:read` see who queried; everyone else sees counts only. Dashboards follow the dashboard list's rule: admins see all, others see their own and public ones.
 - `/catalog?table=…&map=lineage|schema|concepts|relationships` opens the data map in that mode.
 
+### Source schedules run in the backend, without Airflow (2026-11-25, migration 0037)
+
+A source's sync schedule used to be written out as an Airflow DAG. The AWS reference and the Core profiles run no Airflow, so the console hid the schedule card there and every sync was manual. Schedules now run in the backend (`app/sync_scheduler.py`) on every profile: one loop per replica, leader-locked through Postgres like the RAG and connection-check loops.
+
+- `0037_source_schedule_runs` adds three nullable columns to `connector_connections`: `schedule_set_by`, `schedule_anchor_at`, `schedule_last_status`. Expand only. Schedules that already exist start counting from the upgrade, so nothing they "missed" runs at once.
+- A run is made as whoever saved the schedule (the owner for an older schedule), re-checked on every run: active, holding `connector:write`, and still allowed to change the source. Otherwise the run is skipped, the reason is shown on the source, and a denial goes to the security audit log. Paused sources never run.
+- A fire time missed while the node was stopped runs once when it starts, not once per missed time.
+- Cron hours are read in `backend.syncScheduler.timezone` (default `UTC`; `values-prod-single.yaml` sets `Asia/Seoul`). The schedule route returns the zone, the next run and the last run. Turn the loop off with `backend.syncScheduler.enabled: false`; the capability `scheduled_sync` follows it.
+- Saving a schedule no longer writes a DAG, and removes one left from before. On a profile that runs Airflow, the same sync no longer runs twice.
+- Bad cron expressions are refused with 400 when saved, instead of becoming a broken DAG.
+
 ### Concepts: the old text parent column is dropped (2026-11-25, migration 0036)
 
 `0036_drop_concept_parent_text` is the contract step of 0033: `ontology_concepts.parent` (the parent's name as text) is dropped. Parents have been read and written through `parent_id` since 0033, so no running release reads the column. On the live reference, all 11 concepts with a parent had matching values in both columns before the drop. The downgrade restores the column and fills it from `parent_id`.

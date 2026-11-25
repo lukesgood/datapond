@@ -40,6 +40,9 @@ interface Connection {
   created_at: string
   last_sync_at: string | null
   schedule: string | null
+  /** Next scheduled run (ISO), computed by the backend scheduler in its zone. */
+  schedule_next_at?: string | null
+  schedule_last_status?: string | null
   last_checked_at?: string | null
   last_check_message?: string | null
   // Trino-backed sources: the engine catalog (`src_…`) and `engine: "trino"`.
@@ -652,8 +655,15 @@ function ConnectorsPageInner() {
                             <span className="flex items-center gap-1 text-primary font-medium">
                               <Zap className="h-3 w-3" />{parseCron(conn.schedule)}
                             </span>
-                            {nextRun(conn.schedule) && (
+                            {conn.schedule_next_at ? (
+                              <span className="block text-2xs text-muted-foreground">
+                                next {new Date(conn.schedule_next_at).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })}
+                              </span>
+                            ) : nextRun(conn.schedule) && (
                               <span className="text-2xs text-muted-foreground">{nextRun(conn.schedule)}</span>
+                            )}
+                            {conn.schedule_last_status && !conn.schedule_last_status.startsWith("success") && conn.schedule_last_status !== "running" && (
+                              <span className="block text-2xs text-[var(--dp-warn-text)]" title={conn.schedule_last_status}>last run: {conn.schedule_last_status.split(":")[0]}</span>
                             )}
                           </div>
                         ) : (

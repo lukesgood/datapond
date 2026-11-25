@@ -134,6 +134,13 @@ backend:
     intervalMinutes: 60
     tickSeconds: 300
     timeoutSeconds: 30
+  # Scheduled source syncs: a source's cron runs in the backend (no Airflow needed).
+  # Each run is made as whoever saved the schedule, re-checked on every run. timezone is
+  # the IANA zone the cron's hours are read in.
+  syncScheduler:
+    enabled: true
+    tickSeconds: 60
+    timezone: UTC
   # Infrastructure → Events. Kubernetes Events expire after an hour and are reachable
   # only through pods that still exist; this keeps a durable record of what changed and
   # what died. Retention has a floor of one day, not an off switch.

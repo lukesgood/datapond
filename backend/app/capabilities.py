@@ -106,6 +106,10 @@ def compute_capabilities(env: Mapping) -> dict:
         "support": support_tiers(),
         # Component-gated
         "connectors": _gated("connectors"),  # Ingestion → Iceberg through Trino (2.5)
+        # Source schedules run in the backend (app/sync_scheduler.py), so they need only
+        # sources and the scheduler switch — not Airflow.
+        "scheduled_sync": _gated("connectors") and str(env.get("SYNC_SCHEDULER_ENABLED", "true")).strip().lower()
+                          in ("1", "true", "yes", "on"),
         "catalog": _gated("catalog"),
         "query": _gated("query"),
         "dashboards": _gated("dashboards"),  # BI mini-charts run through /queries/execute

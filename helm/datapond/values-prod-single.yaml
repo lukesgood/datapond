@@ -77,6 +77,10 @@ backend:
   # for a severity column to stop being read.
   systemEvents:
     expectedStarts: "MON-FRI 07:30 Asia/Seoul"
+  # Source schedules are read in Korean time, the zone the node's own start/stop window
+  # is set in. A run due while the node is stopped runs once when it starts (07:30).
+  syncScheduler:
+    timezone: Asia/Seoul
   image:
     repository: ""  # deploy time: terraform output -raw ecr_backend_repo_url
     pullPolicy: IfNotPresent

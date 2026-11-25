@@ -18,6 +18,7 @@ mlflow-skinny==2.22.4
 protobuf==5.29.6   # pinned: CVE-2026-0994 (mlflow-skinny 2.22 allows <7)
 # Data connector dependencies
 asyncpg==0.29.0
+tzdata==2025.2   # zoneinfo data for SCHEDULE_TIMEZONE (the slim image has no system tz database)
 pymysql==1.1.1
 # Trino-backed source probes (pre-create test/list/columns; the sync runs in Trino)
 python-tds==1.17.1

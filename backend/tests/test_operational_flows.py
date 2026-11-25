@@ -67,28 +67,12 @@ def _route_dependency_name(tree, path: str, method: str):
     return None
 
 
-def test_generated_sync_dag_uses_runtime_internal_key(monkeypatch):
-    functions = _load_functions("connectors.py", ("_generate_sync_dag",))
-    monkeypatch.setenv("DATAPOND_INTERNAL_KEY", "must-not-be-generated-into-dag")
-
-    dag = functions["_generate_sync_dag"](
-        "connector-id", "Orders", "0 * * * *"
-    )
-
-    assert 'os.getenv("DATAPOND_INTERNAL_KEY", "").strip()' in dag
-    assert 'headers={"X-Internal-Key": internal_api_key}' in dag
-    assert "DATAPOND_INTERNAL_KEY is required for scheduled connector sync" in dag
-    assert "resp.raise_for_status()" in dag
-    assert "must-not-be-generated-into-dag" not in dag
-
-    chart = (ROOT / "helm/datapond/templates/airflow-deployment.yaml").read_text()
-    secret_env = """- name: DATAPOND_INTERNAL_KEY
-          valueFrom:
-            secretKeyRef:
-              name: datapond-secrets
-              key: INTERNAL_API_KEY"""
-    assert secret_env in chart
-    assert "must-not-be-generated-into-dag" not in chart
+def test_source_schedules_no_longer_write_airflow_dags():
+    """Schedules run in the backend (app/sync_scheduler.py). A DAG beside it would run
+    the same sync twice, so the route writes none and removes an old one."""
+    src = (ROOT / "backend/app/api/connectors.py").read_text()
+    assert "_generate_sync_dag" not in src
+    assert "_remove_legacy_dag(row[\"name\"])" in src
 
 
 def test_service_http_routes_have_explicit_auth_dependencies():
