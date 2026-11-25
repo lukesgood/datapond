@@ -243,6 +243,8 @@ class ConnectorInfo(BaseModel):
     # "trino": the connection becomes a Trino catalog, read and synced by Trino (adding
     # one restarts Trino). "python": read by the backend. None: not supported yet.
     engine: Optional[str] = None
+    # "preview": supported, but not yet run against the real service in CI or live.
+    tier: Optional[str] = None
 
 
 class ConnectionTestRequest(BaseModel):
@@ -717,6 +719,25 @@ async def list_available_connectors():
                                  auth_source={"type": "string", "required": False, "default": "admin"}),
         },
         {
+            "id": "redshift", "name": "Amazon Redshift", "category": "database",
+            "icon": "/icons/redshift.svg", "engine": "trino", "supported": True,
+            "description": "Connect to Amazon Redshift (provisioned or Serverless) — read through Trino",
+            "config_schema": _db(5439, "redshift", ssl={"type": "boolean", "default": True}),
+        },
+        {
+            "id": "bigquery", "name": "Google BigQuery", "category": "database",
+            "icon": "/icons/bigquery.svg", "engine": "trino", "supported": True, "tier": "preview",
+            "description": "Connect to a BigQuery project with a service account key — read through "
+                           "Trino (needs the BigQuery Storage Read API)",
+            "config_schema": {
+                "project_id": {"type": "string", "required": True},
+                "database": {"type": "string", "required": False,
+                             "placeholder": "dataset to list (optional)"},
+                "parent_project_id": {"type": "string", "required": False},
+                "credentials_key": {"type": "password", "required": True},
+            },
+        },
+        {
             "id": "s3",
             "name": "Amazon S3",
             "category": "storage",
@@ -731,15 +752,6 @@ async def list_available_connectors():
                 "region": {"type": "string", "default": "us-east-1"},
                 "endpoint_url": {"type": "string", "required": False}
             }
-        },
-        {
-            "id": "kafka",
-            "name": "Apache Kafka",
-            "category": "streaming",
-            "icon": "/icons/kafka.svg",
-            "description": "Stream data from Kafka topics",
-            "supported": False,
-            "config_schema": {}
         },
         {
             "id": "rest_api",

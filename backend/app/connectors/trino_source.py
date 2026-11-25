@@ -1,7 +1,7 @@
 """Trino-backed sources: the names and the catalog file.
 
-A connection of a Trino-backed type (PostgreSQL, MySQL, SQL Server, Oracle, MongoDB) is a
-Trino catalog `src_<slug>`. Everything here is pure: the slug the catalog is named with,
+A connection of a Trino-backed type (PostgreSQL, MySQL, SQL Server, Oracle, MongoDB,
+Redshift, and BigQuery in preview) is a Trino catalog `src_<slug>`. Everything here is pure: the slug the catalog is named with,
 the environment variable its password arrives through, the `<catalog>.properties` text
 Trino reads at startup, and the normalisation of the legacy `database_url` payload into
 the PostgreSQL/MySQL form. The password never appears in the properties text; Trino
@@ -10,6 +10,9 @@ substitutes `${ENV:...}` from the credentials Secret (app/connectors/trino_catal
 Property names are Trino 482's: the JDBC connectors take `connection-url`,
 `connection-user`, `connection-password`; MongoDB takes `mongodb.connection-url`, whose
 userinfo is percent-encoded, so the stored env value for MongoDB is the quoted password.
+Redshift is a JDBC connector like the others (`jdbc:redshift://host:5439/db`). BigQuery
+takes no host or password: `bigquery.project-id` and `bigquery.credentials-key`, the
+service-account JSON base64-encoded, which is what the env value holds for it.
 """
 from __future__ import annotations
 
@@ -25,8 +28,10 @@ from .base import ConnectorConfig, ConnectorType
 
 TRINO_ENGINE_TYPES = frozenset({
     ConnectorType.POSTGRESQL, ConnectorType.MYSQL, ConnectorType.SQLSERVER,
-    ConnectorType.ORACLE, ConnectorType.MONGODB,
+    ConnectorType.ORACLE, ConnectorType.MONGODB, ConnectorType.REDSHIFT, ConnectorType.BIGQUERY,
 })
+# Read by Trino but not yet run against a real service in CI or on the reference node.
+PREVIEW_TYPES = frozenset({ConnectorType.BIGQUERY})
 
 CATALOG_PREFIX = "src_"
 MAX_CATALOG_LEN = 32
@@ -36,6 +41,7 @@ RESERVED_CATALOGS = frozenset({"iceberg", "postgres", "system", "jmx", "memory",
 _SAFE_VALUE = re.compile(r"^[A-Za-z0-9_.\-]+$")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 _DEFAULT_PORT = {ConnectorType.POSTGRESQL: 5432, ConnectorType.MYSQL: 3306}
+_GCP_PROJECT = re.compile(r"^[a-z][a-z0-9\-]{4,61}[a-z0-9]$")
 
 
 def engine_of(t: ConnectorType) -> str:
@@ -80,12 +86,17 @@ def credential_env(catalog: str) -> str:
 
 class TrinoSourceConfig(ConnectorConfig):
     """One Trino-backed connection as the console submits it."""
-    host: str
-    port: int
+    # Required for every type but BigQuery; render_catalog_properties says which is missing.
+    host: str = ""
+    port: Optional[int] = None
     database: str = ""
-    username: str
-    password: str
+    username: str = ""
+    password: str = ""
     ssl: bool = False
+    # BigQuery
+    project_id: str = ""
+    parent_project_id: str = ""
+    credentials_key: str = ""           # the service-account JSON as pasted
     schema_name: Optional[str] = Field(default=None, alias="schema")
     auth_source: str = "admin"          # MongoDB authSource
     catalog: Optional[str] = None       # src_<slug>, set once the connection exists
@@ -118,11 +129,20 @@ def render_catalog_properties(t: ConnectorType, catalog: str, config: dict) -> s
     `${ENV:<credential_env(catalog)>}` and never written here."""
     if t not in TRINO_ENGINE_TYPES:
         raise ValueError(f"{t.value} is not read through a Trino connector.")
+    env = "${ENV:" + credential_env(catalog) + "}"
+    if t == ConnectorType.BIGQUERY:
+        info = service_account_info(config)
+        project = gcp_project(config.get("project_id") or info.get("project_id"), "project_id")
+        lines = ["connector.name=bigquery", f"bigquery.project-id={project}",
+                 f"bigquery.credentials-key={env}"]
+        if config.get("parent_project_id"):
+            lines.append("bigquery.parent-project-id="
+                         + gcp_project(config["parent_project_id"], "parent_project_id"))
+        return "\n".join(lines) + "\n"
     host = _safe("host", config.get("host"))
     port = _port(config.get("port"))
     database = _safe("database", config.get("database"), allow_empty=(t == ConnectorType.MYSQL))
     ssl = bool(config.get("ssl"))
-    env = "${ENV:" + credential_env(catalog) + "}"
 
     if t == ConnectorType.MONGODB:
         # The user travels inside a URL, percent-encoded, so any printable text is fine.
@@ -144,6 +164,12 @@ def render_catalog_properties(t: ConnectorType, catalog: str, config: dict) -> s
     elif t == ConnectorType.MYSQL:
         url = f"jdbc:mysql://{host}:{port}" + ("?sslMode=REQUIRED" if ssl else "")
         name, extra = "mysql", []
+    elif t == ConnectorType.REDSHIFT:
+        if not database:
+            raise ValueError("database is required for Redshift.")
+        # The Redshift JDBC driver encrypts by default; `ssl` off says so explicitly.
+        url = f"jdbc:redshift://{host}:{port}/{database}" + ("" if ssl else ";SSL=FALSE")
+        name, extra = "redshift", []
     elif t == ConnectorType.SQLSERVER:
         if not database:
             raise ValueError("database is required for SQL Server.")
@@ -161,9 +187,41 @@ def render_catalog_properties(t: ConnectorType, catalog: str, config: dict) -> s
     return "\n".join(lines) + "\n"
 
 
+def service_account_info(config: dict) -> dict:
+    """The pasted BigQuery service-account key as a dict, or ValueError saying why not."""
+    import json
+    raw = config.get("credentials_key")
+    if isinstance(raw, dict):
+        info = raw
+    else:
+        try:
+            info = json.loads(str(raw or ""))
+        except ValueError:
+            raise ValueError("credentials_key must be the service account's JSON key, pasted whole.")
+    if not isinstance(info, dict) or info.get("type") != "service_account" \
+            or not info.get("private_key") or not info.get("client_email"):
+        raise ValueError("credentials_key is not a service-account key (it needs type "
+                         "service_account, client_email and private_key).")
+    return info
+
+
+def gcp_project(value, field: str) -> str:
+    text = str(value or "").strip()
+    if not _GCP_PROJECT.match(text):
+        raise ValueError(f"{field} is not a Google Cloud project id (6-63 lowercase letters, "
+                         "digits and hyphens, starting with a letter).")
+    return text
+
+
 def credential_value(t: ConnectorType, config: dict) -> str:
     """What the credentials Secret stores under `credential_env(catalog)`: the password,
-    percent-encoded for MongoDB because it travels inside a URL there."""
+    percent-encoded for MongoDB because it travels inside a URL there; for BigQuery the
+    service-account JSON, base64-encoded, as `bigquery.credentials-key` expects."""
+    if t == ConnectorType.BIGQUERY:
+        import base64
+        import json
+        info = service_account_info(config)
+        return base64.b64encode(json.dumps(info).encode()).decode()
     password = str(config.get("password") or "")
     return quote_plus(password) if t == ConnectorType.MONGODB else password
 

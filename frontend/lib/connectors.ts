@@ -24,6 +24,8 @@ export interface Connector {
   icon: string
   description: string
   supported: boolean
+  /** "preview": works, but not yet run against the real service in CI or live. */
+  tier?: "preview"
   fields: ConnectorField[]
   features?: string[]
 }
@@ -50,7 +52,7 @@ export interface SyncJob {
   error_message?: string
 }
 
-// The source kinds the console offers. The five database kinds are Trino catalogs
+// The source kinds the console offers. The database kinds are Trino catalogs
 // (`engine: trino` in GET /api/connectors/available); REST, custom Python and S3 are
 // read by the backend.
 export const availableConnectors: Connector[] = [
@@ -165,27 +167,11 @@ export const availableConnectors: Connector[] = [
     ]
   },
   {
-    id: "kafka",
-    name: "Apache Kafka",
-    category: "streaming",
-    icon: "/connectors/kafka.svg",
-    description: "Stream data from Kafka topics (batch connector coming soon)",
-    supported: false,
-    features: ["Real-time Streaming", "Schema Registry", "Exactly-once Processing"],
-    fields: [
-      { name: "bootstrap_servers", label: "Bootstrap Servers", type: "text", required: true, placeholder: "localhost:9092" },
-      { name: "topic", label: "Topic", type: "text", required: true, placeholder: "my-topic" },
-      { name: "consumer_group", label: "Consumer Group", type: "text", required: true, placeholder: "datapond-group" },
-      { name: "sasl_username", label: "SASL Username", type: "text", required: false },
-      { name: "sasl_password", label: "SASL Password", type: "password", required: false }
-    ]
-  },
-  {
     id: "snowflake",
     name: "Snowflake",
     category: "database",
     icon: "/connectors/snowflake.svg",
-    description: "Connect to Snowflake data warehouse",
+    description: "Planned. Trino's Snowflake connector takes a password only (no key pair) and needs engine JVM settings",
     supported: false,
     features: ["Batch Sync", "Schema Discovery"],
     fields: [
@@ -202,15 +188,16 @@ export const availableConnectors: Connector[] = [
     name: "Amazon Redshift",
     category: "database",
     icon: "/connectors/redshift.svg",
-    description: "Connect to AWS Redshift data warehouse",
-    supported: false,
-    features: ["Batch Sync", "Schema Discovery"],
+    description: "Redshift (provisioned or Serverless) as a Trino catalog: browse, sync and federate it with the query engine",
+    supported: true,
+    features: ["Trino federated query", "Incremental Sync", "Schema Discovery"],
     fields: [
-      { half: true, name: "host", label: "Host", type: "text", required: true },
-      { half: true, name: "port", label: "Port", type: "number", default: 5439 },
-      { name: "database", label: "Database", type: "text", required: true },
+      { half: true, name: "host", label: "Host", type: "text", required: true, placeholder: "wh.abc123.ap-northeast-2.redshift.amazonaws.com" },
+      { half: true, name: "port", label: "Port", type: "number", default: 5439, required: true },
+      { name: "database", label: "Database", type: "text", required: true, placeholder: "dev" },
       { half: true, name: "username", label: "Username", type: "text", required: true },
-      { half: true, name: "password", label: "Password", type: "password", required: true }
+      { half: true, name: "password", label: "Password", type: "password", required: true },
+      { name: "ssl", label: "Use SSL/TLS", type: "boolean", default: true, help: "Encrypt the connection (the Redshift driver's default)" }
     ]
   },
   {
@@ -218,13 +205,15 @@ export const availableConnectors: Connector[] = [
     name: "Google BigQuery",
     category: "database",
     icon: "/connectors/bigquery.svg",
-    description: "Connect to Google BigQuery",
-    supported: false,
-    features: ["Batch Sync", "Schema Discovery"],
+    description: "A BigQuery project as a Trino catalog, read with a service account key. Preview",
+    supported: true,
+    tier: "preview",
+    features: ["Trino federated query", "Batch Sync", "Schema Discovery"],
     fields: [
-      { name: "project_id", label: "Project ID", type: "text", required: true },
-      { name: "dataset", label: "Dataset", type: "text", required: true },
-      { name: "credentials_json", label: "Service Account JSON", type: "password", required: true, help: "Paste your service account JSON key" }
+      { name: "project_id", label: "Project ID", type: "text", required: true, placeholder: "my-project-123" },
+      { name: "database", label: "Dataset", type: "text", required: false, placeholder: "all datasets", help: "List only this dataset in the setup step. The catalog still covers the whole project." },
+      { name: "parent_project_id", label: "Billing project", type: "text", required: false, help: "Project billed for queries, if not the one above" },
+      { name: "credentials_key", label: "Service account key (JSON)", type: "password", required: true, help: "Paste the whole JSON key. The account needs BigQuery Data Viewer and Read Session User, and the project needs the BigQuery Storage Read API turned on." }
     ]
   },
   {

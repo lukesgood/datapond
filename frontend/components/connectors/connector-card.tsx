@@ -34,6 +34,11 @@ export function ConnectorCard({ connector }: ConnectorCardProps) {
             >
               {connector.category === "saas" ? "API / code" : connector.category}
             </Badge>
+            {connector.tier === "preview" && (
+              <Badge variant="outline" className="ml-1 mt-1 text-2xs h-4 px-1.5" title="Works, but not yet run against the real service in CI or on the reference deployment">
+                Preview
+              </Badge>
+            )}
           </div>
         </div>
       </CardHeader>

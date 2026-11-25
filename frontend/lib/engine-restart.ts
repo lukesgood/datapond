@@ -1,6 +1,7 @@
 // The query engine's state as the Sources pages show it.
 //
-// A Trino-backed source (PostgreSQL, MySQL, SQL Server, Oracle, MongoDB) is a Trino
+// A Trino-backed source (PostgreSQL, MySQL, SQL Server, Oracle, MongoDB, Redshift,
+// BigQuery) is a Trino
 // catalog, and Trino reads its catalog files only at start: creating, re-configuring or
 // deleting one restarts the engine (~1 min). GET /api/connectors/engine reports it;
 // these helpers turn that answer into the one line a page shows and whether to ask again.
@@ -22,7 +23,7 @@ export const NOT_READY_TEXT =
 
 // The connector types that are Trino catalogs — the backend's TRINO_ENGINE_TYPES plus
 // the legacy `database_url`, which is stored as one of them.
-export const TRINO_ENGINE_TYPES = ["postgresql", "mysql", "sqlserver", "oracle", "mongodb", "database_url"]
+export const TRINO_ENGINE_TYPES = ["postgresql", "mysql", "sqlserver", "oracle", "mongodb", "redshift", "bigquery", "database_url"]
 
 export function isTrinoEngine(connectorType: string | null | undefined): boolean {
   return !!connectorType && TRINO_ENGINE_TYPES.includes(connectorType)

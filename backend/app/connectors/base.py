@@ -31,11 +31,11 @@ class ConnectorType(str, Enum):
     SQLSERVER = "sqlserver"
     MONGODB = "mongodb"
     ORACLE = "oracle"
+    REDSHIFT = "redshift"
+    BIGQUERY = "bigquery"       # preview: read through Trino's BigQuery connector
     S3 = "s3"
-    AZURE_BLOB = "azure_blob"
-    GCS = "gcs"
-    KAFKA = "kafka"
-    KINESIS = "kinesis"
+    # Kafka and Kinesis are Streaming (the RisingWave add-on), not sources; Azure Blob
+    # and GCS were never implemented. Their names were removed in 2.7.
     DATABASE_URL = "database_url"
     REST_API = "rest_api"
     CUSTOM = "custom"
