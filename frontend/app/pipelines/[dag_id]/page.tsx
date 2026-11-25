@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useToast } from "@/lib/toast"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
@@ -125,7 +125,6 @@ export default function DagDetailPage() {
   const [taskStates, setTaskStates] = useState<Record<string, string>>({})
   const [loading,    setLoading]    = useState(true)
   const [error,      setError]      = useState<string | null>(null)
-  const isDraft = useRef(false)
   const [triggerOpen, setTriggerOpen] = useState(false)
   const [triggerConf, setTriggerConf] = useState("{}")
   const [triggering,  setTriggering]  = useState(false)
@@ -142,21 +141,7 @@ export default function DagDetailPage() {
         fetch(`/api/airflow/dags/${dag_id}/structure`),
       ])
 
-      // If not in Airflow, try loading from saved pipelines (draft)
-      if (!dagR.ok) {
-        const savedR = await fetch(`/api/pipelines/${dag_id}`)
-        if (savedR.ok) {
-          const saved = await savedR.json()
-          // A draft from the retired visual builder: shown read-only here.
-          setDag({ dag_id: saved.name, is_paused: true, is_active: false, description: saved.description, schedule_interval: saved.schedule, tags: [], owners: [] })
-          if (saved.nodes?.length) {
-            setGraphData({ nodes: saved.nodes, edges: saved.edges || [] })
-          }
-          isDraft.current = true
-          return
-        }
-        throw new Error("DAG not found")
-      }
+      if (!dagR.ok) throw new Error("DAG not found")
 
       setDag(await dagR.json())
       if (statsR.ok) setStats(await statsR.json())
@@ -198,7 +183,7 @@ export default function DagDetailPage() {
     const initial = window.setTimeout(() => { void load() }, 0)
     const interval = hasRunningTasks ? 5000 : 30000
     const poll = window.setInterval(() => {
-      if (!isDraft.current) void load()
+      void load()
     }, interval)
     return () => {
       window.clearTimeout(initial)

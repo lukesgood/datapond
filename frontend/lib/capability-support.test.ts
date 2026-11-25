@@ -24,10 +24,10 @@ test("a tier this build does not know is not rendered as unlabelled text — ret
   assert.equal(supportTier("notebooks", { notebooks: "beta" }), null)
 })
 
-test("supportBadge('preview') names the refusal", () => {
+test("supportBadge('preview') says the main task cannot complete", () => {
   const badge = supportBadge("preview")
   assert.equal(badge.label, "Preview")
-  assert.match(badge.title, /refus/i)
+  assert.match(badge.title, /cannot complete/i)
 })
 
 test("supportBadge('experimental') says the wiring is supported and the upstream project is not", () => {

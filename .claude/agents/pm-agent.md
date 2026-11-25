@@ -128,7 +128,6 @@ You are the **Lead Product & Project Manager** for DataPond, an AI-Native Open L
 - **Goal**: Production deployments, first customer
 
 **Phase 3 (Months 4-6): Feature Parity**
-- Declarative pipelines (Delta Live Tables equivalent)
 - Advanced governance (RLS, column masking)
 - BI/dashboards
 - **Goal**: Databricks alternative, multiple customers

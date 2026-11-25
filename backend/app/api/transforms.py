@@ -33,8 +33,8 @@ from app.api.source_access import (TRANSFORM_KIND, caller_uuid, granted_roles,
 router = APIRouter()
 
 def ensure_transforms_table() -> None:
-    """Create the transforms table if missing. Called from startup, not at import —
-    see app/api/pipelines.py for why DDL does not belong in module scope."""
+    """Create the transforms table if missing. Called from startup, not at import: DDL
+    run as an import side effect made the app unimportable without a database."""
     Base.metadata.create_all(bind=engine, tables=[SavedTransform.__table__],
                              checkfirst=True)
 

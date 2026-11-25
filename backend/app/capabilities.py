@@ -48,9 +48,11 @@ CAPABILITY_BACKENDS = {
 }
 
 # A capability whose own headline feature cannot complete in this release. Stronger
-# than `experimental`, and tied to the code that makes it true:
-# tests/test_capability_support_tiers.py fails when the deploy stops being refused.
-PREVIEW_CAPABILITIES = ("pipelines",)
+# than `experimental`. Empty since 2.7: "pipelines" carried it while the declarative
+# pipeline builder compiled to placeholder tasks; the builder was removed, and what
+# remains (Airflow SQL transforms) deploys and runs, so it is `experimental` like the
+# other Airflow-backed surfaces.
+PREVIEW_CAPABILITIES: tuple = ()
 
 
 def support_tiers() -> dict:

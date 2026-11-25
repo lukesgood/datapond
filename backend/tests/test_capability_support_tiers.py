@@ -61,7 +61,7 @@ def test_the_support_map_is_the_derivation_not_a_hand_written_list():
 def test_openmetadata_is_a_service_not_a_capability():
     """The add-on the console has no page for.
 
-    OpenMetadata is disclaimed in SUPPORT.md like the other seven, but unlike them it
+    OpenMetadata is disclaimed in SUPPORT.md like the others, but unlike them it
     backs no capability: it ships its own UI, and connector sync writes lineage edges
     there rather than into a DataPond screen. `lineage` used to appear in the payload
     anyway, gating nothing a person could open and carrying a support tier nothing
@@ -85,67 +85,11 @@ def test_the_vocabulary_is_two_words():
     assert set(compute_capabilities({})["support"].values()) <= {"experimental", "preview"}
 
 
-# A minimal pipeline, compiled through the real generator, to check the fact this
-# release still has: that its DAG comes out declaring placeholder tasks. Same fixture
-# shape as tests/test_pipeline_quality_checks.py's _compile/_dag — reused rather than
-# invented, because a second compiler harness in this file would just be a second
-# thing that can drift from what the compiler actually does.
-PIPELINE_SOURCE = '''
-from app.pipelines.decorators import pipeline, source, live_table
-
-
-@pipeline(name="preview_probe", schedule="@daily", owner="t@example.com")
-def probe():
-    """A pipeline compiled only to inspect its generated DAG."""
-    pass
-
-
-@source(name="orders", connection="conn1", table="public.orders",
-        mode="full_refresh", namespace="bronze")
-def orders():
-    pass
-
-
-@live_table(name="silver_orders", namespace="silver", engine="trino",
-            mode="full_refresh")
-def silver_orders():
-    return "SELECT * FROM {{ source('orders') }}"
-'''
-
-
-def _compiled_dag(tmp_path) -> str:
-    from app.pipelines.compiler import PipelineCompiler
-    from app.pipelines.decorators import LiveTableRegistry
-
-    path = tmp_path / "preview_probe.py"
-    path.write_text(PIPELINE_SOURCE)
-    LiveTableRegistry.reset()
-    try:
-        result = PipelineCompiler().compile_file(str(path))
-        assert result.success, result.validation_errors
-        return next(content for kind, content in result.artifacts if "dag" in kind.lower())
-    finally:
-        LiveTableRegistry.reset()
-
-
-def test_preview_expires_when_pipelines_stop_compiling_to_placeholders(tmp_path):
-    """The tie that makes 'preview' a fact rather than an opinion, not an assertion
-    that can be satisfied by a hand-written marker line. Generate a DAG through the
-    real compiler and check the fact that actually changes when the declarative
-    pipeline runtime lands: whether the generator still emits placeholder tasks."""
-    from app.pipelines.dag_generator import refuse_placeholder_deploy, unimplemented_tasks
-
-    dag = _compiled_dag(tmp_path)
-    placeholders = unimplemented_tasks(dag)
-    assert ("pipelines" in PREVIEW_CAPABILITIES) == bool(placeholders), (
-        "the generator no longer emits placeholder tasks, so the declarative "
-        "pipeline runtime has landed. Remove 'pipelines' from PREVIEW_CAPABILITIES "
-        "— the console is still telling people it cannot deploy."
-    )
-    if placeholders:
-        assert refuse_placeholder_deploy(dag, allow=False), (
-            "the generator emits placeholders but the deploy no longer refuses them"
-        )
+def test_no_capability_is_in_preview_since_the_pipeline_builder_was_removed():
+    """`preview` meant "cannot complete its headline feature". The declarative pipeline
+    builder was the only one (placeholder DAGs, deploy refused) and is gone in 2.7."""
+    assert PREVIEW_CAPABILITIES == ()
+    assert compute_capabilities({"FEATURE_AIRFLOW": "true"})["support"]["pipelines"] == "experimental"
 
 
 def test_connectors_need_only_trino():

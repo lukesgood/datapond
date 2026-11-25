@@ -16,7 +16,6 @@ interface DagCardProps {
   last_run_state?: "success" | "failed" | "running" | "none"
   last_run_time?: string
   success_rate?: number
-  savedStatus?: string
   onTrigger: (dag_id: string) => void
   onTogglePause: (dag_id: string, is_paused: boolean) => void
   onDelete?: (dag_id: string) => void
@@ -36,7 +35,7 @@ function StateIndicator({ state }: { state?: string }) {
 export function DagCard({
   dag_id, is_paused, description, schedule_interval,
   last_run_state, success_rate,
-  savedStatus, onTrigger, onTogglePause, onDelete, onEdit,
+  onTrigger, onTogglePause, onDelete, onEdit,
 }: DagCardProps) {
   return (
     <div className={`
@@ -51,17 +50,6 @@ export function DagCard({
           <span className="text-sm font-semibold truncate" title={dag_id}>{dag_id}</span>
         </div>
         <div className="flex items-center gap-1">
-          {savedStatus && (
-            <Badge
-              variant="outline"
-              className={`text-2xs h-5 px-1.5 ${
-                savedStatus === "deployed" ? "border-[var(--dp-good)]/40 text-[var(--dp-good-text)] bg-[var(--dp-good)]/10" :
-                savedStatus === "draft" ? "border-[var(--dp-warn)]/40 text-[var(--dp-warn-text)] bg-[var(--dp-warn)]/10" : ""
-              }`}
-            >
-              {savedStatus}
-            </Badge>
-          )}
           <Badge
             variant={is_paused ? "outline" : "default"}
             className={`shrink-0 text-2xs h-5 px-1.5 ${!is_paused ? "bg-[var(--dp-good)] hover:bg-[var(--dp-good)]" : ""}`}
