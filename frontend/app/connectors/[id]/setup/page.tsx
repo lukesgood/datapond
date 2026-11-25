@@ -45,7 +45,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
   const { id } = use(params)
   const router = useRouter()
   const connector = getConnector(id)
-  const pipelinesEnabled = useCapability("pipelines")
+  const schedulerEnabled = useCapability("scheduled_sync")
   const { toast } = useToast()
 
   const [name, setName] = useState(`${connector?.name || ""} source`)
@@ -119,7 +119,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
 
   const enabled = Object.entries(tableConfigs).filter(([, c]) => c.enabled)
   const incremental = enabled.filter(([, c]) => c.incremental_column)
-  const cron = pipelinesEnabled ? schedule : null
+  const cron = schedulerEnabled ? schedule : null
   const trino = isTrinoEngine(id)
   const slug = sourceSlug(name)
   const ready = testStatus === "success" && name.trim().length > 0 && enabled.length > 0
@@ -286,11 +286,11 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
             <Card>
               <CardHeader className="pb-3"><CardTitle className="text-base">Keep it fresh</CardTitle></CardHeader>
               <CardContent className="space-y-4">
-                {pipelinesEnabled ? (
+                {schedulerEnabled ? (
                   <SchedulePicker id="src-schedule" value={schedule} onChange={setSchedule} />
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    Syncs run when you press Sync now. Recurring schedules need the pipelines component, which this deployment does not run.
+                    Syncs run when you press Sync now. Scheduled syncs are turned off on this deployment.
                   </p>
                 )}
                 {trino ? (

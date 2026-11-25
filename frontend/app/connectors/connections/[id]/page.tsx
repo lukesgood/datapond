@@ -198,16 +198,27 @@ function TablesCard({
   )
 }
 
-// Schedule frequency options (user-facing)
 // ── Schedule Card ─────────────────────────────────────────────────────────────
+type ScheduleInfo = {
+  timezone?: string; next_run_at?: string | null; last_run_at?: string | null; last_status?: string | null
+}
+
+/** A scheduler time in the viewer's clock, e.g. "Thu 08:00". */
+function scheduleWhen(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })
+}
 function ScheduleCard({
-  schedule, savingSchedule, scheduleMsg, onSave, pipelinesEnabled, canEdit,
+  schedule, info, savingSchedule, scheduleMsg, onSave, schedulerEnabled, canEdit,
 }: {
   schedule: string | null
+  /** Zone, next run and last run, as the backend scheduler reports them. */
+  info: ScheduleInfo | null
   savingSchedule: boolean
   scheduleMsg: string | null
   onSave: (val: string | null) => void
-  pipelinesEnabled: boolean
+  schedulerEnabled: boolean
   /** connector:write; without it the card shows the schedule and changes nothing. */
   canEdit: boolean
 }) {
@@ -216,10 +227,9 @@ function ScheduleCard({
   const builtCron = draft
   const isDirty = builtCron !== schedule
 
-  // Foundation profile: no in-process/Airflow executor runs schedules, so the
-  // schedule UI would promise recurring syncs that never happen. Gate it off
-  // and point users at manual "Sync Now" instead of showing a false "Next run".
-  if (!pipelinesEnabled) {
+  // Schedules run in the backend (app/sync_scheduler.py); a deployment can turn that
+  // off, and then the card says so instead of promising runs that never happen.
+  if (!schedulerEnabled) {
     return (
       <Card>
         <CardHeader className="pb-3">
@@ -229,8 +239,7 @@ function ScheduleCard({
         </CardHeader>
         <CardContent>
           <div className="rounded-lg bg-muted/30 border border-dashed px-3 py-2.5 text-xs text-muted-foreground text-center">
-            Scheduled sync requires the Airflow pipelines component (not enabled
-            on this profile). Trigger syncs manually with <strong>Sync Now</strong>.
+            Scheduled syncs are turned off on this deployment. Sync with <strong>Sync Now</strong>.
           </div>
         </CardContent>
       </Card>
@@ -259,10 +268,12 @@ function ScheduleCard({
           <div className="flex items-center gap-2 rounded-lg bg-[var(--dp-good)]/10 border border-[var(--dp-good)]/20 px-3 py-2">
             <Zap className="h-4 w-4 text-[var(--dp-good-text)] shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-[var(--dp-good-text)]">{parseCron(schedule)}</p>
-              {nextRun(schedule) && (
+              <p className="text-sm font-medium text-[var(--dp-good-text)]">
+                {parseCron(schedule)}{info?.timezone ? <span className="font-normal"> ({info.timezone})</span> : null}
+              </p>
+              {(info?.next_run_at || nextRun(schedule)) && (
                 <p className="text-xs text-[var(--dp-good-text)]/70 flex items-center gap-1 mt-0.5">
-                  <Clock className="h-3 w-3" />Next run {nextRun(schedule)}
+                  <Clock className="h-3 w-3" />Next run {info?.next_run_at ? scheduleWhen(info.next_run_at) : nextRun(schedule)}
                 </p>
               )}
             </div>
@@ -271,6 +282,17 @@ function ScheduleCard({
           <div className="rounded-lg bg-muted/30 border border-dashed px-3 py-2.5 text-xs text-muted-foreground text-center">
             Off — sync manually with <strong>Sync Now</strong>
           </div>
+        )}
+
+        {schedule && info?.last_status && (
+          <p className={`text-xs ${info.last_status.startsWith("success") ? "text-muted-foreground" : "text-[var(--dp-warn-text)]"}`}>
+            Last scheduled run{info.last_run_at ? ` ${scheduleWhen(info.last_run_at)}` : ""}: {info.last_status}
+          </p>
+        )}
+        {schedule && (
+          <p className="text-2xs text-muted-foreground">
+            Runs as whoever saved the schedule. A run due while the node is stopped runs once when it starts.
+          </p>
         )}
 
         {canEdit ? (
@@ -321,7 +343,7 @@ interface Connector {
 export default function ConnectionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
-  const pipelinesEnabled = useCapability("pipelines")
+  const schedulerEnabled = useCapability("scheduled_sync")
   const streamingEnabled = useCapability("streaming")
   const catalogEnabled = useCapability("catalog")
   // The routes that change a source (sync, pause, edit, tables, delete) need
@@ -374,6 +396,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
 
   // Schedule
   const [schedule, setSchedule]           = useState<string | null>(null)
+  const [scheduleInfo, setScheduleInfo]   = useState<ScheduleInfo | null>(null)
   const [scheduleInput, setScheduleInput] = useState("")
   const [savingSchedule, setSavingSchedule] = useState(false)
   const [scheduleMsg, setScheduleMsg]     = useState<string | null>(null)
@@ -476,6 +499,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
     if (res.ok) {
       const d = await res.json()
       setSchedule(d.schedule ?? null)
+      setScheduleInfo(d)
       setScheduleInput(d.schedule ?? "")
     }
   }, [id])
@@ -491,6 +515,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
       const d = await res.json()
       if (!res.ok) throw new Error(d.detail ?? "Failed")
       setSchedule(value)
+      setScheduleInfo(d)
       if (!value) setScheduleInput("")
       setScheduleMsg(d.message)
     } catch (e) {
@@ -1144,10 +1169,11 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         <ScheduleCard
           key={schedule ?? "off"}
           schedule={schedule}
+          info={scheduleInfo}
           savingSchedule={savingSchedule}
           scheduleMsg={scheduleMsg}
           onSave={handleSaveSchedule}
-          pipelinesEnabled={pipelinesEnabled}
+          schedulerEnabled={schedulerEnabled}
           canEdit={canWrite}
         />
       </div>{/* end 2-col grid */}

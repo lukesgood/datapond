@@ -281,6 +281,14 @@ spec:
           value: {{ dig "tickSeconds" 300 (.Values.backend.connectorChecks | default dict) | quote }}
         - name: CONNECTOR_CHECK_TIMEOUT_SECONDS
           value: {{ dig "timeoutSeconds" 30 (.Values.backend.connectorChecks | default dict) | quote }}
+        # Scheduled source syncs (app/sync_scheduler.py). They contact customer systems
+        # on a schedule someone set, so there is an off switch; `dig` for bool-false.
+        - name: SYNC_SCHEDULER_ENABLED
+          value: {{ dig "enabled" true (.Values.backend.syncScheduler | default dict) | quote }}
+        - name: SYNC_SCHEDULER_TICK_SECONDS
+          value: {{ dig "tickSeconds" 60 (.Values.backend.syncScheduler | default dict) | quote }}
+        - name: SCHEDULE_TIMEZONE
+          value: {{ dig "timezone" "UTC" (.Values.backend.syncScheduler | default dict) | quote }}
         # Audit table retention (security_audit_log / auth_audit_log — B4). `dig` for
         # the bool-false case, same reasoning as SYSTEM_EVENTS_ENABLED above.
         - name: AUDIT_RETENTION_ENABLED

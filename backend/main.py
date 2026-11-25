@@ -455,6 +455,17 @@ async def startup():
     except Exception as e:
         logger.warning(f"[startup] connector checks not started: {e}")
 
+    # Scheduled source syncs (app/sync_scheduler.py) — a source's cron runs here, not as
+    # an Airflow DAG, so it fires on every profile. Leader-locked like the loops above.
+    try:
+        from app import sync_scheduler
+        if sync_scheduler.enabled():
+            from app.api.connectors import get_db_pool
+            app.state.sync_scheduler_task = asyncio.create_task(sync_scheduler.run(await get_db_pool()))
+            logger.info("[startup] source sync scheduler started")
+    except Exception as e:
+        logger.warning(f"[startup] source sync scheduler not started: {e}")
+
     # Mirror freshness (app/mirror_freshness.py) — re-points read-only mirrors that are
     # behind their owner, reports ones committed to from outside. Leader-locked.
     try:
