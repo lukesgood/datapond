@@ -9,9 +9,10 @@ from app.connectors.base import ConnectorType as T
 from app.connectors import trino_source as ts
 
 
-def test_the_five_types_run_on_trino_and_the_rest_do_not():
+def test_the_database_types_run_on_trino_and_the_rest_do_not():
     assert {t for t in T if ts.engine_of(t) == "trino"} == {
-        T.POSTGRESQL, T.MYSQL, T.SQLSERVER, T.ORACLE, T.MONGODB, T.DATABASE_URL}
+        T.POSTGRESQL, T.MYSQL, T.SQLSERVER, T.ORACLE, T.MONGODB, T.DATABASE_URL,
+        T.REDSHIFT, T.BIGQUERY}
     assert ts.engine_of(T.REST_API) == "python" and ts.engine_of(T.S3) == "python"
 
 

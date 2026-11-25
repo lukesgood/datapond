@@ -28,7 +28,10 @@ logger = logging.getLogger(__name__)
 DRIVERS: Dict[T, str] = {
     T.POSTGRESQL: "psycopg2", T.MYSQL: "pymysql", T.SQLSERVER: "pytds",
     T.ORACLE: "oracledb", T.MONGODB: "pymongo",
+    T.REDSHIFT: "psycopg2",             # Redshift speaks the PostgreSQL wire protocol
 }
+# BigQuery has no driver here: it is reached through its REST API (`_bq_*` below) with a
+# token for the pasted service account.
 
 # Schemas the engines keep for themselves (same list the registry reader hides).
 SYSTEM_SCHEMAS = frozenset({"information_schema", "pg_catalog", "pg_toast", "mysql", "sys",
@@ -70,7 +73,7 @@ def scrub_password(text: str, password) -> str:
 def default_schema(t: T, cfg: TrinoSourceConfig) -> str:
     if cfg.schema_name:
         return cfg.schema_name
-    if t == T.POSTGRESQL:
+    if t in (T.POSTGRESQL, T.REDSHIFT):
         return "public"
     if t == T.SQLSERVER:
         return "dbo"
@@ -100,6 +103,10 @@ def _connect(t: T, cfg: TrinoSourceConfig, timeout: float):
     drv = _driver(t)
     secs = max(1, int(timeout))
     if t == T.POSTGRESQL:
+        return drv.connect(host=cfg.host, port=cfg.port, dbname=cfg.database, user=cfg.username,
+                           password=cfg.password, connect_timeout=secs,
+                           sslmode="require" if cfg.ssl else "prefer")
+    if t == T.REDSHIFT:
         return drv.connect(host=cfg.host, port=cfg.port, dbname=cfg.database, user=cfg.username,
                            password=cfg.password, connect_timeout=secs,
                            sslmode="require" if cfg.ssl else "prefer")
@@ -151,6 +158,18 @@ def _query(t: T, handle, sql: str, params=()) -> List[tuple]:
 
 def test(t: T, cfg: TrinoSourceConfig, timeout: float = 10.0) -> ConnectionTestResult:
     started = time.monotonic()
+    if t == T.BIGQUERY:
+        try:
+            datasets = _bq_datasets(cfg, timeout)
+            return ConnectionTestResult(
+                success=True, latency_ms=(time.monotonic() - started) * 1000,
+                message=f"Connected to BigQuery project {_bq_project(cfg)} ({len(datasets)} datasets)",
+                metadata={"engine": "trino", "preview": True})
+        except ProbeError as e:
+            return ConnectionTestResult(success=False, message=str(e))
+        except Exception as e:
+            return ConnectionTestResult(success=False, message=_bq_scrub(str(e) or type(e).__name__, cfg)[:500],
+                                        latency_ms=(time.monotonic() - started) * 1000)
     try:
         handle = _connect(t, cfg, timeout)
         try:
@@ -174,7 +193,10 @@ def test(t: T, cfg: TrinoSourceConfig, timeout: float = 10.0) -> ConnectionTestR
 
 
 def list_tables(t: T, cfg: TrinoSourceConfig, timeout: float = 10.0) -> List[str]:
-    """`schema.table` for the user's schemas (MongoDB: `database.collection`)."""
+    """`schema.table` for the user's schemas (MongoDB: `database.collection`; BigQuery:
+    `dataset.table`)."""
+    if t == T.BIGQUERY:
+        return _bq_tables(cfg, timeout)
     handle = _connect(t, cfg, timeout)
     try:
         if t == T.MONGODB:
@@ -212,6 +234,8 @@ def mongo_columns(doc: dict) -> List[ColumnSchema]:
 
 
 def columns(t: T, cfg: TrinoSourceConfig, table: str, timeout: float = 10.0) -> List[ColumnSchema]:
+    if t == T.BIGQUERY:
+        return _bq_columns(cfg, table, timeout)
     schema, name = split_table(t, cfg, table)
     handle = _connect(t, cfg, timeout)
     try:
@@ -230,6 +254,109 @@ def columns(t: T, cfg: TrinoSourceConfig, table: str, timeout: float = 10.0) -> 
                 for c, d, n in rows]
     finally:
         _close(handle)
+
+
+# ── BigQuery over REST (preview) ──────────────────────────────────────────────
+
+_BQ = "https://bigquery.googleapis.com/bigquery/v2"
+_BQ_SCOPE = "https://www.googleapis.com/auth/bigquery.readonly"
+# Trino's BigQuery connector maps BigQuery types to these.
+_BQ_TYPES = {"STRING": "varchar", "BYTES": "varbinary", "INTEGER": "bigint", "INT64": "bigint",
+             "FLOAT": "double", "FLOAT64": "double", "NUMERIC": "decimal(38,9)",
+             "BIGNUMERIC": "bignumeric", "BOOLEAN": "boolean", "BOOL": "boolean",
+             "DATE": "date", "DATETIME": "timestamp(6)", "TIME": "time(6)",
+             "TIMESTAMP": "timestamp(6) with time zone", "GEOGRAPHY": "varchar", "JSON": "json",
+             "RECORD": "row", "STRUCT": "row"}
+
+
+def _bq_info(cfg: TrinoSourceConfig) -> dict:
+    from .trino_source import service_account_info
+    try:
+        return service_account_info({"credentials_key": cfg.credentials_key})
+    except ValueError as e:
+        raise ProbeError(str(e))
+
+
+def _bq_project(cfg: TrinoSourceConfig) -> str:
+    return cfg.project_id or _bq_info(cfg).get("project_id") or ""
+
+
+def _bq_scrub(text: str, cfg: TrinoSourceConfig) -> str:
+    """Errors never carry the private key."""
+    out = str(text or "")
+    try:
+        key = _bq_info(cfg).get("private_key") or ""
+    except ProbeError:
+        key = ""
+    return out.replace(key, "***") if len(key) > 8 else out
+
+
+def _bq_get(cfg: TrinoSourceConfig, path: str, timeout: float, params=None) -> dict:
+    import httpx
+    from google.auth.transport.requests import Request
+    from google.oauth2 import service_account
+    creds = service_account.Credentials.from_service_account_info(_bq_info(cfg), scopes=[_BQ_SCOPE])
+    try:
+        creds.refresh(Request())
+    except Exception as e:
+        raise ProbeError(f"Google refused the service account key: {_bq_scrub(str(e), cfg)[:300]}")
+    r = httpx.get(f"{_BQ}{path}", params=params or {}, timeout=timeout,
+                  headers={"Authorization": f"Bearer {creds.token}"})
+    if r.status_code >= 400:
+        try:
+            msg = r.json().get("error", {}).get("message") or r.text
+        except ValueError:
+            msg = r.text
+        raise ProbeError(f"BigQuery answered {r.status_code}: {str(msg)[:300]}")
+    return r.json()
+
+
+def _bq_pages(cfg, path, key, timeout, cap=2000) -> List[dict]:
+    out: List[dict] = []
+    token = None
+    while len(out) < cap:
+        params = {"maxResults": 1000, **({"pageToken": token} if token else {})}
+        body = _bq_get(cfg, path, timeout, params)
+        out.extend(body.get(key) or [])
+        token = body.get("nextPageToken")
+        if not token:
+            break
+    return out
+
+
+def _bq_datasets(cfg: TrinoSourceConfig, timeout: float) -> List[str]:
+    project = _bq_project(cfg)
+    if not project:
+        raise ProbeError("project_id is required (or a key that names one).")
+    if cfg.database:                    # one dataset asked for: check it exists
+        _bq_get(cfg, f"/projects/{project}/datasets/{cfg.database}", timeout)
+        return [cfg.database]
+    return [d["datasetReference"]["datasetId"]
+            for d in _bq_pages(cfg, f"/projects/{project}/datasets", "datasets", timeout)]
+
+
+def _bq_tables(cfg: TrinoSourceConfig, timeout: float) -> List[str]:
+    project = _bq_project(cfg)
+    out: List[str] = []
+    for ds in _bq_datasets(cfg, timeout):
+        for t in _bq_pages(cfg, f"/projects/{project}/datasets/{ds}/tables", "tables", timeout):
+            ref = t.get("tableReference") or {}
+            if ref.get("tableId") and t.get("type") in ("TABLE", "VIEW", "EXTERNAL", "MATERIALIZED_VIEW", None):
+                out.append(f"{ds}.{ref['tableId']}")
+    return sorted(out)
+
+
+def _bq_columns(cfg: TrinoSourceConfig, table: str, timeout: float) -> List[ColumnSchema]:
+    parts = str(table or "").split(".")
+    if len(parts) != 2 or not all(_IDENT.match(p) for p in parts):
+        raise ValueError(f"Not a BigQuery table: {table!r} — expected dataset.table.")
+    body = _bq_get(cfg, f"/projects/{_bq_project(cfg)}/datasets/{parts[0]}/tables/{parts[1]}", timeout)
+    fields = (body.get("schema") or {}).get("fields") or []
+    return [ColumnSchema(name=f["name"],
+                         type=("array" if f.get("mode") == "REPEATED"
+                               else _BQ_TYPES.get(str(f.get("type")).upper(), str(f.get("type")).lower())),
+                         nullable=f.get("mode") != "REQUIRED")
+            for f in fields]
 
 
 # ── async wrappers (drivers block; never on the request loop) ────────────────

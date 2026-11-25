@@ -11,7 +11,8 @@ CFG = TrinoSourceConfig(name="x", connector_type=T.POSTGRESQL, host="127.0.0.1",
 
 
 def test_every_trino_type_has_a_driver_and_the_drivers_are_importable():
-    assert set(probe.DRIVERS) == {T.POSTGRESQL, T.MYSQL, T.SQLSERVER, T.ORACLE, T.MONGODB}
+    # BigQuery is the one Trino type with no driver: it is probed over its REST API.
+    assert set(probe.DRIVERS) == {T.POSTGRESQL, T.MYSQL, T.SQLSERVER, T.ORACLE, T.MONGODB, T.REDSHIFT}
     for mod in probe.DRIVERS.values():
         __import__(mod)
 

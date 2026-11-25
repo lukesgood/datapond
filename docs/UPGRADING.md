@@ -881,6 +881,13 @@ Data Map step 4. Nothing to run on upgrade.
 - **What uses this table**: the data map's Lineage mode now also lists metrics on the table, concept bindings on its columns, saved dashboards whose query reads it, and how often it was queried in the last 30 days, from `GET /api/catalog/impact?table=catalog.ns.table` (`catalog:read`, up to 12 tables). It never reads the table's rows. Table names in the tool-call log are matched across catalog aliases (`AwsDataCatalog` and `iceberg`). Only readers with `governance:read` see who queried; everyone else sees counts only. Dashboards follow the dashboard list's rule: admins see all, others see their own and public ones.
 - `/catalog?table=…&map=lineage|schema|concepts|relationships` opens the data map in that mode.
 
+### Sources: Amazon Redshift; Google BigQuery (preview); Kafka card removed (2026-11-25)
+
+- **Redshift** is a source like PostgreSQL: a Trino catalog `src_<slug>` (`connector.name=redshift`, `jdbc:redshift://host:5439/db`; SSL on by default), tested and listed before the catalog exists through psycopg2 (Redshift speaks the PostgreSQL protocol). Syncs, PII masking, grants, search and schedules work as for the other database sources. Adding one restarts Trino (~1 min), as for every Trino-backed source.
+- **BigQuery** is a source in **preview**: `connector.name=bigquery` with `bigquery.project-id` and `bigquery.credentials-key` (the pasted service-account JSON, base64-encoded into the credentials Secret; the properties file only names the env variable). Before the catalog exists the wizard tests and lists datasets and tables through the BigQuery REST API with a token for that key (`google-auth`, now declared). The customer's project needs the BigQuery Storage Read API turned on. Preview because it has not been run against a real project in CI or on the reference node.
+- **Snowflake** stays "coming soon": Trino's connector documents password login only (no key pair) and needs extra Trino JVM options.
+- **Kafka** is no longer offered as a source card, and the unused `kafka`, `kinesis`, `gcs` and `azure_blob` source types are removed. Kafka and Kinesis streams belong to Streaming (the RisingWave add-on, off on the reference profiles). No live source used these types.
+
 ### Source schedules run in the backend, without Airflow (2026-11-25, migration 0037)
 
 A source's sync schedule used to be written out as an Airflow DAG. The AWS reference and the Core profiles run no Airflow, so the console hid the schedule card there and every sync was manual. Schedules now run in the backend (`app/sync_scheduler.py`) on every profile: one loop per replica, leader-locked through Postgres like the RAG and connection-check loops.
