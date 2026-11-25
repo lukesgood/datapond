@@ -84,7 +84,7 @@
 | RLS 엔진 (행 필터·컬럼 마스킹) | | ✅ `governance.rls.enabled` | |
 | S3/Bedrock adapter | ✅ AWS 프로필 · MinIO/Ollama in Sovereign | | |
 | Aurora/Glue adapter, Polaris 병행 | | ✅ AWS single-node | |
-| RisingWave/OpenMetadata/Airflow/Spark/Jupyter/MLflow | | ✅ Optional add-on | |
+| OpenMetadata/Airflow/Spark/Jupyter/MLflow | | ✅ Optional add-on | |
 | 온톨로지 concept store (Phase 0) | | ✅ opt-in, 기본 off (`ontology.enabled`) | Phase 1+ 보류 |
 | EKS installer, EMR Serverless, S3 Tables, Lake Formation, AOSS, DataZone, Marketplace | | | 🛣️ |
 | Delta → Iceberg 이관, 통합 export/import CLI, 자동 exit drill | | | 🛣️ |

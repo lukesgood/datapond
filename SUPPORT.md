@@ -74,9 +74,8 @@ catalog export and the one-writer-per-table guards (`docs/PORTABILITY.md`) are s
 those catalogs; writes made to a mirror by an engine outside DataPond are detected, not
 prevented.
 
-The other optional OSS add-ons (Airflow, Spark, RisingWave, OpenMetadata, Jupyter,
-MLflow) are configuration around upstream projects. We will help with how the chart
-wires them; we are not in a position to support those projects themselves.
+The other optional OSS add-ons (Airflow, Spark, OpenMetadata, Jupyter, MLflow) are
+configuration around upstream projects. We will help with how the chart wires them; we are not in a position to support those projects themselves.
 
 ### Add-ons this release does not support
 
@@ -84,7 +83,6 @@ wires them; we are not in a position to support those projects themselves.
 - Airflow
 - Spark
 - Polaris
-- RisingWave
 - OpenMetadata
 - Jupyter
 - MLflow

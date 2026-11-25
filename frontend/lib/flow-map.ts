@@ -1,10 +1,10 @@
 /** The data flow map's layout and reading aids. The graph itself comes from
  *  GET /api/transforms/flow (backend app/flow_map.py). */
 
-export type FlowState = "ok" | "failed" | "running" | "stale" | "never" | "live" | "external"
+export type FlowState = "ok" | "failed" | "running" | "stale" | "never" | "external"
 export type FlowNode = {
   id: string
-  kind: "source" | "stream" | "table"
+  kind: "source" | "table"
   name: string
   namespace?: string
   connector_type?: string | null
@@ -13,9 +13,9 @@ export type FlowNode = {
   state?: FlowState
   at?: string | null
   stale_input?: string[] | null
-  written_by?: { kind: "sync" | "stream" | "transform"; ref: string; name: string; dag_id?: string | null; schedule?: string | null } | null
+  written_by?: { kind: "sync" | "transform"; ref: string; name: string; dag_id?: string | null; schedule?: string | null } | null
 }
-export type FlowEdge = { from: string; to: string; kind: "sync" | "stream" | "transform"; via?: string; ref?: string }
+export type FlowEdge = { from: string; to: string; kind: "sync" | "transform"; via?: string; ref?: string }
 export type Flow = { nodes: FlowNode[]; edges: FlowEdge[]; warnings?: string[]; generated_at?: string }
 
 export const NODE_W = 180
@@ -46,7 +46,7 @@ export function filterFlow(flow: Flow, query: string, attentionOnly: boolean): F
 
 const MEDALLION: Record<string, number> = { raw: 1, landing: 1, bronze: 1, default: 1, refined: 2, silver: 2, serving: 3, gold: 3 }
 
-/** Sources and streams first, then one column per namespace: medallion order where
+/** Sources first, then one column per namespace: medallion order where
  *  the name says it (raw → refined → serving), otherwise by how deep its tables sit.
  *  Inside a column each node sits near the average row of what feeds it (one
  *  barycentre pass). */
@@ -107,13 +107,11 @@ export function edgePath(a: { x: number; y: number }, b: { x: number; y: number 
 
 export function stateText(n: FlowNode, ago: (iso: string | null | undefined) => string): string {
   if (n.kind === "source") return n.connector_type ?? "source"
-  if (n.kind === "stream") return `stream${n.connector_type ? ` · ${n.connector_type}` : ""}`
   const when = n.at ? ago(n.at) : ""
   switch (n.state) {
     case "failed": return `failed ${when}`.trim()
     case "running": return "running now"
     case "stale": return `last ${n.written_by?.kind === "sync" ? "sync" : "run"} ${when}`.trim()
-    case "live": return "live"
     case "never": return "not run yet"
     case "external": return "not written by DataPond"
     default: return `${n.written_by?.kind === "sync" ? "synced" : "ran"} ${when}`.trim()

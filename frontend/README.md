@@ -9,7 +9,7 @@ Next.js operator UI for the **governed data tool server**.
 | Home | `/dashboard` | Core |
 | Build AI | `/knowledge`, `/ai` | Core |
 | Data | `/connectors`, `/catalog`, `/query` | Adapter capability-gated |
-| Add-ons | `/pipelines`, `/streaming`, `/dashboards`, `/notebooks`, `/experiments` | Add-on capability-gated |
+| Add-ons | `/pipelines`, `/dashboards`, `/notebooks`, `/experiments` | Add-on capability-gated |
 | Operate | `/governance`, `/storage`, `/services`, `/system`, `/settings` | Core |
 | Learn | `/docs`, `/help` | Core |
 

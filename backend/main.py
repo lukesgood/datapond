@@ -30,7 +30,6 @@ from app.api.service_account_routes import router as service_accounts_router
 from app.api.chat_routes import router as chat_router
 from app.api.pipelines import router as pipelines_router
 from app.api.storage import router as storage_router
-from app.api.streaming import router as streaming_router
 from app.api.auth import (
     router as auth_router,
     is_internal_automation_request,
@@ -534,8 +533,6 @@ app.include_router(chat_router, prefix="/api")
 app.include_router(dashboards_router, prefix="/api")
 app.include_router(pipelines_router, prefix="/api")
 app.include_router(storage_router, prefix="/api")
-app.include_router(streaming_router, prefix="/api",
-                   dependencies=[Depends(require_component("RISINGWAVE", "Streaming"))])
 app.include_router(auth_router, prefix="/api")
 app.include_router(transforms_router, prefix="/api")
 app.include_router(ai_sql_router, prefix="/api")

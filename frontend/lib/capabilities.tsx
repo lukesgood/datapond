@@ -19,7 +19,6 @@ const CAPABILITY_LABELS: Record<string, string> = {
   query: "Analytics",
   dashboards: "Dashboards",
   pipelines: "Transforms",
-  streaming: "Streaming",
   experiments: "Experiments",
   notebooks: "Notebooks",
 }

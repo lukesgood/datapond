@@ -23,7 +23,7 @@ export function getProductProfile(caps: Capabilities): ProductProfile {
   // extended rather than core. OpenMetadata is not among them: it is reachable at its
   // own URL and appears under Services, but it adds no page here, so a deployment
   // running it and nothing else is still a Portable Core console.
-  const hasOssAddons = ["streaming", "pipelines", "experiments", "notebooks"].some(
+  const hasOssAddons = ["pipelines", "experiments", "notebooks"].some(
     (key) => caps[key] === true,
   )
 

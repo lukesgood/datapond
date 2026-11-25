@@ -136,7 +136,7 @@ CREATE INDEX idx_roles_parent ON roles(parent_role_id);
 -- Permissions
 CREATE TABLE IF NOT EXISTS permissions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    resource VARCHAR(64) NOT NULL,     -- e.g., 'catalog', 'query', 'pipeline', 'notebook', 'ml', 'connector', 'streaming', 'admin'
+    resource VARCHAR(64) NOT NULL,     -- e.g., 'catalog', 'query', 'pipeline', 'notebook', 'ml', 'connector', 'admin'
     action VARCHAR(64) NOT NULL,       -- e.g., 'create', 'read', 'update', 'delete', 'execute', 'manage'
     description TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -602,7 +602,7 @@ $$ LANGUAGE plpgsql STABLE;
 
 INSERT INTO roles (name, display_name, description, is_system) VALUES
     ('admin', 'Administrator', 'Full platform access. Can manage users, roles, settings, and all resources.', true),
-    ('data_engineer', 'Data Engineer', 'Create and manage data pipelines, tables, connectors, and streaming jobs.', true),
+    ('data_engineer', 'Data Engineer', 'Create and manage data pipelines, tables, and connectors.', true),
     ('data_scientist', 'Data Scientist', 'Run queries, create experiments, train models, and execute notebooks.', true),
     ('business_analyst', 'Business Analyst', 'Run SELECT queries, view dashboards, trigger pipelines, and view shared notebooks.', true),
     ('viewer', 'Viewer', 'Read-only access to dashboards, catalog metadata, and shared resources.', true)
@@ -664,12 +664,6 @@ INSERT INTO permissions (resource, action, description) VALUES
     ('connector', 'delete', 'Delete data connectors'),
     ('connector', 'view', 'View connector status and sync history'),
 
-    -- Streaming (RisingWave)
-    ('streaming', 'create_mv', 'Create materialized views'),
-    ('streaming', 'create_source', 'Create streaming sources and sinks'),
-    ('streaming', 'drop', 'Drop materialized views, sources, sinks'),
-    ('streaming', 'query', 'Query materialized views'),
-
     -- Data Security
     ('security', 'manage_rls', 'Create, update, delete row-level security policies'),
     ('security', 'manage_masking', 'Create, update, delete column masking policies'),
@@ -702,7 +696,6 @@ WHERE r.name = 'data_engineer'
     ('notebook', 'create'), ('notebook', 'execute'), ('notebook', 'delete'), ('notebook', 'view'),
     ('ml', 'create_experiment'), ('ml', 'register_model'), ('ml', 'deploy_model'), ('ml', 'view'),
     ('connector', 'create'), ('connector', 'update'), ('connector', 'delete'), ('connector', 'view'),
-    ('streaming', 'create_mv'), ('streaming', 'create_source'), ('streaming', 'drop'), ('streaming', 'query'),
     ('security', 'view_policies')
   )
 ON CONFLICT DO NOTHING;
@@ -720,7 +713,6 @@ WHERE r.name = 'data_scientist'
     ('notebook', 'create'), ('notebook', 'execute'), ('notebook', 'view'),
     ('ml', 'create_experiment'), ('ml', 'register_model'), ('ml', 'view'),
     ('connector', 'view'),
-    ('streaming', 'query'),
     ('security', 'view_policies')
   )
 ON CONFLICT DO NOTHING;
@@ -737,8 +729,7 @@ WHERE r.name = 'business_analyst'
     ('pipeline', 'trigger'), ('pipeline', 'view'),
     ('notebook', 'view'),
     ('ml', 'view'),
-    ('connector', 'view'),
-    ('streaming', 'query')
+    ('connector', 'view')
   )
 ON CONFLICT DO NOTHING;
 
@@ -753,8 +744,7 @@ WHERE r.name = 'viewer'
     ('query', 'execute_select'), ('query', 'kill_own'),
     ('pipeline', 'view'),
     ('notebook', 'view'),
-    ('ml', 'view'),
-    ('streaming', 'query')
+    ('ml', 'view')
   )
 ON CONFLICT DO NOTHING;
 

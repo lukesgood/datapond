@@ -1,6 +1,6 @@
 """Fail-fast guard for disabled components.
 
-Foundation profile turns the OSS engines off (Jupyter / RisingWave / MLflow /
+Foundation profile turns the OSS engines off (Jupyter / MLflow /
 Airflow). Their routers are still mounted, so a direct call would try to reach a
 service that isn't there and surface a raw 500 (connection error, or a
 fail-closed secret guard). This dependency returns a clean, honest 503 instead —

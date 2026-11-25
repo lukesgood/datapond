@@ -33,13 +33,12 @@ def test_all_enabled_when_flags_set():
         POLARIS="true",
         AIRFLOW="true",
         MLFLOW="true",
-        RISINGWAVE="true",
         OPENMETADATA="true",
         JUPYTER="true",
     ))
     assert caps["catalog"] is True
     assert caps["query"] is True
-    assert caps["streaming"] is True
+    assert caps["streaming"] is False, "RisingWave was removed in 2.7; the key stays false"
     assert caps["knowledge"] is True
 
 
@@ -50,7 +49,6 @@ def test_lean_profile_hides_lakehouse():
         POLARIS="false",
         AIRFLOW="false",
         MLFLOW="false",
-        RISINGWAVE="false",
         OPENMETADATA="false",
         JUPYTER="false",
     )

@@ -89,7 +89,6 @@ Knowledge collection authorization currently uses application-level owner/admin/
 |---|---|---|
 | Polaris | Iceberg REST catalog | Use with engines that support REST catalog |
 | Trino | Distributed SQL | Not required for RAG |
-| RisingWave | Streaming SQL/CDC | Enable only for continuous data flows |
 | Airflow + Spark | DAG and batch transforms | Higher footprint |
 | OpenMetadata | External catalog/lineage UI | Registration is best-effort |
 | Jupyter + DuckDB | Interactive exploration | User-code execution boundary |

@@ -42,7 +42,6 @@ that already runs it.
 | `apache/airflow:2.8.1` | Apache Airflow | Apache-2.0 |
 | `ghcr.io/mlflow/mlflow:v2.10.0` | MLflow | Apache-2.0 |
 | `apache/polaris:1.4.0`, `apache/polaris-admin-tool` | Apache Polaris | Apache-2.0 |
-| `risingwavelabs/risingwave:v1.7.0` | RisingWave (core) | Apache-2.0 |
 | `openmetadata/server:1.3.1` | OpenMetadata | Apache-2.0 |
 | `ghcr.io/berriai/litellm:v1.91.0` | LiteLLM | MIT |
 | `ollama/ollama:0.31.1` | Ollama | MIT |

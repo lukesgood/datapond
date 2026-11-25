@@ -76,7 +76,6 @@ renamed component moves the lookup with it.
 {{- $_ := set $t "airflow"      (dict "kind" "Deployment"  "name" (printf "%s-webserver" (dig "name" "airflow"    ($v.airflow      | default dict)))) -}}
 {{- $_ := set $t "spark"        (dict "kind" "StatefulSet" "name" (printf "%s-master"    (dig "name" "spark"      ($v.spark        | default dict)))) -}}
 {{- $_ := set $t "polaris"      (dict "kind" "Deployment"  "name"                        (dig "name" "polaris"    ($v.polaris      | default dict))) -}}
-{{- $_ := set $t "risingwave"   (dict "kind" "Deployment"  "name" (printf "%s-frontend"  (dig "name" "risingwave" ($v.risingwave   | default dict)))) -}}
 {{- $_ := set $t "openmetadata" (dict "kind" "Deployment"  "name" (printf "%s-server"    (dig "name" "openmetadata" ($v.openmetadata | default dict)))) -}}
 {{- $_ := set $t "jupyter"      (dict "kind" "Deployment"  "name"                        (dig "name" "jupyterlab" ($v.jupyter      | default dict))) -}}
 {{- $_ := set $t "mlflow"       (dict "kind" "Deployment"  "name"                        (dig "name" "mlflow"     ($v.mlflow       | default dict))) -}}

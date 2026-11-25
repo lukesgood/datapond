@@ -207,7 +207,7 @@ export const PERMISSION_TEXT: Record<string, string> = {
   "ai:generate": "Call models for cited answers and NL→SQL (billed to this agent)",
   "connector:read": "See sources and when they last synced",
   "connector:write": "Create, edit and run source syncs",
-  "pipeline:write": "Edit transforms and streaming jobs",
+  "pipeline:write": "Edit transforms",
   "workbench:read": "Browse notebooks and experiments",
   "workbench:write": "Run notebooks and change experiments",
   "governance:read": "Read row/column policies and PII reports",

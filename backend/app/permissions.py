@@ -36,7 +36,7 @@ ALL_PERMISSIONS: FrozenSet[str] = frozenset({
     "ai:generate",        # anything that spends model tokens (Ask AI, RAG, embed)
     "connector:read",     # see sources and their sync state
     "connector:write",    # create, edit, delete, and run connectors
-    "pipeline:write",     # transforms and streaming
+    "pipeline:write",     # transforms
     "workbench:read",     # browse notebooks and tracked experiments
     "workbench:write",    # run notebooks and mutate experiments
     "governance:read",    # RLS and masking policies, PII reports

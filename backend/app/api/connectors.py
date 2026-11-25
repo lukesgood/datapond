@@ -235,7 +235,7 @@ class ConnectorInfo(BaseModel):
     """Available connector information"""
     id: str
     name: str
-    category: str  # "database", "storage", "streaming", "saas"
+    category: str  # "database", "storage", "saas"
     icon: str
     description: str
     supported: bool

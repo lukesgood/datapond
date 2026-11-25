@@ -249,7 +249,6 @@ export function HelpPanel({ page }: { page: string }) {
 **Key Docs:**
 - Setting up data connectors
 - Building batch ETL pipelines
-- Real-time streaming with RisingWave
 - Data quality checks
 - Iceberg table optimization
 

@@ -80,7 +80,6 @@ trino: {enabled: false}
 polaris: {enabled: false}
 airflow: {enabled: false}
 spark: {enabled: false}
-risingwave: {enabled: false}
 openmetadata: {enabled: false}
 jupyter: {enabled: false}
 mlflow: {enabled: false}

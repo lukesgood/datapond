@@ -1,8 +1,7 @@
 """The data flow map: what feeds which table, drawn only from things that run.
 
-Three kinds of edge, each read from where it already lives:
+Two kinds of edge, each read from where it already lives:
   sync       a source's enabled sync job → the table it writes (connector_sync_jobs)
-  stream     a RisingWave Iceberg sink → the table it writes (rw_catalog definitions)
   transform  every table a transform's SQL reads → the table it writes
 
 Tables are keyed `namespace.table` (lower case, catalog dropped): the map is about
@@ -53,21 +52,6 @@ def sync_target_key(source_table: str, target_table: str) -> Optional[str]:
     return f"{_norm(ns or 'default')}.{_norm(src)}" if src else None
 
 
-_SINK_DB = re.compile(r"database\.name\s*=\s*'((?:[^']|'')*)'", re.I)
-_SINK_TABLE = re.compile(r"table\.name\s*=\s*'((?:[^']|'')*)'", re.I)
-_SINK_FROM = re.compile(r"\bFROM\s+([A-Za-z_][A-Za-z0-9_]*)", re.I)
-
-
-def sink_target(definition: str) -> Optional[str]:
-    """`namespace.table` an Iceberg sink writes, from its DDL."""
-    db = _SINK_DB.search(definition or "")
-    tb = _SINK_TABLE.search(definition or "")
-    if not (db and tb):
-        return None
-    unq = lambda m: m.group(1).replace("''", "'")
-    return f"{_norm(unq(db))}.{_norm(unq(tb))}"
-
-
 def _parse_ts(v: Any) -> Optional[datetime]:
     if v is None:
         return None
@@ -81,10 +65,8 @@ def _parse_ts(v: Any) -> Optional[datetime]:
         return None
 
 
-def _state(status: Optional[str], at: Optional[datetime], now: datetime, live: bool = False) -> str:
-    """ok | failed | running | stale | never | live"""
-    if live:
-        return "live"
+def _state(status: Optional[str], at: Optional[datetime], now: datetime) -> str:
+    """ok | failed | running | stale | never"""
     s = (status or "").lower()
     if s in ("failed", "error", "upstream_failed"):
         return "failed"
@@ -101,7 +83,6 @@ def build_flow(
     connections: Iterable[Dict[str, Any]],
     jobs: Iterable[Dict[str, Any]],
     transforms: Iterable[Dict[str, Any]],
-    sinks: Iterable[Dict[str, Any]] = (),
     *,
     now: Optional[datetime] = None,
 ) -> Dict[str, Any]:
@@ -111,7 +92,6 @@ def build_flow(
     jobs:        {connection_id, source_table, target_table, last_run_status, last_run_at}
     transforms:  {id, name, dag_id, schedule, target_namespace, target_table, reads: [names],
                   last_run_state, last_run_at}
-    sinks:       {name, definition, source_connector}  (RisingWave Iceberg sinks)
     """
     now = now or datetime.now(timezone.utc)
     nodes: Dict[str, Dict[str, Any]] = {}
@@ -142,19 +122,6 @@ def build_flow(
                  written_by={"kind": "sync", "ref": str(conn["id"]), "name": conn.get("name")})
         edges.append({"from": src_id, "to": key, "kind": "sync", "via": conn.get("name")})
 
-    for s in sinks:
-        key = sink_target(s.get("definition", ""))
-        if not key:
-            continue
-        name = str(s.get("name", ""))
-        stream = name[:-5] if name.endswith("_sink") else name
-        src_id = f"stream:{stream}"
-        nodes.setdefault(src_id, {"id": src_id, "kind": "stream", "name": stream,
-                                  "connector_type": s.get("source_connector")})
-        t = table(key)
-        t.update(state="live", written_by={"kind": "stream", "ref": stream, "name": stream})
-        edges.append({"from": src_id, "to": key, "kind": "stream", "via": stream})
-
     for tr in transforms:
         out = table_key(f"{tr.get('target_namespace')}.{tr.get('target_table')}")
         if not out:
@@ -181,7 +148,7 @@ def build_flow(
 
 
 def _layout(nodes: Dict[str, Dict[str, Any]], edges: List[Dict[str, Any]]) -> None:
-    """Column = longest path from a source. Sources and streams are column 0; a table
+    """Column = longest path from a source. Sources are column 0; a table
     nothing in DataPond writes sits in column 1 beside the synced ones."""
     preds: Dict[str, List[str]] = {k: [] for k in nodes}
     for e in edges:

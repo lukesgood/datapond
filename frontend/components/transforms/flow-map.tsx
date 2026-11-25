@@ -20,11 +20,10 @@ import { useToast } from "@/lib/toast"
 
 const TONE: Record<string, string> = {
   failed: "var(--destructive)", stale: "var(--dp-warn)", running: "var(--primary)",
-  live: "var(--dp-good)", ok: "var(--dp-good)", never: "var(--muted-foreground)", external: "var(--muted-foreground)",
+  ok: "var(--dp-good)", never: "var(--muted-foreground)", external: "var(--muted-foreground)",
 }
 const EDGE: Record<string, { stroke: string; dash?: string; width: number }> = {
   sync: { stroke: "var(--muted-foreground)", width: 1.5 },
-  stream: { stroke: "var(--primary)", dash: "5 4", width: 1.8 },
   transform: { stroke: "var(--foreground)", width: 1.4 },
 }
 
@@ -33,7 +32,7 @@ function label(flow: Flow, id: string) {
   return n ? (n.kind === "table" ? n.id : n.name) : id
 }
 
-/** Every source, stream and table DataPond moves data between, and the transforms
+/** Every source and table DataPond moves data between, and the transforms
  *  that build one table from others. Drawn from what exists; nothing here is unsaved. */
 export function FlowMap({ canWrite }: { canWrite: boolean }) {
   const router = useRouter()
@@ -97,7 +96,7 @@ export function FlowMap({ canWrite }: { canWrite: boolean }) {
           <ChoiceGroup<boolean> label="Show" value={attention} onChange={setAttention}
             options={[{ label: `All · ${tables}`, value: false }, { label: `Needs attention · ${attentionCount}`, value: true, disabled: attentionCount === 0 }]} />
           <div className="ml-auto flex flex-wrap gap-3 text-xs text-muted-foreground" aria-hidden>
-            {(["sync", "stream", "transform"] as const).map(k => (
+            {(["sync", "transform"] as const).map(k => (
               <span key={k} className="inline-flex items-center gap-1.5">
                 <svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke={EDGE[k].stroke} strokeWidth="2" strokeDasharray={EDGE[k].dash} /></svg>{k}
               </span>
@@ -109,7 +108,7 @@ export function FlowMap({ canWrite }: { canWrite: boolean }) {
           empty={
             <div className="px-5 py-10 text-center">
               <p className="text-sm font-medium">Nothing to draw yet</p>
-              <p className="mt-1 text-xs text-muted-foreground">The map shows tables a source syncs, a stream writes or a transform builds. Add a source or a transform and it appears here.</p>
+              <p className="mt-1 text-xs text-muted-foreground">The map shows tables a source syncs or a transform builds. Add a source or a transform and it appears here.</p>
             </div>
           }>
           {geo && shown && (
@@ -164,7 +163,7 @@ export function FlowMap({ canWrite }: { canWrite: boolean }) {
           )}
         </SourceState>
         <p className="border-t px-3.5 py-2.5 text-xs text-muted-foreground">
-          Drawn from what exists: source syncs, streams, and the tables each transform reads and writes. Edit on the Transforms tab or on the source.
+          Drawn from what exists: source syncs and the tables each transform reads and writes. Edit on the Transforms tab or on the source.
           {flow?.warnings?.length ? ` Partly drawn: ${flow.warnings.join("; ")}.` : ""}
         </p>
       </section>
@@ -215,7 +214,6 @@ export function FlowMap({ canWrite }: { canWrite: boolean }) {
                 {(w?.kind === "sync" || node.kind === "source") && (
                   <Button size="sm" variant="outline" onClick={() => router.push(`/connectors/connections/${encodeURIComponent(w?.ref ?? node.ref ?? "")}`)}>Open source</Button>
                 )}
-                {(w?.kind === "stream" || node.kind === "stream") && <Button size="sm" variant="outline" onClick={() => router.push("/streaming")}>Open Streaming</Button>}
               </div>
               {node.kind === "table" && canWrite && (
                 <RailSection title="Build on this table">

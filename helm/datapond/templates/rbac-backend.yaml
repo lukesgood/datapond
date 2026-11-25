@@ -42,10 +42,6 @@ rules:
       - airflow-scheduler
       - spark-master
       - spark-worker
-      - risingwave-meta
-      - risingwave-compute
-      - risingwave-frontend
-      - risingwave-compactor
       - openmetadata-server
       - openmetadata-elasticsearch
     verbs: ["patch", "update"]

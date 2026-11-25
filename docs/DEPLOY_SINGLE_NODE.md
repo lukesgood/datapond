@@ -357,7 +357,7 @@ init's `ecr-refresh` timer keeps current), `storage.provider=s3` with no static 
 instance-profile IAM), `externalDatabase.enabled=true` / `postgres.enabled=false`
 (external Aurora, no in-cluster Postgres), the Portable Core workload set (backend/
 frontend/valkey/litellm, plus `trino.enabled: true` — the query engine; Spark/Polaris/
-Airflow/MLflow/Jupyter/RisingWave/OpenMetadata/Ollama/vLLM/MinIO all `enabled: false`), litellm's Bedrock model list
+Airflow/MLflow/Jupyter/OpenMetadata/Ollama/vLLM/MinIO all `enabled: false`), litellm's Bedrock model list
 (Titan embed + Claude Haiku/Sonnet, `us-east-1`), and `ingress.tls.enabled=true` with the
 `cert-manager.io/cluster-issuer: letsencrypt-prod` annotation. The image `tag` is not set
 explicitly — it defaults to the chart `appVersion`, which must match whatever CI pushed

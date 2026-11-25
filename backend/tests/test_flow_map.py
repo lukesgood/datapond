@@ -24,24 +24,21 @@ def _flow(**kw):
          "target_table": "daily_revenue", "reads": ["iceberg.refined.customers", "iceberg.raw.orders"],
          "last_run_state": "success", "last_run_at": (NOW - timedelta(hours=1)).isoformat()},
     ]
-    sinks = [{"name": "shop_cdc_payments_sink", "source_connector": "postgres-cdc",
-              "definition": "CREATE SINK shop_cdc_payments_sink FROM shop_cdc_payments_mv WITH (connector = 'iceberg', database.name = 'raw', table.name = 'payments')"}]
     return fm.build_flow(kw.get("conns", conns), kw.get("jobs", jobs), kw.get("transforms", transforms),
-                         kw.get("sinks", sinks), now=NOW)
+                         now=NOW)
 
 
 def test_nodes_edges_and_columns():
     out = _flow()
     nodes = {n["id"]: n for n in out["nodes"]}
-    assert {"source:c1", "raw.orders", "raw.customers", "refined.customers", "serving.daily_revenue",
-            "stream:shop_cdc_payments", "raw.payments"} <= set(nodes)
+    assert {"source:c1", "raw.orders", "raw.customers", "refined.customers", "serving.daily_revenue"} <= set(nodes)
     assert "raw.secret" not in nodes, "a job of a source the caller cannot see is left out"
     assert nodes["source:c1"]["column"] == 0 and nodes["raw.orders"]["column"] == 1
     assert nodes["refined.customers"]["column"] == 2 and nodes["serving.daily_revenue"]["column"] == 3
     kinds = {(e["from"], e["to"]): e["kind"] for e in out["edges"]}
     assert kinds[("source:c1", "raw.orders")] == "sync"
     assert kinds[("raw.customers", "refined.customers")] == "transform"
-    assert kinds[("stream:shop_cdc_payments", "raw.payments")] == "stream"
+    assert {e["kind"] for e in out["edges"]} == {"sync", "transform"}
 
 
 def test_states_and_stale_input_propagate():
@@ -52,14 +49,13 @@ def test_states_and_stale_input_propagate():
     assert nodes["refined.customers"]["stale_input"] == ["raw.customers"]
     assert nodes["serving.daily_revenue"]["state"] == "ok"
     assert nodes["serving.daily_revenue"]["stale_input"] == ["refined.customers"]
-    assert nodes["raw.payments"]["state"] == "live"
 
 
 def test_manual_transform_is_not_stale_and_unknown_inputs_are_external():
     t = [{"id": "t", "name": "adhoc", "schedule": None, "target_namespace": "serving", "target_table": "x",
           "reads": ["refined.unmanaged"], "last_run_state": "success",
           "last_run_at": (NOW - timedelta(days=10)).isoformat()}]
-    nodes = {n["id"]: n for n in _flow(conns=[], jobs=[], transforms=t, sinks=[])["nodes"]}
+    nodes = {n["id"]: n for n in _flow(conns=[], jobs=[], transforms=t)["nodes"]}
     assert nodes["serving.x"]["state"] == "ok"
     assert nodes["refined.unmanaged"]["state"] == "external" and nodes["refined.unmanaged"]["column"] == 1
 
@@ -68,7 +64,6 @@ def test_keys():
     assert fm.table_key("iceberg.Raw.Orders") == "raw.orders"
     assert fm.table_key("orders") == "default.orders"
     assert fm.sync_target_key("public.orders", "datapond.default.public.orders") == "default.orders"
-    assert fm.sink_target("... database.name = 'raw', table.name = 'o''x'") == "raw.o_x"
 
 
 def test_flow_route_is_matched_before_the_id_route():

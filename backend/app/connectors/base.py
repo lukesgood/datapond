@@ -34,8 +34,8 @@ class ConnectorType(str, Enum):
     REDSHIFT = "redshift"
     BIGQUERY = "bigquery"       # preview: read through Trino's BigQuery connector
     S3 = "s3"
-    # Kafka and Kinesis are Streaming (the RisingWave add-on), not sources; Azure Blob
-    # and GCS were never implemented. Their names were removed in 2.7.
+    # Kafka, Kinesis, Azure Blob and GCS were never implemented as sources; their names
+    # were removed in 2.7 together with the RisingWave streaming add-on.
     DATABASE_URL = "database_url"
     REST_API = "rest_api"
     CUSTOM = "custom"
@@ -45,7 +45,6 @@ class SyncMode(str, Enum):
     """Data synchronization modes"""
     FULL = "full"  # Full refresh (drop and replace)
     INCREMENTAL = "incremental"  # Append new/changed data
-    CDC = "cdc"  # Change Data Capture
     SNAPSHOT = "snapshot"  # One-time snapshot
 
 

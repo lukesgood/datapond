@@ -32,7 +32,7 @@ def test_profile_identity():
 
 def test_every_addon_is_explicitly_false():
     v = yaml.safe_load(VALUES.read_text())
-    for k in ("airflow", "spark", "polaris", "risingwave", "openmetadata", "jupyter",
+    for k in ("airflow", "spark", "polaris", "openmetadata", "jupyter",
               "mlflow", "trino", "vllm"):
         assert v[k]["enabled"] is False, k
 
@@ -66,7 +66,7 @@ def test_render_has_core_minio_ollama_and_no_addons():
     assert {"backend", "frontend", "litellm"} <= deployments
     assert "minio" in deployments | statefulsets
     assert "ollama" in deployments | statefulsets
-    for absent in ("trino", "polaris", "airflow-webserver", "risingwave-frontend",
+    for absent in ("trino", "polaris", "airflow-webserver",
                    "openmetadata-server", "jupyterlab", "mlflow", "spark-master"):
         assert absent not in deployments | statefulsets, absent
 

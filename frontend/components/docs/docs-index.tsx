@@ -90,7 +90,7 @@ const docCategories: DocCategory[] = [
     docs: [
       { title: { en: "Open Contracts", ko: "개방형 계약" }, description: { en: "S3 API, Iceberg, Glue/REST catalogs, Trino, PostgreSQL, LiteLLM", ko: "S3 API, Iceberg, Glue/REST 카탈로그, Trino, PostgreSQL, LiteLLM" }, href: "/docs/open-contracts", badge: "Shipped" },
       { title: { en: "Exit Strategy", ko: "이전 전략" }, description: { en: "What moves today, and which automation is still roadmap", ko: "지금 옮길 수 있는 것과 아직 로드맵인 자동화" }, href: "/docs/exit-strategy" },
-      { title: { en: "Optional Add-ons", ko: "선택형 애드온" }, description: { en: "Polaris, RisingWave, OpenMetadata, Airflow, Spark, Jupyter, MLflow", ko: "Polaris, RisingWave, OpenMetadata, Airflow, Spark, Jupyter, MLflow" }, href: "/docs/addons", badge: "Optional" },
+      { title: { en: "Optional Add-ons", ko: "선택형 애드온" }, description: { en: "Polaris, OpenMetadata, Airflow, Spark, Jupyter, MLflow", ko: "Polaris, OpenMetadata, Airflow, Spark, Jupyter, MLflow" }, href: "/docs/addons", badge: "Optional" },
       { title: { en: "Backup & Restore", ko: "백업과 복구" }, description: { en: "Protect the lake, PostgreSQL, catalog metadata and encryption keys", ko: "레이크, PostgreSQL, 카탈로그 메타데이터, 암호화 키 보호" }, href: "/docs/backup-restore" },
     ],
   },

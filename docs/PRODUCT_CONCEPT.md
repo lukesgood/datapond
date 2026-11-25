@@ -119,7 +119,7 @@ AWS 위의 한국 중소·중견 기업 데이터팀. 개인정보보호법 대�
 |---|---|---|
 | Home | Dashboard | 프로필, 핵심 흐름, 상태 |
 | Lakehouse | Catalog, Analytics, Sources, Metrics | 카탈로그·쿼리 엔진이 켜졌을 때만. DB 소스(PostgreSQL·MySQL·SQL Server·Oracle·MongoDB)는 Trino 카탈로그 `src_<slug>`, REST·custom·S3는 백엔드가 읽는다 |
-| Pipelines | Transforms, Streaming | 해당 add-on을 켰을 때만, 지원 티어 배지 |
+| Pipelines | Transforms | 해당 add-on을 켰을 때만, 지원 티어 배지 |
 | Data Science | Notebooks, Experiments | 해당 add-on을 켰을 때만, 지원 티어 배지 |
 | AI | Knowledge, Agents, AI Gateway | 모든 프로필 |
 | Operate | Governance, Storage, Infrastructure, Settings | 운영 |

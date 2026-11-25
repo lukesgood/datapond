@@ -43,9 +43,9 @@ const Note = ({ children }: { children: React.ReactNode }) => (
 
 // ── Lineage ─────────────────────────────────────────────────────────────────────
 
-const KIND_LABEL: Record<string, string> = { source: "source", stream: "stream", table: "table" }
+const KIND_LABEL: Record<string, string> = { source: "source", table: "table" }
 const STATE_LABEL: Record<string, string> = {
-  ok: "fresh", failed: "last run failed", running: "running", stale: "stale", never: "never run", live: "live", external: "",
+  ok: "fresh", failed: "last run failed", running: "running", stale: "stale", never: "never run", external: "",
 }
 
 /** What feeds the centre and what it feeds: sync jobs, streams and transforms, from the
@@ -120,7 +120,6 @@ export function LineageView({ centre, sole, onPick }: { centre: string; sole: st
     label: e.kind === "transform" && e.via ? e.via : e.kind,
     labelStyle: { fontSize: 10 }, labelBgPadding: [4, 2] as [number, number], labelBgStyle: { fill: "var(--card)" },
     markerEnd: { type: MarkerType.ArrowClosed },
-    style: e.kind === "stream" ? { strokeDasharray: "4 3" } : undefined,
   }))
   if (centreId) for (const u of uses) edges.push({
     id: `${centreId}>uses:${u.kind}`, source: centreId, target: `uses:${u.kind}`,

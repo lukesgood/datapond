@@ -29,7 +29,7 @@ def test_every_component_gated_capability_declares_its_backends():
     """A capability with no entry can never earn a tier, and would be silently
     supported forever."""
     gated = {"connectors", "catalog", "query", "dashboards", "pipelines",
-             "streaming", "experiments", "notebooks"}
+             "experiments", "notebooks"}
     assert set(CAPABILITY_BACKENDS) == gated
 
 
@@ -54,7 +54,7 @@ def test_the_support_map_is_the_derivation_not_a_hand_written_list():
         expected[capability] = "preview"
 
     assert compute_capabilities({})["support"] == expected
-    assert set(expected) == {"pipelines", "streaming", "experiments", "notebooks"}
+    assert set(expected) == {"pipelines", "experiments", "notebooks"}
     assert "query" not in expected and "catalog" not in expected
 
 

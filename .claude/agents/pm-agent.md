@@ -143,7 +143,6 @@ You are the **Lead Product & Project Manager** for DataPond, an AI-Native Open L
 ```yaml
 Architecture: ✅ Complete
   - Lakehouse: SeaweedFS + Iceberg + Trino
-  - Streaming: RisingWave (Kafka+Flink replacement)
   - Catalog: Apache Polaris (Unity Catalog equivalent)
   - Compute: Spark + Airflow
   - ML: MLflow + JupyterLab + DuckDB

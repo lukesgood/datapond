@@ -118,17 +118,6 @@ spec:
               number: {{ .Values.trino.service.port }}
       {{- end }}
 
-      {{- if (include "datapond.addonOn" (dict "root" $ "component" "risingwave")) }}
-      # RisingWave Dashboard
-      - path: /risingwave
-        pathType: Prefix
-        backend:
-          service:
-            name: {{ .Values.risingwave.name }}-meta
-            port:
-              number: {{ .Values.risingwave.meta.service.dashboardPort }}
-      {{- end }}
-
       {{- if (include "datapond.addonOn" (dict "root" $ "component" "openmetadata")) }}
       # OpenMetadata
       - path: /openmetadata

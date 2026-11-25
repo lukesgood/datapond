@@ -14,7 +14,6 @@ import {
   Plug,
   Database,
   HardDrive,
-  Radio,
   Shield,
   AlertCircle,
   Lightbulb,
@@ -70,13 +69,13 @@ const QUICK_START: Step[] = [
   },
 ]
 
-const KINDS: (Block & { icon: "db" | "sample" | "backend" | "stream" })[] = [
+const KINDS: (Block & { icon: "db" | "sample" | "backend" })[] = [
   {
     icon: "db",
     title: { en: "Database sources (Trino catalogs)", ko: "데이터베이스 소스 (Trino 카탈로그)" },
     body: {
-      en: "PostgreSQL, MySQL, SQL Server, Oracle and MongoDB are mounted in Trino as src_<slug>. You browse them in Catalog, join them with lake tables in Analytics, and copy them into Iceberg with a sync. The copy runs inside Trino as INSERT … SELECT or MERGE.",
-      ko: "PostgreSQL, MySQL, SQL Server, Oracle, MongoDB는 Trino에 src_<slug>로 연결됩니다. Catalog에서 탐색하고, Analytics에서 lake 테이블과 조인하고, 동기화로 Iceberg에 복사할 수 있습니다. 복사는 Trino 안에서 INSERT … SELECT 또는 MERGE로 실행됩니다.",
+      en: "PostgreSQL, MySQL, SQL Server, Oracle, MongoDB, Amazon Redshift and Google BigQuery (preview) are mounted in Trino as src_<slug>. You browse them in Catalog, join them with lake tables in Analytics, and copy them into Iceberg with a sync. The copy runs inside Trino as INSERT … SELECT or MERGE.",
+      ko: "PostgreSQL, MySQL, SQL Server, Oracle, MongoDB, Amazon Redshift, Google BigQuery(preview)는 Trino에 src_<slug>로 연결됩니다. Catalog에서 탐색하고, Analytics에서 lake 테이블과 조인하고, 동기화로 Iceberg에 복사할 수 있습니다. 복사는 Trino 안에서 INSERT … SELECT 또는 MERGE로 실행됩니다.",
     },
     badges: [{ en: "Federated query", ko: "페더레이션 쿼리" }, { en: "Full / Incremental / Merge", ko: "Full / Incremental / Merge" }, { en: "PII masked", ko: "PII 마스킹" }],
   },
@@ -97,15 +96,6 @@ const KINDS: (Block & { icon: "db" | "sample" | "backend" | "stream" })[] = [
       ko: "Trino가 아니라 DataPond 백엔드가 읽는 소스입니다. S3와 S3 호환 스토리지(MinIO 등)는 prefix 탐색과 함께 CSV, JSON/JSONL, Parquet을 지원합니다. Trino 카탈로그가 아니므로 src_<slug>로 나타나지 않습니다.",
     },
     badges: [{ en: "S3 API", ko: "S3 API" }, { en: "CSV / JSON / Parquet", ko: "CSV / JSON / Parquet" }],
-  },
-  {
-    icon: "stream",
-    title: { en: "Streaming (optional add-on)", ko: "스트리밍 (선택 add-on)" },
-    body: {
-      en: "Kafka and PostgreSQL CDC belong to the optional RisingWave add-on and appear only when it is enabled. Batch sync is enough for most teams.",
-      ko: "Kafka와 PostgreSQL CDC는 선택 add-on인 RisingWave에 속하며 켜져 있을 때만 나타납니다. 대부분의 팀은 배치 동기화로 충분합니다.",
-    },
-    badges: [{ en: "Optional add-on", ko: "선택 add-on" }],
   },
 ]
 
@@ -256,7 +246,7 @@ const TROUBLE: { title: L; body: L }[] = [
   },
 ]
 
-const KIND_ICON = { db: Database, sample: Lightbulb, backend: HardDrive, stream: Radio }
+const KIND_ICON = { db: Database, sample: Lightbulb, backend: HardDrive }
 
 export default function ConnectorsHelpPage() {
   const { t } = useHelpLocale()

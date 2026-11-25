@@ -522,12 +522,11 @@ async def list_transforms(db: Session = Depends(get_db),
 
 @router.get("/transforms/flow")
 async def transforms_flow(db: Session = Depends(get_db), user: dict = Depends(require_user)):
-    """The data flow map: sources and streams → the tables they write → the tables
-    each transform builds from them. Only what the caller may see: sources by the
-    source grants, transforms by the transform grants. Every part is optional — no
-    connectors, no Airflow, no RisingWave each just leave that part out."""
+    """The data flow map: sources → the tables they write → the tables each transform
+    builds from them. Only what the caller may see: sources by the source grants,
+    transforms by the transform grants. Every part is optional — no connectors or no
+    Airflow each just leave that part out."""
     from app import flow_map
-    from app.component_guard import capability_on
     from app.tool_call_log import table_names
     warnings: list = []
 
@@ -560,19 +559,7 @@ async def transforms_flow(db: Session = Depends(get_db), user: dict = Depends(re
         "last_run_at": (runs.get(r.dag_id) or {}).get("at"),
     } for r in rows]
 
-    sinks: list = []
-    if capability_on("streaming"):
-        try:
-            from app.api import streaming
-            sinks = await asyncio.wait_for(asyncio.to_thread(streaming._execute, """
-                SELECT s.name, s.definition, src.connector AS source_connector
-                FROM rw_catalog.rw_sinks s
-                LEFT JOIN rw_catalog.rw_sources src ON src.name = regexp_replace(s.name, '_sink$', '_src')
-                WHERE s.connector = 'iceberg'"""), timeout=8)
-        except Exception as e:
-            warnings.append(f"streams unavailable: {str(e)[:160]}")
-
-    out = flow_map.build_flow(connections, jobs, transforms, sinks)
+    out = flow_map.build_flow(connections, jobs, transforms)
     out["warnings"] = warnings
     return out
 

@@ -58,7 +58,6 @@ ADDONS = {
     "airflow": ("airflow-deployment.yaml", "Deployment", "webserver"),
     "spark": ("spark-statefulset.yaml", "StatefulSet", "master"),
     "polaris": ("polaris-deployment.yaml", "Deployment", None),
-    "risingwave": ("risingwave-statefulset.yaml", "Deployment", "frontend"),
     "openmetadata": ("openmetadata-deployment.yaml", "Deployment", "server"),
     "jupyter": ("jupyter-deployment.yaml", "Deployment", None),
     "mlflow": ("mlflow-deployment.yaml", "Deployment", None),
@@ -536,7 +535,6 @@ def test_a_rendered_addon_keeps_its_dependencies(profile):
         # claim-must-exist check for whatever is mounted follows the loop below.
         "trino": ("/trino", "datapond-trino", None),
         "polaris": (None, "datapond-polaris", "iceberg-warehouse-pvc"),
-        "risingwave": ("/risingwave", None, None),
         "openmetadata": ("/openmetadata", None, None),
     }
     expected = PROFILE_EXPECTATIONS[profile]

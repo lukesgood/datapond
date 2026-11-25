@@ -81,7 +81,7 @@ test("every step names its icon kind", () => {
 test("the menu follows the data's path: Data, Semantic, Use, Operate", () => {
   assert.deepEqual(NAV_SECTIONS.map((s) => s.label), ["Data", "Semantic", "Use", "Operate"])
   const titles = (label: string) => NAV_SECTIONS.find((s) => s.label === label)!.items.map((i) => i.title)
-  assert.deepEqual(titles("Data"), ["Sources", "Transforms", "Streaming", "Catalog"])
+  assert.deepEqual(titles("Data"), ["Sources", "Transforms", "Catalog"])
   assert.deepEqual(titles("Semantic"), ["Semantic model"])
   assert.deepEqual(titles("Use"), ["Analytics", "Knowledge", "Notebooks", "Experiments", "Agents"])
   assert.deepEqual(titles("Operate"), ["Governance", "AI Gateway", "Storage", "Infrastructure", "Settings"])

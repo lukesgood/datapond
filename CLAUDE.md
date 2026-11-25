@@ -22,7 +22,7 @@ Key positioning (v7.0 — lightweight open lakehouse, 2026-11-12):
 - **Lock-in minimisation:** S3 API (S3 or MinIO/S3-compatible), Apache Iceberg, Iceberg catalogs (Glue or REST; catalog export moves registrations without copying data), Trino on every profile with a catalog (workers via `trino.workers.replicas`), PostgreSQL, LiteLLM/OpenAI-compatible models, Helm/Kubernetes.
 - **Not doing:** AWS-only managed services on the required path (Athena, mandatory Lake Formation), gateway features (agent registry, SSO/SCIM sync, tool-level policy engine), large HA clusters as the first goal, Delta Lake writes.
 - **AWS reference:** S3, Aurora, Glue and Bedrock where the selected profile enables them; Trino runs in-cluster on every profile with a catalog (Athena removed in 2.4).
-- **Optional OSS add-ons:** Polaris, Trino, RisingWave, OpenMetadata, Airflow, Spark, Jupyter, and MLflow.
+- **Optional OSS add-ons:** Polaris, Trino, OpenMetadata, Airflow, Spark, Jupyter, and MLflow. (RisingWave/Streaming was removed in 2.7, 2026-11-26.)
 
 Never claim that disabling an OSS component automatically provisions an AWS replacement. EKS, EMR Serverless, S3 Tables, Lake Formation, AOSS, DataZone, Marketplace packaging, a unified export/import CLI and Delta → Iceberg migration remain roadmap until implementation and acceptance exist.
 
@@ -42,12 +42,12 @@ LiteLLM logical model gateway (Bedrock, cloud, or local provider mapping)
 S3 API object storage (native S3 or compatible endpoint)
 ```
 
-Console navigation (2.7, by the data's path): Overview; Data (Sources, Transforms, Streaming, Catalog); Semantic (Semantic model: Metrics · Joins · Concepts); Use (Analytics, Knowledge, Notebooks, Experiments, Agents); Operate (Governance, AI Gateway, Storage, Infrastructure, Settings); Help. Items are capability- and permission-gated, so each role sees its own stretch.
+Console navigation (2.7, by the data's path): Overview; Data (Sources, Transforms, Catalog); Semantic (Semantic model: Metrics · Joins · Concepts); Use (Analytics, Knowledge, Notebooks, Experiments, Agents); Operate (Governance, AI Gateway, Storage, Infrastructure, Settings); Help. Items are capability- and permission-gated, so each role sees its own stretch.
 
 ### Adapter and add-on layer
 
 - Catalog/query: one engine, Trino, over the Glue catalog in `values-prod-single.yaml` or the Polaris catalog in OSS extended profiles.
-- Workloads: RisingWave, Airflow/Spark, OpenMetadata, Jupyter/DuckDB, and MLflow are capability-gated optional add-ons.
+- Workloads: Airflow/Spark, OpenMetadata, Jupyter/DuckDB, and MLflow are capability-gated optional add-ons.
 - `values-foundation.yaml` is the lean Portable Core AWS starter: in-cluster PostgreSQL/pgvector + external S3/Bedrock and no catalog/query service.
 - `values-prod-single.yaml` is the current Terraform-backed AWS reference: EC2/K3s + Aurora/S3/Glue/Bedrock with in-cluster Trino. It is not EKS or application-node HA.
 - `values-aws.yaml` is a compatibility overlay for an existing cluster. It states none of the add-on flags, so it renders the Portable Core on a fresh install and preserves whatever an existing cluster is already running.
@@ -68,7 +68,7 @@ Console navigation (2.7, by the data's path): Overview; Data (Sources, Transform
 - **Core RAG:** text/S3/configured table source → chunk + mask → LiteLLM embedding → pgvector → optional rerank → LiteLLM generation + citations.
 - **Catalog bridge:** enabled Glue or Polaris catalog → Catalog → Send to Knowledge → scheduled freshness.
 - **AI cost:** actor identity → LiteLLM `user`/metadata → usage and spend aggregation.
-- **OSS extended:** Airflow/Spark/Polaris/Trino/RisingWave/OpenMetadata only when their flags are enabled.
+- **OSS extended:** Airflow/Spark/Polaris/Trino/OpenMetadata only when their flags are enabled.
 
 ## Deployment
 

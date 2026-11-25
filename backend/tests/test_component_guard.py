@@ -54,8 +54,8 @@ def test_guard_raises_503_when_feature_off(monkeypatch):
 
 
 def test_guard_passes_when_feature_on(monkeypatch):
-    monkeypatch.setenv("FEATURE_RISINGWAVE", "true")
-    require_component("RISINGWAVE", "Streaming")()  # no raise
+    monkeypatch.setenv("FEATURE_JUPYTER", "true")
+    require_component("JUPYTER", "Notebooks")()  # no raise
 
 
 def test_guard_passes_when_unset_default_true(monkeypatch):

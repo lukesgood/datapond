@@ -28,7 +28,6 @@ class Engine(str, Enum):
     TRINO = "trino"
     SPARK = "spark"
     PYTHON = "python"
-    RISINGWAVE = "risingwave"
     DUCKDB = "duckdb"
 
 

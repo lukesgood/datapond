@@ -21,7 +21,7 @@ def _feat(env: Mapping, name: str, default: bool = False) -> bool:
 # the derivation, and neither may drift. Trino is not among them since 2.4: it is the
 # product's query engine on every profile, the AWS reference included.
 UNSUPPORTED_BACKENDS = (
-    "AIRFLOW", "SPARK", "POLARIS", "RISINGWAVE", "OPENMETADATA",
+    "AIRFLOW", "SPARK", "POLARIS", "OPENMETADATA",
     "JUPYTER", "MLFLOW",
 )
 
@@ -43,7 +43,6 @@ CAPABILITY_BACKENDS = {
     "query":       ("TRINO",),
     "dashboards":  ("TRINO",),
     "pipelines":   ("AIRFLOW",),
-    "streaming":   ("RISINGWAVE",),
     "experiments": ("MLFLOW",),
     "notebooks":   ("JUPYTER",),
 }
@@ -114,7 +113,9 @@ def compute_capabilities(env: Mapping) -> dict:
         "query": _gated("query"),
         "dashboards": _gated("dashboards"),  # BI mini-charts run through /queries/execute
         "pipelines": _gated("pipelines"),  # Transforms
-        "streaming": _gated("streaming"),
+        # RisingWave and the Streaming module were removed in 2.7; the key stays, always
+        # false, so a client reading the flat capability map is not broken.
+        "streaming": False,
         "experiments": _gated("experiments"),
         # MLflow's own UI published at /mlflow. It has no authentication, so a deployment
         # can run experiments without it; links to it follow this, not "experiments".

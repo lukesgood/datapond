@@ -68,7 +68,7 @@ flowchart TB
     LLM --> OTHER[Other cloud/local providers]
 ```
 
-Optional add-ons (Airflow transforms, RisingWave streaming, Jupyter, MLflow, Spark, OpenMetadata) are capability-gated: a disabled one is absent, and the console shows only what a deployment runs.
+Optional add-ons (Airflow transforms, Jupyter, MLflow, Spark, OpenMetadata) are capability-gated: a disabled one is absent, and the console shows only what a deployment runs.
 
 ## Deployment profiles
 
@@ -160,7 +160,6 @@ AI layer and governance:
 
 ### Optional
 
-- RisingWave streaming (Experimental)
 - Airflow-backed SQL transforms deploy and run; the declarative pipeline builder on the
   same page is Preview and refuses to deploy
 - Spark batch compute (no console surface of its own)
