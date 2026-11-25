@@ -43,7 +43,6 @@ def service_registry(env: Mapping) -> List[dict]:
     for name, app, feature, description in [
         ("trino", "trino", "TRINO", "Distributed SQL query engine"),
         ("polaris", "polaris", "POLARIS", "Apache Iceberg REST catalog"),
-        ("risingwave", "risingwave", "RISINGWAVE", "Streaming SQL / CDC add-on"),
         ("openmetadata", "openmetadata", "OPENMETADATA", "External catalog and lineage add-on"),
         ("mlflow", "mlflow", "MLFLOW", "Experiment and model tracking add-on"),
         ("jupyterlab", "jupyterlab", "JUPYTER", "Notebook and DuckDB exploration add-on"),

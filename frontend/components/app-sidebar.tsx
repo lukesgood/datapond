@@ -3,7 +3,7 @@
 import {
   Home, Database, FlaskConical, Settings,
   BarChart3, HelpCircle, FileCode,
-  HardDrive, Radio, ArrowDownToLine, ShieldCheck, LogOut, User, GitBranch, Server,
+  HardDrive, ArrowDownToLine, ShieldCheck, LogOut, User, GitBranch, Server,
   Sparkles, Bot, Sigma, Cpu,
 } from "lucide-react"
 import Link from "next/link"
@@ -32,7 +32,7 @@ import {
 // Icons live here, not in lib/nav-items.ts: that module is imported by a unit test.
 const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   "/agents": Cpu, "/knowledge": Sparkles, "/connectors": ArrowDownToLine,
-  "/catalog": Database, "/metrics": Sigma, "/query": BarChart3, "/pipelines": GitBranch, "/streaming": Radio,
+  "/catalog": Database, "/metrics": Sigma, "/query": BarChart3, "/pipelines": GitBranch,
   "/notebooks": FileCode, "/experiments": FlaskConical, "/ai": Bot, "/governance": ShieldCheck,
   "/storage": HardDrive, "/services": Server, "/settings": Settings, "/help": HelpCircle,
 }

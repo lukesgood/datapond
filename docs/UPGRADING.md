@@ -881,12 +881,21 @@ Data Map step 4. Nothing to run on upgrade.
 - **What uses this table**: the data map's Lineage mode now also lists metrics on the table, concept bindings on its columns, saved dashboards whose query reads it, and how often it was queried in the last 30 days, from `GET /api/catalog/impact?table=catalog.ns.table` (`catalog:read`, up to 12 tables). It never reads the table's rows. Table names in the tool-call log are matched across catalog aliases (`AwsDataCatalog` and `iceberg`). Only readers with `governance:read` see who queried; everyone else sees counts only. Dashboards follow the dashboard list's rule: admins see all, others see their own and public ones.
 - `/catalog?table=…&map=lineage|schema|concepts|relationships` opens the data map in that mode.
 
+### RisingWave and the Streaming module removed (2026-11-26, migration 0038)
+
+RisingWave was an unsupported add-on, off on every reference profile, and outside the v7 concept (one node, one engine, batch-first). It is gone from the chart, the backend and the console.
+
+- **Chart:** `templates/risingwave-statefulset.yaml`, the `risingwave:` values block in every profile, its ingress path `/risingwave`, its database in the in-cluster PostgreSQL init, its RBAC entries and `FEATURE_RISINGWAVE` are removed. A release that still has `risingwave.*` in its stored values renders the same; the keys are ignored. **A namespace that runs RisingWave must remove it before upgrading** (`helm get values`, back up whatever its materialized views produced, then upgrade); the upgrade deletes the RisingWave workloads but leaves their PVCs and the `risingwave` database for you to drop.
+- **Backend:** `/api/streaming/*` is gone. The capability key `streaming` stays in `GET /api/capabilities` and is always `false`, so flat-map clients do not break. The `cdc` sync mode, which only Streaming used, is no longer accepted. The data flow map draws source syncs and transforms only (no stream nodes).
+- **Console:** the Streaming menu item and pages, the "Stream it with CDC" link on a source, and the Streaming block of the Sources guide are removed. For fresher data use a source schedule with an incremental sync (for example every 15 minutes).
+- `0038_drop_streaming_permissions` deletes the four `streaming` rows from the legacy `permissions` table (their `role_permissions` rows cascade). Nothing reads them; route checks use `app/permissions.py`.
+
 ### Sources: Amazon Redshift; Google BigQuery (preview); Kafka card removed (2026-11-25)
 
 - **Redshift** is a source like PostgreSQL: a Trino catalog `src_<slug>` (`connector.name=redshift`, `jdbc:redshift://host:5439/db`; SSL on by default), tested and listed before the catalog exists through psycopg2 (Redshift speaks the PostgreSQL protocol). Syncs, PII masking, grants, search and schedules work as for the other database sources. Adding one restarts Trino (~1 min), as for every Trino-backed source.
 - **BigQuery** is a source in **preview**: `connector.name=bigquery` with `bigquery.project-id` and `bigquery.credentials-key` (the pasted service-account JSON, base64-encoded into the credentials Secret; the properties file only names the env variable). Before the catalog exists the wizard tests and lists datasets and tables through the BigQuery REST API with a token for that key (`google-auth`, now declared). The customer's project needs the BigQuery Storage Read API turned on. Preview because it has not been run against a real project in CI or on the reference node.
 - **Snowflake** stays "coming soon": Trino's connector documents password login only (no key pair) and needs extra Trino JVM options.
-- **Kafka** is no longer offered as a source card, and the unused `kafka`, `kinesis`, `gcs` and `azure_blob` source types are removed. Kafka and Kinesis streams belong to Streaming (the RisingWave add-on, off on the reference profiles). No live source used these types.
+- **Kafka** is no longer offered as a source card, and the unused `kafka`, `kinesis`, `gcs` and `azure_blob` source types are removed. No live source used these types.
 
 ### Source schedules run in the backend, without Airflow (2026-11-25, migration 0037)
 

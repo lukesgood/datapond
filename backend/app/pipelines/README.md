@@ -159,7 +159,7 @@ else:
 
 - **`full_refresh`**: Recompute entire table each run (default)
 - **`incremental`**: Process only new/changed data (requires `watermark_column`)
-- **`streaming`**: Real-time processing with RisingWave (Phase 2)
+- **`streaming`**: reserved; not implemented (RisingWave was removed in 2.7)
 
 ### Quality Checks
 
@@ -343,7 +343,6 @@ pytest backend/tests/test_pipelines/ --cov=app.pipelines
 - [ ] Incremental checkpoint state (PostgreSQL table)
 
 **Streaming:**
-- [ ] RisingWave DDL generator
 - [ ] Streaming source support (`@streaming_source`)
 - [ ] Materialized view creation
 

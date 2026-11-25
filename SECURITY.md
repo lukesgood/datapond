@@ -34,7 +34,7 @@ In scope: the backend and frontend in this repository, the Helm chart, and the
 Terraform in `terraform/`.
 
 Out of scope: the third-party components a profile can enable (Trino, Airflow, Spark,
-Polaris, RisingWave, OpenMetadata, MinIO, Ollama), which have their own projects and
+Polaris, OpenMetadata, MinIO, Ollama), which have their own projects and
 their own disclosure processes; and findings that depend on a deployment ignoring the
 documented configuration, such as running with a default credential the chart tells
 you to change.

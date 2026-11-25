@@ -41,7 +41,7 @@ Runs approximately five workloads:
 - LiteLLM
 - Valkey
 
-Uses native S3 and Bedrock. It explicitly disables Trino, Spark, Polaris, Airflow, MLflow, RisingWave, OpenMetadata, Jupyter, Ollama, vLLM, and in-cluster MinIO.
+Uses native S3 and Bedrock. It explicitly disables Trino, Spark, Polaris, Airflow, MLflow, OpenMetadata, Jupyter, Ollama, vLLM, and in-cluster MinIO.
 
 This profile does **not** set `catalog.backend: glue` and runs no Trino. Therefore Sources/Catalog/Analytics are hidden (since 2.5 the Sources page needs Trino: database sources are Trino catalogs). It is a governed RAG profile, not a complete managed lakehouse.
 
@@ -93,7 +93,7 @@ It does not create EKS, Aurora, S3, or other AWS resources. An operator must bri
 
 File: `helm/datapond/values-onprem.yaml`
 
-This profile prioritizes control and disconnected/local operation. It can run local object storage, model gateway/provider, catalog, query, streaming, metadata, notebook, and pipeline services.
+This profile prioritizes control and disconnected/local operation. It can run local object storage, model gateway/provider, catalog, query, metadata, notebook, and pipeline services.
 
 Recommendations:
 

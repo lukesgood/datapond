@@ -47,11 +47,6 @@ data:
     create_db "{{ .Values.litellm.database | default "litellm" }}"
     {{- end }}
 
-    {{- if (include "datapond.addonOn" (dict "root" $ "component" "risingwave")) }}
-    # RisingWave streaming metadata
-    create_db "{{ .Values.risingwave.database | default "risingwave" }}"
-    {{- end }}
-
     {{- if (include "datapond.addonOn" (dict "root" $ "component" "openmetadata")) }}
     # OpenMetadata data catalog
     create_db "{{ .Values.openmetadata.database | default "openmetadata_catalog" }}"

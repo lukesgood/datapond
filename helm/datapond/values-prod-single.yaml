@@ -155,7 +155,6 @@ polaris: { enabled: false }
 airflow: { enabled: false }
 mlflow: { enabled: false }
 jupyter: { enabled: false }
-risingwave: { enabled: false }
 openmetadata: { enabled: false }
 ollama: { enabled: false }
 vllm: { enabled: false }

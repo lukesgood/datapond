@@ -277,31 +277,6 @@ def test_websocket_rejects_cross_site_origin_before_auth():
     assert same.closed == []
 
 
-def test_streaming_preview_returns_columns_and_array_rows():
-    def execute(sql):
-        assert sql == "SELECT * FROM events_mv LIMIT 2"
-        return [
-            {"event_id": 1, "kind": "open"},
-            {"event_id": 2, "kind": "close"},
-        ]
-
-    functions = _load_functions(
-        "streaming.py",
-        ("_serialize", "_ident", "preview_view"),
-        {"datetime": datetime, "_execute": execute, "HTTPException": HTTPException,
-         "_IDENT": __import__("re").compile(r"[A-Za-z_][A-Za-z0-9_]{0,62}")},
-    )
-
-    result = _run(functions["preview_view"]("events_mv", limit=2))
-
-    assert result == {
-        "columns": ["event_id", "kind"],
-        "rows": [[1, "open"], [2, "close"]],
-        "row_count": 2,
-        "count": 2,
-    }
-
-
 def _rbac_rules():
     """The Role's rules, with the template's expressions left as opaque strings.
 

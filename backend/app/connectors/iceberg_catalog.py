@@ -1,7 +1,7 @@
 """
 PyIceberg ↔ Polaris REST 카탈로그 커넥션.
 
-DataPond의 모든 compute 엔진(Trino/RisingWave)이 연결되는 동일한 Polaris REST
+DataPond의 모든 compute 엔진(Trino)이 연결되는 동일한 Polaris REST
 카탈로그에 PyIceberg로 직접 연결한다. 데이터 파일(Parquet)은 SeaweedFS S3에
 PyIceberg가 직접 쓰고 단일 스냅샷으로 커밋한다.
 

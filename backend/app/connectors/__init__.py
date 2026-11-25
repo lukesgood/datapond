@@ -1,14 +1,12 @@
 """
 DataPond Data Connectors Module
 
-Provides data ingestion capabilities from 50+ sources:
-- Trino-backed sources (PostgreSQL, MySQL, SQL Server, Oracle, MongoDB): each a Trino catalog,
-  read and synced by Trino (trino_source, trino_sync)
-- Cloud storage (S3, Azure Blob, GCS)
-- Streaming sources (Kafka, Kinesis)
+Data sources:
+- Trino-backed sources (PostgreSQL, MySQL, SQL Server, Oracle, MongoDB, Redshift,
+  BigQuery): each a Trino catalog, read and synced by Trino (trino_source, trino_sync)
+- Amazon S3 (and S3-compatible storage)
 - REST API connector (HTTP/HTTPS with auth)
 - Custom Python connector (user-defined fetch_data())
-- SaaS applications (via Airbyte)
 """
 
 from .base import BaseConnector, ConnectorType, SyncMode

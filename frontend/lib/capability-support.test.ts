@@ -10,18 +10,18 @@ import { fileURLToPath } from "node:url"
 import { supportBadge, supportTier } from "./capability-support.ts"
 
 test("a capability the backend marks experimental returns that tier", () => {
-  assert.equal(supportTier("streaming", { streaming: "experimental" }), "experimental")
+  assert.equal(supportTier("notebooks", { notebooks: "experimental" }), "experimental")
 })
 
 test("a capability absent from the support map is supported — returns null", () => {
-  assert.equal(supportTier("knowledge", { streaming: "experimental" }), null)
-  assert.equal(supportTier("streaming", {}), null)
+  assert.equal(supportTier("knowledge", { notebooks: "experimental" }), null)
+  assert.equal(supportTier("notebooks", {}), null)
 })
 
 test("a tier this build does not know is not rendered as unlabelled text — returns null", () => {
   // A newer backend may one day send a third tier. Until this module knows the
   // word for it, showing the raw string would put unreviewed text in the UI.
-  assert.equal(supportTier("streaming", { streaming: "beta" }), null)
+  assert.equal(supportTier("notebooks", { notebooks: "beta" }), null)
 })
 
 test("supportBadge('preview') names the refusal", () => {
@@ -50,10 +50,9 @@ test("supportBadge('experimental') says the wiring is supported and the upstream
 {
   const FRONTEND_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..")
 
-  test("the sidebar and the four pages with a support tier import supportBadge", () => {
+  test("the sidebar and the three pages with a support tier import supportBadge", () => {
     const files = [
       "components/app-sidebar.tsx",
-      "app/streaming/page.tsx",
       "app/notebooks/page.tsx",
       "app/experiments/page.tsx",
       "app/pipelines/page.tsx",
@@ -77,7 +76,6 @@ test("a capability with no tier renders nothing — the eleven untouched capabil
   // other capabilities the same payload carries a tier for.
   const support = {
     pipelines: "preview",
-    streaming: "experimental",
     notebooks: "experimental",
     experiments: "experimental",
   }

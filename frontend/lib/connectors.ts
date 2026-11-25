@@ -20,7 +20,7 @@ export interface ConnectorField {
 export interface Connector {
   id: string
   name: string
-  category: "database" | "storage" | "streaming" | "saas"
+  category: "database" | "storage" | "saas"
   icon: string
   description: string
   supported: boolean

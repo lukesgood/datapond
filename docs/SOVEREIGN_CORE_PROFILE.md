@@ -20,7 +20,7 @@ in-cluster MinIO. `storage.bucket` is not a chart key.
 
 ## What does not run
 
-trino, spark, polaris, airflow, mlflow, risingwave, openmetadata, jupyter, vllm — all stated `false`.
+trino, spark, polaris, airflow, mlflow, openmetadata, jupyter, vllm — all stated `false`.
 No catalog backend, so Sources / Catalog / Analytics stay hidden.
 
 No prompt, document text or embedding is sent to an external model provider:

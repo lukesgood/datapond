@@ -24,7 +24,6 @@ spark: false
 polaris: false
 airflow: false
 mlflow: false
-risingwave: false
 openmetadata: false
 jupyter: false
 ollama: false

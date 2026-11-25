@@ -48,7 +48,6 @@ KNOWN_WORKLOADS_WITHOUT_SECURITY_CONTEXT = {
     "polaris-bootstrap-job.yaml",
     "polaris-catalog-init-job.yaml",
     "polaris-deployment.yaml",
-    "risingwave-statefulset.yaml",
     "spark-statefulset.yaml",
     "trino-deployment.yaml",
     "vllm-deployment.yaml",

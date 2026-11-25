@@ -344,7 +344,6 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const { id } = use(params)
   const router = useRouter()
   const schedulerEnabled = useCapability("scheduled_sync")
-  const streamingEnabled = useCapability("streaming")
   const catalogEnabled = useCapability("catalog")
   // The routes that change a source (sync, pause, edit, tables, delete) need
   // connector:write; only "check connection" is open to every reader.
@@ -1367,11 +1366,6 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
             <RailAttention title="No columns masked">
               If these tables hold personal data, choose the columns to mask before loading (Edit a table).
             </RailAttention>
-          )}
-          {streamingEnabled && (
-            <p className="text-xs text-muted-foreground">
-              Need every change within seconds? <Link href="/streaming" className="text-primary hover:underline">Stream it with CDC</Link>.
-            </p>
           )}
         </ExplainRail>
       )}

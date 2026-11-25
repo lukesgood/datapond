@@ -189,7 +189,7 @@ const ARTICLES: Record<string, Doc> = {
     },
     points: [
       { en: "Polaris: an Iceberg REST catalog, usable beside Glue. Trino is not an add-on; it is the engine on every profile with a catalog.", ko: "Polaris: Glue와 함께 쓸 수 있는 Iceberg REST 카탈로그입니다. Trino는 애드온이 아니라, 카탈로그가 있는 모든 프로파일의 기본 엔진입니다." },
-      { en: "RisingWave: streaming SQL/CDC. Airflow and Spark: orchestration and batch. OpenMetadata: external catalog and lineage UI.", ko: "RisingWave: 스트리밍 SQL과 CDC. Airflow와 Spark: 오케스트레이션과 배치. OpenMetadata: 외부 카탈로그·리니지 UI." },
+      { en: "Airflow and Spark: orchestration and batch. OpenMetadata: external catalog and lineage UI.", ko: "Airflow와 Spark: 오케스트레이션과 배치. OpenMetadata: 외부 카탈로그·리니지 UI." },
       { en: "Jupyter with DuckDB: exploration. MLflow: experiments and model registry.", ko: "Jupyter와 DuckDB: 데이터 탐색. MLflow: 실험 추적과 모델 레지스트리." },
       { en: "Enable only what the use case and the resource budget justify.", ko: "사용 사례와 자원 예산에 맞는 것만 켜세요." },
     ],
@@ -390,7 +390,6 @@ const DOCS: Record<string, Doc> = {
   polaris: ARTICLES["catalog-query"],
   duckdb: ARTICLES.addons,
   pipelines: ARTICLES.addons,
-  streaming: ARTICLES.addons,
   storage: ARTICLES["open-contracts"],
   optimization: ARTICLES["catalog-query"],
   "catalog-export": ARTICLES.catalogs,

@@ -32,7 +32,6 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { title: "Sources", url: "/connectors", capability: "connectors", permission: "connector:read" },
       { title: "Transforms", url: "/pipelines", capability: "pipelines", permission: "pipeline:write" },
-      { title: "Streaming", url: "/streaming", capability: "streaming", permission: "pipeline:write" },
       // Tables, their metadata and the relationship graph.
       { title: "Catalog", url: "/catalog", capability: "catalog" },
     ],

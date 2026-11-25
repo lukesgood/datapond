@@ -20,14 +20,12 @@ const OPTIONAL_ROUTES: Array<[prefix: string, capability: string]> = [
   ["/dashboards", "dashboards"],
   ["/pipelines", "pipelines"],
   ["/jobs", "pipelines"],
-  ["/streaming", "streaming"],
   ["/notebooks", "notebooks"],
   ["/experiments", "experiments"],
 ]
 
 const SELF_GATED_ROOT_ROUTES = new Set([
   "/pipelines",
-  "/streaming",
   "/notebooks",
   "/experiments",
 ])
