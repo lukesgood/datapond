@@ -69,7 +69,10 @@ Portable RAG 핵심은 단순 목업이 아니라 실제 구현돼 있다. 텍�
 
 ## 4. P0: 출시 차단 항목
 
-### P0-1. 선언형 Pipeline의 silent no-op — **부분 해소 (2026-08-25)**
+### P0-1. 선언형 Pipeline의 silent no-op — **해소: 기능 제거 (2026-11-26)**
+
+> **2026-11-26.** 선언형 파이프라인 빌더(DSL 컴파일러 `app.pipelines`, `/api/pipelines/save·validate·compile·deploy·upload`)를 제거했다. 아래 기록은 이력이다.
+
 
 > **평가 이후 조치.** 두 층에서 막았다.
 >

@@ -36,7 +36,7 @@ export function supportBadge(tier: SupportTier): { label: string; title: string 
   if (tier === "preview") {
     return {
       label: "Preview",
-      title: "Not deployable in this release: pipelines compile to placeholder tasks and the deploy is refused.",
+      title: "Cannot complete its main task in this release.",
     }
   }
   return {

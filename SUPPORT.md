@@ -88,9 +88,8 @@ configuration around upstream projects. We will help with how the chart wires th
 - MLflow
 <!-- /unsupported-addons -->
 
-Declarative pipelines compile to placeholder tasks and refuse to deploy for that
-reason. They are not a supported feature — see `docs/PRODUCTIZATION_READINESS_ASSESSMENT.md`
-P0-1.
+The declarative pipeline builder, which compiled to placeholder tasks and refused to
+deploy, was removed in 2.7. Airflow SQL transforms remain, under the Airflow add-on.
 
 ## Enterprise
 

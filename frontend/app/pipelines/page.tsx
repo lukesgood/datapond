@@ -76,7 +76,6 @@ function PipelinesPageInner() {
   const [transforms, setTransforms] = useState<Transform[]>([])
   const [transformsError, setTransformsError] = useState<string | null>(null)
   const canWrite = useHasPermission("pipeline:write")
-  const [savedStatuses, setSavedStatuses] = useState<Map<string, string>>(new Map())
   const router = useRouter()
 
   // Top-level tab is controlled by the ?tab= query param so deep links such as
@@ -104,33 +103,6 @@ function PipelinesPageInner() {
       const dagsData = await dagsRes.json()
       const dagsList: DAG[] = Array.isArray(dagsData) ? dagsData : (dagsData.dags ?? [])
       setDags(dagsList)
-
-      // Fetch saved pipeline statuses
-      try {
-        const savedRes = await fetch("/api/pipelines")
-        if (savedRes.ok) {
-          const savedData = await savedRes.json()
-          const map = new Map<string, string>()
-          for (const p of savedData.pipelines || []) {
-            map.set(p.name, p.status)
-            map.set(`datapond_${p.name}`, p.status)
-            // Add saved pipelines not yet in Airflow to the DAG list
-            const dagId = p.name
-            if (!dagsList.find(d => d.dag_id === dagId || d.dag_id === `datapond_${dagId}`)) {
-              dagsList.push({
-                dag_id: dagId,
-                is_paused: true,
-                is_active: false,
-                description: p.schedule ? `Schedule: ${p.schedule}` : undefined,
-                schedule_interval: p.schedule,
-                tags: [],
-              })
-            }
-          }
-          setSavedStatuses(map)
-          setDags([...dagsList])
-        }
-      } catch { /* non-critical */ }
 
       // Fetch stats for each DAG
       const statsPromises = dagsList.map(async (dag: DAG) => {
@@ -314,7 +286,6 @@ function PipelinesPageInner() {
                 stats?.failed_runs  ? "failed"  : "none"
               }
               success_rate={stats?.success_rate}
-              savedStatus={savedStatuses.get(dag.dag_id)}
               onTrigger={handleTriggerDag}
               onTogglePause={handleTogglePause}
               onDelete={handleDeletePipeline}

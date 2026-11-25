@@ -160,8 +160,7 @@ AI layer and governance:
 
 ### Optional
 
-- Airflow-backed SQL transforms deploy and run; the declarative pipeline builder on the
-  same page is Preview and refuses to deploy
+- Airflow-backed SQL transforms deploy and run (Experimental)
 - Spark batch compute (no console surface of its own)
 - OpenMetadata external lineage (Experimental)
 - Jupyter/DuckDB exploration and MLflow experiments (Experimental)
