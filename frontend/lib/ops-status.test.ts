@@ -145,3 +145,15 @@ test("a source table synced by two jobs explains the drift and links the connect
     jobs: [{ source_table: "t", catalog: "iceberg", last_run_at: null }, { source_table: "public.t", catalog: "iceberg", last_run_at: null }] }, new Set())
   assert.match(same.detail, /overwrite each other/)
 })
+
+test("a scheduled run that never synced says whether it was skipped or errored", () => {
+  const skipped = issueView({ kind: "schedule_failed", connection_id: "c1", source: "Shop", reason: "skipped",
+    detail: "whoever set this schedule is no longer an active user" }, reader)
+  assert.equal(skipped.title, "Shop: scheduled sync did not run")
+  assert.equal(skipped.detail, "Skipped: whoever set this schedule is no longer an active user.")
+  assert.match(skipped.advice ?? "", /save its schedule again/)
+  const error = issueView({ kind: "schedule_failed", connection_id: "c1", source: "Shop", reason: "error", detail: "Sync failed: timeout" }, reader)
+  assert.equal(error.title, "Shop: scheduled sync failed")
+  assert.equal(error.detail, "Sync failed: timeout")
+  assert.deepEqual(error.actions, [{ type: "link", label: "Open connection", href: "/connectors/connections/c1" }])
+})

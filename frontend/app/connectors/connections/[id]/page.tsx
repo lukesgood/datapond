@@ -26,7 +26,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import Link from "next/link"
 import { ConnectionForm } from "@/components/connectors/connection-form"
-import { configRows, getConnector, readsEverythingEachSync, S3_NEW_FILES_COLUMN } from "@/lib/connectors"
+import { configRows, deleteImpactMessage, getConnector, readsEverythingEachSync, S3_NEW_FILES_COLUMN, type DeleteImpact } from "@/lib/connectors"
 import { describeCheck } from "@/lib/source-check"
 import { parseCron, nextRun } from "@/lib/schedule"
 import { SchedulePicker } from "@/components/ui/schedule-picker"
@@ -881,10 +881,17 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   }
 
   const handleDelete = async () => {
+    setDeleting(true)
+    let impact: DeleteImpact | null = null
+    try {
+      const r = await fetch(`/api/connectors/${id}/delete-impact`)
+      if (r.ok) impact = await r.json()
+    } catch { /* the confirmation still says what deleting always does */ }
+    setDeleting(false)
     if (!(await confirmDialog({
-      title: "Delete connector",
-      message: "Permanently remove this connector and its sync configuration? This can't be undone.",
-      confirmText: "Delete",
+      title: `Delete ${connector?.name ?? "this source"}?`,
+      message: deleteImpactMessage(impact),
+      confirmText: "Delete source",
       destructive: true,
     }))) return
     setDeleting(true)

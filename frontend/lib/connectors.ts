@@ -382,3 +382,60 @@ export function configRows(connectorType: string, config: Record<string, unknown
   })
   return rows
 }
+
+/** GET /api/connectors/{id}/delete-impact. */
+export type DeleteImpact = {
+  lake_tables: string[]
+  catalog: string | null
+  scheduled: boolean
+  impact_checked: number
+  built_on: { metrics: string[]; concepts: string[]; dashboards: string[]; queries: number }
+}
+
+function listed(names: string[], max = 4): string {
+  return names.length <= max ? names.join(", ") : `${names.slice(0, max).join(", ")} and ${names.length - max} more`
+}
+
+/** The delete confirmation: what goes, what stays, and what is built on what stays.
+ *  `null` (the impact could not be read) still says what deleting always does. */
+export function deleteImpactMessage(impact: DeleteImpact | null): string {
+  const lines: string[] = []
+  const goes = ["its connection settings", "sync jobs", "sync history"]
+  if (impact?.scheduled) goes.push("schedule")
+  lines.push(`Removes ${goes.slice(0, -1).join(", ")} and ${goes.at(-1)}. This can't be undone.`)
+  if (impact?.catalog) {
+    lines.push(`Its query catalog ${impact.catalog} goes too: saved queries that name it stop working, and the query engine restarts (about a minute).`)
+  }
+  if (!impact) {
+    lines.push("Tables it already loaded into the lake stay.")
+    return lines.join("\n\n")
+  }
+  const n = impact.lake_tables.length
+  if (n === 0) {
+    lines.push("It has not loaded any lake tables.")
+    return lines.join("\n\n")
+  }
+  lines.push(`The ${n} lake table${n === 1 ? "" : "s"} it loaded stay, but stop updating: ${listed(impact.lake_tables.map(t => t.split(".").slice(-2).join(".")))}.`)
+  const b = impact.built_on
+  const uses: string[] = []
+  if (b.metrics.length) uses.push(`metrics ${listed(b.metrics)}`)
+  if (b.concepts.length) uses.push(`concepts ${listed(b.concepts)}`)
+  if (b.dashboards.length) uses.push(`dashboards ${listed(b.dashboards)}`)
+  if (b.queries) uses.push(`${b.queries} quer${b.queries === 1 ? "y" : "ies"} in the last 30 days`)
+  if (uses.length) lines.push(`Built on those tables: ${uses.join("; ")}. They keep reading the last data loaded.`)
+  else if (impact.impact_checked > 0) lines.push("Nothing you can see is built on those tables.")
+  if (impact.impact_checked > 0 && impact.impact_checked < n) lines.push(`Checked the first ${impact.impact_checked} tables for what is built on them.`)
+  return lines.join("\n\n")
+}
+
+/** The setup preview of a few rows: one header per key seen (in first-seen order), and
+ *  the columns about to be masked shown as "masked", so the preview never shows what the
+ *  lake will not keep. `mask` is the comma-separated box the person edits. */
+export function previewRows(sample: Record<string, unknown>[], mask: string): { headers: string[]; rows: string[][]; masked: Set<string> } {
+  const masked = new Set(mask.split(",").map(m => m.trim().toLowerCase()).filter(Boolean))
+  const headers: string[] = []
+  for (const r of sample) for (const k of Object.keys(r)) if (!headers.includes(k)) headers.push(k)
+  const show = (v: unknown) => v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v)
+  const rows = sample.map(r => headers.map(h => masked.has(h.toLowerCase()) ? "masked" : show(r[h])))
+  return { headers, rows, masked: new Set(headers.filter(h => masked.has(h.toLowerCase()))) }
+}

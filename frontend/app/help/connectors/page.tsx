@@ -412,8 +412,8 @@ export default function ConnectorsHelpPage() {
             </div>
             <p className="text-sm text-muted-foreground">
               {t({
-                en: "Recurring syncs need the Airflow add-on, so scheduling controls appear only when Airflow is enabled. Without it, run Sync Now when you need fresh data.",
-                ko: "정기 동기화에는 Airflow add-on이 필요하므로 스케줄 설정은 Airflow가 켜져 있을 때만 보입니다. 없으면 필요할 때 Sync Now를 실행하세요.",
+                en: "The backend runs each source's schedule itself; no add-on is needed. A run made while the platform was off runs once when it is back. When a scheduled run turns from working to failing, the person who set the schedule gets one email (when email is configured), and Overview lists runs that were skipped or errored. Deleting a source keeps the lake tables it loaded; the confirmation names them and what is built on them.",
+                ko: "스케줄은 백엔드가 직접 실행하며 별도 add-on이 필요 없습니다. 플랫폼이 꺼져 있던 동안의 실행은 다시 켜질 때 한 번 실행됩니다. 예약 실행이 성공하다가 실패로 바뀌면 스케줄을 설정한 사람에게 메일이 한 번 갑니다(메일이 설정된 경우). 건너뛰었거나 오류가 난 실행은 Overview에도 표시됩니다. 소스를 삭제해도 적재된 레이크 테이블은 남으며, 삭제 확인 창에 그 테이블과 그 위에 만든 지표·개념·대시보드가 표시됩니다.",
               })}
             </p>
           </div>

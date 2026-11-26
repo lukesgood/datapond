@@ -39,7 +39,8 @@ async def _load_syncs(pool):
         rows = await c.fetch(
             """SELECT started_at, metadata FROM connector_sync_history
                 WHERE started_at >= $1 ORDER BY started_at DESC LIMIT 500""", since)
-        conns = await c.fetch("SELECT id, name, last_sync_at, status FROM connector_connections")
+        conns = await c.fetch("SELECT id, name, last_sync_at, status, schedule, schedule_last_status "
+                              "FROM connector_connections")
     syncs = []
     for r in rows:
         meta = r["metadata"] or {}
@@ -52,7 +53,10 @@ async def _load_syncs(pool):
     stale = [{"connection_id": str(c["id"]), "name": c["name"], "last_sync_at": _aware(c["last_sync_at"])}
              for c in conns if c["status"] == "active" and c["last_sync_at"] and _aware(c["last_sync_at"]) < cutoff]
     paused = sum(1 for c in conns if c["status"] == "paused")
-    return syncs, names, stale, paused
+    schedules = [{"connection_id": str(c["id"]), "name": c["name"], "status": c["schedule_last_status"]}
+                 for c in conns if c["status"] != "paused" and (c["schedule"] or "").strip()
+                 and c["schedule_last_status"]]
+    return syncs, names, stale, paused, schedules
 
 
 async def _load_duplicate_syncs(pool):
@@ -129,14 +133,14 @@ def _engine():
 async def ops_status(user: dict = Depends(require_user)):
     perms = _permissions(user)
     pool = await _pool()
-    syncs, names, stale, paused = ([], {}, [], 0)
+    syncs, names, stale, paused, schedules = ([], {}, [], 0, [])
     if "connector:read" in perms:
-        syncs, names, stale, paused = await _load_syncs(pool)
+        syncs, names, stale, paused, schedules = await _load_syncs(pool)
     mirrors = await _load_mirrors(pool) if "catalog:write" in perms else []
     catalogs = await _load_catalogs(user) if "catalog:read" in perms else []
     engine = await asyncio.to_thread(_engine)
     out = summarize(syncs, names, stale=stale, engine=engine, catalogs=catalogs, mirrors=mirrors,
-                    queries_24h=await _count_queries(pool, user), now=_now())
+                    queries_24h=await _count_queries(pool, user), now=_now(), schedules=schedules)
     if "connector:read" in perms:
         for d in await _load_duplicate_syncs(pool):
             out["issues"].append({"kind": "duplicate_sync", "connection_id": d["connection_id"],

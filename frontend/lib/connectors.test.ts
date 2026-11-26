@@ -1,7 +1,7 @@
 /** Source type definitions and the saved-settings view (./connectors.ts). */
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { availableConnectors, configRows, getConnector, readsEverythingEachSync, S3_REGIONS } from "./connectors.ts"
+import { availableConnectors, configRows, deleteImpactMessage, getConnector, previewRows, readsEverythingEachSync, S3_REGIONS } from "./connectors.ts"
 
 test("S3 offers Seoul and starts there; the secret shows only once an access key is typed", () => {
   const s3 = getConnector("s3")!
@@ -35,4 +35,33 @@ test("saved settings read by the form's labels; secrets, switches and code read 
   ])
   assert.deepEqual(configRows("redshift", { ssl: false }).map(r => r.value), ["Off"])
   assert.deepEqual(configRows("custom", { code: "def fetch_data():\n    return []" }).map(r => r.value), ["2 lines"])
+})
+
+test("the delete confirmation says what goes, what stays and what is built on it", () => {
+  const msg = deleteImpactMessage({
+    lake_tables: ["iceberg.default.orders", "iceberg.default.items"], catalog: "src_shop", scheduled: true,
+    impact_checked: 2, built_on: { metrics: ["Revenue"], concepts: ["주문"], dashboards: [], queries: 3 },
+  })
+  assert.match(msg, /connection settings, sync jobs, sync history and schedule\. This can't be undone\./)
+  assert.match(msg, /query catalog src_shop goes too/)
+  assert.match(msg, /The 2 lake tables it loaded stay, but stop updating: default\.orders, default\.items\./)
+  assert.match(msg, /Built on those tables: metrics Revenue; concepts 주문; 3 queries in the last 30 days\./)
+
+  const quiet = deleteImpactMessage({ lake_tables: ["iceberg.default.a"], catalog: null, scheduled: false,
+    impact_checked: 1, built_on: { metrics: [], concepts: [], dashboards: [], queries: 0 } })
+  assert.match(quiet, /sync jobs and sync history\./)
+  assert.doesNotMatch(quiet, /catalog/)
+  assert.match(quiet, /Nothing you can see is built on those tables\./)
+
+  assert.match(deleteImpactMessage(null), /Tables it already loaded into the lake stay\./)
+  assert.match(deleteImpactMessage({ lake_tables: [], catalog: null, scheduled: false, impact_checked: 0,
+    built_on: { metrics: [], concepts: [], dashboards: [], queries: 0 } }), /has not loaded any lake tables/)
+})
+
+test("the setup preview hides the columns about to be masked", () => {
+  const p = previewRows([{ id: 1, Email: "a@x", tags: ["t"] }, { id: 2, phone: null }], "email, phone")
+  assert.deepEqual(p.headers, ["id", "Email", "tags", "phone"])
+  assert.deepEqual(p.rows, [["1", "masked", '["t"]', "masked"], ["2", "masked", "", "masked"]])
+  assert.deepEqual([...p.masked], ["Email", "phone"])
+  assert.deepEqual(previewRows([], "").headers, [])
 })

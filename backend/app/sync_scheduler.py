@@ -23,6 +23,9 @@ those gone and the run is skipped, `schedule_last_status` says why, and a denial
 the security audit log, so revoking someone's access also stops their schedules. A
 paused source is never run.
 
+When a run turns from working to failing (failed tables, an error, a skipped run), the
+person it runs as gets one email (app/sync_alerts.py); Overview lists it as well.
+
 A run is claimed (anchor moved to now) before it starts, so a sync that crashes the
 process is not retried every tick; the next fire time runs it again.
 """
@@ -233,8 +236,11 @@ async def _sync(connection_id: str, principal: dict) -> str:
     return f"{status}: {msg}".strip(": ")[:500]
 
 
-async def tick(pool, now: Optional[datetime] = None, sync=None) -> int:
-    """One pass. Returns how many sources were synced."""
+async def tick(pool, now: Optional[datetime] = None, sync=None, send=None) -> int:
+    """One pass. Returns how many sources were synced. A run that turns from working to
+    failing emails the person it runs as (app/sync_alerts.py); `send` replaces the mailer
+    in tests."""
+    from app import sync_alerts
     sync = sync or _sync
     tz = zone()
     ran = 0
@@ -243,7 +249,7 @@ async def tick(pool, now: Optional[datetime] = None, sync=None) -> int:
             return 0
         try:
             rows = await c.fetch(
-                """SELECT id, name, schedule, schedule_anchor_at,
+                """SELECT id, name, schedule, schedule_anchor_at, schedule_last_status, owner_id,
                           COALESCE(schedule_set_by, owner_id) AS run_as
                    FROM connector_connections
                    WHERE schedule IS NOT NULL AND schedule <> ''
@@ -272,6 +278,9 @@ async def tick(pool, now: Optional[datetime] = None, sync=None) -> int:
                         logger.warning("scheduled sync of %s failed: %s", r["name"], detail)
                 await c.execute("UPDATE connector_connections SET schedule_last_status = $2 WHERE id = $1",
                                 r["id"], status)
+                if sync_alerts.should_alert(r.get("schedule_last_status"), status):
+                    await sync_alerts.notify(c, connection_id=cid, source=r["name"], status=status,
+                                             run_as=r["run_as"], owner_id=r.get("owner_id"), send=send)
         finally:
             await c.execute("SELECT pg_advisory_unlock($1)", LOCK_KEY)
     return ran

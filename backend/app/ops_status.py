@@ -5,7 +5,8 @@ replaces checking Sources, Catalog, Infrastructure and the mirrors list one by o
 `summarize` is pure: the route (app/api/ops.py) gathers its inputs, filtered by what the
 caller may see. Issues, most urgent first: engine restarting, unreachable catalogs,
 mirrors that diverged or errored, failed table syncs (latest attempt per table in the
-window, with a diagnosis from app/sync_diagnosis.py), sources not synced within the window.
+window, with a diagnosis from app/sync_diagnosis.py), scheduled runs that were skipped or
+errored before syncing anything, sources not synced within the window.
 """
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
@@ -15,8 +16,16 @@ from app.sync_diagnosis import diagnose
 WINDOW_HOURS = 24
 
 
+def schedule_problem(status: Optional[str]) -> Optional[str]:
+    """'skipped' or 'error' when a scheduled run never got to sync, else None. A run whose
+    tables failed is already listed per table (sync_failed), with a diagnosis."""
+    kind = (status or "").split(":", 1)[0].strip().lower()
+    return kind if kind in ("skipped", "error") else None
+
+
 def summarize(syncs: List[dict], names: Dict[str, str], *, stale: List[dict], engine: Optional[dict],
-              catalogs: List[dict], mirrors: List[dict], queries_24h: int, now: datetime) -> dict:
+              catalogs: List[dict], mirrors: List[dict], queries_24h: int, now: datetime,
+              schedules: Optional[List[dict]] = None) -> dict:
     since = now - timedelta(hours=WINDOW_HOURS)
     latest: Dict[tuple, tuple] = {}
     for run in syncs:
@@ -41,6 +50,12 @@ def summarize(syncs: List[dict], names: Dict[str, str], *, stale: List[dict], en
     for (cid, table), t in sorted(failed, key=lambda x: (str(x[0][0]), str(x[0][1]))):
         issues.append({"kind": "sync_failed", "connection_id": cid, "source": names.get(cid, cid),
                        "table": table, "error": t.get("error"), "diagnosis": diagnose(t.get("error"))})
+    for sc in schedules or []:
+        kind = schedule_problem(sc.get("status"))
+        if kind:
+            detail = sc["status"].split(":", 1)[1].strip() if ":" in sc["status"] else sc["status"]
+            issues.append({"kind": "schedule_failed", "connection_id": sc["connection_id"], "source": sc["name"],
+                           "reason": kind, "detail": detail})
     for s in stale:
         hours = int((now - s["last_sync_at"]).total_seconds() // 3600) if s.get("last_sync_at") else None
         issues.append({"kind": "stale_source", "connection_id": s["connection_id"], "source": s["name"],
