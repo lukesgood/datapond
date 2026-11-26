@@ -30,7 +30,7 @@ import { CapabilityGate } from "@/lib/capabilities"
 import { describeCheck } from "@/lib/source-check"
 import { EngineRestartBanner } from "@/components/connectors/engine-restart-banner"
 import { usePermissions } from "@/lib/permissions"
-import { filterSources, isStale, parseSourceFilter, sourceCounts, type SourceFilter } from "@/lib/source-freshness"
+import { failedSince, filterSources, isStale, parseSourceFilter, sourceCounts, staleReasons, whenLabel, type SourceFilter } from "@/lib/source-freshness"
 
 interface Connection {
   id: string
@@ -51,6 +51,11 @@ interface Connection {
   tables?: number
   last_rows?: number | null
   success_rate?: number | null
+  // Freshness (app/source_freshness.py): stale = missed a scheduled run.
+  last_success_at?: string | null
+  overdue_since?: string | null
+  last_run_at?: string | null
+  last_run_status?: string | null
 }
 
 interface ConnStats {
@@ -366,10 +371,10 @@ function ConnectorsPageInner() {
   const totalLastRows = Array.from(connStats.values()).reduce((s, c) => s + (c.lastRows ?? 0), 0)
   const rates = Array.from(connStats.values()).map(c => c.successRate).filter((r): r is number => r !== null)
   const avgSuccessRate = rates.length > 0 ? Math.round(rates.reduce((a, b) => a + b, 0) / rates.length) : null
-  const counts = sourceCounts(connections, checkedAt)
+  const counts = sourceCounts(connections)
   const staleSources = counts.stale
-  const visible = filterSources(connections, filter, checkedAt)
-  const staleList = filterSources(connections, "stale", checkedAt)
+  const visible = filterSources(connections, filter)
+  const staleList = filterSources(connections, "stale")
 
   return (
     <div className="flex-1 space-y-5 px-6 py-5">
@@ -431,7 +436,7 @@ function ConnectorsPageInner() {
             {
               label: "Stale Sources",
               value: staleSources,
-              sub: staleSources === 0 ? "all sources up to date" : "last sync > 24h ago · paused not counted",
+              sub: staleSources === 0 ? "no scheduled run missed" : "missed a scheduled run · open Stale for why",
               icon: ShieldAlert,
               color: staleSources > 0 ? "text-[var(--dp-warn-text)]" : "text-[var(--dp-good-text)]",
               highlight: staleSources > 0,
@@ -524,8 +529,22 @@ function ConnectorsPageInner() {
               )}
               {filter === "stale" && (
                 <p className="basis-full text-xs text-muted-foreground">
-                  Active sources with no sync in over a day. Not using one? Pause it from its menu — it stops being reported until you resume it.
+                  Scheduled sources that missed a run their schedule asked for. A source you sync by hand is never stale. Not using one? Pause it from its menu.
                 </p>
+              )}
+              {/* Why each one is stale: the run it missed, how old its data is, what happened last. */}
+              {filter === "stale" && staleList.length > 0 && (
+                <ul className="basis-full space-y-2 rounded-lg border border-[var(--dp-warn)]/40 bg-[var(--dp-warn)]/5 px-4 py-3">
+                  {staleList.map(c => (
+                    <li key={c.id} className="text-xs">
+                      <Link href={`/connectors/connections/${c.id}`} className="font-semibold hover:text-primary hover:underline">{c.name}</Link>
+                      <ul className="mt-0.5 list-disc pl-4 text-muted-foreground">
+                        {staleReasons(c, checkedAt).slice(0, -1).map(line => <li key={line}>{line}</li>)}
+                      </ul>
+                    </li>
+                  ))}
+                  <li className="text-2xs text-muted-foreground">{staleReasons(staleList[0], checkedAt).at(-1)}</li>
+                </ul>
               )}
             </div>
           )}
@@ -634,20 +653,29 @@ function ConnectorsPageInner() {
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {(() => {
-                          // Surface staleness (>24h / never) inline so the platform "Stale Sources"
-                          // metric maps back to the specific row responsible for it.
-                          const stale = isStale(conn, checkedAt)
+                          // The data's age is the last successful sync; a newer attempt that
+                          // failed, and a missed scheduled run, are said under it.
+                          const stale = isStale(conn)
+                          const failed = failedSince(conn)
                           return (
-                            <span className="inline-flex items-center gap-1.5">
+                            <div className="flex flex-col gap-0.5">
+                              <span className="inline-flex items-center gap-1.5">
+                                {stale && (
+                                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--dp-warn)]" aria-hidden />
+                                )}
+                                {formatDate(conn.last_success_at ?? conn.last_sync_at)}
+                              </span>
                               {stale && (
-                                <span
-                                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--dp-warn)]"
-                                  aria-label="Stale — no sync in over 24h"
-                                  title="No sync in over 24h"
-                                />
+                                <span className="text-2xs text-[var(--dp-warn-text)]" title={staleReasons(conn, checkedAt).join(" ")}>
+                                  missed {whenLabel(conn.overdue_since, checkedAt)} run
+                                </span>
                               )}
-                              {formatDate(conn.last_sync_at)}
-                            </span>
+                              {failed && (
+                                <span className="text-2xs text-destructive" title={conn.last_run_status ?? undefined}>
+                                  last try {whenLabel(conn.last_run_at, checkedAt)}: {conn.last_run_status}
+                                </span>
+                              )}
+                            </div>
                           )
                         })()}
                       </TableCell>

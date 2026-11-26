@@ -56,10 +56,16 @@ def summarize(syncs: List[dict], names: Dict[str, str], *, stale: List[dict], en
             detail = sc["status"].split(":", 1)[1].strip() if ":" in sc["status"] else sc["status"]
             issues.append({"kind": "schedule_failed", "connection_id": sc["connection_id"], "source": sc["name"],
                            "reason": kind, "detail": detail})
+    # A source whose run failed is already listed with the failure and its cause.
+    reported = {i.get("connection_id") for i in issues if i["kind"] in ("sync_failed", "schedule_failed")}
     for s in stale:
+        if s["connection_id"] in reported:
+            continue
         hours = int((now - s["last_sync_at"]).total_seconds() // 3600) if s.get("last_sync_at") else None
         issues.append({"kind": "stale_source", "connection_id": s["connection_id"], "source": s["name"],
-                       "hours": hours})
+                       "hours": hours, "schedule": s.get("schedule"), "overdue_since": s.get("overdue_since"),
+                       "last_success_at": s.get("last_success_at"), "last_run_at": s.get("last_run_at"),
+                       "last_run_status": s.get("last_run_status")})
     return {
         "state": "attention" if issues else "ok",
         "syncs": {"window_hours": WINDOW_HOURS, "tables_ok": len(latest) - len(failed), "tables_failed": len(failed)},

@@ -45,9 +45,12 @@ async def _load_syncs(pool, user):
             """SELECT started_at, metadata FROM connector_sync_history
                 WHERE started_at >= $1 ORDER BY started_at DESC LIMIT 500""", since)
         from app.sync_alerts import FIXED_SINCE_SQL
+        from app.source_freshness import LAST_RUN_SQL, LAST_SUCCESS_SQL
         fixed = FIXED_SINCE_SQL.format(id="c.id", anchor="c.schedule_anchor_at")
         conns = await c.fetch("SELECT c.id, c.name, c.last_sync_at, c.status, c.schedule, c.schedule_last_status, "
-                              f"{fixed} AS fixed_since_schedule "
+                              f"c.schedule_anchor_at, {fixed} AS fixed_since_schedule, "
+                              f"{LAST_SUCCESS_SQL.format(id='c.id')} AS last_success_at, "
+                              f"{LAST_RUN_SQL.format(id='c.id')} AS last_run "
                               "FROM connector_connections c" + (f" WHERE {clause}" if clause else ""), *args)
     visible = {str(c["id"]) for c in conns}
     syncs = []
@@ -60,9 +63,16 @@ async def _load_syncs(pool, user):
         syncs.append({"started_at": _aware(r["started_at"]), "connection_id": meta.get("connection_id"),
                       "tables": meta.get("tables", [])})
     names = {str(c["id"]): c["name"] for c in conns}
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=WINDOW_HOURS)
-    stale = [{"connection_id": str(c["id"]), "name": c["name"], "last_sync_at": _aware(c["last_sync_at"])}
-             for c in conns if c["status"] == "active" and c["last_sync_at"] and _aware(c["last_sync_at"]) < cutoff]
+    # Out of date = missed a run its own schedule asked for (app/source_freshness.py),
+    # not "no sync for a day": a source synced by hand is never stale.
+    from app.source_freshness import freshness
+    now = datetime.now(timezone.utc)
+    stale = []
+    for c in conns:
+        f = freshness(c, now)
+        if f["overdue_since"]:
+            stale.append({"connection_id": str(c["id"]), "name": c["name"], "schedule": c.get("schedule"),
+                          "last_sync_at": _aware(c.get("last_success_at")), **f})
     paused = sum(1 for c in conns if c["status"] == "paused")
     schedules = [{"connection_id": str(c["id"]), "name": c["name"], "status": c["schedule_last_status"]}
                  for c in conns if c["status"] != "paused" and (c["schedule"] or "").strip()

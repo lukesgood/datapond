@@ -412,8 +412,8 @@ export default function ConnectorsHelpPage() {
             </div>
             <p className="text-sm text-muted-foreground">
               {t({
-                en: "The backend runs each source's schedule itself; no add-on is needed. A run made while the platform was off runs once when it is back. When a scheduled run turns from working to failing, the person who set the schedule gets one email (when email is configured), and Overview lists runs that were skipped or errored. Deleting a source keeps the lake tables it loaded; the confirmation names them and what is built on them.",
-                ko: "스케줄은 백엔드가 직접 실행하며 별도 add-on이 필요 없습니다. 플랫폼이 꺼져 있던 동안의 실행은 다시 켜질 때 한 번 실행됩니다. 예약 실행이 성공하다가 실패로 바뀌면 스케줄을 설정한 사람에게 메일이 한 번 갑니다(메일이 설정된 경우). 건너뛰었거나 오류가 난 실행은 Overview에도 표시됩니다. 소스를 삭제해도 적재된 레이크 테이블은 남으며, 삭제 확인 창에 그 테이블과 그 위에 만든 지표·개념·대시보드가 표시됩니다.",
+                en: "The backend runs each source's schedule itself; no add-on is needed. A run made while the platform was off runs once when it is back. When a scheduled run turns from working to failing, the person who set the schedule gets one email (when email is configured), and Overview lists runs that were skipped or errored. A source is stale only when it missed a run its schedule asked for (more than an hour late); Overview, Sources and the source page say which run, when its data last synced successfully, and what its last sync did. A source synced by hand is never stale. Deleting a source keeps the lake tables it loaded; the confirmation names them and what is built on them.",
+                ko: "스케줄은 백엔드가 직접 실행하며 별도 add-on이 필요 없습니다. 플랫폼이 꺼져 있던 동안의 실행은 다시 켜질 때 한 번 실행됩니다. 예약 실행이 성공하다가 실패로 바뀌면 스케줄을 설정한 사람에게 메일이 한 번 갑니다(메일이 설정된 경우). 건너뛰었거나 오류가 난 실행은 Overview에도 표시됩니다. 소스는 스케줄이 요구한 실행을 1시간 넘게 놓쳤을 때만 stale이 되며, Overview·Sources·소스 화면에 놓친 실행, 마지막 성공 동기화 시각, 마지막 동기화 결과가 표시됩니다. 직접 실행하는 소스는 stale이 되지 않습니다. 소스를 삭제해도 적재된 레이크 테이블은 남으며, 삭제 확인 창에 그 테이블과 그 위에 만든 지표·개념·대시보드가 표시됩니다.",
               })}
             </p>
           </div>

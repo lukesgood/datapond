@@ -5,11 +5,13 @@
  *  one row that can sync them all), and agents whose keys stop them calling anything.
  */
 import { issueView, type OpsAction, type OpsIssue, type StaleIssue } from "./ops-status.ts"
+import { staleReasons } from "./source-freshness.ts"
 import { liveKeys, type Agent } from "./agents.ts"
 
 export type AttentionItem =
   | { kind: "issue"; key: string; title: string; detail: string; advice?: string; tone: "warn" | "info"; actions: OpsAction[] }
-  | { kind: "stale"; key: string; title: string; detail: string; connectionIds: string[] }
+  | { kind: "stale"; key: string; title: string; detail: string; connectionIds: string[]
+      sources: { id: string; name: string; reasons: string[] }[] }
   | { kind: "agent"; key: string; title: string; detail: string; href: string }
 
 const EXPIRY_WARN_MS = 7 * 24 * 3_600_000
@@ -34,6 +36,7 @@ export function agentProblems(agents: Agent[], now: Date): { id: string; name: s
 
 export function attentionItems(
   issues: OpsIssue[], agents: { id: string; name: string; text: string }[], perms: Set<string>,
+  now: number = Date.now(),
 ): AttentionItem[] {
   const out: AttentionItem[] = []
   issues.forEach((issue, i) => {
@@ -46,9 +49,14 @@ export function attentionItems(
     const n = stale.length
     out.push({
       kind: "stale", key: "stale",
-      title: `${n} ${n === 1 ? "source has" : "sources have"} not synced in over a day`,
+      title: `${n} ${n === 1 ? "source" : "sources"} missed a scheduled sync`,
       detail: stale.map(s => s.source).join(", "),
       connectionIds: stale.map(s => s.connection_id),
+      // Each source with why: what run it missed, how old its data is, what happened last.
+      sources: stale.map(s => ({
+        id: s.connection_id, name: s.source,
+        reasons: staleReasons({ status: "active", last_sync_at: null, ...s }, now).slice(0, -1),
+      })),
     })
   }
   for (const a of agents) {

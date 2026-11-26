@@ -34,7 +34,8 @@ test("attentionItems: urgent issues first, stale grouped, then agents", () => {
   assert.deepEqual(items.map(i => i.kind), ["issue", "stale", "agent"])
   const stale = items[1]
   assert.ok(stale.kind === "stale")
-  assert.equal(stale.title, "2 sources have not synced in over a day")
+  assert.equal(stale.title, "2 sources missed a scheduled sync")
+  assert.deepEqual(stale.sources.map(s => s.name), ["Finance", "FX"])
   assert.deepEqual(stale.connectionIds, ["c1", "c2"])
   assert.equal(stale.detail, "Finance, FX")
 })
