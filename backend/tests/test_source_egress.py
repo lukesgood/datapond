@@ -90,3 +90,12 @@ def test_an_s3_endpoint_inside_the_cluster_is_refused(monkeypatch):
                                        endpoint_url="http://127.0.0.1:9000"))
     with pytest.raises(egress.EgressRefused):
         c._get_client()
+
+
+def test_dot_segments_do_not_turn_the_sample_exception_into_any_loopback_route():
+    from app.api.sample_api import sample_api_base_url
+    base = sample_api_base_url()
+    for url in (base + "/../../connectors", base + "/x", base + "/%2e%2e/%2e%2e/connectors", base + "extra"):
+        with pytest.raises(egress.EgressRefused):
+            egress.check_url(url, resolve=_resolver("127.0.0.1"))
+    egress.check_url(base + "/?page=2", resolve=_resolver("127.0.0.1"))

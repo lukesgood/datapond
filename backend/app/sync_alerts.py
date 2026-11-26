@@ -5,8 +5,8 @@ A scheduled run writes its outcome to `connector_connections.schedule_last_statu
 nightly sync had failed, and nobody opens the console to look at a sync they expect to
 work. So when a run's status turns from working to not working, the person the schedule
 runs as gets one email (the source's owner when that person is gone). A source that keeps
-failing sends nothing more until it has worked again, so a broken source is one email,
-not one a day.
+failing sends nothing more until it has worked again (a scheduled run, or any full
+sync after the failed one), so a broken source is one email, not one a day.
 
 Mail goes through app/email_util.py (Amazon SES). It is off when SES_FROM_EMAIL is unset
 and never raises, so an install without SES runs schedules exactly as before. The
@@ -19,6 +19,23 @@ from html import escape
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+# A fully successful sync of the source (any trigger) after the given scheduled run:
+# someone fixed it by hand, so that run's failure is no longer current.
+FIXED_SINCE_SQL = ("EXISTS (SELECT 1 FROM connector_sync_history h "
+                   "WHERE h.metadata->>'connection_id' = {id}::text AND h.status = 'success' "
+                   "AND h.started_at > ({anchor} AT TIME ZONE 'UTC'))")
+
+
+async def fixed_since(c, connection_id, anchor) -> bool:
+    if anchor is None:
+        return False
+    try:
+        return bool(await c.fetchval("SELECT " + FIXED_SINCE_SQL.format(id="$1", anchor="$2::timestamptz"),
+                                     str(connection_id), anchor))
+    except Exception:
+        return False
 
 
 def is_failure(status: Optional[str]) -> bool:

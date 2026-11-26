@@ -904,6 +904,21 @@ async def introspect_connection(request: ConnectionIntrospectRequest, user: dict
         tables: List[Dict[str, Any]] = []
         for name in table_names:
             info: Dict[str, Any] = {"name": name}
+            if request.connector_type == ConnectorType.CUSTOM and request.include_sample:
+                # One run gives columns, count and rows: the code may take up to the
+                # sandbox's time limit, so it is not run once for the schema and again
+                # for the preview.
+                try:
+                    records = await connector.read_data(name)
+                    first = records[0] if records and isinstance(records[0], dict) else {}
+                    info["row_count"] = len(records)
+                    info["columns"] = [{"name": k, "type": type(v).__name__, "nullable": True}
+                                       for k, v in first.items()]
+                    info["sample"] = sample_rows(records)
+                except Exception as e:
+                    info["sample_error"] = str(e)[:300]
+                tables.append(info)
+                continue
             if request.include_schema:
                 # Best-effort per table — a single unreadable table must not fail the
                 # whole listing (the UI degrades gracefully to name-only).
@@ -1967,8 +1982,13 @@ async def delete_impact(connection_id: str, user: dict = Depends(require_user)):
         name = f"{cat}.{ns}.{t}" if cat else f"{ns}.{t}"
         if name not in tables:
             tables.append(name)
+    # The live catalog's tables as `src_x.schema.table` (Trino-backed sources list
+    # their tables with the schema).
+    live = sorted({f"{catalog}.{j['source_table']}" for j in jobs
+                   if catalog and str(j["source_table"]).count(".") == 1})
     from app import table_impact as ti
     built_on: Dict[str, Any] = {}
+    breaks: Dict[str, Any] = {}
     checked = 0
     if tables and all(t.count(".") == 2 for t in tables):
         try:
@@ -1981,6 +2001,12 @@ async def delete_impact(connection_id: str, user: dict = Depends(require_user)):
                     out = await catalog_api.table_impact(table=tables[i:i + ti.MAX_TABLES], user=user)
                     built_on.update(out.get("tables") or {})
                 checked = len(tables)
+                # What reads the source's live catalog directly breaks outright when the
+                # catalog goes, unlike what reads the lake copy (which keeps its last data).
+                if live:
+                    for i in range(0, len(live), ti.MAX_TABLES):
+                        out = await catalog_api.table_impact(table=live[i:i + ti.MAX_TABLES], user=user)
+                        breaks.update(out.get("tables") or {})
         except Exception as e:
             logger.info("[connectors] impact unavailable for delete of %s: %s", connection_id, e)
     return {
@@ -1989,6 +2015,7 @@ async def delete_impact(connection_id: str, user: dict = Depends(require_user)):
         "scheduled": bool(row and (row["schedule"] or "").strip()),
         "impact_checked": checked,
         "built_on": dependents(built_on),
+        "breaks": dependents(breaks),
     }
 
 

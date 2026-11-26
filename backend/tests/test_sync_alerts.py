@@ -88,6 +88,9 @@ def test_the_scheduler_emails_when_a_working_source_fails(monkeypatch):
 
 
 def test_the_scheduler_stays_quiet_while_a_source_keeps_failing_or_works(monkeypatch):
+    async def not_fixed(c, cid, anchor):
+        return False
+    monkeypatch.setattr(sa, "fixed_since", not_fixed)
     assert _tick(monkeypatch, "failed: 1 of 3 tables failed: orders", "failed: 1 of 3 tables failed: orders") == []
     assert _tick(monkeypatch, None, "success: Synced 3 tables") == []
 
@@ -132,3 +135,18 @@ def test_an_all_tables_run_with_one_failed_table_reports_failed(monkeypatch):
     assert res["status"] == "failed"            # the last table (items) succeeded
     assert res["failed_tables"] == ["orders"]
     assert res["message"] == "1 of 3 tables failed: orders"
+
+
+def test_a_new_failure_after_a_manual_fix_emails_again(monkeypatch):
+    async def fixed(c, cid, anchor):
+        return True
+    monkeypatch.setattr(sa, "fixed_since", fixed)
+    sent = _tick(monkeypatch, "failed: 1 of 3 tables failed: orders", "error: source unreachable")
+    assert sent == [("kim@x", "The scheduled sync of Orders failed")]
+
+
+def test_still_failing_with_no_fix_in_between_stays_quiet(monkeypatch):
+    async def not_fixed(c, cid, anchor):
+        return False
+    monkeypatch.setattr(sa, "fixed_since", not_fixed)
+    assert _tick(monkeypatch, "error: x", "error: y") == []

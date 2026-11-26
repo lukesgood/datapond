@@ -316,7 +316,10 @@ export function SyncHistory({ sessions, connectionId, onChanged }: SyncHistoryPr
   const liveSession  = sessions.find(s => s.isLive)
   const allPast      = sessions.filter(s => !s.isLive)
   const failedCount  = allPast.filter(runHasFailure).length
-  const pastSessions = failedOnly ? allPast.filter(runHasFailure) : allPast
+  // The filter applies only while there is a failure to show: after a refresh with none
+  // left, the box is gone, and a filter nobody can see must not empty the list.
+  const filtering    = failedOnly && failedCount > 0
+  const pastSessions = filtering ? allPast.filter(runHasFailure) : allPast
   const visiblePast  = showAll ? pastSessions : pastSessions.slice(0, DEFAULT_VISIBLE)
   const hiddenCount  = pastSessions.length - DEFAULT_VISIBLE
 
@@ -328,7 +331,7 @@ export function SyncHistory({ sessions, connectionId, onChanged }: SyncHistoryPr
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             {failedCount > 0 && (
               <label className="flex cursor-pointer items-center gap-1.5">
-                <input type="checkbox" checked={failedOnly} onChange={e => setFailedOnly(e.target.checked)} />
+                <input type="checkbox" checked={filtering} onChange={e => setFailedOnly(e.target.checked)} />
                 Failed only ({failedCount})
               </label>
             )}
