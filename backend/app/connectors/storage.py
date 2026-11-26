@@ -321,7 +321,7 @@ class S3Connector(BaseConnector):
             return TableSchema(
                 table_name=key,
                 columns=columns,
-                row_count=len(df)
+                row_count=None,  # one file (CSV: its first 100 rows) is not the table; it read as "47 rows" for 241
             )
 
         except Exception as e:
