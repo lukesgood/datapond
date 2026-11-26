@@ -254,6 +254,33 @@ class ConnectionTestRequest(BaseModel):
     connection_id: Optional[str] = None  # If editing existing, merge masked fields
 
 
+# Sources whose columns come from data rather than a declared schema: the rows are the
+# only way to see what the code, API or files return before saving. Database sources
+# have their schema and are previewed in the Catalog after a sync, masked.
+SAMPLE_TYPES = {ConnectorType.S3, ConnectorType.REST_API, ConnectorType.CUSTOM}
+SAMPLE_ROWS = 5
+SAMPLE_CELL_CHARS = 200
+
+
+def sample_rows(records: Any, n: int = SAMPLE_ROWS) -> List[Dict[str, Any]]:
+    """The first n records as JSON-safe rows: scalars kept, everything else as text,
+    long text cut."""
+    out: List[Dict[str, Any]] = []
+    for r in list(records or [])[:n]:
+        if not isinstance(r, dict):
+            r = {"value": r}
+        row: Dict[str, Any] = {}
+        for k, v in r.items():
+            if v is None or isinstance(v, (bool, int, float)):
+                row[str(k)] = v if not (isinstance(v, float) and v != v) else None
+            else:
+                text = v if isinstance(v, str) else (json.dumps(v, default=str, ensure_ascii=False)
+                                                     if isinstance(v, (dict, list)) else str(v))
+                row[str(k)] = text if len(text) <= SAMPLE_CELL_CHARS else text[:SAMPLE_CELL_CHARS] + "…"
+        out.append(row)
+    return out
+
+
 class ConnectionIntrospectRequest(BaseModel):
     """Request to introspect tables/schemas directly from a submitted config,
     without persisting a connection."""
@@ -261,6 +288,7 @@ class ConnectionIntrospectRequest(BaseModel):
     config: Dict[str, Any]
     connection_id: Optional[str] = None  # If editing existing, merge masked fields
     include_schema: bool = True          # Fetch per-table columns (row_count included)
+    include_sample: bool = False         # A few rows per table (file, REST and Python sources)
 
 
 class ConnectionCreateRequest(BaseModel):
@@ -798,33 +826,39 @@ async def list_available_connectors():
     return connectors
 
 
-@router.post("/connectors/test")
-async def test_connection(request: ConnectionTestRequest):
+async def _merge_stored_secrets(config: Dict[str, Any], connection_id: Optional[str], user: dict) -> Dict[str, Any]:
+    """Replace masked fields (••••••••) with the source's stored values. Only for a caller
+    who may change that source: the merged config is then used to connect to whatever
+    host the request names, so without the check anyone signed in could send another
+    source's stored credentials to a server of their choosing."""
+    config = dict(config)
+    if not connection_id or not any(v == "••••••••" for v in config.values() if isinstance(v, str)):
+        return config
+    await require_access(CONNECTOR, connection_id, user, write=True)
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT config_encrypted FROM connector_connections WHERE id=$1",
+                                  uuid.UUID(connection_id))
+    if row:
+        stored = vault.decrypt_credentials(row['config_encrypted'])
+        for k, v in config.items():
+            if v == "••••••••":
+                config[k] = stored.get(k, v)
+    return config
+
+
+# Testing and introspecting connect to the named host and, for a Python source, run its
+# code; both need connector:write, like creating the source they are part of.
+@router.post("/connectors/test", dependencies=[Depends(require_permission("connector:write"))])
+async def test_connection(request: ConnectionTestRequest, user: dict = Depends(require_user)):
     """
     Test a connector connection without saving it.
 
     Validates credentials and connectivity.
     If connection_id is provided, masked fields (••••••••) are replaced with stored values.
     """
+    config = await _merge_stored_secrets(request.config, request.connection_id, user)
     try:
-        config = dict(request.config)
-
-        # If editing existing connection, replace masked fields with stored originals
-        if request.connection_id:
-            has_masked = any(v == "••••••••" for v in config.values() if isinstance(v, str))
-            if has_masked:
-                pool = await get_db_pool()
-                async with pool.acquire() as conn:
-                    row = await conn.fetchrow(
-                        "SELECT config_encrypted FROM connector_connections WHERE id=$1",
-                        uuid.UUID(request.connection_id)
-                    )
-                if row:
-                    stored = vault.decrypt_credentials(row['config_encrypted'])
-                    for k, v in config.items():
-                        if v == "••••••••":
-                            config[k] = stored.get(k, v)
-
         # Create connector instance based on type
         connector = _create_connector(request.connector_type, config)
 
@@ -847,8 +881,8 @@ async def test_connection(request: ConnectionTestRequest):
         }
 
 
-@router.post("/connectors/introspect")
-async def introspect_connection(request: ConnectionIntrospectRequest):
+@router.post("/connectors/introspect", dependencies=[Depends(require_permission("connector:write"))])
+async def introspect_connection(request: ConnectionIntrospectRequest, user: dict = Depends(require_user)):
     """
     List tables (and, by default, their column schemas) directly from a submitted
     config WITHOUT persisting a connection.
@@ -861,25 +895,8 @@ async def introspect_connection(request: ConnectionIntrospectRequest):
     Mirrors /connectors/test: if connection_id is supplied, masked fields
     (••••••••) are replaced with stored values before introspection.
     """
+    config = await _merge_stored_secrets(request.config, request.connection_id, user)
     try:
-        config = dict(request.config)
-
-        # If editing an existing connection, replace masked fields with stored originals
-        if request.connection_id:
-            has_masked = any(v == "••••••••" for v in config.values() if isinstance(v, str))
-            if has_masked:
-                pool = await get_db_pool()
-                async with pool.acquire() as conn:
-                    row = await conn.fetchrow(
-                        "SELECT config_encrypted FROM connector_connections WHERE id=$1",
-                        uuid.UUID(request.connection_id)
-                    )
-                if row:
-                    stored = vault.decrypt_credentials(row['config_encrypted'])
-                    for k, v in config.items():
-                        if v == "••••••••":
-                            config[k] = stored.get(k, v)
-
         connector = _create_connector(request.connector_type, config)
 
         table_names = await connector.get_tables()
@@ -899,6 +916,11 @@ async def introspect_connection(request: ConnectionIntrospectRequest):
                     ]
                 except Exception as e:
                     logger.debug(f"[introspect] schema fetch failed for {name}: {e}")
+            if request.include_sample and request.connector_type in SAMPLE_TYPES:
+                try:
+                    info["sample"] = sample_rows(await connector.read_data(name, limit=SAMPLE_ROWS))
+                except Exception as e:
+                    info["sample_error"] = str(e)[:300]
             tables.append(info)
 
         return {"tables": tables}
@@ -1919,6 +1941,77 @@ async def get_schedule(connection_id: str, user: dict = Depends(require_user)):
     return _schedule_view(row)
 
 
+@router.get("/connectors/{connection_id}/delete-impact")
+async def delete_impact(connection_id: str, user: dict = Depends(require_user)):
+    """What deleting this source does, for the confirmation: the lake tables its syncs
+    wrote (they stay), whether its query-engine catalog goes (and the engine restarts),
+    whether a schedule stops, and what is built on those tables (the Catalog's impact,
+    app/table_impact.py, limited to what the caller may see). Reads no rows."""
+    await require_access(CONNECTOR, connection_id, user, write=True)
+    from app import sync_targets
+    from app.connectors import source_catalog
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        jobs = await conn.fetch(
+            "SELECT source_table, target_table, target_catalog FROM connector_sync_jobs "
+            "WHERE connection_id = $1 AND last_run_at IS NOT NULL ORDER BY source_table",
+            uuid.UUID(connection_id))
+        row = await conn.fetchrow("SELECT schedule FROM connector_connections WHERE id = $1",
+                                  uuid.UUID(connection_id))
+        catalog = await source_catalog.catalog_for(conn, connection_id)
+    default = _default_lake()
+    tables: List[str] = []
+    for j in jobs:
+        ns, t = sync_targets.lake_table(j["source_table"], j["target_table"])
+        cat = j["target_catalog"] or default
+        name = f"{cat}.{ns}.{t}" if cat else f"{ns}.{t}"
+        if name not in tables:
+            tables.append(name)
+    from app import table_impact as ti
+    built_on: Dict[str, Any] = {}
+    if tables and all(t.count(".") == 2 for t in tables):
+        try:
+            from app.api import catalog as catalog_api
+            from app.permissions import has_permission
+            granted = user.get("permissions")
+            if (("catalog:read" in granted) if granted is not None
+                    else has_permission(user.get("role"), "catalog:read")):
+                out = await catalog_api.table_impact(table=tables[:ti.MAX_TABLES], user=user)
+                built_on = out.get("tables") or {}
+        except Exception as e:
+            logger.info("[connectors] impact unavailable for delete of %s: %s", connection_id, e)
+    return {
+        "lake_tables": tables,
+        "catalog": catalog,
+        "scheduled": bool(row and (row["schedule"] or "").strip()),
+        "impact_checked": min(len(tables), ti.MAX_TABLES) if built_on else 0,
+        "built_on": dependents(built_on),
+    }
+
+
+def dependents(impact: Dict[str, Any]) -> Dict[str, list]:
+    """Metrics, concepts and dashboards on any of the tables, each named once, and how
+    many queries read them in the impact window."""
+    out: Dict[str, Any] = {"metrics": [], "concepts": [], "dashboards": [], "queries": 0}
+    seen: Dict[str, set] = {k: set() for k in ("metrics", "concepts", "dashboards")}
+    for table, item in (impact or {}).items():
+        out["queries"] += int(((item.get("queries") or {}).get("calls")) or 0)
+        for m in item.get("metrics") or []:
+            if m["name"] not in seen["metrics"]:
+                seen["metrics"].add(m["name"])
+                out["metrics"].append(m.get("label") or m["name"])
+        for c in item.get("concepts") or []:
+            name = c.get("concept") or c.get("name")
+            if name and name not in seen["concepts"]:
+                seen["concepts"].add(name)
+                out["concepts"].append(name)
+        for d in item.get("dashboards") or []:
+            if d["id"] not in seen["dashboards"]:
+                seen["dashboards"].add(d["id"])
+                out["dashboards"].append(d["name"])
+    return out
+
+
 @router.delete("/connectors/{connection_id}", dependencies=[Depends(require_permission("connector:write"))])
 async def delete_connection(connection_id: str, user: dict = Depends(require_user)):
     """Delete a connection"""
@@ -2918,11 +3011,20 @@ async def trigger_sync(connection_id: str, request: Optional[SyncRequest] = None
                                             results, request.sync_mode)
             except Exception:
                 pass  # never let bookkeeping fail the sync
+            # One failed table fails the run: the scheduler and the caller read this
+            # status, and the last table's alone hid every earlier failure.
+            failed = [t for t, _, ok, _, _ in results if not ok]
+            if failed:
+                shown = ", ".join(failed[:5]) + (f" and {len(failed) - 5} more" if len(failed) > 5 else "")
+                message = f"{len(failed)} of {len(tables)} tables failed: {shown}"
+            else:
+                message = f"Synced {len(tables)} tables ({total_rows} rows)"
             return {
                 "job_id": job_id,
-                "status": last_status.status.value,
+                "status": SyncStatus.FAILED.value if failed else last_status.status.value,
                 "rows_processed": total_rows,
-                "message": f"Synced {len(tables)} tables ({total_rows} rows)"
+                "failed_tables": failed,
+                "message": message,
             }
 
         # Sync a specific table

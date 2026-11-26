@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, use } from "react"
+import { Fragment, useState, use } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { ChevronLeft, Loader2, Search } from "lucide-react"
@@ -13,14 +13,17 @@ import { SchedulePicker } from "@/components/ui/schedule-picker"
 import { ExplainRail, RailAttention, RailSection } from "@/components/ui/explain-rail"
 import { PageHeader } from "@/components/ui/page-header"
 import { ConnectionForm } from "@/components/connectors/connection-form"
-import { getConnector, readsEverythingEachSync, S3_NEW_FILES_COLUMN } from "@/lib/connectors"
+import { getConnector, previewRows, readsEverythingEachSync, S3_NEW_FILES_COLUMN } from "@/lib/connectors"
 import { useCapability } from "@/lib/capabilities"
 import { isTrinoEngine } from "@/lib/engine-restart"
 import { useToast } from "@/lib/toast"
 import { parseCron } from "@/lib/schedule"
 import { suggestedMasks } from "@/lib/pii-columns"
 
-interface RemoteTable { name: string; row_count?: number; columns?: { name: string; type: string; nullable: boolean }[] }
+interface RemoteTable {
+  name: string; row_count?: number; columns?: { name: string; type: string; nullable: boolean }[]
+  sample?: Record<string, unknown>[]; sample_error?: string   // file, REST and Python sources
+}
 interface TableConfig { enabled: boolean; incremental_column: string; mask: string }   // "" = whole table each time; mask = comma-separated columns
 type ConfigValue = string | number | boolean | null | undefined
 interface TablesResponse { tables?: Array<string | RemoteTable> }
@@ -63,6 +66,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
   const [tablesError, setTablesError] = useState<string | null>(null)
   const [tables, setTables] = useState<RemoteTable[]>([])
   const [tableSearch, setTableSearch] = useState("")
+  const [previewing, setPreviewing] = useState<string | null>(null)
   const [tableConfigs, setTableConfigs] = useState<Record<string, TableConfig>>({})
 
   const [schedule, setSchedule] = useState<string | null>(null)
@@ -80,7 +84,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
     try {
       const res = await fetch("/api/connectors/introspect", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connector_type: id, config: pureConfig(), include_schema: true }),
+        body: JSON.stringify({ connector_type: id, config: pureConfig(), include_schema: true, include_sample: refetch }),
       })
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `HTTP ${res.status}`) }
       const data: TablesResponse = await res.json()
@@ -276,8 +280,11 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                           const cfg = tableConfigs[t.name] ?? { enabled: false, incremental_column: "", mask: "" }
                           const cols = t.columns ?? []
                           const time = cols.filter(isTimeLike), rest = cols.filter(c => !isTimeLike(c))
+                          const open = previewing === t.name
+                          const span = 3 + (refetch ? 0 : 1) + (id === "s3" ? 1 : 0)
                           return (
-                            <tr key={t.name} className={`border-b last:border-0 ${cfg.enabled ? "" : "text-muted-foreground"}`}>
+                            <Fragment key={t.name}>
+                            <tr className={`${open ? "" : "border-b last:border-0"} ${cfg.enabled ? "" : "text-muted-foreground"}`}>
                               <td className="py-1.5"><input type="checkbox" checked={cfg.enabled} aria-label={`Sync ${t.name}`}
                                                            onChange={e => setTable(t.name, { enabled: e.target.checked })} /></td>
                               <td className="py-1.5">
@@ -290,6 +297,13 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                                     {cols.slice(0, 6).map(c => c.name).join(", ")}{cols.length > 6 ? ` +${cols.length - 6}` : ""}
                                   </span>
                                 )}
+                                {t.sample && t.sample.length > 0 && (
+                                  <button type="button" onClick={() => setPreviewing(open ? null : t.name)} aria-expanded={open}
+                                          className="text-2xs text-primary underline-offset-2 hover:underline">
+                                    {open ? "Hide rows" : `Show first ${t.sample.length} rows`}
+                                  </button>
+                                )}
+                                {t.sample_error && <span className="block text-2xs text-[var(--dp-warn-text)]" title={t.sample_error}>Could not read rows to preview</span>}
                               </td>
                               {!refetch && <td className="py-1.5">
                                 <select value={cfg.incremental_column} disabled={!cfg.enabled} aria-label={`Changed-rows column for ${t.name}`}
@@ -316,6 +330,31 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                                 {cols.length > 0 && <datalist id={`mask-${t.name}`}>{cols.map(c => <option key={c.name} value={c.name} />)}</datalist>}
                               </td>
                             </tr>
+                            {open && t.sample && (() => {
+                              const p = previewRows(t.sample, cfg.mask)
+                              return (
+                                <tr className="border-b last:border-0">
+                                  <td colSpan={span} className="pb-3 pl-12">
+                                    <div className="overflow-x-auto rounded-md border">
+                                      <table className="w-full text-2xs" aria-label={`First rows of ${t.name}`}>
+                                        <thead className="bg-muted/50"><tr>
+                                          {p.headers.map(h => <th key={h} scope="col" className="whitespace-nowrap px-2 py-1 text-left font-mono font-medium">{h}</th>)}
+                                        </tr></thead>
+                                        <tbody>{p.rows.map((r, i) => (
+                                          <tr key={i} className="border-t">
+                                            {r.map((v, j) => p.masked.has(p.headers[j])
+                                              ? <td key={j} className="px-2 py-1 italic text-muted-foreground">masked</td>
+                                              : <td key={j} className="max-w-[220px] truncate whitespace-nowrap px-2 py-1 font-mono" title={v}>{v}</td>)}
+                                          </tr>
+                                        ))}</tbody>
+                                      </table>
+                                    </div>
+                                    <p className="mt-1 text-2xs text-muted-foreground">Read from the source now, not saved. Columns under Mask before loading show as masked.</p>
+                                  </td>
+                                </tr>
+                              )
+                            })()}
+                            </Fragment>
                           )
                         })}
                       </tbody>

@@ -20,6 +20,7 @@ export type OpsIssue =
   | { kind: "mirror"; mirror: string; owner?: string | null; status: string; detail?: string | null }
   | { kind: "sync_failed"; connection_id: string; source: string; table: string; error?: string | null; diagnosis?: Diagnosis | null }
   | { kind: "stale_source"; connection_id: string; source: string; hours?: number | null }
+  | { kind: "schedule_failed"; connection_id: string; source: string; reason: "skipped" | "error"; detail: string }
   | { kind: "cost_over_budget"; forecast: number; budget: number; pct: number }
   | { kind: "duplicate_sync"; connection_id: string; source: string; table: string;
       jobs: { source_table: string; catalog: string | null; last_run_at: string | null }[] }
@@ -139,6 +140,20 @@ export function issueView(issue: OpsIssue, perms: Set<string>): IssueView {
         actions: [{ type: "link", label: "Open connection", href: connectionHref(issue.connection_id) }],
       }
     }
+    case "schedule_failed":
+      return {
+        tone: "warn",
+        title: issue.reason === "skipped"
+          ? `${issue.source}: scheduled sync did not run`
+          : `${issue.source}: scheduled sync failed`,
+        detail: issue.reason === "skipped"
+          ? `Skipped: ${issue.detail}.`
+          : issue.detail || "The scheduled run stopped before syncing any table.",
+        advice: issue.reason === "skipped"
+          ? "Someone who may change this source should save its schedule again, or turn it off."
+          : undefined,
+        actions: [{ type: "link", label: "Open connection", href: connectionHref(issue.connection_id) }],
+      }
     case "stale_source": {
       const actions: OpsAction[] = []
       if (perms.has("connector:write")) actions.push({ type: "sync", label: "Sync now", connectionId: issue.connection_id })

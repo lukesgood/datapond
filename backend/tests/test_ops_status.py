@@ -70,7 +70,7 @@ def test_the_route_gathers_only_what_the_caller_may_see(monkeypatch):
 
     async def _syncs(pool):
         seen.append("syncs")
-        return SYNCS, NAMES, [], 2
+        return SYNCS, NAMES, [], 2, []
 
     async def _mirrors(pool):
         seen.append("mirrors")
