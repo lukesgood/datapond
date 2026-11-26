@@ -121,3 +121,49 @@ def test_check_values_goes_through_the_governed_path(monkeypatch):
     out = asyncio.run(fb.check_values(vals, {"id": "u1"}))
     assert calls == [("internal", "u1")]
     assert out[0]["actual"] == "vip" and out[1]["checked"] is False
+
+
+def test_dismissed_suggestions_are_left_out():
+    tier = lambda v: {"table": "iceberg.default.customers", "column": "tier", "value": v}
+    join = "customers.id is 고객 but product_returns.product_id is 상품"
+    rows = [_row("VIP 고객 반품", ["고객"], conflicts=[join], lits=[tier("vip")]),
+            _row("VIP 고객 반품 수", ["고객"], conflicts=[join], lits=[tier("vip")])]
+    before = fb.suggest(rows, CONCEPTS, BINDINGS)
+    assert [w["word"] for w in before["words"]] == ["vip", "반품"] and before["joins"] and before["values"]
+    key = fb.value_key(before["values"][0])
+    assert key == "iceberg.default.customers.tier=vip"
+    after = fb.suggest(rows, CONCEPTS, BINDINGS,
+                       dismissed=[("word", "vip"), ("join", join), ("value", key)])
+    assert [w["word"] for w in after["words"]] == ["반품"]
+    assert after["joins"] == [] and after["values"] == []
+    # a dismissal is per kind: dismissing the word 'vip' leaves the value 'vip' alone
+    assert fb.suggest(rows, CONCEPTS, BINDINGS, dismissed=[("word", "vip")])["values"]
+
+
+def test_record_soon_does_not_make_the_caller_wait(monkeypatch):
+    done = []
+    gate = {}
+
+    async def slow_record(*a, **k):
+        await gate["release"].wait()
+        done.append(a[1])
+    monkeypatch.setattr(fb, "record", slow_record)
+
+    async def main():
+        gate["release"] = asyncio.Event()
+        fb.record_soon({"id": None}, "q1", "SELECT 1", [], [], [])
+        assert done == [] and len(fb._PENDING) == 1     # returned before the write
+        gate["release"].set()
+        await asyncio.gather(*list(fb._PENDING))
+        assert done == ["q1"] and not fb._PENDING       # held until done, then released
+    asyncio.run(main())
+    fb.record_soon({"id": None}, "q2", "SELECT 1", [], [], [])   # no loop: a no-op, no raise
+
+
+def test_feedback_segments_record_their_own_source():
+    from app.api.concepts import BindingBody
+    from app.semantic.concepts import SOURCES
+    assert "feedback" in SOURCES
+    b = BindingBody(concept="VIP 고객", catalog="iceberg", table="default.customers", column="tier",
+                    role="filter", filter_sql="tier = 'vip'", source="feedback")
+    assert b.source == "feedback"

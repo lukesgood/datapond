@@ -27,7 +27,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 ROLES = ("key", "attribute", "filter")
 STATUSES = ("proposed", "approved", "rejected", "retired")
-SOURCES = ("naming", "comment", "history", "manual", "openmetadata")
+SOURCES = ("naming", "comment", "history", "manual", "openmetadata", "feedback")
 
 Ref = Tuple[str, str, str, str]          # catalog, namespace, table, column (lower case)
 

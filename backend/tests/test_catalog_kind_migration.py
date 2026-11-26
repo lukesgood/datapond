@@ -25,7 +25,7 @@ def test_it_chains_from_0026_below_the_newest_revision():
     assert m.revision == "0027_catalog_kind_trino_source" and len(m.revision) <= 32
     assert m.down_revision == "0026_sample_db_role"
     stems = sorted(p.stem for p in VERSIONS.glob("*.py") if re.fullmatch(r"\d{4}_[a-z0-9_]+", p.stem))
-    assert stems[-1] == "0038_drop_streaming_permissions"
+    assert stems[-1] == "0040_concept_feedback_dismiss"
 
 
 def test_the_check_is_replaced_and_lists_every_registry_kind():

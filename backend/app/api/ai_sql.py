@@ -678,9 +678,9 @@ async def _generate_sql_impl(req: AskRequest, user: dict) -> AskResponse:
                 from app.api.query_engine import get_engine
                 from app.rls.engine import _default_catalog
                 from app.semantic import concept_feedback
-                await concept_feedback.record(user, req.question, sql, concepts_provided,
-                                              conflicts, concept_warnings,
-                                              get_engine().rls_dialect, _default_catalog().lower())
+                concept_feedback.record_soon(user, req.question, sql, concepts_provided,
+                                             conflicts, concept_warnings,
+                                             get_engine().rls_dialect, _default_catalog().lower())
             return AskResponse(
                 sql=sql,
                 explanation=explanation,

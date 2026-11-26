@@ -12,7 +12,9 @@ to the store. Each generation leaves one row; read in aggregate they suggest:
 - values — literal conditions (`tier = 'Platinum'`) on columns no approved segment
   states: a segment with the exact value.
 
-Suggestions only, like every other proposal: nothing is bound from here. Questions are
+Suggestions only, like every other proposal: nothing is bound from here. A segment made
+from one records source 'feedback'. A suggestion a person dismisses is not offered again
+until restored (concept_feedback_dismissals, migration 0040). Questions are
 stored PII-masked, as the tool-call log stores them, and only governance readers see the
 aggregate. Deterministic, no model call.
 """
@@ -145,10 +147,21 @@ def _segment_values(bindings: Iterable[dict]) -> Dict[Tuple[str, str], str]:
     return out
 
 
+KINDS = ("word", "value", "join")
+
+
+def value_key(v: dict) -> str:
+    """The key a value suggestion is dismissed under: catalog.ns.table.column=value."""
+    return f"{v['table']}.{v['column']}={v['value']}"
+
+
 def suggest(rows: List[dict], concepts: List[dict], bindings: List[dict],
-            metrics: List[dict] = (), limit: int = 20) -> dict:
+            metrics: List[dict] = (), limit: int = 20,
+            dismissed: Iterable[Tuple[str, str]] = ()) -> dict:
     """The three kinds of suggestion from feedback rows ({question_masked, concepts,
-    conflicts, conflicts_left, literals}), most frequent first."""
+    conflicts, conflicts_left, literals}), most frequent first. `dismissed` holds
+    (kind, key) pairs a person set aside; those are left out."""
+    gone = set(dismissed)
     known = known_words(concepts, metrics)
     word_q: Dict[str, set] = defaultdict(set)
     examples: Dict[str, List[str]] = defaultdict(list)
@@ -159,7 +172,7 @@ def suggest(rows: List[dict], concepts: List[dict], bindings: List[dict],
                 if len(examples[w]) < 2:
                     examples[w].append(r["question_masked"])
     word_out = [{"word": w, "questions": len(q), "examples": examples[w]}
-                for w, q in word_q.items() if len(q) >= _MIN_QUESTIONS]
+                for w, q in word_q.items() if len(q) >= _MIN_QUESTIONS and ("word", w) not in gone]
     word_out.sort(key=lambda x: (-x["questions"], x["word"]))
 
     joins: Dict[str, dict] = {}
@@ -169,7 +182,7 @@ def suggest(rows: List[dict], concepts: List[dict], bindings: List[dict],
             j = joins.setdefault(msg, {"join": msg, "seen": 0, "unrepaired": 0, "example": r["question_masked"]})
             j["seen"] += 1
             j["unrepaired"] += msg in left
-    join_out = sorted(joins.values(), key=lambda x: (-x["unrepaired"], -x["seen"], x["join"]))
+    join_out = sorted((j for j in joins.values() if ("join", j["join"]) not in gone), key=lambda x: (-x["unrepaired"], -x["seen"], x["join"]))
 
     segs = _segment_values(bindings)
     vals: Dict[Tuple[str, str, str], dict] = {}
@@ -188,10 +201,31 @@ def suggest(rows: List[dict], concepts: List[dict], bindings: List[dict],
                                     "questions": 0, "example": r["question_masked"],
                                     "segments_on_column": bool(stated)})
             v["questions"] += 1
-    val_out = sorted((v for v in vals.values() if v["questions"] >= _MIN_QUESTIONS),
+    val_out = sorted((v for v in vals.values()
+                      if v["questions"] >= _MIN_QUESTIONS and ("value", value_key(v)) not in gone),
                      key=lambda x: (-x["questions"], x["table"], x["column"], x["value"]))
     return {"questions": len(rows), "words": word_out[:limit], "joins": join_out[:limit],
             "values": val_out[:limit]}
+
+
+# Background recordings in flight. The event loop keeps only weak references to tasks,
+# so an unreferenced task can be collected before it runs.
+_PENDING: set = set()
+
+
+def record_soon(*args, **kwargs) -> None:
+    """record() without making /ai/sql wait for it: the answer is returned while the row
+    is written. A failure is logged by record() itself, never raised."""
+    import asyncio
+    if not ENABLED:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:            # no running loop (a sync caller); nothing to do
+        return
+    task = loop.create_task(record(*args, **kwargs))
+    _PENDING.add(task)
+    task.add_done_callback(_PENDING.discard)
 
 
 async def record(user: dict, question: str, sql: str, concepts_provided: List[dict],
@@ -231,6 +265,31 @@ async def load(pool, days: int = 30) -> List[dict]:
             "FROM concept_feedback WHERE occurred_at >= now() - make_interval(days => $1) "
             "ORDER BY occurred_at DESC LIMIT 5000", int(days))
     return [dict(r) for r in rows]
+
+
+async def dismissed(pool) -> List[dict]:
+    async with pool.acquire() as c:
+        rows = await c.fetch("SELECT kind, key, dismissed_by_name, dismissed_at "
+                             "FROM concept_feedback_dismissals ORDER BY dismissed_at DESC")
+    return [{"kind": r["kind"], "key": r["key"], "by": r["dismissed_by_name"],
+             "at": r["dismissed_at"].isoformat() if r["dismissed_at"] else None} for r in rows]
+
+
+async def dismiss(pool, kind: str, key: str, user: dict) -> None:
+    actor = user.get("id")
+    async with pool.acquire() as c:
+        await c.execute(
+            "INSERT INTO concept_feedback_dismissals (kind, key, dismissed_by, dismissed_by_name) "
+            "VALUES ($1, $2, $3::uuid, $4) ON CONFLICT (kind, key) DO NOTHING",
+            kind, key, actor if actor and re.fullmatch(r"[0-9a-f-]{36}", str(actor)) else None,
+            user.get("username") or user.get("name") or None)
+
+
+async def restore(pool, kind: str, key: str) -> bool:
+    async with pool.acquire() as c:
+        tag = await c.execute("DELETE FROM concept_feedback_dismissals WHERE kind = $1 AND key = $2",
+                              kind, key)
+    return tag.endswith(" 1")
 
 
 def visible_rows(rows: List[dict], allows_table) -> List[dict]:

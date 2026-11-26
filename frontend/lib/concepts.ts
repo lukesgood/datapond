@@ -177,7 +177,22 @@ export const segmentValue = (v: FeedbackValue) => v.actual ?? v.value
 
 /** False only when the data was checked and holds no such value in any case. */
 export const canBecomeSegment = (v: FeedbackValue) => !(v.checked && v.exists === false)
-export type Feedback = { questions: number; days: number; words: FeedbackWord[]; joins: FeedbackJoin[]; values: FeedbackValue[]; concept_use: Record<string, number> }
+export type FeedbackKind = "word" | "value" | "join"
+export type FeedbackDismissal = { kind: FeedbackKind; key: string; by?: string | null; at?: string | null }
+export type Feedback = { questions: number; days: number; words: FeedbackWord[]; joins: FeedbackJoin[]; values: FeedbackValue[]; concept_use: Record<string, number>; dismissed?: FeedbackDismissal[] }
+
+/** The key a value suggestion is dismissed under (backend concept_feedback.value_key). */
+export const valueKey = (v: Pick<FeedbackValue, "table" | "column" | "value">) => `${v.table}.${v.column}=${v.value}`
+
+/** How a dismissed suggestion reads in the restore list. */
+export function dismissalText(d: FeedbackDismissal): string {
+  if (d.kind === "value") {
+    const i = d.key.lastIndexOf("=")
+    const col = d.key.slice(0, i).split(".").slice(-2).join(".")
+    return `${col} = '${d.key.slice(i + 1)}'`
+  }
+  return d.key
+}
 
 /** The condition a value suggestion becomes: `tier = 'vip'`, or `is_active = true`. */
 export function valueCondition(v: Pick<FeedbackValue, "column" | "value">): string {
@@ -190,7 +205,7 @@ export function segmentBody(v: FeedbackValue, concept: string) {
   const [catalog, namespace, table] = v.table.split(".")
   return {
     concept, catalog, table: `${namespace}.${table}`, column: v.column, role: "filter" as const,
-    filter_sql: valueCondition({ column: v.column, value: segmentValue(v) }), source: "history" as const,
+    filter_sql: valueCondition({ column: v.column, value: segmentValue(v) }), source: "feedback" as const,
     evidence: `used in ${v.questions} questions to /ai/sql`, status: "approved" as const,
   }
 }
