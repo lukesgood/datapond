@@ -126,3 +126,8 @@ def test_the_first_new_files_run_replaces_the_table(monkeypatch):
     c = _dated({"orders/1.csv": (b"id\n1\n", "2026-11-01")})
     _, written = _sync(c, monkeypatch, sync_mode=SyncMode.INCREMENTAL, incremental_column=NEW_FILES_COLUMN)
     assert written["mode"] == "overwrite"
+
+
+def test_the_listing_does_not_claim_a_row_count_from_one_file():
+    c = _conn("", {"t/a.csv": b"id\n1\n2\n", "t/b.csv": b"id\n3\n"})
+    assert asyncio.run(c.get_schema("t")).row_count is None
