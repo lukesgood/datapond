@@ -24,20 +24,24 @@ SAFE_BUILTIN_NAMES = (
 )
 
 
-def _limits(cpu_seconds: int, memory_mb: int) -> None:
-    try:
-        import resource
-        resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
-        size = memory_mb * 1024 * 1024
-        resource.setrlimit(resource.RLIMIT_AS, (size, size))
-        resource.setrlimit(resource.RLIMIT_NOFILE, (16, 16))
-    except Exception:          # not every platform allows every limit
-        pass
+def _limits(cpu_seconds: int, memory_mb: int, max_output_bytes: int) -> None:
+    import resource
+    for which, value in ((resource.RLIMIT_CPU, cpu_seconds),
+                         (resource.RLIMIT_AS, memory_mb * 1024 * 1024),
+                         # stdout is a file: a result larger than this stops the child
+                         # (SIGXFSZ) instead of filling the backend's memory.
+                         (resource.RLIMIT_FSIZE, max_output_bytes + 1),
+                         (resource.RLIMIT_NOFILE, 16)):
+        try:
+            resource.setrlimit(which, (value, value))
+        except (ValueError, OSError):   # not every platform allows every limit
+            pass
 
 
 def main() -> int:
     req = json.loads(sys.stdin.read() or "{}")
-    _limits(int(req.get("cpu_seconds") or 120), int(req.get("memory_mb") or 1024))
+    _limits(int(req.get("cpu_seconds") or 120), int(req.get("memory_mb") or 256),
+            int(req.get("max_output_bytes") or 64 * 1024 * 1024))
     import builtins
     safe = {n: getattr(builtins, n) for n in SAFE_BUILTIN_NAMES}
     namespace = {"__builtins__": safe, "__name__": "__datapond_custom__", "__doc__": None}

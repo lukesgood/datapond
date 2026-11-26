@@ -27,6 +27,20 @@ def _coerce_fernet_key(key) -> bytes:
         return base64.urlsafe_b64encode(hashlib.sha256(kb).digest())
 
 
+class CredentialsUnreadable(ValueError):
+    """Stored credentials that this install's ENCRYPTION_KEY cannot decrypt: the key was
+    changed or lost (the 2026-11-10 rebuild), or the row is corrupt. Nothing can fix it
+    but entering the credentials again, so the API answers 409 with that instruction
+    instead of a 500 (main.py)."""
+
+    MESSAGE = ("The stored connection settings can no longer be read: the encryption key "
+               "changed since they were saved. Enter the settings again (passwords and keys "
+               "included) and save.")
+
+    def __init__(self, detail: str = ""):
+        super().__init__(f"{self.MESSAGE} ({detail})" if detail else self.MESSAGE)
+
+
 class CredentialVault:
     """
     Secure vault for storing connector credentials.
@@ -121,7 +135,7 @@ class CredentialVault:
 
         except Exception as e:
             logger.error("Failed to decrypt credentials (incorrect key or corrupted data)")
-            raise ValueError(f"Decryption failed: {e}")
+            raise CredentialsUnreadable(f"Decryption failed: {type(e).__name__}")
 
     def rotate_key(self, old_key: str, new_key: str, encrypted_data: str) -> str:
         """

@@ -61,6 +61,18 @@ app = FastAPI(
     version="0.1.0"
 )
 
+# Credentials the encryption key cannot read: a 409 that says to enter them again, not a
+# 500 with a traceback (app/connectors/vault.py).
+from app.connectors.vault import CredentialsUnreadable
+from fastapi.responses import JSONResponse as _JSONResponse
+
+
+@app.exception_handler(CredentialsUnreadable)
+async def _credentials_unreadable(_request, exc: CredentialsUnreadable):
+    return _JSONResponse(status_code=409, content={"detail": CredentialsUnreadable.MESSAGE,
+                                                   "code": "credentials_unreadable"})
+
+
 # ── API-level auth middleware ──────────────────────────────────────────────────
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware

@@ -374,6 +374,9 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   const [orphaned, setOrphaned]           = useState<OrphanJob[]>([])
   const [togglingTable, setTogglingTable] = useState<string | null>(null)
   const [configPreview, setConfigPreview] = useState<Record<string, ConfigValue>>({})
+  // The stored settings could not be decrypted (the encryption key changed): the only
+  // fix is to enter them again, so say that where the settings are shown and edited.
+  const [unreadable, setUnreadable] = useState<string | null>(null)
   const [loading, setLoading]             = useState(true)
   const [error, setError]                 = useState<string | null>(null)
   const [syncing, setSyncing]             = useState(false)
@@ -494,6 +497,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
       if (cfgRes.ok) {
         const cfg = await cfgRes.json()
         setConfigPreview(cfg.config ?? {})
+        setUnreadable(cfg.credentials_unreadable ? (cfg.message ?? "The stored settings can no longer be read.") : null)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error")
@@ -812,6 +816,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
       const data = await res.json()
       setEditName(data.name); setEditConnectorType(data.connector_type)
       setEditConfig(data.config ?? {}); setEditing(true)
+      setUnreadable(data.credentials_unreadable ? (data.message ?? "The stored settings can no longer be read.") : null)
       setSaveMessage(null); setTestResult(null)
     } catch (err) { setSaveMessage({ ok: false, text: err instanceof Error ? err.message : "Failed" }) }
   }
@@ -1121,6 +1126,9 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                   <Input id="conn-name" value={editName} onChange={e => setEditName(e.target.value)} />
                 </div>
                 <Separator />
+                {unreadable && (
+                  <p role="alert" className="rounded-md bg-[var(--dp-warn)]/10 px-3 py-2 text-xs text-[var(--dp-warn-text)]">{unreadable}</p>
+                )}
                 <ConnectionForm
                   fields={(getConnector(editConnectorType)?.fields ?? []).map(f => ({
                     ...f,
@@ -1160,7 +1168,9 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                     </span>
                   </div>
                 ))}
-                {previewEntries.length === 0 && (
+                {unreadable ? (
+                  <p role="alert" className="rounded-md bg-[var(--dp-warn)]/10 px-3 py-2 text-xs text-[var(--dp-warn-text)]">{unreadable}</p>
+                ) : previewEntries.length === 0 && (
                   <p className="text-muted-foreground text-xs text-center py-4">No configuration preview available.</p>
                 )}
                 {canWrite && (
