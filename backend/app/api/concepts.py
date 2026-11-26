@@ -40,7 +40,7 @@ class BindingBody(BaseModel):
     column: str
     role: str = Field(pattern="^(key|attribute|filter)$")
     filter_sql: Optional[str] = None
-    source: str = Field(default="manual", pattern="^(naming|comment|history|manual|openmetadata)$")
+    source: str = Field(default="manual", pattern="^(naming|comment|history|manual|openmetadata|feedback)$")
     evidence: str = Field(default="", max_length=500)
     # An administrator may record a rejection instead (a suggestion they do not want
     # offered again). Anyone else's binding is a proposal whatever this says.
@@ -292,13 +292,48 @@ async def concept_feedback(days: int = 30, user: dict = Depends(require_user)):
         metrics = await metric_context.for_caller(user)
     except Exception:
         metrics = []
+    gone = await fb.dismissed(pool)
     out = fb.suggest(rows, await load_concepts(pool),
-                     await concept_store.list_bindings(pool, ("approved",)), metrics)
+                     await concept_store.list_bindings(pool, ("approved",)), metrics,
+                     dismissed=[(d["kind"], d["key"]) for d in gone])
     # A value is the model's guess; check it against the data before anyone makes it a
     # segment ('VIP' asked, 'vip' stored).
     if out["values"]:
         out["values"] = await fb.check_values(out["values"], user)
-    return dict(out, days=days, concept_use=dict(fb.counts(rows)))
+    return dict(out, days=days, concept_use=dict(fb.counts(rows)), dismissed=gone)
+
+
+class DismissBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str = Field(pattern="^(word|value|join)$")
+    key: str = Field(min_length=1, max_length=600)
+
+
+@router.post("/semantic/concepts/feedback/dismiss", status_code=201,
+             dependencies=[Depends(require_permission("governance:read"))])
+async def dismiss_feedback(body: DismissBody, user: dict = Depends(require_permission("knowledge:write"))):
+    """Set a suggestion aside: it is not offered again until restored. Shared by every
+    reader of the feedback, so it needs governance:read (to see it) and knowledge:write
+    (the permission that acts on suggestions)."""
+    _require_enabled()
+    from app.semantic import concept_feedback as fb
+    await fb.dismiss(await _pool(), body.kind, body.key, user)
+    await _audit(user, "POST", "/api/semantic/concepts/feedback/dismiss",
+                 f"dismissed {body.kind} suggestion {body.key[:120]!r}")
+    return {"dismissed": True, "kind": body.kind, "key": body.key}
+
+
+@router.post("/semantic/concepts/feedback/restore",
+             dependencies=[Depends(require_permission("governance:read"))])
+async def restore_feedback(body: DismissBody, user: dict = Depends(require_permission("knowledge:write"))):
+    """Offer a dismissed suggestion again."""
+    _require_enabled()
+    from app.semantic import concept_feedback as fb
+    if not await fb.restore(await _pool(), body.kind, body.key):
+        raise HTTPException(404, "That suggestion is not dismissed.")
+    await _audit(user, "POST", "/api/semantic/concepts/feedback/restore",
+                 f"restored {body.kind} suggestion {body.key[:120]!r}")
+    return {"restored": True, "kind": body.kind, "key": body.key}
 
 
 class TermBody(BaseModel):

@@ -881,6 +881,13 @@ Data Map step 4. Nothing to run on upgrade.
 - **What uses this table**: the data map's Lineage mode now also lists metrics on the table, concept bindings on its columns, saved dashboards whose query reads it, and how often it was queried in the last 30 days, from `GET /api/catalog/impact?table=catalog.ns.table` (`catalog:read`, up to 12 tables). It never reads the table's rows. Table names in the tool-call log are matched across catalog aliases (`AwsDataCatalog` and `iceberg`). Only readers with `governance:read` see who queried; everyone else sees counts only. Dashboards follow the dashboard list's rule: admins see all, others see their own and public ones.
 - `/catalog?table=…&map=lineage|schema|concepts|relationships` opens the data map in that mode.
 
+### Concept feedback: dismiss, own source, no wait (2026-11-26, migrations 0039–0040)
+
+- **Dismiss**: each suggestion under Semantic model → Concepts → From questions has a Dismiss button; dismissed ones are listed below with Restore. `POST /api/semantic/concepts/feedback/dismiss` and `/restore` (`{kind: word|value|join, key}`) need `governance:read` and `knowledge:write`, and are audited. `GET /api/semantic/concepts/feedback` leaves dismissed suggestions out and returns them as `dismissed`.
+- **Source `feedback`**: a segment made from a value suggestion records `source = 'feedback'` (it was `history`, which is the query-history suggester). `0040_concept_feedback_dismiss` widens the `concept_bindings.source` CHECK and adds `concept_feedback_dismissals`. Expand only.
+- **No wait**: `/ai/sql` no longer waits for the feedback row (up to 2 s on a busy pool); it is written in the background.
+- `0039_drop_pipeline_drafts` drops the empty `pipelines` table left by the removed pipeline builder (kept, with a notice, if it still holds drafts).
+
 ### Declarative pipeline builder removed (2026-11-26)
 
 The visual builder was retired from the console on 2026-11-19; its backend stayed. Its compiled DAGs were placeholder tasks and the deploy refused them, so nothing it produced ever ran.
@@ -888,7 +895,7 @@ The visual builder was retired from the console on 2026-11-19; its backend staye
 - Removed: `POST /api/pipelines/save|validate|compile|deploy`, `/api/pipelines/upload/*`, `GET /api/pipelines` and `GET /api/pipelines/{name}` (the drafts), `PUT /api/pipelines/{name}`, `POST /api/pipelines/{name}/trigger`, `GET /api/pipelines/{name}/lineage|quality`, the `app.pipelines` DSL compiler and its CLI, and the `PIPELINES_ALLOW_PLACEHOLDER_DEPLOY` switch.
 - Kept: `GET /api/pipelines/{name}/runs` (the assistant's recent-runs action) and `DELETE /api/pipelines/{name}` (delete a DAG from the Transforms page). Airflow SQL transforms (`/api/transforms`) are unchanged.
 - The `pipelines` capability is now `experimental` (Airflow is an unsupported add-on), not `preview`; no capability carries `preview`.
-- Nothing reads the `pipelines` drafts table any more. It is dropped in a later release (expand/contract: the previous release still reads it). The AWS reference holds no drafts.
+- Nothing reads the `pipelines` drafts table any more. Migration 0039 (next section) drops it when empty.
 
 ### RisingWave and the Streaming module removed (2026-11-26, migration 0038)
 

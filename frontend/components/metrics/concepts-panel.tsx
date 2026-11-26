@@ -13,7 +13,7 @@ import { responseErrorMessage } from "@/lib/auth"
 import { fieldError, type CatalogEntry } from "@/lib/metrics"
 import {
   bindingText, cell, conceptRows, coverage, maskHref, matchesSearch, matrixTables, segmentBody, suggestionBody, tableKey, tableLabel,
-  canBecomeSegment, descendants, editBody, segmentValue, valueCondition, type Binding, type Concept, type ConceptViewer, type Feedback, type PiiGap, type Role, type Suggestion,
+  canBecomeSegment, descendants, dismissalText, valueKey, type FeedbackKind, editBody, segmentValue, valueCondition, type Binding, type Concept, type ConceptViewer, type Feedback, type PiiGap, type Role, type Suggestion,
 } from "@/lib/concepts"
 import { CatalogSelect, ColumnSelect, TableSelect } from "./catalog-pickers"
 import type { TableRef } from "./metric-editor"
@@ -202,7 +202,9 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
           onNewConcept={w => setSeed(w)}
           onAlias={(c, w) => act(() => post(`/api/semantic/concepts/${encodeURIComponent(c)}/terms`, { term: w }), `${w} added to ${c}`, "Could not add the word")}
           onSegment={(c, v) => act(() => post("/api/semantic/concepts/bindings", segmentBody(v, c)),
-            viewer.can_approve ? `Segment added to ${c}` : `Segment proposed for ${c}`, "Could not add the segment")} />}
+            viewer.can_approve ? `Segment added to ${c}` : `Segment proposed for ${c}`, "Could not add the segment")}
+          onDismiss={(kind, key) => act(() => post("/api/semantic/concepts/feedback/dismiss", { kind, key }), "Suggestion dismissed", "Could not dismiss")}
+          onRestore={(kind, key) => act(() => post("/api/semantic/concepts/feedback/restore", { kind, key }), "Suggestion restored", "Could not restore")} />}
       </section>
 
       <aside aria-label="Concept details" className="min-w-0 flex-[2_1_300px] space-y-4 rounded-xl border bg-muted/40 p-5 text-sm lg:sticky lg:top-6">
@@ -475,13 +477,21 @@ function ImportGlossary({ pull, onDone }: { pull: boolean; onDone: () => Promise
 
 /** Suggestions from /ai/sql use: words no concept covers, values no segment states, and
  *  joins between keys of different concepts. Shown to governance readers. */
-function FromQuestions({ feedback, concepts, viewer, busy, onNewConcept, onAlias, onSegment }: {
+function FromQuestions({ feedback, concepts, viewer, busy, onNewConcept, onAlias, onSegment, onDismiss, onRestore }: {
   feedback: Feedback; concepts: Concept[]; viewer: ConceptViewer; busy: boolean
   onNewConcept: (word: string) => void
   onAlias: (concept: string, word: string) => Promise<unknown>
   onSegment: (concept: string, v: Feedback["values"][number]) => Promise<unknown>
+  onDismiss: (kind: FeedbackKind, key: string) => Promise<unknown>
+  onRestore: (kind: FeedbackKind, key: string) => Promise<unknown>
 }) {
   const [target, setTarget] = useState<Record<string, string>>({})
+  const [showDismissed, setShowDismissed] = useState(false)
+  const dismissed = feedback.dismissed ?? []
+  const dismissBtn = (kind: FeedbackKind, key: string, what: string) => (
+    <Button size="sm" variant="ghost" className="h-7 text-muted-foreground" disabled={busy}
+            aria-label={`Dismiss ${what}`} onClick={() => void onDismiss(kind, key)}>Dismiss</Button>
+  )
   const canWrite = viewer.can_approve || viewer.can_propose
   const empty = !feedback.words.length && !feedback.values.length && !feedback.joins.length
   const pick = (key: string, label: string) => (
@@ -523,6 +533,7 @@ function FromQuestions({ feedback, concepts, viewer, busy, onNewConcept, onAlias
                   {canWrite && canBecomeSegment(v) && <span className="ml-auto flex items-center gap-1.5">{pick(key, `Concept for ${valueCondition(v)}`)}
                     <Button size="sm" variant="outline" className="h-7" disabled={busy || !target[key]} onClick={() => void onSegment(target[key], v)}>
                       {v.actual ? `Make segment with '${segmentValue(v)}'` : "Make segment"}</Button></span>}
+                  {canWrite && <span className={canBecomeSegment(v) ? "" : "ml-auto"}>{dismissBtn("value", valueKey(v), valueCondition(v))}</span>}
                 </li>
               )
             })}
@@ -544,6 +555,7 @@ function FromQuestions({ feedback, concepts, viewer, busy, onNewConcept, onAlias
                     {pick(key, `Concept for ${w.word}`)}
                     <Button size="sm" variant="outline" className="h-7" disabled={busy || !target[key]} onClick={() => void onAlias(target[key], w.word)}>Add as alias</Button>
                     <Button size="sm" variant="ghost" className="h-7" disabled={busy} onClick={() => onNewConcept(w.word)}>New concept</Button>
+                    {dismissBtn("word", w.word, w.word)}
                   </span>}
                 </li>
               )
@@ -558,15 +570,38 @@ function FromQuestions({ feedback, concepts, viewer, busy, onNewConcept, onAlias
           <h4 className="text-xs font-semibold">Joins between different concepts</h4>
           <ul className="space-y-1">
             {feedback.joins.map(j => (
-              <li key={j.join} className="text-xs">
-                <span className="font-mono">{j.join}</span>{" "}
+              <li key={j.join} className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-mono">{j.join}</span>
                 <span className="text-muted-foreground" title={j.example}>
                   {j.seen} times, {j.unrepaired ? `${j.unrepaired} left in the answer` : "all fixed by the check"}
                 </span>
+                {canWrite && <span className="ml-auto">{dismissBtn("join", j.join, j.join)}</span>}
               </li>
             ))}
           </ul>
           <p className="text-xs text-muted-foreground">Usually a key bound to the wrong concept, or a key missing a binding.</p>
+        </div>
+      )}
+
+      {dismissed.length > 0 && (
+        <div className="space-y-1.5">
+          <button type="button" className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                  aria-expanded={showDismissed} onClick={() => setShowDismissed(s => !s)}>
+            {dismissed.length} dismissed {dismissed.length === 1 ? "suggestion" : "suggestions"} · {showDismissed ? "Hide" : "Show"}
+          </button>
+          {showDismissed && (
+            <ul className="space-y-1">
+              {dismissed.map(d => (
+                <li key={`${d.kind}:${d.key}`} className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="text-muted-foreground">{d.kind}</span>
+                  <span className={d.kind === "word" ? "font-medium" : "font-mono"}>{dismissalText(d)}</span>
+                  {d.by && <span className="text-muted-foreground">by {d.by}</span>}
+                  {canWrite && <Button size="sm" variant="ghost" className="ml-auto h-7" disabled={busy}
+                                       onClick={() => void onRestore(d.kind, d.key)}>Restore</Button>}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </section>

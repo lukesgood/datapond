@@ -2,7 +2,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import {
-  addCondition, descendants, editBody, canBecomeSegment, segmentBody, segmentValue, valueCondition, bindingText, cell, conceptChips, conceptWordsFor, shortUse, conceptRows, coverage, maskHref, matchesSearch, matrixTables, parseMaskParam, segmentsFor, suggestionBody, tableLabel,
+  addCondition, descendants, dismissalText, valueKey, editBody, canBecomeSegment, segmentBody, segmentValue, valueCondition, bindingText, cell, conceptChips, conceptWordsFor, shortUse, conceptRows, coverage, maskHref, matchesSearch, matrixTables, parseMaskParam, segmentsFor, suggestionBody, tableLabel,
   type Binding, type Concept, type Suggestion,
 } from "./concepts.ts"
 
@@ -98,7 +98,7 @@ test("a value suggestion becomes a segment binding", () => {
   assert.equal(valueCondition({ column: "name", value: "O'Neil" }), "name = 'O''Neil'")
   assert.deepEqual(segmentBody(v, "VIP 고객"), {
     concept: "VIP 고객", catalog: "iceberg", table: "default.customers", column: "tier", role: "filter",
-    filter_sql: "tier = 'vip'", source: "history", evidence: "used in 4 questions to /ai/sql", status: "approved",
+    filter_sql: "tier = 'vip'", source: "feedback", evidence: "used in 4 questions to /ai/sql", status: "approved",
   })
 })
 
@@ -120,4 +120,11 @@ test("a concept's descendants cannot be its parent; an edit sends only what chan
   assert.deepEqual(editBody(c, { name: "고객", description: "buyer", parent: "", pii: false }), {})
   assert.deepEqual(editBody(c, { name: "회원 ", description: "", parent: "주문", pii: true }),
     { name: "회원", description: null, parent: "주문", pii: true })
+})
+
+test("a value suggestion is dismissed under the backend's key and reads back as its condition", () => {
+  const v = { table: "iceberg.default.customers", column: "tier", value: "vip" }
+  assert.equal(valueKey(v), "iceberg.default.customers.tier=vip")
+  assert.equal(dismissalText({ kind: "value", key: valueKey(v) }), "customers.tier = 'vip'")
+  assert.equal(dismissalText({ kind: "word", key: "휴면" }), "휴면")
 })
