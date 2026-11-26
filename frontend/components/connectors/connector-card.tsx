@@ -3,73 +3,65 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Plug } from "lucide-react"
+import { Code2, Database, Globe, HardDrive, type LucideIcon } from "lucide-react"
 import Link from "next/link"
 import { Connector } from "@/lib/connectors"
+
+// One glyph per kind of source: every card wore the same plug, so a 12-card grid gave
+// the eye nothing to scan by. The SVG paths in `connector.icon` were never shipped.
+const ICONS: Record<string, LucideIcon> = { s3: HardDrive, rest_api: Globe, custom: Code2 }
+const CATEGORY = { database: "Database", storage: "Files", saas: "API / code" } as const
 
 interface ConnectorCardProps {
   connector: Connector
 }
 
 export function ConnectorCard({ connector }: ConnectorCardProps) {
-  const categoryColors = {
-    database: "bg-blue-500/10 text-blue-500",
-    storage: "bg-[var(--dp-good)]/10 text-[var(--dp-good-text)]",
-    saas: "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)]"
-  }
-
-  return (
-    <Card className="group hover:shadow-md transition-shadow flex flex-col">
-      <CardHeader className="pb-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted shrink-0">
-            <Plug className="h-4 w-4 text-muted-foreground" />
+  const Icon = ICONS[connector.id] ?? Database
+  const body = (
+    <Card className={`flex h-full flex-col transition-colors ${connector.supported ? "group-hover:border-primary/50" : "opacity-70"}`}>
+      <CardHeader className="pb-2">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Icon className="h-4 w-4" aria-hidden />
           </div>
-          <div>
+          <div className="min-w-0">
             <CardTitle className="text-sm font-semibold">{connector.name}</CardTitle>
-            <Badge
-              variant="secondary"
-              className={`mt-1 text-2xs h-4 px-1.5 ${categoryColors[connector.category]}`}
-            >
-              {connector.category === "saas" ? "API / code" : connector.category}
-            </Badge>
-            {connector.tier === "preview" && (
-              <Badge variant="outline" className="ml-1 mt-1 text-2xs h-4 px-1.5" title="Works, but not yet run against the real service in CI or on the reference deployment">
-                Preview
-              </Badge>
-            )}
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {CATEGORY[connector.category]}
+              {connector.tier === "preview" && (
+                <Badge variant="outline" className="ml-1.5 h-4 px-1.5 text-2xs" title="Works, but not yet run against the real service in CI or on the reference deployment">
+                  Preview
+                </Badge>
+              )}
+              {!connector.supported && <span> · planned</span>}
+            </p>
           </div>
         </div>
       </CardHeader>
 
-      <CardContent className="flex flex-col flex-1">
-        {/* Description — fixed 2-line height */}
-        <CardDescription className="text-xs line-clamp-2 min-h-[2.5rem] mb-3">
-          {connector.description}
-        </CardDescription>
-
-        {/* Features — fixed height slot (always reserves space) */}
-        <div className="flex flex-wrap gap-1 min-h-[1.5rem] mb-4">
-          {connector.features?.slice(0, 3).map((feature) => (
-            <Badge key={feature} variant="outline" className="text-2xs h-5 px-1.5">
-              {feature}
-            </Badge>
-          ))}
-        </div>
-
-        {/* Button — always at bottom */}
-        <div className="mt-auto">
-          {connector.supported ? (
-            <Button className="w-full" size="sm" render={<Link href={`/connectors/${connector.id}/setup`} />}>
-              Connect
-            </Button>
-          ) : (
-            <Button className="w-full" size="sm" variant="secondary" disabled>
-              Coming Soon
-            </Button>
-          )}
-        </div>
+      <CardContent className="flex flex-1 flex-col gap-3">
+        <CardDescription className="line-clamp-3 text-xs">{connector.description}</CardDescription>
+        {connector.features && connector.features.length > 0 && (
+          <ul className="mt-auto flex flex-wrap gap-1" aria-label="Features">
+            {connector.features.slice(0, 3).map((feature) => (
+              <li key={feature}><Badge variant="outline" className="h-5 px-1.5 text-2xs font-normal">{feature}</Badge></li>
+            ))}
+          </ul>
+        )}
+        {connector.supported ? (
+          <span className="text-xs font-medium text-primary group-hover:underline">Connect</span>
+        ) : (
+          <Button size="sm" variant="secondary" disabled className="w-full">Not available yet</Button>
+        )}
       </CardContent>
     </Card>
   )
+  // The whole card is the link (the button was the only target on a large card).
+  return connector.supported ? (
+    <Link href={`/connectors/${connector.id}/setup`} className="group block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`Connect ${connector.name}`}>
+      {body}
+    </Link>
+  ) : body
 }

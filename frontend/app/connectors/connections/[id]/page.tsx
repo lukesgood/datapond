@@ -26,7 +26,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import Link from "next/link"
 import { ConnectionForm } from "@/components/connectors/connection-form"
-import { getConnector } from "@/lib/connectors"
+import { configRows, getConnector, readsEverythingEachSync } from "@/lib/connectors"
 import { describeCheck } from "@/lib/source-check"
 import { parseCron, nextRun } from "@/lib/schedule"
 import { SchedulePicker } from "@/components/ui/schedule-picker"
@@ -77,8 +77,9 @@ type Lake = { name: string; engine_catalog: string; is_default: boolean; kind: s
 // ── Tables: the list; one table's settings open in the right column ──────────
 function TablesCard({
   tables, latestTableRows, togglingTable, onToggle, selected, onSelect, canEdit, defaultLake, lakes = [],
-  orphaned = [], onDeleteOrphan,
+  orphaned = [], onDeleteOrphan, refetch = false,
 }: {
+  refetch?: boolean
   tables: ConnectorTable[]
   latestTableRows: Map<string, number>
   togglingTable: string | null
@@ -139,7 +140,7 @@ function TablesCard({
                 {filtered.map(table => {
                   const rows = latestTableRows.get(table.name)
                   const mode = table.sync_mode || "full"
-                  const noWatermark = mode === "incremental" && !table.incremental_column
+                  const noWatermark = !refetch && mode === "incremental" && !table.incremental_column
                   const on = selected === table.name
                   return (
                     <tr key={table.name} className={`border-b last:border-0 ${on ? "bg-primary/5" : ""} ${table.enabled ? "" : "text-muted-foreground"}`}>
@@ -158,7 +159,9 @@ function TablesCard({
                         {table.is_new && <span className="block text-xs text-[var(--dp-warn-text)]">new in the source — not synced until you turn it on (check its masked columns first)</span>}
                       </td>
                       <td className="py-2 text-xs">
-                        {mode === "incremental" ? <>Changed rows{table.incremental_column && <span className="text-muted-foreground"> · {table.incremental_column}</span>}</> : "Full refresh"}
+                        {refetch
+                          ? (table.key_columns?.length ? <>Merge<span className="text-muted-foreground"> · {table.key_columns.join(", ")}</span></> : "Replace")
+                          : mode === "incremental" ? <>Changed rows{table.incremental_column && <span className="text-muted-foreground"> · {table.incremental_column}</span>}</> : "Full refresh"}
                       </td>
                       <td className={`py-2 text-xs ${states[table.name] === "failed" || states[table.name] === "behind" ? "text-[var(--dp-warn-text)]" : ""}`}>
                         {runLabel(states[table.name], table.last_run_at)}
@@ -902,14 +905,10 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
   // Rows per table from the newest session that synced it (lib/sync-table-rows.ts)
   const latestTableRows = latestRowsByTable(sessions)
 
-  // Filter: hide sensitive values AND ingestion metadata stored in config by old wizard
-  const SENSITIVE = ["password", "secret", "key", "token"]
+  // Ingestion metadata the old wizard stored in config is not a connection setting.
+  // Secrets arrive masked from /config and show as "Stored encrypted" (configRows).
   const INGESTION_META = ["sync_frequency", "sync_mode", "selected_tables", "schedule"]
-  const previewEntries = Object.entries(configPreview).filter(
-    ([k]) =>
-      !SENSITIVE.some(s => k.toLowerCase().includes(s)) &&
-      !INGESTION_META.includes(k)
-  )
+  const previewEntries = Object.entries(configPreview).filter(([k]) => !INGESTION_META.includes(k))
 
   // Stats from history (fallback to syncRuns from /status if no history yet)
   const lastSession = sessions[0]
@@ -1076,6 +1075,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
       <div className="min-w-0 flex-[3_1_560px] space-y-4">
       {/* ── Tables first: they are what this source is for ── */}
       <TablesCard
+        refetch={readsEverythingEachSync(connector.connector_type)}
         tables={tables}
         latestTableRows={latestTableRows}
         togglingTable={togglingTable}
@@ -1131,20 +1131,17 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
               </div>
             ) : (
               <div className="space-y-1">
-                {previewEntries.map(([key, val]) => {
-                  const isSensitive = SENSITIVE.some(s => key.toLowerCase().includes(s))
-                  const displayVal = isSensitive ? "••••••••" : String(val)
-                  return (
-                    <div key={key} className="flex items-center justify-between py-1.5 px-2 rounded-md hover:bg-muted/30 group">
-                      <span className="text-xs text-muted-foreground capitalize min-w-0 mr-3">
-                        {key.replace(/_/g, " ")}
-                      </span>
-                      <span className={`font-mono text-xs text-right truncate max-w-[60%] ${isSensitive ? "text-muted-foreground/50" : "text-foreground"}`}>
-                        {displayVal}
-                      </span>
-                    </div>
-                  )
-                })}
+                {/* By the form's own labels and order (it showed raw keys, "Auth value"
+                    style, and a whole Python program on one truncated line). */}
+                {configRows(connector.connector_type, Object.fromEntries(previewEntries)).map(row => (
+                  <div key={row.key} className="flex items-baseline justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-muted/30">
+                    <span className="min-w-0 text-xs text-muted-foreground">{row.label}</span>
+                    <span className={`max-w-[60%] truncate text-right text-xs ${row.mono ? "font-mono" : ""} ${row.muted ? "text-muted-foreground" : "text-foreground"}`}
+                          title={row.value}>
+                      {row.value}
+                    </span>
+                  </div>
+                ))}
                 {previewEntries.length === 0 && (
                   <p className="text-muted-foreground text-xs text-center py-4">No configuration preview available.</p>
                 )}
@@ -1331,6 +1328,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           lakes={lakes}
           defaultLake={defaultLake}
           canEdit={canWrite}
+          refetch={readsEverythingEachSync(connector.connector_type)}
           onSaved={async () => { await fetchConnector(); setSelectedTable(null) }}
           onClose={() => setSelectedTable(null)}
         />
@@ -1357,7 +1355,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
               ? `${tables.filter(t => t.enabled).length} of ${tables.length} synced · ${tables.filter(t => t.pii_columns?.length).length} with masked columns`
               : "None discovered yet."}
           </RailSection>
-          {tables.some(t => t.enabled && (t.sync_mode || "full") === "incremental" && !t.incremental_column) && (
+          {!readsEverythingEachSync(connector.connector_type) && tables.some(t => t.enabled && (t.sync_mode || "full") === "incremental" && !t.incremental_column) && (
             <RailAttention title="Changed-rows sync without a column">
               {tables.filter(t => t.enabled && (t.sync_mode || "full") === "incremental" && !t.incremental_column).map(t => t.name).join(", ")} read the whole table on every run.
             </RailAttention>

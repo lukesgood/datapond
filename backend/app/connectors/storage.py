@@ -14,6 +14,8 @@ import logging
 import time
 import fnmatch
 from typing import Dict, List, Optional, Any
+
+from pydantic import field_validator
 from datetime import datetime
 from io import BytesIO
 
@@ -46,6 +48,23 @@ class StorageConfig(ConnectorConfig):
     region: str = "us-east-1"
     endpoint_url: Optional[str] = None  # For S3-compatible services (MinIO, SeaweedFS)
     prefix: str = ""  # Default prefix for file operations
+
+    @field_validator("prefix", mode="before")
+    @classmethod
+    def _folder_prefix(cls, v):
+        """`data`, `/data` and `data/` all mean the folder `data/`. Without the slash the
+        table folder `orders` was looked up as `dataorders`."""
+        v = str(v or "").strip().lstrip("/")
+        return f"{v.rstrip('/')}/" if v else ""
+
+
+# File extensions a sync reads, and the reader each one uses.
+_FORMATS = {"csv": "csv", "json": "json", "jsonl": "json", "ndjson": "json",
+            "parquet": "parquet", "pq": "parquet"}
+
+
+def _ext(key: str) -> str:
+    return key.rsplit(".", 1)[-1].lower() if "." in key.rsplit("/", 1)[-1] else ""
 
 
 @ConnectorRegistry.register(ConnectorType.S3)
@@ -176,7 +195,9 @@ class S3Connector(BaseConnector):
         try:
             client = self._get_client()
 
-            full_prefix = f"{self.config.prefix}{prefix}".strip('/')
+            # A table is a folder: `orders` must not also match `orders_old/`.
+            folder = f"{prefix.strip('/')}/" if prefix.strip("/") else ""
+            full_prefix = f"{self.config.prefix}{folder}"
 
             files = []
             paginator = client.get_paginator('list_objects_v2')
@@ -208,7 +229,7 @@ class S3Connector(BaseConnector):
             logger.error(f"Failed to list files: {e}")
             raise
 
-    async def get_schema(self, prefix: str, file_format: str = "csv") -> TableSchema:
+    async def get_schema(self, prefix: str, file_format: Optional[str] = None) -> TableSchema:
         """
         Infer schema from first file in prefix.
 
@@ -220,14 +241,17 @@ class S3Connector(BaseConnector):
             TableSchema with inferred columns
         """
         try:
-            # List files in prefix
-            files = await self.list_files(prefix=prefix, pattern=f"*.{file_format}", max_files=1)
+            # The first file a sync would read (CSV, JSON(L) or Parquet), unless a format
+            # is named. It was CSV only, so a Parquet folder listed no columns.
+            files = await self.list_files(prefix=prefix, max_files=1000)
+            files = [f for f in files if _FORMATS.get(_ext(f["key"]))
+                     and (file_format is None or _FORMATS[_ext(f["key"])] == file_format)]
 
             if not files:
-                raise ValueError(f"No {file_format} files found in prefix '{prefix}'")
+                raise ValueError(f"No {file_format or 'CSV, JSON or Parquet'} files found in prefix '{prefix}'")
 
-            # Read first file to infer schema
             file_key = files[0]['key']
+            file_format = _FORMATS[_ext(file_key)]
             schema = await self._infer_schema_from_file(file_key, file_format)
 
             return schema
@@ -249,7 +273,10 @@ class S3Connector(BaseConnector):
             if file_format == "csv":
                 df = pd.read_csv(BytesIO(file_content), nrows=100)
             elif file_format == "json":
-                df = pd.read_json(BytesIO(file_content), lines=True, nrows=100)
+                try:
+                    df = pd.read_json(BytesIO(file_content), lines=True, nrows=100)
+                except ValueError:
+                    df = pd.read_json(BytesIO(file_content))
             elif file_format == "parquet":
                 df = pd.read_parquet(BytesIO(file_content))
             else:
@@ -306,8 +333,9 @@ class S3Connector(BaseConnector):
             List of records
         """
         try:
-            # For simplicity, read all CSV files in prefix
-            files = await self.list_files(prefix=table_name, pattern="*.csv", max_files=10)
+            # The same files a sync reads (CSV, JSON(L), Parquet); it read CSV only.
+            files = [f for f in await self.list_files(prefix=table_name, max_files=1000)
+                     if _FORMATS.get(_ext(f["key"]))][:10]
 
             if not files:
                 return []
@@ -322,8 +350,9 @@ class S3Connector(BaseConnector):
                     break
 
                 # Download and read file
-                response = client.get_object(Bucket=self.config.bucket, Key=file['key'])
-                df = pd.read_csv(BytesIO(response['Body'].read()))
+                df = await asyncio.to_thread(self._read_file_to_df, client, file['key'])
+                if df is None:
+                    continue
 
                 # Apply limit
                 if limit:
@@ -346,9 +375,9 @@ class S3Connector(BaseConnector):
         object-storage exports. Returns None for unsupported extensions (caller logs
         + skips). Raises on read/parse failure so the caller can fail the job honestly.
         """
-        ext = key.rsplit(".", 1)[-1].lower() if "." in key else ""
+        ext = _ext(key)
 
-        if ext not in ("csv", "json", "jsonl", "ndjson", "parquet", "pq"):
+        if ext not in _FORMATS:
             return None
 
         body = client.get_object(Bucket=self.config.bucket, Key=key)["Body"].read()

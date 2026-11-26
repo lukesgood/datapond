@@ -1724,6 +1724,16 @@ async def get_connection(connection_id: str, user: dict = Depends(require_user))
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Config keys whose value is a credential. `auth_value` (a REST source's bearer token or
+# user:password) matched none of password/secret/key and came back in clear text to
+# anyone who could open the source.
+_SECRET_MARKERS = ("password", "secret", "key", "token", "auth_value", "credential")
+
+
+def _is_secret_field(name: str) -> bool:
+    return any(m in name.lower() for m in _SECRET_MARKERS)
+
+
 @router.get("/connectors/{connection_id}/config")
 async def get_connection_config(connection_id: str, user: dict = Depends(require_user)):
     """Get decrypted config for a connection (for editing)"""
@@ -1738,8 +1748,7 @@ async def get_connection_config(connection_id: str, user: dict = Depends(require
         if not row:
             raise HTTPException(status_code=404, detail="Connection not found")
         config = vault.decrypt_credentials(row['config_encrypted'])
-        # Mask password fields
-        masked = {k: ("••••••••" if "password" in k.lower() or "secret" in k.lower() or "key" in k.lower() else v)
+        masked = {k: ("••••••••" if _is_secret_field(k) else v)
                   for k, v in config.items() if k not in ("name", "connector_type")}
         return {
             "name": row['name'],
