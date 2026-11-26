@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { latestRowsByTable } from "./sync-table-rows.ts"
+import { latestRowsByTable, runHasFailure } from "./sync-table-rows.ts"
 
 // Sessions arrive newest first, like the connection page's history.
 const sessions = [
@@ -40,4 +40,10 @@ test("actions are offered only on each table's newest attempt", () => {
     { id: "s1", tables: [{ table: "public.api_events" }, { table: "public.orders" }, { table: "public.users" }] },
   ])
   assert.deepEqual([...keys].sort(), ["s1|public.users", "s2|public.orders", "s3|public.api_events"])
+})
+
+test("a run needs a look when it or any of its tables failed", () => {
+  assert.equal(runHasFailure({ status: "failed" }), true)
+  assert.equal(runHasFailure({ status: "success", tables: [{ status: "success" }, { status: "failed" }] }), true)
+  assert.equal(runHasFailure({ status: "success", tables: [{ status: "success" }] }), false)
 })

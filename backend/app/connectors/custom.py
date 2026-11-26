@@ -1,24 +1,14 @@
 """
 Custom Python connector for DataPond.
 
-Allows users to provide arbitrary Python code that defines a
-``fetch_data() -> list[dict]`` function.  The code is executed in a
-sandboxed namespace with dangerous builtins removed.
-
-Restricted builtins (blocked):
-  __import__, open, exec, eval, compile, getattr, setattr,
-  delattr, input, print (output captured), os, subprocess,
-  sys (import blocked via __import__ restriction)
-
-Safe builtins allowed:
-  abs, all, any, bool, dict, enumerate, filter, float, int,
-  isinstance, issubclass, iter, len, list, map, max, min,
-  next, range, repr, reversed, round, set, slice, sorted,
-  str, sum, tuple, type, zip
+Allows users to provide Python code that defines a ``fetch_data() -> list[dict]``
+function. The code is checked and run by app/connectors/sandbox.py: no imports, no
+names or attributes starting with "_", in a child process with no secrets in its
+environment, under CPU-time, memory and wall-clock limits. Only built-in Python is
+available (see sandbox_runner.SAFE_BUILTIN_NAMES).
 """
 
 import logging
-import types
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -37,80 +27,6 @@ from .base import (
 )
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Safe builtins whitelist
-# ---------------------------------------------------------------------------
-
-_SAFE_BUILTINS = {
-    "abs": abs,
-    "all": all,
-    "any": any,
-    "bool": bool,
-    "bytes": bytes,
-    "chr": chr,
-    "dict": dict,
-    "divmod": divmod,
-    "enumerate": enumerate,
-    "filter": filter,
-    "float": float,
-    "format": format,
-    "frozenset": frozenset,
-    "getattr": None,         # blocked
-    "hasattr": hasattr,
-    "hash": hash,
-    "hex": hex,
-    "int": int,
-    "isinstance": isinstance,
-    "issubclass": issubclass,
-    "iter": iter,
-    "len": len,
-    "list": list,
-    "map": map,
-    "max": max,
-    "min": min,
-    "next": next,
-    "oct": oct,
-    "ord": ord,
-    "pow": pow,
-    "range": range,
-    "repr": repr,
-    "reversed": reversed,
-    "round": round,
-    "set": set,
-    "slice": slice,
-    "sorted": sorted,
-    "str": str,
-    "sum": sum,
-    "tuple": tuple,
-    "type": type,
-    "zip": zip,
-    # Exceptions users may raise
-    "ValueError": ValueError,
-    "TypeError": TypeError,
-    "KeyError": KeyError,
-    "IndexError": IndexError,
-    "Exception": Exception,
-    "RuntimeError": RuntimeError,
-    "NotImplementedError": NotImplementedError,
-    # None / True / False
-    "None": None,
-    "True": True,
-    "False": False,
-}
-
-# Remove any None-valued keys that were placeholders for blocked builtins
-_SAFE_BUILTINS = {k: v for k, v in _SAFE_BUILTINS.items() if v is not None or k in ("None",)}
-
-
-def _make_safe_namespace() -> Dict[str, Any]:
-    """Return a minimal execution namespace with restricted __builtins__."""
-    return {
-        "__builtins__": _SAFE_BUILTINS,
-        "__name__": "__datapond_custom__",
-        "__doc__": None,
-    }
-
 
 class CustomConfig(ConnectorConfig):
     """Configuration for the Custom Python connector"""
@@ -140,39 +56,16 @@ class CustomConnector(BaseConnector):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _compile(self) -> types.CodeType:
-        """Compile user code and return a code object, raising SyntaxError if invalid."""
-        return compile(self.config.code, "<custom_connector>", "exec")
 
     def _execute(self) -> List[Dict[str, Any]]:
-        """
-        Execute the user code in a restricted namespace and call fetch_data().
+        """Run fetch_data() in the sandbox and return its records (blocking; async
+        callers use `_records`)."""
+        from .sandbox import run
+        return run(self.config.code)
 
-        Returns:
-            The list of records returned by fetch_data().
-
-        Raises:
-            ValueError  if fetch_data is missing or returns the wrong type.
-            Any exception raised inside fetch_data propagates to the caller.
-        """
-        namespace = _make_safe_namespace()
-        code_obj = self._compile()
-        exec(code_obj, namespace)  # noqa: S102 — controlled sandbox
-
-        fetch_fn = namespace.get("fetch_data")
-        if fetch_fn is None or not callable(fetch_fn):
-            raise ValueError(
-                "fetch_data() function not found. "
-                "Your code must define: def fetch_data() -> list[dict]: ..."
-            )
-
-        result = fetch_fn()
-
-        if not isinstance(result, list):
-            raise ValueError(
-                f"fetch_data() must return a list of dicts, got {type(result).__name__}"
-            )
-        return result
+    async def _records(self) -> List[Dict[str, Any]]:
+        from .sandbox import run_async
+        return await run_async(self.config.code)
 
     # ------------------------------------------------------------------
     # BaseConnector interface
@@ -186,27 +79,22 @@ class CustomConnector(BaseConnector):
         """
         import time
         start = time.time()
+        from .sandbox import SandboxError, run_async
         try:
-            code_obj = self._compile()
-
-            # Dry-run: execute the code and check for fetch_data, but don't call it
-            namespace = _make_safe_namespace()
-            exec(code_obj, namespace)  # noqa: S102
-
-            if "fetch_data" not in namespace or not callable(namespace["fetch_data"]):
-                return ConnectionTestResult(
-                    success=False,
-                    message="fetch_data() function not found in code.",
-                    latency_ms=(time.time() - start) * 1000,
-                )
-
+            # Defines fetch_data without calling it, in the sandbox (module-level code runs).
+            await run_async(self.config.code, mode="define")
             return ConnectionTestResult(
                 success=True,
                 message="Code compiled and fetch_data() found. Ready to execute.",
                 latency_ms=(time.time() - start) * 1000,
                 metadata={"requirements": self.config.requirements},
             )
-
+        except SandboxError as e:
+            return ConnectionTestResult(
+                success=False,
+                message=str(e) if e.kind != "error" else f"Code validation failed: {e}",
+                latency_ms=(time.time() - start) * 1000,
+            )
         except SyntaxError as e:
             return ConnectionTestResult(
                 success=False,
@@ -228,7 +116,7 @@ class CustomConnector(BaseConnector):
     async def get_schema(self, table_name: str) -> TableSchema:
         """Infer schema by running fetch_data() and inspecting the first record."""
         try:
-            records = self._execute()
+            records = await self._records()
             if not records or not isinstance(records[0], dict):
                 return TableSchema(table_name=table_name, columns=[])
             columns = [
@@ -252,7 +140,7 @@ class CustomConnector(BaseConnector):
     ) -> List[Dict[str, Any]]:
         """Execute user code and return records from fetch_data()."""
         try:
-            records = self._execute()
+            records = await self._records()
             if filters:
                 records = [
                     r for r in records
@@ -303,7 +191,7 @@ class CustomConnector(BaseConnector):
 
         started_at = datetime.utcnow()
         try:
-            records = self._execute()
+            records = await self._records()
             tbl_name = target_table.rsplit(".", 1)[-1] if target_table else source_table
 
             if not records:
