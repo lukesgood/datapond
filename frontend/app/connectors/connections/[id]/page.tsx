@@ -26,7 +26,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import Link from "next/link"
 import { ConnectionForm } from "@/components/connectors/connection-form"
-import { configRows, getConnector, readsEverythingEachSync } from "@/lib/connectors"
+import { configRows, getConnector, readsEverythingEachSync, S3_NEW_FILES_COLUMN } from "@/lib/connectors"
 import { describeCheck } from "@/lib/source-check"
 import { parseCron, nextRun } from "@/lib/schedule"
 import { SchedulePicker } from "@/components/ui/schedule-picker"
@@ -160,7 +160,8 @@ function TablesCard({
                       </td>
                       <td className="py-2 text-xs">
                         {refetch
-                          ? (table.key_columns?.length ? <>Merge<span className="text-muted-foreground"> · {table.key_columns.join(", ")}</span></> : "Replace")
+                          ? (mode === "incremental" && table.incremental_column === S3_NEW_FILES_COLUMN ? "New files"
+                            : table.key_columns?.length ? <>Merge<span className="text-muted-foreground"> · {table.key_columns.join(", ")}</span></> : "Replace")
                           : mode === "incremental" ? <>Changed rows{table.incremental_column && <span className="text-muted-foreground"> · {table.incremental_column}</span>}</> : "Full refresh"}
                       </td>
                       <td className={`py-2 text-xs ${states[table.name] === "failed" || states[table.name] === "behind" ? "text-[var(--dp-warn-text)]" : ""}`}>
@@ -299,8 +300,13 @@ function ScheduleCard({
         )}
 
         {canEdit ? (
-          <SchedulePicker id="conn-schedule" value={draft} allowManual={false} disabled={savingSchedule}
-                          onChange={c => { if (c) setDraft(c) }} />
+          <div className="space-y-2">
+            {/* While off, the picker holds a choice that is not in force; it read as the
+                schedule (a highlighted "Once a day" next to an Off switch). */}
+            {!schedule && <p className="text-xs font-medium text-muted-foreground">Choose when it should run, then turn it on</p>}
+            <SchedulePicker id="conn-schedule" value={draft} allowManual={false} disabled={savingSchedule}
+                            onChange={c => { if (c) setDraft(c) }} />
+          </div>
         ) : (
           <p className="text-xs text-muted-foreground">Changing the schedule needs connector:write.</p>
         )}
@@ -317,7 +323,7 @@ function ScheduleCard({
             ? <><RefreshCw className="h-4 w-4 animate-spin mr-2" />Saving…</>
             : schedule
               ? <><Check className="h-4 w-4 mr-2" />Apply Changes</>
-              : <><Zap className="h-4 w-4 mr-2" />Enable Schedule</>}
+              : <><Zap className="h-4 w-4 mr-2" />Turn on: {parseCron(builtCron).toLowerCase()}</>}
         </Button>
         )}
 
@@ -1128,6 +1134,11 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                     <X className="h-4 w-4 mr-1" />Cancel
                   </Button>
                 </div>
+                {isTrinoEngine(editConnectorType) && (
+                  <p className="text-xs text-[var(--dp-warn-text)]">
+                    Saving a changed connection restarts the query engine (~1 min): Analytics and every database source pause meanwhile.
+                  </p>
+                )}
               </div>
             ) : (
               <div className="space-y-1">
@@ -1329,6 +1340,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           defaultLake={defaultLake}
           canEdit={canWrite}
           refetch={readsEverythingEachSync(connector.connector_type)}
+          newFiles={connector.connector_type === "s3"}
           onSaved={async () => { await fetchConnector(); setSelectedTable(null) }}
           onClose={() => setSelectedTable(null)}
         />

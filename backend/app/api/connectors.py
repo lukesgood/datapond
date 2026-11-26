@@ -2133,8 +2133,10 @@ async def set_table_enabled(connection_id: str, table_name: str, body: dict,
 async def set_tables(connection_id: str, body: dict, user: dict = Depends(require_user)):
     """Save many tables' choices in one request and one transaction.
 
-    body: {"tables": [{"table", "enabled", "incremental_column"?}]}. A table with an
-    incremental column syncs incrementally, otherwise in full. Used by the setup wizard,
+    body: {"tables": [{"table", "enabled", "incremental_column"?, "pii_columns"?}]}. A
+    table with an incremental column syncs incrementally, otherwise in full. pii_columns
+    (column names, or ["*"]) are masked from the first sync on; the setup page sets them
+    here so a first sync never lands a column unmasked that was meant to be masked. Used by the setup wizard,
     which made two requests per table (400 for a 200-table database) and left a half-saved
     source when one failed. Nothing is saved if two tables would land in one lake table."""
     from app import sync_plan
@@ -2145,6 +2147,9 @@ async def set_tables(connection_id: str, body: dict, user: dict = Depends(requir
     for i in items:
         if not isinstance(i, dict) or not isinstance(i.get("table"), str) or not i["table"]:
             raise HTTPException(status_code=400, detail="each item needs a 'table'")
+        pc = i.get("pii_columns")
+        if pc is not None and not (isinstance(pc, list) and all(isinstance(c, str) and c for c in pc)):
+            raise HTTPException(status_code=400, detail="pii_columns must be a list of column names")
     if len({i["table"] for i in items}) != len(items):
         raise HTTPException(status_code=400, detail="a table is listed twice")
     cid = uuid.UUID(connection_id)
@@ -2163,18 +2168,20 @@ async def set_tables(connection_id: str, body: dict, user: dict = Depends(requir
                 inc = i.get("incremental_column") or None
                 mode = "incremental" if inc else "full"
                 enabled = bool(i.get("enabled", True))
+                pii = json.dumps(i["pii_columns"]) if i.get("pii_columns") else None
                 if i["table"] in rows:
                     await conn.execute(
                         "UPDATE connector_sync_jobs SET enabled=$1, incremental_column=$2, sync_mode=$3, "
-                        "updated_at=now() WHERE connection_id=$4 AND source_table=$5",
-                        enabled, inc, mode, cid, i["table"])
+                        + ("pii_columns=$6::jsonb, " if "pii_columns" in i else "")
+                        + "updated_at=now() WHERE connection_id=$4 AND source_table=$5",
+                        enabled, inc, mode, cid, i["table"], *((pii,) if "pii_columns" in i else ()))
                 else:
                     await conn.execute(
                         """INSERT INTO connector_sync_jobs
-                           (id, connection_id, source_table, target_table, sync_mode, enabled, incremental_column)
-                           VALUES ($1,$2,$3,$4,$5,$6,$7)""",
+                           (id, connection_id, source_table, target_table, sync_mode, enabled, incremental_column, pii_columns)
+                           VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)""",
                         uuid.uuid4(), cid, i["table"], sync_targets.default_target(i["table"]),
-                        mode, enabled, inc)
+                        mode, enabled, inc, pii)
     return {"saved": len(items), "enabled": sum(1 for i in items if i.get("enabled", True))}
 
 

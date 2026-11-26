@@ -63,6 +63,19 @@ _FORMATS = {"csv": "csv", "json": "json", "jsonl": "json", "ndjson": "json",
             "parquet": "parquet", "pq": "parquet"}
 
 
+# The changed-rows "column" of an S3 table: an object's LastModified. A table set to
+# incremental with this column reads only files newer than the last file it read, and
+# appends them (or merges by key columns); the watermark is that file's LastModified.
+NEW_FILES_COLUMN = "_file_last_modified"
+# A full sync of more files than this fails instead of loading a silent subset (it read
+# the first 1,000 and said nothing). A new-files sync takes the oldest this many and the
+# next run continues from there.
+MAX_FILES_PER_SYNC = 5000
+# Files modified this recently are left to the next run: an object written in the same
+# second as the newest one read would otherwise sit at the watermark and never be read.
+SETTLE_SECONDS = 5
+
+
 def _ext(key: str) -> str:
     return key.rsplit(".", 1)[-1].lower() if "." in key.rsplit("/", 1)[-1] else ""
 
@@ -420,8 +433,19 @@ class S3Connector(BaseConnector):
         started_at = datetime.utcnow()
 
         try:
-            # List files to sync
-            files = await self.list_files(prefix=source_table, max_files=1000)
+            new_files = sync_mode == SyncMode.INCREMENTAL and incremental_column == NEW_FILES_COLUMN
+            files = await self.list_files(prefix=source_table, max_files=MAX_FILES_PER_SYNC + 1)
+            files = [f for f in files if _FORMATS.get(_ext(f["key"]))] or files
+            if new_files:
+                from datetime import timedelta, timezone
+                settled = (datetime.now(timezone.utc) - timedelta(seconds=SETTLE_SECONDS)).isoformat()
+                since = str(last_value) if last_value else ""
+                files = sorted((f for f in files if f["last_modified"] > since and f["last_modified"] <= settled),
+                               key=lambda f: (f["last_modified"], f["key"]))[:MAX_FILES_PER_SYNC]
+            elif len(files) > MAX_FILES_PER_SYNC:
+                raise RuntimeError(
+                    f"More than {MAX_FILES_PER_SYNC} files under {source_table}/; a full sync would load only "
+                    "some of them. Set the table to New files only, or split the folder.")
 
             logger.info(
                 f"[s3_connector] Found {len(files)} file(s) under "
@@ -467,6 +491,13 @@ class S3Connector(BaseConnector):
                 if not df.empty:
                     frames.append(df)
 
+            # A new-files run that skipped an unreadable file would move the watermark
+            # past it for good; fail instead, so the next run tries it again.
+            if new_files and read_errors:
+                raise RuntimeError(
+                    f"Failed to read {len(read_errors)} new file(s); the watermark was not moved: "
+                    + "; ".join(read_errors[:5]))
+
             # All files errored and none were readable → fail honestly (don't fake success).
             if read_errors and not frames and len(skipped_files) < len(files):
                 raise RuntimeError(
@@ -507,12 +538,13 @@ class S3Connector(BaseConnector):
 
             tbl_name = target_table.rsplit(".", 1)[-1] if target_table else source_table
 
-            # S3 sync re-reads EVERY object under the prefix each run (there is no
-            # per-object watermark), so plain `append` would duplicate all rows on
-            # every subsequent sync. The only safe modes are: upsert (dedupe by
-            # key_columns) or overwrite (full replace). Never append for S3.
+            # A full sync re-reads every object, so plain `append` would duplicate all
+            # rows: it upserts (by key_columns) or overwrites. A new-files sync reads
+            # each file once, so it appends (or upserts when keys are set).
             upsert = bool(key_columns)
-            write_mode = "upsert" if upsert else "overwrite"
+            # The first new-files run (no watermark yet) reads every file, so it replaces
+            # the table: a table switched from a full sync would otherwise get its rows twice.
+            write_mode = "upsert" if upsert else ("append" if new_files and last_value else "overwrite")
 
             rows_processed = await asyncio.to_thread(
                 write_dataframe_to_iceberg,
@@ -540,6 +572,7 @@ class S3Connector(BaseConnector):
                     "iceberg_table": f"iceberg.default.{tbl_name}",
                     "file_count": len(files),
                     "files_parsed": len(frames),
+                    **({"max_value": files[-1]["last_modified"]} if new_files and files else {}),
                     "skipped_files": skipped_files,
                     "read_errors": read_errors,
                     "pii_masked_cells": masked,

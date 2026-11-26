@@ -65,3 +65,64 @@ def test_a_rest_credential_is_masked_when_the_config_is_read():
     from app.api.connectors import _is_secret_field
     assert all(_is_secret_field(k) for k in ("password", "secret_key", "access_key", "credentials_key", "auth_value", "api_token"))
     assert not any(_is_secret_field(k) for k in ("host", "base_url", "auth_type", "auth_header", "data_path", "bucket", "code"))
+
+
+# ── S3 new files only ─────────────────────────────────────────────────────────
+
+def _dated(objects):
+    """Objects keyed by name with their own LastModified (the fake above dates all alike)."""
+    c = _conn("", {k: v for k, (v, _) in objects.items()})
+    stamps = {k: t for k, (_, t) in objects.items()}
+
+    class _P:
+        def paginate(self, Bucket, Prefix, PaginationConfig=None):
+            return [{"Contents": [{"Key": k, "Size": 1, "ETag": '"e"', "LastModified": pd.Timestamp(stamps[k], tz="UTC")}
+                                  for k in objects if k.startswith(Prefix)]}]
+    c._s3_client.get_paginator = lambda _: _P()
+    return c
+
+
+def _sync(c, monkeypatch, **kw):
+    import app.connectors.iceberg_writer as w
+    written = {}
+
+    def _write(df, name, **k):
+        written.update(rows=len(df), mode=k["mode"]); return len(df)
+    monkeypatch.setattr(w, "write_dataframe_to_iceberg", _write)
+    from app.connectors.base import SyncMode
+    status = asyncio.run(c.sync_to_iceberg("orders", "default.orders", **kw))
+    return status, written
+
+
+def test_new_files_only_reads_what_came_after_the_watermark_and_appends(monkeypatch):
+    from app.connectors.base import SyncMode
+    from app.connectors.storage import NEW_FILES_COLUMN
+    c = _dated({"orders/1.csv": (b"id\n1\n", "2026-11-01"), "orders/2.csv": (b"id\n2\n3\n", "2026-11-02")})
+    status, written = _sync(c, monkeypatch, sync_mode=SyncMode.INCREMENTAL, incremental_column=NEW_FILES_COLUMN,
+                            last_value="2026-11-01T00:00:00+00:00")
+    assert written == {"rows": 2, "mode": "append"}
+    assert status.metadata["max_value"].startswith("2026-11-02")
+
+
+def test_a_full_sync_of_too_many_files_fails_instead_of_loading_some(monkeypatch):
+    from app.connectors import storage
+    monkeypatch.setattr(storage, "MAX_FILES_PER_SYNC", 1)
+    c = _dated({"orders/1.csv": (b"id\n1\n", "2026-11-01"), "orders/2.csv": (b"id\n2\n", "2026-11-02")})
+    status, written = _sync(c, monkeypatch)
+    assert status.status.value == "failed" and "More than 1 files" in status.error_message and not written
+
+
+def test_an_unreadable_new_file_keeps_the_watermark(monkeypatch):
+    from app.connectors.base import SyncMode
+    from app.connectors.storage import NEW_FILES_COLUMN
+    c = _dated({"orders/1.parquet": (b"not parquet", "2026-11-01"), "orders/2.csv": (b"id\n2\n", "2026-11-02")})
+    status, written = _sync(c, monkeypatch, sync_mode=SyncMode.INCREMENTAL, incremental_column=NEW_FILES_COLUMN)
+    assert status.status.value == "failed" and not written and "max_value" not in (status.metadata or {})
+
+
+def test_the_first_new_files_run_replaces_the_table(monkeypatch):
+    from app.connectors.base import SyncMode
+    from app.connectors.storage import NEW_FILES_COLUMN
+    c = _dated({"orders/1.csv": (b"id\n1\n", "2026-11-01")})
+    _, written = _sync(c, monkeypatch, sync_mode=SyncMode.INCREMENTAL, incremental_column=NEW_FILES_COLUMN)
+    assert written["mode"] == "overwrite"

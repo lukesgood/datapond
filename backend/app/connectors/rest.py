@@ -17,6 +17,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 import httpx
+from urllib.parse import urljoin, urlparse
 
 from .base import (
     target_namespace,
@@ -45,6 +46,21 @@ class RestConfig(ConnectorConfig):
     headers: Dict[str, str] = {}  # extra static headers
     timeout: int = 30  # request timeout in seconds
     table_name: Optional[str] = None  # catalog table name; "root" when unset
+    # api_key_query: the key goes in a query parameter named auth_param.
+    auth_param: str = "api_key"
+    # Pagination. It read the first response only, so a paged API loaded one page.
+    #   none | page (?page=1,2…) | offset (?offset=0,100…) | cursor (a token from the
+    #   response) | next_link (a URL from the response body or the Link header)
+    pagination: str = "none"
+    page_param: str = "page"
+    page_size_param: str = ""       # e.g. per_page / limit; blank = the API's default
+    page_size: int = 0              # 0 = not sent; then a short page does not end paging
+    offset_param: str = "offset"
+    limit_param: str = "limit"
+    cursor_param: str = "cursor"
+    cursor_path: str = "next_cursor"  # dot path to the next token in the response
+    next_path: str = ""               # dot path to the next URL; blank = the Link header
+    max_pages: int = 500
 
 
 def _extract_path(data: Any, path: Optional[str]) -> Any:
@@ -107,6 +123,7 @@ class RestConnector(BaseConnector):
         elif auth_type == "api_key":
             header_name = self.config.auth_header or "Authorization"
             headers[header_name] = value
+        # api_key_query is added to the query string (_auth_params), not a header.
 
         # auth_type == "none" — no additional header
 
@@ -115,6 +132,78 @@ class RestConnector(BaseConnector):
     # ------------------------------------------------------------------
     # Core request helper
     # ------------------------------------------------------------------
+
+    def _auth_params(self) -> Dict[str, str]:
+        if (self.config.auth_type or "").lower() == "api_key_query" and self.config.auth_value:
+            return {self.config.auth_param or "api_key": self.config.auth_value}
+        return {}
+
+    def _records(self, data: Any) -> List[Any]:
+        records = _extract_path(data, self.config.data_path)
+        if records is None:
+            return []
+        if isinstance(records, dict):
+            return [records]
+        return records if isinstance(records, list) else []
+
+    def _pages(self, params: Optional[Dict[str, Any]] = None, first_only: bool = False):
+        """Yield each page's records, following the configured pagination.
+
+        Paging stops on an empty page, a short page (when a page size is sent), a
+        missing cursor or next link. Reaching max_pages raises instead of loading a
+        silent subset. A next link to another host is not followed: the request would
+        carry this source's credential there."""
+        cfg = self.config
+        mode = (cfg.pagination or "none").lower()
+        if mode == "none":
+            # One response, through the same helper test_connection uses.
+            yield self._records(self._get(params=params))
+            return
+        base = cfg.base_url.rstrip("/")
+        url, query = base, {**self._auth_params(), **(params or {})}
+        headers = self._build_headers()
+        with httpx.Client(timeout=cfg.timeout) as client:
+            for n in range(max(1, cfg.max_pages)):
+                if mode == "page":
+                    query[cfg.page_param or "page"] = 1 + n
+                    if cfg.page_size and cfg.page_size_param:
+                        query[cfg.page_size_param] = cfg.page_size
+                elif mode == "offset":
+                    size = cfg.page_size or 100
+                    query[cfg.offset_param or "offset"] = n * size
+                    query[cfg.limit_param or "limit"] = size
+                resp = client.get(url, headers=headers, params=query)
+                resp.raise_for_status()
+                data = resp.json()
+                records = self._records(data)
+                yield records
+                if first_only or mode == "none" or not records:
+                    return
+                if mode == "page":
+                    if cfg.page_size and cfg.page_size_param and len(records) < cfg.page_size:
+                        return
+                elif mode == "offset":
+                    if len(records) < (cfg.page_size or 100):
+                        return
+                elif mode == "cursor":
+                    token = _extract_path(data, cfg.cursor_path) if cfg.cursor_path else None
+                    if token in (None, "", False):
+                        return
+                    query[cfg.cursor_param or "cursor"] = token
+                elif mode == "next_link":
+                    nxt = _extract_path(data, cfg.next_path) if cfg.next_path else resp.links.get("next", {}).get("url")
+                    if not nxt or not isinstance(nxt, str):
+                        return
+                    nxt = urljoin(str(resp.url), nxt)
+                    if urlparse(nxt).netloc != urlparse(base).netloc:
+                        raise RuntimeError(f"The next page is on another host ({urlparse(nxt).netloc}); not followed")
+                    # The link carries its own query; keep only the credential.
+                    url, query = nxt, dict(self._auth_params())
+                else:
+                    raise ValueError(f"Unknown pagination: {mode}")
+        raise RuntimeError(
+            f"Stopped after {cfg.max_pages} pages; the rest of the records were not read. "
+            "Raise max_pages or check that the pagination settings end.")
 
     def _get(self, path: str = "", params: Optional[Dict[str, Any]] = None) -> Any:
         """
@@ -137,7 +226,7 @@ class RestConnector(BaseConnector):
 
         headers = self._build_headers()
         with httpx.Client(timeout=self.config.timeout) as client:
-            resp = client.get(url, headers=headers, params=params or {})
+            resp = client.get(url, headers=headers, params={**self._auth_params(), **(params or {})})
             resp.raise_for_status()
             return resp.json()
 
@@ -183,9 +272,8 @@ class RestConnector(BaseConnector):
         Infer schema by fetching data and inspecting the first record.
         """
         try:
-            data = await asyncio.to_thread(self._get)
-            records = _extract_path(data, self.config.data_path)
-            if not isinstance(records, list) or not records:
+            records = await asyncio.to_thread(lambda: next(self._pages(first_only=True), []))
+            if not records:
                 return TableSchema(table_name=table_name, columns=[])
 
             sample = records[0]
@@ -193,7 +281,9 @@ class RestConnector(BaseConnector):
                 ColumnSchema(name=k, type=type(v).__name__, nullable=True)
                 for k, v in (sample.items() if isinstance(sample, dict) else {})
             ]
-            return TableSchema(table_name=table_name, columns=columns, row_count=len(records))
+            # One page says nothing about the total of a paged API.
+            paged = (self.config.pagination or "none") != "none"
+            return TableSchema(table_name=table_name, columns=columns, row_count=None if paged else len(records))
         except Exception as e:
             logger.error(f"REST get_schema failed: {e}")
             return TableSchema(table_name=table_name, columns=[])
@@ -208,19 +298,14 @@ class RestConnector(BaseConnector):
         try:
             # Off the event loop: _get is a blocking client, and an endpoint served by
             # this same backend (the sample feed) would otherwise wait on itself.
-            data = await asyncio.to_thread(self._get, params=filters or {})
-            records = _extract_path(data, self.config.data_path)
-
-            if records is None:
-                return []
-            if isinstance(records, dict):
-                records = [records]
-            if not isinstance(records, list):
-                return []
-
-            if limit:
-                records = records[:limit]
-            return records
+            def _all():
+                out: List[Any] = []
+                for page in self._pages(filters):
+                    out.extend(page)
+                    if limit and len(out) >= limit:
+                        break
+                return out[:limit] if limit else out
+            return await asyncio.to_thread(_all)
         except Exception as e:
             logger.error(f"REST read_data failed: {e}")
             raise
