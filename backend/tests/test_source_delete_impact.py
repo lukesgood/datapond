@@ -68,3 +68,38 @@ def test_without_catalog_read_the_dependents_are_not_checked(monkeypatch):
     out = asyncio.run(C.delete_impact(CID, {"id": "u", "role": "x", "permissions": ["connector:write"]}))
     assert out["impact_checked"] == 0 and out["built_on"]["metrics"] == []
     assert len(out["lake_tables"]) == 2
+
+
+def test_every_table_is_checked_twelve_at_a_time(monkeypatch):
+    class Many(_Conn):
+        async def fetch(self, sql, *a):
+            return [{"source_table": f"public.t{i:02d}", "target_table": None, "target_catalog": None} for i in range(16)]
+
+    class P(_Pool):
+        def acquire(self):
+            class Ctx:
+                async def __aenter__(self):
+                    return Many()
+
+                async def __aexit__(self, *e):
+                    return False
+            return Ctx()
+    monkeypatch.setattr(C, "require_access", _afn(None))
+    monkeypatch.setattr(C, "get_db_pool", _afn(P()))
+    monkeypatch.setattr(C, "_default_lake", lambda: "iceberg")
+    calls = []
+
+    async def impact(table, user):
+        calls.append(len(table))
+        return {"tables": {t: {"metrics": [{"name": t, "label": t}], "concepts": [], "dashboards": [],
+                               "queries": {"calls": 1}} for t in table}}
+    from app.api import catalog as catalog_api
+    monkeypatch.setattr(catalog_api, "table_impact", impact)
+    out = asyncio.run(C.delete_impact(CID, ADMIN))
+    assert calls == [12, 4] and out["impact_checked"] == 16
+    assert len(out["built_on"]["metrics"]) == 16 and out["built_on"]["queries"] == 16
+
+
+def test_the_sync_stream_needs_connector_write():
+    route = next(r for r in C.router.routes if getattr(r, "path", "") == "/connectors/{connection_id}/sync/stream")
+    assert "connector:write" in [getattr(d.call, "__datapond_authorization__", None) for d in route.dependant.dependencies]

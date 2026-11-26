@@ -1969,6 +1969,7 @@ async def delete_impact(connection_id: str, user: dict = Depends(require_user)):
             tables.append(name)
     from app import table_impact as ti
     built_on: Dict[str, Any] = {}
+    checked = 0
     if tables and all(t.count(".") == 2 for t in tables):
         try:
             from app.api import catalog as catalog_api
@@ -1976,15 +1977,17 @@ async def delete_impact(connection_id: str, user: dict = Depends(require_user)):
             granted = user.get("permissions")
             if (("catalog:read" in granted) if granted is not None
                     else has_permission(user.get("role"), "catalog:read")):
-                out = await catalog_api.table_impact(table=tables[:ti.MAX_TABLES], user=user)
-                built_on = out.get("tables") or {}
+                for i in range(0, len(tables), ti.MAX_TABLES):
+                    out = await catalog_api.table_impact(table=tables[i:i + ti.MAX_TABLES], user=user)
+                    built_on.update(out.get("tables") or {})
+                checked = len(tables)
         except Exception as e:
             logger.info("[connectors] impact unavailable for delete of %s: %s", connection_id, e)
     return {
         "lake_tables": tables,
         "catalog": catalog,
         "scheduled": bool(row and (row["schedule"] or "").strip()),
-        "impact_checked": min(len(tables), ti.MAX_TABLES) if built_on else 0,
+        "impact_checked": checked,
         "built_on": dependents(built_on),
     }
 
@@ -2390,7 +2393,7 @@ async def get_table_schema(connection_id: str, table_name: str,
         raise HTTPException(status_code=500, detail=f"Failed to get schema: {str(e)}")
 
 
-@router.get("/connectors/{connection_id}/sync/stream")
+@router.get("/connectors/{connection_id}/sync/stream", dependencies=[Depends(require_permission("connector:write"))])
 async def sync_stream(connection_id: str, sync_mode: str = "full",
                       user: dict = Depends(require_user)):
     """SSE endpoint — streams sync progress step by step."""

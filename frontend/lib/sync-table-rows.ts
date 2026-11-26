@@ -31,3 +31,9 @@ export function latestAttemptKeys(sessions: Array<{ id: string; tables?: Array<{
   }
   return keys
 }
+
+/** A run that needs a look: it failed, or any of its tables did (a run can finish
+ *  "success" overall with one table failed). */
+export function runHasFailure(s: { status: string; tables?: Array<{ status?: string }> }): boolean {
+  return s.status === "failed" || (s.tables ?? []).some(t => t.status === "failed")
+}

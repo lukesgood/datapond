@@ -68,7 +68,7 @@ from app.api import ops  # noqa: E402
 def test_the_route_gathers_only_what_the_caller_may_see(monkeypatch):
     seen = []
 
-    async def _syncs(pool):
+    async def _syncs(pool, user):
         seen.append("syncs")
         return SYNCS, NAMES, [], 2, []
 
@@ -104,3 +104,47 @@ def test_the_route_gathers_only_what_the_caller_may_see(monkeypatch):
     assert set(seen) == {"syncs", "mirrors", "catalogs"}
     assert out["syncs"]["tables_failed"] == 1 and any(i["kind"] == "mirror" for i in out["issues"])
     assert out["syncs"]["paused_sources"] == 2   # paused sources are counted, never listed
+
+
+# ── Overview names only the sources the caller may see ────────────────────────
+
+class _VisConn:
+    def __init__(self):
+        self.conn_sql = None
+
+    async def fetch(self, sql, *a):
+        if "connector_sync_history" in sql:
+            return [{"started_at": NOW, "metadata": {"connection_id": "mine", "tables": [{"table": "t", "ok": False, "error": "x"}]}},
+                    {"started_at": NOW, "metadata": {"connection_id": "theirs", "tables": [{"table": "s", "ok": False, "error": "secret"}]}}]
+        self.conn_sql = (sql, a)
+        return [{"id": "mine", "name": "Mine", "last_sync_at": None, "status": "active",
+                 "schedule": None, "schedule_last_status": None}]
+
+
+class _VisPool:
+    def __init__(self):
+        self.c = _VisConn()
+
+    def acquire(self):
+        c = self.c
+
+        class Ctx:
+            async def __aenter__(self):
+                return c
+
+            async def __aexit__(self, *e):
+                return False
+        return Ctx()
+
+
+def test_overview_reads_only_sources_the_caller_may_see():
+    pool = _VisPool()
+    user = {"id": "00000000-0000-0000-0000-0000000000b1", "role": "data_engineer"}
+    syncs, names, stale, paused, schedules = asyncio.run(ops._load_syncs(pool, user))
+    sql, args = pool.c.conn_sql
+    assert "owner_id" in sql and len(args) == 1          # the Sources list's own predicate
+    assert names == {"mine": "Mine"}
+    assert [s["connection_id"] for s in syncs] == ["mine"]   # another source's errors are not read
+    pool2 = _VisPool()
+    asyncio.run(ops._load_syncs(pool2, {"id": "a", "role": "admin"}))
+    assert "WHERE" not in pool2.c.conn_sql[0]

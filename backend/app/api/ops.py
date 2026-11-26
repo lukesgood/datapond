@@ -33,19 +33,27 @@ def _aware(ts):
     return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
 
 
-async def _load_syncs(pool):
+async def _load_syncs(pool, user):
+    """Syncs, stale sources and scheduled runs of the sources `user` may see: the same
+    owner/member/unowned rule as the Sources list (source_access.visible_clause), so
+    Overview never names a source, or its errors, that the list would hide."""
+    from app.api.source_access import CONNECTOR, visible_clause
     since = datetime.utcnow() - timedelta(hours=WINDOW_HOURS)
+    clause, args = visible_clause(CONNECTOR, user, "c", 1)
     async with pool.acquire() as c:
         rows = await c.fetch(
             """SELECT started_at, metadata FROM connector_sync_history
                 WHERE started_at >= $1 ORDER BY started_at DESC LIMIT 500""", since)
-        conns = await c.fetch("SELECT id, name, last_sync_at, status, schedule, schedule_last_status "
-                              "FROM connector_connections")
+        conns = await c.fetch("SELECT c.id, c.name, c.last_sync_at, c.status, c.schedule, c.schedule_last_status "
+                              "FROM connector_connections c" + (f" WHERE {clause}" if clause else ""), *args)
+    visible = {str(c["id"]) for c in conns}
     syncs = []
     for r in rows:
         meta = r["metadata"] or {}
         if isinstance(meta, str):
             meta = json.loads(meta)
+        if str(meta.get("connection_id")) not in visible:
+            continue
         syncs.append({"started_at": _aware(r["started_at"]), "connection_id": meta.get("connection_id"),
                       "tables": meta.get("tables", [])})
     names = {str(c["id"]): c["name"] for c in conns}
@@ -135,7 +143,7 @@ async def ops_status(user: dict = Depends(require_user)):
     pool = await _pool()
     syncs, names, stale, paused, schedules = ([], {}, [], 0, [])
     if "connector:read" in perms:
-        syncs, names, stale, paused, schedules = await _load_syncs(pool)
+        syncs, names, stale, paused, schedules = await _load_syncs(pool, user)
     mirrors = await _load_mirrors(pool) if "catalog:write" in perms else []
     catalogs = await _load_catalogs(user) if "catalog:read" in perms else []
     engine = await asyncio.to_thread(_engine)
@@ -143,6 +151,8 @@ async def ops_status(user: dict = Depends(require_user)):
                     queries_24h=await _count_queries(pool, user), now=_now(), schedules=schedules)
     if "connector:read" in perms:
         for d in await _load_duplicate_syncs(pool):
+            if d["connection_id"] not in names:      # a source this caller may not see
+                continue
             out["issues"].append({"kind": "duplicate_sync", "connection_id": d["connection_id"],
                                   "source": names.get(d["connection_id"], d["connection_id"]),
                                   "table": f'{d["namespace"]}.{d["table"]}',

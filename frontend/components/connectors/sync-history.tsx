@@ -10,7 +10,7 @@ import {
 import { OpsActionButtons } from "@/components/dashboard/ops-actions"
 import { usePermissions } from "@/lib/permissions"
 import { diagnosisActions, type Diagnosis } from "@/lib/ops-status"
-import { latestAttemptKeys } from "@/lib/sync-table-rows"
+import { latestAttemptKeys, runHasFailure } from "@/lib/sync-table-rows"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -312,8 +312,11 @@ export function SyncHistory({ sessions, connectionId, onChanged }: SyncHistoryPr
   // Diagnosis actions only on each table's newest attempt (a later run may have fixed it).
   const actionable = latestAttemptKeys(sessions)
   const [showAll, setShowAll] = useState(false)
+  const [failedOnly, setFailedOnly] = useState(false)
   const liveSession  = sessions.find(s => s.isLive)
-  const pastSessions = sessions.filter(s => !s.isLive)
+  const allPast      = sessions.filter(s => !s.isLive)
+  const failedCount  = allPast.filter(runHasFailure).length
+  const pastSessions = failedOnly ? allPast.filter(runHasFailure) : allPast
   const visiblePast  = showAll ? pastSessions : pastSessions.slice(0, DEFAULT_VISIBLE)
   const hiddenCount  = pastSessions.length - DEFAULT_VISIBLE
 
@@ -322,9 +325,15 @@ export function SyncHistory({ sessions, connectionId, onChanged }: SyncHistoryPr
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base">Sync History</CardTitle>
-          <span className="text-xs text-muted-foreground">
-            {pastSessions.length > 0 && `${pastSessions.length} runs`}
-          </span>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            {failedCount > 0 && (
+              <label className="flex cursor-pointer items-center gap-1.5">
+                <input type="checkbox" checked={failedOnly} onChange={e => setFailedOnly(e.target.checked)} />
+                Failed only ({failedCount})
+              </label>
+            )}
+            {allPast.length > 0 && <span>{allPast.length} runs</span>}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-1">

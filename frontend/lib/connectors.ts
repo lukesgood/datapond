@@ -325,7 +325,7 @@ export const availableConnectors: Connector[] = [
     name: "Custom Python",
     category: "saas",
     icon: "/connectors/python.svg",
-    description: "Connect any source with Python: define fetch_data() and return a list of dicts",
+    description: "Build a small table in plain Python: calendars, code lists, mappings. No imports or network access",
     supported: true,
     features: ["Any source", "Internal APIs", "Merge by key"],
     fields: [
@@ -335,7 +335,7 @@ export const availableConnectors: Connector[] = [
         type: "textarea",
         required: true,
         placeholder: "def fetch_data():\n    # fetch the records and return them\n    return [{\"id\": 1, \"name\": \"example\"}]",
-        help: "Define fetch_data(); it must return a list of dicts."
+        help: "Define fetch_data(); it must return a list of dicts. Built-in Python only: no imports, no names starting with _, and it stops after 2 minutes."
       }
     ]
   }
