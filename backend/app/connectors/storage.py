@@ -101,6 +101,8 @@ class S3Connector(BaseConnector):
                 client_config['aws_secret_access_key'] = self.config.secret_key
 
             if self.config.endpoint_url:
+                from app.connectors import egress
+                egress.check_url(self.config.endpoint_url)
                 client_config['endpoint_url'] = self.config.endpoint_url
 
             self._s3_client = boto3.client('s3', **client_config)

@@ -41,6 +41,9 @@ UNGATED_BY_DESIGN = {
     ("POST", "/api/chat/actions/{invocation_id}/approve"): "per-invocation owner check in chat/gate.py",
     ("POST", "/api/chat/actions/{invocation_id}/reject"): "per-invocation owner check in chat/gate.py",
 
+    ("POST", "/api/connectors/{connection_id}/check"): "per-object — require_access(read) on the "
+        "source: anyone who may see a source may re-check its connection (no write, no secret leaves)",
+
     ("POST", "/api/mcp"): "carries authentication (resolve_principal -> require_user) "
         "but no require_permission — the permission is per-tool, checked inside "
         "the dispatcher (app/mcp/server.py:_call_tool).",
@@ -70,6 +73,13 @@ def _authorization_of(route) -> set:
     return found
 
 
+# Markers that only say who the caller is. A router-wide `require_user_or_internal` used
+# to satisfy this inventory for every route under it, which is how POST
+# /connectors/test and /connectors/introspect stayed open to every signed-in user
+# (connecting with another source's stored secrets, running Python) until #352.
+AUTHENTICATION_ONLY = {"role:user-or-internal"}
+
+
 def _mutating_routes():
     import main
     for route in app_routes(main.app):
@@ -84,7 +94,7 @@ def test_every_mutating_route_is_authorized():
     open_routes = [
         f"{method} {path}"
         for method, path, route in _mutating_routes()
-        if (method, path) not in UNGATED_BY_DESIGN and not _authorization_of(route)
+        if (method, path) not in UNGATED_BY_DESIGN and not (_authorization_of(route) - AUTHENTICATION_ONLY)
     ]
     assert not open_routes, (
         f"{len(open_routes)} mutating route(s) require only authentication. Add an "
@@ -98,6 +108,23 @@ def test_the_exception_list_has_no_stale_entries():
     live = {(method, path) for method, path, _ in _mutating_routes()}
     stale = sorted(f"{m} {p}" for m, p in UNGATED_BY_DESIGN if (m, p) not in live)
     assert not stale, f"UNGATED_BY_DESIGN names routes that no longer exist: {stale}"
+
+
+def test_authentication_alone_does_not_count():
+    """The hole #352 closed: a route under the connectors router with no permission of
+    its own must be reported, not passed on the router's sign-in check."""
+    from fastapi import APIRouter, Depends, FastAPI
+    from app.api.auth import require_user_or_internal
+    router = APIRouter()
+
+    @router.post("/x")
+    async def x():
+        return {}
+    app = FastAPI()
+    app.include_router(router, dependencies=[Depends(require_user_or_internal)])
+    route = next(r for r in app_routes(app) if getattr(r, "path", "") == "/x")
+    assert _authorization_of(route) == {"role:user-or-internal"}
+    assert not (_authorization_of(route) - AUTHENTICATION_ONLY)
 
 
 def test_a_gated_route_is_actually_detected():
