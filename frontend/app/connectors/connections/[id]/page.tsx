@@ -986,7 +986,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
         <div className="min-w-0">
           <h2 className="text-2xl font-bold tracking-tight">{connector.name}</h2>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
-            <span className="capitalize">{connector.connector_type.replace(/_/g, " ")}</span>
+            <span>{getConnector(connector.connector_type)?.name ?? connector.connector_type.replace(/_/g, " ")}</span>
             {connector.catalog && <><span>·</span><span>queryable as <code className="font-mono text-xs">{connector.catalog}</code></span></>}
             <span>·</span>
             <span className={connector.status === "error" ? "text-destructive" : connector.status === "paused" ? "" : "text-[var(--dp-good-text)]"}>{({ active: "Active", paused: "Paused", error: "Error", pending: "Pending" } as Record<string, string>)[connector.status] ?? connector.status}</span>

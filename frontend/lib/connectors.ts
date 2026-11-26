@@ -270,7 +270,7 @@ export const availableConnectors: Connector[] = [
         type: "text",
         default: "Authorization",
         showIf: v => v.auth_type === "api_key",
-        help: "The header that carries the key when Auth Type is api_key"
+        help: "The header that carries the key"
       },
       {
         name: "data_path",

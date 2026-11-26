@@ -140,7 +140,7 @@ export function ConnectionForm({
                 value={toSelectValue(values[field.name] ?? field.default)}
                 onValueChange={(value) => onChange(field.name, value)}
               >
-                <SelectTrigger>
+                <SelectTrigger id={field.name} className="w-full">
                   <SelectValue placeholder={`Select ${field.label}`} />
                 </SelectTrigger>
                 <SelectContent>
