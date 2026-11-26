@@ -17,6 +17,8 @@ import time
 from typing import Any, Dict, List, Optional
 
 import httpx
+
+from app.connectors import egress
 from urllib.parse import urljoin, urlparse
 
 from .base import (
@@ -172,7 +174,9 @@ class RestConnector(BaseConnector):
                     size = cfg.page_size or 100
                     query[cfg.offset_param or "offset"] = n * size
                     query[cfg.limit_param or "limit"] = size
+                egress.check_url(url)
                 resp = client.get(url, headers=headers, params=query)
+                egress.check_peer(resp, url)
                 resp.raise_for_status()
                 data = resp.json()
                 records = self._records(data)
@@ -225,8 +229,10 @@ class RestConnector(BaseConnector):
             url = url + "/" + path.lstrip("/")
 
         headers = self._build_headers()
+        egress.check_url(url)
         with httpx.Client(timeout=self.config.timeout) as client:
             resp = client.get(url, headers=headers, params={**self._auth_params(), **(params or {})})
+            egress.check_peer(resp, url)
             resp.raise_for_status()
             return resp.json()
 

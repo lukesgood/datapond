@@ -14,6 +14,14 @@ from app.connectors.rest import RestConfig, RestConnector
 ROWS = [{"id": i} for i in range(1, 8)]
 
 
+@pytest.fixture(autouse=True)
+def _public_host(monkeypatch):
+    """api.x does not resolve; where a source may send requests is
+    tests/test_source_egress.py's subject, not this file's."""
+    from app.connectors import egress
+    monkeypatch.setattr(egress, "check_url", lambda url, resolve=None: None)
+
+
 def _connector(monkeypatch, handler, **cfg):
     real = httpx.Client
     monkeypatch.setattr(rest.httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
