@@ -67,7 +67,7 @@ def alert_email(source: str, status: str, url: Optional[str]):
         headline = f"The scheduled sync of {source} failed"
         why = detail if detail.endswith(".") else f"{detail}."
         todo = "Open the source to see which tables failed and why. The next scheduled run tries again."
-    later = "You will not get another email about this source until a scheduled run works again."
+    later = "You will not get another email about this source until it syncs successfully again (a scheduled run, or a full sync started by hand)."
     subject = headline
     text = f"{headline}.\n\n{why}\n\n{todo}\n" + (f"\n{url}\n" if url else "") + f"\n{later}\n"
     link = (f'<p style="margin:20px 0;"><a href="{escape(url)}" style="display:inline-block;'

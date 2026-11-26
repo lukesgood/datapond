@@ -224,7 +224,7 @@ from ..connectors import trino_source as _trino_source
 from ..connectors.trino_source import TrinoSourceConfig, TrinoSourceConnector
 from ..connectors.storage import StorageConfig, S3Connector
 from app.sync_diagnosis import diagnose
-from ..connectors.vault import CredentialVault, LazyCredentialVault
+from ..connectors.vault import CredentialVault, CredentialsUnreadable, LazyCredentialVault
 
 router = APIRouter(tags=["connectors"])
 
@@ -840,7 +840,10 @@ async def _merge_stored_secrets(config: Dict[str, Any], connection_id: Optional[
         row = await conn.fetchrow("SELECT config_encrypted FROM connector_connections WHERE id=$1",
                                   uuid.UUID(connection_id))
     if row:
-        stored = vault.decrypt_credentials(row['config_encrypted'])
+        try:
+            stored = vault.decrypt_credentials(row['config_encrypted'])
+        except CredentialsUnreadable:
+            raise HTTPException(status_code=409, detail=CredentialsUnreadable.MESSAGE)
         for k, v in config.items():
             if v == "••••••••":
                 config[k] = stored.get(k, v)
@@ -1784,7 +1787,13 @@ async def get_connection_config(connection_id: str, user: dict = Depends(require
             ''', uuid.UUID(connection_id))
         if not row:
             raise HTTPException(status_code=404, detail="Connection not found")
-        config = vault.decrypt_credentials(row['config_encrypted'])
+        try:
+            config = vault.decrypt_credentials(row['config_encrypted'])
+        except CredentialsUnreadable:
+            # The edit form still opens, empty, so the settings can be entered again.
+            return {"name": row['name'], "connector_type": row['connector_type'],
+                    "description": row['description'], "config": {},
+                    "credentials_unreadable": True, "message": CredentialsUnreadable.MESSAGE}
         masked = {k: ("••••••••" if _is_secret_field(k) else v)
                   for k, v in config.items() if k not in ("name", "connector_type")}
         return {
@@ -1828,7 +1837,16 @@ async def update_connection(connection_id: str, request: ConnectionUpdateRequest
             # Merge with existing config (keep existing values for masked/empty fields)
             # Always remove ingestion metadata that should not be in DB connection config
             INGESTION_KEYS = {"sync_frequency", "sync_mode", "selected_tables", "schedule"}
-            existing = vault.decrypt_credentials(row['config_encrypted'])
+            try:
+                existing = vault.decrypt_credentials(row['config_encrypted'])
+            except CredentialsUnreadable:
+                # Unreadable settings are replaced by what was typed; a field left as
+                # "keep existing" has nothing to keep.
+                kept = sorted(k for k, v in request.config.items() if v == "••••••••")
+                if kept:
+                    raise HTTPException(status_code=409, detail=(
+                        f"{CredentialsUnreadable.MESSAGE} Still to enter: {', '.join(kept)}."))
+                existing = {}
             # A row stored before 2.5 as `database_url` becomes its real type here: the
             # URL is split into fields first, so a new password replaces the old one
             # instead of sitting beside a URL that still carries it.

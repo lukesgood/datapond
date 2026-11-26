@@ -85,3 +85,37 @@ def test_test_connection_refuses_an_escape_without_running_it():
     c = CustomConnector(CustomConfig(name="c", connector_type=ConnectorType.CUSTOM, code=ESCAPES["subclasses"]))
     res = asyncio.run(c.test_connection())
     assert res.success is False and "not allowed" in res.message
+
+
+# --- the child shares the backend container's memory limit -----------------------------
+
+def test_defaults_leave_room_for_the_backend(monkeypatch):
+    """The backend container is limited to 1Gi on the reference install; two children
+    at their limit must fit beside it."""
+    for k in ("CUSTOM_SOURCE_MEMORY_MB", "CUSTOM_SOURCE_MAX_OUTPUT_MB", "CUSTOM_SOURCE_CONCURRENCY"):
+        monkeypatch.delenv(k, raising=False)
+    assert sb.memory_mb() * 2 <= 512
+    assert sb.max_output_bytes() <= 64 * 1024 * 1024
+
+
+def test_an_oversized_result_is_stopped_at_the_cap(monkeypatch):
+    monkeypatch.setenv("CUSTOM_SOURCE_MAX_OUTPUT_MB", "1")
+    code = "def fetch_data():\n    return [{'v': 'x' * 4000} for i in range(1000)]\n"
+    with pytest.raises(sb.SandboxError) as e:
+        sb.run(code)
+    assert e.value.kind == "output"
+
+
+def test_runs_wait_for_a_free_slot(monkeypatch):
+    """At most CUSTOM_SOURCE_CONCURRENCY children at once; a caller that cannot get a
+    slot within its timeout gets a message, not another child."""
+    import threading
+    monkeypatch.setattr(sb, "_slots", threading.BoundedSemaphore(1))
+    sb._slots.acquire()
+    try:
+        with pytest.raises(sb.SandboxError) as e:
+            sb.run("def fetch_data():\n    return []\n", timeout=1)
+        assert e.value.kind == "timeout" and "still running" in str(e.value)
+    finally:
+        sb._slots.release()
+    assert sb.run("def fetch_data():\n    return [{'a': 1}]\n") == [{"a": 1}]

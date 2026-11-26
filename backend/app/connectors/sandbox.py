@@ -20,17 +20,28 @@ Two walls now:
    through `run_async`. A runaway is killed; the backend carries on.
 
 The child runs as the same user in the same pod, so it is not a container boundary: it
-is defence in depth behind the check, not a replacement for it.
+is defence in depth behind the check, not a replacement for it. It also shares the
+backend container's memory limit (1Gi on the reference install): a child allowed 1 GB,
+or three children at once, would push the container over it and the kernel would kill
+the backend, not just the child. So each child gets a small address-space limit, at
+most CUSTOM_SOURCE_CONCURRENCY run at once (the rest wait their turn), and the child's
+output goes to a file capped by RLIMIT_FSIZE instead of a pipe the backend would buffer
+whole before measuring it.
 
-Limits: CUSTOM_SOURCE_TIMEOUT_SECONDS (default 120), CUSTOM_SOURCE_MEMORY_MB (1024),
-CUSTOM_SOURCE_MAX_OUTPUT_MB (256).
+Limits: CUSTOM_SOURCE_TIMEOUT_SECONDS (default 120), CUSTOM_SOURCE_MEMORY_MB (256),
+CUSTOM_SOURCE_MAX_OUTPUT_MB (64), CUSTOM_SOURCE_CONCURRENCY (2). Raise the memory or
+concurrency only together with the backend's memory limit.
 """
 import ast
 import asyncio
 import json
 import os
+import signal
 import subprocess
 import sys
+import tempfile
+import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -63,6 +74,26 @@ def _int_env(name: str, default: int) -> int:
 
 def timeout_seconds() -> int:
     return _int_env("CUSTOM_SOURCE_TIMEOUT_SECONDS", 120)
+
+
+def memory_mb() -> int:
+    return _int_env("CUSTOM_SOURCE_MEMORY_MB", 256)
+
+
+def max_output_bytes() -> int:
+    return _int_env("CUSTOM_SOURCE_MAX_OUTPUT_MB", 64) * 1024 * 1024
+
+
+_slots: Optional[threading.BoundedSemaphore] = None
+_slots_lock = threading.Lock()
+
+
+def _slot() -> threading.BoundedSemaphore:
+    global _slots
+    with _slots_lock:
+        if _slots is None:
+            _slots = threading.BoundedSemaphore(_int_env("CUSTOM_SOURCE_CONCURRENCY", 2))
+        return _slots
 
 
 def check(code: str) -> None:
@@ -99,21 +130,40 @@ def check(code: str) -> None:
 
 def run(code: str, mode: str = "fetch", timeout: Optional[int] = None) -> List[Dict[str, Any]]:
     """Check, then run in a child process. mode "define" only defines fetch_data (what
-    Test connection does); "fetch" calls it and returns its records."""
+    Test connection does); "fetch" calls it and returns its records. Waits for a free
+    slot first; the wait counts against the same timeout."""
     check(code)
     timeout = timeout or timeout_seconds()
-    memory = _int_env("CUSTOM_SOURCE_MEMORY_MB", 1024)
-    max_out = _int_env("CUSTOM_SOURCE_MAX_OUTPUT_MB", 256) * 1024 * 1024
-    payload = json.dumps({"code": code, "mode": mode, "cpu_seconds": timeout, "memory_mb": memory})
+    started = time.monotonic()
+    slot = _slot()
+    if not slot.acquire(timeout=timeout):
+        raise SandboxError(f"Other Python sources were still running after {timeout} seconds; "
+                           "try again when they finish.", "timeout")
     try:
-        proc = subprocess.run([sys.executable, "-I", RUNNER], input=payload.encode(), capture_output=True,
-                              timeout=timeout, env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}, cwd="/")
-    except subprocess.TimeoutExpired:
-        raise SandboxError(f"The code did not finish within {timeout} seconds and was stopped.", "timeout")
-    if len(proc.stdout) > max_out:
-        raise SandboxError(f"fetch_data() returned more than {max_out // (1024 * 1024)} MB.", "output")
+        left = max(1, int(timeout - (time.monotonic() - started)))
+        return _run_child(code, mode, left)
+    finally:
+        slot.release()
+
+
+def _run_child(code: str, mode: str, timeout: int) -> List[Dict[str, Any]]:
+    max_out = max_output_bytes()
+    payload = json.dumps({"code": code, "mode": mode, "cpu_seconds": timeout,
+                          "memory_mb": memory_mb(), "max_output_bytes": max_out})
+    with tempfile.TemporaryFile() as out_file:
+        try:
+            proc = subprocess.run([sys.executable, "-I", RUNNER], input=payload.encode(), stdout=out_file,
+                                  stderr=subprocess.DEVNULL, timeout=timeout,
+                                  env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}, cwd="/")
+        except subprocess.TimeoutExpired:
+            raise SandboxError(f"The code did not finish within {timeout} seconds and was stopped.", "timeout")
+        size = out_file.tell()
+        if proc.returncode == -signal.SIGXFSZ or size > max_out:
+            raise SandboxError(f"fetch_data() returned more than {max_out // (1024 * 1024)} MB.", "output")
+        out_file.seek(0)
+        raw = out_file.read()
     try:
-        out = json.loads(proc.stdout.decode() or "null")
+        out = json.loads(raw.decode() or "null")
     except ValueError:
         out = None
     if not isinstance(out, dict):
