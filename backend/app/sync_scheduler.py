@@ -278,7 +278,10 @@ async def tick(pool, now: Optional[datetime] = None, sync=None, send=None) -> in
                         logger.warning("scheduled sync of %s failed: %s", r["name"], detail)
                 await c.execute("UPDATE connector_connections SET schedule_last_status = $2 WHERE id = $1",
                                 r["id"], status)
-                if sync_alerts.should_alert(r.get("schedule_last_status"), status):
+                previous = r.get("schedule_last_status")
+                if sync_alerts.is_failure(previous) and await sync_alerts.fixed_since(c, cid, r["schedule_anchor_at"]):
+                    previous = None          # fixed by hand since that run: a new failure is news
+                if sync_alerts.should_alert(previous, status):
                     await sync_alerts.notify(c, connection_id=cid, source=r["name"], status=status,
                                              run_as=r["run_as"], owner_id=r.get("owner_id"), send=send)
         finally:

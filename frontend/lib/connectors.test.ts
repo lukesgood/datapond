@@ -41,7 +41,9 @@ test("the delete confirmation says what goes, what stays and what is built on it
   const msg = deleteImpactMessage({
     lake_tables: ["iceberg.default.orders", "iceberg.default.items"], catalog: "src_shop", scheduled: true,
     impact_checked: 2, built_on: { metrics: ["Revenue"], concepts: ["주문"], dashboards: [], queries: 3 },
+    breaks: { metrics: ["Live orders"], concepts: [], dashboards: ["Ops"], queries: 0 },
   })
+  assert.match(msg, /Stops working, because it reads src_shop directly: metrics Live orders; dashboards Ops\./)
   assert.match(msg, /connection settings, sync jobs, sync history and schedule\. This can't be undone\./)
   assert.match(msg, /query catalog src_shop goes too/)
   assert.match(msg, /The 2 lake tables it loaded stay, but stop updating: default\.orders, default\.items\./)

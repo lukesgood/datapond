@@ -63,3 +63,25 @@ def test_introspect_returns_sample_rows_for_a_python_source(monkeypatch):
 
 def test_database_sources_get_no_sample(monkeypatch):
     assert C.ConnectorType.POSTGRESQL not in C.SAMPLE_TYPES
+
+
+def test_a_python_source_runs_once_for_columns_and_preview(monkeypatch):
+    from app.connectors import sandbox
+    runs = []
+    real = sandbox.run
+
+    def counting(code, mode="fetch", timeout=None):
+        runs.append(mode)
+        return real(code, mode, timeout)
+    monkeypatch.setattr(sandbox, "run", counting)
+    code = "def fetch_data():\n    return [{'id': i} for i in range(3)]\n"
+    req = C.ConnectionIntrospectRequest(connector_type="custom", config={"code": code}, include_sample=True)
+    t = asyncio.run(C.introspect_connection(req, {"id": "u", "role": "admin"}))["tables"][0]
+    assert runs == ["fetch"] and t["row_count"] == 3 and t["columns"][0]["name"] == "id"
+
+
+def test_a_failing_python_source_says_so_in_the_preview():
+    req = C.ConnectionIntrospectRequest(connector_type="custom",
+                                        config={"code": "def fetch_data():\n    return [1 / 0]\n"}, include_sample=True)
+    t = asyncio.run(C.introspect_connection(req, {"id": "u", "role": "admin"}))["tables"][0]
+    assert "ZeroDivisionError" in t["sample_error"]

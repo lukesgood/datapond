@@ -390,10 +390,21 @@ export type DeleteImpact = {
   scheduled: boolean
   impact_checked: number
   built_on: { metrics: string[]; concepts: string[]; dashboards: string[]; queries: number }
+  /** Built on the live catalog itself: these stop working outright. */
+  breaks?: { metrics: string[]; concepts: string[]; dashboards: string[]; queries: number }
 }
 
 function listed(names: string[], max = 4): string {
   return names.length <= max ? names.join(", ") : `${names.slice(0, max).join(", ")} and ${names.length - max} more`
+}
+
+function usesOf(b: DeleteImpact["built_on"]): string[] {
+  const uses: string[] = []
+  if (b.metrics.length) uses.push(`metrics ${listed(b.metrics)}`)
+  if (b.concepts.length) uses.push(`concepts ${listed(b.concepts)}`)
+  if (b.dashboards.length) uses.push(`dashboards ${listed(b.dashboards)}`)
+  if (b.queries) uses.push(`${b.queries} quer${b.queries === 1 ? "y" : "ies"} in the last 30 days`)
+  return uses
 }
 
 /** The delete confirmation: what goes, what stays, and what is built on what stays.
@@ -405,6 +416,8 @@ export function deleteImpactMessage(impact: DeleteImpact | null): string {
   lines.push(`Removes ${goes.slice(0, -1).join(", ")} and ${goes.at(-1)}. This can't be undone.`)
   if (impact?.catalog) {
     lines.push(`Its query catalog ${impact.catalog} goes too: saved queries that name it stop working, and the query engine restarts (about a minute).`)
+    const live = impact.breaks ? usesOf(impact.breaks) : []
+    if (live.length) lines.push(`Stops working, because it reads ${impact.catalog} directly: ${live.join("; ")}.`)
   }
   if (!impact) {
     lines.push("Tables it already loaded into the lake stay.")
@@ -416,12 +429,7 @@ export function deleteImpactMessage(impact: DeleteImpact | null): string {
     return lines.join("\n\n")
   }
   lines.push(`The ${n} lake table${n === 1 ? "" : "s"} it loaded stay, but stop updating: ${listed(impact.lake_tables.map(t => t.split(".").slice(-2).join(".")))}.`)
-  const b = impact.built_on
-  const uses: string[] = []
-  if (b.metrics.length) uses.push(`metrics ${listed(b.metrics)}`)
-  if (b.concepts.length) uses.push(`concepts ${listed(b.concepts)}`)
-  if (b.dashboards.length) uses.push(`dashboards ${listed(b.dashboards)}`)
-  if (b.queries) uses.push(`${b.queries} quer${b.queries === 1 ? "y" : "ies"} in the last 30 days`)
+  const uses = usesOf(impact.built_on)
   if (uses.length) lines.push(`Built on those tables: ${uses.join("; ")}. They keep reading the last data loaded.`)
   else if (impact.impact_checked > 0) lines.push("Nothing you can see is built on those tables.")
   if (impact.impact_checked > 0 && impact.impact_checked < n) lines.push(`Checked the first ${impact.impact_checked} tables for what is built on them.`)

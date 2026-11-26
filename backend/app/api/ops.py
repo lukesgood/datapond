@@ -44,7 +44,10 @@ async def _load_syncs(pool, user):
         rows = await c.fetch(
             """SELECT started_at, metadata FROM connector_sync_history
                 WHERE started_at >= $1 ORDER BY started_at DESC LIMIT 500""", since)
-        conns = await c.fetch("SELECT c.id, c.name, c.last_sync_at, c.status, c.schedule, c.schedule_last_status "
+        from app.sync_alerts import FIXED_SINCE_SQL
+        fixed = FIXED_SINCE_SQL.format(id="c.id", anchor="c.schedule_anchor_at")
+        conns = await c.fetch("SELECT c.id, c.name, c.last_sync_at, c.status, c.schedule, c.schedule_last_status, "
+                              f"{fixed} AS fixed_since_schedule "
                               "FROM connector_connections c" + (f" WHERE {clause}" if clause else ""), *args)
     visible = {str(c["id"]) for c in conns}
     syncs = []
@@ -63,7 +66,7 @@ async def _load_syncs(pool, user):
     paused = sum(1 for c in conns if c["status"] == "paused")
     schedules = [{"connection_id": str(c["id"]), "name": c["name"], "status": c["schedule_last_status"]}
                  for c in conns if c["status"] != "paused" and (c["schedule"] or "").strip()
-                 and c["schedule_last_status"]]
+                 and c["schedule_last_status"] and not c.get("fixed_since_schedule")]
     return syncs, names, stale, paused, schedules
 
 

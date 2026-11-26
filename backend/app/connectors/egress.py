@@ -66,9 +66,19 @@ def _sample_prefix() -> Optional[str]:
 
 
 def is_sample(url: str) -> bool:
+    """Exactly the sample feed: same scheme, host and port, and the same path once dot
+    segments are resolved (httpx resolves them, so a prefix match would let
+    `<feed>/../../connectors` reach any loopback route). Query parameters are fine."""
     prefix = _sample_prefix()
-    return bool(prefix) and (url.rstrip("/") == prefix or url.startswith(prefix + "/")
-                             or url.startswith(prefix + "?"))
+    if not prefix:
+        return False
+    try:
+        import httpx
+        a, b = httpx.URL(prefix), httpx.URL(url or "")
+    except Exception:
+        return False
+    return ((a.scheme, a.host, a.port) == (b.scheme, b.host, b.port)
+            and b.path.rstrip("/") == a.path.rstrip("/") and "%2e" not in str(b.raw_path).lower())
 
 
 def is_platform_storage(url: str) -> bool:

@@ -44,7 +44,10 @@ def test_delete_impact_names_tables_catalog_schedule_and_dependents(monkeypatch)
     asked = {}
 
     async def impact(table, user):
-        asked["tables"] = table
+        asked.setdefault("calls", []).append(table)
+        if table[0].startswith("src_shop."):
+            return {"tables": {"src_shop.public.orders": {"metrics": [{"name": "live_orders", "label": "Live orders"}],
+                                                          "concepts": [], "dashboards": [], "queries": {"calls": 2}}}}
         return {"tables": {
             "iceberg.default.orders": {"metrics": [{"name": "revenue", "label": "Revenue"}],
                                        "concepts": [{"concept": "주문", "column": "id"}, {"concept": "주문", "column": "x"}],
@@ -55,10 +58,13 @@ def test_delete_impact_names_tables_catalog_schedule_and_dependents(monkeypatch)
     monkeypatch.setattr(catalog_api, "table_impact", impact)
     out = asyncio.run(C.delete_impact(CID, ADMIN))
     assert out["lake_tables"] == ["iceberg.default.orders", "polaris_lake.raw.items"]
-    assert asked["tables"] == out["lake_tables"]
+    assert asked["calls"][0] == out["lake_tables"]
+    # The live catalog's own tables are checked too, and reported as breaking.
+    assert asked["calls"][1] == ["src_shop.public.items", "src_shop.public.orders"]
     assert out["catalog"] == "src_shop" and out["scheduled"] is True
     assert out["impact_checked"] == 2
     assert out["built_on"] == {"metrics": ["Revenue"], "concepts": ["주문"], "dashboards": ["Sales"], "queries": 5}
+    assert out["breaks"] == {"metrics": ["Live orders"], "concepts": [], "dashboards": [], "queries": 2}
 
 
 def test_without_catalog_read_the_dependents_are_not_checked(monkeypatch):
@@ -96,7 +102,7 @@ def test_every_table_is_checked_twelve_at_a_time(monkeypatch):
     from app.api import catalog as catalog_api
     monkeypatch.setattr(catalog_api, "table_impact", impact)
     out = asyncio.run(C.delete_impact(CID, ADMIN))
-    assert calls == [12, 4] and out["impact_checked"] == 16
+    assert calls[:2] == [12, 4] and out["impact_checked"] == 16
     assert len(out["built_on"]["metrics"]) == 16 and out["built_on"]["queries"] == 16
 
 
