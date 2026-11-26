@@ -13,14 +13,15 @@ import { SchedulePicker } from "@/components/ui/schedule-picker"
 import { ExplainRail, RailAttention, RailSection } from "@/components/ui/explain-rail"
 import { PageHeader } from "@/components/ui/page-header"
 import { ConnectionForm } from "@/components/connectors/connection-form"
-import { getConnector, readsEverythingEachSync } from "@/lib/connectors"
+import { getConnector, readsEverythingEachSync, S3_NEW_FILES_COLUMN } from "@/lib/connectors"
 import { useCapability } from "@/lib/capabilities"
 import { isTrinoEngine } from "@/lib/engine-restart"
 import { useToast } from "@/lib/toast"
 import { parseCron } from "@/lib/schedule"
+import { suggestedMasks } from "@/lib/pii-columns"
 
 interface RemoteTable { name: string; row_count?: number; columns?: { name: string; type: string; nullable: boolean }[] }
-interface TableConfig { enabled: boolean; incremental_column: string }   // "" = whole table each time
+interface TableConfig { enabled: boolean; incremental_column: string; mask: string }   // "" = whole table each time; mask = comma-separated columns
 type ConfigValue = string | number | boolean | null | undefined
 interface TablesResponse { tables?: Array<string | RemoteTable> }
 interface CreatedConnection { id: string; engine_restarting?: boolean; catalog?: string | null }
@@ -69,8 +70,10 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
+  // A cleared optional box ("") is not sent: the backend's default applies, and a number
+  // field would otherwise fail validation on "".
   const pureConfig = () => Object.fromEntries(
-    Object.entries(config).filter(([k]) => !["sync_frequency", "sync_mode", "selected_tables"].includes(k)))
+    Object.entries(config).filter(([k, v]) => v !== "" && !["sync_frequency", "sync_mode", "selected_tables"].includes(k)))
 
   const loadTables = async () => {
     setLoadingTables(true); setTablesError(null)
@@ -88,7 +91,8 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
       const defaults: Record<string, TableConfig> = {}
       list.forEach(t => {
         const guess = refetch ? null : (t.columns ?? []).find(c => /updated_at|modified/.test(c.name)) ?? null
-        defaults[t.name] = { enabled: true, incremental_column: guess?.name ?? "" }
+        // Columns named like personal data are masked unless the person clears them.
+        defaults[t.name] = { enabled: true, incremental_column: guess?.name ?? "", mask: suggestedMasks(t.columns ?? []).join(", ") }
       })
       setTableConfigs(defaults)
     } catch (e) {
@@ -102,7 +106,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
     try {
       const res = await fetch("/api/connectors/test", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connector_type: id, config }),
+        body: JSON.stringify({ connector_type: id, config: pureConfig() }),
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok && data.success) {
@@ -121,6 +125,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
 
   const enabled = Object.entries(tableConfigs).filter(([, c]) => c.enabled)
   const incremental = enabled.filter(([, c]) => c.incremental_column)
+  const masked = enabled.filter(([, c]) => c.mask.trim())
   const cron = schedulerEnabled ? schedule : null
   const trino = isTrinoEngine(id)
   const slug = sourceSlug(name)
@@ -147,7 +152,8 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
       // One request for every table (it was two per table: 400 for a 200-table database).
       await step(`/api/connectors/${createdId}/tables`, "PUT", {
         tables: Object.entries(tableConfigs).map(([t, c]) => ({
-          table: t, enabled: c.enabled, incremental_column: c.incremental_column || null })),
+          table: t, enabled: c.enabled, incremental_column: c.incremental_column || null,
+          pii_columns: c.mask.split(",").map(x => x.trim()).filter(Boolean) })),
       }, "Could not save the table choices")
       if (cron) await step(`/api/connectors/${createdId}/schedule`, "PATCH", { schedule: cron }, "Could not set the schedule")
       // The source page runs the first sync (?sync=1), so its progress and any failure
@@ -252,26 +258,39 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                   <div className="overflow-x-auto">
                     {refetch && (
                       <p className="mb-2 text-xs text-muted-foreground">
-                        Each sync reads every {id === "s3" ? "file in the folder" : "record"} again and replaces the table. To keep rows
-                        that left the source, set key columns per table on the source page; the sync then merges by them.
+                        {id === "s3"
+                          ? "Every file: each sync reads the whole folder again and replaces the table. New files only: each sync adds the files that arrived since the last one (the first reads them all)."
+                          : "Each sync reads every record again and replaces the table. To keep rows that left the source, set key columns per table on the source page; the sync then merges by them."}
                       </p>
                     )}
-                    <table className={`w-full text-sm ${refetch ? "" : "min-w-[480px]"}`}>
+                    <table className={`w-full text-sm ${refetch ? "min-w-[420px]" : "min-w-[640px]"}`}>
                       <thead><tr className="border-b text-left text-xs text-muted-foreground">
                         <th scope="col" className="w-12 py-2 font-medium">Sync</th>
                         <th scope="col" className="py-2 font-medium">Table</th>
                         {!refetch && <th scope="col" className="py-2 font-medium">Fetch changed rows by</th>}
+                        {id === "s3" && <th scope="col" className="py-2 font-medium">Each sync reads</th>}
+                        <th scope="col" className="py-2 font-medium">Mask before loading</th>
                       </tr></thead>
                       <tbody>
                         {filtered.map(t => {
-                          const cfg = tableConfigs[t.name] ?? { enabled: false, incremental_column: "" }
+                          const cfg = tableConfigs[t.name] ?? { enabled: false, incremental_column: "", mask: "" }
                           const cols = t.columns ?? []
                           const time = cols.filter(isTimeLike), rest = cols.filter(c => !isTimeLike(c))
                           return (
                             <tr key={t.name} className={`border-b last:border-0 ${cfg.enabled ? "" : "text-muted-foreground"}`}>
                               <td className="py-1.5"><input type="checkbox" checked={cfg.enabled} aria-label={`Sync ${t.name}`}
                                                            onChange={e => setTable(t.name, { enabled: e.target.checked })} /></td>
-                              <td className="py-1.5"><span className="font-mono text-xs">{t.name}</span>{cols.length > 0 && <span className="text-xs text-muted-foreground"> · {cols.length} columns</span>}</td>
+                              <td className="py-1.5">
+                                <span className="font-mono text-xs">{t.name}</span>
+                                {t.row_count != null && <span className="text-xs text-muted-foreground"> · {t.row_count.toLocaleString()} rows</span>}
+                                {/* The columns the lake table will get: for a Python or REST source
+                                    this is the only look at what the code or API returns. */}
+                                {cols.length > 0 && (
+                                  <span className="block max-w-[320px] truncate font-mono text-2xs text-muted-foreground" title={cols.map(c => `${c.name} ${c.type}`).join("\n")}>
+                                    {cols.slice(0, 6).map(c => c.name).join(", ")}{cols.length > 6 ? ` +${cols.length - 6}` : ""}
+                                  </span>
+                                )}
+                              </td>
                               {!refetch && <td className="py-1.5">
                                 <select value={cfg.incremental_column} disabled={!cfg.enabled} aria-label={`Changed-rows column for ${t.name}`}
                                         onChange={e => setTable(t.name, { incremental_column: e.target.value })}
@@ -281,6 +300,21 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                                   {rest.length > 0 && <optgroup label="All columns">{rest.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}</optgroup>}
                                 </select>
                               </td>}
+                              {id === "s3" && <td className="py-1.5">
+                                <select value={cfg.incremental_column} disabled={!cfg.enabled} aria-label={`What each sync of ${t.name} reads`}
+                                        onChange={e => setTable(t.name, { incremental_column: e.target.value })}
+                                        className="h-8 rounded-md border bg-background px-2 text-xs disabled:opacity-50">
+                                  <option value="">Every file (replace)</option>
+                                  <option value={S3_NEW_FILES_COLUMN}>New files only</option>
+                                </select>
+                              </td>}
+                              <td className="py-1.5">
+                                <Input value={cfg.mask} disabled={!cfg.enabled} placeholder="none" list={`mask-${t.name}`}
+                                       aria-label={`Columns to mask in ${t.name}`}
+                                       onChange={e => setTable(t.name, { mask: e.target.value })}
+                                       className="h-8 max-w-[240px] font-mono text-xs" />
+                                {cols.length > 0 && <datalist id={`mask-${t.name}`}>{cols.map(c => <option key={c.name} value={c.name} />)}</datalist>}
+                              </td>
                             </tr>
                           )
                         })}
@@ -339,7 +373,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
             <ul className="space-y-1.5 text-sm">
               {trino && <li>✓ Live queries through {slug ? <code className="font-mono text-xs">{slug}</code> : "its own catalog"} in Analytics</li>}
               {enabled.length > 0 && (refetch
-                ? <li>✓ Each sync reads everything again and replaces the table</li>
+                ? <li>✓ {incremental.length > 0 ? `${incremental.length} add only new files; ${enabled.length - incremental.length} replace the table each sync` : "Each sync reads everything again and replaces the table"}</li>
                 : <li>✓ {incremental.length} fetch only changed rows; {enabled.length - incremental.length} read the whole table each time</li>)}
               {connector.fields.some(f => f.type === "password") && <li>✓ Credentials stored encrypted; never shown again</li>}
               {syncNow && !trino && <li>✓ First sync starts right away; you watch it on the source page</li>}
@@ -349,9 +383,16 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                 To add the new catalog. Analytics is unavailable meanwhile; sync from the source page once it is back.
               </RailAttention>
             )}
-            <RailSection title="Not set yet">
-              Columns to mask before loading — set them per table on the source page before the first sync if these tables hold personal data.
-            </RailSection>
+            {enabled.length > 0 && (masked.length > 0 ? (
+              <RailSection title="Masked before loading">
+                {masked.length} of {enabled.length} tables mask columns from the first sync on. Columns named like
+                personal data are filled in for you; check them, and add any the names do not give away.
+              </RailSection>
+            ) : (
+              <RailAttention title="No columns masked">
+                Nothing in these tables looks personal by its name. If any column holds personal data, name it under Mask before loading; the first sync loads what is not masked.
+              </RailAttention>
+            ))}
             {connector.fields.filter(f => f.type === "boolean" && f.help).map(f => (
               <RailSection key={f.name} title={f.label}>{f.help}</RailSection>
             ))}

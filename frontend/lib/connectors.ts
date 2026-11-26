@@ -62,10 +62,15 @@ export const S3_REGIONS = [
 /** Whether a sync of this source type can fetch only changed rows by a column. The
  *  Trino-backed databases can; S3, REST and custom Python read everything each time
  *  and either replace the table or merge by key columns (connectors/storage.py,
- *  rest.py, custom.py ignore the changed-rows column). */
+ *  rest.py, custom.py ignore the changed-rows column). S3 alone can also read only
+ *  the files that arrived since the last sync — see S3_NEW_FILES_COLUMN. */
 export function readsEverythingEachSync(connectorType: string | null | undefined): boolean {
   return connectorType === "s3" || connectorType === "rest_api" || connectorType === "custom"
 }
+
+/** An S3 table set to incremental on this "column" reads only files newer than the
+ *  last one it read, by LastModified (connectors/storage.py NEW_FILES_COLUMN). */
+export const S3_NEW_FILES_COLUMN = "_file_last_modified"
 
 // The source kinds the console offers. The database kinds are Trino catalogs
 // (`engine: trino` in GET /api/connectors/available); REST, custom Python and S3 are
@@ -164,7 +169,7 @@ export const availableConnectors: Connector[] = [
     icon: "/connectors/s3.svg",
     description: "Files in Amazon S3 or an S3-compatible store: each folder under the prefix becomes a table",
     supported: true,
-    features: ["CSV · JSON · Parquet", "Folder = table", "Merge by key"],
+    features: ["CSV · JSON · Parquet", "Folder = table", "New files only"],
     fields: [
       { half: true, name: "bucket", label: "Bucket", type: "text", required: true, placeholder: "my-bucket" },
       { half: true, name: "prefix", label: "Folder", type: "text", required: false, placeholder: "exports/", help: "Each folder inside it becomes one table. Blank = the bucket root." },
@@ -239,7 +244,7 @@ export const availableConnectors: Connector[] = [
     icon: "/connectors/rest.svg",
     description: "Pull JSON from an HTTP API, with an auth header and a path to the records",
     supported: true,
-    features: ["Bearer · Basic · API key", "JSON path", "Merge by key"],
+    features: ["Bearer · Basic · API key", "Pagination", "Merge by key"],
     fields: [
       {
         name: "base_url",
@@ -252,7 +257,7 @@ export const availableConnectors: Connector[] = [
         name: "auth_type",
         label: "Authentication",
         type: "select",
-        options: ["none", "bearer", "basic", "api_key"],
+        options: ["none", "bearer", "basic", "api_key", "api_key_query"],
         default: "none"
       },
       {
@@ -260,7 +265,7 @@ export const availableConnectors: Connector[] = [
         label: "Credential",
         type: "password",
         placeholder: "token / user:password / key",
-        help: "bearer: the token · basic: user:password · api_key: the key",
+        help: "bearer: the token · basic: user:password · api_key / api_key_query: the key",
         // Only with an auth type: it showed (and was sent) for "none" too.
         showIf: v => (v.auth_type ?? "none") !== "none",
       },
@@ -273,6 +278,14 @@ export const availableConnectors: Connector[] = [
         help: "The header that carries the key"
       },
       {
+        name: "auth_param",
+        label: "Query parameter",
+        type: "text",
+        default: "api_key",
+        showIf: v => v.auth_type === "api_key_query",
+        help: "The query parameter that carries the key (?api_key=…)"
+      },
+      {
         name: "data_path",
         label: "Records path",
         type: "text",
@@ -280,6 +293,23 @@ export const availableConnectors: Connector[] = [
         half: true,
         help: "Where the list of records is in the JSON response. Blank = the whole response."
       },
+      {
+        name: "pagination",
+        label: "Pagination",
+        type: "select",
+        options: ["none", "page", "offset", "cursor", "next_link"],
+        default: "none",
+        help: "How the API splits a long list. none reads one response."
+      },
+      { half: true, name: "page_param", label: "Page parameter", type: "text", default: "page", showIf: v => v.pagination === "page", help: "Sent as 1, 2, 3…" },
+      { half: true, name: "page_size_param", label: "Page size parameter", type: "text", placeholder: "per_page", showIf: v => v.pagination === "page", help: "Optional. With a size, a short page ends paging." },
+      { half: true, name: "offset_param", label: "Offset parameter", type: "text", default: "offset", showIf: v => v.pagination === "offset" },
+      { half: true, name: "limit_param", label: "Limit parameter", type: "text", default: "limit", showIf: v => v.pagination === "offset" },
+      { half: true, name: "page_size", label: "Page size", type: "number", placeholder: "100", showIf: v => v.pagination === "page" || v.pagination === "offset" },
+      { half: true, name: "cursor_param", label: "Cursor parameter", type: "text", default: "cursor", showIf: v => v.pagination === "cursor" },
+      { half: true, name: "cursor_path", label: "Next cursor path", type: "text", default: "next_cursor", showIf: v => v.pagination === "cursor", help: "Where the next token is in the response" },
+      { half: true, name: "next_path", label: "Next URL path", type: "text", placeholder: "links.next", showIf: v => v.pagination === "next_link", help: "Blank = the Link header. Only links on the same host are followed." },
+      { half: true, name: "max_pages", label: "Stop after pages", type: "number", default: 500, showIf: v => (v.pagination ?? "none") !== "none", help: "The sync fails at this many pages rather than load part of the list" },
       {
         name: "table_name",
         label: "Table name",

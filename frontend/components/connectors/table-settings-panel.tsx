@@ -11,6 +11,7 @@ import { SourceState } from "@/components/ui/source-state"
 import { readJson } from "@/lib/source-state"
 import { useToast } from "@/lib/toast"
 import { lakeLabel } from "@/lib/data-catalogs"
+import { S3_NEW_FILES_COLUMN } from "@/lib/connectors"
 import { hasDataLine, targetRefusal, type AlsoSynced, type TargetRefusal } from "@/lib/sync-target"
 
 export interface SourceTable {
@@ -43,11 +44,13 @@ const list = (s: string) => s.split(",").map(x => x.trim()).filter(Boolean)
  *  inline editor under the row, reached by a hover-only "Edit", with uppercase 11px
  *  labels, and its three saves never checked a response — a refused save closed the
  *  editor as if it had worked. */
-export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit, refetch = false, onSaved, onClose }: {
+export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit, refetch = false, newFiles = false, onSaved, onClose }: {
   connId: string
   /** S3, REST or custom Python: every sync reads everything again, so the choice is
    *  replace or merge by key — there is no changed-rows column to pick. */
   refetch?: boolean
+  /** S3: may also read only the files that arrived since the last sync. */
+  newFiles?: boolean
   table: SourceTable
   lakes: { name: string; is_default: boolean; engine_catalog?: string; kind?: string }[]
   defaultLake?: string
@@ -58,7 +61,10 @@ export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit,
   const { toast } = useToast()
   const ps = table.partition_spec
   // For a refetch source the "merge" mode is a full read plus key columns.
-  const [mode, setMode] = useState(refetch ? ((table.key_columns || []).length ? "merge" : "full") : table.sync_mode || "full")
+  const [mode, setMode] = useState(refetch
+    ? (newFiles && table.sync_mode === "incremental" && table.incremental_column === S3_NEW_FILES_COLUMN ? "new_files"
+      : (table.key_columns || []).length ? "merge" : "full")
+    : table.sync_mode || "full")
   const [incCol, setIncCol] = useState(table.incremental_column || "")
   const [keyCols, setKeyCols] = useState((table.key_columns || []).join(", "))
   const [piiCols, setPiiCols] = useState((table.pii_columns || []).join(", "))
@@ -88,6 +94,7 @@ export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit,
 
   const incremental = mode === "incremental"
   const merge = mode === "merge"
+  const onlyNew = mode === "new_files"
   const timeCols = columns.filter(isTimeLike)
   const otherCols = columns.filter(c => !isTimeLike(c))
 
@@ -98,13 +105,13 @@ export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit,
     const steps: [string, string, unknown][] = [
       [`/api/connectors/${connId}/tables/${encodeURIComponent(table.name)}/enabled`, "table settings", {
         enabled: table.enabled,
-        incremental_column: incremental ? (incCol || null) : null,
+        incremental_column: onlyNew ? S3_NEW_FILES_COLUMN : incremental ? (incCol || null) : (refetch ? "" : null),
         key_columns: incremental || merge ? list(keyCols) : [],
         pii_columns: list(piiCols),
         target_catalog: target,
         ...(moving ? { existing: choice } : {}),
       }],
-      [`/api/connectors/${connId}/sync-mode`, "sync mode", { sync_mode: merge ? "full" : mode, table_name: table.name }],
+      [`/api/connectors/${connId}/sync-mode`, "sync mode", { sync_mode: merge ? "full" : onlyNew ? "incremental" : mode, table_name: table.name }],
       [`/api/connectors/${connId}/tables/${encodeURIComponent(table.name)}/partition`, "partitioning", { partition_spec }],
     ]
     try {
@@ -143,12 +150,16 @@ export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit,
           {refetch ? (
             <>
               <ChoiceGroup label="Sync mode" value={mode} onChange={v => setMode(v)}
-                options={[{ label: "Replace the table", value: "full" }, { label: "Merge by key", value: "merge" }]} />
+                options={[{ label: "Replace the table", value: "full" }, { label: "Merge by key", value: "merge" },
+                          ...(newFiles ? [{ label: "New files only", value: "new_files" }] : [])]} />
               <p className="text-xs text-muted-foreground">
                 {merge
                   ? "Rows with the same key are updated; rows that left the source stay in the lake."
+                  : onlyNew
+                  ? "Each sync reads only files that arrived since the last one and adds their rows. The first run reads every file and replaces the table. A file changed in place is not read again."
                   : "Each sync reads everything again and replaces the table, so it matches the source exactly."}
               </p>
+              {onlyNew && table.last_value && <p className="text-xs text-muted-foreground">Read up to files modified {String(table.last_value).slice(0, 19).replace("T", " ")} UTC</p>}
             </>
           ) : (
             <ChoiceGroup label="Sync mode" value={mode} onChange={v => { setMode(v); if (v !== "incremental") setIncCol("") }}
