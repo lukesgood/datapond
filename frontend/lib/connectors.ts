@@ -52,6 +52,21 @@ export interface SyncJob {
   error_message?: string
 }
 
+/** Regions offered for an S3 source; Seoul first, as on the reference deployment. */
+export const S3_REGIONS = [
+  "ap-northeast-2", "ap-northeast-1", "ap-northeast-3", "ap-southeast-1", "ap-southeast-2", "ap-south-1",
+  "us-east-1", "us-east-2", "us-west-1", "us-west-2", "ca-central-1",
+  "eu-west-1", "eu-west-2", "eu-central-1", "eu-north-1", "sa-east-1",
+]
+
+/** Whether a sync of this source type can fetch only changed rows by a column. The
+ *  Trino-backed databases can; S3, REST and custom Python read everything each time
+ *  and either replace the table or merge by key columns (connectors/storage.py,
+ *  rest.py, custom.py ignore the changed-rows column). */
+export function readsEverythingEachSync(connectorType: string | null | undefined): boolean {
+  return connectorType === "s3" || connectorType === "rest_api" || connectorType === "custom"
+}
+
 // The source kinds the console offers. The database kinds are Trino catalogs
 // (`engine: trino` in GET /api/connectors/available); REST, custom Python and S3 are
 // read by the backend.
@@ -147,23 +162,24 @@ export const availableConnectors: Connector[] = [
     name: "Amazon S3",
     category: "storage",
     icon: "/connectors/s3.svg",
-    description: "Connect to Amazon S3 or an S3-compatible endpoint",
+    description: "Files in Amazon S3 or an S3-compatible store: each folder under the prefix becomes a table",
     supported: true,
-    features: ["File Discovery", "Incremental Sync", "Structured Files"],
+    features: ["CSV · JSON · Parquet", "Folder = table", "Merge by key"],
     fields: [
-      { name: "bucket", label: "Bucket Name", type: "text", required: true, placeholder: "my-bucket" },
-      { name: "endpoint_url", label: "S3 Endpoint URL", type: "text", required: false, placeholder: "https://s3.example.com", help: "Leave blank for Amazon S3" },
-      { name: "access_key", label: "Access Key ID", type: "text", required: false, help: "Optional when the runtime credential chain provides access" },
-      { name: "secret_key", label: "Secret Access Key", type: "password", required: false },
+      { half: true, name: "bucket", label: "Bucket", type: "text", required: true, placeholder: "my-bucket" },
+      { half: true, name: "prefix", label: "Folder", type: "text", required: false, placeholder: "exports/", help: "Each folder inside it becomes one table. Blank = the bucket root." },
       {
+        half: true,
         name: "region",
         label: "Region",
         type: "select",
-        options: ["us-east-1", "us-west-2", "eu-west-1", "ap-southeast-1"],
-        default: "us-east-1",
+        options: S3_REGIONS,
+        default: "ap-northeast-2",
         required: true
       },
-      { name: "prefix", label: "Folder Prefix", type: "text", required: false, placeholder: "data/" }
+      { half: true, name: "endpoint_url", label: "Endpoint URL", type: "text", required: false, placeholder: "https://minio.internal:9000", help: "Only for S3-compatible stores (MinIO, R2). Blank for Amazon S3." },
+      { half: true, name: "access_key", label: "Access key ID", type: "text", required: false, help: "Blank = the node's IAM role" },
+      { half: true, name: "secret_key", label: "Secret access key", type: "password", required: false, showIf: v => !!v.access_key }
     ]
   },
   {
@@ -223,7 +239,7 @@ export const availableConnectors: Connector[] = [
     icon: "/connectors/rest.svg",
     description: "Pull JSON from an HTTP API, with an auth header and a path to the records",
     supported: true,
-    features: ["Bearer Token", "Basic Auth", "API Key", "JSON Path"],
+    features: ["Bearer · Basic · API key", "JSON path", "Merge by key"],
     fields: [
       {
         name: "base_url",
@@ -234,22 +250,23 @@ export const availableConnectors: Connector[] = [
       },
       {
         name: "auth_type",
-        label: "Auth Type",
+        label: "Authentication",
         type: "select",
         options: ["none", "bearer", "basic", "api_key"],
         default: "none"
       },
       {
         name: "auth_value",
-        label: "Auth Value",
+        label: "Credential",
         type: "password",
-        placeholder: "token / user:password / api_key_value",
+        placeholder: "token / user:password / key",
+        help: "bearer: the token · basic: user:password · api_key: the key",
         // Only with an auth type: it showed (and was sent) for "none" too.
         showIf: v => (v.auth_type ?? "none") !== "none",
       },
       {
         name: "auth_header",
-        label: "Auth Header Name",
+        label: "Header name",
         type: "text",
         default: "Authorization",
         showIf: v => v.auth_type === "api_key",
@@ -257,10 +274,19 @@ export const availableConnectors: Connector[] = [
       },
       {
         name: "data_path",
-        label: "Data Path (JSONPath)",
+        label: "Records path",
         type: "text",
         placeholder: "data.items",
-        help: "Where the list of records is in the JSON response"
+        half: true,
+        help: "Where the list of records is in the JSON response. Blank = the whole response."
+      },
+      {
+        name: "table_name",
+        label: "Table name",
+        type: "text",
+        placeholder: "root",
+        half: true,
+        help: "The table the records land in"
       }
     ]
   },
@@ -271,7 +297,7 @@ export const availableConnectors: Connector[] = [
     icon: "/connectors/python.svg",
     description: "Connect any source with Python: define fetch_data() and return a list of dicts",
     supported: true,
-    features: ["Any source", "Any Python library", "Internal APIs"],
+    features: ["Any source", "Internal APIs", "Merge by key"],
     fields: [
       {
         name: "code",
@@ -292,4 +318,37 @@ export function getConnector(id: string): Connector | undefined {
 export function getConnectorsByCategory(category: string): Connector[] {
   if (category === "all") return availableConnectors
   return availableConnectors.filter(c => c.category === category)
+}
+
+export interface ConfigRow { key: string; label: string; value: string; mono: boolean; muted: boolean }
+
+/** A saved source's settings as the form names them, in the form's order; keys the form
+ *  does not know follow under their own name. Secrets read "Stored encrypted", Python
+ *  code reads as its line count, empty values as "—". */
+export function configRows(connectorType: string, config: Record<string, unknown>): ConfigRow[] {
+  const fields = getConnector(connectorType)?.fields ?? []
+  const known = new Set(fields.map(f => f.name))
+  const rows: ConfigRow[] = []
+  const add = (key: string, label: string, raw: unknown, field?: ConnectorField) => {
+    const empty = raw === undefined || raw === null || raw === ""
+    if (field?.showIf && !field.showIf(config)) return
+    if (field?.type === "password" || (typeof raw === "string" && raw.startsWith("••"))) {
+      rows.push({ key, label, value: empty ? "Not set" : "Stored encrypted", mono: false, muted: true }); return
+    }
+    if (field?.type === "boolean" || typeof raw === "boolean") {
+      rows.push({ key, label, value: raw ? "On" : "Off", mono: false, muted: !raw }); return
+    }
+    if (field?.type === "textarea" && typeof raw === "string") {
+      const n = raw.split("\n").length
+      rows.push({ key, label, value: `${n} line${n === 1 ? "" : "s"}`, mono: false, muted: false }); return
+    }
+    const fallback = field?.default ?? (field?.placeholder && field.name === "table_name" ? field.placeholder : undefined)
+    const shown = empty ? fallback : raw
+    rows.push({ key, label, value: shown === undefined || shown === "" ? "—" : String(shown), mono: !empty || fallback !== undefined, muted: empty })
+  }
+  fields.forEach(f => { if (f.name in config) add(f.name, f.label, config[f.name], f) })
+  Object.entries(config).forEach(([k, v]) => {
+    if (!known.has(k)) add(k, k.replace(/_/g, " ").replace(/^./, c => c.toUpperCase()), v)
+  })
+  return rows
 }

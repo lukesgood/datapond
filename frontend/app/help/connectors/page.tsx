@@ -92,10 +92,10 @@ const KINDS: (Block & { icon: "db" | "sample" | "backend" })[] = [
     icon: "backend",
     title: { en: "REST, custom Python and S3 sources", ko: "REST, 커스텀 Python, S3 소스" },
     body: {
-      en: "These are read by the DataPond backend, not by Trino. S3 and S3-compatible storage (such as MinIO) support CSV, JSON/JSONL and Parquet with prefix discovery. They are not Trino catalogs, so they do not appear as src_<slug>.",
-      ko: "Trino가 아니라 DataPond 백엔드가 읽는 소스입니다. S3와 S3 호환 스토리지(MinIO 등)는 prefix 탐색과 함께 CSV, JSON/JSONL, Parquet을 지원합니다. Trino 카탈로그가 아니므로 src_<slug>로 나타나지 않습니다.",
+      en: "These are read by the DataPond backend, not by Trino. S3 and S3-compatible storage (such as MinIO) support CSV, JSON/JSONL and Parquet; each folder under the configured folder is one table. Every sync reads everything again and either replaces the table or, with key columns set, merges by them; there is no changed-rows column. They are not Trino catalogs, so they do not appear as src_<slug>.",
+      ko: "Trino가 아니라 DataPond 백엔드가 읽는 소스입니다. S3와 S3 호환 스토리지(MinIO 등)는 CSV, JSON/JSONL, Parquet을 지원하고, 지정한 폴더 아래의 폴더 하나가 테이블 하나입니다. 동기화할 때마다 전체를 다시 읽어 테이블을 교체하거나, 키 컬럼을 정하면 그 키로 병합합니다. 변경분 컬럼 방식은 없습니다. Trino 카탈로그가 아니므로 src_<slug>로 나타나지 않습니다.",
     },
-    badges: [{ en: "S3 API", ko: "S3 API" }, { en: "CSV / JSON / Parquet", ko: "CSV / JSON / Parquet" }],
+    badges: [{ en: "S3 API", ko: "S3 API" }, { en: "CSV / JSON / Parquet", ko: "CSV / JSON / Parquet" }, { en: "Replace / Merge", ko: "Replace / Merge" }],
   },
 ]
 

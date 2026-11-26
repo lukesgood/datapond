@@ -324,6 +324,8 @@ function ConnectorsPageInner() {
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.description.toLowerCase().includes(searchQuery.toLowerCase())
   ).filter(c => marketCat === "all" || c.category === marketCat)
+    // What can be connected today first; planned types (Snowflake) at the end.
+    .sort((a, b) => Number(b.supported) - Number(a.supported))
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const formatDate = (s: string | null) => {
@@ -731,21 +733,22 @@ function ConnectorsPageInner() {
           {!canWrite ? (
             <p className="text-sm text-muted-foreground">Adding a source needs connector:write. Ask an administrator or a data engineer to connect one.</p>
           ) : (<>
-          <div className="flex items-center gap-3">
-            <div className="relative flex-1 max-w-sm">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative min-w-[200px] flex-1 max-w-sm">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <Input
-                placeholder="Search connectors..."
+                placeholder="Search source types"
+                aria-label="Search source types"
                 className="pl-8 h-8 text-sm"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
               />
             </div>
-            <div className="flex gap-1">
+            <div className="flex flex-wrap gap-1">
               {[
                 { id: "all", label: "All", icon: Cloud },
                 { id: "database", label: "Databases", icon: Database },
-                { id: "storage", label: "Storage", icon: HardDrive },
+                { id: "storage", label: "Files", icon: HardDrive },
                 // REST API and Custom Python are "saas" and had no button: only All showed them.
                 { id: "saas", label: "APIs & code", icon: Code2 },
               ].map(({ id, label, icon: Icon }) => (
@@ -766,7 +769,7 @@ function ConnectorsPageInner() {
           {filteredConnectors.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-16 text-center">
               <Search className="h-8 w-8 text-muted-foreground/40" aria-hidden />
-              <p className="text-sm font-medium">No connectors match your search</p>
+              <p className="text-sm font-medium">No source types match</p>
               <p className="text-xs text-muted-foreground">Try a different term or category.</p>
               {(searchQuery || marketCat !== "all") && (
                 <Button
@@ -789,7 +792,7 @@ function ConnectorsPageInner() {
 
           <div className="border-t pt-3 flex justify-between text-xs text-muted-foreground">
             <span>{availableConnectors.filter(c => c.supported).length} available</span>
-            <span>{availableConnectors.filter(c => !c.supported).length} coming soon</span>
+            <span>{availableConnectors.filter(c => !c.supported).length} planned</span>
           </div>
           </>)}
         </TabsContent>

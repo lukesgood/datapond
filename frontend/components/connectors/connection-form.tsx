@@ -115,10 +115,12 @@ export function ConnectionForm({
                 id={field.name}
                 type="number"
                 placeholder={field.placeholder}
-                value={toInputValue(values[field.name] || field.default || "")}
+                value={toInputValue(values[field.name] ?? field.default ?? "")}
                 onChange={(e) => {
+                  // Clearing the box leaves it empty (it snapped back to the default, so
+                  // a port could not be retyped); an empty required field blocks Test.
                   const v = parseInt(e.target.value)
-                  onChange(field.name, isNaN(v) ? (field.default ?? "") : v)
+                  onChange(field.name, isNaN(v) ? "" : v)
                 }}
                 required={field.required}
               />
@@ -126,7 +128,7 @@ export function ConnectionForm({
               <div className="flex items-center space-x-2">
                 <Switch
                   id={field.name}
-                  checked={toChecked(values[field.name] || field.default || false)}
+                  checked={toChecked(values[field.name] ?? field.default ?? false)}
                   onCheckedChange={(checked) => onChange(field.name, checked)}
                 />
                 {/* The switch is named by its label; the help (often the driver
@@ -135,7 +137,7 @@ export function ConnectionForm({
               </div>
             ) : field.type === "select" ? (
               <Select
-                value={toSelectValue(values[field.name] || field.default)}
+                value={toSelectValue(values[field.name] ?? field.default)}
                 onValueChange={(value) => onChange(field.name, value)}
               >
                 <SelectTrigger>

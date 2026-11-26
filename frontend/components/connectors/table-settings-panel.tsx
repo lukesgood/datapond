@@ -43,8 +43,11 @@ const list = (s: string) => s.split(",").map(x => x.trim()).filter(Boolean)
  *  inline editor under the row, reached by a hover-only "Edit", with uppercase 11px
  *  labels, and its three saves never checked a response — a refused save closed the
  *  editor as if it had worked. */
-export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit, onSaved, onClose }: {
+export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit, refetch = false, onSaved, onClose }: {
   connId: string
+  /** S3, REST or custom Python: every sync reads everything again, so the choice is
+   *  replace or merge by key — there is no changed-rows column to pick. */
+  refetch?: boolean
   table: SourceTable
   lakes: { name: string; is_default: boolean; engine_catalog?: string; kind?: string }[]
   defaultLake?: string
@@ -54,7 +57,8 @@ export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit,
 }) {
   const { toast } = useToast()
   const ps = table.partition_spec
-  const [mode, setMode] = useState(table.sync_mode || "full")
+  // For a refetch source the "merge" mode is a full read plus key columns.
+  const [mode, setMode] = useState(refetch ? ((table.key_columns || []).length ? "merge" : "full") : table.sync_mode || "full")
   const [incCol, setIncCol] = useState(table.incremental_column || "")
   const [keyCols, setKeyCols] = useState((table.key_columns || []).join(", "))
   const [piiCols, setPiiCols] = useState((table.pii_columns || []).join(", "))
@@ -83,22 +87,24 @@ export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit,
   }, [connId, table.name, colsReload])
 
   const incremental = mode === "incremental"
+  const merge = mode === "merge"
   const timeCols = columns.filter(isTimeLike)
   const otherCols = columns.filter(c => !isTimeLike(c))
 
   const save = async () => {
+    if (merge && list(keyCols).length === 0) { setErr("Name at least one key column to merge by."); return }
     setSaving(true); setErr(null)
     const partition_spec = partCol === "" ? null : partCol === "__none__" ? [] : [{ column: partCol, transform: partTransform }]
     const steps: [string, string, unknown][] = [
       [`/api/connectors/${connId}/tables/${encodeURIComponent(table.name)}/enabled`, "table settings", {
         enabled: table.enabled,
         incremental_column: incremental ? (incCol || null) : null,
-        key_columns: incremental ? list(keyCols) : [],
+        key_columns: incremental || merge ? list(keyCols) : [],
         pii_columns: list(piiCols),
         target_catalog: target,
         ...(moving ? { existing: choice } : {}),
       }],
-      [`/api/connectors/${connId}/sync-mode`, "sync mode", { sync_mode: mode, table_name: table.name }],
+      [`/api/connectors/${connId}/sync-mode`, "sync mode", { sync_mode: merge ? "full" : mode, table_name: table.name }],
       [`/api/connectors/${connId}/tables/${encodeURIComponent(table.name)}/partition`, "partitioning", { partition_spec }],
     ]
     try {
@@ -134,9 +140,30 @@ export function TableSettingsPanel({ connId, table, lakes, defaultLake, canEdit,
       <fieldset disabled={!canEdit || saving} className="space-y-4">
         <div className="space-y-1.5">
           <Label>Sync mode</Label>
-          <ChoiceGroup label="Sync mode" value={mode} onChange={v => { setMode(v); if (v !== "incremental") setIncCol("") }}
-            options={[{ label: "Full refresh", value: "full" }, { label: "Changed rows only", value: "incremental" }]} />
+          {refetch ? (
+            <>
+              <ChoiceGroup label="Sync mode" value={mode} onChange={v => setMode(v)}
+                options={[{ label: "Replace the table", value: "full" }, { label: "Merge by key", value: "merge" }]} />
+              <p className="text-xs text-muted-foreground">
+                {merge
+                  ? "Rows with the same key are updated; rows that left the source stay in the lake."
+                  : "Each sync reads everything again and replaces the table, so it matches the source exactly."}
+              </p>
+            </>
+          ) : (
+            <ChoiceGroup label="Sync mode" value={mode} onChange={v => { setMode(v); if (v !== "incremental") setIncCol("") }}
+              options={[{ label: "Full refresh", value: "full" }, { label: "Changed rows only", value: "incremental" }]} />
+          )}
         </div>
+        {merge && (
+          <div className="space-y-1.5">
+            <Label htmlFor="ts-key">Key columns</Label>
+            <Input id="ts-key" className="font-mono text-xs" value={keyCols} onChange={e => setKeyCols(e.target.value)} placeholder="id"
+                   list="ts-key-cols" />
+            <datalist id="ts-key-cols">{columns.map(c => <option key={c.name} value={c.name} />)}</datalist>
+            <p className="text-xs text-muted-foreground">Comma separated. Together they identify one row.</p>
+          </div>
+        )}
 
         {incremental && (
           <>

@@ -13,7 +13,7 @@ import { SchedulePicker } from "@/components/ui/schedule-picker"
 import { ExplainRail, RailAttention, RailSection } from "@/components/ui/explain-rail"
 import { PageHeader } from "@/components/ui/page-header"
 import { ConnectionForm } from "@/components/connectors/connection-form"
-import { getConnector } from "@/lib/connectors"
+import { getConnector, readsEverythingEachSync } from "@/lib/connectors"
 import { useCapability } from "@/lib/capabilities"
 import { isTrinoEngine } from "@/lib/engine-restart"
 import { useToast } from "@/lib/toast"
@@ -48,6 +48,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
   const schedulerEnabled = useCapability("scheduled_sync")
   const { toast } = useToast()
 
+  const refetch = readsEverythingEachSync(id)
   const [name, setName] = useState(`${connector?.name || ""} source`)
   const [config, setConfig] = useState<Record<string, ConfigValue>>(() => {
     const d: Record<string, ConfigValue> = {}
@@ -82,10 +83,11 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
       const data: TablesResponse = await res.json()
       const list: RemoteTable[] = (data.tables ?? []).map(t => (typeof t === "string" ? { name: t } : t))
       setTables(list)
-      // Default: every table, fetching changed rows by its most likely column when one exists.
+      // Default: every table, fetching changed rows by its most likely column when one
+      // exists and the source type can (S3/REST/Python read everything each time).
       const defaults: Record<string, TableConfig> = {}
       list.forEach(t => {
-        const guess = (t.columns ?? []).find(c => /updated_at|modified/.test(c.name)) ?? null
+        const guess = refetch ? null : (t.columns ?? []).find(c => /updated_at|modified/.test(c.name)) ?? null
         defaults[t.name] = { enabled: true, incremental_column: guess?.name ?? "" }
       })
       setTableConfigs(defaults)
@@ -248,11 +250,17 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                   <p className="text-sm text-muted-foreground">The source is reachable but exposes no tables to sync.</p>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[480px] text-sm">
+                    {refetch && (
+                      <p className="mb-2 text-xs text-muted-foreground">
+                        Each sync reads every {id === "s3" ? "file in the folder" : "record"} again and replaces the table. To keep rows
+                        that left the source, set key columns per table on the source page; the sync then merges by them.
+                      </p>
+                    )}
+                    <table className={`w-full text-sm ${refetch ? "" : "min-w-[480px]"}`}>
                       <thead><tr className="border-b text-left text-xs text-muted-foreground">
                         <th scope="col" className="w-12 py-2 font-medium">Sync</th>
                         <th scope="col" className="py-2 font-medium">Table</th>
-                        <th scope="col" className="py-2 font-medium">Fetch changed rows by</th>
+                        {!refetch && <th scope="col" className="py-2 font-medium">Fetch changed rows by</th>}
                       </tr></thead>
                       <tbody>
                         {filtered.map(t => {
@@ -264,7 +272,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                               <td className="py-1.5"><input type="checkbox" checked={cfg.enabled} aria-label={`Sync ${t.name}`}
                                                            onChange={e => setTable(t.name, { enabled: e.target.checked })} /></td>
                               <td className="py-1.5"><span className="font-mono text-xs">{t.name}</span>{cols.length > 0 && <span className="text-xs text-muted-foreground"> · {cols.length} columns</span>}</td>
-                              <td className="py-1.5">
+                              {!refetch && <td className="py-1.5">
                                 <select value={cfg.incremental_column} disabled={!cfg.enabled} aria-label={`Changed-rows column for ${t.name}`}
                                         onChange={e => setTable(t.name, { incremental_column: e.target.value })}
                                         className="h-8 max-w-[240px] rounded-md border bg-background px-2 text-xs disabled:opacity-50">
@@ -272,7 +280,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                                   {time.length > 0 && <optgroup label="Recommended">{time.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}</optgroup>}
                                   {rest.length > 0 && <optgroup label="All columns">{rest.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}</optgroup>}
                                 </select>
-                              </td>
+                              </td>}
                             </tr>
                           )
                         })}
@@ -330,7 +338,9 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
             </div>
             <ul className="space-y-1.5 text-sm">
               {trino && <li>✓ Live queries through {slug ? <code className="font-mono text-xs">{slug}</code> : "its own catalog"} in Analytics</li>}
-              {enabled.length > 0 && <li>✓ {incremental.length} fetch only changed rows; {enabled.length - incremental.length} read the whole table each time</li>}
+              {enabled.length > 0 && (refetch
+                ? <li>✓ Each sync reads everything again and replaces the table</li>
+                : <li>✓ {incremental.length} fetch only changed rows; {enabled.length - incremental.length} read the whole table each time</li>)}
               {connector.fields.some(f => f.type === "password") && <li>✓ Credentials stored encrypted; never shown again</li>}
               {syncNow && !trino && <li>✓ First sync starts right away; you watch it on the source page</li>}
             </ul>
