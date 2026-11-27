@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { login, isAuthenticated, clearAuth, responseErrorMessage, saveAuth, type AuthUser } from "@/lib/auth"
+import { login, isAuthenticated, clearAuth, postLoginPath, responseErrorMessage, saveAuth, type AuthUser } from "@/lib/auth"
 import { Loader2, Eye, EyeOff, ShieldCheck, Layers, Zap, Lock, AlertTriangle, WifiOff, Fingerprint } from "lucide-react"
 import { startAuthentication } from "@simplewebauthn/browser"
 
@@ -64,7 +64,7 @@ export default function LoginPage() {
       // focus) below so the form is fully functional — do NOT early-return here.
       fetch("/api/auth/me")
         .then(r => { if (!r.ok) throw new Error("sso session invalid"); return r.json() })
-        .then(me => { saveAuth(me); window.location.replace("/dashboard") })
+        .then(me => { saveAuth(me); window.location.replace(postLoginPath(window.location.search)) })
         .catch(() => { clearAuth(); setError("SSO sign-in failed. Please try again.") })
     }
     // Password reset just completed → confirm success above the form.
@@ -91,7 +91,7 @@ export default function LoginPage() {
       fetch("/api/auth/me")
         .then(r => {
           if (!r.ok) throw new Error("session invalid")
-          window.location.replace("/dashboard")
+          window.location.replace(postLoginPath(window.location.search))
         })
         .catch(() => {
           clearAuth()
@@ -127,7 +127,7 @@ export default function LoginPage() {
         setLoading(false)
         return
       }
-      window.location.replace("/dashboard")
+      window.location.replace(postLoginPath(window.location.search))
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed"
       setError(msg)
@@ -180,7 +180,7 @@ export default function LoginPage() {
         setPasskeyLoading(false)
         return
       }
-      window.location.replace("/dashboard")
+      window.location.replace(postLoginPath(window.location.search))
     } catch (err) {
       const msg = err instanceof TypeError
         ? "Unable to reach the passkey sign-in service. Check your connection and try again."
@@ -208,7 +208,7 @@ export default function LoginPage() {
         throw new Error(await responseErrorMessage(res, "Password change failed"))
       }
       setShowChangePw(false)
-      window.location.replace("/dashboard")
+      window.location.replace(postLoginPath(window.location.search))
     } catch (e) {
       setChangeError(e instanceof TypeError
         ? "Unable to reach the password service. Check your connection and try again."
