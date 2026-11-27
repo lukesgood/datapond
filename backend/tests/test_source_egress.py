@@ -99,3 +99,65 @@ def test_dot_segments_do_not_turn_the_sample_exception_into_any_loopback_route()
         with pytest.raises(egress.EgressRefused):
             egress.check_url(url, resolve=_resolver("127.0.0.1"))
     egress.check_url(base + "/?page=2", resolve=_resolver("127.0.0.1"))
+
+
+# --- S3 sources: the address each boto3 connection reaches is checked at connect time --
+
+def _local_s3():
+    import http.server
+    import threading
+
+    class H(http.server.BaseHTTPRequestHandler):
+        hits = 0
+
+        def do_GET(self):
+            H.hits += 1
+            self.send_response(200)
+            self.send_header("Content-Type", "application/xml")
+            body = b'<?xml version="1.0"?><ListBucketResult><Name>b</Name></ListBucketResult>'
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, H
+
+
+def _client(url):
+    import boto3
+    from botocore.config import Config
+    return boto3.client("s3", endpoint_url=url, region_name="us-east-1", aws_access_key_id="x",
+                        aws_secret_access_key="y", config=Config(retries={"max_attempts": 1}))
+
+
+def test_a_guarded_s3_endpoint_that_reaches_loopback_sends_nothing(monkeypatch):
+    """The name passed check_url, then resolved to loopback (rebinding): the connection is
+    refused before the request is written."""
+    srv, H = _local_s3()
+    url = f"http://localhost:{srv.server_port}"
+    monkeypatch.delenv("S3_ENDPOINT", raising=False)
+    egress.guard_s3_endpoint(url)
+    try:
+        with pytest.raises(Exception) as e:
+            _client(url).list_objects_v2(Bucket="b")
+        assert "inside the platform" in str(e.value) or isinstance(e.value, egress.EgressRefused)
+        assert H.hits == 0
+    finally:
+        egress._guarded.discard(("localhost", srv.server_port))
+        srv.shutdown()
+
+
+def test_unguarded_hosts_and_the_platform_store_are_untouched(monkeypatch):
+    srv, H = _local_s3()
+    url = f"http://127.0.0.1:{srv.server_port}"
+    monkeypatch.setenv("S3_ENDPOINT", url)
+    egress.guard_s3_endpoint(url)                     # the install's own store: not guarded
+    try:
+        assert ("127.0.0.1", srv.server_port) not in egress._guarded
+        _client(url).list_objects_v2(Bucket="b")
+        assert H.hits == 1
+    finally:
+        srv.shutdown()

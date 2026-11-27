@@ -13,10 +13,15 @@ Two checks, because a name can resolve differently the second time (DNS rebindin
 `check_peer` reads the address the connection actually used and refuses the response
 if it is blocked, so nothing from it is stored.
 
+An S3 source's endpoint gets the same two checks, done differently because boto3 hides
+its responses' connections: `check_url` when the client is made, then `guard_s3_endpoint`
+registers the endpoint's host so every new connection boto3 opens to it is checked at
+connect time, before a byte is sent (a patch on botocore's connection classes that
+leaves every other host — Glue, Bedrock, the platform's own S3 — untouched).
+
 Two platform addresses are allowed: the built-in sample REST source (served by the
-backend on 127.0.0.1; its exact URL prefix only) and the install's own object store
-(S3_ENDPOINT, e.g. in-cluster MinIO), which an S3 source may read. The S3 endpoint is
-checked once when the client is made; boto3 gives no peer address to re-check.
+backend on 127.0.0.1; its exact URL only) and the install's own object store
+(S3_ENDPOINT, e.g. in-cluster MinIO), which an S3 source may read.
 
 SOURCE_BLOCKED_CIDRS (comma-separated) replaces the cluster ranges, e.g. for a cluster
 with other pod/Service CIDRs; loopback, link-local and "this network" are always blocked.
@@ -122,3 +127,53 @@ def check_peer(response, url: str) -> None:
     if peer and _blocked(str(peer[0]), blocked_networks()):
         raise EgressRefused(f"The connection went to {peer[0]}, an address inside the platform; "
                             "the response was discarded.")
+
+
+# ── S3 sources: check the address each boto3 connection actually reaches ────────────
+_guarded = set()            # (host, port) of S3 source endpoints
+_installed = False
+
+
+def _host_port(url: str):
+    u = urlparse(url or "")
+    return (u.hostname or "").lower(), u.port or (443 if u.scheme == "https" else 80)
+
+
+def guard_s3_endpoint(url: str) -> None:
+    """Have every connection boto3 opens to this endpoint checked when it connects. The
+    install's own object store is not guarded (it is allowed and may be in-cluster)."""
+    if not url or is_platform_storage(url):
+        return
+    _install_boto_peer_check()
+    _guarded.add(_host_port(url))
+
+
+def _check_socket(host: str, port: int, sock) -> None:
+    if ((host or "").lower(), port) not in _guarded:
+        return
+    try:
+        peer = sock.getpeername()[0]
+    except OSError:
+        return
+    if _blocked(str(peer), blocked_networks()):
+        try:
+            sock.close()
+        finally:
+            raise EgressRefused(f"{host} connected to {peer}, an address inside the platform; "
+                                "nothing was sent.")
+
+
+def _install_boto_peer_check() -> None:
+    global _installed
+    if _installed:
+        return
+    from botocore.awsrequest import AWSHTTPConnection, AWSHTTPSConnection
+    for cls in (AWSHTTPConnection, AWSHTTPSConnection):
+        original = cls._new_conn
+
+        def _new_conn(self, _original=original):
+            sock = _original(self)
+            _check_socket(self.host, self.port, sock)
+            return sock
+        cls._new_conn = _new_conn
+    _installed = True
