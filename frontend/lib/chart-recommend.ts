@@ -348,8 +348,16 @@ export function recommend(profiles: ColumnProfile[], rowCount: number,
   const seriesCount = cbp ? Math.min(cbp.distinct, MAX_SERIES) : ys.length
   const stackedFit = assessStacked(seriesCount, ysp)
 
+  // A column that names each row once (order_id with one value per row) means the
+  // result is the rows themselves, not a summary of them: SELECT * FROM orders. Drawn
+  // as a line it is a scribble of single orders per status with gaps; the table is the
+  // honest first view, and every chart stays one click away.
+  const listing = rowCount >= 2 && profiles.some(p =>
+    p.role === "identifier" && p.nonNull === rowCount && p.distinct === rowCount)
+
   let best: ChartType = "table"
   if (availability.kpi.ok) best = "kpi"
+  else if (listing) best = "table"
   else if (rowCount >= 2 && xp) {
     if (xp.role === "time" && availability.line.ok) best = "line"
     else if (xp.role === "category") {

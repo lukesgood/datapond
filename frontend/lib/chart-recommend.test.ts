@@ -135,3 +135,22 @@ test("a histogram's availability note does not promise a bin count it does not c
   assert.equal(a.ok, true)
   assert.equal(a.note, "60 values of amount.")
 })
+
+test("a row listing (one id per row) opens as the table, not a line", () => {
+  const columns = ["order_id", "status", "total_amount", "ordered_at"]
+  const rows = [
+    ["o1", "shipped", 120, "2026-05-20T00:23:00Z"],
+    ["o2", "pending", 80, "2026-05-21T09:10:00Z"],
+    ["o3", "shipped", 40, "2026-05-22T11:00:00Z"],
+    ["o4", "delivered", 60, "2026-05-22T11:00:00Z"],
+  ]
+  const rec = recommend(profileColumns(columns, rows, ["text", "text", "quantitative", "temporal"]), rows.length)
+  assert.equal(rec.best, "table")
+  assert.equal(rec.availability.line.ok, true, "the line stays available")
+})
+
+test("an aggregated result with a repeated id is still charted", () => {
+  const columns = ["day", "orders"]
+  const rows = [["2026-05-20", 3], ["2026-05-21", 5], ["2026-05-22", 4]]
+  assert.equal(recommend(profileColumns(columns, rows, ["temporal", "quantitative"]), 3).best, "line")
+})

@@ -24,6 +24,7 @@ import {
   heatmapCellWidth, heatmapForeground, heatmapMixPercent, shapeChart, type Aggregate, type ChartType, type Shaped,
 } from "@/lib/chart-data"
 import { resolveYs } from "@/lib/chart-recommend"
+import { formatTick, formatTimeTick } from "@/lib/chart-format"
 
 export type { ChartType }
 
@@ -88,7 +89,7 @@ const axisLabel = (value: string, extra: object = {}) => ({
 
 function formatValue(v: number | string | null): string {
   if (typeof v !== "number") return v === null ? "—" : String(v)
-  return Math.abs(v) >= 1000 ? v.toLocaleString() : String(Number(v.toPrecision(6)))
+  return Math.abs(v) >= 1000 ? v.toLocaleString("en-US") : String(Number(v.toPrecision(6)))
 }
 
 export function ChartRenderer({
@@ -149,17 +150,17 @@ export function ChartRenderer({
 
     const xAxisEl = barLayout ? (
       <XAxis type="number" stroke={AXIS_STROKE} fontSize={12} tickLine={false} axisLine={false}
-             label={yLabel ? axisLabel(yLabel, { position: "insideBottom", offset: -16 }) : undefined} />
+             tickFormatter={formatTick} label={yLabel ? axisLabel(yLabel, { position: "insideBottom", offset: -16 }) : undefined} />
     ) : (
       <XAxis dataKey={xKey} stroke={AXIS_STROKE} fontSize={12} tickLine={false} axisLine={false}
-             label={axisLabel(xKey, { position: "insideBottom", offset: -16 })} />
+             tickFormatter={formatTimeTick} minTickGap={24} label={axisLabel(xKey, { position: "insideBottom", offset: -16 })} />
     )
     const yAxisEl = barLayout ? (
       <YAxis type="category" dataKey={xKey} width={labelWidth} stroke={AXIS_STROKE} fontSize={12}
              tickLine={false} axisLine={false} interval={0} />
     ) : (
       <YAxis stroke={AXIS_STROKE} fontSize={12} tickLine={false} axisLine={false}
-             label={yLabel ? axisLabel(yLabel, { angle: -90, position: "insideLeft", style: { textAnchor: "middle" } }) : undefined} />
+             tickFormatter={formatTick} label={yLabel ? axisLabel(yLabel, { angle: -90, position: "insideLeft", style: { textAnchor: "middle" } }) : undefined} />
     )
 
     return (
