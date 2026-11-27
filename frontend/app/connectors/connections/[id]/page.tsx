@@ -38,6 +38,7 @@ import { runLabel, runStates, shortDate } from "@/lib/table-runs"
 
 type OrphanJob = { source_table: string; enabled: boolean; last_run_at: string | null; last_run_status: string | null }
 import { alsoSyncedLine } from "@/lib/sync-target"
+import { staleReasons } from "@/lib/source-freshness"
 
 type ConfigValue = string | number | boolean | null | undefined
 type ConnectorTable = SourceTable
@@ -347,6 +348,9 @@ interface Connector {
   status: string; created_at: string; last_sync_at: string | null
   last_checked_at?: string | null; last_check_message?: string | null
   catalog?: string | null
+  schedule?: string | null
+  last_success_at?: string | null; overdue_since?: string | null
+  last_run_at?: string | null; last_run_status?: string | null
 }
 
 export default function ConnectionDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -1083,6 +1087,19 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
           </button>
         </div>
       )}
+      {/* Missed a scheduled run: why, from the same lines as Sources and Overview. */}
+      {(() => {
+        const reasons = staleReasons(connector, loadedAt)
+        if (reasons.length === 0) return null
+        return (
+          <div role="status" className="rounded-lg border border-[var(--dp-warn)]/40 bg-[var(--dp-warn)]/10 px-4 py-3 text-sm">
+            <p className="font-semibold text-[var(--dp-warn-text)]">This source&apos;s data is out of date</p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
+              {reasons.map(line => <li key={line}>{line}</li>)}
+            </ul>
+          </div>
+        )
+      })()}
       {saveMessage && (
         <div role={saveMessage.ok ? "status" : "alert"} className={`text-sm px-1 ${saveMessage.ok ? "text-[var(--dp-good-text)]" : "text-destructive"}`}>
           {saveMessage.text}

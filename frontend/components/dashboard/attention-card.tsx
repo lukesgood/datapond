@@ -87,10 +87,26 @@ export function AttentionCard({ items, canSync, checkedAt, onChanged }: {
           }
           if (item.kind === "stale") {
             return (
-              <Row key={item.key} title={item.title} detail={item.detail}>
-                <Link href="/connectors?filter=stale" className={buttonVariants({ variant: "outline", size: "sm" })}>Review</Link>
-                {canSync && <SyncAll ids={item.connectionIds} onDone={onChanged} />}
-              </Row>
+              <li key={item.key} className="border-t border-[var(--dp-warn)]/20 py-2.5">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <p className="min-w-0 flex-1 text-sm font-semibold">{item.title}</p>
+                  <div className="flex flex-wrap gap-2">
+                    <Link href="/connectors?filter=stale" className={buttonVariants({ variant: "outline", size: "sm" })}>Review</Link>
+                    {canSync && <SyncAll ids={item.connectionIds} onDone={onChanged} />}
+                  </div>
+                </div>
+                {/* Each source with why it is stale, so the reason is read here, not guessed. */}
+                <ul className="mt-1.5 space-y-1.5">
+                  {item.sources.map(src => (
+                    <li key={src.id} className="text-xs">
+                      <Link href={`/connectors/connections/${encodeURIComponent(src.id)}`} className="font-medium hover:text-primary hover:underline">
+                        {src.name}
+                      </Link>
+                      {src.reasons.length > 0 && <span className="text-muted-foreground"> — {src.reasons.join(" ")}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </li>
             )
           }
           return (

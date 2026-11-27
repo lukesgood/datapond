@@ -5,6 +5,7 @@
  *  rows on a connection page (`diagnosisActions`). Hiding an action the caller lacks the
  *  permission for is a courtesy — the API refuses regardless.
  */
+import { staleReasons } from "./source-freshness.ts"
 
 export type Diagnosis = {
   code: string
@@ -19,7 +20,9 @@ export type OpsIssue =
   | { kind: "catalog_unreachable"; catalog: string; error?: string | null }
   | { kind: "mirror"; mirror: string; owner?: string | null; status: string; detail?: string | null }
   | { kind: "sync_failed"; connection_id: string; source: string; table: string; error?: string | null; diagnosis?: Diagnosis | null }
-  | { kind: "stale_source"; connection_id: string; source: string; hours?: number | null }
+  | { kind: "stale_source"; connection_id: string; source: string; hours?: number | null
+      schedule?: string | null; overdue_since?: string | null; last_success_at?: string | null
+      last_run_at?: string | null; last_run_status?: string | null }
   | { kind: "schedule_failed"; connection_id: string; source: string; reason: "skipped" | "error"; detail: string }
   | { kind: "cost_over_budget"; forecast: number; budget: number; pct: number }
   | { kind: "duplicate_sync"; connection_id: string; source: string; table: string;
@@ -158,27 +161,28 @@ export function issueView(issue: OpsIssue, perms: Set<string>): IssueView {
       const actions: OpsAction[] = []
       if (perms.has("connector:write")) actions.push({ type: "sync", label: "Sync now", connectionId: issue.connection_id })
       actions.push({ type: "link", label: "Open connection", href: connectionHref(issue.connection_id) })
+      const reasons = staleReasons({ status: "active", last_sync_at: null, ...issue }, Date.now())
       return {
         tone: "warn",
-        title: `${issue.source} has not synced`,
-        detail: issue.hours != null ? `No sync for ${issue.hours} hours.` : "It has never synced.",
+        title: `${issue.source} missed a scheduled sync`,
+        detail: reasons.length ? reasons.slice(0, -1).join(" ") : issue.hours != null ? `No successful sync for ${issue.hours} hours.` : "It has never synced.",
         actions,
       }
     }
   }
 }
 
-/** Overview counts what needs action now — failures and outages. A source that has not
- *  synced in a while is one line pointing to Sources, not an item "to check". */
+/** Overview counts what needs action now. A stale source missed a run its schedule asked
+ *  for (a source synced by hand is never stale), so it counts too. */
 export function headline(status: OpsStatus): { label: string; tone: "good" | "warn" } {
-  const n = status.issues.filter((i) => i.kind !== "stale_source").length
+  const n = status.issues.length
   return n === 0 ? { label: "Healthy", tone: "good" } : { label: `${n} to check`, tone: "warn" }
 }
 
 export function staleSummary(items: OpsIssue[]): string | null {
   const n = items.filter((i) => i.kind === "stale_source").length
   if (n === 0) return null
-  return `${n} ${n === 1 ? "source has" : "sources have"} not synced in over a day`
+  return `${n} ${n === 1 ? "source" : "sources"} missed a scheduled sync`
 }
 
 /** Only the facts the caller was sent (syncs need connector:read; queries may be null). */

@@ -19,7 +19,7 @@ from app.api.auth import require_permission, require_user
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 from typing import List, Optional, Dict, Any, AsyncGenerator, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 import asyncpg
 import re
@@ -1656,6 +1656,7 @@ async def list_connections(user: dict = Depends(require_user)):
     connector a caller cannot reach never leaves the database. An admin gets no
     predicate at all.
     """
+    from app import source_freshness as _fresh
     try:
         clause, args = visible_clause(CONNECTOR, user, "c", 1)
         where = f"WHERE {clause}" if clause else ""
@@ -1665,6 +1666,9 @@ async def list_connections(user: dict = Depends(require_user)):
                 SELECT c.id, c.name, c.connector_type, c.status, c.created_at,
                        c.last_sync_at, c.schedule, c.owner_id,
                        c.last_checked_at, c.last_check_message, c.schedule_last_status,
+                       c.schedule_anchor_at,
+                       {_fresh.LAST_SUCCESS_SQL.format(id="c.id")} AS last_success_at,
+                       {_fresh.LAST_RUN_SQL.format(id="c.id")} AS last_run,
                        d.engine_catalog AS catalog,
                        jt.tables, hs.last_rows, hs.success_rate
                 FROM connector_connections c
@@ -1685,6 +1689,7 @@ async def list_connections(user: dict = Depends(require_user)):
             ''', *args)
 
         from app import sync_scheduler as _sync_scheduler
+        now, tz = datetime.now(timezone.utc), _sync_scheduler.zone()
         connections = []
         for row in rows:
             connections.append({
@@ -1706,6 +1711,8 @@ async def list_connections(user: dict = Depends(require_user)):
                 "tables": row['tables'] or 0,
                 "last_rows": row['last_rows'],
                 "success_rate": row['success_rate'],
+                # Out of date only when a scheduled run was missed (app/source_freshness.py).
+                **_fresh.freshness(row, now, tz),
                 "engine": _trino_source.engine_of(ConnectorType(row['connector_type']))
                           if row['connector_type'] in ConnectorType._value2member_map_ else "python",
                 **_check_fields(row),
@@ -1720,6 +1727,7 @@ async def list_connections(user: dict = Depends(require_user)):
 @router.get("/connectors/{connection_id}")
 async def get_connection(connection_id: str, user: dict = Depends(require_user)):
     """Get connection details by ID"""
+    from app import source_freshness as _fresh
     await require_access(CONNECTOR, connection_id, user)
     try:
         pool = await get_db_pool()
@@ -1727,10 +1735,12 @@ async def get_connection(connection_id: str, user: dict = Depends(require_user))
             # `catalog` is not a column: it is the engine catalog of the source's
             # data_catalogs row, joined exactly as the list does. Selecting it as a
             # column made this route 500 for every source (2026-11-17, PR #285).
-            row = await conn.fetchrow('''
+            row = await conn.fetchrow(f'''
                 SELECT c.id, c.name, c.connector_type, c.status, c.created_at,
                        c.last_sync_at, c.schedule, c.owner_id,
-                       c.last_checked_at, c.last_check_message,
+                       c.last_checked_at, c.last_check_message, c.schedule_anchor_at,
+                       {_fresh.LAST_SUCCESS_SQL.format(id="c.id")} AS last_success_at,
+                       {_fresh.LAST_RUN_SQL.format(id="c.id")} AS last_run,
                        d.engine_catalog AS catalog
                 FROM connector_connections c
                 LEFT JOIN data_catalogs d
@@ -1753,6 +1763,7 @@ async def get_connection(connection_id: str, user: dict = Depends(require_user))
             # The Trino catalog this source is queryable as (src_<slug>), as the list
             # already returns, so the source page can link straight to Analytics.
             "catalog": row.get('catalog') if hasattr(row, 'get') else None,
+            **_fresh.freshness(row, datetime.now(timezone.utc)),
             **_check_fields(row),
         }
 

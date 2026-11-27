@@ -163,7 +163,7 @@ export default function DashboardPage() {
   const adapters = (data.services ?? []).filter(s => s.status === "managed").map(s => s.name)
   const unreachable = data.ops?.issues.filter(i => i.kind === "catalog_unreachable").length ?? 0
   const items = data.ops
-    ? attentionItems(data.ops.issues, data.agents ? agentProblems(data.agents, now) : [], permissions)
+    ? attentionItems(data.ops.issues, data.agents ? agentProblems(data.agents, now) : [], permissions, now.getTime())
     : null
   const lake: LakeFacts | null = hasCatalog || hasSources || hasQuery ? {
     tables: data.tables ? data.tables.length : null,

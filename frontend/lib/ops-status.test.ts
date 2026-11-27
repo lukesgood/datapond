@@ -116,15 +116,15 @@ test("one query is singular", () => {
 
 // ── Overview shows only what needs action; staleness is one line ──────────────
 
-test("staleness alone is not 'to check': the headline counts failures and outages only", () => {
+test("a missed scheduled run counts in the headline like any other issue", () => {
   const base = { state: "attention" as const, queries_24h: null, checked_at: "t" }
-  assert.deepEqual(headline({ ...base, issues: [stale("a", 50), stale("b", 90)] }), { label: "Healthy", tone: "good" })
-  assert.equal(headline({ ...base, issues: [stale("a", 50), { kind: "engine_restarting" }] }).label, "1 to check")
+  assert.deepEqual(headline({ ...base, issues: [stale("a", 50), stale("b", 90)] }), { label: "2 to check", tone: "warn" })
+  assert.deepEqual(headline({ ...base, issues: [] }), { label: "Healthy", tone: "good" })
 })
 
 test("the stale line names how many and says where to look", () => {
-  assert.equal(staleSummary([stale("a", 50)]), "1 source has not synced in over a day")
-  assert.equal(staleSummary([stale("a", 50), stale("b", null)]), "2 sources have not synced in over a day")
+  assert.equal(staleSummary([stale("a", 50)]), "1 source missed a scheduled sync")
+  assert.equal(staleSummary([stale("a", 50), stale("b", null)]), "2 sources missed a scheduled sync")
   assert.equal(staleSummary([]), null)
 })
 
