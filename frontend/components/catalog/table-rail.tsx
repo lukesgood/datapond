@@ -25,6 +25,7 @@ export interface CatalogTable {
   mirror_of?: string | null
   synced_from?: TableFacts["synced_from"]
   live?: boolean
+  origin_known?: boolean
 }
 
 interface Detail { row_count?: number | null; columns: { name: string; type: string }[]; location?: string }

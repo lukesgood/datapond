@@ -363,8 +363,9 @@ function CatalogPageInner() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
+                      {/* Namespace sits under the name: as its own column it pushed From and
+                          Last sync off a 1512px screen once the table rail was open. */}
                       {sortHeader("name", "Table")}
-                      {sortHeader("namespace", "Namespace")}
                       <th className="px-4 py-2 font-medium">From</th>
                       {sortHeader("synced", "Last sync", "pr-6")}
                     </tr>
@@ -380,22 +381,23 @@ function CatalogPageInner() {
                             <button type="button" data-table-key={tableKey(t)} aria-pressed={on}
                                     className="text-left font-medium hover:underline focus-visible:underline focus-visible:outline-none"
                                     onClick={e => { e.stopPropagation(); select(t) }}>{t.name}</button>
+                            <p className="truncate font-mono text-2xs text-muted-foreground" title={`${t.catalog}.${t.namespace}`}>
+                              {catalogs.length > 1 && catalog === "all" ? `${t.catalog}.` : ""}{t.namespace}
+                            </p>
                             {(() => {
                               const why = whyFor(result, t)
                               return why && why.length > 0
                                 ? <p className="mt-0.5 text-2xs text-muted-foreground">{why.join(" · ")}</p> : null
                             })()}
                           </td>
-                          <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
-                            {catalogs.length > 1 && catalog === "all" ? `${t.catalog}.` : ""}{t.namespace}
-                          </td>
-                          <td className="px-4 py-2 text-xs">
+                          <td className="max-w-[12rem] truncate whitespace-nowrap px-4 py-2 text-xs" title={t.synced_from?.connection}>
                             {t.live ? <span className="rounded bg-muted px-1.5 py-0.5 text-2xs font-medium text-muted-foreground" title="Read live from the source database, not copied">Live</span>
                               : t.mirror_of ? <span className="rounded bg-muted px-1.5 py-0.5 text-2xs font-medium text-muted-foreground" title={`Read-only mirror of ${t.mirror_of}`}>Mirror</span>
                               : t.synced_from ? <span className="text-muted-foreground">{t.synced_from.connection}</span>
-                              : <span className="text-muted-foreground">—</span>}
+                              : t.origin_known === false ? <span className="text-muted-foreground">—</span>
+                              : <span className="text-muted-foreground" title="No source writes this table: made in Analytics, by an older sync target, or by another tool">No source</span>}
                           </td>
-                          <td className="dp-num px-4 py-2 pr-6 text-xs text-muted-foreground" title={t.synced_from?.last_run_at}>
+                          <td className="dp-num whitespace-nowrap px-4 py-2 pr-6 text-xs text-muted-foreground" title={t.synced_from?.last_run_at}>
                             {t.synced_from ? ago(t.synced_from.last_run_at) : t.live ? "live" : "—"}
                           </td>
                         </tr>

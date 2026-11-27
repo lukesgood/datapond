@@ -75,6 +75,9 @@ class TableInfo(BaseModel):
     mirror_of: Optional[str] = None
     synced_from: Optional[Dict[str, Any]] = None
     live: bool = False
+    # False when the sync facts could not be read: no synced_from then means "unknown",
+    # not "no source writes this table".
+    origin_known: bool = True
 
 class TablesResponse(BaseModel):
     tables: List[TableInfo]
@@ -99,6 +102,9 @@ class TableDetails(BaseModel):
     mirror_of: Optional[str] = None
     synced_from: Optional[Dict[str, Any]] = None
     live: bool = False
+    # False when the sync facts could not be read: no synced_from then means "unknown",
+    # not "no source writes this table".
+    origin_known: bool = True
 
 class CatalogTree(BaseModel):
     catalogs: List[Dict[str, Any]] = []
@@ -160,7 +166,7 @@ async def _table_facts():
     failure (or a database before migrations 0028/0024) leaves the list as names only."""
     from app import sync_targets, table_links
     from app.api.connectors import get_db_pool
-    links, synced = None, {}
+    links, synced, known = None, {}, False
     try:
         pool = await get_db_pool()
         links = await table_links.load(pool)
@@ -180,9 +186,10 @@ async def _table_facts():
             synced[key] = {"connection_id": str(r["connection_id"]), "connection": r["name"],
                            "last_run_at": _utc_iso(r["last_run_at"]), "rows": r["rows_synced"],
                            "status": r["last_run_status"]}
+        known = True
     except Exception as e:
         logger.info("catalog list: table facts unavailable: %s", e)
-    return links, synced
+    return links, synced, known
 
 
 @router.get("/catalog/tables", response_model=TablesResponse)
@@ -192,7 +199,7 @@ async def list_all_tables(user: dict = Depends(require_user)):
     access = await catalog_access.for_caller(user)
     try:
         tables, errors, readers = [], [], _readers(access)
-        links, synced = await _table_facts()
+        links, synced, known = await _table_facts()
         for entry, reader in readers:
             try:
                 namespaces = reader.list_namespaces()
@@ -210,7 +217,7 @@ async def list_all_tables(user: dict = Depends(require_user)):
                             name=tbl, namespace=ns, catalog=cat, live=live,
                             table_type="source" if live else "iceberg",
                             mirror_of=".".join(owner) if owner else None,
-                            synced_from=synced.get(key)))
+                            synced_from=synced.get(key), origin_known=known))
                 except Exception:
                     continue
         if errors and len(errors) == len(readers):
@@ -235,7 +242,7 @@ async def get_table_details(namespace: str, table: str, catalog: Optional[str] =
             raise HTTPException(status_code=404, detail=f"Table {namespace}.{table} not found")
         location = reader.get_location(namespace, table)
         row_count = reader.row_count(namespace, table)
-        links, synced = await _table_facts()
+        links, synced, known = await _table_facts()
         key = (_label(entry).lower(), namespace.lower(), table.lower())
         owner = links.owner_of(key) if links else None
         live = entry.kind == "trino_source"
@@ -247,6 +254,7 @@ async def get_table_details(namespace: str, table: str, catalog: Optional[str] =
             live=live,
             mirror_of=".".join(owner) if owner else None,
             synced_from=synced.get(key),
+            origin_known=known,
             location=location,
             columns=columns,
             properties={"location": location} if location else {},

@@ -687,7 +687,7 @@ function ConnectorsPageInner() {
                             </span>
                             {conn.schedule_next_at ? (
                               <span className="block text-2xs text-muted-foreground">
-                                next {new Date(conn.schedule_next_at).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })}
+                                next {new Date(conn.schedule_next_at).toLocaleString("en-US", { weekday: "short", hour: "2-digit", minute: "2-digit" })}
                               </span>
                             ) : nextRun(conn.schedule) && (
                               <span className="text-2xs text-muted-foreground">{nextRun(conn.schedule)}</span>
