@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter, usePathname } from "next/navigation"
-import { installAuthInterceptor, clearAuth } from "@/lib/auth"
+import { installAuthInterceptor, clearAuth, loginPathFor } from "@/lib/auth"
 import { Lock, WifiOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -37,7 +37,7 @@ export function AuthInterceptor() {
   const handleRelogin = () => {
     clearAuth()
     setSessionExpired(false)
-    router.push("/login")
+    router.push(loginPathFor(window.location.pathname, window.location.search))
   }
 
   const handleRetry = async () => {

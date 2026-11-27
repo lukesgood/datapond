@@ -159,3 +159,16 @@ test("the fetch interceptor sends API calls with the cookie, never an Authorizat
     g.window = savedWindow
   }
 })
+
+test("signing in returns to the page that asked, and only to this site", async () => {
+  const { postLoginPath, loginPathFor } = await import("./auth.ts")
+  assert.equal(postLoginPath("?next=%2Fmetrics%3Ftab%3Djoins"), "/metrics?tab=joins")
+  assert.equal(postLoginPath(""), "/dashboard")
+  assert.equal(postLoginPath("?next=//evil.example/x"), "/dashboard")
+  assert.equal(postLoginPath("?next=https://evil.example"), "/dashboard")
+  assert.equal(postLoginPath("?next=/%5Cevil.example"), "/dashboard")
+  assert.equal(postLoginPath("?next=/login?next=/x"), "/dashboard")
+  assert.equal(loginPathFor("/metrics", "?tab=joins"), "/login?next=%2Fmetrics%3Ftab%3Djoins")
+  assert.equal(loginPathFor("/", ""), "/login")
+  assert.equal(loginPathFor("/login", "?x=1"), "/login")
+})

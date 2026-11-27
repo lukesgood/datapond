@@ -16,7 +16,9 @@ export function proxy(request: NextRequest) {
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     pathname.startsWith("/icons") ||
-    pathname.startsWith("/connectors")  // connector SVG icons
+    // Connector logos only. A bare startsWith("/connectors") let every Sources page
+    // (/connectors/connections/<id>) render without a session.
+    (pathname.startsWith("/connectors/") && pathname.endsWith(".svg"))
   ) {
     return NextResponse.next()
   }
@@ -28,8 +30,12 @@ export function proxy(request: NextRequest) {
 
   // For page routes (not API), redirect to login if no token
   if (!token && !pathname.startsWith("/api/")) {
+    // Back to this page after signing in. The query moves into ?next=; left on the
+    // URL it landed on /login itself (/metrics?tab=joins -> /login?tab=joins).
     const url = request.nextUrl.clone()
+    const here = pathname + request.nextUrl.search
     url.pathname = "/login"
+    url.search = here === "/" ? "" : `?next=${encodeURIComponent(here)}`
     return NextResponse.redirect(url)
   }
 

@@ -238,3 +238,19 @@ export function installAuthInterceptor() {
     return res
   }
 }
+
+/** Where to go after signing in: the page that sent the person to /login (?next=),
+ *  when it is a path on this site, else the dashboard. Never another origin
+ *  ("//evil.example", "https://…") and never the login page itself. */
+export function postLoginPath(search: string): string {
+  const next = new URLSearchParams(search).get("next") ?? ""
+  if (!next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")
+      || next.startsWith("/login") || /[\r\n]/.test(next)) return "/dashboard"
+  return next
+}
+
+/** /login with the current page as ?next=, so signing in returns to it. */
+export function loginPathFor(pathname: string, search: string): string {
+  const here = pathname + (search || "")
+  return here === "/" || pathname.startsWith("/login") ? "/login" : `/login?next=${encodeURIComponent(here)}`
+}
