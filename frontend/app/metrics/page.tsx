@@ -1,6 +1,7 @@
 // frontend/app/metrics/page.tsx
 "use client"
 
+import { engineCatalogOf } from "@/lib/catalog-sql"
 import { Suspense, useCallback, useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
@@ -185,7 +186,7 @@ function MetricsPage() {
                     <dl className="grid grid-cols-[9rem_minmax(0,1fr)] gap-x-3 gap-y-1.5">
                       <dt className="text-muted-foreground">Approved version</dt><dd>v{current.version}{current.approved_by_name ? `, by ${current.approved_by_name}` : ""}</dd>
                       <dt className="text-muted-foreground">Measure</dt><dd className="font-mono">{current.measure}</dd>
-                      <dt className="text-muted-foreground">Base table</dt><dd className="font-mono">{current.catalog}.{current.base_table}</dd>
+                      <dt className="text-muted-foreground">Base table</dt><dd className="font-mono">{engineCatalogOf(catalogs, current.catalog) ?? current.catalog}.{current.base_table}</dd>
                       <dt className="text-muted-foreground">Only rows where</dt><dd className="font-mono">{current.filters ?? "—"}</dd>
                       <dt className="text-muted-foreground">Time</dt>
                       <dd className="font-mono">{current.time_column
@@ -204,7 +205,7 @@ function MetricsPage() {
                       <h3 className="font-semibold">Waiting for approval: v{pending.version}</h3>
                       <dl className="grid grid-cols-[9rem_minmax(0,1fr)] gap-x-3 gap-y-1">
                         <dt className="text-muted-foreground">Measure</dt><dd className="font-mono">{pending.measure}</dd>
-                        <dt className="text-muted-foreground">Base table</dt><dd className="font-mono">{pending.catalog}.{pending.base_table}</dd>
+                        <dt className="text-muted-foreground">Base table</dt><dd className="font-mono">{engineCatalogOf(catalogs, pending.catalog) ?? pending.catalog}.{pending.base_table}</dd>
                         <dt className="text-muted-foreground">Only rows where</dt><dd className="font-mono">{pending.filters ?? "—"}</dd>
                       </dl>
                       {pending.example_sql && <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs">{pending.example_sql}</pre>}

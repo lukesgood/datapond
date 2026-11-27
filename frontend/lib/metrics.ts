@@ -74,7 +74,7 @@ export function aiSqlMetricView(resp: AiSqlMetricInfo) {
 
 export function approvalWarning(partitionInfo: string): string | null {
   return partitionInfo === "partitioned" ? null
-    : "Partitioning of the base table is unknown: a query may be a full scan within its period, billed by bytes scanned."
+    : "Partitioning of the base table is unknown: a query may be a full scan of the table within its period, which is slow on large tables."
 }
 
 export type RelationshipEdge = {
@@ -90,6 +90,19 @@ export type CatalogEntry = { name: string; engine_catalog: string }
  *  candidates come in alphabetical order, not many-to-one direction, so `reversed` swaps
  *  the sides and the column pair; the server's uniqueness check says which way is valid.
  */
+/** A candidate as it should be approved: from the table holding the reference to the
+ *  table whose key it names. The relationship graph gives naming edges either way round
+ *  (orders.id → shipments.order_id), and that direction's target key is not unique, so
+ *  plain Approve was refused and only "Approve reversed" worked. */
+export function orientCandidate(edge: RelationshipEdge): RelationshipEdge {
+  const pair = edge.joins?.[0]
+  if (!pair || pair.left_column.toLowerCase() !== "id" || pair.right_column.toLowerCase() === "id") return edge
+  return {
+    ...edge, source: edge.target, target: edge.source,
+    joins: edge.joins!.map(j => ({ left_column: j.right_column, right_column: j.left_column })),
+  }
+}
+
 export function joinCandidatePayload(edge: RelationshipEdge, catalogs: CatalogEntry[], reversed = false) {
   const pair = edge.joins?.[0]
   if (!pair) return null

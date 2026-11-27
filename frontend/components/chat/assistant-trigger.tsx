@@ -78,3 +78,11 @@ export function AssistantTrigger() {
     </button>
   )
 }
+
+/** The page area beside the tab. The tab is pinned over the right edge at mid-height,
+ *  where pages keep controls (Analytics' CSV button and chart types, the metric SQL
+ *  rail): its width stays clear for everyone who sees the tab. */
+export function AssistantGutter({ children }: { children: React.ReactNode }) {
+  const canUse = useHasPermission("ai:generate")
+  return <div className={canUse ? "pr-11" : undefined}>{children}</div>
+}
