@@ -96,6 +96,15 @@ def aws_checks(region, instance_type, az_id):
     return out
 
 
+def surges(deployment) -> bool:
+    """Whether a rollout of it starts a new pod beside the old one: not Recreate, and
+    not RollingUpdate with maxSurge 0 (the backend when two replicas always serve)."""
+    st = (deployment.get("spec") or {}).get("strategy") or {}
+    if st.get("type") == "Recreate":
+        return False
+    return str((st.get("rollingUpdate") or {}).get("maxSurge", "25%")) not in ("0", "0%")
+
+
 def node_checks(namespace="datapond"):
     nodes = _run(["kubectl", "get", "nodes", "-o", "json"])["items"]
     pods = _run(["kubectl", "get", "pods", "-A", "-o", "json"])["items"]
@@ -105,7 +114,7 @@ def node_checks(namespace="datapond"):
               for p in pods if p["status"].get("phase") in ("Running", "Pending")
               for c in p["spec"]["containers"])
     rolling = [sum(cpu_m((c.get("resources") or {}).get("requests", {}).get("cpu")) for c in d["spec"]["template"]["spec"]["containers"])
-               for d in deps if (d["spec"].get("strategy") or {}).get("type") != "Recreate"]
+               for d in deps if surges(d)]
     return [check_headroom(alloc, req, max(rolling or [0]))]
 
 

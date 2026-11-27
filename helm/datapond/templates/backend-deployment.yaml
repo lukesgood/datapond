@@ -12,6 +12,22 @@ metadata:
     app.kubernetes.io/component: backend
 spec:
   replicas: {{ .Values.backend.replicas }}
+  {{- /* Replace one pod at a time when two always serve: the default rolling update
+       starts an extra backend first, and on a fully requested single node (with the
+       frontend surging at the same moment) it waited "Insufficient cpu" on every
+       deploy (Infrastructure → Events, 2026-11-27). Chosen here rather than in a
+       profile file because deploys reuse the live release's values. */}}
+  {{- $minServing := ternary (int .Values.backend.autoscaling.minReplicas) (int .Values.backend.replicas) (and .Values.backend.autoscaling .Values.backend.autoscaling.enabled) }}
+  {{- if .Values.backend.strategy }}
+  strategy:
+    {{- toYaml .Values.backend.strategy | nindent 4 }}
+  {{- else if ge $minServing 2 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  {{- end }}
   selector:
     matchLabels:
       app: {{ .Values.backend.name }}
