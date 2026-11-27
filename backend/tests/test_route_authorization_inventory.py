@@ -28,6 +28,8 @@ UNGATED_BY_DESIGN = {
     ("POST", "/api/auth/reset-password"): "public — consumes a mailed token",
     ("POST", "/api/auth/change-password"): "self-scoped — the caller's own password",
     ("PATCH", "/api/auth/me"): "self-scoped — the caller's own profile",
+    ("POST", "/api/feedback"): "self-scoped — a signed-in person files a report as "
+        "themselves (require_human); triage routes are require_admin",
     ("POST", "/api/auth/webauthn/authenticate/begin"): "public — passwordless login, step 1",
     ("POST", "/api/auth/webauthn/authenticate/complete"): "public — passwordless login, step 2",
     ("POST", "/api/auth/webauthn/register/begin"): "self-scoped — enrols the caller's own key",
