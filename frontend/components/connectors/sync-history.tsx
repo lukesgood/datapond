@@ -191,9 +191,15 @@ function SessionRow({ session, defaultOpen, connectionId, onChanged, actionable 
         </span>
       </button>
 
-      {/* Session-level error (when no tables processed) */}
-      {open && session.status === "failed" && session.error && session.tables.length === 0 && (
+      {/* Session-level error: no tables processed, or every table synced and the run
+          failed in a step after them (e.g. lineage) — otherwise a failed run would show
+          only green tables and no reason. */}
+      {open && session.status === "failed" && session.error
+        && !session.tables.some(t => t.status === "failed") && (
         <div className="pb-2 ml-1">
+          {session.tables.length > 0 && (
+            <p className="mb-1 text-xs text-muted-foreground">Every table synced; the run failed after them:</p>
+          )}
           <ErrorDetail error={session.error} />
         </div>
       )}

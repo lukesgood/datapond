@@ -23,6 +23,12 @@ const PRESET_LABELS: Record<string, string> = {
   "@weekly": "Once a week · Sunday midnight", "@yearly": "Once a year", "@annually": "Once a year", "@once": "Once",
 }
 
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+const DOW_LABELS: Record<string, string> = {
+  "1-5": "Weekdays", "MON-FRI": "Weekdays", "mon-fri": "Weekdays",
+  "0,6": "Weekends", "6,0": "Weekends", "6,7": "Weekends", "SAT,SUN": "Weekends",
+}
+
 export function parseCron(cron: string): string {
   if (!cron) return ""
   if (PRESET_LABELS[cron]) return PRESET_LABELS[cron]
@@ -41,7 +47,15 @@ export function parseCron(cron: string): string {
   const [min, hour, dom, , dow] = parts
   if (min.startsWith("*/")) return `Every ${min.slice(2)} min`
   if (hour === "*") return "Every hour"
+  const at = /^\d+$/.test(hour) && /^\d+$/.test(min)
+    ? (min === "0" ? HOUR_OPTIONS.find(o => o.value === Number(hour))?.label : undefined) ?? `${hour.padStart(2, "0")}:${min.padStart(2, "0")}`
+    : null
   if (dow === "*" && dom === "*") return `Daily ${hour.padStart(2, "0")}:${min.padStart(2, "0")}`
+  // Day-of-week schedules the picker's Custom field takes (the samples run "0 8 * * 1-5").
+  if (at && dom === "*") {
+    const days = DOW_LABELS[dow] ?? (/^[0-7]$/.test(dow) ? `Every ${DAY_NAMES[Number(dow) % 7]}` : null)
+    if (days) return `${days} · ${at}`
+  }
   return cron
 }
 

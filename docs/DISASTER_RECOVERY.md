@@ -38,6 +38,10 @@ payload=$(kubectl -n $ns get secret datapond-secrets -o json | jq '{
 aws secretsmanager put-secret-value --secret-id "$SM" --secret-string "$payload"
 ```
 Re-run whenever these values legitimately change (they normally never do).
+Every deploy (`deploy-aws.yml`, last step) runs `scripts/check_secrets_mirror.py` on the node:
+it compares each vault key with the cluster secret by SHA-256 and turns the run red when one
+differs, so a stale vault (the 2026-11-10 incident) is found while the cluster still holds
+the right value. Refreshing the vault stays this manual step; the node's role can only read it.
 **Record the vault name/ARN (`datapond/critical-secrets`) out-of-band** (password manager,
 runbook) — in a real DR you may not have terraform state to look it up.
 

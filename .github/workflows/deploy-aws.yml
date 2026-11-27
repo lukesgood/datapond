@@ -74,6 +74,12 @@ jobs:
     needs: build-push
     runs-on: ubuntu-latest
     steps:
+      # Only for scripts/check_secrets_mirror.py (sent to the node by the last step).
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          sparse-checkout: scripts/check_secrets_mirror.py
+          sparse-checkout-cone-mode: false
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_CD_ROLE_ARN }}
@@ -127,3 +133,26 @@ jobs:
             sleep 10
           done
           aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$CMD" --instance-id "$NODE" --query StandardOutputContent --output text
+
+      - name: Secrets mirror check (vault = cluster)
+        env:
+          NODE: ${{ secrets.NODE_INSTANCE_ID }}
+        run: |
+          # A rebuilt node re-seeds datapond-secrets from the Secrets Manager vault. If the
+          # vault fell behind the cluster (2026-11-10: a stale ENCRYPTION_KEY made every
+          # stored credential unreadable), say so now, while the cluster still has the
+          # right values. Compares SHA-256 on the node; no value is printed or leaves it.
+          SCRIPT="export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+          echo $(base64 < scripts/check_secrets_mirror.py | tr -d '\n') | base64 -d > /tmp/csm.py
+          python3 /tmp/csm.py --region $AWS_REGION; rc=\$?; rm -f /tmp/csm.py; exit \$rc"
+          CMD=$(aws ssm send-command --region "$AWS_REGION" --instance-ids "$NODE" \
+            --document-name AWS-RunShellScript --comment "CD secrets mirror $GITHUB_SHA" \
+            --parameters "executionTimeout=120,commands=[\"echo $(printf '%s' "$SCRIPT" | base64 | tr -d '\n') | base64 -d > /tmp/csm.sh\",\"bash /tmp/csm.sh\"]" \
+            --query Command.CommandId --output text)
+          for i in $(seq 1 20); do
+            S=$(aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$CMD" --instance-id "$NODE" --query Status --output text 2>/dev/null || echo Pending)
+            case "$S" in Success|Failed|TimedOut|Cancelled) break;; esac
+            sleep 5
+          done
+          aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$CMD" --instance-id "$NODE" --query StandardOutputContent --output text
+          [ "$S" = Success ] || { echo "::error::the Secrets Manager vault does not match the cluster (see above); the deploy itself succeeded"; exit 1; }

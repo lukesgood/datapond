@@ -43,3 +43,12 @@ test("Airflow presets read as words and match their buttons", async () => {
   assert.deepEqual(matchCron("@daily"), { freqId: "daily", hour: 0 })
   assert.equal(matchCron("@weekly"), null)
 })
+
+test("day-of-week schedules read as words (the samples run weekdays at 08:00)", async () => {
+  const { parseCron } = await import("./schedule.ts")
+  assert.equal(parseCron("0 8 * * 1-5"), "Weekdays · 08:00 AM")
+  assert.equal(parseCron("30 18 * * 1-5"), "Weekdays · 18:30")
+  assert.equal(parseCron("0 9 * * 0,6"), "Weekends · 09:00 AM")
+  assert.equal(parseCron("0 7 * * 3"), "Every Wednesday · 07:00 AM")
+  assert.equal(parseCron("0 8 1 * 1-5"), "0 8 1 * 1-5")       // both day fields: left as written
+})
