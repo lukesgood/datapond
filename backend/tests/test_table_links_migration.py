@@ -19,7 +19,7 @@ def test_it_chains_from_0027():
     assert m.revision == "0028_catalog_table_links" and len(m.revision) <= 32
     assert m.down_revision == "0027_catalog_kind_trino_source"
     stems = sorted(p.stem for p in VERSIONS.glob("*.py") if re.fullmatch(r"\d{4}_[a-z0-9_]+", p.stem))
-    assert stems[-1] == "0040_concept_feedback_dismiss"
+    assert stems[-1] == "0041_user_feedback"
 
 
 def test_the_links_table_keys_a_mirror_once_and_the_sync_target_is_nullable():

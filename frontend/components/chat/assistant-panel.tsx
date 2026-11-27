@@ -1,5 +1,6 @@
 "use client"
 
+import { FeedbackFooter } from "@/components/chat/feedback-form"
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
 import dynamic from "next/dynamic"
 import { usePathname } from "next/navigation"
@@ -303,6 +304,7 @@ export function AssistantPanel() {
           Shift+Enter for a new line. The conversation is not saved; requests that change something are recorded.
         </p>
       </div>
+      <FeedbackFooter />
     </aside>
   )
 }

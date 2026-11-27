@@ -1,5 +1,6 @@
 "use client"
 
+import { FeedbackAdmin } from "@/components/settings/feedback-admin"
 import { useEffect, useState, useSyncExternalStore, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import NextLink from "next/link"
@@ -44,7 +45,7 @@ const subscribeToClient = () => () => {}
 
 // ?tab=<value> opens that tab. Old names still work: "users" → people, "overview" →
 // urls; "service" went to /agents when service accounts moved there.
-const TABS = ["people", "catalogs", "security", "urls"] as const
+const TABS = ["people", "catalogs", "security", "feedback", "urls"] as const
 const ALIASES: Record<string, string> = { users: "people", overview: "urls" }
 
 export default function SettingsPage() {
@@ -102,11 +103,13 @@ function SettingsWorkspace() {
           <TabsTrigger value="people">People</TabsTrigger>
           <TabsTrigger value="catalogs">Data catalogs</TabsTrigger>
           <TabsTrigger value="security">Sign-in &amp; security</TabsTrigger>
+          <TabsTrigger value="feedback">Feedback</TabsTrigger>
           <TabsTrigger value="urls">Service URLs</TabsTrigger>
         </TabsList>
         <TabsContent value="people" className="mt-5"><People /></TabsContent>
         <TabsContent value="catalogs" className="mt-5"><DataCatalogs canEdit /></TabsContent>
         <TabsContent value="security" className="mt-5"><SecurityPanel /></TabsContent>
+        <TabsContent value="feedback" className="mt-5"><FeedbackAdmin /></TabsContent>
         <TabsContent value="urls" className="mt-5"><ServiceUrls /></TabsContent>
       </Tabs>
       )}

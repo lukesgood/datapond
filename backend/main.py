@@ -558,6 +558,8 @@ app.include_router(maintenance_router, prefix="/api",
 app.include_router(webauthn_router, prefix="/api")
 app.include_router(audit_export_router, prefix="/api")
 app.include_router(tool_call_router, prefix="/api")
+from app.api.feedback import router as feedback_router  # noqa: E402
+app.include_router(feedback_router, prefix="/api")
 app.include_router(semantic_router, prefix="/api")
 app.include_router(concepts_router, prefix="/api")
 # Sharing a connector or a transform with named people (D2). One router for both
