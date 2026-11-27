@@ -205,6 +205,8 @@ export interface AiSafetyFlag {
   risk: string
   user: string
   ts: string
+  user_name?: string | null
+  reason?: string
 }
 
 export const governanceApi = {

@@ -59,3 +59,11 @@ def test_audit_log_returns_empty_page():
 def test_ai_safety_returns_empty_report():
     resp = _run(gov.get_ai_safety(db=_FakeDB()))
     assert resp.risk_distribution.high == 0 and resp.recent_flags == []
+
+
+def test_a_flag_says_why_it_was_flagged():
+    assert gov.sql_risk_reason('SELECT * FROM "default"."orders" LIMIT 100')[0] == "medium"
+    assert "SELECT *" in gov.sql_risk_reason("select * from t")[1]
+    assert gov.sql_risk_reason("DELETE FROM t")[0] == "high"
+    assert gov.sql_risk_reason("SELECT id FROM t") == ("low", "")
+    assert gov.evaluate_sql_risk("DROP TABLE t") == "high"

@@ -30,7 +30,7 @@ export function ActivitySection({ accountId }: { accountId: string }) {
              description="Calls with a disabled or revoked key are refused before the caller is known and do not appear here.">
       <div className="flex gap-1">
         {(Object.keys(WINDOWS) as (keyof typeof WINDOWS)[]).map(w => (
-          <Button key={w} size="sm" variant={w === win ? "secondary" : "ghost"} className="h-7 text-xs"
+          <Button key={w} size="sm" variant={w === win ? "secondary" : "ghost"} aria-pressed={w === win} className="h-7 text-xs"
                   onClick={() => { setWin(w); setSince(sinceFor(w)) }}>Last {w}</Button>
         ))}
       </div>

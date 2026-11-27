@@ -69,16 +69,28 @@ def detect_pii_columns(columns: List[str]) -> List[dict]:
 
 # ── SQL risk evaluation ───────────────────────────────────────────────────────
 
+_HIGH_KEYWORDS = ["DROP ", "TRUNCATE ", "DELETE ", "UPDATE ", "INSERT "]
+_MEDIUM_KEYWORDS = ["SELECT *", "LIMIT 1000"]
+
+
 def evaluate_sql_risk(sql: str) -> str:
     """Return 'high', 'medium', or 'low' risk classification for a SQL statement."""
+    return sql_risk_reason(sql)[0]
+
+
+def sql_risk_reason(sql: str):
+    """(risk, why) — why names what matched, so a flagged query says what to change
+    instead of only "Caution"."""
     sql_upper = sql.upper()
-    high_keywords = ["DROP ", "TRUNCATE ", "DELETE ", "UPDATE ", "INSERT "]
-    medium_keywords = ["SELECT *", "LIMIT 1000"]
-    if any(kw in sql_upper for kw in high_keywords):
-        return "high"
-    if any(kw in sql_upper for kw in medium_keywords):
-        return "medium"
-    return "low"
+    hit = next((kw for kw in _HIGH_KEYWORDS if kw in sql_upper), None)
+    if hit:
+        return "high", f"Writes or removes data ({hit.strip()})."
+    hit = next((kw for kw in _MEDIUM_KEYWORDS if kw in sql_upper), None)
+    if hit == "SELECT *":
+        return "medium", "Reads every column (SELECT *): it may return personal data no one asked for."
+    if hit:
+        return "medium", "Asks for the maximum number of rows (LIMIT 1000)."
+    return "low", ""
 
 
 # ── Response schemas ──────────────────────────────────────────────────────────
@@ -156,6 +168,8 @@ class AiSafetyFlag(BaseModel):
     risk: str
     user: str
     ts: str
+    user_name: Optional[str] = None   # label for `user` (a user id); None when unknown
+    reason: str = ""                  # what matched (sql_risk_reason)
 
 
 class AiSafetyReport(BaseModel):
@@ -1242,8 +1256,9 @@ async def get_ai_safety(
         distribution = {"low": 0, "medium": 0, "high": 0}
         flags: List[AiSafetyFlag] = []
 
+        names = labels_sync(db, [item.user_id for item in recent])
         for item in recent:
-            risk = evaluate_sql_risk(item.query_text or "")
+            risk, why = sql_risk_reason(item.query_text or "")
             distribution[risk] += 1
 
             if risk in ("high", "medium"):
@@ -1252,6 +1267,8 @@ async def get_ai_safety(
                         sql_preview=(item.query_text or "")[:120],
                         risk=risk,
                         user=str(item.user_id) if item.user_id else "unknown",
+                        user_name=names.get(str(item.user_id)) if item.user_id else None,
+                        reason=why,
                         ts=item.created_at.isoformat() if item.created_at else "",
                     )
                 )

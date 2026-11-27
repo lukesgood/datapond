@@ -63,7 +63,10 @@
   --popover-foreground: #0e1c22;
   --primary: #0894ac;
   --primary-foreground: #ffffff;
-  --secondary: #f2f6f7;
+  /* A step darker than the page (#eef3f4): at #f2f6f7 it was lighter than the
+     background, so a selected "secondary" toggle (Last 24h, Sources filters,
+     Analytics panels) looked exactly like the unselected ones. */
+  --secondary: #dbe7ea;
   --secondary-foreground: #172930;
   --muted: #f2f6f7;
   --muted-foreground: #51666e;
@@ -135,7 +138,7 @@
   --popover-foreground: #e7f1f3;
   --primary: #22c3d6;
   --primary-foreground: #04181d;
-  --secondary: #122328;
+  --secondary: #1f363d;
   --secondary-foreground: #e7f1f3;
   --muted: #122328;
   --muted-foreground: #93a8b0;
