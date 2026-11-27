@@ -739,6 +739,23 @@ async def usage_summary():
                                   key=lambda x: x["spend"], reverse=True)
             # What the spend was FOR — the assistant, Ask AI, RAG, embedding.
             out["apps"] = usage_by_feature(lg.json() if lg.status_code < 400 else [])
+            # One ledger for every figure on the page. Total and per-model spend came
+            # from the gateway's running counters (/global/spend*), the feature and
+            # caller rows from the request log; live on 2026-11-27 the same 6,103
+            # requests read $1.63 one way and $5.41 the other, under a note saying the
+            # rows add up to the total. The request log is the per-call evidence, so
+            # when it has rows it is the total; the counter is kept for comparison.
+            log_rows = lg.json() if lg.status_code < 400 and isinstance(lg.json(), list) else []
+            if log_rows:
+                by_model_log = {}
+                for e in log_rows:
+                    k = e.get("model") or "unknown"
+                    by_model_log[k] = by_model_log.get(k, 0.0) + float(e.get("spend") or 0)
+                out["gateway_total_spend"] = out["total_spend"]
+                out["total_spend"] = round(sum(by_model_log.values()), 6)
+                starts = sorted(str(e.get("startTime")) for e in log_rows if e.get("startTime"))
+                out["since"] = starts[0] if starts else None
+                spend_by_model = {**{m: 0.0 for m in spend_by_model}, **by_model_log}
             models = set(spend_by_model) | set(tok)
             for m in sorted(models):
                 t = tok.get(m, {})

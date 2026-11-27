@@ -152,7 +152,7 @@ export function CostPanel() {
         <div className="ml-auto flex items-center gap-3">
           {data && start && (
             <span className="hidden text-xs text-muted-foreground md:inline">
-              {monthName} 1–{data.period.days_elapsed} · us-east-1 list prices · read {new Date(data.read_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              {monthName} 1–{data.period.days_elapsed} · us-east-1 list prices · read {new Date(data.read_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
             </span>
           )}
           <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" disabled={loading} onClick={() => void load(true)}>

@@ -537,7 +537,7 @@ const APP_LABELS: Record<string, string> = {
 }
 
 interface AppUsage { app: string; spend: number; requests: number; total_tokens: number }
-interface Usage { total_spend: number; max_budget: number | null; total_tokens: number; models: ModelUsage[]; keys: KeyUsage[]; users?: UserUsage[]; apps?: AppUsage[]; egress_policy?: string }
+interface Usage { total_spend: number; gateway_total_spend?: number; since?: string | null; max_budget: number | null; total_tokens: number; models: ModelUsage[]; keys: KeyUsage[]; users?: UserUsage[]; apps?: AppUsage[]; egress_policy?: string }
 
 const fmtN = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n)
 
@@ -623,6 +623,13 @@ export function UsagePanel() {
           <div className="rounded-lg border p-3">
             <div className="text-2xs text-muted-foreground">Total spend</div>
             <div className="text-lg font-semibold">{formatUsd(u.total_spend)}{u.max_budget ? <span className="text-xs text-muted-foreground"> / {formatUsd(u.max_budget)}</span> : null}</div>
+            {u.since && <div className="mt-0.5 text-2xs text-muted-foreground">since {new Date(u.since).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</div>}
+            {u.gateway_total_spend != null && Math.abs(u.gateway_total_spend - u.total_spend) >= 0.01 && (
+              <div className="mt-0.5 text-2xs text-muted-foreground"
+                   title="Every figure on this page adds up the gateway's request log. Its own running counter is kept separately and can differ.">
+                Gateway counter: {formatUsd(u.gateway_total_spend)}
+              </div>
+            )}
           </div>
           <div className="rounded-lg border p-3">
             <div className="text-2xs text-muted-foreground">Tokens (recent)</div>

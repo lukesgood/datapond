@@ -11,7 +11,7 @@ import { readJson, sourceStatus } from "@/lib/source-state"
 import { acu, missingSentence, money, stopsToday, type AwsSnapshot } from "@/lib/aws-infra"
 
 const fmtTime = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"
+  iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"
 
 function Spark({ points }: { points: { at: string; pct: number }[] }) {
   if (points.length < 2) return <div className="h-12 text-xs text-muted-foreground">No CPU data in the last 24 h.</div>

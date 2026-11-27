@@ -142,3 +142,54 @@ def test_configuring_backends_still_requires_admin():
         gates = {getattr(d.call, "__datapond_authorization__", None)
                  for d in route.dependant.dependencies}
         assert "role:admin" in gates, f"{path} gates were {gates}"
+
+
+def test_the_total_is_the_sum_of_the_request_log_it_breaks_down(monkeypatch):
+    """Live 2026-11-27: the gateway's running counter said $1.63, the request log
+    behind the feature and caller rows said $5.41 for the same requests. One ledger:
+    the log, with the counter kept beside it for comparison."""
+    import asyncio
+    from app.api import ai_backends
+    logs = [
+        {"model": "haiku", "spend": 2.0, "end_user": "u1", "total_tokens": 10, "request_tags": ["feature:ask"]},
+        {"model": "haiku", "spend": 1.0, "end_user": "u2", "total_tokens": 5, "request_tags": []},
+        {"model": "embed", "spend": 0.5, "end_user": "u1", "total_tokens": 3, "request_tags": []},
+    ]
+
+    class _R:
+        def __init__(self, data):
+            self.status_code, self._d = 200, data
+
+        def json(self):
+            return self._d
+
+    class _C:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *e):
+            return False
+
+        async def get(self, url, **k):
+            if url.endswith("/global/spend"):
+                return _R({"spend": 1.2})
+            if url.endswith("/global/spend/models"):
+                return _R([{"model": "haiku", "total_spend": 1.2}])
+            if url.endswith("/spend/logs"):
+                return _R(logs)
+            return _R({"keys": []})
+
+    async def _same(users):
+        return users
+    monkeypatch.setattr(ai_backends.httpx, "AsyncClient", _C)
+    monkeypatch.setattr(ai_backends, "_gateway", lambda: ("http://gw", "k"))
+    monkeypatch.setattr(ai_backends, "_with_user_names", _same)
+    monkeypatch.setattr(ai_backends, "_with_user_budgets", _same)
+    out = asyncio.run(ai_backends.usage_summary())
+    assert out["total_spend"] == 3.5
+    assert out["gateway_total_spend"] == 1.2
+    assert round(sum(m["spend"] for m in out["models"]), 6) == 3.5
+    assert round(sum(u["spend"] for u in out["users"]), 6) == 3.5

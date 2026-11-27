@@ -112,7 +112,7 @@ export function ServicesPanel() {
         <div className="ml-auto flex items-center gap-3">
           {checkedAt && (
             <span className="hidden text-xs text-muted-foreground md:inline">
-              {healthy} of {workloads.length} healthy · checked {checkedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              {healthy} of {workloads.length} healthy · checked {checkedAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
             </span>
           )}
           <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" disabled={loading}
