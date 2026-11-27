@@ -99,13 +99,13 @@ export function People() {
                       <button type="button" className="text-left font-medium hover:underline" onClick={e => { e.stopPropagation(); setSelected(p.id); setCreating(false) }}>
                         {p.display_name || p.username}{p.id === me?.id && <span className="ml-1 text-xs font-normal text-muted-foreground">(you)</span>}
                       </button>
-                      <div className="text-2xs text-muted-foreground">@{p.username}{p.email && !SYNTHETIC.test(p.email) ? ` · ${p.email}` : ""}</div>
+                      <div className="truncate text-2xs text-muted-foreground" title={p.email || undefined}>@{p.username}{p.email && !SYNTHETIC.test(p.email) && p.email.toLowerCase() !== p.username.toLowerCase() ? ` · ${p.email}` : ""}</div>
                     </td>
                     <td className="px-4 py-2 font-mono text-xs">{p.role}</td>
                     <td className="px-4 py-2 text-xs">
                       {!p.is_active ? "Inactive" : p.require_password_change ? <span className="text-[var(--dp-warn-text)]">Must change password</span> : "Active"}
                     </td>
-                    <td className="px-4 py-2 pr-5 text-right text-xs text-muted-foreground">{when(p.last_activity_at)}</td>
+                    <td className="whitespace-nowrap px-4 py-2 pr-5 text-right text-xs text-muted-foreground">{when(p.last_activity_at)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -191,7 +191,7 @@ export function SystemPanel() {
                 )}
                 <div className="flex items-center justify-between pt-2 border-t text-sm">
                   <span className="flex items-center gap-1.5 text-muted-foreground"><Boxes className="h-3.5 w-3.5" />Running Pods</span>
-                  <Badge variant="secondary" className="font-mono">{c.pods_running ?? "—"} / {c.pods_total ?? "—"}</Badge>
+                  <span className="font-mono text-xs" title="Pods running now, of every pod on the node (finished jobs included). The node's limit is under Max pods.">{c.pods_running ?? "—"} of {c.pods_total ?? "—"}</span>
                 </div>
               </CardContent>
             </Card>
