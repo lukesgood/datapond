@@ -267,7 +267,7 @@ export function DashboardsGallery() {
                           {/* Honesty: don't let a 5-row cap read as the full result set. */}
                           {preview.data.length > 5 && (
                             <p className="px-1 pt-1 text-2xs text-muted-foreground">
-                              +{(preview.data.length - 5).toLocaleString()} more {preview.data.length - 5 === 1 ? "row" : "rows"}
+                              +{(preview.data.length - 5).toLocaleString("en-US")} more {preview.data.length - 5 === 1 ? "row" : "rows"}
                             </p>
                           )}
                         </div>

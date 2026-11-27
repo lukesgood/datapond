@@ -115,7 +115,7 @@ export function VirtualKeys() {
                         {usd(k.spend)} / {k.max_budget != null ? usd(k.max_budget) : "no cap"}
                       </td>
                       <td className="px-4 py-2 text-xs text-muted-foreground">
-                        {[k.rpm_limit != null && `${k.rpm_limit}/min`, k.tpm_limit != null && `${k.tpm_limit.toLocaleString()} tokens/min`].filter(Boolean).join(" · ") || "none"}
+                        {[k.rpm_limit != null && `${k.rpm_limit}/min`, k.tpm_limit != null && `${k.tpm_limit.toLocaleString("en-US")} tokens/min`].filter(Boolean).join(" · ") || "none"}
                       </td>
                       <td className="px-4 py-2 pr-5 text-right">
                         <Button size="sm" variant="ghost" className="text-destructive" onClick={() => revoke(k)}>Revoke…</Button>

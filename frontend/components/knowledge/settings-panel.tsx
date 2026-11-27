@@ -149,7 +149,7 @@ export function SettingsPanel({ c, piiDefault, canEdit, canLower, onChange, onDe
           <select id="kc-split" value={preset ?? ""} onChange={e => setPreset(e.target.value)} disabled={!canEdit || presets.length === 0}
                   className="h-9 w-full max-w-md rounded-md border bg-background px-2 text-sm">
             {presets.map(p => (
-              <option key={p.name} value={p.name}>{p.label} — {p.chunk_size.toLocaleString()} characters, {p.chunk_overlap} overlap</option>
+              <option key={p.name} value={p.name}>{p.label} — {p.chunk_size.toLocaleString("en-US")} characters, {p.chunk_overlap} overlap</option>
             ))}
           </select>
         </div>

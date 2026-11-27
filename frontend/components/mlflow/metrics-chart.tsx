@@ -26,7 +26,7 @@ export function MetricsChart({
   const chartData = data.map((point) => ({
     step: point.step,
     [metricKey]: point.value,
-    timestamp: new Date(point.timestamp).toLocaleString(),
+    timestamp: new Date(point.timestamp).toLocaleString("en-US"),
   }))
 
   return (

@@ -168,7 +168,7 @@ function TablesCard({
                       <td className={`py-2 text-xs ${states[table.name] === "failed" || states[table.name] === "behind" ? "text-[var(--dp-warn-text)]" : ""}`}>
                         {runLabel(states[table.name], table.last_run_at)}
                       </td>
-                      <td className="py-2 pr-6 text-right font-mono text-xs">{rows != null ? rows.toLocaleString() : "—"}</td>
+                      <td className="py-2 pr-6 text-right font-mono text-xs">{rows != null ? rows.toLocaleString("en-US") : "—"}</td>
                       <td className="py-2 font-mono text-xs">{table.pii_columns?.length ? table.pii_columns.join(", ") : <span className="text-muted-foreground">—</span>}</td>
                       <td className="py-2 text-right">
                         <Button size="sm" variant={on ? "secondary" : "outline"} className="h-7 text-xs"
@@ -1263,7 +1263,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                         "bg-[var(--dp-warn)]/10 text-[var(--dp-warn-text)]"
                       }`}>{check.overall_status}</span>
                       <span className="text-2xs text-muted-foreground">
-                        {new Date(check.checked_at).toLocaleString()}
+                        {new Date(check.checked_at).toLocaleString("en-US")}
                       </span>
                     </div>
                   </div>
@@ -1271,7 +1271,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                   {/* Row count */}
                   <div className="flex items-center gap-4 text-xs mb-2">
                     <span className="text-muted-foreground">Rows:</span>
-                    <span className="font-mono font-medium">{check.rows_current?.toLocaleString()}</span>
+                    <span className="font-mono font-medium">{check.rows_current?.toLocaleString("en-US")}</span>
                     {check.row_change_pct != null && (
                       <span className={`font-mono text-2xs ${
                         check.row_change_status === "alert" ? "text-destructive" :
@@ -1388,7 +1388,7 @@ export default function ConnectionDetailPage({ params }: { params: Promise<{ id:
                     <span key={i} title={x.status} className={`h-3 flex-1 rounded-sm ${x.status === "success" ? "bg-[var(--dp-good)]" : x.status === "failed" ? "bg-destructive" : "bg-muted-foreground/30"}`} />
                   ))}
                 </div>
-                <p className="mt-1">{successRate}% succeeded · {lastRunRows != null ? `${lastRunRows.toLocaleString()} rows last time` : "no rows yet"}</p>
+                <p className="mt-1">{successRate}% succeeded · {lastRunRows != null ? `${lastRunRows.toLocaleString("en-US")} rows last time` : "no rows yet"}</p>
               </>
             ) : "Never synced."}
           </RailSection>

@@ -89,7 +89,7 @@ export function AwsPanel() {
                 <Tile label="Node" value={n.state ?? "—"} sub={stops ? `stops today ${stops}` : data.schedule.enabled === false ? "runs 24/7" : n.lifecycle ?? ""} />
                 <Tile label="Aurora" value={a.acu_now != null ? `${acu(a.acu_now)} ACU` : a.status ?? "—"} sub={a.min_acu != null ? `range ${a.min_acu}–${a.max_acu}` : ""} />
                 <Tile label="Data bucket" value={data.s3.size_gb != null ? `${(data.s3.size_gb * 1000).toFixed(1)} MB` : "—"}
-                      sub={data.s3.objects != null ? `${data.s3.objects.toLocaleString()} objects` : "measured daily by S3"} />
+                      sub={data.s3.objects != null ? `${data.s3.objects.toLocaleString("en-US")} objects` : "measured daily by S3"} />
               </div>
 
               <section className="overflow-hidden rounded-xl border bg-card">

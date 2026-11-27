@@ -712,8 +712,7 @@ def shape_composition(rows, refresh_source: Optional[dict]) -> dict:
     }
 
 
-def build_lineage(connections, jobs, collections,
-                  default_catalog: Optional[str] = None) -> dict:
+def build_lineage(connections, jobs, collections, default_catalog=None) -> dict:
     """connector → namespace.table → collection, from data the product already acts on.
 
     _invalidate_sink_collections() in app/api/connectors.py marks a collection stale
@@ -729,14 +728,28 @@ def build_lineage(connections, jobs, collections,
     default (or unnamed, as every row stored before catalogs existed), and
     `catalog.ns.table` otherwise — which no sync matches, because none writes there.
     """
-    def table_key(target: str, fallback: str) -> str:
-        # Namespace from the target, not assumed to be `default`: a sync can write
-        # into another namespace, and assuming otherwise breaks the match silently —
-        # which is how a stale collection comes to look fresh.
+    def table_key(target: str, source: str) -> str:
+        # Read the target the way the writer does (trino_sync.target_ref, also what
+        # _invalidate_sink_collections matches on): older rows store
+        # `datapond.default.public.knowledge_articles` for what lands in
+        # default.knowledge_articles. Splitting the string instead gave
+        # public.knowledge_articles, nothing matched, and every collection fed by a
+        # sync showed "no upstream" on the live console (2026-11-27). The namespace
+        # still comes from the target, not an assumed `default`.
+        try:
+            from app.connectors.trino_sync import target_ref
+            ref = target_ref(source or "", target)
+            if ref.namespace and ref.table:
+                return f"{ref.namespace}.{ref.table}"
+        except Exception:
+            pass
         parts = (target or "").split(".")
         ns = parts[-2] if len(parts) >= 2 else "default"
-        name = parts[-1] if parts and parts[-1] else fallback
+        name = parts[-1] if parts and parts[-1] else (source or "").split(".")[-1]
         return f"{ns}.{name}"
+
+    defaults = ({default_catalog.lower()} if isinstance(default_catalog, str)
+                else {d.lower() for d in (default_catalog or []) if d})
 
     wanted, coll_nodes, edges = {}, [], []
     for c in collections:
@@ -745,7 +758,7 @@ def build_lineage(connections, jobs, collections,
         src = c.get("refresh_source") or {}
         if src.get("type") == "iceberg" and src.get("schema") and src.get("table"):
             cat = (src.get("catalog") or "").strip()
-            if cat and default_catalog and cat.lower() == default_catalog.lower():
+            if cat and cat.lower() in defaults:
                 cat = ""
             key = f"{cat + '.' if cat else ''}{src['schema']}.{src['table']}"
             wanted.setdefault(key, []).append(c)
@@ -769,8 +782,10 @@ def build_lineage(connections, jobs, collections,
                 edges.append(edge)
 
     for key, consumers in wanted.items():
-        if key not in table_nodes:
-            continue
+        # A collection re-embedded from a table has that table upstream whether or not
+        # a source syncs it (a table written by a notebook or a transform): drawing it
+        # beats "no upstream — ingested directly", which the Sources tab contradicts.
+        table_nodes.setdefault(key, {"id": f"table:{key}", "kind": "table", "label": key})
         for c in consumers:
             edges.append({
                 "source": f"table:{key}", "target": f"collection:{c['name']}",
@@ -1450,8 +1465,9 @@ async def knowledge_lineage(user: dict = Depends(require_user)):
     for c2 in connections:
         c2["id"] = str(c2["id"])
     from app import catalog_registry
+    d = catalog_registry.default_entry()
     return build_lineage(connections, jobs, cols,
-                         default_catalog=catalog_registry.default_entry().name)
+                         default_catalog=[d.name, d.engine_catalog])
 
 
 @router.patch("/ai/collections/{name}",

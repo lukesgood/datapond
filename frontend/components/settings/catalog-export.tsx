@@ -245,7 +245,7 @@ export function MirrorsSection({ refreshKey }: { refreshKey: number }) {
               <Badge variant="outline" className={`text-2xs ${TONE_CLS[mirrorTone(m.status)]}`}>{m.status}</Badge>
               <span className="text-muted-foreground">owner <span className="font-mono">{m.owner}</span></span>
               <span className="ml-auto text-2xs text-muted-foreground">
-                {m.checked_at ? `checked ${new Date(m.checked_at).toLocaleString()}` : "not checked yet"}</span>
+                {m.checked_at ? `checked ${new Date(m.checked_at).toLocaleString("en-US")}` : "not checked yet"}</span>
               {m.detail && <p className="w-full text-2xs text-muted-foreground">{m.detail}</p>}
             </div>
           ))}

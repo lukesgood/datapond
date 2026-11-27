@@ -73,7 +73,7 @@ export function KeysSection({ agent, onChange }: { agent: AgentDetail; onChange:
       })
       const d = await res.json().catch(() => ({}))
       if (res.ok) {
-        const until = d.old_key_expires_at ? new Date(d.old_key_expires_at).toLocaleString() : null
+        const until = d.old_key_expires_at ? new Date(d.old_key_expires_at).toLocaleString("en-US") : null
         setIssued({
           key: d.key, account: a.username,
           note: until ? `Replaces ${key.key_prefix}…, which keeps working until ${until}.` : undefined,
@@ -215,7 +215,7 @@ export function KeysSection({ agent, onChange }: { agent: AgentDetail; onChange:
               </span>
               <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
                 {k.last_used_at
-                  ? `used ${new Date(k.last_used_at).toLocaleDateString()}`
+                  ? `used ${new Date(k.last_used_at).toLocaleDateString("en-US")}`
                   : "never used"}
                 {k.status === "active" && (
                   <button

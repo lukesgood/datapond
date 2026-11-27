@@ -64,7 +64,7 @@ export function IdentitySection({ agent, onChange }: { agent: AgentDetail; onCha
           </select>
         </div>
         <div><span className="text-muted-foreground">Username </span><code className="font-mono">{agent.username}</code></div>
-        <div><span className="text-muted-foreground">Created </span>{new Date(agent.created_at).toLocaleDateString()}</div>
+        <div><span className="text-muted-foreground">Created </span>{new Date(agent.created_at).toLocaleDateString("en-US")}</div>
         <div><span className="text-muted-foreground">Status </span><span className={`font-medium ${TONE[status.tone]}`}>{status.label}</span></div>
       </div>
       <div className="flex flex-wrap gap-1">

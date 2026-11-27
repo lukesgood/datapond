@@ -165,7 +165,7 @@ export default function ExperimentDetailPage({ params: paramsPromise }: { params
 
   const formatTimestamp = (timestamp: number) => {
     const date = new Date(timestamp)
-    return date.toLocaleString()
+    return date.toLocaleString("en-US")
   }
 
   const toggleRunSelection = (runId: string) => {

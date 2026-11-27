@@ -374,7 +374,7 @@ export default function DashboardViewPage() {
                   {"  ·  "}
                 </>
               )}
-              <span className="tabular-nums">{(queryResult.rows?.length ?? 0).toLocaleString()}</span>{" "}
+              <span className="tabular-nums">{(queryResult.rows?.length ?? 0).toLocaleString("en-US")}</span>{" "}
               {(queryResult.rows?.length ?? 0) === 1 ? "row" : "rows"}
             </p>
           )}

@@ -238,7 +238,7 @@ export function TransformEditor({ id, initial, dagId, onSaved, onCancel }: {
               <>
                 <div className="flex gap-1" role="img" aria-label={runSummary(runs)}>
                   {runs.map((r, i) => (
-                    <span key={i} title={`${r.state}${r.at ? ` · ${new Date(r.at).toLocaleString()}` : ""}`}
+                    <span key={i} title={`${r.state}${r.at ? ` · ${new Date(r.at).toLocaleString("en-US")}` : ""}`}
                           className="h-3.5 w-3.5 rounded-sm"
                           style={{ background: r.state === "success" ? "var(--dp-good)" : r.state === "failed" ? "var(--destructive)" : "var(--muted-foreground)" }} />
                   ))}
