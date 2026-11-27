@@ -1303,6 +1303,17 @@ async def update_user(user_id: str, body: dict, admin: dict = Depends(require_pe
         # A service account's key identity is cached per replica (role, is_active and
         # pii_mode are read when it is resolved); this replica applies the change now.
         forget_cached_keys_for(user_id)
+    # People changes were not audited: Governance → Activity showed sign-ins but not
+    # who made whom an administrator or switched an account off.
+    changed = sorted(k for k in body if k in ("role", "is_active", "display_name", "email",
+                                              "external_id", "attributes", "pii_mode"))
+    event = ("role_assigned" if "role" in body
+             else ("account_activated" if body.get("is_active") else "account_deactivated") if "is_active" in body
+             else "user_updated")
+    await record_auth_event(event, user_id=user_id, details={
+        "by": admin.get("username"), "changed": changed,
+        **({"role": body["role"]} if "role" in body else {}),
+        **({"is_active": bool(body["is_active"])} if "is_active" in body else {})})
     return {"message": "User updated"}
 
 
@@ -1313,12 +1324,19 @@ async def delete_user(user_id: str, admin: dict = Depends(require_permission("us
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
     pool = await _get_pool()
     async with pool.acquire() as conn:
+        # Who it was, read before the row goes: the audit entry outlives the account.
+        gone = await conn.fetchrow("SELECT username, email, role FROM users WHERE id = $1",
+                                   uuid.UUID(user_id))
         result = await conn.execute(
             "DELETE FROM users WHERE id = $1",
             uuid.UUID(user_id)
         )
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="User not found")
+    # Unaudited before 2026-11-27: a deleted administrator left no trace anywhere.
+    await record_auth_event("user_deleted", user_email=gone["email"] if gone else None, details={
+        "by": admin.get("username"), "user_id": user_id,
+        "username": gone["username"] if gone else None, "role": gone["role"] if gone else None})
     return {"message": "User deleted"}
 
 
