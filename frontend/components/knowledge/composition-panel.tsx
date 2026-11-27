@@ -135,7 +135,7 @@ export function CompositionPanel({ name, onChange }: { name: string; onChange?: 
               <span className="flex shrink-0 items-center gap-3 text-2xs tabular-nums text-muted-foreground">
                 {s.last_ingested && (
                   <span className="flex items-center gap-0.5">
-                    <Clock className="h-2.5 w-2.5" />{new Date(s.last_ingested).toLocaleDateString()}
+                    <Clock className="h-2.5 w-2.5" />{new Date(s.last_ingested).toLocaleDateString("en-US")}
                   </span>
                 )}
                 <span className="w-14 text-right font-medium text-foreground">{s.chunks}</span>

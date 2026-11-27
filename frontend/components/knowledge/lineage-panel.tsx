@@ -93,6 +93,9 @@ export function LineagePanel() {
                 ))}
                 {f.table && <><Chip node={f.table} /><ArrowRight className="h-3 w-3 text-muted-foreground" /></>}
                 <Chip node={collection} />
+                {f.conns.length === 0 && (
+                  <span className="text-2xs text-muted-foreground">no source syncs this table; it is re-read on the collection&apos;s schedule</span>
+                )}
                 {!f.active && (
                   <span className="rounded bg-[var(--dp-warn)]/10 px-1.5 py-0.5 text-2xs text-[var(--dp-warn-text)]">
                     refresh paused

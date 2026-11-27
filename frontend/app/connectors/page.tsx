@@ -421,7 +421,7 @@ function ConnectorsPageInner() {
             },
             {
               label: "Last Sync Rows",
-              value: totalLastRows > 0 ? totalLastRows.toLocaleString() : "—",
+              value: totalLastRows > 0 ? totalLastRows.toLocaleString("en-US") : "—",
               sub: "total rows — most recent sync",
               icon: Rows3,
               color: "",
@@ -705,7 +705,7 @@ function ConnectorsPageInner() {
                       </TableCell>
                       <TableCell className="text-xs text-right text-muted-foreground">
                         {connStats.get(conn.id)?.lastRows != null
-                          ? connStats.get(conn.id)!.lastRows!.toLocaleString()
+                          ? connStats.get(conn.id)!.lastRows!.toLocaleString("en-US")
                           : "—"}
                       </TableCell>
                       <TableCell className="text-xs text-right">

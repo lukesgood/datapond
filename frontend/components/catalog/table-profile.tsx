@@ -108,7 +108,7 @@ export function TableProfileView({ profile, error, keys, onColumn, drilled }: {
             <ul className="space-y-1 text-sm">
               {profile.snapshots.map(s => (
                 <li key={s.at} className="flex justify-between gap-4">
-                  <span className="text-muted-foreground">{new Date(s.at).toLocaleString()}</span>
+                  <span className="text-muted-foreground">{new Date(s.at).toLocaleString("en-US")}</span>
                   <span className="tabular-nums">{snapshotLabel(s)}
                     {s.total_records != null && <span className="text-muted-foreground"> · {s.total_records.toLocaleString("en-US")} total</span>}
                   </span>

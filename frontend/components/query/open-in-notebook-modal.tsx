@@ -43,7 +43,7 @@ function buildNotebookCells(
         "Generated from **Analytics** — edit and run to explore your data.\n",
         "\n",
         `**Query columns:** \`${columns.slice(0, 8).join(", ")}${columns.length > 8 ? " ..." : ""}\`  \n`,
-        `**Rows returned:** ${rowCount.toLocaleString()}  \n`,
+        `**Rows returned:** ${rowCount.toLocaleString("en-US")}  \n`,
         `**Execution time:** ${executionTimeMs < 1000 ? `${Math.round(executionTimeMs)}ms` : `${(executionTimeMs / 1000).toFixed(2)}s`}`,
       ].join(""),
       metadata: {},
@@ -292,7 +292,7 @@ export function OpenInNotebookModal({
               <div className="flex items-center gap-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <Database className="h-3 w-3" />
-                  {rowCount.toLocaleString()} rows
+                  {rowCount.toLocaleString("en-US")} rows
                 </span>
                 <span className="flex items-center gap-1">
                   <BarChart2 className="h-3 w-3" />

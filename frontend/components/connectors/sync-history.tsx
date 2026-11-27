@@ -167,7 +167,7 @@ function SessionRow({ session, defaultOpen, connectionId, onChanged, actionable 
             <div className="flex items-center gap-3 mt-0.5 text-2xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Rows3 className="h-3 w-3" />
-                {session.rows_processed.toLocaleString()} rows
+                {session.rows_processed.toLocaleString("en-US")} rows
               </span>
               <span className="flex items-center gap-1">
                 <Database className="h-3 w-3" />
@@ -229,7 +229,7 @@ function SessionRow({ session, defaultOpen, connectionId, onChanged, actionable 
 
                 {t.status === "success" && t.rows != null && (
                   <span className="text-muted-foreground font-mono shrink-0">
-                    {t.rows.toLocaleString()} rows
+                    {t.rows.toLocaleString("en-US")} rows
                   </span>
                 )}
                 {t.status === "running" && (
@@ -258,7 +258,7 @@ function SessionRow({ session, defaultOpen, connectionId, onChanged, actionable 
                                 style={{ width: `${s.pct}%` }} />
                             </div>
                             <span className="text-muted-foreground font-mono shrink-0">
-                              {s.rows_done?.toLocaleString()}/{s.rows_total?.toLocaleString()} ({s.pct}%)
+                              {s.rows_done?.toLocaleString("en-US")}/{s.rows_total?.toLocaleString("en-US")} ({s.pct}%)
                             </span>
                           </div>
                         ) : (
@@ -294,7 +294,7 @@ function SessionRow({ session, defaultOpen, connectionId, onChanged, actionable 
                     .filter(s => s.step !== "skip" && s.step !== "schema_check" || s.action === "drop")
                     .map((s, si) => (
                       <span key={si} className="text-2xs text-muted-foreground/60">
-                        {s.step === "insert" ? `inserted ${s.rows_done?.toLocaleString()} rows`
+                        {s.step === "insert" ? `inserted ${s.rows_done?.toLocaleString("en-US")} rows`
                           : s.step === "drop" ? "schema updated"
                           : s.step === "done" ? ""
                           : s.step}

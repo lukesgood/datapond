@@ -154,7 +154,7 @@ export default function StoragePage() {
     <div className="mx-auto max-w-[1400px] flex-1 space-y-5 p-8 pt-6">
       <PageHeader title="Storage"
         description={overview
-          ? `${storageLabel} through the S3 API · ${overview.bucket_count} bucket${overview.bucket_count === 1 ? "" : "s"} · ${overview.total_object_count.toLocaleString()} objects · ${overview.total_size_human}`
+          ? `${storageLabel} through the S3 API · ${overview.bucket_count} bucket${overview.bucket_count === 1 ? "" : "s"} · ${overview.total_object_count.toLocaleString("en-US")} objects · ${overview.total_size_human}`
           : `${storageLabel} through the S3 API`}
         actions={<Button variant="outline" size="sm" onClick={() => void refresh()}><RefreshCw className="mr-1.5 h-3.5 w-3.5" />Refresh</Button>} />
 
@@ -167,7 +167,7 @@ export default function StoragePage() {
               <thead className="bg-muted/40 text-left text-xs text-muted-foreground"><tr><th scope="col" className="px-4 py-2 font-medium">Bucket</th><th scope="col" className="px-4 py-2 text-right font-medium">Objects</th><th scope="col" className="px-4 py-2 text-right font-medium">Size</th></tr></thead>
               <tbody>
                 {(overview?.buckets ?? []).map(b => (
-                  <tr key={b.name} className="border-t"><td className="px-4 py-2 font-mono text-xs">{b.name}</td><td className="px-4 py-2 text-right">{b.error ? "—" : b.object_count.toLocaleString()}</td><td className="px-4 py-2 text-right">{b.error ? "—" : b.total_size_human}</td></tr>
+                  <tr key={b.name} className="border-t"><td className="px-4 py-2 font-mono text-xs">{b.name}</td><td className="px-4 py-2 text-right">{b.error ? "—" : b.object_count.toLocaleString("en-US")}</td><td className="px-4 py-2 text-right">{b.error ? "—" : b.total_size_human}</td></tr>
                 ))}
               </tbody>
             </table>
@@ -267,7 +267,7 @@ export default function StoragePage() {
                 <h3 className="break-all font-mono text-sm font-semibold text-foreground">{selected.key.split("/").pop()}</h3>
                 <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
                   <dt className="text-muted-foreground">Size</dt><dd>{selected.size_human}</dd>
-                  <dt className="text-muted-foreground">Modified</dt><dd>{new Date(selected.last_modified).toLocaleString()}</dd>
+                  <dt className="text-muted-foreground">Modified</dt><dd>{new Date(selected.last_modified).toLocaleString("en-US")}</dd>
                   <dt className="text-muted-foreground">Key</dt><dd className="break-all font-mono text-xs">{selected.key}</dd>
                   <dt className="text-muted-foreground">S3 URI</dt><dd className="break-all font-mono text-xs">s3://{selected.bucket}/{selected.key}</dd>
                 </dl>
@@ -283,7 +283,7 @@ export default function StoragePage() {
                 <RailSection title={prefix ? prefix : bucket ?? "Storage"}>
                   {inTable
                     ? "This folder is an Iceberg table: its data and metadata files. Query it from Analytics; drop it from Catalog."
-                    : bucketStat && !prefix ? `${bucketStat.object_count.toLocaleString()} objects · ${bucketStat.total_size_human} in this bucket.` : "Pick a file to see its details."}
+                    : bucketStat && !prefix ? `${bucketStat.object_count.toLocaleString("en-US")} objects · ${bucketStat.total_size_human} in this bucket.` : "Pick a file to see its details."}
                 </RailSection>
                 <RailSection title="Uploads">Files go into the folder you are in. Drop several at once onto the list.</RailSection>
                 {inTable && <RailAttention title="Inside an Iceberg table">Deleting files here is refused: it would corrupt the table.</RailAttention>}

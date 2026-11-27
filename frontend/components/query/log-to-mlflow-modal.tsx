@@ -244,7 +244,7 @@ export function LogToMlflowModal({
               </p>
               <div className="flex gap-2 pt-0.5">
                 <Badge variant="secondary" className="text-2xs h-5">
-                  {rowCount.toLocaleString()} rows
+                  {rowCount.toLocaleString("en-US")} rows
                 </Badge>
                 <Badge variant="secondary" className="text-2xs h-5">
                   {executionTimeMs >= 1000 ? `${executionTimeSec}s` : `${executionTimeMs}ms`}

@@ -106,7 +106,7 @@ export function TableRail({ table, typeLabel, catalogKind, connectionId, graph, 
         <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" />Reading the table…</p>
       ) : (
         <dl className="grid grid-cols-2 gap-3">
-          <div><dt className="text-xs text-muted-foreground">Rows</dt><dd className="dp-num text-lg font-semibold">{detail.row_count != null ? detail.row_count.toLocaleString() : "—"}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">Rows</dt><dd className="dp-num text-lg font-semibold">{detail.row_count != null ? detail.row_count.toLocaleString("en-US") : "—"}</dd></div>
           <div><dt className="text-xs text-muted-foreground">Columns</dt><dd className="dp-num text-lg font-semibold">{detail.columns.length}</dd></div>
         </dl>
       )}
@@ -275,7 +275,7 @@ export function SendToKnowledgePanel({ table, onClose }: { table: CatalogTable; 
 
       <RailSection title="What happens">
         Each row&apos;s <span className="font-mono">{col || "text column"}</span> becomes a document, masked by the
-        collection&apos;s PII mode before it is embedded. Up to the first {ROWS_PER_RUN.toLocaleString()} rows are read
+        collection&apos;s PII mode before it is embedded. Up to the first {ROWS_PER_RUN.toLocaleString("en-US")} rows are read
         per run, and the embedding is billed to you.
         {sched ? " Each scheduled run replaces the chunks the previous one made." : ""}
       </RailSection>

@@ -50,7 +50,7 @@ export function ActivitySection({ accountId }: { accountId: string }) {
                 const bad = r.outcome === "refused" || r.outcome === "error"
                 return (
                   <div key={r.id} className={`grid grid-cols-[9rem_1fr_5rem_1fr_3rem_4rem_3.5rem] items-center gap-3 px-3 py-1.5 ${bad ? "bg-destructive/5" : ""}`}>
-                    <span className="text-muted-foreground">{new Date(r.occurred_at).toLocaleString()}</span>
+                    <span className="text-muted-foreground">{new Date(r.occurred_at).toLocaleString("en-US")}</span>
                     <span className="truncate font-mono">{r.tool}</span>
                     <span className={bad ? "font-medium text-destructive" : ""}>{r.outcome}</span>
                     <span className="truncate" title={r.resource.join(", ")}>{r.resource.join(", ") || "—"}</span>

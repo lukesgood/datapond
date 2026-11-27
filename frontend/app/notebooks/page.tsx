@@ -247,7 +247,7 @@ function NotebooksPageInner() {
                             ? <>{kernelLabel(s.kernel.name)} · <span className="text-[var(--dp-good-text)]">{s.kernel.execution_state ?? "running"}</span></>
                             : <span className="text-muted-foreground">not running</span>}
                         </td>
-                        <td className="px-3 py-2 text-xs text-muted-foreground" title={nb.last_modified ? new Date(nb.last_modified).toLocaleString() : undefined}>{ago(nb.last_modified)}</td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground" title={nb.last_modified ? new Date(nb.last_modified).toLocaleString("en-US") : undefined}>{ago(nb.last_modified)}</td>
                         <td className="px-3 py-2">
                           <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
                             <Button variant="outline" size="sm" disabled={!j.canOpen}

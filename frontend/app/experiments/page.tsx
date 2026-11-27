@@ -105,7 +105,7 @@ function formatDuration(startMs: number, endMs?: number): string {
 
 function formatTs(ms: number): string {
   if (!ms) return "—"
-  return new Date(ms).toLocaleString()
+  return new Date(ms).toLocaleString("en-US")
 }
 
 function runDisplayName(run: Run): string {

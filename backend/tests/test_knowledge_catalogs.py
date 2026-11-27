@@ -195,7 +195,9 @@ def test_a_collection_of_another_catalog_is_not_downstream_of_a_default_sync():
                           default_catalog="iceberg")
     targets = {e["target"] for e in out["edges"]}
     assert "collection:default-kb" in targets
-    assert "collection:finance-kb" not in targets
+    # finance-kb reads its own catalog's table, which no sync writes.
+    assert {e["source"] for e in out["edges"] if e["target"] == "collection:finance-kb"} == {"table:finance.sales.orders"}
+    assert not any(e["target"] == "table:finance.sales.orders" for e in out["edges"])
 
 
 def test_a_collection_naming_the_default_catalog_still_matches():

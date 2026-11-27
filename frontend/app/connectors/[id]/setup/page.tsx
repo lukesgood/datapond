@@ -289,7 +289,7 @@ export default function ConnectorSetupPage({ params }: { params: Promise<{ id: s
                                                            onChange={e => setTable(t.name, { enabled: e.target.checked })} /></td>
                               <td className="py-1.5">
                                 <span className="font-mono text-xs">{t.name}</span>
-                                {t.row_count != null && <span className="text-xs text-muted-foreground"> · {t.row_count.toLocaleString()} rows</span>}
+                                {t.row_count != null && <span className="text-xs text-muted-foreground"> · {t.row_count.toLocaleString("en-US")} rows</span>}
                                 {/* The columns the lake table will get: for a Python or REST source
                                     this is the only look at what the code or API returns. */}
                                 {cols.length > 0 && (

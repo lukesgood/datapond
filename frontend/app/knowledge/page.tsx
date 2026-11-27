@@ -175,13 +175,13 @@ export default function KnowledgePage() {
                       {c.owner_id === null
                         ? <Badge variant="outline" className="text-2xs gap-0.5"><Users className="h-2.5 w-2.5" />shared</Badge>
                         : (me && c.owner_id !== me.id)
-                          ? <Badge variant="outline" className="text-2xs">other</Badge>
+                          ? <Badge variant="outline" className="text-2xs" title="Owned by another person">not yours</Badge>
                           : null}
                     </div>
                   </div>
                   <div className="dp-num text-2xs text-muted-foreground mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
                     <span>{c.chunks} vectors</span>·<span>{c.embed_model} ({c.dim}d)</span>
-                    {c.sources != null && <><span>·</span><span>{c.sources} sources</span></>}
+                    {c.sources != null && <><span>·</span><span>{c.sources} {c.sources === 1 ? "source" : "sources"}</span></>}
                   </div>
                   <div className="text-2xs text-muted-foreground/70 mt-0.5 flex flex-wrap gap-x-2 items-center">
                     {/* What protects this collection, not the index type (every collection
@@ -337,7 +337,7 @@ function Workspace({ collection, onChange, piiDefault, onDeleted }: {
         <CardTitle className="text-base">{name}</CardTitle>
         <CardDescription>
           {collection.owner_id === null ? "Shared with everyone" : viewer && collection.owner_id === viewer.id ? "You own it" : memberRole ? `You are a ${memberRole}` : "Owned by someone else"}
-          {" · "}{collection.chunks.toLocaleString()} chunks
+          {" · "}{collection.chunks.toLocaleString("en-US")} chunks
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -433,10 +433,10 @@ function SchedulePanel({ name, ownerId, memberRole }: { name: string; ownerId: s
     <div className="space-y-3 pt-3 text-sm">
       <div className="flex items-center gap-2">
         <Badge className="bg-[var(--dp-good)] text-white">Active</Badge>
-        <span className="text-muted-foreground">re-embeds every <span className="dp-num">{state.interval_minutes}</span> min</span>
+        <span className="text-muted-foreground">re-embeds every <span className="dp-num">{everyLabel(state.interval_minutes)}</span></span>
       </div>
       <div className="grid grid-cols-1 gap-1 text-xs text-muted-foreground">
-        <div>Last run: {state.last_refreshed_at ? new Date(state.last_refreshed_at).toLocaleString() : "not yet"}</div>
+        <div>Last run: {state.last_refreshed_at ? new Date(state.last_refreshed_at).toLocaleString("en-US") : "not yet"}</div>
         {state.last_refresh_status && (
           <div className="flex items-center gap-1">Status:
             <span className={okStatus ? "text-[var(--dp-good-text)]" : "text-[var(--dp-warn-text)]"}>{state.last_refresh_status}</span>
@@ -514,11 +514,12 @@ function SearchPanel({ name }: { name: string }) {
     <div className="space-y-3 pt-3">
       <div className="flex gap-2">
         <Input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && run()}
-          placeholder="Ask a question…" />
-        <div className="flex rounded-md border overflow-hidden">
+          placeholder="Ask a question…" className="min-w-0 flex-1" />
+        {/* shrink-0: beside the input the toggle was squeezed to "RAG" and a sliver. */}
+        <div className="flex shrink-0 rounded-md border overflow-hidden">
           {(["rag", "search"] as const).map(m => (
             <button key={m} onClick={() => setMode(m)}
-              className={`px-3 text-xs ${mode === m ? "bg-primary text-primary-foreground" : "bg-background"}`}>
+              className={`whitespace-nowrap px-3 text-xs ${mode === m ? "bg-primary text-primary-foreground" : "bg-background"}`}>
               {m === "rag" ? "RAG" : "Search"}</button>
           ))}
         </div>
@@ -720,7 +721,7 @@ function IngestPanel({ name, ownerId, memberRole, onChange }: { name: string; ow
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ schedule: sched, source: sourceBody() }) })
       if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
-      const d = await r.json(); toast(`Schedule created — auto re-embeds every ${d.interval_minutes} min`, "success")
+      const d = await r.json(); toast(`Schedule created — auto re-embeds every ${everyLabel(d.interval_minutes)}`, "success")
     } catch (error) { setE(error instanceof Error ? error.message : "Schedule creation failed") }
     setSchedBusy(false)
   }
@@ -748,7 +749,7 @@ function IngestPanel({ name, ownerId, memberRole, onChange }: { name: string; ow
           <Textarea value={text} onChange={e => setText(e.target.value)} placeholder="Paste documents to embed…" className="min-h-[160px] text-sm" />
           <div className="flex items-center justify-between">
             <Button onClick={ingestText} disabled={!text.trim() || busy}>{busy && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}Ingest</Button>
-            {text.trim() && <span className="text-2xs tabular-nums text-muted-foreground">{text.length.toLocaleString()} chars · masked at ingest</span>}
+            {text.trim() && <span className="text-2xs tabular-nums text-muted-foreground">{text.length.toLocaleString("en-US")} chars · masked at ingest</span>}
           </div>
         </>
       ) : (
@@ -821,13 +822,21 @@ function IngestPanel({ name, ownerId, memberRole, onChange }: { name: string; ow
           <span className="flex items-center gap-1.5 font-medium text-[var(--dp-good-text)]">
             <CheckCircle2 className="h-3.5 w-3.5" />Ingested
           </span>
-          {result.docs != null && <span className="text-muted-foreground"><b className="tabular-nums text-foreground">{result.docs.toLocaleString()}</b> docs</span>}
-          <span className="text-muted-foreground"><b className="tabular-nums text-foreground">{result.chunks.toLocaleString()}</b> chunks embedded</span>
-          <span className="text-muted-foreground"><b className="tabular-nums text-foreground">{result.pii.toLocaleString()}</b> PII masked</span>
+          {result.docs != null && <span className="text-muted-foreground"><b className="tabular-nums text-foreground">{result.docs.toLocaleString("en-US")}</b> docs</span>}
+          <span className="text-muted-foreground"><b className="tabular-nums text-foreground">{result.chunks.toLocaleString("en-US")}</b> chunks embedded</span>
+          <span className="text-muted-foreground"><b className="tabular-nums text-foreground">{result.pii.toLocaleString("en-US")}</b> PII masked</span>
           <span className="ml-auto text-2xs text-muted-foreground">now searchable in this collection</span>
         </div>
       )}
       {e && <ErrorBox msg={e} />}
     </div>
   )
+}
+
+/** 360 → "6 hours", 90 → "90 min", 1440 → "day". */
+function everyLabel(minutes: number | null): string {
+  if (!minutes) return "—"
+  if (minutes % 1440 === 0) return minutes === 1440 ? "day" : `${minutes / 1440} days`
+  if (minutes % 60 === 0) return minutes === 60 ? "hour" : `${minutes / 60} hours`
+  return `${minutes} min`
 }

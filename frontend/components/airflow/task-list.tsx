@@ -137,7 +137,7 @@ export function TaskList({ tasks, onViewLogs }: TaskListProps) {
                           <div>
                             <span className="text-muted-foreground">Started:</span>
                             <span className="ml-1 font-medium text-xs">
-                              {new Date(task.start_date).toLocaleTimeString()}
+                              {new Date(task.start_date).toLocaleTimeString("en-US")}
                             </span>
                           </div>
                         )}

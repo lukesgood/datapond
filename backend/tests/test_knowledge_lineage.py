@@ -93,3 +93,29 @@ def test_a_failing_sync_is_carried_onto_the_node():
 
 def test_nothing_configured_is_an_empty_graph_not_an_error():
     assert build_lineage([], [], []) == {"nodes": [], "edges": []}
+
+
+def test_an_older_target_string_matches_where_the_sync_actually_writes():
+    """Live 2026-11-27: jobs store `datapond.default.public.knowledge_articles`, the
+    sync writes default.knowledge_articles, and the collection over it said "no
+    upstream". Read the target as the writer does."""
+    out = build_lineage([conn("c1", "shop")],
+                        [job("c1", "public.knowledge_articles", "datapond.default.public.knowledge_articles")],
+                        [coll("runbook", "default", "knowledge_articles")])
+    assert _edge(out, "connector:shop", "table:default.knowledge_articles")
+    assert _edge(out, "table:default.knowledge_articles", "collection:runbook")
+
+
+def test_a_table_no_source_syncs_is_still_the_collections_upstream():
+    out = build_lineage([], [], [coll("notes", "default", "notes")])
+    assert _edge(out, "table:default.notes", "collection:notes")
+    assert not any(n["kind"] == "connector" for n in out["nodes"])
+
+
+def test_the_default_catalog_matches_by_either_name():
+    c = coll("kb", "default", "orders")
+    c["refresh_source"]["catalog"] = "iceberg"
+    out = build_lineage([conn("c1", "crm")], [job("c1", "public.orders", "datapond.default.orders")], [c],
+                        default_catalog=["AwsDataCatalog", "iceberg"])
+    assert _edge(out, "connector:crm", "table:default.orders")
+    assert _edge(out, "table:default.orders", "collection:kb")

@@ -28,7 +28,7 @@ const when = (iso: string | null) => {
   if (!iso) return "never"
   const d = new Date(iso)
   const days = Math.floor((Date.now() - d.getTime()) / 86400000)
-  return days <= 0 ? "today" : days === 1 ? "yesterday" : days < 30 ? `${days} days ago` : d.toLocaleDateString()
+  return days <= 0 ? "today" : days === 1 ? "yesterday" : days < 30 ? `${days} days ago` : d.toLocaleDateString("en-US")
 }
 const errText = async (r: Response) => {
   const d = await r.json().catch(() => ({}))
@@ -250,7 +250,7 @@ function PersonRail({ person, isMe, onClose, onChanged, onDeleted }: {
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className="truncate text-base font-semibold">{person.display_name || person.username}</h3>
-          <p className="text-xs text-muted-foreground">@{person.username}{person.created_at ? ` · joined ${new Date(person.created_at).toLocaleDateString()}` : ""}</p>
+          <p className="text-xs text-muted-foreground">@{person.username}{person.created_at ? ` · joined ${new Date(person.created_at).toLocaleDateString("en-US")}` : ""}</p>
         </div>
         <Button size="icon-sm" variant="ghost" aria-label="Close" onClick={onClose}><X className="h-4 w-4" /></Button>
       </div>

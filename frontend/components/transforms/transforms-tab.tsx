@@ -21,7 +21,7 @@ function LastRun({ t }: { t: SavedTransform }) {
   const word = t.last_run_state === "success" ? "Succeeded" : t.last_run_state === "failed" ? "Failed"
     : t.last_run_state[0].toUpperCase() + t.last_run_state.slice(1)
   return (
-    <span className={tone} title={t.last_run_at ? new Date(t.last_run_at).toLocaleString() : undefined}>
+    <span className={tone} title={t.last_run_at ? new Date(t.last_run_at).toLocaleString("en-US") : undefined}>
       {word}{t.last_run_at ? ` · ${formatDistance(new Date(t.last_run_at), new Date(), { addSuffix: true })}` : ""}
     </span>
   )

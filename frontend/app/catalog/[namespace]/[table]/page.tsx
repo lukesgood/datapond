@@ -195,7 +195,7 @@ function TableDetailPageInner() {
 
   const formatNumber = (num?: number) => {
     if (num == null) return "—"
-    return num.toLocaleString()
+    return num.toLocaleString("en-US")
   }
 
   // Overall fill rate (100 − mean null_rate) across profiled columns. Only meaningful
@@ -420,7 +420,7 @@ function TableDetailPageInner() {
                                 </span>
                               </div>
                             </td>
-                            <td className="px-4 py-1.5 text-right tabular-nums text-muted-foreground">{s.distinct_count.toLocaleString()}</td>
+                            <td className="px-4 py-1.5 text-right tabular-nums text-muted-foreground">{s.distinct_count.toLocaleString("en-US")}</td>
                             <td className="px-4 py-1.5 font-mono text-muted-foreground truncate max-w-[160px]">{s.min ?? "—"}</td>
                             <td className="px-4 py-1.5 font-mono text-muted-foreground truncate max-w-[160px]">{s.max ?? "—"}</td>
                           </tr>
@@ -441,7 +441,7 @@ function TableDetailPageInner() {
                 {preview && preview.rows.length > 0 && (
                   // Be explicit that this is a capped sample, not the full table.
                   <Badge variant="secondary" className="font-normal tabular-nums">
-                    first {preview.total_returned.toLocaleString()} rows
+                    first {preview.total_returned.toLocaleString("en-US")} rows
                   </Badge>
                 )}
               </CardTitle>
@@ -597,7 +597,7 @@ function TableDetailPageInner() {
                   <div>
                     <p className="text-sm font-medium mb-1">Last Updated</p>
                     <p className="text-sm text-muted-foreground">
-                      {new Date(tableDetail.last_updated).toLocaleString()}
+                      {new Date(tableDetail.last_updated).toLocaleString("en-US")}
                     </p>
                   </div>
                 )}
