@@ -81,7 +81,7 @@ export function QueryHistoryItem({ query, onSelect }: Props) {
         {/* Rows returned (only for successful queries) */}
         {query.status === "success" && (
           <Badge variant="outline" className="text-xs">
-            {query.rows_returned} rows
+            {query.rows_returned} {query.rows_returned === 1 ? "row" : "rows"}
           </Badge>
         )}
 

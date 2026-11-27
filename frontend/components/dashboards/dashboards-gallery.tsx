@@ -119,8 +119,8 @@ export function DashboardsGallery() {
         <p className="text-sm text-muted-foreground">Saved SQL queries visualised as charts</p>
 
         {/* Stats strip */}
-        {!loading && !error && (
-          <div className="grid grid-cols-4 gap-3">
+        {!loading && !error && dashboards.length > 0 && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
               { label: "Total",   value: dashboards.length,                                             icon: BarChart3 },
               { label: "Public",  value: dashboards.filter(d => d.is_public).length,                    icon: Globe     },
@@ -177,7 +177,7 @@ export function DashboardsGallery() {
               <div>
                 <p className="font-medium text-sm">No dashboards yet</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Run a query in the SQL Editor and click &quot;Save as Dashboard&quot;
+                  Run a query in the SQL Editor, then click Save to keep its chart here.
                 </p>
               </div>
               <Button size="sm" onClick={() => router.push("/query")}>

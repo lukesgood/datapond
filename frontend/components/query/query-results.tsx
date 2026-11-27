@@ -50,16 +50,16 @@ function formatValue(value: unknown, type: string): string {
   if (type === "number" && typeof value === "number") {
     // Integer vs float
     return Number.isInteger(value)
-      ? value.toLocaleString()
-      : value.toLocaleString(undefined, { maximumFractionDigits: 6 })
+      ? value.toLocaleString("en-US")
+      : value.toLocaleString("en-US", { maximumFractionDigits: 6 })
   }
   if (type === "date" && typeof value === "string") {
     try {
       const d = new Date(value)
       if (!isNaN(d.getTime())) {
         return value.includes("T")
-          ? d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
-          : d.toLocaleDateString(undefined, { dateStyle: "medium" })
+          ? d.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })
+          : d.toLocaleDateString("en-US", { dateStyle: "medium" })
       }
     } catch { /* fall through */ }
   }
@@ -128,7 +128,7 @@ export function QueryResults({
       {/* Toolbar */}
       <div className="flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">{rows.length.toLocaleString()}</span> rows
+          <span className="font-medium text-foreground">{rows.length.toLocaleString("en-US")}</span> rows
           {executionTime !== undefined && (
             <span>· {executionTime < 1000 ? `${Math.round(executionTime)}ms` : `${(executionTime / 1000).toFixed(2)}s`}</span>
           )}
@@ -219,7 +219,7 @@ export function QueryResults({
       {totalPages > 1 && (
         <div className="flex items-center justify-between shrink-0 text-xs text-muted-foreground">
           <span>
-            Rows {(page * ROWS_PER_PAGE + 1).toLocaleString()}–{Math.min((page + 1) * ROWS_PER_PAGE, rows.length).toLocaleString()} of {rows.length.toLocaleString()}
+            Rows {(page * ROWS_PER_PAGE + 1).toLocaleString("en-US")}–{Math.min((page + 1) * ROWS_PER_PAGE, rows.length).toLocaleString("en-US")} of {rows.length.toLocaleString("en-US")}
           </span>
           <div className="flex items-center gap-0.5">
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setPage(0)} disabled={page === 0}>

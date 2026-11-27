@@ -38,7 +38,7 @@ const chartTypes: { type: ChartType; icon: React.ComponentType<{ className?: str
 
 export function ChartSelector({ selectedType, onTypeChange, availability, compact }: ChartSelectorProps) {
   return (
-    <div className="flex flex-wrap items-center gap-1 p-1 bg-muted rounded-lg" role="group" aria-label="Chart type">
+    <div className="flex shrink-0 items-center gap-1 overflow-x-auto p-1 bg-muted rounded-lg" role="group" aria-label="Chart type">
       {chartTypes.map(({ type, icon: Icon, label }) => {
         const fit = availability?.[type]
         const off = fit ? !fit.ok : false

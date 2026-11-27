@@ -1,5 +1,6 @@
 "use client"
 
+import { useHasPermission } from "@/lib/permissions"
 import { useState, useRef, useCallback, useEffect, useMemo, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -98,6 +99,9 @@ function QueryPageInner() {
   const [copied, setCopied]                 = useState(false)
   const [error, setError]                   = useState<string | null>(null)
   const [chartType, setChartType]           = useState<ChartType>("table")
+  // The assistant's tab is pinned to the right edge at mid-height, where the result
+  // toolbar's CSV button and the last chart types are; keep its width clear.
+  const hasAssistant = useHasPermission("ai:generate")
   const resultShape                         = useRef<string>("")
   // Bumped by every run that writes the editor and results; a metric response that
   // returns after a newer run started is dropped instead of overwriting it.
@@ -501,7 +505,7 @@ function QueryPageInner() {
   const resultsStale = !!results && executedQuery !== null && query.trim() !== executedQuery.trim()
 
   return (
-    <div className="flex flex-col overflow-hidden bg-background" style={{ height: "calc(100vh - 56px)" }}>
+    <div className={`flex flex-col overflow-hidden bg-background ${hasAssistant ? "pr-11" : ""}`} style={{ height: "calc(100vh - 56px)" }}>
 
       {/* ── Top app toolbar ─────────────────────────────────────────────────── */}
       <div className="flex items-center gap-1.5 border-b px-3 h-11 shrink-0 bg-background">
@@ -518,7 +522,7 @@ function QueryPageInner() {
           {queryStatus === "success" && results && (
             <Badge className="dp-num text-xs text-white bg-[var(--dp-good)] hover:bg-[var(--dp-good)] gap-1">
               <TableProperties className="h-3 w-3" />
-              {results.truncated ? "first " : ""}{results.rows.length.toLocaleString()} rows · {
+              {results.truncated ? "first " : ""}{results.rows.length.toLocaleString("en-US")} rows · {
                 results.execution_time_ms < 1000
                   ? `${Math.round(results.execution_time_ms)}ms`
                   : `${(results.execution_time_ms / 1000).toFixed(2)}s`
@@ -704,8 +708,8 @@ function QueryPageInner() {
           {/* ── Editor section ───────────────────────────────────────────────── */}
           <div className="shrink-0 flex flex-col border-b" style={{ height: editorHeight }}>
             {/* Editor header */}
-            <div className="flex items-center justify-between px-3 h-9 border-b bg-muted/30 shrink-0">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between gap-2 px-3 h-9 border-b bg-muted/30 shrink-0">
+              <div className="flex min-w-0 items-center gap-2 whitespace-nowrap">
                 <Code2 className="h-3.5 w-3.5 text-muted-foreground" />
                 <span className="text-xs font-medium">SQL Editor</span>
                 <div className="h-3.5 w-px bg-border" />
@@ -774,15 +778,15 @@ function QueryPageInner() {
           {/* ── Results section ──────────────────────────────────────────────── */}
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Results header */}
-            <div className="flex items-center justify-between px-3 h-9 border-b bg-muted/30 shrink-0">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between gap-2 px-3 h-9 border-b bg-muted/30 shrink-0">
+              <div className="flex min-w-0 items-center gap-2 whitespace-nowrap">
                 <BarChart2 className="h-3.5 w-3.5 text-muted-foreground" />
                 <span className="text-xs font-medium">Results</span>
                 {hasResults && (
                   <>
                     <div className="h-3.5 w-px bg-border" />
                     <span className="dp-num text-2xs text-muted-foreground">
-                      {results.truncated ? "first " : ""}{results.rows.length.toLocaleString()} rows
+                      {results.truncated ? "first " : ""}{results.rows.length.toLocaleString("en-US")} rows
                     </span>
                     <span className="text-2xs text-muted-foreground/60">·</span>
                     <span className="dp-num text-2xs text-muted-foreground">
@@ -819,8 +823,10 @@ function QueryPageInner() {
               </div>
               {/* Chart selector — inline in results header */}
               {hasResults && (
+                // With a side panel open the labelled buttons wrapped out of the 36px
+                // header; icons keep their names as tooltips.
                 <ChartSelector selectedType={chartType} onTypeChange={pickChartType}
-                               availability={chartFit.availability} />
+                               availability={chartFit.availability} compact={rightPanel !== null} />
               )}
             </div>
 
