@@ -11,6 +11,9 @@ export default function ResetPasswordPage() {
   // login page's direct URLSearchParams read — no Suspense boundary needed in this build.
   const [token] = useState<string | null>(() =>
     typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("token"))
+  // ?invite=1: a sign-in link an administrator made (Settings → People), not a reset.
+  const [invite] = useState(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("invite") === "1")
   const [pw, setPw]             = useState("")
   const [confirm, setConfirm]   = useState("")
   const [showPw, setShowPw]     = useState(false)
@@ -105,8 +108,8 @@ export default function ResetPasswordPage() {
           </div>
 
           <div className="space-y-1">
-            <h2 className="text-2xl font-bold tracking-tight">Reset password</h2>
-            <p className="text-sm text-muted-foreground">Enter a new password for your account.</p>
+            <h2 className="text-2xl font-bold tracking-tight">{invite ? "Set your password" : "Reset password"}</h2>
+            <p className="text-sm text-muted-foreground">{invite ? "Choose a password for your new account. This link works once." : "Enter a new password for your account."}</p>
           </div>
 
           {missingToken ? (
@@ -195,7 +198,7 @@ export default function ResetPasswordPage() {
               )}
 
               <Button type="submit" className="w-full h-10 font-medium" disabled={loading || !pw || !confirm}>
-                {loading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Resetting…</> : "Reset password"}
+                {loading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving…</> : invite ? "Set password" : "Reset password"}
               </Button>
 
               <a href="/login"

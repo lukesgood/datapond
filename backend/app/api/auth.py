@@ -1052,7 +1052,73 @@ async def reset_password(body: ResetPasswordRequest):
                 "UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1",
                 row["id"],
             )
+    await record_auth_event("password_reset_complete", user_id=row["user_id"])
     return {"message": "Password has been reset. You can now sign in."}
+
+
+# ── Sign-in links (invite a tester without sharing a password) ─────────────────
+#
+# An administrator makes a one-time link for a person account; opening it lets that
+# person choose their own password (the /reset page and reset-password above), after
+# which they sign in normally. The link is a password_reset_tokens row like the
+# emailed one — single use, only its hash stored, older unused links voided — with a
+# longer life (default 72 h, at most 7 days), so it can travel by chat to a tester.
+# It never signs anyone in by itself: a leaked used or expired link is worth nothing,
+# and nothing reusable sits in a URL, a browser history or a chat log.
+
+SIGN_IN_LINK_DEFAULT_HOURS = 72
+SIGN_IN_LINK_MAX_HOURS = 168
+
+
+def sign_in_link_hours(requested) -> int:
+    try:
+        h = int(requested) if requested is not None else SIGN_IN_LINK_DEFAULT_HOURS
+    except (TypeError, ValueError):
+        h = SIGN_IN_LINK_DEFAULT_HOURS
+    return max(1, min(SIGN_IN_LINK_MAX_HOURS, h))
+
+
+@router.post("/auth/users/{user_id}/sign-in-link")
+async def create_sign_in_link(user_id: str, request: Request, body: Optional[dict] = None,
+                              admin: dict = Depends(require_permission("user:manage")),
+                              _human: dict = Depends(require_human)):
+    """Admin: a one-time link for this person to set their password (see above)."""
+    hours = sign_in_link_hours((body or {}).get("hours"))
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="No such person")
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, username, email, is_active, auth_method FROM users WHERE id = $1", uid)
+        if not row:
+            raise HTTPException(status_code=404, detail="No such person")
+        if str(row["auth_method"] or "").lower() == "service":
+            raise HTTPException(status_code=400, detail="Agents sign in with keys, not a link.")
+        if not row["is_active"]:
+            raise HTTPException(status_code=400, detail="Reactivate this person first; a deactivated account cannot sign in.")
+        if str(row["auth_method"] or "local").lower() not in ("local", "password", ""):
+            raise HTTPException(status_code=400,
+                                detail=f"This person signs in through {row['auth_method']}; a password link would not be used.")
+        raw_token = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=hours)
+        async with conn.transaction():
+            await conn.execute(
+                "UPDATE password_reset_tokens SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL",
+                row["id"])
+            await conn.execute(
+                "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)",
+                row["id"], _hash_reset_token(raw_token), expires_at)
+    await record_auth_event("password_reset_request", user_id=row["id"], user_email=row["email"],
+                            request=request,
+                            details={"kind": "sign_in_link", "by": admin.get("username"), "hours": hours})
+    return {
+        "url": f"{_reset_base_url(request)}/reset?token={raw_token}&invite=1",
+        "expires_at": expires_at.isoformat(),
+        "hours": hours,
+        "username": row["username"],
+    }
 
 
 # ── User management endpoints ──────────────────────────────────────────────────
