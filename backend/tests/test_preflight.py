@@ -36,3 +36,10 @@ def test_parsing_kubernetes_cpu_quantities():
 def test_the_report_fails_when_any_check_fails():
     ok, warn, fail = pf.Check("a", "ok", ""), pf.Check("b", "warn", ""), pf.Check("c", "fail", "")
     assert pf.exit_code([ok, warn]) == 0 and pf.exit_code([ok, fail]) == 1
+
+
+def test_a_deployment_that_replaces_in_place_needs_no_surge_room():
+    assert pf.surges({"spec": {"strategy": {"type": "RollingUpdate", "rollingUpdate": {"maxSurge": 0}}}}) is False
+    assert pf.surges({"spec": {"strategy": {"type": "Recreate"}}}) is False
+    assert pf.surges({"spec": {}}) is True
+    assert pf.surges({"spec": {"strategy": {"type": "RollingUpdate", "rollingUpdate": {"maxSurge": "25%"}}}}) is True
