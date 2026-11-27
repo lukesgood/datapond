@@ -212,7 +212,7 @@ type ScheduleInfo = {
 function scheduleWhen(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })
+  return d.toLocaleString("en-US", { weekday: "short", hour: "2-digit", minute: "2-digit" })
 }
 function ScheduleCard({
   schedule, info, savingSchedule, scheduleMsg, onSave, schedulerEnabled, canEdit,

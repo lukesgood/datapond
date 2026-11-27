@@ -37,6 +37,16 @@ export function TableStatus({ facts, connectionId }: { facts: TableFacts; connec
           {s.status && s.status !== "success" && <span className="text-[var(--dp-warn-text)]"> · last run {s.status}</span>}</span>
       </li>)
   }
+  // A lake table nothing syncs: say so, rather than leave a "Managed" table with no
+  // origin (live: the iceberg.public copies a 2.5 upgrade left behind).
+  if (!lines.length && !facts.live && facts.origin_known !== false) {
+    lines.push(
+      <li key="none" className="flex items-start gap-1.5">
+        <Database aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span><span className="font-medium text-foreground">No source writes this table.</span>{" "}
+          It was made in Analytics, by an older sync target, or by another tool, and changes only when someone writes to it.</span>
+      </li>)
+  }
   if (!lines.length) return null
   return <ul className="space-y-1 text-xs text-muted-foreground">{lines}</ul>
 }

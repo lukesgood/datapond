@@ -110,6 +110,8 @@ export interface TableFacts {
   mirror_of?: string | null
   synced_from?: { connection_id: string; connection: string; last_run_at: string; rows?: number | null; status?: string | null } | null
   live?: boolean
+  /** False when the server could not read which sync writes each table. */
+  origin_known?: boolean
 }
 
 /** "3 h ago", "2 days ago", "just now" — for a sync time. */

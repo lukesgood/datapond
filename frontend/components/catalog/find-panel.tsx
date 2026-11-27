@@ -37,8 +37,8 @@ export function FindPanel({ result, loading, failed, onPick, canPick }: {
   // The label leaves the catalog out to stay short; the full name is the tooltip, since
   // the same namespace.table can exist in two catalogs (a mirror, a source).
   const tableLink = (key: string, label: string, full = key) => canPick(key)
-    ? <button type="button" title={full} onClick={() => onPick(key)} className="font-mono text-xs text-primary hover:underline focus-visible:underline focus-visible:outline-none">{label}</button>
-    : <span title={full} className="font-mono text-xs">{label}</span>
+    ? <button type="button" title={full} onClick={() => onPick(key)} className="min-w-0 truncate text-left font-mono text-xs text-primary hover:underline focus-visible:underline focus-visible:outline-none">{label}</button>
+    : <span title={full} className="min-w-0 truncate font-mono text-xs">{label}</span>
 
   return (
     <section aria-label="Search results" className="space-y-1.5 rounded-xl border bg-card px-4 py-3 text-sm">
@@ -73,11 +73,11 @@ export function FindPanel({ result, loading, failed, onPick, canPick }: {
           <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
             Columns{(result.column_total ?? 0) > result.columns.length ? ` (first ${result.columns.length} of ${result.column_total})` : ""}
           </summary>
-          <ul className="mt-1 grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
+          <ul className="mt-1 grid gap-x-4 gap-y-0.5 sm:grid-cols-[repeat(2,minmax(0,1fr))]">
             {result.columns.map(c => (
               <li key={`${foundKey(c)}.${c.column}`} className="flex min-w-0 items-baseline gap-1.5">
                 {tableLink(foundKey(c), `${c.namespace}.${c.table}.${c.column}`, `${c.catalog}.${c.namespace}.${c.table}.${c.column}`)}
-                {c.type && <span className="text-2xs text-muted-foreground">{c.type}</span>}
+                {c.type && <span className="shrink-0 text-2xs text-muted-foreground">{c.type}</span>}
                 {c.why !== "name" && <span className="truncate text-2xs text-muted-foreground">{c.why}</span>}
               </li>
             ))}
