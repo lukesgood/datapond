@@ -313,6 +313,13 @@ function PersonRail({ person, isMe, onClose, onChanged, onDeleted }: {
           ) : (
             <Row title="Reset password" hint="Sets a temporary password." action={<Button size="sm" variant="outline" onClick={() => setResetting(true)} disabled={busy}>Reset…</Button>} />
           )}
+          {person.is_active && (
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium">Sign-in link</p>
+              <p className="text-xs text-muted-foreground">For a tester: they set their own password; no password is sent.</p>
+              <SignInLink key={person.id} personId={person.id} />
+            </div>
+          )}
           {person.is_active
             ? <Row title="Deactivate" hint="Signs out now, keeps history." action={<Button size="sm" variant="outline" onClick={() => setActive(false)} disabled={busy}>Deactivate…</Button>} />
             : <Row title="Reactivate" hint="They can sign in again." action={<Button size="sm" variant="outline" onClick={() => setActive(true)} disabled={busy}>Reactivate</Button>} />}
@@ -332,6 +339,57 @@ function Row({ title, hint, action, danger }: { title: string; hint: string; act
   )
 }
 
+/** A one-time link for this person to choose their own password (POST
+ *  /auth/users/{id}/sign-in-link): for a tester, instead of a password sent in chat.
+ *  It works once and expires; it never signs anyone in by itself. */
+type LinkInfo = { url: string; expires_at: string }
+
+async function createSignInLink(personId: string): Promise<LinkInfo> {
+  const r = await fetch(`/api/auth/users/${personId}/sign-in-link`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hours: 72 }),
+  })
+  if (!r.ok) throw new Error(await errText(r))
+  return r.json()
+}
+
+function SignInLink({ personId, initial = null }: { personId: string; initial?: LinkInfo | null }) {
+  const [link, setLink] = useState<LinkInfo | null>(initial)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const make = async () => {
+    setBusy(true); setErr(null); setCopied(false)
+    try { setLink(await createSignInLink(personId)) }
+    catch (e) { setErr(e instanceof Error ? e.message : "Could not create the link") }
+    finally { setBusy(false) }
+  }
+  const copy = async () => {
+    if (!link) return
+    try { await navigator.clipboard.writeText(link.url); setCopied(true) } catch { setCopied(false) }
+  }
+  return (
+    <div className="space-y-2">
+      {link ? (
+        <>
+          <div className="flex gap-2">
+            <Input readOnly value={link.url} aria-label="Sign-in link" className="font-mono text-xs" onFocus={e => e.currentTarget.select()} />
+            <Button size="sm" variant="outline" onClick={copy}>{copied ? "Copied" : "Copy"}</Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Works once, until {new Date(link.expires_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}.
+            They choose a password with it, then sign in as usual. A new link voids this one.
+          </p>
+        </>
+      ) : (
+        <Button size="sm" variant="outline" onClick={make} disabled={busy}>
+          {busy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}Create sign-in link
+        </Button>
+      )}
+      {err && <p role="alert" className="text-xs text-destructive">{err}</p>}
+    </div>
+  )
+}
+
 function NewPersonRail({ existing, onClose, onCreated }: { existing: Person[]; onClose: () => void; onCreated: (id: string | null) => void }) {
   const { toast } = useToast()
   const options = useRoleOptions()
@@ -343,6 +401,11 @@ function NewPersonRail({ existing, onClose, onCreated }: { existing: Person[]; o
   const [showPw, setShowPw] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // "link": they get a one-time link and choose their own password (recommended for
+  // testers); "password": the administrator sets a temporary one to pass on.
+  const [mode, setMode] = useState<"link" | "password">("link")
+  const [madeId, setMadeId] = useState<string | null>(null)
+  const [madeLink, setMadeLink] = useState<LinkInfo | null>(null)
 
   const taken = existing.some(p => p.username.toLowerCase() === username.trim().toLowerCase())
   const emailBad = !!email.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())
@@ -353,7 +416,7 @@ function NewPersonRail({ existing, onClose, onCreated }: { existing: Person[]; o
     try {
       const r = await fetch("/api/auth/setup", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: username.trim(), password: pw, display_name: displayName.trim() || undefined, email: email.trim() || undefined }),
+        body: JSON.stringify({ username: username.trim(), password: mode === "link" ? randomPassword() : pw, display_name: displayName.trim() || undefined, email: email.trim() || undefined }),
       })
       if (!r.ok) throw new Error(await errText(r))
       // /auth/setup always creates a viewer; any other role is a second call, checked.
@@ -364,11 +427,26 @@ function NewPersonRail({ existing, onClose, onCreated }: { existing: Person[]; o
         const p = await fetch(`/api/auth/users/${made.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role }) })
         if (!p.ok) throw new Error(`Created as viewer, but the role was refused: ${await errText(p)}`)
       }
+      if (mode === "link" && made) {
+        toast(`${username.trim()} added; send them the sign-in link`, "success")
+        // Link first, then switch the rail: SignInLink reads `initial` once.
+        try { setMadeLink(await createSignInLink(made.id)) } catch { /* its button retries */ }
+        setMadeId(made.id)
+        return
+      }
       toast(`${username.trim()} added; they change the password at first sign-in`, "success")
       onCreated(made?.id ?? null)
     } catch (e) { setErr(e instanceof Error ? e.message : "Could not add the person") }
     finally { setBusy(false) }
   }
+
+  if (madeId) return (
+    <aside aria-label="Add person" className="min-w-0 flex-[2_1_340px] space-y-4 rounded-xl border border-primary/50 bg-muted/40 p-5 text-sm lg:sticky lg:top-6">
+      <h3 className="text-base font-semibold">Send {username.trim()} this link</h3>
+      <SignInLink personId={madeId} initial={madeLink} />
+      <Button size="sm" onClick={() => onCreated(madeId)}>Done</Button>
+    </aside>
+  )
 
   return (
     <aside aria-label="Add person" className="min-w-0 flex-[2_1_340px] space-y-4 rounded-xl border border-primary/50 bg-muted/40 p-5 text-sm lg:sticky lg:top-6">
@@ -392,7 +470,17 @@ function NewPersonRail({ existing, onClose, onCreated }: { existing: Person[]; o
           </select>
           {roleDesc && <p className="text-xs text-muted-foreground">{roleDesc.label}</p>}
         </div>
-        <div className="space-y-1.5">
+        <div role="radiogroup" aria-label="How they sign in the first time" className="space-y-1.5">
+          <p className="text-sm font-medium">First sign-in</p>
+          {([["link", "Sign-in link", "They choose their own password from a one-time link you send."],
+             ["password", "Temporary password", "You set one and pass it on; they change it at first sign-in."]] as const).map(([v, label, hint]) => (
+            <label key={v} className="flex cursor-pointer items-start gap-2">
+              <input type="radio" name="np-mode" checked={mode === v} onChange={() => setMode(v)} className="mt-0.5" />
+              <span><span className="font-medium">{label}</span><span className="block text-xs text-muted-foreground">{hint}</span></span>
+            </label>
+          ))}
+        </div>
+        {mode === "password" && <div className="space-y-1.5">
           <Label htmlFor="np-pw">Temporary password</Label>
           <div className="relative">
             <Input id="np-pw" type={showPw ? "text" : "password"} value={pw} onChange={e => setPw(e.target.value)} className="pr-9" autoComplete="new-password" />
@@ -402,18 +490,25 @@ function NewPersonRail({ existing, onClose, onCreated }: { existing: Person[]; o
             </button>
           </div>
           <p className="text-xs text-muted-foreground">At least 6 characters. They must change it at first sign-in.</p>
-        </div>
+        </div>}
       </fieldset>
       {taken && <RailAttention title="That username exists" tone="bad">Adding it would reset that person&apos;s password. Choose another name, or reset it from their page.</RailAttention>}
       {!email.trim() && username.trim() && <RailAttention title="No email">Password recovery cannot reach them.</RailAttention>}
       {emailBad && <p role="alert" className="text-xs text-destructive">That email does not look right.</p>}
       {err && <p role="alert" className="text-xs text-destructive">{err}</p>}
       <div className="flex gap-2">
-        <Button size="sm" onClick={create} disabled={busy || !username.trim() || pw.length < 6 || taken || emailBad}>
+        <Button size="sm" onClick={create} disabled={busy || !username.trim() || (mode === "password" && pw.length < 6) || taken || emailBad}>
           {busy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}Add person
         </Button>
         <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
       </div>
     </aside>
   )
+}
+
+/** A password nobody will type: the account exists before its sign-in link is used. */
+function randomPassword(): string {
+  const bytes = new Uint8Array(24)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("")
 }
