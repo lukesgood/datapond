@@ -103,6 +103,8 @@ class S3Connector(BaseConnector):
             if self.config.endpoint_url:
                 from app.connectors import egress
                 egress.check_url(self.config.endpoint_url)
+                # And at connect time, every connection (a name can resolve differently later).
+                egress.guard_s3_endpoint(self.config.endpoint_url)
                 client_config['endpoint_url'] = self.config.endpoint_url
 
             self._s3_client = boto3.client('s3', **client_config)
