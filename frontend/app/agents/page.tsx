@@ -1,5 +1,6 @@
 "use client"
 
+import { whenLabel } from "@/lib/source-freshness"
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { AlertCircle, Bot, Loader2, Plus, RefreshCw } from "lucide-react"
@@ -146,7 +147,7 @@ function AgentTable({ rows }: { rows: AgentRow[] }) {
             </span>
             <span><Badge variant="secondary" className="text-2xs">{a.role}</Badge></span>
             <span className={`font-medium ${TONE[st.tone]}`}>{st.label}</span>
-            <span className="text-muted-foreground">{used ? new Date(used).toLocaleDateString("en-US") : "never"}</span>
+            <span className="text-muted-foreground">{used ? whenLabel(used, now.getTime()) : "never"}</span>
             <span className="tabular-nums md:text-right">{num(a.calls24h)}</span>
             <span className={`tabular-nums md:text-right ${a.refused24h ? "text-destructive" : ""}`}>{num(a.refused24h)}</span>
             <span className="tabular-nums md:text-right">

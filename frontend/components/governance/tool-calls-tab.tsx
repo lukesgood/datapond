@@ -32,7 +32,7 @@ export function ToolCallsTab() {
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex gap-1">
           {(Object.keys(WINDOWS) as Win[]).map(w => (
-            <Button key={w} size="sm" variant={w === win ? "secondary" : "ghost"} className="h-7 text-xs"
+            <Button key={w} size="sm" variant={w === win ? "secondary" : "ghost"} aria-pressed={w === win} className="h-7 text-xs"
                     onClick={() => { setWin(w); setSince(sinceFor(w)) }}>Last {w}</Button>
           ))}
         </div>

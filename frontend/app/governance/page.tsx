@@ -238,6 +238,12 @@ function StatPill({
 
 const GOVERNANCE_TABS = ["tool-calls", "audit", "activity", "ai-safety", "data-protection", "access-control", "reports"]
 
+/** 3 of 200 is 1.5%, not 2% — whole-number rounding made the three shares add to 101%. */
+const sharePct = (n: number, total: number) =>
+  total > 0 ? `${Number(((n / total) * 100).toFixed(1))}%` : "0%"
+const ATTENTION = new Set(["failure", "failed", "error", "blocked", "차단", "denied"])
+const needsAttentionItem = (i: { status?: string | null }) => !!i.status && ATTENTION.has(i.status)
+
 export default function GovernancePage() {
   const { toast } = useToast()
   const caps = useCapabilities()
@@ -274,6 +280,9 @@ export default function GovernancePage() {
   const [activityError, setActivityError] = useState<string | null>(null)
   const [activityReload, setActivityReload] = useState(0)
   const [activitySource, setActivitySource] = useState("all")
+  // The "needs attention" chip filters the feed to those events: a count with no way
+  // to find them among a hundred rows was a dead end.
+  const [attentionOnly, setAttentionOnly] = useState(false)
   const [activitySources, setActivitySources] = useState<string[]>([])
 
   // pii
@@ -525,7 +534,7 @@ export default function GovernancePage() {
           onRetry={loadStats}
         />
         <StatCard
-          label="PII detections"
+          label="Personal-data columns"
           value={piiScanned ? piiColumnCount : null}
           icon={<ShieldAlert className="h-5 w-5" />}
           colorClass="text-[var(--dp-warn-text)]"
@@ -562,7 +571,8 @@ export default function GovernancePage() {
         <TabsContent value="audit" className="mt-4 space-y-4">
           {/* Filter bar */}
           <div className="flex flex-col sm:flex-row gap-3">
-            <Select value={eventTypeFilter} onValueChange={(v) => {
+            <Select items={{ all: "All events", query_executed: "Query executed", query_error: "Query error", query_timeout: "Query timeout" }}
+                    value={eventTypeFilter} onValueChange={(v) => {
                 // A new filter is a new result set: start it at the top rather than at
                 // the offset the previous one had reached.
                 setEventTypeFilter(v ?? "all")
@@ -694,7 +704,8 @@ export default function GovernancePage() {
         {/* ── Tab: Activity (unified audit stream) ──────────────────────── */}
         <TabsContent value="activity" className="mt-4 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-            <Select value={activitySource} onValueChange={(v) => setActivitySource(v ?? "all")}>
+            <Select items={{ all: "All sources", query: "Query (SQL executions)", auth: "Auth (logins, policy, denials)", connector: "Connector (sync runs)" }}
+                    value={activitySource} onValueChange={(v) => { setActivitySource(v ?? "all"); setAttentionOnly(false) }}>
               <SelectTrigger className="w-full sm:w-52">
                 <SelectValue placeholder="Source" />
               </SelectTrigger>
@@ -714,8 +725,7 @@ export default function GovernancePage() {
               before the raw feed. Source pills double as quick filters; per-source
               counts only read true in the unfiltered ("all") window. */}
           {!activityLoading && activityItems.length > 0 && (() => {
-            const attention = new Set(["failure", "failed", "error", "blocked", "차단", "denied"])
-            const needsAttention = activityItems.filter(i => i.status && attention.has(i.status)).length
+            const needsAttention = activityItems.filter(needsAttentionItem).length
             const bySource: Record<string, number> = { query: 0, auth: 0, connector: 0 }
             for (const i of activityItems) if (i.source in bySource) bySource[i.source] += 1
             const sources: { key: string; label: string }[] = [
@@ -727,10 +737,13 @@ export default function GovernancePage() {
                   <span className="font-semibold tabular-nums">{activityItems.length}</span>
                   <span className="text-muted-foreground">events</span>
                 </span>
-                <span className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 ${needsAttention > 0 ? "border-destructive/30 bg-destructive/5 text-destructive" : "text-muted-foreground"}`}>
+                <button type="button" disabled={needsAttention === 0} aria-pressed={attentionOnly}
+                  onClick={() => setAttentionOnly(a => !a)}
+                  title={needsAttention ? (attentionOnly ? "Show every event" : "Show only these") : undefined}
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 transition-colors ${needsAttention > 0 ? "border-destructive/30 bg-destructive/5 text-destructive hover:bg-destructive/10" : "text-muted-foreground"} ${attentionOnly ? "ring-2 ring-destructive/40" : ""}`}>
                   <span className="font-semibold tabular-nums">{needsAttention}</span>
                   <span>need{needsAttention === 1 ? "s" : ""} attention</span>
-                </span>
+                </button>
                 {activitySource === "all" && (
                   <>
                     <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
@@ -789,7 +802,7 @@ export default function GovernancePage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    activityItems.map((item) => (
+                    activityItems.filter(i => !attentionOnly || needsAttentionItem(i)).map((item) => (
                       <TableRow key={`${item.source}-${item.id}`}>
                         <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                           {relativeTime(item.created_at)}
@@ -880,7 +893,7 @@ export default function GovernancePage() {
                           formatter={(v: unknown, name: unknown) => {
                             const count = typeof v === "number" ? v : 0
                             const label = typeof name === "string" ? name : ""
-                            return [`${count} (${totalRisk > 0 ? Math.round((count / totalRisk) * 100) : 0}%)`, label]
+                            return [`${count} (${sharePct(count, totalRisk)})`, label]
                           }}
                         />
                         <Legend />
@@ -891,7 +904,7 @@ export default function GovernancePage() {
                       {pieData.map((d) => (
                         <div key={d.name} className="text-center">
                           <p className="text-lg font-bold" style={{ color: d.color }}>
-                            {totalRisk > 0 ? Math.round((d.value / totalRisk) * 100) : 0}%
+                            {sharePct(d.value, totalRisk)}
                           </p>
                           <p className="text-xs text-muted-foreground">{d.name}</p>
                         </div>
@@ -931,7 +944,8 @@ export default function GovernancePage() {
                       <p className="text-xs font-mono text-foreground/80">
                         {truncate(flag.sql_preview, 60)}
                       </p>
-                      <p className="text-xs text-muted-foreground">{flag.user}</p>
+                      {flag.reason && <p className="text-xs text-foreground/80">{flag.reason}</p>}
+                      <p className="text-xs text-muted-foreground">{flag.user_name || flag.user}</p>
                     </div>
                   ))
                 )}
@@ -948,7 +962,7 @@ export default function GovernancePage() {
           <div className="grid grid-cols-2 gap-4">
             <Card>
               <CardContent className="pt-5 pb-4">
-                <p className="text-sm text-muted-foreground">Tables scanned</p>
+                <p className="text-sm text-muted-foreground">Tables with personal-data column names</p>
                 {piiLoading ? (
                   <Skeleton className="h-8 w-12 mt-1" />
                 ) : (
@@ -958,7 +972,7 @@ export default function GovernancePage() {
             </Card>
             <Card>
               <CardContent className="pt-5 pb-4">
-                <p className="text-sm text-muted-foreground">PII columns</p>
+                <p className="text-sm text-muted-foreground">Columns named like personal data</p>
                 {piiLoading ? (
                   <Skeleton className="h-8 w-12 mt-1" />
                 ) : (
@@ -971,7 +985,14 @@ export default function GovernancePage() {
           {/* PII table */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">PII Detection Status</CardTitle>
+              <CardTitle className="text-base">Column names that look like personal data</CardTitle>
+              {/* "Tables scanned 1" sat under "23 tables · 23 clean": this list is the
+                  column-name check over the catalog, not the value sample above, and
+                  holds only tables with a match. */}
+              <p className="text-xs text-muted-foreground">
+                Read from column names in the catalog, not from values; only tables with a match are listed.
+                The sample above is what checks the values.
+              </p>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
@@ -1034,6 +1055,7 @@ export default function GovernancePage() {
               {/* Date range */}
               <div className="space-y-2">
                 <p className="text-sm font-medium">Date range</p>
+                <p className="text-xs text-muted-foreground">Leave both empty for everything on record.</p>
                 <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
                   <div className="space-y-1">
                     <Label htmlFor="report-from" className="text-xs text-muted-foreground">Start date</Label>
