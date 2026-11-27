@@ -135,7 +135,7 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
                  onChange={e => setSearch(e.target.value)} className="h-8 w-60" />
           {cov.waiting > 0 && <Badge variant="outline">{cov.waiting} waiting</Badge>}
           {state === "ok" && cov.unbound.length > 0 && <Badge variant="outline">{cov.unbound.length} bound nowhere</Badge>}
-          {suggestions === null && <span className="text-xs text-muted-foreground">Reading column names and query history…</span>}
+          {suggestions === null && <span className="text-xs text-muted-foreground" title="Reading column names and query history">Finding suggestions…</span>}
           <span className="flex-1" />
           <div role="group" aria-label="View" className="inline-flex rounded-md border p-0.5 text-xs">
             {(["matrix", "map"] as const).map(v => (
@@ -155,15 +155,15 @@ export function ConceptsPanel({ catalogs, tables }: { catalogs: CatalogEntry[]; 
             <table className="w-full min-w-[560px] text-sm">
               <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
                 <tr>
-                  <th scope="col" className="px-3 py-2 font-medium">Concept</th>
-                  {cols.map(t => <th key={t} scope="col" className="px-2 py-2 font-mono font-medium">{tableLabel(t, cols)}</th>)}
+                  <th scope="col" className="min-w-[9rem] px-3 py-2 font-medium">Concept</th>
+                  {cols.map(t => <th key={t} scope="col" className="whitespace-nowrap px-2 py-2 font-mono font-medium">{tableLabel(t, cols)}</th>)}
                   {cols.length === 0 && <th scope="col" className="px-2 py-2 font-medium">Tables</th>}
                 </tr>
               </thead>
               <tbody>
                 {rows.map(({ concept: c, depth }) => (
                   <tr key={c.name} className={`border-t ${selected === c.name ? "bg-muted/50" : ""}`}>
-                    <th scope="row" className="px-3 py-1.5 text-left font-normal">
+                    <th scope="row" className="min-w-[9rem] whitespace-nowrap px-3 py-1.5 text-left font-normal">
                       <button type="button" onClick={() => setSelected(c.name)} aria-pressed={selected === c.name}
                               className="flex items-center gap-1.5 text-left hover:underline" style={{ paddingLeft: depth * 14 }}>
                         {depth > 0 && <span aria-hidden className="text-muted-foreground">└</span>}

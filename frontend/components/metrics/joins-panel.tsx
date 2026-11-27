@@ -1,5 +1,6 @@
 "use client"
 
+import { engineCatalogOf } from "@/lib/catalog-sql"
 import { useCallback, useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -7,7 +8,7 @@ import { ExplainRail, RailSection } from "@/components/ui/explain-rail"
 import { useConfirm } from "@/lib/confirm"
 import { useToast } from "@/lib/toast"
 import { responseErrorMessage } from "@/lib/auth"
-import { edgeApproved, fieldError, joinCandidatePayload, type CatalogEntry, type RelationshipEdge } from "@/lib/metrics"
+import { edgeApproved, fieldError, joinCandidatePayload, orientCandidate, type CatalogEntry, type RelationshipEdge } from "@/lib/metrics"
 import type { Join } from "./metric-editor"
 
 const on = (j: Join) => j.on_columns.map(p => p.join(" = ")).join(", ")
@@ -34,7 +35,7 @@ export function JoinsPanel({ canApprove, catalogs }: { canApprove: boolean; cata
     fetch("/api/catalog/relationships").then(r => (r.ok ? r.json() : { edges: [] }))
       .then(g => setEdges(g.edges ?? [])).catch(() => setEdges([]))
   }, [])
-  const candidates = (edges ?? []).filter(e => e.joins?.length && !edgeApproved(e, joins ?? [], catalogs))
+  const candidates = (edges ?? []).map(orientCandidate).filter(e => e.joins?.length && !edgeApproved(e, joins ?? [], catalogs))
 
   const approve = async (e: RelationshipEdge, reversed: boolean) => {
     const body = joinCandidatePayload(e, catalogs, reversed)
@@ -83,7 +84,7 @@ export function JoinsPanel({ canApprove, catalogs }: { canApprove: boolean; cata
                 <tbody>
                   {joins.map(j => (
                     <tr key={j.id} className="border-t">
-                      <td className="px-4 py-2 font-mono text-xs">{j.from_table} → {j.to_table}<div className="font-sans text-muted-foreground">{j.catalog}</div></td>
+                      <td className="px-4 py-2 font-mono text-xs">{j.from_table} → {j.to_table}<div className="font-sans text-muted-foreground">{engineCatalogOf(catalogs, j.catalog) ?? j.catalog}</div></td>
                       <td className="px-2 py-2 font-mono text-xs">{on(j)}</td>
                       <td className="px-2 py-2 text-xs">{j.approved_by_name ?? "—"} <span className="text-muted-foreground">({j.source})</span></td>
                       {canApprove && <td className="px-2 py-2 text-right"><Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void revoke(j)}>Revoke…</Button></td>}

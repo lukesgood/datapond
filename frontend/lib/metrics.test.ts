@@ -154,3 +154,16 @@ test("draft description reads the form", async () => {
   assert.equal(describeDraft({ ...base, time_column: "", grains: [], filters: "", dimensions: [] }), "SUM(amount) over default.orders, over all rows (no time column).")
   assert.equal(describeDraft({ ...base, measure: " " }), null)
 })
+
+test("join candidates point from the reference to the key it names", async () => {
+  const { orientCandidate } = await import("./metrics.ts")
+  const e = { source: "iceberg.default.orders", target: "iceberg.default.shipments", evidence: "naming", count: 0,
+              joins: [{ left_column: "id", right_column: "order_id" }] }
+  const o = orientCandidate(e)
+  assert.equal(o.source, "iceberg.default.shipments")
+  assert.equal(o.target, "iceberg.default.orders")
+  assert.deepEqual(o.joins, [{ left_column: "order_id", right_column: "id" }])
+  const fk = { ...e, source: "iceberg.default.api_events", target: "iceberg.default.customers",
+               joins: [{ left_column: "customer_id", right_column: "id" }] }
+  assert.equal(orientCandidate(fk), fk)
+})

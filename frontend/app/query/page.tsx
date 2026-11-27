@@ -1,6 +1,5 @@
 "use client"
 
-import { useHasPermission } from "@/lib/permissions"
 import { useState, useRef, useCallback, useEffect, useMemo, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -99,9 +98,6 @@ function QueryPageInner() {
   const [copied, setCopied]                 = useState(false)
   const [error, setError]                   = useState<string | null>(null)
   const [chartType, setChartType]           = useState<ChartType>("table")
-  // The assistant's tab is pinned to the right edge at mid-height, where the result
-  // toolbar's CSV button and the last chart types are; keep its width clear.
-  const hasAssistant = useHasPermission("ai:generate")
   const resultShape                         = useRef<string>("")
   // Bumped by every run that writes the editor and results; a metric response that
   // returns after a newer run started is dropped instead of overwriting it.
@@ -505,7 +501,7 @@ function QueryPageInner() {
   const resultsStale = !!results && executedQuery !== null && query.trim() !== executedQuery.trim()
 
   return (
-    <div className={`flex flex-col overflow-hidden bg-background ${hasAssistant ? "pr-11" : ""}`} style={{ height: "calc(100vh - 56px)" }}>
+    <div className="flex flex-col overflow-hidden bg-background" style={{ height: "calc(100vh - 56px)" }}>
 
       {/* ── Top app toolbar ─────────────────────────────────────────────────── */}
       <div className="flex items-center gap-1.5 border-b px-3 h-11 shrink-0 bg-background">
